@@ -292,7 +292,10 @@ class ViewerPanel {
 
   async _delete() {
     if (!this.opts.onDelete || !this.filePath) return;
-    const name = this.filePath.split('/').pop();
+    // Both separators: on Windows a path has backslashes, so splitting on '/' alone left the whole
+    // path in the dialog — and the title is better still, because a skill's row is named after the
+    // skill while its file is one more `SKILL.md` (#441).
+    const name = this.title || this.filePath.split(/[\/]/).filter(Boolean).pop();
     // App control dialog instead of native confirm/alert (issue #78).
     const ok = await showControlDialog({
       title: `Delete "${name}"?`,
@@ -331,6 +334,7 @@ class ViewerPanel {
     this._closeConflictDiff();
 
     this.filePath = filePath;
+    this.title = title;
     this.readOnly = !!options.readOnly;
     this.toolbar.setTitle(title);
     this.toolbar.setPath(filePath);

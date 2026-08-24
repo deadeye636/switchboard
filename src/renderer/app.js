@@ -49,6 +49,13 @@ const memoryPanel = new ViewerPanel(memoryViewer, {
   onSave: (filePath, content, baseline) => (typeof saveOpenAgentFile === 'function'
     ? saveOpenAgentFile(filePath, content, baseline)
     : window.api.saveMemory(filePath, content, baseline)),
+  // Delete is offered only for a backend's own skill, command, agent or rule (#441) — never for an
+  // instruction file, which is the project's, and never for a settings file, which main refuses anyway.
+  // The button is BUILT here because the toolbar decides that at construction; which rows may use it is
+  // decided per open, in plans-memory-view.js.
+  onDelete: (filePath) => (typeof deleteOpenAgentFile === 'function'
+    ? deleteOpenAgentFile(filePath)
+    : Promise.resolve({ ok: false, error: 'This file cannot be deleted from here.' })),
 });
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');

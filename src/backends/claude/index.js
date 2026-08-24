@@ -565,6 +565,29 @@ module.exports = {
   // JSON for the settings files it already lists. Deliberately nothing executable: Claude's hooks are
   // commands, and an editor over those is a different feature with a different conversation.
   resourceEditing: { extensions: ['.md', '.markdown', '.json'] },
+  // What the app may CREATE, and where (#441). A scaffold is offered only for a directory the listing
+  // already names, and `sources` is what ties the two together — the same key `expandResource` reads,
+  // so a new directory in the listing cannot silently become a create target.
+  resourceScaffolds: [
+    { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory', 'project-skills'],
+      template: (name) => `---
+name: ${name}
+description: 
+---
+
+` },
+    { kind: 'command', layout: 'file', ext: '.md', sources: ['commands-directory', 'project-commands'],
+      template: (name) => `# /${name}
+
+` },
+    { kind: 'agent', layout: 'file', ext: '.md', sources: ['agents-directory', 'project-agents'],
+      template: (name) => `---
+name: ${name}
+description: 
+---
+
+` },
+  ],
   memorySources: (scope) => {
     scope = scope || {};
     if (!scope.projectPath) {

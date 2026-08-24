@@ -5145,6 +5145,34 @@ mark.jsonl-search-hit-active {
   margin-left: 4px;
 }
 
+/* "New" on a resource group's header (#441). Quiet until the header is hovered, like every other action
+   that lives on a row rather than in a toolbar. */
+.memory-group-new-btn {
+  margin-left: auto;
+  background: transparent;
+  border: 1px solid #555570;
+  color: #808098;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: all 0.15s;
+}
+
+.project-header:hover .memory-group-new-btn,
+.memory-group-new-btn:focus-visible {
+  opacity: 1;
+}
+
+.memory-group-new-btn:hover {
+  background: rgba(120,130,255,0.1);
+  color: #8088ff;
+}
+
 /* A backend's own customization directory, nested inside a memory group (#440). Indented and quieter
    than its parent so the instruction files above it stay the primary reading. */
 .memory-resource-group {

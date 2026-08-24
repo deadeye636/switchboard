@@ -25,6 +25,7 @@ const { projectShortName } = require('../session/derive-project-path');
 // the detail goes instead: `src/app/readable-error.js` (#444).
 const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
+const { isDeletableKind } = require('./backend-resources');
 
 let ctx = null;
 
@@ -360,7 +361,14 @@ function resourceGroups(projectPath, seen) {
       let expanded = null;
       try { expanded = b.expandResource({ path: entry.path, source: entry.source, scope: entry.scope, projectPath: projectPath || null }); }
       catch { expanded = null; }
-      if (!expanded || expanded.ok === false || !Array.isArray(expanded.entries) || !expanded.entries.length) continue;
+      // An EMPTY directory is kept when something can be created in it (#441). It used to be dropped, and
+      // that is precisely the case where the tab has to offer a "New": a project whose skills folder
+      // exists and holds nothing rendered no group at all, so the one place a first skill belongs was
+      // the one place with nowhere to put it.
+      const creatable = Array.isArray(b.resourceScaffolds)
+        && b.resourceScaffolds.some(sc => sc && Array.isArray(sc.sources) && sc.sources.includes(entry.source));
+      if (!expanded || expanded.ok === false || !Array.isArray(expanded.entries)) continue;
+      if (!expanded.entries.length && !creatable) continue;
 
       const files = [];
       for (const child of expanded.entries) {
@@ -372,10 +380,13 @@ function resourceGroups(projectPath, seen) {
         const file = resourceFile(child, entry.path);
         if (!file) continue;
         file.backendIds = [b.id];
+        // Whether this row may be deleted is the core's answer (#441), stamped here so the tab offers a
+        // Delete only where main would act — the renderer names no kind of its own.
+        file.deletable = isDeletableKind(child.kind);
         seen.set(child.path, file);
         files.push(file);
       }
-      if (!files.length) continue;
+      if (!files.length && !creatable) continue;
 
       groups.push({
         id: b.id + ':' + entry.path,
@@ -385,6 +396,11 @@ function resourceGroups(projectPath, seen) {
         kind: entry.kind || 'resource',
         path: entry.path,
         truncated: !!expanded.truncated,
+        // What may be made here, so the tab can offer it without knowing one backend from another.
+        creatableKinds: (Array.isArray(b.resourceScaffolds) ? b.resourceScaffolds : [])
+          .filter(sc => sc && Array.isArray(sc.sources) && sc.sources.includes(entry.source))
+          .map(sc => sc.kind),
+        source: entry.source,
         files,
       });
     }

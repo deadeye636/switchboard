@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('api', {
     expandResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-expand-resource', backendId, resourcePath, projectPath),
     readResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-read-resource', backendId, resourcePath, projectPath),
     writeResource: (backendId, resourcePath, content, projectPath, baseline) => ipcRenderer.invoke('backend-write-resource', backendId, resourcePath, content, projectPath ?? null, baseline ?? null),
+    createResource: (backendId, options) => ipcRenderer.invoke('backend-create-resource', backendId, options),
+    deleteResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-delete-resource', backendId, resourcePath, projectPath ?? null),
     openResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-open-resource', backendId, resourcePath, projectPath),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },

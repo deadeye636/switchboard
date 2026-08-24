@@ -216,6 +216,20 @@ module.exports = {
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // Codex keeps its config in TOML and its prompts in markdown (#441). Nothing executable.
   resourceEditing: { extensions: ['.md', '.markdown', '.toml', '.json'] },
+  // Codex keeps skills as directories and rules as flat markdown (#441).
+  resourceScaffolds: [
+    { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'],
+      template: (name) => `---
+name: ${name}
+description: 
+---
+
+` },
+    { kind: 'rule', layout: 'file', ext: '.md', sources: ['rules-directory', 'project-rules'],
+      template: (name) => `# ${name}
+
+` },
+  ],
   memorySources: (scope) => {
     if (!scope || !scope.projectPath) return [];
     const short = require('../../session/derive-project-path').projectShortName(scope.projectPath);

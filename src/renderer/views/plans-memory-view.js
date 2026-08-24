@@ -546,6 +546,22 @@ function buildResourceGroup(rg, parentKey, projectPath) {
   }
   header.appendChild(count);
 
+  // "New" sits on the group whose directory would hold the thing (#441) — which is what makes it
+  // unambiguous: the kind, the backend and the target directory are all the group's own, so nothing has
+  // to be asked except the name. A group nothing can be created in gets no button.
+  if (Array.isArray(rg.creatableKinds) && rg.creatableKinds.length && rg.backendId) {
+    const newBtn = document.createElement('button');
+    newBtn.className = 'memory-group-new-btn';
+    newBtn.title = `New ${rg.creatableKinds[0]} in ${rg.label}`;
+    newBtn.setAttribute('aria-label', newBtn.title);
+    newBtn.innerHTML = '+';
+    newBtn.addEventListener('click', (e) => {
+      e.stopPropagation();            // the header itself folds the group
+      createResourceInGroup(rg, projectPath);
+    });
+    header.appendChild(newBtn);
+  }
+
   header.addEventListener('click', (e) => {
     e.stopPropagation();
     const nowCollapsed = !block.classList.contains('collapsed');
@@ -647,6 +663,64 @@ async function saveOpenAgentFile(filePath, content, baseline) {
   return window.api.saveMemory(filePath, content, baseline);
 }
 
+/**
+ * Make a new skill, command, agent or rule in the directory this group is (#441).
+ *
+ * Only the NAME is asked for: everything else is the group's — which backend, which directory, and
+ * which kind belongs there. What comes back is opened straight away, because a scaffold is a file you
+ * are about to write, not a file you wanted.
+ */
+async function createResourceInGroup(rg, projectPath) {
+  const kind = rg.creatableKinds[0];
+  const answer = await showControlDialog({
+    title: `New ${kind}`,
+    message: `It will be created in ${rg.label}.`,
+    prompt: { placeholder: `${kind}-name`, value: '', maxLength: 64 },
+    confirmLabel: 'Create',
+  });
+  // A prompt dialog resolves with the TEXT, or null when it was dismissed.
+  const name = typeof answer === 'string' ? answer.trim() : '';
+  if (!name) return;
+
+  const result = await window.api.backends.createResource(rg.backendId, {
+    kind, name, parentDir: rg.path, projectPath: projectPath || null,
+  });
+  if (!result || result.ok === false) {
+    showControlMessage({ title: `Could not create that ${kind}`, message: (result && result.reason) || 'Unknown error', tone: 'warning' });
+    return;
+  }
+  await loadMemories();
+  await openMemory({
+    filename: result.path.split(/[\/]/).filter(Boolean).pop(),
+    filePath: result.path,
+    backendId: rg.backendId,
+    projectPath: projectPath || null,
+  });
+  // The one thing a user cannot see and will otherwise report as a bug: a CLI reads its skills when a
+  // session starts, so the sessions already running know nothing about this one.
+  showControlToast({ message: `Created. A running session will not see it until it is started again.` });
+}
+
+/**
+ * Delete the resource the Agent Files panel is holding (#441).
+ *
+ * Only a backend resource can be deleted, and only main decides whether this particular one may go —
+ * this refuses the obvious case early so an instruction file never even asks.
+ */
+async function deleteOpenAgentFile(filePath) {
+  if (!currentMemoryResource || !currentMemoryResource.backendId) {
+    return { ok: false, error: 'Only a backend\'s own skills, commands and rules can be deleted here.' };
+  }
+  const result = await window.api.backends.deleteResource(
+    currentMemoryResource.backendId, filePath, currentMemoryResource.projectPath,
+  );
+  if (result && result.ok) {
+    await loadMemories();
+    return { ok: true };
+  }
+  return { ok: false, error: (result && result.reason) || 'Unknown error' };
+}
+
 async function openMemory(file) {
   // Mark active in sidebar
   memoryContent.querySelectorAll('.memory-item.active').forEach(el => el.classList.remove('active'));
@@ -683,6 +757,14 @@ async function openMemory(file) {
   memoryViewer.style.display = 'flex';
 
   memoryPanel.open(file.filename, file.filePath, content);
+  // Deletion is for a backend's OWN lifecycle files. An instruction file belongs to the project and a
+  // settings file to the CLI, so the button is taken away rather than left to be refused on click — main
+  // re-checks every one of these, this only decides what to offer.
+  // `deletable` is stamped by the core (#441) — which kinds have a lifecycle is its vocabulary, not this
+  // file's, and the button must not be offered for something main would refuse.
+  const deletableKind = !!file.deletable;
+  const deleteBtn = memoryPanel.toolbar && memoryPanel.toolbar.deleteBtn;
+  if (deleteBtn) deleteBtn.style.display = (currentMemoryResource && deletableKind) ? '' : 'none';
   window.panesView?.reportViews?.(); // #371 — see openPlan
 }
 

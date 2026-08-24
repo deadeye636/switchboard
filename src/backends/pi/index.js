@@ -425,6 +425,22 @@ module.exports = {
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // Pi's skills can be plain markdown files; its extensions are `.ts`/`.js` and are not offered (#441).
   resourceEditing: { extensions: ['.md', '.markdown', '.json'] },
+  // Pi reads a skill as a directory or as a bare markdown file; the directory is what is created, because
+  // it is the shape that stays right when the skill grows (#441). Its TypeScript extensions are not
+  // offered — creating something that RUNS is a different feature.
+  resourceScaffolds: [
+    { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory', 'shared-skills-directory'],
+      template: (name) => `---
+name: ${name}
+description: 
+---
+
+` },
+    { kind: 'prompt-template', layout: 'file', ext: '.md', sources: ['prompts-directory'],
+      template: (name) => `# ${name}
+
+` },
+  ],
   _parseModelList: parseModelList,
 
   // the dual-mode seam, file side (backends/file-store.js)

@@ -288,6 +288,16 @@ module.exports = {
   // Hermes' own settings are `config.yaml` (#441). Its hooks are arbitrary files and stay out — a hook
   // is something that RUNS, and this is an editor for what a CLI reads.
   resourceEditing: { extensions: ['.md', '.markdown', '.yaml', '.yml', '.json'] },
+  // Hermes' skills are directories; its bundles and hooks are not offered (#441).
+  resourceScaffolds: [
+    { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'],
+      template: (name) => `---
+name: ${name}
+description: 
+---
+
+` },
+  ],
 
   // --- the dual-mode seam, db side ---
   discoverSessions: reader.discoverSessions,

@@ -170,3 +170,126 @@ test('every ready backend declares what it lets the app edit, and none of it run
     }
   }
 });
+
+// --- Creating and deleting (#441) ---
+
+/** A backend that declares one skills directory it will scaffold into, and a commands directory it will not. */
+function setupLifecycle() {
+  const home = tmpdir();
+  const skillsDir = path.join(home, 'skills');
+  const commandsDir = path.join(home, 'commands');
+  fs.mkdirSync(skillsDir, { recursive: true });
+  fs.mkdirSync(commandsDir, { recursive: true });
+  const skillFile = write(path.join(skillsDir, 'existing', 'SKILL.md'), '---\nname: existing\n---\n');
+  const helper = write(path.join(skillsDir, 'existing', 'helper.md'), 'not the entry file\n');
+  const command = write(path.join(commandsDir, 'do-it.md'), '# do it\n');
+  const settings = write(path.join(home, 'settings.json'), '{}\n');
+
+  const backend = {
+    id: 'stub',
+    resourceEditing: { extensions: ['.md', '.json'] },
+    resourceScaffolds: [
+      { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'], template: (n) => `---\nname: ${n}\n---\n` },
+    ],
+    listResources: async () => ({
+      ok: true,
+      resources: [
+        { kind: 'skill', scope: 'global', name: 'skills', path: skillsDir, source: 'skills-directory' },
+        { kind: 'command', scope: 'global', name: 'commands', path: commandsDir, source: 'commands-directory' },
+        { kind: 'settings', scope: 'global', name: 'settings.json', path: settings, source: 'settings' },
+      ],
+    }),
+    expandResource: Object.assign(
+      async ({ path: dir }) => (dir === skillsDir
+        ? { ok: true, entries: [{ kind: 'skill', name: 'existing', path: skillFile }] }
+        : { ok: true, entries: [{ kind: 'command', name: 'do-it', path: command }] }),
+      { knowsSource: (source) => source === 'skills-directory' || source === 'commands-directory' },
+    ),
+  };
+  backendResources.init({
+    backends: { get: (id) => (id === 'stub' ? backend : null) },
+    log: { warn() {}, error() {}, info() {} },
+  });
+  return { home, skillsDir, commandsDir, skillFile, helper, command, settings };
+}
+
+test('a skill is created from the backend\'s scaffold, in a directory the listing names', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.createResource('stub', { kind: 'skill', name: 'new-one', parentDir: box.skillsDir });
+  assert.equal(res.ok, true);
+  assert.equal(res.path, path.join(box.skillsDir, 'new-one', 'SKILL.md'));
+  assert.match(read(res.path), /name: new-one/);
+});
+
+test('a create is refused in a directory that holds a different kind', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.createResource('stub', { kind: 'skill', name: 'nope', parentDir: box.commandsDir });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /does not belong in that directory/);
+  assert.equal(fs.existsSync(path.join(box.commandsDir, 'nope')), false);
+});
+
+test('a create never clobbers what is already there', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.createResource('stub', { kind: 'skill', name: 'existing', parentDir: box.skillsDir });
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /already one with that name/);
+  assert.match(read(box.skillFile), /name: existing/, 'the one that was there is untouched');
+});
+
+test('a name that would leave the directory is refused before anything is written', async () => {
+  const box = setupLifecycle();
+  for (const name of ['../escape', 'a/b', '.hidden', '', 'has space']) {
+    const res = await backendResources.createResource('stub', { kind: 'skill', name, parentDir: box.skillsDir });
+    assert.equal(res.ok, false, `"${name}" was accepted`);
+  }
+  assert.deepEqual(fs.readdirSync(box.skillsDir).sort(), ['existing']);
+});
+
+test('deleting a skill takes its folder, and only its folder', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.deleteResource('stub', box.skillFile);
+  assert.equal(res.ok, true);
+  assert.equal(fs.existsSync(path.join(box.skillsDir, 'existing')), false, 'the helper file inside it goes too');
+  assert.equal(fs.existsSync(box.skillsDir), true, 'the directory it lived in stays');
+});
+
+test('a flat resource is deleted as one file', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.deleteResource('stub', box.command);
+  assert.equal(res.ok, true);
+  assert.equal(fs.existsSync(box.command), false);
+  assert.equal(fs.existsSync(box.commandsDir), true);
+});
+
+test('a settings file cannot be deleted — it is listed, never an expansion entry', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.deleteResource('stub', box.settings);
+  assert.equal(res.ok, false);
+  assert.equal(fs.existsSync(box.settings), true);
+});
+
+test('a file inside a skill that the listing never named is not deletable on its own', async () => {
+  // The helper beside SKILL.md is reachable for READING — it is inside a listed directory — but deletion
+  // asks the narrower question, and the expansion names the skill, not its parts.
+  const box = setupLifecycle();
+  const res = await backendResources.deleteResource('stub', box.helper);
+  assert.equal(res.ok, false);
+  assert.match(res.reason, /not something this backend lists as deletable/);
+  assert.equal(fs.existsSync(box.helper), true);
+});
+
+test('a path outside every listed directory is refused', async () => {
+  setupLifecycle();
+  const outside = write(path.join(tmpdir(), 'someone-elses.md'), 'x\n');
+  const res = await backendResources.deleteResource('stub', outside);
+  assert.equal(res.ok, false);
+  assert.equal(fs.existsSync(outside), true);
+});
+
+test('the listed directory itself is never the delete target', async () => {
+  const box = setupLifecycle();
+  const res = await backendResources.deleteResource('stub', box.skillsDir);
+  assert.equal(res.ok, false);
+  assert.equal(fs.existsSync(box.skillsDir), true);
+});
