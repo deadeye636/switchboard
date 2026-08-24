@@ -5,7 +5,7 @@ contextBridge.exposeInMainWorld('api', {
   getPlans: () => ipcRenderer.invoke('get-plans'),
   // A full filePath now (#227): plans can live under any backend's plans dir, not just ~/.claude/plans.
   readPlan: (filePath) => ipcRenderer.invoke('read-plan', filePath),
-  savePlan: (filePath, content) => ipcRenderer.invoke('save-plan', filePath, content),
+  savePlan: (filePath, content, baseline) => ipcRenderer.invoke('save-plan', filePath, content, baseline ?? null),
   // #462: the skills this session may be handed — its backend's, plus the app's own.
   getSkills: (projectPath, backendId) => ipcRenderer.invoke('get-skills', projectPath, backendId),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   getUsage: () => ipcRenderer.invoke('get-usage'),
   getMemories: () => ipcRenderer.invoke('get-memories'),
   readMemory: (filePath) => ipcRenderer.invoke('read-memory', filePath),
-  saveMemory: (filePath, content) => ipcRenderer.invoke('save-memory', filePath, content),
+  saveMemory: (filePath, content, baseline) => ipcRenderer.invoke('save-memory', filePath, content, baseline ?? null),
   // `getWorkFiles` was here. Work files come with `getMemories` since #448 — they are one group in the
   // Agent Files list now, and a separate way to ask for them could answer differently.
   // #450: what pointing a project's CLIs at its plans directory would write, and writing it.
@@ -408,7 +408,7 @@ contextBridge.exposeInMainWorld('api', {
   readFileDataUrl: (filePath) => ipcRenderer.invoke('read-file-dataurl', filePath),
   // #281 — the viewer pins a file it cannot write to the read-only preview.
   isFileReadOnly: (filePath) => ipcRenderer.invoke('is-file-read-only', filePath),
-  saveFileForPanel: (filePath, content) => ipcRenderer.invoke('save-file-for-panel', filePath, content),
+  saveFileForPanel: (filePath, content, baseline) => ipcRenderer.invoke('save-file-for-panel', filePath, content, baseline ?? null),
   watchFile: (filePath) => ipcRenderer.invoke('watch-file', filePath),
   unwatchFile: (filePath) => ipcRenderer.invoke('unwatch-file', filePath),
   onFileChanged: (callback) => {

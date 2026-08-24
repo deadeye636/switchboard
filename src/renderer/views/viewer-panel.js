@@ -98,7 +98,9 @@ class ViewerPanel {
   /**
    * @param {HTMLElement} container - Parent element to render into
    * @param {Object} opts
-   * @param {Function}  opts.onSave       - async (filePath, content) => result
+   * @param {Function}  opts.onSave       - async (filePath, content, baseline) => result; a result of
+   *                                          `{ ok: false, conflict: true, diskContent }` raises the
+   *                                          conflict bar rather than a failure dialog (#441)
    * @param {Function}  opts.onClose      - () => void
    * @param {boolean}   opts.copyPath     - Show copy-path button
    * @param {boolean}   opts.copyContent  - Show copy-content button
@@ -778,11 +780,23 @@ class ViewerPanel {
     this._saving = true;
     const content = this.getContent();
     try {
-      const result = await this.opts.onSave(this.filePath, content);
+      // The baseline goes WITH the save (#441). The check above is this window's; main repeats it against
+      // the file immediately before writing, which is the only place the gap between checking and writing
+      // is narrow enough to matter — and it is what makes a save from a second window refuse too.
+      const result = await this.opts.onSave(this.filePath, content, this._baseline);
+      // A refusal that carries the file's current text is not an error: main saw a change this panel has
+      // not. Same bar as an external change raises, same two ways out — not a dialog saying "Save failed"
+      // about a file that is simply newer than this copy.
+      if (result && result.ok === false && result.conflict && typeof result.diskContent === 'string') {
+        this._setConflict(result.diskContent);
+        return;
+      }
       if (result && result.ok !== false) {
         // What was written IS what the file holds now, so the panel is back in step with it. Without
         // this the next external write would read as a conflict against a baseline from before the save.
-        this._baseline = content;
+        // `result.content` when the writer had to put the file's own line endings or BOM back (#441):
+        // taking `content` there would leave the baseline holding text the file does not have.
+        this._baseline = (result && typeof result.content === 'string') ? result.content : content;
         this._setConflict(null);
         this.toolbar.flashSave();
       } else {

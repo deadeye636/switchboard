@@ -7,6 +7,8 @@ const os = require('os');
 const log = require('electron-log');
 // A caught error's own text names the file it failed on, and these handlers answer the renderer (#457).
 const { readableError, guardIpcHandlers } = require('./app/readable-error');
+// The one write core every save goes through (#441) — a preview tab's Save is not a lesser save.
+const { writeTextFile: writeTextAtomic } = require('./app/safe-write');
 
 // FIRST, before a single handler is registered anywhere — in this file or in any `src/app/` module that
 // takes `ipcMain` from here. A handler registered before this line keeps the old behaviour, and the
@@ -899,12 +901,23 @@ ipcMain.handle('read-file-dataurl', async (_event, filePath) => {
   }
 });
 
-ipcMain.handle('save-file-for-panel', async (_event, filePath, content) => {
+ipcMain.handle('save-file-for-panel', async (_event, filePath, content, baseline) => {
   try {
     const resolved = resolvePanelFilePath(filePath);
     if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
-    if (!fs.existsSync(resolved)) return { ok: false, error: 'File does not exist' };
-    fs.writeFileSync(resolved, content, 'utf8');
+    // The bytes go through the one write core (#441), so a file opened in a preview tab gets the same
+    // baseline compare, the same atomic rename and the same line endings as one opened in Agent Files.
+    // Before this it was the one editor in the app that had none of them.
+    const written = writeTextAtomic(resolved, content, { expectPrevious: baseline ?? null, mustExist: true });
+    if (!written.ok) {
+      if (written.code === 'stale') {
+        return { ok: false, conflict: true, diskContent: written.diskContent, error: written.error };
+      }
+      if (written.code === 'failed') {
+        return { ok: false, error: readableError(written.cause, 'That file could not be saved.', log) };
+      }
+      return { ok: false, error: written.error || 'That file could not be saved.' };
+    }
     // Close the sub-second window between save and search: if the saved file
     // belongs to a type that the FTS index tracks, invalidate its signature so
     // the next get-memories call triggers a full reindex

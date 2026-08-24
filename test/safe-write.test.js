@@ -165,3 +165,15 @@ test('the written text is what comes back, so a caller can move its baseline to 
   assert.equal(result.content, read(file));
   assert.ok(result.mtimeMs > 0);
 });
+
+test('a directory where a file belongs is a failure, not a missing file', () => {
+  // The distinction is what the user is told: "no longer there" sends them looking for something that
+  // never left. The errno goes back unworded, for the caller to translate.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-write-'));
+  const blocked = path.join(dir, 'CLAUDE.md');
+  fs.mkdirSync(blocked);
+  const result = writeTextFile(blocked, 'text');
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'failed');
+  assert.equal(result.cause && result.cause.code, 'EISDIR');
+});

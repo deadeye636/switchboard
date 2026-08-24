@@ -78,7 +78,7 @@ function createPanelInstance(parent, hooks = {}) {
 
   const viewerPanel = new ViewerPanel(viewerContainer, {
     language: 'auto',
-    onSave: (filePath, content) => window.api.saveFileForPanel(filePath, content),
+    onSave: (filePath, content, baseline) => window.api.saveFileForPanel(filePath, content, baseline),
     onClose: () => hooks.onClose?.(),
     // Open the current file in the external editor, then close the panel (#69).
     onExternalOpen: (filePath) => { window.api.openInEditor(filePath); hooks.onClose?.(); },

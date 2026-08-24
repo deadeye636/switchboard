@@ -52,8 +52,22 @@ function applyEncoding(text, { bom = false, eol = '\n' } = {}) {
   return bom ? BOM + out : out;
 }
 
-function readIfPresent(file) {
-  try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
+/**
+ * What is at this path: its text, or why there is no text.
+ *
+ * "Not there" and "there but unreadable" are different answers and the caller says different things
+ * about them — a directory sitting where a file belongs is not a missing file, and reporting it as one
+ * sends the user looking for something that never left.
+ */
+function readCurrent(file) {
+  let st = null;
+  try { st = fs.statSync(file); } catch { return { missing: true }; }
+  if (st.isDirectory()) {
+    const err = new Error('EISDIR: illegal operation on a directory');
+    err.code = 'EISDIR';
+    return { blocked: err };
+  }
+  try { return { text: fs.readFileSync(file, 'utf8') }; } catch (err) { return { blocked: err }; }
 }
 
 /**
@@ -115,7 +129,9 @@ function failed(err) {
  */
 function writeTextFile(file, content, { expectPrevious = null, mustExist = true, validate = null, rename = fs.renameSync } = {}) {
   const target = path.resolve(file);
-  const onDisk = readIfPresent(target);
+  const current = readCurrent(target);
+  if (current.blocked) return failed(current.blocked);
+  const onDisk = current.missing ? null : current.text;
 
   if (mustExist && onDisk === null) {
     return { ok: false, code: 'missing', error: 'That file is no longer there.' };

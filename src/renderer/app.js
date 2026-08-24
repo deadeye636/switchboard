@@ -30,7 +30,7 @@ const planViewer = document.getElementById('plan-viewer');
 const planPanel = new ViewerPanel(planViewer, {
   copyPath: true, copyContent: true,
   language: 'markdown', storageKey: 'markdownPreviewMode',
-  onSave: (filePath, content) => window.api.savePlan(filePath, content),
+  onSave: (filePath, content, baseline) => window.api.savePlan(filePath, content, baseline),
 });
 
 // currentPlanContent, currentPlanFilePath, currentPlanFilename → plans-memory-view.js
@@ -44,7 +44,7 @@ const memoryViewer = document.getElementById('memory-viewer');
 const memoryPanel = new ViewerPanel(memoryViewer, {
   copyPath: true, copyContent: true,
   language: 'markdown', storageKey: 'markdownPreviewMode',
-  onSave: (filePath, content) => window.api.saveMemory(filePath, content),
+  onSave: (filePath, content, baseline) => window.api.saveMemory(filePath, content, baseline),
 });
 const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');

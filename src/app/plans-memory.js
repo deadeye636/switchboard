@@ -24,6 +24,7 @@ const { projectShortName } = require('../session/derive-project-path');
 // the viewer puts that answer in a dialog. Why the message is dropped rather than trimmed, and where
 // the detail goes instead: `src/app/readable-error.js` (#444).
 const { readableError } = require('./readable-error');
+const { writeTextFile } = require('./safe-write');
 
 let ctx = null;
 
@@ -657,14 +658,35 @@ function readPlan(filePath) {
   }
 }
 
-function savePlan(filePath, content) {
+/**
+ * What the write core refused, in words for the panel that asked (#441).
+ *
+ * A `stale` refusal is not an error and must not read as one — it carries the file's current text, and
+ * the panel raises the same conflict bar an external change already raises, with the same two ways out.
+ * A `failed` one carries an unworded filesystem error on purpose: the wording (and the log line with the
+ * raw text) belongs here, where there is a sentence to put it in.
+ */
+function writeFailure(result, fallback) {
+  if (result.code === 'stale') {
+    return { ok: false, conflict: true, diskContent: result.diskContent, error: result.error };
+  }
+  if (result.code === 'failed') {
+    return { ok: false, error: readableError(result.cause, fallback, ctx.log) };
+  }
+  return { ok: false, error: result.error || fallback };
+}
+
+function savePlan(filePath, content, baseline = null) {
   try {
     const resolved = path.resolve(filePath);
     const ok = plansDirs().some(d => resolved.startsWith(d + path.sep));
     if (!ok) return { ok: false, error: 'path outside a plans directory' };
-    fs.writeFileSync(resolved, content, 'utf8');
+    // Same write core as every other save (#441): a plan is a document an agent rewrites while it is
+    // open, which is the case the baseline compare exists for.
+    const result = writeTextFile(resolved, content, { expectPrevious: baseline, mustExist: true });
+    if (!result.ok) return writeFailure(result, 'Could not save that plan.');
     invalidateFtsSignature('plan');
-    return { ok: true };
+    return { ok: true, content: result.content };
   } catch (err) {
     ctx.log.error('Error saving plan:', err && err.message);
     return { ok: false, error: readableError(err, 'Could not save that plan.') };
@@ -826,15 +848,24 @@ function readMemory(filePath) {
   }
 }
 
-function saveMemory(filePath, content) {
+/**
+ * Save an instruction file.
+ *
+ * The guards above it are this function's own — what counts as an instruction file, and which roots it
+ * may sit under. What happens to the BYTES is `safe-write.js`'s (#441): the baseline compare that keeps a
+ * stale editor from overwriting an agent's work, the atomic rename, and the file's own line endings and
+ * BOM. `baseline` is what the editor believed the file to hold; it arrives from the panel, and a caller
+ * with none passes null and gets the old unconditional behaviour.
+ */
+function saveMemory(filePath, content, baseline = null) {
   try {
     const resolved = path.resolve(filePath);
     if (!isInstructionFile(resolved)) return { ok: false, error: 'not an instruction file' };
     if (!isAllowedMemoryPath(resolved)) return { ok: false, error: 'path not allowed' };
-    if (!fs.existsSync(resolved)) return { ok: false, error: 'file does not exist' };
-    fs.writeFileSync(resolved, content, 'utf8');
+    const result = writeTextFile(resolved, content, { expectPrevious: baseline, mustExist: true });
+    if (!result.ok) return writeFailure(result, 'Could not save that file.');
     invalidateFtsSignature('memory');
-    return { ok: true };
+    return { ok: true, content: result.content };
   } catch (err) {
     ctx.log.error('Error saving memory file:', err && err.message);
     return { ok: false, error: readableError(err, 'Could not save that file.') };
@@ -1137,10 +1168,10 @@ function planConventionApply(projectPath, options) {
 function registerIpc(ipcMain) {
   ipcMain.handle('get-plans', () => getPlans());
   ipcMain.handle('read-plan', (_e, filePath) => readPlan(filePath));
-  ipcMain.handle('save-plan', (_e, filePath, content) => savePlan(filePath, content));
+  ipcMain.handle('save-plan', (_e, filePath, content, baseline) => savePlan(filePath, content, baseline ?? null));
   ipcMain.handle('get-memories', () => getMemories());
   ipcMain.handle('read-memory', (_e, filePath) => readMemory(filePath));
-  ipcMain.handle('save-memory', (_e, filePath, content) => saveMemory(filePath, content));
+  ipcMain.handle('save-memory', (_e, filePath, content, baseline) => saveMemory(filePath, content, baseline ?? null));
   // No `get-work-files` handler: work files arrive with `get-memories` since #448, and a second way to
   // ask for them is a second answer that can disagree with the list the user is looking at.
   ipcMain.handle('read-work-file', (_e, filePath) => readWorkFile(filePath));
