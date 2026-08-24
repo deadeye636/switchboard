@@ -40,6 +40,15 @@ function setup(sessions = [], { running = [], active = null, pending = [] } = {}
     return el;
   };
 
+  // #229: the thread's expanded set is persisted, so the source reads utils' localStorage helper. The
+  // real one memoizes across calls, which a test that writes between calls must not inherit — this is the
+  // same read without the cache.
+  window.readLsJson = (key, fallbackJson) => {
+    let raw = null;
+    try { raw = window.localStorage.getItem(key); } catch { raw = null; }
+    try { return JSON.parse(raw == null ? fallbackJson : raw); } catch { return JSON.parse(fallbackJson); }
+  };
+
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell/sidebar-lineage.js'), 'utf8'), ctx, { filename: 'shell/sidebar-lineage.js' });
   const call = (name, ...args) => vm.runInContext(name, ctx)(...args);
   return { window, call, builtWith, destroy: () => window.close() };
@@ -130,5 +139,61 @@ test('an ancestor row is built as a COPY: no recursion, and no claim on the sess
       assert.equal(built.opts.ancestorCopy, true, `${built.sessionId}: an ancestor copy takes no DOM id`);
     }
     assert.equal(s.builtWith.length, 2);
+  } finally { s.destroy(); }
+});
+
+// --- #229: the thread's expanded state survives a re-key, because it is keyed by the chain's ROOT ---
+
+test('a thread whose root is in the expanded set is built open, and stamps the root on its toggle', () => {
+  const s = setup([sess('root'), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })]);
+  try {
+    s.window.localStorage.setItem('expandedLineage', JSON.stringify(['root']));
+    const wrap = s.call('buildLineageThread', { sessionId: 'leaf', lineageParentId: 'mid' });
+    const toggle = wrap.querySelector('.session-lineage-toggle');
+    const list = wrap.querySelector('.session-lineage-ancestors');
+    assert.equal(toggle.dataset.lineageRoot, 'root', 'the toggle carries the key the click writes back');
+    assert.equal(toggle.classList.contains('expanded'), true);
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(list.style.display, '', 'the ancestors are visible without a click');
+  } finally { s.destroy(); }
+});
+
+test('a thread nobody opened is still built folded', () => {
+  const s = setup([sess('root'), sess('leaf', { lineageParentId: 'root' })]);
+  try {
+    const wrap = s.call('buildLineageThread', { sessionId: 'leaf', lineageParentId: 'root' });
+    assert.equal(wrap.querySelector('.session-lineage-toggle').classList.contains('expanded'), false);
+    assert.equal(wrap.querySelector('.session-lineage-ancestors').style.display, 'none');
+  } finally { s.destroy(); }
+});
+
+test('#229: a /clear re-key keeps the thread open — the head id changed, the root did not', () => {
+  // The head is a moving pointer: /clear mints a new session id for the continuation, so a set keyed by
+  // the head would lose exactly the thread the re-key just extended. Same root, new head, still open.
+  const s = setup([sess('root'), sess('oldHead', { lineageParentId: 'root' }), sess('newHead', { lineageParentId: 'oldHead' })]);
+  try {
+    s.call('setLineageExpanded', 'root', true);
+    const after = s.call('buildLineageThread', { sessionId: 'newHead', lineageParentId: 'oldHead' });
+    assert.equal(after.querySelector('.session-lineage-toggle').classList.contains('expanded'), true);
+    assert.equal(after.querySelector('.session-lineage-ancestors').style.display, '');
+  } finally { s.destroy(); }
+});
+
+test('#229: closing a thread removes its root from the stored set', () => {
+  const s = setup([sess('root'), sess('leaf', { lineageParentId: 'root' })]);
+  try {
+    s.call('setLineageExpanded', 'root', true);
+    assert.deepEqual(JSON.parse(s.window.localStorage.getItem('expandedLineage')), ['root']);
+    s.call('setLineageExpanded', 'root', false);
+    assert.deepEqual(JSON.parse(s.window.localStorage.getItem('expandedLineage')), []);
+  } finally { s.destroy(); }
+});
+
+test('#229: the one-shot GC drops roots whose session is gone, and keeps the ones that are not', () => {
+  const s = setup([sess('root'), sess('leaf', { lineageParentId: 'root' })]);
+  try {
+    s.window.localStorage.setItem('expandedLineage', JSON.stringify(['root', 'vanished']));
+    s.call('getExpandedLineage');
+    assert.deepEqual(JSON.parse(s.window.localStorage.getItem('expandedLineage')), ['root']);
   } finally { s.destroy(); }
 });

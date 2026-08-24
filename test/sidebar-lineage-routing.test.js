@@ -30,13 +30,17 @@ function setup() {
   const ctx = dom.getInternalVMContext();
   const doc = window.document;
 
-  const calls = { openSession: [], showSubagentTranscript: [] };
+  const calls = { openSession: [], showSubagentTranscript: [], lineageExpanded: [] };
   window.sessionMap = new Map([[HEAD.sessionId, HEAD], [ANCESTOR.sessionId, ANCESTOR]]);
   window.openSession = (s) => calls.openSession.push(s);
   window.showSubagentTranscript = (s) => calls.showSubagentTranscript.push(s);
   window.getAllRenderableSessions = () => [];
   window.getSessionRuntimeState = () => ({});
   window.activeSessionId = null;
+  // #229: the toggle now writes the thread's open state to a persisted set. That lives in
+  // sidebar-lineage.js, which this environment does not load — record the call instead, so the routing
+  // test still asserts routing and the persistence is covered where it is implemented.
+  window.setLineageExpanded = (rootId, expanded) => calls.lineageExpanded.push({ rootId, expanded });
 
   vm.runInContext(fs.readFileSync(path.join(REN, 'shell', 'sidebar-events.js'), 'utf8'), ctx,
     { filename: 'shell/sidebar-events.js' });
@@ -59,6 +63,9 @@ function setup() {
   const thread = el('session-lineage-thread', head);
   const toggle = el('session-lineage-toggle sidebar-children-caret', thread);
   toggle.setAttribute('aria-expanded', 'false');
+  // #229: the builder stamps the chain's root here and the handler reads it back — without it on the
+  // fixture, the write path this test drives would look fine while persisting nothing.
+  toggle.dataset.lineageRoot = ANCESTOR.sessionId;
   const list = el('session-lineage-ancestors', thread);
   list.style.display = 'none';
   const ancestor = rowFor(ANCESTOR, list);
@@ -102,6 +109,20 @@ test('the "N earlier" toggle folds/unfolds and opens nothing', () => {
     assert.equal(s.list.style.display, 'none', 'second click collapses');
     assert.equal(s.toggle.getAttribute('aria-expanded'), 'false');
     assert.equal(s.calls.openSession.length, 0, 'the toggle is chrome, not a row');
+  } finally { s.destroy(); }
+});
+
+// #229: the fold is remembered, so the click has to WRITE it — keyed by the root stamped on the toggle,
+// which is the part a typo would break silently: the fold would still work and stop surviving a re-key.
+test('the "N earlier" toggle records the thread root as opened, then as closed', () => {
+  const s = setup();
+  try {
+    s.click(s.toggle);
+    s.click(s.toggle);
+    assert.deepEqual(s.calls.lineageExpanded, [
+      { rootId: 'parent', expanded: true },
+      { rootId: 'parent', expanded: false },
+    ]);
   } finally { s.destroy(); }
 });
 

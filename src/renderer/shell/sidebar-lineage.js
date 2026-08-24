@@ -9,9 +9,52 @@
 // more than one head. That is honest, not a bug.
 //
 // A classic <script>. Reads app.js's maps at call time: sessionMap, activePtyIds, launchPending(),
-// activeSessionId; utils' cleanDisplayName; a11y-utils' ariaButton. Never runs at parse time. The click
+// activeSessionId; utils' cleanDisplayName and readLsJson (the expanded-thread set below);
+// a11y-utils' ariaButton. Never runs at parse time. The click
 // on the "N earlier" toggle and on an ancestor row is delegated in sidebar-events.js — nothing is bound
 // per node here (#218 opt6).
+
+// --- Which threads are open, across renders and re-keys (#229) ---
+//
+// The expanded state used to live only on the DOM, which meant it died with the node. Morphdom carried it
+// through an ordinary re-render (preserveSidebarState in sidebar-state.js), but a node whose id CHANGES is
+// a new node with nothing to carry from — and that is precisely what a `/clear` does (#223 mints a new
+// session id, so the head row's `si-<id>` is new). The thread folded shut on the very event that had just
+// extended it. A search does the same, because that path renders ancestors top-level instead of folded.
+//
+// So it is persisted, like the subagent caret's set — but keyed on the ROOT of the chain, not on the head.
+// The head is a moving pointer by construction; the root is the fixed end of the relationship and survives
+// every re-key. The subagent caret gets away with a parent-id key because nothing ever rewrites which
+// parent a subagent points at.
+//
+// The consequence, which is deliberate: lineage is a tree, so two heads can share a root, and a root-keyed
+// set opens the thread under both of them. That matches Model A's stance on a shared ancestor above.
+let _expandedLineageGCDone = false;
+function _gcExpandedLineageOnce() {
+  if (_expandedLineageGCDone) return;
+  _expandedLineageGCDone = true;
+  try {
+    const raw = new Set(JSON.parse(localStorage.getItem('expandedLineage') || '[]'));
+    const pruned = new Set([...raw].filter(id => sessionMap.has(id)));
+    if (pruned.size !== raw.size) {
+      localStorage.setItem('expandedLineage', JSON.stringify([...pruned]));
+    }
+  } catch {}
+}
+
+function getExpandedLineage() {
+  _gcExpandedLineageOnce();
+  return new Set(readLsJson('expandedLineage', '[]'));
+}
+
+function setLineageExpanded(rootId, expanded) {
+  if (!rootId) return;
+  try {
+    const set = getExpandedLineage();
+    if (expanded) set.add(rootId); else set.delete(rootId);
+    localStorage.setItem('expandedLineage', JSON.stringify([...set]));
+  } catch {}
+}
 
 // The chain of resolvable ancestors, newest → oldest (the root last). Guarded against a cycle.
 function lineageAncestorChain(session) {
@@ -56,10 +99,14 @@ function buildLineageThread(session) {
   // Same affordance as the subagent caret (▶ that rotates to ▼ via `.expanded`) so a folded thread reads
   // like every other collapsible nesting in the sidebar. `session-lineage-toggle` stays for the delegated
   // click selector; `sidebar-children-caret` brings the shared caret look.
+  const rootId = chain[chain.length - 1].sessionId;
+  const expanded = getExpandedLineage().has(rootId);
+
   const toggle = document.createElement('div');
-  toggle.className = 'session-lineage-toggle sidebar-children-caret';
+  toggle.className = 'session-lineage-toggle sidebar-children-caret' + (expanded ? ' expanded' : '');
+  toggle.dataset.lineageRoot = rootId; // read by the delegated click in sidebar-events.js
   toggle.innerHTML = `<span class="caret-arrow">&#9654;</span> ${chain.length} earlier`;
-  toggle.setAttribute('aria-expanded', 'false'); // flipped in sidebar-events.js, preserved in sidebar.js
+  toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false'); // flipped in sidebar-events.js
   ariaButton(toggle, `Show ${chain.length} earlier session${chain.length === 1 ? '' : 's'} in this thread`);
 
   // Each ancestor is a REAL session, so render it as a full session row — every normal action (open,
@@ -69,7 +116,7 @@ function buildLineageThread(session) {
   // one of several views of that session and must not claim the session's DOM id (#288).
   const list = document.createElement('div');
   list.className = 'session-lineage-ancestors';
-  list.style.display = 'none';
+  list.style.display = expanded ? '' : 'none';
   for (const anc of chain) {
     list.appendChild(buildSessionItem(anc, { noLineageThread: true, ancestorCopy: true }));
   }

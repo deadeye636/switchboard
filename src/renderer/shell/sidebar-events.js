@@ -246,6 +246,9 @@ function dispatchSidebarActivation(e) {
         // The ▶/▼ rotation comes from the shared `.expanded` class, like the subagent caret.
         lineageToggle.classList.toggle('expanded', !showing);
         lineageToggle.setAttribute('aria-expanded', showing ? 'false' : 'true');
+        // Remembered by the chain's ROOT (#229) — the head id changes on a `/clear`, which is the one
+        // event after which the thread must still be open. The builder re-applies it.
+        setLineageExpanded(lineageToggle.dataset.lineageRoot, !showing);
       }
       return;
     }
