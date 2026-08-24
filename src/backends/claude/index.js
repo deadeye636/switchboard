@@ -21,6 +21,7 @@ const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, reso
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
+const plugins = require('./plugins');
 // Who is holding a session right now (#172) — the CLI is the only one that knows.
 const liveAgents = require('./live-agents');
 const { findOnPath } = require('../file-store');
@@ -548,11 +549,15 @@ module.exports = {
    * `/git-commit` with the skill's own description and a `(user)` marker, so a skill IS a slash command
    * here and the command is the skill's directory name.
    *
-   * A plugin's skills are a different name (`/plugin:skill`) — and a different listing: they sit under
-   * `plugins/`, which `listResources` reports as plugins rather than skills, so nothing here ever sees
-   * one. Read that as a gap, not as a decision, if plugin skills are ever listed.
+   * A plugin's skill is `/<plugin>:<skill>` (#463), and the plugin half comes off the SOURCE its
+   * listing entry carries — `plugin-skills:<plugin>` — never off the directory it was cached in, which
+   * is named after the marketplace rather than after the plugin.
    */
-  skillInvocation: ({ name }) => (name ? '/' + name : null),
+  skillInvocation: ({ name, source }) => {
+    if (!name) return null;
+    const plugin = plugins.pluginFromSource(source);
+    return plugin ? `/${plugin}:${name}` : '/' + name;
+  },
   listResources: resources.createListResources({ claudeHome }),
   // One level into a listed directory (#440) — the shared walker, this backend's rules.
   expandResource: resources.expandResource,

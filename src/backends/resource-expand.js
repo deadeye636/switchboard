@@ -132,16 +132,25 @@ const MODES = {
  * Returns `{ ok, entries, truncated }`, or `{ ok: false, reason }` when this backend does not know how
  * to expand that directory — which is an answer, not an error.
  */
+/**
+ * `rules` is a map from `source` to rule — or a FUNCTION from source to rule, for a backend whose
+ * sources are not all known in advance. Claude's plugin skills are the case: each installed plugin has a
+ * skills directory of its own, so the source carries the plugin's name (#463) and no static map can
+ * spell every key. A resolver keeps that knowledge in the backend, which is where a plugin layout
+ * belongs, without giving it a second copy of this walk.
+ */
 function createExpandResource(rules) {
+  const ruleFor = typeof rules === 'function' ? rules : (source) => (source ? rules[source] : null);
+
   // Which listed directories this backend can read into. `app/backend-resources.js` asks before it lets
   // a CHILD path through: a directory the backend cannot enumerate is one whose layout it does not
   // claim to know, and trusting an arbitrary child of it would make the read path wider than the
   // listing that is supposed to bound it.
-  expandResource.knowsSource = (source) => !!(source && rules[source]);
+  expandResource.knowsSource = (source) => !!(source && ruleFor(source));
 
   function expandResource({ path: dirPath, source, scope } = {}) {
     if (!dirPath) return { ok: false, reason: 'No directory given.' };
-    const rule = source ? rules[source] : null;
+    const rule = source ? ruleFor(source) : null;
     if (!rule) return { ok: false, reason: 'This is not a directory Switchboard knows how to list.' };
     if (!isDirFollowingLinks(dirPath)) return { ok: false, reason: 'That directory is no longer there.' };
 

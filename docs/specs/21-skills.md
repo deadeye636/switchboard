@@ -61,10 +61,27 @@ Hermes is the case that shows why documentation would have got this wrong: it ta
 flag, which says nothing about a session already at its prompt — and the session turned out to accept
 slash commands anyway.
 
-**Claude's plugin skills are a gap, not a decision.** A plugin's skills are invoked as
-`/plugin:skill`, but they live under `plugins/`, which `listResources` reports as plugins rather than
-skills — so nothing here ever sees one. If plugin skills are ever listed, the descriptor has to map the
-name; the picker does not need to change.
+**Claude's plugin skills are offered too (#463), and the picker did not have to change.** A plugin's
+skills sit in its cached checkout, which `listResources` used to report only as a plugin directory, so
+nothing ever saw one. Claude now lists each installed plugin's `skills/` folder as a skill source of its
+own, and everything above applies unaltered — the shared expander walks it, the row says where it came
+from, and the descriptor builds the invocation.
+
+Two questions the layout cannot answer, and both are why this is not a directory walk:
+
+- **What the plugin is CALLED.** The invocation is `/<plugin>:<skill>`, and the cache folder is named
+  after the MARKETPLACE. `.claude-plugin/plugin.json` carries the plugin's own name; the install key
+  (`<plugin>@<marketplace>`) is the fallback. Reading the folder name works on the machine it was written
+  on and produces a slash command the CLI refuses anywhere else.
+- **Whether it is installed AND on.** A marketplace checkout holds plugins nobody installed, and
+  `installed_plugins.json` holds ones that are switched off. A plugin counts when it is in the install
+  record for a scope that applies here — `user` everywhere, `local` only in its own project — and
+  explicitly enabled in `enabledPlugins`, user settings first, then the project's, then its local file.
+  An absent flag is not a yes.
+
+MEASURED the same way as the table above: typing `/caveman:` at a running Claude prompt offers
+`/caveman:caveman` and `/caveman:cavecrew`, each with the skill's description and a `(caveman)` marker;
+taking the row from the picker types `/caveman:caveman-help` and the CLI runs it.
 
 ## It presses Enter
 
@@ -104,7 +121,9 @@ that used to close each picker in turn make one call.
 
 ## Known gaps
 
-- Plugin skills, as above.
+- A plugin's skills follow the plugin, so a plugin the user installs while a session runs is picked up on
+  the next open of the picker and not before — the list is built per open, and nothing watches the
+  install record.
 - Codex stores skills it cannot run from its prompt. If that changes, it is one descriptor hook and one
   measured row here.
 - The app's own skills are read, never written: there is no editor for them, the same way the app reads

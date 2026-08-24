@@ -106,7 +106,12 @@ function backendSkills(descriptor, projectPath, scope) {
       out.push(skillRow({
         name: child.name,
         filePath: child.path,
-        origin: `${descriptor.label || descriptor.id} · ${scope}`,
+        // A listing entry may say what it should be CALLED when its path does not say it — a plugin's
+        // skills are cached in a folder named after the marketplace, so "Claude Code · global" would be
+        // true and useless (#463). The core does not know what makes a label special, only to prefer one.
+        origin: entry.originLabel
+          ? `${descriptor.label || descriptor.id} · ${entry.originLabel}`
+          : `${descriptor.label || descriptor.id} · ${scope}`,
         scope,
         backendId: descriptor.id,
         invocation,

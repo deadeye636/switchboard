@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { createExpandResource } = require('../resource-expand');
+const { installedPluginSkillDirs, pluginSkillsSource, pluginFromSource } = require('./plugins');
 
 const FILES = [
   ['settings.json', 'settings', 'settings'],
@@ -64,6 +65,10 @@ function add(out, item) {
     path: item.path,
     source: item.source || null,
     description: item.description || null,
+    // What a reader should CALL this, when the directory's own name does not say it. A plugin's skills
+    // live in a cache folder named after the marketplace, so a row built from the path would be labelled
+    // with something the user never typed (#463). Absent everywhere else.
+    originLabel: item.originLabel || null,
   });
 }
 
@@ -82,6 +87,27 @@ function addHomeResources(out, home) {
   for (const [rel, kind, source] of DIRS) addDir(out, home, rel, kind, source);
 }
 
+/**
+ * One entry per installed, enabled plugin that ships skills (#463).
+ *
+ * Listed as skills rather than as part of the `plugins` directory: what the picker wants is a skill it
+ * can hand over, and the plugins row is a directory of checkouts. The source carries the plugin's own
+ * name because that is what the invocation is built from — `/<plugin>:<skill>` — and the cache folder is
+ * the marketplace's name for it, not the plugin's.
+ */
+function addPluginSkills(out, home, projectPath) {
+  for (const plugin of installedPluginSkillDirs(home, projectPath)) {
+    add(out, {
+      kind: 'skill',
+      scope: plugin.scope,
+      name: plugin.name,
+      path: plugin.skillsDir,
+      source: pluginSkillsSource(plugin.name),
+      originLabel: `Plugin ${plugin.name}`,
+    });
+  }
+}
+
 function addProjectResources(out, projectPath) {
   if (!projectPath) return;
   addFile(out, projectPath, 'CLAUDE.md', 'memory', 'project-context', 'project');
@@ -98,6 +124,7 @@ function createListResources({ claudeHome }) {
   return function listResources({ projectPath } = {}) {
     const resources = [];
     addHomeResources(resources, claudeHome());
+    addPluginSkills(resources, claudeHome(), projectPath || null);
     addProjectResources(resources, projectPath || null);
 
     const seen = new Set();
@@ -139,6 +166,11 @@ function projectPlansDirectory(projectPath) {
   return null;
 }
 
-const expandResource = createExpandResource(EXPAND_RULES);
+// Every plugin's skills directory follows the same rule as any other skills tree; only the KEY is not
+// known in advance, because it carries the plugin's name (#463).
+const PLUGIN_SKILLS_RULE = { mode: 'skillTree', kind: 'skill' };
+const expandResource = createExpandResource(
+  (source) => (pluginFromSource(source) ? PLUGIN_SKILLS_RULE : EXPAND_RULES[source]),
+);
 
 module.exports = { createListResources, expandResource, EXPAND_RULES, projectPlansDirectory };

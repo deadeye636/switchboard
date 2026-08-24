@@ -50,6 +50,12 @@ plans directory** (`planRef` / `planDirSetup`, #449/#450), whether it has
 `src/backends/resource-expand.js` holds three modes (`skillTree`, `flatFiles`, `dirs`) and each backend
 declares which rule each of its directories follows, keyed by the `source` its listing entry carries.
 
+**The rules may be a FUNCTION, not only a map** (#463). Claude's plugin skills are one directory per
+installed plugin, so the source carries the plugin's name and no static key can spell it; the backend
+resolves the rule instead. That keeps a plugin layout inside `src/backends/claude/` — the walk is still
+the shared one. A listing entry may also carry `originLabel`, for a directory whose path does not say
+what a reader should call it (a plugin is cached under the MARKETPLACE's name, not its own).
+
 **Do not put the walk back into `listResources`.** hermes and pi used to enumerate inline, so every
 settings-panel open paid for a recursive scan — hermes capped at 500, pi uncapped and unguarded, where
 one unreadable subdirectory threw and took the whole listing with it.
