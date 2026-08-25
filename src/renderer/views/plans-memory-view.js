@@ -402,7 +402,10 @@ function renderMemoryTypeFilters() {
   // "Show all" used to be a chip among the chips, so switching a filter on grew the bar by one and moved
   // every chip after it. It sits in the heading now: same click, no reflow.
   const clear = (memoryTypeFilter || memoryBackendFilter)
-    ? '<button type="button" class="agent-type-clear" data-group="clear" data-value="">&#10005; Show all</button>'
+    // The ✕ is decoration in front of the words that already say it, and a reader announcing
+    // "multiplication sign, show all" is worse than no glyph at all.
+    ? '<button type="button" class="agent-type-clear" data-group="clear" data-value="">'
+      + '<span aria-hidden="true">&#10005;</span> Show all</button>'
     : '';
   const head = `<div class="agent-chip-head"><span>${showTypes ? 'Type' : 'CLI'}</span>${clear}</div>`;
   // The two kinds AND together — "skills, from Pi" — which is the whole reason they share one bar
