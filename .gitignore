@@ -15,6 +15,10 @@ src/renderer/pdf-worker.js
 dev-app-update.yml
 
 # Transient: handoff bridges + local screenshots/scratch
+# `.handoffs/` is the convention this app ships (docs/handoffs-convention.md) and its default
+# write target. A packet quotes paths, machine names and whatever the session had open, so the
+# repository that documents the convention follows it.
+.handoffs/
 prompts/
 temp/
 # `node scripts/drive-app.js shot` writes here, in the repo root
