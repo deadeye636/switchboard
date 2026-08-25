@@ -115,6 +115,32 @@ nothing else.** Main answers per project, and the renderer filters again where i
 opens mid-session is a list of things about to be handed to an agent, and another project's packet in it is
 another codebase's context one Enter away.
 
+A row says when the packet last changed as well as what it is called (#475). The list is newest first and
+was not saying so, and the picker is where "which of these five" is decided without the library open
+beside it. The wording comes from the same helper the Plans list uses, so the two read alike; a date that
+cannot be read is left off rather than replaced by a placeholder.
+
+## Writing one from the keyboard (#473)
+
+Both ways into the flow were chips on a row you have to leave the terminal to reach — the health chip in
+the sidebar and the same chip on a grid card. The decision to hand over is made *in* a session, and from
+there the flow had no route at all. Worse, the picker made it a dead end: open it in a project with no
+packets and it said "No handoffs in this project.", which is true and unhelpful at exactly the moment
+someone wants to write one.
+
+Two routes, and neither is a new surface:
+
+- **The command palette gained the actions the focus makes possible**, and this is the first of them. Which
+  session it means and how the row says so is spec 23's rule (`focusedActionSession`, and the row names the
+  session) — it is written down there because the next such action has to answer it the same way.
+- **The picker's empty state offers it.** `emptyEnter` already existed for the saved-variable picker, which
+  turns "no variables yet" into "press Enter to open the Variables tab". A picker with nothing to pick
+  offers the thing that would give it something, and names the key.
+
+Both end in `showHandoffPrompt` — the same producer choice, review and save the chips open. A second way in
+must not become a second flow: that is where the token spend is confirmed, and a route that skipped it
+would spend without asking.
+
 ## The note about version control, and the check that never fired
 
 A packet quotes paths, machine names and whatever the session was looking at, so a handoff directory that

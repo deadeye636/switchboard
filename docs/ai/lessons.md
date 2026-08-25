@@ -549,3 +549,43 @@ characters of it in place.
 The second half of the same issue cost two more rounds for an unrelated reason: **a window that is not
 visible starves `requestAnimationFrame` entirely**, and the code path under test deferred to one. It
 read exactly like a function that does nothing. `docs/ai/driving-the-app.md` carries the check.
+## The same guard, four surfaces, and only the one asked about (#474, #476, #477)
+
+#474 said containment was decided on the spelled path rather than the real one, and named three places:
+the plan directories, the handoff directories, and the folder picked after a refused write. Those three
+got the shared check, the acceptance box could be ticked, and an adversarial review found a **fourth**
+implementation in `backend-resources.js` guarding read, write and delete of a backend's own files — with
+a docstring making almost the identical argument, written by someone who had never heard of the new
+module because it did not exist yet.
+
+Two more surfaces followed, one issue each. That is the shape worth remembering: **an issue names the
+surfaces its author happened to know.** The acceptance bullet even said "one implementation, used by
+every caller that asks this question today" — and the honest way to satisfy that bullet is to go looking
+for callers rather than to convert the ones the issue lists. `git grep` for the *shape* (`startsWith`
+against a resolved root) found in minutes what three rounds of reading had not.
+
+**And the reason given for leaving one out was wrong.** `vcs.js` was skipped on the argument that it
+rejects symlinks outright and is therefore stricter. It is not: `lstat` inspects only the final component
+of a path, and every directory above it was already followed by the OS. A junctioned subdirectory with an
+ordinary file at the target passed the prefix check, passed the symlink check, and was read. A scope
+decision defended by a technical claim is only as good as the claim — and this one was written into a
+rules file, where it would have been trusted.
+
+## A guard placed after the early return never sees the case it exists for (#476)
+
+The first fix for the diff readers asked about containment *after* `lstat`. That looked right and closed
+the case it was tested against. But `readWorkingFile` answers a missing file with an empty side — that is
+how a deletion renders — and that branch returns before the check. So an existing file behind a junction
+was refused while a missing one came back as `{ ok: true, text: '' }`: indistinguishable from a file
+legitimately deleted inside the project, and never consulting the guard at all.
+
+The fix is not a second check. It is asking a question whose answer does not depend on the thing that
+triggers the early return: **containment of the DIRECTORY, before the stat.** A missing file behind a
+junction is still a path out of the repository, and the directory is there either way.
+
+The general form: when a function has an early return for "nothing here", check what the guards below it
+never see. A guard that only runs on the success path protects the case that was already fine.
+
+Neither of these was found by the suite. Both were found by a verifier told to be adversarial about a
+specific function and a specific ordering — and in both cases the first report came back PARTIAL on work
+that had already been live-checked, tested and called done.

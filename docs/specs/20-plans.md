@@ -93,6 +93,29 @@ layout it declares is a recommendation and the tools that write are the ones tha
 `plansDir` takes a scope for the same reason: without it, pointing Claude at a project directory would
 have hidden exactly the plans the setting was meant to organise.
 
+### The read list is a setting per PROJECT (#470)
+
+`planDirNames` was in the settings cascade from the start and half of it was never wired: there was no
+field for it anywhere in the app, so the only way to change it was to export the settings blob, edit it
+and import it back. And a project that did override it was ignored anyway, because `planDirCandidates()`
+asked the cascade with `null` while `planDir` beside it resolved per project correctly.
+
+That combination is worth naming, because nothing could see it. A setting that reads as global-only
+*because it behaves that way by accident* looks exactly like a setting that is global by decision — and
+the Plans tab renders identically either way unless a project actually has a directory the global list
+does not name. It took building the same pair for handoffs (#468) to notice that plans had only half of
+it.
+
+So the pair is now symmetrical with the handoff one: a read LIST and a write TARGET, both in the cascade,
+both with a field in global and project settings. Two rules come with it, both borrowed from #468 rather
+than invented here:
+
+- **Reading is a list, writing is one directory.** Otherwise reordering the read list would silently move
+  where the next document lands.
+- **An emptied field means the default, not "no directories".** A list that can be emptied is a setting
+  that hides every plan the project has, and no error would ever be shown for it.
+
+
 ## The convention degrades
 
 Not everyone has an issue tracker and not everyone has git. The header works with a heading, a status and
@@ -124,6 +147,12 @@ mistyped.
 Two ways to end up with an empty picker, and the palette names which one it is: a project with no plans
 yet, and a terminal the app cannot place. They have different fixes, and one message for both reads as a
 broken hotkey.
+
+A row carries the date the plan last changed beside its filename (#475). The Plans list had shown it all
+along; the picker is where the choice is actually made, and it was the one place the app dropped it. The
+filename is not an answer to "which of these" on its own — a plan a CLI wrote is named whatever that CLI
+names it. `paletteMetaWithDate` in `palette-core.js` is where both pickers get it, worded through
+`formatDate` so a row reads like the list it came from, and silent when the date cannot be read.
 
 ## A plan changes while you read it
 

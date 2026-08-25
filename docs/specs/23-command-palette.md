@@ -67,6 +67,31 @@ display mode and on whether this window is a detached one.
 Registration happens at parse time into a function defined earlier in the script order — the safe
 direction under the renderer's load-order rules.
 
+## An action can depend on what has FOCUS (#473)
+
+The first of those is "write a handoff", and it raised a question the registry had not had to answer:
+which session does an action mean when it is taken from a palette that belongs to no terminal?
+
+**`activeSessionId`, never the DOM focus.** `setActiveSession` in app.js is the choke point every focus
+path funnels through — tabs, grid cards, pane focus, the attention inbox — so it stays right while the
+caret sits in the sidebar, a settings field or a plan view. The alternative was tempting and wrong: a rule
+that read the focused element would go blank exactly when someone is reading a plan and decides to hand
+over. `focusedActionSession()` is that rule in one place, so a second such action cannot answer it
+differently.
+
+**The ROW is what makes it unambiguous, not the rule.** With three sessions open, "Write a handoff" is a
+guess the user has to make; `Write a handoff for “refactor settings screen”` is not. That is why `title`
+and `group` may be functions — resolved per open, the way `available()` already was, because the subject
+is not knowable at registration. A resolver that throws or returns nothing falls back to the action's id
+rather than dropping the row: failing to name itself is not a reason to disappear.
+
+**Offered when it applies, absent when it does not.** `available: () => !!focusedActionSession()`. An
+action offered everywhere and failing on use is the shape this replaces — and `run` asks again, because
+the palette may have been open while the session ended.
+
+The resolution happens in `listCommandActions()`, not at each reader, so nothing downstream has to know a
+field can be a function: the row builder, the ranker and anything later see the shape they always saw.
+
 ## What a row does
 
 | Kind | Enter |
@@ -83,6 +108,11 @@ as if it had been clicked (#278's explicit-wins rule).
 `test/command-palette-rank.test.js` covers the ranking, including the two ordering cases above.
 `test/palette-core.test.js` gained the centred geometry and now scans `shell/` as well as `terminal/` for
 picker configs — scanning only `terminal/` left the fourth picker unguarded.
+
+`test/command-actions.test.js` (#473) covers the registry: that a function title is resolved at list time
+and not at registration, that a resolver which throws still leaves the row standing, and that a hidden
+action never pays for a name nobody reads. `test/handoff-command-action.test.js` covers the action itself
+— absent with no session, named with one, and reaching the same flow the health chip opens.
 
 The keyboard path has no test and cannot have a useful one: `node scripts/drive-app.js` is what proves
 Ctrl/Cmd+K opens it from a focused terminal, that the same chord closes it, and that a chord no longer

@@ -178,6 +178,33 @@ reflexive Escape closes a `showControlDialog` — fine for a question, wrong for
 something the user cannot get back (a handoff packet an agent spent tokens writing). Pass
 `dismissible: false`, or ask before discarding.
 
+## An action that depends on FOCUS means `activeSessionId`, and it says which one (#473)
+
+The command palette lists what the app can do, and since #473 some of that depends on what has focus —
+"write a handoff" is the first. Two decisions there, and both are the kind a later action answers
+differently unless it is written down.
+
+**Which session it means is `activeSessionId`, never the DOM focus.** `setActiveSession` in app.js is the
+choke point every focus path funnels through — tabs, grid cards, pane focus, the attention inbox — so it
+stays right while the caret sits in the sidebar, a settings field or a plan view. A rule that read the
+focused element would go blank exactly when someone is reading a plan and decides to hand over.
+`focusedActionSession()` is that rule, in one place; a second focus-dependent action calls it rather than
+deriving its own answer.
+
+**What keeps it unambiguous is the ROW, not the rule.** The action names the session it is about (`Write
+a handoff for “…”`). That is why `title` and `group` in `registerCommandAction` may be functions: they are
+resolved per open, like `available()` already was, because the subject is not knowable at registration.
+A resolver that throws or returns nothing falls back rather than dropping the row — failing to name itself
+is not a reason for an action to disappear.
+
+**Offered when it applies, absent when it does not.** `available: () => !!focusedActionSession()`. An
+action offered everywhere and failing on use is the shape this replaces. Ask again inside `run` as well:
+the palette may have been open while the session ended.
+
+`paletteMetaWithDate` (palette-core.js) belongs to the same family — one answer to "when was this last
+changed", worded through `formatDate` so a picker row reads like the Plans list rather than inventing its
+own wording (#475).
+
 ## The settings screen: grouped by subject, counted, and closed by default (#471, #472)
 
 Three things there are decisions rather than styling, and each is the kind a later change undoes without

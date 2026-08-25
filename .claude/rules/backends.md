@@ -67,6 +67,12 @@ where symlinks live; `path.relative` alone passes a link that points at a privat
 `app/backend-resources.js` re-derives the listing per call and refuses anything not under a listed
 directory — that re-derivation is also what makes a changed store override fail closed.
 
+The real-path half is `app/path-containment.js` since #474, so this file and the plan/handoff directories
+give one answer rather than two that drift. What stays here is the CHEAP half and the one difference: the
+lexical pre-check that catches `..` before the filesystem is touched, and the rule that a resource has to
+EXIST to be handed over. The shared check answers about the nearest existing ancestor instead, because its
+other callers name files that are not there yet — do not "simplify" that difference away.
+
 ## Writing one back is a SECOND declaration (#441)
 
 Reading a resource asks whether the path is reachable. WRITING one asks two more questions, and both

@@ -375,7 +375,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **A command palette** — Ctrl/Cmd+K over sessions, projects and the app's own actions in one ranked
   list, matching from the first keystroke rather than the third, and opening on what you were last
   working on. The actions are declared by whatever owns them, so a feature that gains one does not have
-  to be remembered in a list somewhere else.
+  to be remembered in a list somewhere else. An action that acts on the session you are in is offered
+  only when there is one, and names it in the row rather than leaving you to guess which.
 - **Every CLI that reads a file is credited on it** — a project's `AGENTS.md` is Codex', Pi's and
   Hermes'; `CLAUDE.md` is Claude's, Pi's and Hermes'. Hermes had declared no per-project instruction
   files at all while its own launch option offered to skip them, so a Hermes-only project showed nothing;
@@ -676,7 +677,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Design record: [`docs/specs/19-editor-live-preview.md`](specs/19-editor-live-preview.md).
 
 ### Supervision extensions
-- **Handoffs as files** — a packet is markdown in the project (`.handoffs/` by default, plus the directories a project or a CLI already uses), so it is editable, greppable and travels with the repo. A picker on Ctrl/Cmd+Shift+H hands one to the session you are already in as a reference.
+- **Handoffs as files** — a packet is markdown in the project (`.handoffs/` by default, plus the directories a project or a CLI already uses), so it is editable, greppable and travels with the repo. A picker on Ctrl/Cmd+Shift+H hands one to the session you are already in as a reference, and its rows say when each packet last changed. Writing one is a keyboard route out of the session too — the command palette offers it for the session you are in, and the picker's empty state offers it when there is nothing to pick.
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,
   and target selection in the review dialog (extends inherited feature #03/#04). Since #468 a saved
   packet is a file in the project rather than a row in the database.
@@ -714,11 +715,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 
 ## Testing
 
-The fork adds **47 test files** under `test/` (72 total, `node --test`), covering all the
-pure modules above — attention/status, health, timeline, usage, cleanup,
-notifications, hotkey/sound, away-summary, handoff, bulk actions, groups, grid
-layout, accessibility, update-restart, cache reconcile, shell quoting,
-DB busy-retry, and more. Run with:
+Everything pure above is covered by `test/*.test.js`, run with `node --test` and no Electron —
+attention/status, health, timeline, usage, cleanup, notifications, hotkey/sound, away-summary, handoff,
+bulk actions, groups, grid layout, accessibility, update-restart, cache reconcile, shell quoting,
+DB busy-retry, containment, and more. Count the directory rather than trusting a number here: the one
+that used to stand in this paragraph was off by a factor of five before anyone noticed. Run with:
 
 ```bash
 npm test

@@ -16,12 +16,19 @@ what may not be published, and the bodies are full of absolute paths and machine
 of the repository by default is the setting that cannot leak. If you want them tracked, point the setting
 at `docs/plans/` and take on the review that comes with it.
 
-The path is a setting with a global default and a per-project override, in Settings under Plans. Project
-settings also have a button that writes the setting each installed CLI needs, after showing you every
-file it would change.
+There are two settings, not one, and the difference matters. **Plans directory** is where a new plan is
+written; **Plan directories** is the list the app reads. Both have a global default and a per-project
+override, both in Settings under Plans. Project settings also have a button that writes the setting each
+installed CLI needs, after showing you every file it would change.
 
-Switchboard also looks for `docs/plans/`, `plans/` and `.agent/plans/` without being asked, so a project
-that already keeps plans somewhere is listed as it is rather than converted.
+The read list starts as `.plans/`, `docs/plans/`, `plans/` and `.agent/plans/`, so a project that already
+keeps plans somewhere is listed as it is rather than converted. Point it somewhere else per project and
+that project is searched there — the list is resolved for each project separately, so one project naming
+`team-plans/` does not change what any other project is searched for. Emptying the field means the default
+rather than "no directories": a list that can be emptied is a setting that hides every plan you have.
+
+Reading is all it does. Nothing on that list is created, and a directory that is not there costs a failed
+stat and nothing else.
 
 ## What a plan looks like
 

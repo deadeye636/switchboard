@@ -84,8 +84,9 @@ chart rather than a row of zeroes.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey
 - **Native notifications** — OS toasts, dock/taskbar badge, tray icon; coalesced and throttled
 - **Session health & handoff** — flags long/expensive sessions; one-click fresh start with a context
-  packet; packets are markdown files in the project, so they are editable, greppable and travel with it,
-  and a picker hands one to the session you are already in
+  packet; packets are markdown files in the project, so they are editable, greppable and travel with it.
+  A picker hands one to the session you are already in, and writing one is a keyboard route out of that
+  session rather than a trip to the sidebar
   → [`docs/handoffs-convention.md`](docs/handoffs-convention.md)
 - **Session lineage** — a session that continued another's work reads as one, with the earlier ones
   folded behind a caret. Backend-neutral, and a Claude `/clear` is inferred.
@@ -130,7 +131,8 @@ chart rather than a row of zeroes.
   be created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
 - **Command palette** — Ctrl/Cmd+K over your sessions, your projects and the app's own actions, in one
   ranked list. It answers the first keystroke, and an empty query is simply what you were last working
-  on. → [spec 23](docs/specs/23-command-palette.md)
+  on. Actions that act on the session you are in are offered only when there is one, and say which one
+  by name. → [spec 23](docs/specs/23-command-palette.md)
 - **PDFs open in the app** — rendered page by page in the panel, instead of arriving in the source
   editor as unreadable bytes. → [spec 22](docs/specs/22-pdf-preview.md)
 - **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your
