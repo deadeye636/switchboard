@@ -15,22 +15,46 @@ const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const vcs = require('../vcs');
+const { isAtOrInside } = require('./path-containment');
 
 const DIFF_LINE_CAP = 4000;
 const MAX_UNTRACKED_BYTES = 2 * 1024 * 1024;
 
+// Is `abs` inside the repository at `base`? The one answer both readers use (#476).
+//
+// Two halves, and neither replaces the other. The spelled one is free — no filesystem call — and it is
+// what catches `..`, an absolute path and a drive-letter swap before anything is opened. The real one is
+// `path-containment.js`, and it is asked about the DIRECTORY rather than about the file: every component
+// above the leaf was already followed by the OS on the way there, so `lstat` cannot see them, and asking
+// about the directory keeps the answer from depending on whether the file happens to exist. A missing
+// file behind a junction is still a path out of the repository, and answering it as "deleted — empty
+// side" would be this reader keeping an answer of its own.
+//
+// The LEAF is not decided here. A leaf that is itself a link is answered by each caller, in its own
+// words, before this file reads anything.
+function insideRepo(abs, base) {
+  if (!(abs === base || abs.startsWith(base + path.sep))) return false;
+  if (abs === base) return true;
+  return isAtOrInside(path.dirname(abs), base);
+}
+
 // An untracked file has no tracked side, so its "diff" is the whole file rendered as added. Read it
-// from disk — pure and node-testable. Hardened (#285 review):
+// from disk — pure and node-testable. Hardened (#285 review, #476):
 //   - lexical containment (blocks `..`, absolute, drive-letter paths),
-//   - reject SYMLINKS (path.resolve is lexical and readFileSync would follow a link out of the repo),
+//   - reject a SYMLINK leaf, with its own wording — a link is a thing the user can see and fix,
+//   - REAL containment of every component above the leaf, which `lstat` never sees because the OS has
+//     already followed it: a junctioned subdirectory with an ordinary file at the target passed both of
+//     the checks above and was read (#476),
 //   - size cap BEFORE reading (never a multi-hundred-MB synchronous read on the main loop),
 //   - NUL-byte binary detection (mojibake would otherwise render).
 function readUntrackedDiff(cwd, rel) {
   const base = path.resolve(cwd);
   const abs = path.resolve(cwd, rel);
-  if (abs !== base && !abs.startsWith(base + path.sep)) return { ok: false, error: 'Path outside repository' };
+  if (!insideRepo(abs, base)) return { ok: false, error: 'Path outside repository' };
   try {
     const lst = fs.lstatSync(abs);
+    // The leaf's own answer, and it is a different sentence on purpose: a link is something the user can
+    // see and fix, so calling it "outside" would describe the wrong problem.
     if (lst.isSymbolicLink()) return { ok: false, error: 'Symlink — not previewed.' };
     if (lst.isDirectory()) return { ok: true, text: '', note: 'Untracked directory — open it to see its files.' };
     if (lst.size > MAX_UNTRACKED_BYTES) return { ok: true, text: '', note: 'File too large to preview — use Open.' };
@@ -46,13 +70,16 @@ function readUntrackedDiff(cwd, rel) {
 }
 
 // Read a working-copy file as raw text for the side-by-side diff window (#287). Same hardening as
-// readUntrackedDiff (containment / symlink reject / size cap / binary detection) but returns the plain
-// text CodeMirror needs, not a `+`-prefixed diff. A `note` means "cannot show this" (binary / too large /
-// symlink); a missing file (a deletion) is an empty side, not an error.
+// readUntrackedDiff (containment / symlink reject / real containment / size cap / binary detection) but
+// returns the plain text CodeMirror needs, not a `+`-prefixed diff. A `note` means "cannot show this"
+// (binary / too large / symlink); a missing file (a deletion) is an empty side, not an error.
 function readWorkingFile(cwd, rel) {
   const base = path.resolve(cwd);
   const abs = path.resolve(cwd, rel);
-  if (abs !== base && !abs.startsWith(base + path.sep)) return { ok: false, error: 'Path outside repository' };
+  // BEFORE the stat, and that is the whole point of asking about the directory: this reader answers a
+  // missing file with an empty side, so a check that ran after the stat would never see a path that
+  // escaped the repository and had nothing at the end of it (#476).
+  if (!insideRepo(abs, base)) return { ok: false, error: 'Path outside repository' };
   let lst;
   try {
     lst = fs.lstatSync(abs);
@@ -124,6 +151,12 @@ async function fileVersions(cwd, rel, kind, staged) {
     oldSide = await gitShow(provider, cwd, '', rel);
     newSide = readWorkingFile(cwd, rel);
   }
+  // A REFUSED read is not an absent version (#476). `gitShow` answers `{ ok: false }` with no wording when
+  // a path simply has no version under that ref — an added file has no HEAD side — and that is drawn as an
+  // empty side on purpose. A refusal carries wording, and drawing it as an empty side would tell the user
+  // the file is empty when the app in fact declined to read it.
+  if (oldSide.ok === false && oldSide.error) return oldSide;
+  if (newSide.ok === false && newSide.error) return newSide;
   if (oldSide.note) return { ok: true, note: oldSide.note };
   if (newSide.note) return { ok: true, note: newSide.note };
   return { ok: true, old: oldSide.text || '', new: newSide.text || '' };

@@ -36,10 +36,13 @@ much of it — #430; the SQL is `src/db/compact.js`, what needs to know about th
 `vcs-ignore.js` (will this directory be committed — the two questions asked before the app suggests writing into one; shared by the plans convention and the handoff writer since #468),
 `path-containment.js` (is this path inside that one — #474; the REAL path of both sides, so a junction
 cannot be spelled inside a project it is not in. One implementation for the plan directories, the handoff
-directories, the folder picked after a refused write and the backend resources — `backend-resources.js`
-keeps only its lexical pre-check and its own rule that a resource must EXIST. **`src/app/vcs.js` still
-answers lexically and is NOT covered**: its `lstatSync` symlink reject only inspects the final path
-component, so a junctioned subdirectory under the repo is a hole the shared check would close), 
+directories, the folder picked after a refused write, the backend resources and the working-copy readers
+in `vcs.js` (#476). What each caller keeps of its own is the CHEAP half: a lexical pre-check, and in
+`backend-resources.js` the rule that a resource must already EXIST. **In `vcs.js` the question is asked about the
+DIRECTORY, before the stat**: `lstat` sees only the final component — every directory above it was
+already followed — and that reader answers a missing file with an empty side, so a check placed after the
+stat never sees a path that escaped and had nothing at the end of it. The LEAF keeps its own sentence: a
+link the user can see and fix must not be reported as "outside"), 
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
