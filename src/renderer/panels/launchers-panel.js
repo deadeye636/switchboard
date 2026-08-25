@@ -1,7 +1,7 @@
 // public/launchers-panel.js — Settings → "Custom launchers" (#471): the user-managed list of
 // Tier-3 custom launchers (T-3.10).
 //
-// Lives under the TERMINAL category (where users look for terminal things), not "Sessions & CLI".
+// Lives under its own "Custom launchers" entry in settings since #471 — named after what it holds.
 // Built on the existing settings primitives (.settings-section / .settings-field / .settings-input)
 // and the env-row styles the backend editor already uses, so it reads like the rest of Settings.
 //

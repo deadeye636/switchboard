@@ -1,7 +1,7 @@
 // --- Settings: the global settings form's markup (#218) ---
 //
-// One function, one template literal: the whole two-pane global settings form — the nav and all twelve
-// category panes. It is the largest single thing that was inside `openSettingsViewer`, and the only part
+// One function, one template literal: the whole two-pane global settings form — the nav and every
+// category pane. It is the largest single thing that was inside `openSettingsViewer`, and the only part
 // of this file's #218 split that is pure string building: it reads values, it touches no DOM and binds no
 // listener. settings-panel.js assigns the result to `settingsViewerBody.innerHTML` and then wires the
 // controls the usual way.

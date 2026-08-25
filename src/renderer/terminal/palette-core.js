@@ -38,7 +38,8 @@
 //   `closeTerminalContextMenu`, `closeSelectionBar` (terminal-context-menu.js) · `sessionMap` (app.js)
 //   `escapeHtml` (lib/utils.js) · `matchShortcut`, `isMac`, `appShortcuts` (shell/shortcuts.js)
 //
-// Callers into this file: variable-palette.js, plan-palette.js and skill-palette.js for `openPalette`;
+// Callers into this file, for `openPalette`: variable-palette.js, plan-palette.js, skill-palette.js,
+// handoff-palette.js and shell/command-palette.js — grep `openPalette(` rather than trusting the list;
 // app.js, grid-view.js and terminal-manager.js for `closePalette` / `closePaletteForSession`.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {

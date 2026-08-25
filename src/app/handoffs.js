@@ -34,6 +34,7 @@ const projectRegistry = require('../projects/project-registry');
 const { projectShortName } = require('../session/derive-project-path');
 const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
+const { ignoreWarning } = require('./vcs-ignore');
 
 let ctx = null;
 
@@ -41,7 +42,7 @@ let ctx = null;
  * @param {object} context
  *   backends           the registry — the only source of a backend's own handoff directory
  *   db                 { getProjectStates, getProjectDisplayNames, readLegacyHandoffs,
- *                        dropLegacyHandoffTable }
+ *                        deleteLegacyHandoff, dropLegacyHandoffTable }
  *   log                electron-log
  *   effectiveSettings  the settings cascade, by project
  *   dialog             Electron's dialog, for picking another folder when a write is refused
@@ -340,7 +341,14 @@ function saveHandoff({ projectPath, label, content, backendId, dir } = {}) {
       mustExist: false,
     });
     if (!result.ok) return { ok: false, error: writeFailure(result) };
-    return { ok: true, filePath, dir: target };
+    // A packet quotes paths, machine names and whatever the session was looking at. If the directory it
+    // just landed in is going to be committed, that is worth one sentence at the moment it happens —
+    // the same warning the plans convention gives, from the same helper (#468).
+    const note = ignoreWarning(
+      root, path.relative(root, target).split(path.sep).join('/') || '.',
+      'A handoff packet quotes paths and machine names, so consider adding it to .gitignore.',
+    );
+    return { ok: true, filePath, dir: target, note };
   } catch (err) {
     ctx.log.error('Error saving handoff:', err && err.message);
     return { ok: false, error: readableError(err, 'Could not write the handoff.', ctx.log) };
@@ -426,6 +434,9 @@ function handoffGroups(projectPath) {
           size: stat.size,
           kind: HANDOFF_KIND,
           backendIds: [],
+          // The tab offers a delete for a row that says it has one (#441's vocabulary). A packet has a
+          // lifecycle of its own — it is written here and thrown away here — so it does.
+          deletable: true,
         });
       } catch {}
     }
@@ -464,18 +475,20 @@ function migrateLegacyHandoffs() {
 
   let migrated = 0;
   let kept = 0;
+  const stuck = new Set();
   for (const row of rows) {
     const projectPath = row && row.projectPath;
     if (!projectPath) { kept++; continue; }
     try {
       if (!fs.existsSync(projectPath) || !fs.statSync(projectPath).isDirectory()) {
         kept++;
+        stuck.add(projectPath);
         continue;
       }
-    } catch { kept++; continue; }
+    } catch { kept++; stuck.add(projectPath); continue; }
 
     const target = path.resolve(projectPath, handoffWriteDirName(projectPath));
-    if (!insideProject(target, path.resolve(projectPath))) { kept++; continue; }
+    if (!insideProject(target, path.resolve(projectPath))) { kept++; stuck.add(projectPath); continue; }
     try {
       fs.mkdirSync(target, { recursive: true });
       let existing = [];
@@ -488,10 +501,19 @@ function migrateLegacyHandoffs() {
         { mustExist: false },
       );
       if (!result.ok) { kept++; continue; }
+      // The row goes as soon as its file is there. Deleting per row rather than dropping the table per
+      // batch is what keeps a single stuck row from re-exporting every other packet on the next start.
+      // Write first, forget second: the other order loses the packet when the write fails.
+      try {
+        if (ctx.db.deleteLegacyHandoff) ctx.db.deleteLegacyHandoff(row.id);
+      } catch (err) {
+        ctx.log.warn('[handoffs] a packet was written but its row could not be dropped:', err && err.message);
+      }
       migrated++;
     } catch (err) {
       ctx.log.warn('[handoffs] a saved packet could not be written to its project:', err && err.code);
       kept++;
+      stuck.add(projectPath);
     }
   }
 
@@ -503,8 +525,10 @@ function migrateLegacyHandoffs() {
       ctx.log.warn('[handoffs] the old handoff table could not be dropped:', err && err.message);
     }
   } else {
-    ctx.log.warn(`[handoffs] ${kept} saved handoff(s) have no reachable project directory — they stay in the `
-      + 'database until it is back');
+    // Named, not just counted: a project directory that is gone is something the user can put back, and
+    // they cannot do that from a number.
+    ctx.log.warn(`[handoffs] ${kept} saved handoff(s) have no reachable project directory — they stay in `
+      + `the database until it is back: ${[...stuck].join(', ')}`);
   }
   return { migrated, kept };
 }

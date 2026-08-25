@@ -73,7 +73,7 @@ test('it does not list forty projects to say it', () => {
 test('the native fallback carries the same thing as text — a renderer that cannot answer must not trap the app', () => {
   const w = closeWarning([live({ projectPath: 'D:\\x' })]);
   assert.match(w.detail, /D:\\x/);
-  assert.match(w.detail, /Settings → Sessions & CLI/, 'and it says how to switch itself off');
+  assert.match(w.detail, /Settings → Sessions/, 'and it says how to switch itself off');
 });
 
 test('windows.js asks BEFORE it tears anything down — a cancelled close must leave the app intact', () => {

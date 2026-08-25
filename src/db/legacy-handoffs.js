@@ -31,6 +31,21 @@ function readLegacyHandoffs() {
   }
 }
 
+/**
+ * Forget one row, because its packet is now a file.
+ *
+ * Per row, not per batch, and that is the whole point (#468 follow-up). The first version deleted
+ * nothing and dropped the table only when every row had landed — so one row whose project directory was
+ * missing kept the table alive, and every OTHER row was exported again on the next start, under a
+ * `-2`, `-3`, … name. Silent, unbounded duplication in somebody's project, in the code path whose
+ * promise is that no packet is lost.
+ */
+function deleteLegacyHandoff(id) {
+  if (!tableExists()) return false;
+  runWithBusyRetry(() => db.prepare('DELETE FROM project_handoffs WHERE id = ?').run(Number(id)));
+  return true;
+}
+
 /** Drop it. Only ever called once every row has become a file — the caller owns that rule. */
 function dropLegacyHandoffTable() {
   if (!tableExists()) return false;
@@ -38,4 +53,4 @@ function dropLegacyHandoffTable() {
   return true;
 }
 
-module.exports = { readLegacyHandoffs, dropLegacyHandoffTable, _tableExists: tableExists };
+module.exports = { readLegacyHandoffs, deleteLegacyHandoff, dropLegacyHandoffTable, _tableExists: tableExists };

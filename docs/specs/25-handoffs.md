@@ -40,6 +40,14 @@ every one of them landed. A row whose project directory is gone is the case that
 discarded, no directory is invented for it, and the table stays until the folder is back. That is the
 version of "clean end state" that cannot lose a packet on the way to it.
 
+**A row leaves the table as its own file lands, not when the batch does.** The first version deleted
+nothing and dropped the table only once every row had been exported — which reads as careful and is the
+opposite: one row whose project directory was missing kept the table alive, so every *other* row was
+exported again on the next start, under a `-2`, `-3`, … name. Silent duplication, in the code path whose
+whole promise is that no packet is lost. Write the file, then forget the row; that order also survives a
+failed write, which the reverse does not. A verifier found this by reading, after the feature had shipped
+and been pushed — no test could see it, because no test starts the app twice.
+
 `legacy-handoffs.js` prepares its statements **inside** its functions rather than at module load, which is
 the opposite of every store beside it and the only shape that works here: after the first successful pass
 there is no table to prepare against, and a fresh database never had one.
@@ -106,6 +114,19 @@ Scoping is the plan picker's rule, restated because it is worth restating: **thi
 nothing else.** Main answers per project, and the renderer filters again where it renders — a list a hotkey
 opens mid-session is a list of things about to be handed to an agent, and another project's packet in it is
 another codebase's context one Enter away.
+
+## The note about version control, and the check that never fired
+
+A packet quotes paths, machine names and whatever the session was looking at, so a handoff directory that
+is going to be committed is worth one sentence at the moment a packet lands in it. The plans convention
+had exactly that check and it lived inside `plans-memory.js`, which already requires this module — so
+copying it would have been the cheap edit and the wrong one. It moved to `src/app/vcs-ignore.js` and both
+callers share it.
+
+The move paid for itself immediately. The original compared a normalised directory name against
+un-normalised `.gitignore` lines: it stripped a leading dot from `.plans` and not from the ignore file's
+own `.plans`, so the two could never match. The check answered "not ignored" about every dot-directory —
+which is every default this app has — and nothing noticed, because the only thing it produces is a note.
 
 ## What this does not do
 

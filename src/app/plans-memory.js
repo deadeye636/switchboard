@@ -25,6 +25,9 @@ const { projectShortName } = require('../session/derive-project-path');
 // the detail goes instead: `src/app/readable-error.js` (#444).
 const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
+// "will this directory be committed?" — shared with the handoff writer since #468, because a plan and a
+// packet are both written by a tool that knows nothing about what may not be published.
+const { isVersioned, isIgnored } = require('./vcs-ignore');
 const { isDeletableKind } = require('./backend-resources');
 // Handoff packets are files in the project since #468, and their own module owns where those live. This
 // tab only shows them, beside the project's other agent files.
@@ -1088,21 +1091,10 @@ function deleteWorkFile(filePath) {
 // this shape exists to prevent.
 
 /** Is this project under version control? Decides the retirement rule and the ignore warning. */
-function isVersioned(projectPath) {
-  try { return fs.existsSync(path.join(projectPath, '.git')); } catch { return false; }
-}
+
 
 /** Does the project's .gitignore name this directory? A plain text check, not a git evaluation. */
-function isIgnored(projectPath, planDir) {
-  try {
-    const file = path.join(projectPath, '.gitignore');
-    if (!fs.existsSync(file)) return false;
-    const needle = planDir.replace(/^[.\/\\]+/, '').replace(/[\/\\]+$/, '');
-    return fs.readFileSync(file, 'utf8').split(/\r?\n/)
-      .map(l => l.trim().replace(/^\/+/, '').replace(/\/+$/, ''))
-      .some(l => l && !l.startsWith('#') && l === needle);
-  } catch { return false; }
-}
+
 
 //** The plans directory this project should use: its own setting, else the global default. */
 function planDirFor(projectPath) {

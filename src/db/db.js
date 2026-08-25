@@ -98,6 +98,7 @@ module.exports = {
   openTaskCountsByProject: tasksStore.openTaskCountsByProject,
   // --- the handoff library's old rows, on their way out (legacy-handoffs.js, #468) ---
   readLegacyHandoffs: legacyHandoffs.readLegacyHandoffs,
+  deleteLegacyHandoff: legacyHandoffs.deleteLegacyHandoff,
   dropLegacyHandoffTable: legacyHandoffs.dropLegacyHandoffTable,
   getSessionTags: tagsStore.getSessionTags,
   setSessionTags: tagsStore.setSessionTags,

@@ -462,7 +462,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   The actions are pinned to the bottom edge, reachable at any scroll position in any category:
   Hide/Remove Project on the left, then Cancel, **Apply** (save without closing, so several
   categories can be adjusted and checked one after another) and Save. Custom launchers have a
-  page of their own under Terminal.
+  page of their own.
 - **A backend declares what it can do, and it is all configurable** — `configFields` on the descriptor;
   the settings page, the Configure dialog and the template editor are **generated** from it. Pi and
   Hermes declared a single option each while their CLIs took a dozen (`--provider`, `--thinking`,

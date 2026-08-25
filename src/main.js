@@ -157,7 +157,7 @@ const {
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
-  readLegacyHandoffs, dropLegacyHandoffTable,
+  readLegacyHandoffs, deleteLegacyHandoff, dropLegacyHandoffTable,
   getSessionTags, setSessionTags, listAllTags, getAllSessionTags,
   getProjectTags, setProjectTags, listAllProjectTags, getAllProjectTags,
   listTagDefs, createTagDef, renameTagDef, setTagDefColor, setTagDefFlags, deleteTagDef,
@@ -1253,7 +1253,7 @@ settings.registerIpc(ipcMain);
 const handoffs = require('./app/handoffs');
 handoffs.init({
   backends,
-  db: { getProjectStates, getProjectDisplayNames, readLegacyHandoffs, dropLegacyHandoffTable },
+  db: { getProjectStates, getProjectDisplayNames, readLegacyHandoffs, deleteLegacyHandoff, dropLegacyHandoffTable },
   log,
   effectiveSettings: (projectPath) => require('./app/settings').effectiveSettings(projectPath),
   // For the one dialog this module opens: picking another folder when a write was refused.

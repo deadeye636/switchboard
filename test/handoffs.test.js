@@ -21,19 +21,27 @@ const noopLog = { info() {}, warn() {}, error() {}, debug() {} };
 /** A ctx with one visible project and no backends — enough for everything below. */
 function contextFor(projectPath, { legacy = [], settings = {} } = {}) {
   const dropped = { value: false };
+  // A live copy: `deleteLegacyHandoff` removes from it exactly as the real store deletes the row, so a
+  // second `init()` sees what the first one left behind rather than the original list again.
+  const rows = [...legacy];
   return {
     ctx: {
       backends: { list: () => [] },
       db: {
         getProjectStates: () => new Map([[projectPath, { registered: true }]]),
         getProjectDisplayNames: () => new Map(),
-        readLegacyHandoffs: () => legacy,
+        readLegacyHandoffs: () => [...rows],
+        deleteLegacyHandoff: (id) => {
+          const i = rows.findIndex(r => r.id === id);
+          if (i >= 0) rows.splice(i, 1);
+        },
         dropLegacyHandoffTable: () => { dropped.value = true; return true; },
       },
       log: noopLog,
       effectiveSettings: () => settings,
     },
     dropped,
+    rows,
   };
 }
 
@@ -151,6 +159,48 @@ test('every old row becomes a file, and only then does the table go', () => {
   assert.deepEqual(rows.map(r => r.title).sort(), ['First', 'Second']);
   assert.equal(rows.find(r => r.title === 'First').backendId, 'claude');
   assert.equal(rows.find(r => r.title === 'Second').backendId, null);
+  fs.rmSync(project, { recursive: true, force: true });
+});
+
+test('a stuck row does not make every other packet be written again', () => {
+  // The first version exported the whole batch on every start until all of it had landed, so one row
+  // with a missing project directory meant every OTHER row was written again — under a `-2`, `-3`, …
+  // name — each time the app started. Silent duplication in somebody's project.
+  const project = tempProject('sb-handoff-again-');
+  const gone = path.join(project, 'gone');
+  const { ctx, dropped, rows } = contextFor(project, {
+    legacy: [
+      { id: 1, projectPath: project, label: 'Exportable', content: 'one', createdAt: '2026-08-01T10:00:00Z' },
+      { id: 2, projectPath: gone, label: 'Orphan', content: 'two', createdAt: '2026-08-02T10:00:00Z' },
+    ],
+  });
+
+  handoffs.init(ctx);
+  handoffs.init(ctx);   // a second start, with the orphan still stuck
+  handoffs.init(ctx);   // and a third
+
+  const written = handoffs.getHandoffs(project).filter(h => h.title === 'Exportable');
+  assert.equal(written.length, 1, 'the exported packet was written once, not once per start');
+  assert.deepEqual(rows.map(r => r.id), [2], 'the exported row is gone; the stuck one waits');
+  assert.equal(dropped.value, false, 'and the table stays while anything is left in it');
+  fs.rmSync(project, { recursive: true, force: true });
+});
+
+test('a save says when the directory it landed in would be committed', () => {
+  const project = tempProject('sb-handoff-ignore-');
+  fs.mkdirSync(path.join(project, '.git'));
+  const { ctx } = contextFor(project);
+  handoffs.init(ctx);
+
+  const warned = handoffs.saveHandoff({ projectPath: project, label: 'Packet', content: 'body' });
+  assert.equal(warned.ok, true);
+  assert.match(warned.note, /not ignored by version control/);
+
+  // …and says nothing once the directory is ignored, or the project has no version control at all.
+  fs.writeFileSync(path.join(project, '.gitignore'), 'node_modules\n.handoffs\n');
+  const quiet = handoffs.saveHandoff({ projectPath: project, label: 'Second', content: 'body' });
+  assert.equal(quiet.ok, true);
+  assert.equal(quiet.note, null);
   fs.rmSync(project, { recursive: true, force: true });
 });
 

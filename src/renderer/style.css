@@ -10515,7 +10515,6 @@ body.pane-sashing .terminal-container { pointer-events: none; }
    a line of its own under the heading. */
 .backend-page-title #sv-capability-matrix { margin-left: auto; }
 
-.backend-inline-title { display: flex; align-items: center; gap: 7px; }
 /* A backend's collapsed launch defaults (#472). The summary carries the chevron, the backend's mark and
    — only when this project changes something — how many options it overrides. */
 .backend-collapse > summary { display: flex; align-items: center; gap: 7px; }

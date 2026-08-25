@@ -74,7 +74,7 @@ function closeWarning(running) {
     details,
     // The native fallback has no detail rows, only a block of text.
     detail: details.map(d => (d.label ? `• ${d.value} — ${d.label}` : `• ${d.value}`)).join('\n')
-      + '\n\nSettings → Sessions & CLI turns this warning off.',
+      + '\n\nSettings → Sessions turns this warning off.',
   };
 }
 

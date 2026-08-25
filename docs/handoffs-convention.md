@@ -52,6 +52,11 @@ honest result rather than a guess.
 Packets Switchboard writes are named `<date>-<slug>.md`. Nothing depends on that name: rename a file and
 it is the same handoff, because everything worth knowing about it is in the content.
 
+If the directory a packet lands in is not ignored by version control, the app says so once, when the
+packet is saved. It is a note and not a refusal: some teams do commit their handoffs on purpose. It is
+worth reading before the first one goes in, because a packet quotes paths, machine names and whatever the
+session happened to be looking at.
+
 ## What you can do with one
 
 - **Resume it** — the new-session menu's *Resume from handoff* starts a fresh session seeded with the
@@ -60,7 +65,8 @@ it is the same handoff, because everything worth knowing about it is in the cont
 - **Hand it to a session you are already in** — the handoff picker (Ctrl/Cmd+Shift+H) inserts a reference
   at the cursor. A reference, not the packet: it runs to hundreds of lines and belongs in the agent's
   context through the agent's own file tools.
-- **Read and edit it** — handoff directories appear in Agent Files like any other group.
+- **Read and edit it** — handoff directories appear in Agent Files like any other group, and a packet can
+  be deleted from there as well as from the resume picker.
 
 ## Coming from an older version
 

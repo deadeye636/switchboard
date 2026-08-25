@@ -293,7 +293,13 @@ async function saveHandoffPacket(project, packet) {
       result = { ok: false, error: err && err.message };
     }
     if (result && result.ok) {
-      showControlToast({ message: `Handoff saved to ${handoffPathInProject(project, result.filePath)}.` });
+      // The note is only there when the directory this landed in would be committed (#468). Said at the
+      // moment it happens rather than in a settings screen nobody is looking at.
+      const where = handoffPathInProject(project, result.filePath);
+      showControlToast({
+        message: result.note ? `Handoff saved to ${where}. ${result.note}` : `Handoff saved to ${where}.`,
+        timeoutMs: result.note ? 8000 : undefined,
+      });
       return result;
     }
 

@@ -524,6 +524,13 @@ function buildResourceGroup(rg, parentKey, projectPath) {
     backendSpan.className = 'memory-resource-backend';
     backendSpan.textContent = rg.backendLabel;
     header.appendChild(backendSpan);
+  } else if (rg.kind === 'handoff') {
+    // A handoff directory belongs to the project too (#468), so the same empty slot problem applies. The
+    // archive glyph rather than the folder one: what is in there is finished work, kept.
+    const icon = document.createElement('span');
+    icon.className = 'work-file-icon';
+    icon.innerHTML = ICONS.archive(14);
+    header.appendChild(icon);
   } else if (rg.kind === 'work-file') {
     // Every other group opens with a backend monogram; this one has no backend, so that slot would sit
     // empty next to a column of badged headers. The folder glyph the Work Files tab wore fills it.
@@ -647,6 +654,10 @@ function buildMemoryItem(file, groupBackendId) {
 // The identity of the row the Agent Files panel currently holds, when it came from a backend's own
 // resource listing rather than from the instruction-file scan (#441). Null for an instruction file.
 let currentMemoryResource = null;
+// Which door a DELETE goes through, which is not always the door a save goes through (#468). A handoff is
+// written by the memory writer — it is markdown inside a registered project — but removed by its own
+// module, because deleting one is discarding a packet rather than a file some backend owns.
+let currentMemoryDeleteKind = null;
 
 /**
  * Save whatever the Agent Files panel is holding, through the door that row came in by.
@@ -708,6 +719,14 @@ async function createResourceInGroup(rg, projectPath) {
  * this refuses the obvious case early so an instruction file never even asks.
  */
 async function deleteOpenAgentFile(filePath) {
+  if (currentMemoryDeleteKind === 'handoff') {
+    const res = await window.api.deleteHandoff(filePath);
+    if (res && res.ok) {
+      await loadMemories();
+      return { ok: true };
+    }
+    return { ok: false, error: (res && res.error) || 'Unknown error' };
+  }
   if (!currentMemoryResource || !currentMemoryResource.backendId) {
     return { ok: false, error: 'Only a backend\'s own skills, commands and rules can be deleted here.' };
   }
@@ -749,6 +768,7 @@ async function openMemory(file) {
   currentMemoryResource = file.backendId
     ? { backendId: file.backendId, projectPath: file.projectPath || null }
     : null;
+  currentMemoryDeleteKind = file.kind === 'handoff' ? 'handoff' : null;
 
   // Hide every other viewer (draining JSONL file-watches) before showing this one (issue #75).
   hideAllViewers();
@@ -764,7 +784,8 @@ async function openMemory(file) {
   // file's, and the button must not be offered for something main would refuse.
   const deletableKind = !!file.deletable;
   const deleteBtn = memoryPanel.toolbar && memoryPanel.toolbar.deleteBtn;
-  if (deleteBtn) deleteBtn.style.display = (currentMemoryResource && deletableKind) ? '' : 'none';
+  const canDelete = deletableKind && (currentMemoryResource || currentMemoryDeleteKind);
+  if (deleteBtn) deleteBtn.style.display = canDelete ? '' : 'none';
   window.panesView?.reportViews?.(); // #371 — see openPlan
 }
 
