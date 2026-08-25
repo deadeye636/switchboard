@@ -390,22 +390,55 @@ function renderMemoryTypeFilters() {
   const typeChips = showTypes
     ? types.map(t => chipHtml('agent-type-chip', 'type', t.id, t.label, t.count, memoryTypeFilter === t.id)).join('')
     : '';
-  // No glyph on a backend chip: for a backend without artwork the badge IS its monogram, so the chip
-  // came out reading "H Hermes", "Pi Pi", "Cx Codex". The label alone is what a filter needs; the
-  // badge belongs on the row, where it is the only thing saying which CLI reads that file.
-  const backendChips = showBackends
-    ? backendRows.map(b => chipHtml('agent-backend-chip', 'backend', b.id, b.label, b.count,
-      memoryBackendFilter === b.id)).join('')
+  // "Show all" used to be a chip among the chips, so switching a filter on grew the bar by one and moved
+  // every chip after it. It sits in the heading now: same click, no reflow.
+  const clear = (memoryTypeFilter || memoryBackendFilter)
+    ? '<button type="button" class="agent-type-clear" data-group="clear" data-value="">&#10005; Show all</button>'
     : '';
+  const head = `<div class="agent-chip-head"><span>${showTypes ? 'Type' : 'CLI'}</span>${clear}</div>`;
   // The two kinds AND together — "skills, from Pi" — which is the whole reason they share one bar
   // instead of hiding behind a switch. A separator keeps them from reading as one list.
-  const separator = (typeChips && backendChips) ? '<span class="agent-chip-separator" aria-hidden="true"></span>' : '';
-  const clear = (memoryTypeFilter || memoryBackendFilter)
-    ? '<button type="button" class="project-tag-chip agent-type-clear" data-group="clear" data-value="">Show all</button>'
-    : '';
+  const separator = (typeChips && showBackends)
+    ? '<span class="agent-chip-separator" aria-hidden="true"></span>' : '';
 
   bar.style.display = '';
-  bar.innerHTML = typeChips + separator + backendChips + clear;
+  bar.innerHTML = head + typeChips + separator;
+  // The backend chips are built as DOM, not markup, because the badge is: `memoryBackendBadge` is the
+  // same node a session row wears, and going through it keeps the two colour lookups from drifting.
+  if (showBackends) for (const b of backendRows) bar.appendChild(backendChipButton(b));
+}
+
+/**
+ * A backend chip: the monogram badge in the backend's own colour, its count, and the label in the
+ * tooltip.
+ *
+ * The label was on the chip until it wasn't (#447 shipped it that way). Two reasons it moved into the
+ * `title`: a backend filter is a narrowing by ORIGIN, not a kind, and it does not deserve the same
+ * weight as the type chips beside it — and the badge already carries the colour every row of the list
+ * repeats, so the coloured square is the faster read of the two. Five backends fit on one line this way
+ * where the labelled chips took three.
+ */
+function backendChipButton(b) {
+  const active = memoryBackendFilter === b.id;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'agent-backend-chip' + (active ? ' active' : '');
+  btn.dataset.group = 'backend';
+  btn.dataset.value = b.id;
+  btn.setAttribute('aria-pressed', String(active));
+  // The badge carries a `title` of its own; the button's would sit under it and say the same thing.
+  // Only the button keeps one, so the label is announced once — and `aria-label` says it for a reader,
+  // which a monogram and a number alone never would.
+  btn.title = b.label;
+  btn.setAttribute('aria-label', `${b.label}, ${b.count} files`);
+  const badge = memoryBackendBadge(b.id);
+  badge.removeAttribute('title');
+  btn.appendChild(badge);
+  const count = document.createElement('span');
+  count.className = 'agent-type-count';
+  count.textContent = b.count;
+  btn.appendChild(count);
+  return btn;
 }
 
 function bindMemoryTypeFilters() {
@@ -413,7 +446,9 @@ function bindMemoryTypeFilters() {
   if (!bar || bar.dataset.bound === '1') return;
   bar.dataset.bound = '1';
   bar.addEventListener('click', (e) => {
-    const chip = e.target.closest('.project-tag-chip');
+    // By the data attribute, not by a class: the three kinds of button in this bar no longer share
+    // one look, and `data-group` is the only thing all of them have ever had in common.
+    const chip = e.target.closest('button[data-group]');
     if (!chip) return;
     const group = chip.dataset.group;
     const value = chip.dataset.value || '';

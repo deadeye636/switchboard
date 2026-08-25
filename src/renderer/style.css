@@ -8399,20 +8399,65 @@ body.grid-dragging .grid-card-header {
   border-color: #6a6a8a;
   background: rgba(255,255,255,0.1);
 }
+/* The count is a badge, not a second word. It used to be loose text after the label, which read as part
+   of the name and left the chips looking ragged; enclosing it gives every chip the same right edge. */
 .agent-type-count {
-  margin-left: 5px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 7px;
+  background: rgba(255,255,255,0.07);
   font-size: 10px;
-  color: #7a7a90;
+  line-height: 1.4;
+  color: #8f8fa8;
 }
-.agent-type-chip.active .agent-type-count { color: #b0b0c4; }
-.agent-type-clear { color: #7a7a90; border-style: dashed; }
-.agent-backend-chip { color: #b0b0c4; background: rgba(255,255,255,0.04); }
+.agent-type-chip.active .agent-type-count { background: rgba(255,255,255,0.16); color: #d8d8e8; }
+/* The heading over the bar, and the way out of a filter. Both are quiet — they label the chips, they
+   are not among them. "Show all" lives here so switching a filter on cannot move the chips. */
+.agent-chip-head {
+  flex-basis: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #62627a;
+}
+.agent-type-clear {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  color: #7a7a90;
+  cursor: pointer;
+}
+.agent-type-clear:hover { color: #d8d8e8; }
+/* A backend chip is the badge and the number, and nothing else — the name is in the tooltip. It is a
+   narrowing by origin rather than by kind, so it stays quieter than the type chips above it, and the
+   coloured badge is the same one every row of the list wears. */
+.agent-backend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: rgba(255,255,255,0.03);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agent-backend-chip:hover { filter: brightness(1.15); }
 .agent-backend-chip.active {
-  color: #d8d8e8;
   border-color: #6a6a8a;
   background: rgba(255,255,255,0.1);
 }
-.agent-backend-chip svg { margin-right: 4px; vertical-align: -1px; }
+/* The badge's row spacing would double up with the chip's own gap. */
+.agent-backend-chip .memory-backend-badge { margin-right: 0; }
+.agent-backend-chip .agent-type-count { margin-left: 0; background: none; padding: 0; }
+.agent-backend-chip.active .agent-type-count { color: #d8d8e8; }
 /* Divides the two kinds of chip by BREAKING the line, not by drawing between them: in a wrapping bar a
    1px rule lands wherever the wrap happens to leave it, and at sidebar widths that was usually
    mid-group. Types on their line, backends on theirs, at every width. */
