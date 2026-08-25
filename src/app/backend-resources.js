@@ -8,6 +8,7 @@ const path = require('path');
 const { readableError: toReadable } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
 const { validateContent } = require('./format-validate');
+const { isInside: isReallyInside } = require('./path-containment');
 
 let backends = null;
 let shell = null;
@@ -46,22 +47,22 @@ async function listResources(backendId, projectPath) {
 // the check is done twice — once on the written paths, to catch `..` and a separator swap, and once on
 // what the filesystem says they really are.
 //
-// Case-insensitively on win32, because `C:\Users\x` and `c:\users\X` are one path there and a
-// case-sensitive compare would refuse a path the user legitimately typed.
+// The second half is `path-containment.js` (#474), which is the app's one answer to that question. What
+// stays here is the argument order this file was written with, the lexical pre-check, and the ONE thing
+// that differs: a resource has to EXIST to be handed over, so a path that cannot be resolved is refused.
+// The shared check answers about the nearest existing ancestor instead, because its callers name files
+// that are not there yet.
 function isInside(parent, child) {
   const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
   const lexical = path.relative(path.resolve(parent), path.resolve(child));
   if (!lexical || path.isAbsolute(lexical) || norm(lexical).split(path.sep)[0] === '..') return false;
-  let realParent;
-  let realChild;
   try {
-    realParent = fs.realpathSync(parent);
-    realChild = fs.realpathSync(child);
+    fs.realpathSync(parent);
+    fs.realpathSync(child);
   } catch {
     return false;      // a path we cannot resolve is not a path we hand over
   }
-  const real = path.relative(realParent, realChild);
-  return !!real && !path.isAbsolute(real) && norm(real).split(path.sep)[0] !== '..';
+  return isReallyInside(child, parent);
 }
 
 /** The listing entry for `resourcePath`, or null. This is the allow-list: nothing else is reachable. */
@@ -310,10 +311,10 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
     ? path.join(realParent, name, scaffold.entryFile || 'SKILL.md')
     : path.join(realParent, name + (scaffold.ext || '.md'));
   // Belt and braces over the name check: whatever the name did, the result has to be inside the
-  // directory that was approved. The holder cannot be realpath'd — it is what is about to be created.
+  // directory that was approved. The holder is what is about to be created, which is exactly the case the
+  // shared check answers about its nearest existing ancestor — so it is asked here rather than repeated.
   const holder = scaffold.layout === 'dir' ? path.join(realParent, name) : target;
-  const within = path.relative(realParent, holder);
-  if (!within || path.isAbsolute(within) || within.split(path.sep)[0] === '..') {
+  if (!isReallyInside(holder, realParent)) {
     return { ok: false, reason: 'That name would put the file outside the directory.' };
   }
 

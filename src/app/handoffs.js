@@ -35,6 +35,7 @@ const { projectShortName } = require('../session/derive-project-path');
 const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
 const { ignoreWarning } = require('./vcs-ignore');
+const { isAtOrInside, isInside } = require('./path-containment');
 
 let ctx = null;
 
@@ -88,10 +89,15 @@ function handoffWriteDirName(projectPath) {
   } catch { return DEFAULT_WRITE_DIR; }
 }
 
-/** Is `dir` inside `projectPath`? A candidate that escapes it is not that project's handoff directory. */
+/**
+ * Is `dir` inside `projectPath`? A candidate that escapes it is not that project's handoff directory.
+ *
+ * The real path of both sides, not the spelled one (#474): a directory that is a junction is spelled
+ * inside the project while its contents are somewhere else, and this guards paths the app writes into and
+ * deletes from. `path-containment.js` is the one implementation, shared with the plans convention.
+ */
 function insideProject(dir, projectPath) {
-  const root = path.resolve(projectPath);
-  return dir === root || dir.startsWith(root + path.sep);
+  return isAtOrInside(dir, projectPath);
 }
 
 /** The backends that declare a handoff directory of their own. Profiles forward a base's and only duplicate. */
@@ -170,7 +176,7 @@ function handoffDirs(onlyProject = null) {
 function isAllowedHandoffPath(filePath, onlyProject = null) {
   const resolved = path.resolve(filePath);
   if (!resolved.toLowerCase().endsWith('.md')) return null;
-  const ok = handoffDirs(onlyProject).some(d => resolved.startsWith(d + path.sep));
+  const ok = handoffDirs(onlyProject).some(d => isInside(resolved, d));
   return ok ? resolved : null;
 }
 

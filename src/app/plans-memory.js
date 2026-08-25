@@ -28,6 +28,7 @@ const { writeTextFile } = require('./safe-write');
 // "will this directory be committed?" — shared with the handoff writer since #468, because a plan and a
 // packet are both written by a tool that knows nothing about what may not be published.
 const { isVersioned, isIgnored } = require('./vcs-ignore');
+const { isAtOrInside, isInside } = require('./path-containment');
 const { isDeletableKind } = require('./backend-resources');
 // Handoff packets are files in the project since #468, and their own module owns where those live. This
 // tab only shows them, beside the project's other agent files.
@@ -508,10 +509,16 @@ function planDirCandidates() {
   } catch { return fallback; }
 }
 
-/** Is `dir` inside `projectPath`? A candidate that escapes it is not that project's plans directory. */
+/**
+ * Is `dir` inside `projectPath`? A candidate that escapes it is not that project's plans directory.
+ *
+ * The real path of both sides, not the spelled one (#474): a junction is spelled inside the project while
+ * its contents are elsewhere, and these are paths the app reads, writes and deletes. One implementation
+ * (`path-containment.js`), shared with the handoff directories — two answers to this question is how they
+ * drift apart.
+ */
 function insideProject(dir, projectPath) {
-  const root = path.resolve(projectPath);
-  return dir === root || dir.startsWith(root + path.sep);
+  return isAtOrInside(dir, projectPath);
 }
 
 /**
@@ -707,7 +714,7 @@ function readPlan(filePath) {
   try {
     const resolved = path.resolve(filePath);
     if (!resolved.endsWith('.md')) return { content: '', filePath: '' };
-    const ok = plansDirs().some(d => resolved === d || resolved.startsWith(d + path.sep));
+    const ok = plansDirs().some(d => isAtOrInside(resolved, d));
     if (!ok) return { content: '', filePath: '' };
     return { content: fs.readFileSync(resolved, 'utf8'), filePath: resolved };
   } catch (err) {
@@ -737,7 +744,7 @@ function writeFailure(result, fallback) {
 function savePlan(filePath, content, baseline = null) {
   try {
     const resolved = path.resolve(filePath);
-    const ok = plansDirs().some(d => resolved.startsWith(d + path.sep));
+    const ok = plansDirs().some(d => isInside(resolved, d));
     if (!ok) return { ok: false, error: 'path outside a plans directory' };
     // Same write core as every other save (#441): a plan is a document an agent rewrites while it is
     // open, which is the case the baseline compare exists for.
@@ -875,10 +882,10 @@ function allowedMemoryRoots() {
 
 function isAllowedMemoryPath(resolved) {
   for (const r of allowedMemoryRoots()) {
-    if (resolved === r || resolved.startsWith(r + path.sep)) return true;
+    if (isAtOrInside(resolved, r)) return true;
   }
   for (const [, session] of ctx.activeSessions) {
-    if (session.projectPath && resolved.startsWith(path.resolve(session.projectPath) + path.sep)) return true;
+    if (session.projectPath && isInside(resolved, session.projectPath)) return true;
   }
   return false;
 }
@@ -1123,7 +1130,8 @@ function planConventionPreview(projectPath, options) {
   const resolved = path.resolve(projectPath, planDir);
   const notes = [];
 
-  if (!insideProject(resolved, projectPath) || resolved === path.resolve(projectPath)) {
+  // Strictly inside: the project root is not a plans directory, and Claude refuses it too.
+  if (!isInside(resolved, projectPath)) {
     return { ok: false, error: 'The plans directory has to be a directory inside the project — Claude refuses anything else.' };
   }
 
