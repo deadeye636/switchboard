@@ -7,7 +7,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
-  filterHandoffs, handoffsForProject, handoffInsertText, DEFAULT_HANDOFF_INSERT_TEMPLATE,
+  filterHandoffs, handoffsForProject, handoffInsertText, handoffEmptyState,
+  DEFAULT_HANDOFF_INSERT_TEMPLATE,
 } = require('../src/renderer/terminal/handoff-palette');
 
 const handoff = (over) => ({
@@ -71,4 +72,34 @@ test('the insert template substitutes and never resolves to nothing', () => {
 
 test('the default template names the path, so a reference is never the packet', () => {
   assert.match(DEFAULT_HANDOFF_INSERT_TEMPLATE, /\{path\}/);
+});
+
+// --- The empty state (#473) ---
+//
+// A picker opened on a hotkey that says "nothing here" and stops is the moment someone actually wants to
+// write one. So the empty state offers it — but only where pressing the key would do something, because a
+// message naming a key that does nothing is worse than the message without it.
+
+test('a project with no handoffs offers to write one, and says which key', () => {
+  const state = handoffEmptyState({ projectPath: '/proj/here', sessionId: 's1' });
+  assert.equal(state.createFor, 's1');
+  assert.equal(state.text.key, 'Enter', 'the key is named, not implied');
+  assert.match(state.text.before, /No handoffs in this project/);
+  assert.match(state.text.after, /write one/);
+});
+
+test('a session the app cannot place is a different nothing, and Enter does not claim to fix it', () => {
+  const state = handoffEmptyState({ projectPath: null, sessionId: 's1' });
+  assert.equal(state.createFor, null);
+  assert.equal(state.text, 'This session has no project.');
+});
+
+test('no session id means no offer, and the message drops the key with it', () => {
+  const state = handoffEmptyState({ projectPath: '/proj/here', sessionId: null });
+  assert.equal(state.createFor, null);
+  assert.equal(state.text, 'No handoffs in this project.');
+});
+
+test('called with nothing at all it still answers', () => {
+  assert.equal(handoffEmptyState().createFor, null);
 });

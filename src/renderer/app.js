@@ -163,6 +163,22 @@ function setActiveSession(id) {
   if (typeof switchPanel === 'function') switchPanel(id);
 }
 
+// The session an action that depends on focus is about (#473). ONE rule for all of them, so a second
+// such action cannot answer the question differently.
+//
+// `activeSessionId` is the answer, and the DOM focus is not: `setActiveSession` above is the choke point
+// every focus path funnels through — tabs, grid cards, pane focus, the attention inbox — so it stays
+// right while the caret sits in the sidebar, a settings field or a plan view. A rule that read the
+// focused element would go blank exactly when someone is reading a plan and decides to hand over. What
+// keeps it unambiguous is not the rule but the row: an action built on this NAMES the session it means.
+//
+// Null when no session is active, or when the id no longer resolves — the caller is expected to drop the
+// action rather than offer one that would fail on use.
+function focusedActionSession() {
+  if (!activeSessionId) return null;
+  return sessionMap.get(activeSessionId) || (openSessions.get(activeSessionId) || {}).session || null;
+}
+
 // A history entry is navigable only while its session is still mounted — a closed
 // or evicted session would otherwise be a dead jump target.
 function sessionHistoryAlive(sessionId) {

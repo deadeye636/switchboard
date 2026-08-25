@@ -22,6 +22,7 @@
 // Free globals it reaches for, all at CALL time so tag order does not decide them — guarded anyway:
 //   `insertResolvedText` (terminal-context-menu.js) · `window.openPalette` (palette-core.js)
 //   `window.api.listHandoffs` / `.getEffectiveSettings` (preload.js)
+//   `window.startHandoffForSession` (handoff/handoff.js) — what the empty state's Enter opens (#473)
 //
 // Callers into this file: terminal-manager.js's hotkey (`openHandoffPalette`). Closing is the core's
 // `closePalette` / `closePaletteForSession`.
@@ -84,6 +85,23 @@
     return text.trim() ? text : (handoff.filePath || '');
   }
 
+  /**
+   * Which of the two nothings this is, and whether Enter can do anything about it.
+   *
+   * Said plainly, because a project with no handoffs reads as a broken hotkey otherwise, and a terminal
+   * the app cannot place is a different problem with a different fix. The offer to write one is made only
+   * where it would work: it needs a session to be about and a project to be saved into, and a message
+   * naming a key that does nothing is worse than the message without it.
+   */
+  function handoffEmptyState({ projectPath, sessionId } = {}) {
+    if (!projectPath) return { text: 'This session has no project.', createFor: null };
+    if (!sessionId) return { text: 'No handoffs in this project.', createFor: null };
+    return {
+      text: { before: 'No handoffs in this project. Press ', key: 'Enter', after: ' to write one.' },
+      createFor: sessionId,
+    };
+  }
+
   const HANDOFF_PICKER = {
     id: 'h',
     extraClass: 'handoff-palette',
@@ -113,11 +131,13 @@
       meta: h.sourceDir ? `${h.sourceDir}/${h.filename}` : h.filename,
       metaClass: 'hpal-file',
     }),
-    // Which of the two nothings this is, said plainly: a project with no handoffs reads as a broken hotkey
-    // otherwise, and a terminal the app cannot place is a different problem with a different fix.
-    emptyText: ({ projectPath }) => (projectPath
-      ? 'No handoffs in this project.'
-      : 'This session has no project.'),
+    emptyText: (ctx) => handoffEmptyState(ctx).text,
+    // A picker with nothing to pick offers the thing that would give it something (#473) — the variable
+    // picker's move, and for the same reason: an empty list on a hotkey reads as a broken hotkey.
+    emptyEnter: (ctx) => {
+      const { createFor } = handoffEmptyState(ctx);
+      if (createFor) window.startHandoffForSession?.(createFor);
+    },
     noMatchText: (query) => `No handoff matches “${query}”.`,
     /** A reference, plus one trailing space and no newline — never submitted. */
     pick: (handoff, { terminal, sessionId, extra }) => {
@@ -133,7 +153,7 @@
   }
 
   return {
-    filterHandoffs, handoffsForProject, handoffInsertText, DEFAULT_HANDOFF_INSERT_TEMPLATE,
-    openHandoffPalette,
+    filterHandoffs, handoffsForProject, handoffInsertText, handoffEmptyState,
+    DEFAULT_HANDOFF_INSERT_TEMPLATE, openHandoffPalette,
   };
 });

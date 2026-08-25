@@ -10,6 +10,9 @@
 //   showControlDialog, showControlToast (control-dialogs.js);
 //   activePtyIds, findProjectForSession, resolveDefaultSessionOptions, launchNewSession,
 //   cleanDisplayName (dialogs.js / app.js / utils.js); window.api.
+// Since #473 it also OWNS the command-palette action that opens this flow, so it reaches
+//   registerCommandAction (shell/command-actions.js) at parse time, and
+//   focusedActionSession, sessionMap, openSessions (app.js) at call time.
 
 async function showHandoffPrompt(session) {
   const health = getSessionHealth(session);
@@ -601,3 +604,53 @@ async function showHandoffResumePicker(project) {
   document.addEventListener('keydown', onKey);
   render();
 }
+
+// --- The keyboard routes into the flow (#473) ---
+//
+// Both of them end in `showHandoffPrompt`, the same dialog the health chip opens, because a second way in
+// must not become a second flow: the producer choice, the review and the save all live there, and they
+// are what makes a handoff a packet rather than a note.
+
+/**
+ * Open the handoff flow for a session id.
+ *
+ * The picker's empty state has an id and no session object, so this is where the id becomes one — and it
+ * does nothing at all when it does not resolve, rather than opening a dialog about a session that is
+ * gone.
+ */
+function startHandoffForSession(sessionId) {
+  const session = sessionId
+    ? (sessionMap.get(sessionId) || (openSessions.get(sessionId) || {}).session || null)
+    : null;
+  if (!session) return;
+  return showHandoffPrompt(session);
+}
+// Reached through `window` by handoff-palette.js, which is a UMD module the suite loads under node —
+// where none of this file's free globals exist.
+window.startHandoffForSession = startHandoffForSession;
+
+registerCommandAction({
+  id: 'handoff.create',
+  // It NAMES the session, because that is what keeps "which one does it mean" from being a guess: the
+  // action follows the app's focus (`focusedActionSession`, app.js), which can be a session whose
+  // terminal is not the thing on screen — a plan view is open, the caret is in the sidebar.
+  title: () => {
+    const session = focusedActionSession();
+    const name = session
+      ? (cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId)
+      : '';
+    return name ? `Write a handoff for “${name}”` : 'Write a handoff';
+  },
+  // Not 'Session': the palette prints the group as the row's meta line, and sessions themselves print
+  // "Session · <project>" there — an action that says the same word reads as one of them.
+  group: 'Handoff',
+  keywords: 'handoff hand over packet summarise context next session',
+  // Offered when there IS a session and absent when there is not, rather than offered everywhere and
+  // failing on use.
+  available: () => !!focusedActionSession(),
+  run: () => {
+    // Asked again rather than closed over: the palette may have been open while the session ended.
+    const session = focusedActionSession();
+    if (session) return showHandoffPrompt(session);
+  },
+});
