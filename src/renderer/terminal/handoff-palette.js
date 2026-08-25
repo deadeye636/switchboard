@@ -23,6 +23,7 @@
 //   `insertResolvedText` (terminal-context-menu.js) · `window.openPalette` (palette-core.js)
 //   `window.api.listHandoffs` / `.getEffectiveSettings` (preload.js)
 //   `window.startHandoffForSession` (handoff/handoff.js) — what the empty state's Enter opens (#473)
+//   `paletteMetaWithDate` (palette-core.js) — the row's date, worded like the Plans list (#475)
 //
 // Callers into this file: terminal-manager.js's hotkey (`openHandoffPalette`). Closing is the core's
 // `closePalette` / `closePaletteForSession`.
@@ -125,12 +126,17 @@
     filter: (rows, query) => filterHandoffs(rows, query),
     rowKey: (h) => h.filePath,
     // Both halves are on the row because both are searchable: filtering on a filename that is nowhere on
-    // screen is a match the user cannot account for.
-    row: (h) => ({
-      main: h.title || h.label || h.filename,
-      meta: h.sourceDir ? `${h.sourceDir}/${h.filename}` : h.filename,
-      metaClass: 'hpal-file',
-    }),
+    // screen is a match the user cannot account for. The date rides along (#475) — `modified` first,
+    // because a packet somebody edited after writing is a different document than the one that was saved.
+    row: (h) => {
+      const file = h.sourceDir ? `${h.sourceDir}/${h.filename}` : h.filename;
+      return {
+        main: h.title || h.label || h.filename,
+        meta: (typeof paletteMetaWithDate === 'function')
+          ? paletteMetaWithDate(file, h.modified || h.createdAt) : file,
+        metaClass: 'hpal-file',
+      };
+    },
     emptyText: (ctx) => handoffEmptyState(ctx).text,
     // A picker with nothing to pick offers the thing that would give it something (#473) — the variable
     // picker's move, and for the same reason: an empty list on a hotkey reads as a broken hotkey.

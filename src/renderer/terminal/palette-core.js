@@ -36,7 +36,7 @@
 //
 // Free globals it reaches for, all at CALL time so tag order does not decide them — guarded anyway:
 //   `closeTerminalContextMenu`, `closeSelectionBar` (terminal-context-menu.js) · `sessionMap` (app.js)
-//   `escapeHtml` (lib/utils.js) · `matchShortcut`, `isMac`, `appShortcuts` (shell/shortcuts.js)
+//   `escapeHtml`, `formatDate` (lib/utils.js) · `matchShortcut`, `isMac`, `appShortcuts` (shell/shortcuts.js)
 //
 // Callers into this file, for `openPalette`: variable-palette.js, plan-palette.js, skill-palette.js,
 // handoff-palette.js and shell/command-palette.js — grep `openPalette(` rather than trusting the list;
@@ -231,6 +231,24 @@
   function pickerContext() {
     const { terminal, sessionId, projectPath, extra, rows } = paletteState;
     return { terminal, sessionId, projectPath, extra, rows };
+  }
+
+  /**
+   * A row's meta line with the document's date on it (#475): `<file> · <when>`.
+   *
+   * Here rather than in each picker, because "when was this last changed" is the same question in all of
+   * them and the wording has to match the Plans list — which is `formatDate`, the app's one answer to it.
+   * A date that cannot be read is left off entirely: a row saying "unknown" is worth less than the
+   * filename it would push aside.
+   */
+  function paletteMetaWithDate(text, iso) {
+    const file = String(text == null ? '' : text);
+    if (!iso || typeof formatDate !== 'function') return file;
+    const when = new Date(iso);
+    if (Number.isNaN(when.getTime())) return file;
+    let label = '';
+    try { label = formatDate(when); } catch { label = ''; }
+    return label ? (file ? `${file} · ${label}` : label) : file;
   }
 
   function renderList() {
@@ -495,5 +513,8 @@
     position(terminal);
   }
 
-  return { nextIndex, paletteGeometry, centeredGeometry, openPalette, closePalette, closePaletteForSession, paletteIsSessionless };
+  return {
+    nextIndex, paletteGeometry, centeredGeometry, openPalette, closePalette, closePaletteForSession,
+    paletteIsSessionless, paletteMetaWithDate,
+  };
 });

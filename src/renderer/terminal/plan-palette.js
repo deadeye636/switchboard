@@ -21,6 +21,7 @@
 //
 // Free globals it reaches for, all at CALL time so tag order does not decide them — guarded anyway:
 //   `insertResolvedText` (terminal-context-menu.js) · `window.openPalette` (palette-core.js)
+//   `paletteMetaWithDate` (palette-core.js) — the row's date, worded like the Plans list (#475)
 //   `window.api.getPlans` / `.getEffectiveSettings` (preload.js)
 //
 // Callers into this file: terminal-manager.js's hotkey (`openPlanPalette`). Closing is the core's
@@ -108,7 +109,14 @@
     },
     filter: (rows, query) => filterPlans(rows, query),
     rowKey: (p) => p.filePath,
-    row: (p) => ({ main: p.title || p.filename, meta: p.filename, metaClass: 'ppal-file' }),
+    // The filename AND when the plan last changed (#475): the list is newest first, and the picker is
+    // where "which of these five" gets decided without the Plans list open beside it.
+    row: (p) => ({
+      main: p.title || p.filename,
+      meta: (typeof paletteMetaWithDate === 'function')
+        ? paletteMetaWithDate(p.filename, p.modified) : p.filename,
+      metaClass: 'ppal-file',
+    }),
     // Which of the two nothings this is, said plainly: a project with no plans reads as a broken hotkey
     // otherwise, and a terminal the app cannot place is a different problem with a different fix.
     emptyText: ({ projectPath }) => (projectPath ? 'No plans in this project.' : 'This session has no project.'),

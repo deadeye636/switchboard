@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { nextIndex, paletteGeometry } = require('../src/renderer/terminal/palette-core');
+const { nextIndex, paletteGeometry, paletteMetaWithDate } = require('../src/renderer/terminal/palette-core');
 
 test('the highlight wraps at both ends', () => {
   assert.equal(nextIndex(0, 3, 1), 1);
@@ -102,4 +102,47 @@ test('every picker config carries what the core reads', () => {
       assert.ok(new RegExp('(^|\\s)' + key + ':').test(src), `${path.basename(file)} declares no ${key}`);
     }
   }
+});
+
+// --- The row's date (#475) ---
+//
+// The pickers were the one place the app dropped it: the Plans list has shown it all along, and a picker
+// is where "which of these five" actually gets decided. It lives here rather than in each picker because
+// the wording has to be the app's one answer to that question, `formatDate`.
+//
+// `formatDate` is a free global of lib/utils.js, which node does not load — so it is planted on the
+// global here, which is also how the absent case gets covered.
+
+test('the file and the date, separated', () => {
+  global.formatDate = () => '3d ago';
+  try {
+    assert.equal(paletteMetaWithDate('2026-08-24-a.md', '2026-08-22T09:00:00Z'), '2026-08-24-a.md · 3d ago');
+    assert.equal(paletteMetaWithDate('.handoffs/a.md', '2026-08-22T09:00:00Z'), '.handoffs/a.md · 3d ago');
+  } finally { delete global.formatDate; }
+});
+
+test('a date that cannot be read leaves the filename alone', () => {
+  global.formatDate = () => '3d ago';
+  try {
+    assert.equal(paletteMetaWithDate('a.md', null), 'a.md', 'no date at all');
+    assert.equal(paletteMetaWithDate('a.md', 'not a date'), 'a.md', 'an unparseable one');
+    assert.equal(paletteMetaWithDate('a.md', ''), 'a.md');
+  } finally { delete global.formatDate; }
+});
+
+test('a formatter that throws or is absent costs the date, never the row', () => {
+  assert.equal(paletteMetaWithDate('a.md', '2026-08-22T09:00:00Z'), 'a.md', 'no formatter loaded');
+  global.formatDate = () => { throw new Error('x'); };
+  try {
+    assert.equal(paletteMetaWithDate('a.md', '2026-08-22T09:00:00Z'), 'a.md');
+  } finally { delete global.formatDate; }
+});
+
+test('nothing to name is not a row that says nothing', () => {
+  global.formatDate = () => '3d ago';
+  try {
+    assert.equal(paletteMetaWithDate('', '2026-08-22T09:00:00Z'), '3d ago',
+      'a row with no filename still says when');
+    assert.equal(paletteMetaWithDate(null, null), '');
+  } finally { delete global.formatDate; }
 });
