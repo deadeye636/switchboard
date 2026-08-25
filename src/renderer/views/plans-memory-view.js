@@ -30,6 +30,14 @@ async function loadPlans() {
   // disagrees — each silently. The list is the only place that can notice.
   plansUnfulfilled = (res && res.unfulfilled) || [];
   renderPlans();
+  // …and then the query again, if one is live. A reload renders the WHOLE list, so a plan written while
+  // someone is searching used to replace their results with everything — and now that a group starts
+  // collapsed, it would put their matches out of sight as well. Only while this tab is the one on
+  // screen: the search box belongs to whichever tab is showing, and re-running it from here for any
+  // other tab would search THAT tab's query. Guarded because this file is loaded by pages that have no
+  // search bar at all.
+  if (typeof activeTab !== 'undefined' && activeTab === 'plans'
+      && typeof reapplyActiveSearch === 'function') reapplyActiveSearch();
 }
 
 // The list follows the directory (#452). Reloading only when the tab is on screen: a rebuild costs a read
@@ -140,7 +148,10 @@ function buildPlanGroup(group, filtering) {
   header.addEventListener('click', () => {
     const nowCollapsed = !block.classList.contains('collapsed');
     block.classList.toggle('collapsed');
-    planCollapsedState.set(group.key, nowCollapsed);
+    // The state is what the user chose about the FULL list, so a click while a search is narrowing it
+    // closes the group and nothing more. Recording it would answer "where did I leave this open" with
+    // something done to a list of three matches, and the group would still be shut once the query went.
+    if (!filtering) planCollapsedState.set(group.key, nowCollapsed);
   });
   block.appendChild(header);
 
@@ -290,6 +301,10 @@ function hidePlanViewer() {
 async function loadMemories() {
   cachedMemoryData = await window.api.getMemories();
   renderMemories();
+  // Same as loadPlans, and for the same reason: creating or deleting a file reloads the tab, and an
+  // unfiltered reload throws away the query still standing in the search box.
+  if (typeof activeTab !== 'undefined' && activeTab === 'memory'
+      && typeof reapplyActiveSearch === 'function') reapplyActiveSearch();
 }
 
 // The search filter and the type filter are two independent narrowings of one list, so each has to
@@ -520,7 +535,10 @@ function buildMemoryGroup(key, label, files, resourceGroups = [], projectPath = 
   header.addEventListener('click', () => {
     const nowCollapsed = !group.classList.contains('collapsed');
     group.classList.toggle('collapsed');
-    memoryCollapsedState.set(key, nowCollapsed);
+    // Not recorded while a filter is on — see buildPlanGroup. The comment above has claimed the state
+    // was read and not written since #447; the write was there all along, and it is what made "clearing
+    // the filter puts every group back where you left it" untrue.
+    if (!filtering) memoryCollapsedState.set(key, nowCollapsed);
   });
 
   group.appendChild(header);
@@ -628,7 +646,8 @@ function buildResourceGroup(rg, parentKey, projectPath) {
     e.stopPropagation();
     const nowCollapsed = !block.classList.contains('collapsed');
     block.classList.toggle('collapsed');
-    memoryCollapsedState.set(key, nowCollapsed);
+    // Not while filtering, same as the two groups above.
+    if (!filtering) memoryCollapsedState.set(key, nowCollapsed);
   });
   block.appendChild(header);
 

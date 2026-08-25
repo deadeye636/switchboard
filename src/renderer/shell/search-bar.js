@@ -17,7 +17,8 @@
 // regardless. Parsed BEFORE app.js this file would die where it first touches `searchInput` — the const
 // binding would not yet exist (a ReferenceError), and the listeners bound above that point would have
 // attached to nothing useful. Loaded after app.js, the const is bound. app.js needs nothing from this file
-// at its own parse time (no external caller of clearSearch/runSearchQuery/…), so after-app.js is safe.
+// at its own parse time, so after-app.js is safe. The one external caller this file has is
+// `reapplyActiveSearch`, called from views/plans-memory-view.js at run time after a list reloads.
 //
 // What it reaches into, by file (searchClear/searchTitlesToggle/searchRefreshBtn are this file's OWN consts,
 // not app.js's — they are not listed):
@@ -157,6 +158,23 @@ async function runSearchQuery() {
       refreshSidebar({ resort: true });
     }
   }
+}
+
+/**
+ * Put the live query back over a list that has just rebuilt itself from disk.
+ *
+ * A reload calls its renderer with no arguments, and "no arguments" means "no filter" — so a plan
+ * written by an agent, or a skill created from the Agent Files tab, replaced the results someone was
+ * reading with the whole list while their query still sat in the box. The list a tab shows has to be
+ * the list that goes with the text in the search field.
+ *
+ * Called by the reload paths in views/plans-memory-view.js. A query below the floor takes the same
+ * route it does while typing (`runSearchQuery` resets the filter without wiping the text), so this
+ * needs no length rule of its own.
+ */
+function reapplyActiveSearch() {
+  if (!searchInput.value.trim()) return;
+  runSearchQuery();
 }
 
 // Debounced search-as-you-type. Bumped from 200ms to 350ms — gentler under
