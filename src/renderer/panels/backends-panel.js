@@ -204,12 +204,21 @@
     return parts[parts.length - 1] || String(projectPath || '');
   }
 
+  // The census of what a backend discovers — and it is not the Agent Files tab written twice (#472).
+  //
+  // Agent Files shows the kinds that can be EDITED and deliberately leaves out plan stores (the Plans tab
+  // owns those) and plugins, packages, themes and extensions, because a directory opened in a text editor
+  // is a dead end. Those exist only here, where "Open" hands one to the system. The old hint said what
+  // this list cannot do and never where it could be done, which is what made it read as the worse copy.
+  //
+  // Closed by default since #472: it answers "does this CLI see my skills?", which is a question asked
+  // occasionally, and expanded it pushed the launch options off the screen on every visit.
   function resourcesShell(backend, title, projectPath) {
     if (!backend.resourceDiscovery) return '';
     return `
-      <details class="settings-adv backend-resources" data-resources-for="${esc(backend.id)}" open>
+      <details class="settings-adv backend-resources" data-resources-for="${esc(backend.id)}">
         <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>${esc(title || 'Resources')}</summary>
-        <div class="backend-env-hint">Read-only view of backend-owned resources. Switchboard does not install or execute them from here.</div>
+        <div class="backend-env-hint">Everything this backend discovers, read-only. Skills, rules and commands are edited in <b>Agent Files</b>; plugins, packages and themes are listed only here, because no text editor opens a directory — <b>Open</b> hands one to the system.</div>
         ${projectPath ? `<div class="backend-env-hint backend-resources-project">Project-scoped rows come from <code>${esc(projectPath)}</code>.</div>` : ''}
         <div class="backend-resource-list" data-resource-list="${esc(backend.id)}"><div class="settings-hint">Loading resources…</div></div>
       </details>`;
@@ -245,6 +254,21 @@
     try { result = await window.api.backends.listResources(backendId, projectPath || null); }
     catch { result = { ok: false, reason: 'Switchboard could not reach the backend list.' }; }
     list.innerHTML = renderResources(result);
+  }
+
+  // Resources load when their section is OPENED, not when the panel renders (#472).
+  //
+  // Rendering used to walk the filesystem once per backend for lists nobody had asked to see — five
+  // installed backends meant five walks every time project settings opened. `toggle` covers both ways a
+  // disclosure opens: a click, and the settings search force-opening it to show a hit inside.
+  function bindLazyResources(root, projectPath) {
+    root.querySelectorAll('details.backend-resources').forEach(d => {
+      d.addEventListener('toggle', () => {
+        if (!d.open || d.dataset.loaded === '1') return;
+        d.dataset.loaded = '1';
+        loadResources(root, d.dataset.resourcesFor, projectPath || null);
+      });
+    });
   }
 
   // Why a resource action reports into the ROW and not into its own button (#444).
@@ -360,14 +384,22 @@
         </div>`;
     }).join('');
 
+    // Collapsed (#472), and the header says whether this project changes anything for this backend.
+    // Without that marker, "what does this project override" would mean opening every section in turn —
+    // which is the question a project settings screen exists to answer.
+    const overrides = fields.filter(f => own[f.id] !== undefined && own[f.id] !== null).length;
     return `
-      <div class="settings-section">
-        <div class="settings-section-title backend-inline-title">
+      <details class="settings-adv backend-collapse" data-defaults-for="${esc(backend.id)}">
+        <summary>
+          <svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
           <span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="16" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>
-          ${esc(backend.label)}
+          <span class="backend-collapse-label">${esc(backend.label)}</span>
+          ${overrides ? `<span class="backend-pill backend-override-pill">${overrides} override${overrides === 1 ? '' : 's'}</span>` : ''}
+        </summary>
+        <div class="settings-section">
+          ${rows}
         </div>
-        ${rows}
-      </div>`;
+      </details>`;
   }
 
   // The way into the capability matrix (#439), as one string, because there are two ways in (#446): the
@@ -1136,16 +1168,13 @@
           <div class="settings-hint">Per-backend launch options for this project. Each option falls back to the global default unless you override it here. Enabling a backend and the default launch target stay global.</div>
         </div>
         ${readyBackends.map(b => inlineDefaultsSection(b, mergedOwnDefaults(), inheritedDefaults)).join('')}
-        ${readyBackends.filter(b => b.resourceDiscovery).map(b => `
-          <div class="settings-section">
-            <div class="settings-section-title backend-inline-title">
-              <span class="backend-icon-slot" data-icon="${esc(b.icon || b.colour || b.id)}" data-size="16" ${b.monogram ? `data-monogram="${esc(b.monogram)}"` : ''}></span>
-              ${esc(b.label)} resources${ctx.projectPath ? ` · ${esc(projectFolderName(ctx.projectPath))}` : ''}
-            </div>
-            ${resourcesShell(b, 'Project and global resources', ctx.projectPath || null)}
-          </div>`).join('')}`;
+        ${readyBackends.filter(b => b.resourceDiscovery).map(b => resourcesShell(
+          b,
+          `${b.label} resources${ctx.projectPath ? ` · ${projectFolderName(ctx.projectPath)}` : ''}`,
+          ctx.projectPath || null,
+        )).join('')}`;
       bindResourceCopy(box);
-      readyBackends.filter(b => b.resourceDiscovery).forEach(b => loadResources(box, b.id, ctx.projectPath || null));
+      bindLazyResources(box, ctx.projectPath || null);
       box.addEventListener('input', (e) => recordDefault(e.target));
       box.addEventListener('change', (e) => {
         // Un-checking "use global default" starts an override at the value currently shown; re-checking
@@ -1315,7 +1344,7 @@
       // is already asking — and the neighbouring column is the answer, so it opens unfiltered (#446).
       bindCapabilityMatrix(page);
       bindResourceCopy(page);
-      loadResources(page, backend.id, null);
+      bindLazyResources(page, null);
       page.addEventListener('click', (e) => {
         if (e.target.closest('[data-act="back"]')) mount(root, { ...ctx, keepPending: true });
       });

@@ -32,13 +32,17 @@ function setup({ openResult = { ok: true } } = {}) {
   const { window } = dom;
 
   const openCalls = [];
+  const listCalls = [];
   window.api = {
     backends: {
       list: async () => ({
         backends: [{ id: 'claude', label: 'Claude Code', status: 'ready', available: true, resourceDiscovery: true, configFields: [] }],
         defaultLaunchTarget: 'claude',
       }),
-      listResources: async () => ({ ok: true, resources: RESOURCES }),
+      listResources: async (backendId, projectPath) => {
+        listCalls.push([backendId, projectPath]);
+        return { ok: true, resources: RESOURCES };
+      },
       openResource: async (backendId, resourcePath) => { openCalls.push([backendId, resourcePath]); return openResult; },
     },
     profiles: { list: async () => ({ profiles: [] }) },
@@ -47,10 +51,10 @@ function setup({ openResult = { ok: true } } = {}) {
 
   vm.runInContext(fs.readFileSync(PANEL, 'utf8'), dom.getInternalVMContext(), { filename: PANEL });
 
-  return { window, dom, openCalls, root: window.document.getElementById('root') };
+  return { window, dom, openCalls, listCalls, root: window.document.getElementById('root') };
 }
 
-async function mountProject(ctx) {
+async function mountPanel(ctx, over = {}) {
   await ctx.window.backendsPanel.mount(ctx.root, {
     isProject: true,
     projectPath: PROJECT_PATH,
@@ -58,7 +62,23 @@ async function mountProject(ctx) {
     globalDefaults: {},
     fieldValue: (_id, fallback) => fallback,
     useGlobalCheckbox: () => '',
+    ...over,
   });
+}
+
+/** Open every resources disclosure — since #472 that is what fetches them. */
+function openResources(ctx) {
+  for (const d of ctx.root.querySelectorAll('details.backend-resources')) {
+    d.open = true;
+    // jsdom does not always fire `toggle` from the property, and the panel's own `dataset.loaded` guard
+    // makes a doubled event harmless — so this is safe whichever way jsdom behaves.
+    d.dispatchEvent(new ctx.window.Event('toggle'));
+  }
+}
+
+async function mountProject(ctx) {
+  await mountPanel(ctx);
+  openResources(ctx);
   // loadResources is fired without being awaited — the rows arrive a microtask later.
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -96,7 +116,7 @@ test('the resource section names the project it is showing', async () => {
   const ctx = setup();
   try {
     await mountProject(ctx);
-    const heading = [...ctx.root.querySelectorAll('.settings-section-title')]
+    const heading = [...ctx.root.querySelectorAll('details.backend-resources > summary')]
       .map(el => el.textContent.replace(/\s+/g, ' ').trim())
       .find(t => t.includes('resources'));
     assert.ok(heading.includes('switchboard'),
@@ -104,6 +124,52 @@ test('the resource section names the project it is showing', async () => {
     // And the folder name alone is ambiguous, so the full path is there too.
     const hint = ctx.root.querySelector('.backend-resources-project');
     assert.ok(hint && hint.textContent.includes(PROJECT_PATH));
+  } finally { ctx.dom.window.close(); }
+});
+
+// --- #472: closed, and free until it is opened --------------------------------
+
+test('nothing is read from disk until a resources section is opened', async () => {
+  const ctx = setup();
+  try {
+    await mountPanel(ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Rendering used to walk the filesystem once per backend for a list nobody had asked to see.
+    assert.deepEqual(ctx.listCalls, [], 'a closed section costs nothing');
+    assert.equal(ctx.root.querySelector('details.backend-resources').open, false, 'and it starts closed');
+
+    openResources(ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(ctx.listCalls.length, 1, 'opening it is what fetches');
+    assert.ok(rowFor(ctx, 'CLAUDE.md'), 'and the rows are there afterwards');
+
+    // Closing and opening again must not fetch a second time.
+    openResources(ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(ctx.listCalls.length, 1);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('a collapsed backend says whether this project overrides anything', async () => {
+  const ctx = setup();
+  try {
+    ctx.window.api.backends.list = async () => ({
+      backends: [{
+        id: 'claude', label: 'Claude Code', status: 'ready', available: true, resourceDiscovery: true,
+        configFields: [
+          { id: 'model', label: 'Model', type: 'text', default: '' },
+          { id: 'sandbox', label: 'Sandbox', type: 'text', default: '' },
+        ],
+      }],
+      defaultLaunchTarget: 'claude',
+    });
+    await mountPanel(ctx, { settings: { backendDefaults: { claude: { model: 'opus' } } } });
+
+    const summary = ctx.root.querySelector('details.backend-collapse > summary');
+    assert.ok(summary, 'the launch defaults are a disclosure now');
+    assert.equal(ctx.root.querySelector('details.backend-collapse').open, false, 'closed');
+    // Without this, "what does this project change" means opening every section in turn.
+    assert.match(summary.textContent, /1 override\b/);
   } finally { ctx.dom.window.close(); }
 });
 

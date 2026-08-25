@@ -10516,6 +10516,11 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 .backend-page-title #sv-capability-matrix { margin-left: auto; }
 
 .backend-inline-title { display: flex; align-items: center; gap: 7px; }
+/* A backend's collapsed launch defaults (#472). The summary carries the chevron, the backend's mark and
+   — only when this project changes something — how many options it overrides. */
+.backend-collapse > summary { display: flex; align-items: center; gap: 7px; }
+.backend-collapse-label { font-weight: 500; }
+.backend-override-pill { margin-left: auto; }
 
 /* The backend is built, but its binary isn't on this machine — the probe's own reason is shown
    under the row, so the user learns what to install BEFORE a launch dies in the terminal. */
