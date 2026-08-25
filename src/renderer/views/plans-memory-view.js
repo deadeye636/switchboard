@@ -63,6 +63,10 @@ function renderUnfulfilled() {
 }
 
 function renderPlans(plans) {
+  // A list that is not THE list is a narrowed one: search-bar.js hands over a filtered copy while a
+  // query is live and `cachedPlans` itself otherwise. That is what decides whether a group may stay
+  // collapsed — a match inside a collapsed group is a match the search appears not to have found.
+  const filtering = !!plans && plans !== cachedPlans;
   plans = plans || cachedPlans;
   plansContent.innerHTML = '';
   // BEFORE the empty branch, not after: a configured directory with nothing in it is exactly the case
@@ -80,16 +84,21 @@ function renderPlans(plans) {
   // fact about the plan rather than a folder it happens to sit in — every plan still lives in the same
   // flat directory on disk.
   for (const group of window.planGroups(plans)) {
-    plansContent.appendChild(buildPlanGroup(group));
+    plansContent.appendChild(buildPlanGroup(group, filtering));
   }
 }
 
+// Which groups the user has opened, for as long as this window lives. Deliberately not persisted: the
+// state is "where I am right now", and a project left open three days ago is not that.
 const planCollapsedState = new Map();
 
-function buildPlanGroup(group) {
+function buildPlanGroup(group, filtering) {
   const block = document.createElement('div');
   block.className = 'project-group plan-group';
-  const isCollapsed = planCollapsedState.get(group.key) === true;
+  // Collapsed until opened, like the Agent Files projects. The list answers "which projects have plans"
+  // first; a project with forty plans otherwise buried every project under it.
+  const stored = planCollapsedState.get(group.key);
+  const isCollapsed = !filtering && stored !== false;
   if (isCollapsed) block.classList.add('collapsed');
 
   const header = document.createElement('div');
@@ -471,11 +480,19 @@ function applyAgentFileTypeFilterVisibility(activeTabName) {
 function buildMemoryGroup(key, label, files, resourceGroups = [], projectPath = null) {
   const group = document.createElement('div');
   group.className = 'project-group';
-  // Default expanded, and never collapsed while a filter is on — a match hidden inside a collapsed
-  // project is a match the filter appears not to have found. The stored state is read, not written,
-  // so clearing the filter puts every group back where the user left it.
+  // A PROJECT starts collapsed, Global starts open. Every project expanded meant scrolling past other
+  // people's files to reach your own, and the tab answers "which projects have agent files" before it
+  // answers "which files" — so the projects are a table of contents until one is opened. Global is the
+  // exception because it applies everywhere and there is only one of it: leaving it open means the tab
+  // still shows files the moment it opens.
+  //
+  // Never collapsed while a filter is on — a match hidden inside a collapsed project is a match the
+  // filter appears not to have found. The stored state is read, not written, so clearing the filter
+  // puts every group back where the user left it.
   const filtering = window.agentFileFiltering(memoryFilters());
-  const isCollapsed = !filtering && memoryCollapsedState.get(key) === true;
+  const stored = memoryCollapsedState.get(key);
+  const collapsedByDefault = key !== '__global__';
+  const isCollapsed = !filtering && (stored === undefined ? collapsedByDefault : stored === true);
   if (isCollapsed) group.classList.add('collapsed');
 
   // Header
