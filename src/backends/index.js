@@ -331,9 +331,12 @@ function backendCoreEnv({ mcpPort } = {}) {
     // output is the point — and it is lost with this set, measured: a probe app printed both its lines
     // without the variable and neither with it.
     //
-    // A backend that ever needs the opposite declares it in its own launch env, which is merged over
-    // this one. Electron reads presence, NOT value — an empty string counts as set and still suppresses,
-    // so a backend opting out has to leave the key off entirely rather than blank it.
+    // There is NO way for a backend to opt out of this today, and saying so is the point: Electron reads
+    // presence, NOT value — an empty string counts as set and still suppresses, measured — so a merge
+    // cannot undo this key, only a deletion can. A descriptor that needs the attach back therefore needs
+    // a hook that makes this line skip, which is a change here rather than an env of its own.
+    // Nothing has needed it: a backend session renders a TUI, and console output in that PTY IS the
+    // corruption. The plain terminal, where such output is wanted, never gets this env at all.
     ELECTRON_NO_ATTACH_CONSOLE: '1',
   };
   if (mcpPort != null) env.CLAUDE_CODE_SSE_PORT = String(mcpPort);
