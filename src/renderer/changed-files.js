@@ -91,7 +91,9 @@
     if (btn) {
       const rel = btn.closest('.file').dataset.path;
       if (btn.dataset.act === 'open') window.api.openPath(abs(rel));
-      else window.api.vcsReveal(abs(rel));
+      // The working directory travels with the path (#477): main decides whether it is inside the
+      // repository before it hands anything to the file manager, and it cannot do that from a path alone.
+      else window.api.vcsReveal({ cwd, path: rel });
       return;
     }
     // A click inside the diff pane (selecting text, etc.) must not collapse the row.

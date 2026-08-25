@@ -455,10 +455,21 @@ function registerIpc(ipc) {
     return fileVersions(cwd, rel, req.kind, req.staged === true);
   });
 
-  ipc.handle('vcs-reveal', (_event, filePath) => {
-    if (ctx && ctx.shell && typeof filePath === 'string' && filePath) {
-      try { ctx.shell.showItemInFolder(path.resolve(filePath)); } catch { /* best-effort */ }
-    }
+  // Reveal a file in the OS file manager (#477). It is asked about a working directory and a path within
+  // it, not about a path alone: the two readers above decide whether a path is inside the repository
+  // before they touch it, and this handler used to hand `showItemInFolder` whatever arrived.
+  //
+  // `insideRepo` asks about the DIRECTORY, which is what keeps the button doing its job: a file deleted in
+  // the working tree has no leaf left, and the file manager opening its folder is the useful answer.
+  ipc.handle('vcs-reveal', (_event, req) => {
+    const cwd = req && req.cwd;
+    const rel = req && req.path;
+    if (!ctx || !ctx.shell) return;
+    if (typeof cwd !== 'string' || !cwd || typeof rel !== 'string' || !rel) return;
+    const base = path.resolve(cwd);
+    const abs = path.resolve(cwd, rel);
+    if (!insideRepo(abs, base)) return;
+    try { ctx.shell.showItemInFolder(abs); } catch { /* best-effort */ }
   });
 
   // The changes-window diff (#285). A tracked file → the provider's diff command; an untracked file has
