@@ -316,6 +316,25 @@ function backendCoreEnv({ mcpPort } = {}) {
     TERM_PROGRAM_VERSION: '3.6.6',
     FORCE_COLOR: '3',
     ITERM_SESSION_ID: '1',
+    // A GUI app started from this session's shell must not write into this session's terminal (#478).
+    //
+    // An Electron app launched with no stdio of its own — `Start-Process` on a GUI executable — calls
+    // AttachConsole(ATTACH_PARENT_PROCESS) and reopens stdout on CONOUT$. That console is the ConPTY of
+    // the terminal that started it, so two processes then write one stream: the CLI repainting its TUI,
+    // and a stranger emitting log lines with absolute cursor moves among them. The TUI loses. Measured
+    // in a terminal doing nothing but starting such an app: 23089 bytes of foreign output in 40 s.
+    //
+    // It sits HERE, in the env every backend spawn shares, and not in the base env every PTY gets,
+    // because the two cases want opposite things. A backend session renders a TUI and shows no console
+    // output of its own, so suppressing the attach costs nothing. A plain terminal is the user's own
+    // shell, where `npm start` or `electron .` in the FOREGROUND is a thing people type and the console
+    // output is the point — and it is lost with this set, measured: a probe app printed both its lines
+    // without the variable and neither with it.
+    //
+    // A backend that ever needs the opposite declares it in its own launch env, which is merged over
+    // this one. Electron reads presence, NOT value — an empty string counts as set and still suppresses,
+    // so a backend opting out has to leave the key off entirely rather than blank it.
+    ELECTRON_NO_ATTACH_CONSOLE: '1',
   };
   if (mcpPort != null) env.CLAUDE_CODE_SSE_PORT = String(mcpPort);
   return env;

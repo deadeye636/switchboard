@@ -465,17 +465,22 @@ profile editor's "resolves ✓ / not set ✗" badge asks for presence only; valu
 `ELECTRON_`, `GOOGLE_API_KEY*`, plus `NODE_OPTIONS`, `ORIGINAL_XDG_CURRENT_DESKTOP`, `WT_SESSION` and
 Claude's two AFK variables (an inherited AFK value must not overrule the per-session setting).
 
-It then adds `ELECTRON_NO_ATTACH_CONSOLE=1`, the one `ELECTRON_` variable that is not stripped. An
-Electron app started from a session's shell without stdio of its own — `Start-Process` on a GUI
-executable, say — otherwise attaches to that session's console and writes its own log into the terminal,
-on top of whatever TUI is running there. Set the variable to the empty string to get the old behaviour
-back: Electron reads presence, not value, and a value of yours is kept rather than overwritten.
+`ELECTRON_NO_ATTACH_CONSOLE` is the one `ELECTRON_` variable that survives that strip, because a value
+you set for it is a decision about your own terminals. Switchboard does not set it for every PTY.
 
 **Every backend spawn** then adds: `TERM=xterm-256color`, `COLORTERM=truecolor`,
 `TERM_PROGRAM=iTerm.app`, `TERM_PROGRAM_VERSION`, `FORCE_COLOR=3`, `ITERM_SESSION_ID` — the iTerm identity
 is not cosmetic: Claude Code checks it before emitting the OSC-9 "needs your attention" signal. Plus
 `CLAUDE_CODE_SSE_PORT` when this session has an MCP bridge, and `CLAUDE_AFK_TIMEOUT_MS` **only** when a
 timeout was actually chosen (otherwise Claude's own default stands).
+
+It also adds `ELECTRON_NO_ATTACH_CONSOLE=1`. An Electron app started from the session's shell with no
+stdio of its own — `Start-Process` on a GUI executable, say — otherwise attaches to that session's
+console and writes its own log into the terminal, over the TUI running there. A backend session shows no
+console output of its own, so nothing is lost by suppressing it; a **plain terminal** deliberately gets
+none of this, because an Electron app running in the foreground there is meant to print. Electron reads
+presence rather than value: an empty string counts as set and still suppresses, so anything that wants
+the attach back has to leave the key off entirely.
 
 **A plain terminal** (no backend) gets the same terminal identity, `CLAUDECODE=1`, and a shell shim on
 `ENV`/`BASH_ENV` that intercepts a bare `claude` and points at the sidebar's + button. PowerShell and cmd

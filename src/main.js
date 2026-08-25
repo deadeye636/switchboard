@@ -144,25 +144,12 @@ const cleanPtyEnv = Object.fromEntries(
   )
 );
 
-// A GUI app started from a session's shell must not write into that session's terminal (#478).
-//
-// An Electron app launched with no stdio handles of its own — which is exactly what `Start-Process` on a
-// GUI executable produces — calls `AttachConsole(ATTACH_PARENT_PROCESS)` and reopens stdout on `CONOUT$`.
-// That console is the ConPTY of whatever terminal started it, so from then on TWO processes write to one
-// stream: the CLI repainting its TUI, and a stranger emitting log lines with absolute cursor moves in
-// them. The TUI loses, and nothing short of a resize gets the screen back.
-//
-// Measured against LM Studio in a plain terminal, `Start-Process` and nothing else: 23089 bytes of
-// foreign output arrived on this session's `terminal-data` in 40 s, and 263 with the variable set — the
-// script's own two lines. The app was running either way, so it was silenced, not prevented.
-//
-// Electron reads presence, not value (an empty string counts as unset), so a user who wants the old
-// behaviour back sets it to the empty string. Hence the exception in the filter above: their value has to
-// survive the strip for this line to be able to defer to it.
-//
-// Only Electron apps read this. Anything else that attaches to a console on its own is untouched, which
-// is why the recovery half of #478 exists as well.
-if (cleanPtyEnv.ELECTRON_NO_ATTACH_CONSOLE === undefined) cleanPtyEnv.ELECTRON_NO_ATTACH_CONSOLE = '1';
+// Why ELECTRON_NO_ATTACH_CONSOLE is the one ELECTRON_ variable that survives the strip above (#478):
+// it is the switch that stops a GUI app from writing into the terminal that started it, and the value a
+// user sets for it is a deliberate choice about their own terminals. Switchboard does not set it here —
+// a plain terminal is the user's own shell, where an Electron app running in the FOREGROUND is meant to
+// print. Backend sessions, which render a TUI and show no console output of their own, get it from
+// `backendCoreEnv` in `src/backends/index.js`, and that is where the whole mechanism is written down.
 
 // Shell profiles → shell-profiles.js
 const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, shellArgs, ptyShellArgs, quoteArgvForShell } = require('./app/terminal/shell-profiles');

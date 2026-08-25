@@ -417,25 +417,32 @@ test("cleanPtyEnv strips a parent Claude session's markers, and only those (#243
 });
 
 // #478 — a GUI app started from a session's shell attaches to that session's console and writes its own
-// log into the PTY, on top of the CLI's TUI. Electron only does that when the variable below is unset, so
-// every PTY gets it — measured at 23089 bytes of foreign output without it and 263 with it, same app,
-// same 40 s. Two halves, and the strip above is why the second one is needed: the ELECTRON_ prefix filter
-// would otherwise remove the very variable this sets, including one the user set deliberately.
-test('every PTY carries ELECTRON_NO_ATTACH_CONSOLE, and a user value survives the strip (#478)', () => {
+// log into the PTY, on top of the CLI's TUI. Electron only does that when the variable below is unset.
+// A backend spawn therefore carries it: a TUI session shows no console output of its own, so nothing is
+// lost. A PLAIN terminal deliberately does not — it is the user's own shell, and an Electron app running
+// in the foreground there is meant to print. Both halves are measured: 23089 bytes of foreign output in a
+// terminal without the variable against 255 with it, and a probe app that printed both its lines without
+// it and neither with it.
+test('a backend spawn carries ELECTRON_NO_ATTACH_CONSOLE, a plain terminal does not (#478)', () => {
+  const { backendCoreEnv } = require('../src/backends');
+  assert.equal(
+    backendCoreEnv({}).ELECTRON_NO_ATTACH_CONSOLE, '1',
+    'every backend spawn must suppress the console attach — without it a GUI app started from the ' +
+    "session's shell writes its log over the CLI's TUI",
+  );
+
   const fs = require('node:fs');
   const path = require('node:path');
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
   const block = src.slice(src.indexOf('const cleanPtyEnv'), src.indexOf('const cleanPtyEnv') + 4000);
-
   assert.ok(
     /!k\.startsWith\('ELECTRON_'\)\s*\|\|\s*k === 'ELECTRON_NO_ATTACH_CONSOLE'/.test(block),
-    "the ELECTRON_ strip must except ELECTRON_NO_ATTACH_CONSOLE — without it a value the user set " +
-    'deliberately is removed before the default below can defer to it',
+    'the ELECTRON_ strip must except ELECTRON_NO_ATTACH_CONSOLE — it is the one variable of that ' +
+    "family that is a user's own decision about their terminals, and stripping it takes the decision away",
   );
   assert.ok(
-    /cleanPtyEnv\.ELECTRON_NO_ATTACH_CONSOLE === undefined\) cleanPtyEnv\.ELECTRON_NO_ATTACH_CONSOLE = '1'/
-      .test(block),
-    'cleanPtyEnv must default ELECTRON_NO_ATTACH_CONSOLE to 1, and only when the user set none — an ' +
-    'Electron GUI app started from a session otherwise writes its log into that session\'s terminal',
+    !/cleanPtyEnv\.ELECTRON_NO_ATTACH_CONSOLE\s*=/.test(block),
+    'do not set it for EVERY PTY — a plain terminal is the user\'s shell, and an Electron app running ' +
+    'in the foreground there loses its console output when this is set (measured)',
   );
 });
