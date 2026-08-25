@@ -93,8 +93,9 @@ had already happened somewhere:
 `format-validate.js` decides whether the text still parses, by EXTENSION rather than by backend. Syntax
 only, never schema: the CLIs change their own schemas whenever they like.
 
-Every writer goes through it — `saveMemory`, `savePlan`, `save-file-for-panel` and the resource writer in
-`backend-resources.js`. A new one that does not is a second set of guarantees for the same files.
+Every writer goes through it — `saveMemory`, `savePlan`, `saveHandoff` (#468), `save-file-for-panel` and
+the resource writer in `backend-resources.js`. Grep for `writeTextFile` rather than trusting this list. A
+new writer that does not use it is a second set of guarantees for the same files.
 
 ## What routes per session, and what stays in main (#2, #393, #395)
 

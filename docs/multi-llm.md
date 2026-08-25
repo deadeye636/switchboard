@@ -95,7 +95,8 @@ outright — that combination would send your key to someone else.
 ## Handoffs across backends
 
 A **handoff** is a packet that summarises the actual state of the work — written by an agent, reviewed by
-you, then either used to seed a fresh lean session or stored in the project's handoff library.
+you, then either used to seed a fresh lean session or saved as a markdown file in the project
+(`docs/handoffs-convention.md`).
 
 **You choose who writes it**, because that is a real trade-off and not something the app should guess:
 

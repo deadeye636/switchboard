@@ -444,6 +444,34 @@ Worth remembering when the same shape appears again: the guard is not being peda
 `.claude` literal in the core is the point where a second backend's version of the feature becomes a
 branch instead of an answer.
 
+## A red test can be the specification working (#472)
+
+Making the per-backend resource lists load lazily turned nine tests in `backend-resources-panel.test.js`
+red at once. They mounted the panel and read the rows a microtask later — which only worked because
+rendering fetched everything, the exact behaviour the issue existed to remove.
+
+The reflex to reach for is not "what did I break". Ask what the test PINS: if it pins the old behaviour
+and the change was the point, the test is the thing to update, and updating it is where the new contract
+gets written down. Those nine now open the disclosure first — what a user does — and two more say what
+is new: a closed section makes no call, opening it makes exactly one.
+
+The failure mode this avoids is the opposite one, and it is worse: keeping the eager fetch so the suite
+stays green, and shipping the issue's title without its content.
+
+## The guard caught the literal the author had a reason for (#468)
+
+`.claude/handoffs` went into the core's default list of handoff directories on purpose — it is where
+Claude's own handoff skills write, the coverage was explicitly agreed with the owner, and leaving it out
+would have lost real files. `test/backend-path-neutrality.test.js` failed on it anyway, together with the
+two settings files that carried the same string.
+
+Both facts were true: the directory had to be covered, and the core must not spell it. The seam that
+resolves them is the one the rules already name — a `handoffDirs({ projectPath })` hook on the descriptor,
+answered by Claude and by nobody else. Ten minutes, and the core knows nothing about `.claude`.
+
+**A neutrality failure is not a request to weaken the list.** It is the question "whose knowledge is
+this?", and the answer is nearly always a descriptor hook that did not exist yet.
+
 ## A rule established on one surface, and nowhere else (#444, #457)
 
 #444 asked that no message shown to the user carry a raw filesystem error string. The fix held for the

@@ -61,6 +61,14 @@ const DELIBERATE = {
   'docs/specs/04-one-click-handoff.md': {
     'test/handoff-flow.test.js': 'conditional on a pure module that was not added; the shipped tests are test/handoff-{actions,extract,prompt,submit}.test.js',
   },
+  // Same for the rule and the lesson that explain why the core does not spell that directory: the string
+  // is a path inside somebody else's project, named in order to say it does NOT belong here.
+  '.claude/rules/backends.md': {
+    '.claude/handoffs': "a directory inside a USER's project, where Claude's handoff skills write",
+  },
+  'docs/ai/lessons.md': {
+    '.claude/handoffs': 'ditto — the literal the neutrality guard refused in the core',
+  },
   // The handoff convention names directories in the USER's project, not paths in this repo. They read as
   // repo paths to this guard because their prefixes exist here; the trailing slash is the tell that they
   // are directories somebody else keeps.

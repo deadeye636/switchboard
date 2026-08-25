@@ -178,6 +178,28 @@ reflexive Escape closes a `showControlDialog` — fine for a question, wrong for
 something the user cannot get back (a handoff packet an agent spent tokens writing). Pass
 `dismissible: false`, or ask before discarding.
 
+## The settings screen: grouped by subject, counted, and closed by default (#471, #472)
+
+Three things there are decisions rather than styling, and each is the kind a later change undoes without
+noticing.
+
+- **A category is a subject, and its name says which.** `settings-global-html.js` holds one
+  `<section class="settings-cat" data-cat="…">` per category and a nav button per section; the nav
+  switching is generic, so adding a category is those two. A field goes where its subject is — the reason
+  this rule exists is that Terminal accumulated documents, editor settings and secrets under a heading
+  that sounded plausible, and held 26 fields when the screen said 10.
+- **The counts beside the names are counted** — `settings-panel.js` fills them from each section's
+  `.settings-field` elements after the markup is in. Do not write a number into the markup; the ones that
+  were there had been wrong for a while. A category another module fills in later counts nothing and
+  shows nothing.
+- **Per-backend sections are closed, and cost nothing while closed.** Project settings draw two blocks per
+  installed backend, so an expanded default is ten open blocks and a filesystem walk per backend before
+  anyone has looked. `bindLazyResources` in `backends-panel.js` fetches on `toggle` — which also covers
+  the settings search force-opening a disclosure to reveal a hit. Closed is closed for everyone: no
+  remembered state, so two people looking at one project see one screen. What a collapsed header must
+  keep saying is whether this project overrides anything, or the screen stops answering the question it
+  exists for.
+
 ## Panes mode hosts the app's own view elements (#310, #342, #311)
 
 In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not build a view. `VIEW_KINDS` in

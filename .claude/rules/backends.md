@@ -39,7 +39,9 @@ generated settings page and Configure dialog, the sidebar badge, search, stats, 
 keeps its **plans + memory/instruction files** (`plansDir(scope)` / `memorySources(scope)`, #227 —
 both scoped since #450, because a project can point its CLI at a plans directory of its own), how one
 of its plan files is **referred to** in its sessions and what it would take to **point it at a project's
-plans directory** (`planRef` / `planDirSetup`, #449/#450), whether it has
+plans directory** (`planRef` / `planDirSetup`, #449/#450), where it keeps **handoff packets inside a
+project** (`handoffDirs({ projectPath })`, #468 — Claude's handoff skills write into `.claude/handoffs`,
+and a core that spelled that would have learned one backend's layout), whether it has
 **subagents** (`supportsSubagents`, #230 — only Claude does), and its CLI home variable
 (`cliHomeEnv`, #241).
 

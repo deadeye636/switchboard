@@ -17,7 +17,11 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
   `search-store` (FTS5), `tags-store`, `tasks-store`, `settings-store`, `stats-store`,
   `timeline-store` (what HAPPENED to a session, over time — #396; its shape and both retention limits
   are in `timeline-record.js`, outside it for the same reason `stats-queries.js` is outside `db.js`)
-- `project-refs.js` — a project's footprint moved across four stores, atomically
+- `legacy-handoffs.js` — the handoff library's old table, and only the two calls that empty it (#468).
+  Its statements are prepared INSIDE its functions, unlike every store beside it: after the first
+  successful export there is no table to prepare against, and a fresh database never had one
+- `project-refs.js` — a project's footprint moved atomically across the stores that key on its path —
+  read them off `renameProjectRefsTx` rather than counting them here; #468 took one away
 - `compact.js` — the merge + reclaim statements (#430). **The order is the point**: `optimize` frees
   pages into the freelist without shrinking the file, the vacuum is what gives them back. Measured on a
   102 MB install: 85% of the file was unmerged FTS segments, and the pair took it to 17.5 MB. WHEN this

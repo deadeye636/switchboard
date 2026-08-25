@@ -284,7 +284,9 @@ The ones that will look wrong to someone tidying up later:
 8. **A handoff is context, not a continuation — and it is the ONE exception to binary-bound resume.**
    Resuming a *session* reapplies its backend, with no chooser (§5.11). Resuming a *handoff* starts a
    **new** session seeded with a packet, so it may run on any backend and the user is asked which
-   (defaulting to the one that wrote it, recorded in `project_handoffs.backendId`). A backend with no
+   (defaulting to the one that wrote it — a column in `project_handoffs` when this was written, and the
+   `backend:` line of the packet's own header since #468, which moved handoffs out of the database and
+   into the project; spec 25 is that record). A backend with no
    transcript file supplies its messages through `readMessages()`, which is what lets a handoff be
    produced from it at all — without it the review dialog comes up empty and the user retypes what the
    agent just wrote.

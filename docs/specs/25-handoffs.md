@@ -92,7 +92,7 @@ folder, or take it to the clipboard. It is `dismissible: false`, and a cancelled
 that dialog rather than out of it — leaving on a cancel is the one path that would drop the packet without
 anyone choosing to.
 
-## The picker is the fourth description of one popover
+## The picker is one more description of one popover
 
 #469 adds no popover. `palette-core.js` (#462) already renders the saved-variable, plan and skill pickers;
 `handoff-palette.js` is a fifth description object beside the command palette's.

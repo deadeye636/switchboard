@@ -85,8 +85,9 @@ taking the row from the picker types `/caveman:caveman-help` and the CLI runs it
 
 ## It presses Enter
 
-Deliberately unlike the two pickers beside it. A variable and a plan reference are material inserted
-INTO a sentence the user is still writing; picking a skill is asking for it to run. `submitSkillOnPick`
+Deliberately unlike the pickers that insert. A variable, a plan reference and — since #469 — a handoff
+reference are material inserted INTO a sentence the user is still writing; picking a skill is asking for
+it to run. `submitSkillOnPick`
 turns that off for anyone who wants to read the line first.
 
 The one thing this owes the user is knowing which of the two happened: when a row goes in as text

@@ -31,8 +31,10 @@ write, which would reintroduce exactly what the atomicity is for.
 **It must not rewrite what nobody touched.** CodeMirror hands back LF with no BOM, so the first save of a
 CRLF file would rewrite every line of it and a BOM'd `settings.json` would lose its BOM.
 
-All three writers use it: `saveMemory`, `savePlan`, and `save-file-for-panel` — the last of which every
-preview tab uses and which had none of the three, not even a baseline argument.
+Every writer uses it: `saveMemory`, `savePlan`, `save-file-for-panel` — the last of which every preview
+tab uses and which had none of the three, not even a baseline argument — plus the resource writer this
+spec adds and, since #468, the one that saves a handoff packet into its project. `writeTextFile` is the
+grep that stays true.
 
 ## Validation
 

@@ -402,6 +402,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   terminal, listing the CLI's own skills alongside skills you keep in Switchboard for every CLI. A CLI that
   can run a skill from its prompt gets its own command, measured for each one rather than guessed; the rest
   get a reference to the document, and a note saying so. Taking a row runs it, which a setting turns off.
+- **Hand a handoff to the running CLI from the keyboard** — the same picker shape again, over the
+  packets this project keeps. It inserts a reference and does not press Enter: a handoff is context for
+  what comes next, not an instruction to act on it.
 - **PDFs open in the app** — a PDF from a terminal file link or the file list is rendered page by page
   in the panel instead of being decoded into the source editor, where it used to arrive as unreadable
   bytes over a Save button that would have written them back destroyed.
@@ -675,7 +678,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 ### Supervision extensions
 - **Handoffs as files** — a packet is markdown in the project (`.handoffs/` by default, plus the directories a project or a CLI already uses), so it is editable, greppable and travels with the repo. A picker on Ctrl/Cmd+Shift+H hands one to the session you are already in as a reference.
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,
-  and target selection in the review dialog (extends inherited feature #03/#04).
+  and target selection in the review dialog (extends inherited feature #03/#04). Since #468 a saved
+  packet is a file in the project rather than a row in the database.
 - **Per-session AFK timeout.**
 - **Attention inbox** made configurable — "Running" mode ("timed"), "Working" removed.
 - **Token/usage stats** — per-(session, date, hour, model) token/tool/message/cost metrics into the DB,

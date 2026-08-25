@@ -15,6 +15,10 @@
 > and be reachable before the flow starts. Forking would inherit the bloated context the feature exists
 > to escape.
 >
+> **Where a saved packet lives changed in #468**: it was a row in `project_handoffs`, and it is a markdown
+> file in the project now. The flow this spec describes is untouched — only its last step writes somewhere
+> else, and that step can fail in ways an insert could not. `docs/specs/25-handoffs.md` is that record.
+>
 > Paths spelled `public/…` below predate #214 and are a record of the ground this was designed against;
 > that tree is `src/renderer/` now.
 
