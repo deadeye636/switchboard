@@ -465,6 +465,12 @@ profile editor's "resolves ✓ / not set ✗" badge asks for presence only; valu
 `ELECTRON_`, `GOOGLE_API_KEY*`, plus `NODE_OPTIONS`, `ORIGINAL_XDG_CURRENT_DESKTOP`, `WT_SESSION` and
 Claude's two AFK variables (an inherited AFK value must not overrule the per-session setting).
 
+It then adds `ELECTRON_NO_ATTACH_CONSOLE=1`, the one `ELECTRON_` variable that is not stripped. An
+Electron app started from a session's shell without stdio of its own — `Start-Process` on a GUI
+executable, say — otherwise attaches to that session's console and writes its own log into the terminal,
+on top of whatever TUI is running there. Set the variable to the empty string to get the old behaviour
+back: Electron reads presence, not value, and a value of yours is kept rather than overwritten.
+
 **Every backend spawn** then adds: `TERM=xterm-256color`, `COLORTERM=truecolor`,
 `TERM_PROGRAM=iTerm.app`, `TERM_PROGRAM_VERSION`, `FORCE_COLOR=3`, `ITERM_SESSION_ID` — the iTerm identity
 is not cosmetic: Claude Code checks it before emitting the OSC-9 "needs your attention" signal. Plus

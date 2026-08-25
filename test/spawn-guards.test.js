@@ -415,3 +415,27 @@ test("cleanPtyEnv strips a parent Claude session's markers, and only those (#243
     'friends are the user\'s own configuration and must reach the CLI',
   );
 });
+
+// #478 — a GUI app started from a session's shell attaches to that session's console and writes its own
+// log into the PTY, on top of the CLI's TUI. Electron only does that when the variable below is unset, so
+// every PTY gets it — measured at 23089 bytes of foreign output without it and 263 with it, same app,
+// same 40 s. Two halves, and the strip above is why the second one is needed: the ELECTRON_ prefix filter
+// would otherwise remove the very variable this sets, including one the user set deliberately.
+test('every PTY carries ELECTRON_NO_ATTACH_CONSOLE, and a user value survives the strip (#478)', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+  const block = src.slice(src.indexOf('const cleanPtyEnv'), src.indexOf('const cleanPtyEnv') + 4000);
+
+  assert.ok(
+    /!k\.startsWith\('ELECTRON_'\)\s*\|\|\s*k === 'ELECTRON_NO_ATTACH_CONSOLE'/.test(block),
+    "the ELECTRON_ strip must except ELECTRON_NO_ATTACH_CONSOLE — without it a value the user set " +
+    'deliberately is removed before the default below can defer to it',
+  );
+  assert.ok(
+    /cleanPtyEnv\.ELECTRON_NO_ATTACH_CONSOLE === undefined\) cleanPtyEnv\.ELECTRON_NO_ATTACH_CONSOLE = '1'/
+      .test(block),
+    'cleanPtyEnv must default ELECTRON_NO_ATTACH_CONSOLE to 1, and only when the user set none — an ' +
+    'Electron GUI app started from a session otherwise writes its log into that session\'s terminal',
+  );
+});
