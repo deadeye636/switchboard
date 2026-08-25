@@ -127,7 +127,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 `src/renderer/shell/usage-status.js`, `src/backends/usage-format.js`, `backends/<id>/usage.js`
 
 - **One status-bar segment per backend that reports a quota**, each with its own badge and each
-  selectable in *Settings → Usage & Notifications*. A backend declares the capability on its
+  selectable in *Settings → Usage & notifications*. A backend declares the capability on its
   descriptor; nothing in the core names a backend id.
 - **Claude** is fetched live from the API (5h, weekly, Sonnet, Opus, and the extra-usage credit pool
   with money formatting). **Codex** is read out of its own transcript — no network call, no credential
@@ -458,7 +458,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   an optional pop-out settings window that paints instantly and is kept warm between opens.
   The actions are pinned to the bottom edge, reachable at any scroll position in any category:
   Hide/Remove Project on the left, then Cancel, **Apply** (save without closing, so several
-  categories can be adjusted and checked one after another) and Save. Terminal tools have a
+  categories can be adjusted and checked one after another) and Save. Custom launchers have a
   page of their own under Terminal.
 - **A backend declares what it can do, and it is all configurable** — `configFields` on the descriptor;
   the settings page, the Configure dialog and the template editor are **generated** from it. Pi and
@@ -545,7 +545,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Cancel is the default (Escape and Enter both cancel) and the dialog is not dismissible. The decision
   and the wording are a testable module (`src/app/quit-guard.js`); the native message box survives only as the
   fallback for a renderer that cannot answer, or a crashed one would leave a window that can never be
-  closed. Switch it off in *Settings → Sessions & CLI*.
+  closed. Switch it off in *Settings → Sessions*.
 
 - **Version-control state on the cards (#277, #284, #285, #287)** — a session's working directory is
   usually a repo, and the app showed nothing about it. A git glyph on every project/worktree header and

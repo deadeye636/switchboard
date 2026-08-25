@@ -305,7 +305,7 @@ function showCustomCommandDialog(project) {
     <div class="settings-field settings-field-wide">
       <div class="settings-field-info">
         <span class="settings-label">Command</span>
-        <div class="settings-description">Runs in a terminal tab, in your terminal shell, in this project. Any command or script — <code>npm run dev</code>, a git command, a <code>.ps1</code>/<code>.sh</code>. Save it under Settings → Terminal → Terminal tools to keep it.</div>
+        <div class="settings-description">Runs in a terminal tab, in your terminal shell, in this project. Any command or script — <code>npm run dev</code>, a git command, a <code>.ps1</code>/<code>.sh</code>. Save it under Settings → Custom launchers to keep it.</div>
       </div>
       <div class="settings-field-control">
         <input type="text" class="settings-input" id="ccd-command" placeholder="e.g. npm run dev" autocomplete="off" spellcheck="false">

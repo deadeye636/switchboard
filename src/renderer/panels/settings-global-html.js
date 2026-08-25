@@ -76,19 +76,24 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
           </div>
-          <button class="settings-nav-item active" data-cat="sessions">Sessions &amp; CLI <span class="settings-nav-count">6</span></button>
-          <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item settings-nav-sub" data-cat="tools">Terminal tools</button>
-          <button class="settings-nav-item" data-cat="layout">Layout &amp; Tabs <span class="settings-nav-count">10</span></button>
-          <button class="settings-nav-item" data-cat="projects">Projects &amp; Sidebar <span class="settings-nav-count">12</span></button>
-          <button class="settings-nav-item" data-cat="tags">Tags</button>
-          <button class="settings-nav-item" data-cat="usage">Usage &amp; Notifications <span class="settings-nav-count">9</span></button>
+          <div class="settings-nav-head">Switchboard</div>
+          <button class="settings-nav-item active" data-cat="sessions">Sessions <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="editor">Editor &amp; files <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="documents">Documents <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="layout">Layout &amp; tabs <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="projects">Projects &amp; sidebar <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="usage">Usage &amp; notifications <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="secrets">Secrets <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="shortcuts">Hotkeys <span class="settings-nav-count"></span></button>
+          <div class="settings-nav-sep"></div>
+          <div class="settings-nav-head">Extensions</div>
           <button class="settings-nav-item" data-cat="backends">Backends</button>
+          <button class="settings-nav-item" data-cat="launchers">Custom launchers</button>
+          <button class="settings-nav-item" data-cat="tags">Tags</button>
           <div class="settings-nav-sep"></div>
-          <button class="settings-nav-item" data-cat="shortcuts">Keyboard Shortcuts <span class="settings-nav-count">${SHORTCUT_DEFS.length}</span></button>
-          <button class="settings-nav-item" data-cat="handoff">Handoff <span class="settings-nav-count">2</span></button>
-          <div class="settings-nav-sep"></div>
-          <button class="settings-nav-item" data-cat="maintenance">Maintenance</button>
+          <div class="settings-nav-head">App</div>
+          <button class="settings-nav-item" data-cat="maintenance">Maintenance <span class="settings-nav-count"></span></button>
           <button class="settings-nav-item" data-cat="about">About</button>
         </nav>
 
@@ -96,9 +101,9 @@
           <div class="settings-form">
             <div class="settings-no-results" id="sv-no-results">No settings match your search.</div>
 
-            <!-- ===== Sessions & CLI ===== -->
+            <!-- ===== Sessions ===== -->
             <section class="settings-cat active" data-cat="sessions">
-              <div class="settings-cat-head"><h2>Sessions &amp; CLI</h2><p>How Claude launches and what it may touch.</p></div>
+              <div class="settings-cat-head"><h2>Sessions</h2><p>How Claude launches and what it may touch.</p></div>
 
               <div class="settings-section">
                 <div class="settings-field">
@@ -150,20 +155,6 @@
                     </select>
                   </div>
                 </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Log level</span>${help}</div>
-                    <div class="settings-description">Detail written to the app log. Applies immediately, no restart.</div>
-                    <div class="settings-more"><b>Normal</b> records status transitions and session lifecycle. <b>Debug</b> adds per-decision detail. <b>Trace</b> also logs every terminal escape sequence — the CLI retitles on each spinner frame, so this writes roughly ten lines per second per busy session. Use Trace only while reproducing a problem.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <select class="settings-select" id="sv-log-level">
-                      <option value="info" ${logLevelValue === 'info' ? 'selected' : ''}>Normal</option>
-                      <option value="debug" ${logLevelValue === 'debug' ? 'selected' : ''}>Debug</option>
-                      <option value="silly" ${logLevelValue === 'silly' ? 'selected' : ''}>Trace (very verbose)</option>
-                    </select>
-                  </div>
-                </div>
               </div>
 
 
@@ -200,6 +191,20 @@
                   </div>
                   <div class="settings-field-control">
                     <button type="button" class="settings-action-btn danger" id="sv-rebuild-cache">Rebuild session cache…</button>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Log level</span>${help}</div>
+                    <div class="settings-description">Detail written to the app log. Applies immediately, no restart.</div>
+                    <div class="settings-more"><b>Normal</b> records status transitions and session lifecycle. <b>Debug</b> adds per-decision detail. <b>Trace</b> also logs every terminal escape sequence — the CLI retitles on each spinner frame, so this writes roughly ten lines per second per busy session. Use Trace only while reproducing a problem.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-log-level">
+                      <option value="info" ${logLevelValue === 'info' ? 'selected' : ''}>Normal</option>
+                      <option value="debug" ${logLevelValue === 'debug' ? 'selected' : ''}>Debug</option>
+                      <option value="silly" ${logLevelValue === 'silly' ? 'selected' : ''}>Trace (very verbose)</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -299,92 +304,69 @@
                 </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Closing a terminal tab</span>${help}</div>
+                    <div class="settings-description">Kill the shell, or keep it running to reopen later.</div>
+                    <div class="settings-more">Independent of the Claude session close behavior. <b>Kill the shell</b>: end the shell process. <b>Keep running</b>: close the view only; the shell keeps running and can be reopened.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-terminal-close-behavior">
+                      <option value="kill" ${terminalCloseValue !== 'keep' ? 'selected' : ''}>Kill the shell</option>
+                      <option value="keep" ${terminalCloseValue === 'keep' ? 'selected' : ''}>Keep running</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <details class="settings-adv">
+                <summary>${advChev}Advanced</summary>
+                <div class="settings-section">
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">GPU rendering (WebGL)</span>${help}</div>
+                      <div class="settings-description">Render terminals via the GPU. Substantially lower CPU load for heavy output.</div>
+                      <div class="settings-more">Auto uses WebGL and automatically falls back to the DOM renderer for all terminals once the GPU/driver drops or corrupts a WebGL context. On forces WebGL; Off always uses the DOM renderer. Pick Off if you still see rendering glitches (silent atlas corruption emits no event, so Auto can't catch that case).</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <select class="settings-select" id="sv-gpu-acceleration">
+                        <option value="auto" ${gpuAccelValue === 'auto' ? 'selected' : ''}>Auto (WebGL, fall back to DOM)</option>
+                        <option value="on" ${gpuAccelValue === 'on' ? 'selected' : ''}>On (force WebGL)</option>
+                        <option value="off" ${gpuAccelValue === 'off' ? 'selected' : ''}>Off (DOM renderer)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                ${isWinPlatform ? `<div class="settings-section">
+                  <div class="settings-field">
+                    <div class="settings-field-info">
+                      <div class="settings-field-header"><span class="settings-label">Windows ConPTY</span>${help}</div>
+                      <div class="settings-description">Pseudo-console backend for terminals. Applies to newly started terminals.</div>
+                      <div class="settings-more">Bundled uses the conpty.dll shipped with the app (Windows Terminal codebase) instead of the in-box Windows ConPTY. The system one mis-handles rapid in-place redraws, leaving stale or duplicated rows (e.g. a doubled status line) that only a resize clears. Pick System to fall back to the OS pseudo-console if terminals misbehave.</div>
+                    </div>
+                    <div class="settings-field-control">
+                      <select class="settings-select" id="sv-conpty-backend">
+                        <option value="bundled" ${conptyBackendValue === 'bundled' ? 'selected' : ''}>Bundled (recommended)</option>
+                        <option value="system" ${conptyBackendValue === 'system' ? 'selected' : ''}>System</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>` : ''}
+              </details>
+            </section>
+
+            <!-- ===== Editor & files (#471) ===== -->
+            <section class="settings-cat" data-cat="editor">
+              <div class="settings-cat-head"><h2>Editor &amp; files</h2><p>What opens a file, and how the built-in editor behaves.</p></div>
+
+              <div class="settings-subhead">Opening</div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">External editor</span>${help}</div>
                     <div class="settings-description">Command or path used to open files externally (Ctrl/Cmd+click a terminal file link, the right-click menu, or the file panel's open-external button). Empty = your OS default app.</div>
                     <div class="settings-more">Examples: <code>code</code>, <code>subl</code>, <code>notepad++</code>, or a full path. The file path is passed as the first argument (no shell). Falls back to the OS default when empty or if the command fails.</div>
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-external-editor" placeholder="OS default" value="${escapeHtml(externalEditorValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Plan insert template</span>${help}</div>
-                    <div class="settings-description">What the plan picker types into the prompt. The plan itself is never inserted — an agent reads it with its own file tools.</div>
-                    <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the plan's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-plan-insert-template" placeholder="Follow the plan at {path}" value="${escapeHtml(planInsertTemplateValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Plans directory</span>${help}</div>
-                    <div class="settings-description">Where a project keeps its plan documents, relative to the project root. The default for every project; a project can override it in its own settings, where there is also a button that points its CLIs at it.</div>
-                    <div class="settings-more">Switchboard lists what it finds and never writes a plan itself. A dot-directory keeps plans out of the repository by default, which matters because a plan body is written by a tool that knows nothing about what may not be published.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-plan-dir" placeholder=".plans" value="${escapeHtml(planDirValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Skills directory</span>${help}</div>
-                    <div class="settings-description">Where the app's own skills live — offered in every session whatever CLI is running there. Empty = the <code>skills</code> directory beside the database.</div>
-                    <div class="settings-more">A skill is a folder holding <code>SKILL.md</code>, or a single markdown file. A project can point somewhere else in its own settings, where a relative path is read from the project root.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-skills-dir" placeholder="the app's own skills" value="${escapeHtml(skillsDirValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Skill insert template</span>${help}</div>
-                    <div class="settings-description">What the skill picker types when the CLI in the terminal has no skill command of its own, and for every skill of the app's own. A CLI that can run a skill gets its own invocation instead.</div>
-                    <div class="settings-more">Placeholders: <code>{path}</code> the full path to <code>SKILL.md</code>, <code>{name}</code> the skill's name. Leave empty for the default.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Handoff directories</span>${help}</div>
-                    <div class="settings-description">Where a project's handoff packets are read from, comma separated and relative to the project root. Every directory that exists is listed; nothing is created.</div>
-                    <div class="settings-more">The default for every project, overridable in a project's own settings. The list is what lets a packet a handoff skill wrote into a project show up beside the ones this app saved.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-handoff-dir-names" placeholder=".handoffs, docs/handoffs" value="${escapeHtml(handoffDirNamesValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Save handoffs to</span>${help}</div>
-                    <div class="settings-description">The one directory a new packet is written to, relative to the project root. Created on the first save.</div>
-                    <div class="settings-more">Its own setting rather than the first entry above, so reordering the read list cannot silently move where future packets land. A dot-directory by default, because a packet is full of paths and machine names.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-handoff-dir" placeholder=".handoffs" value="${escapeHtml(handoffDirValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Handoff insert template</span>${help}</div>
-                    <div class="settings-description">What the handoff picker types into the prompt. The packet itself is never inserted — an agent reads it with its own file tools.</div>
-                    <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the packet's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <input type="text" class="settings-input" id="sv-handoff-insert-template" placeholder="Continue from the handoff at {path}" value="${escapeHtml(handoffInsertTemplateValue)}">
-                  </div>
-                </div>
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Picking a skill runs it</span>${help}</div>
-                    <div class="settings-description">The skill picker submits the line it types. Off leaves it in the prompt with the cursor after it, so you can add to it first.</div>
-                    <div class="settings-more">On by default, and deliberately unlike the variable and plan pickers: those insert material into a sentence you are still writing, while picking a skill is asking for it to run.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-submit-skill-on-pick" ${submitSkillOnPickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">
@@ -413,6 +395,10 @@
                     </select>
                   </div>
                 </div>
+              </div>
+
+              <div class="settings-subhead">Markdown &amp; formatting</div>
+              <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Source editor</span>${help}</div>
@@ -466,91 +452,171 @@
                     </select>
                   </div>
                 </div>
+              </div>
+            </section>
+
+            <!-- ===== Documents (#471) — plans, skills, handoffs: one subject, one place ===== -->
+            <section class="settings-cat" data-cat="documents">
+              <div class="settings-cat-head"><h2>Documents</h2><p>Plans, skills and handoffs: where each is kept, and what a picker types when you hand one to the CLI in a terminal.</p></div>
+
+              <div class="settings-subhead">Plans</div>
+              <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
-                    <div class="settings-field-header"><span class="settings-label">Closing a terminal tab</span>${help}</div>
-                    <div class="settings-description">Kill the shell, or keep it running to reopen later.</div>
-                    <div class="settings-more">Independent of the Claude session close behavior. <b>Kill the shell</b>: end the shell process. <b>Keep running</b>: close the view only; the shell keeps running and can be reopened.</div>
+                    <div class="settings-field-header"><span class="settings-label">Plans directory</span>${help}</div>
+                    <div class="settings-description">Where a project keeps its plan documents, relative to the project root. The default for every project; a project can override it in its own settings, where there is also a button that points its CLIs at it.</div>
+                    <div class="settings-more">Switchboard lists what it finds and never writes a plan itself. A dot-directory keeps plans out of the repository by default, which matters because a plan body is written by a tool that knows nothing about what may not be published.</div>
                   </div>
                   <div class="settings-field-control">
-                    <select class="settings-select" id="sv-terminal-close-behavior">
-                      <option value="kill" ${terminalCloseValue !== 'keep' ? 'selected' : ''}>Kill the shell</option>
-                      <option value="keep" ${terminalCloseValue === 'keep' ? 'selected' : ''}>Keep running</option>
-                    </select>
+                    <input type="text" class="settings-input" id="sv-plan-dir" placeholder=".plans" value="${escapeHtml(planDirValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Plan insert template</span>${help}</div>
+                    <div class="settings-description">What the plan picker types into the prompt. The plan itself is never inserted — an agent reads it with its own file tools.</div>
+                    <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the plan's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-plan-insert-template" placeholder="Follow the plan at {path}" value="${escapeHtml(planInsertTemplateValue)}">
                   </div>
                 </div>
               </div>
 
-              <details class="settings-adv">
-                <summary>${advChev}Advanced</summary>
-                <div class="settings-section">
-                  <div class="settings-field">
-                    <div class="settings-field-info">
-                      <div class="settings-field-header"><span class="settings-label">GPU rendering (WebGL)</span>${help}</div>
-                      <div class="settings-description">Render terminals via the GPU. Substantially lower CPU load for heavy output.</div>
-                      <div class="settings-more">Auto uses WebGL and automatically falls back to the DOM renderer for all terminals once the GPU/driver drops or corrupts a WebGL context. On forces WebGL; Off always uses the DOM renderer. Pick Off if you still see rendering glitches (silent atlas corruption emits no event, so Auto can't catch that case).</div>
-                    </div>
-                    <div class="settings-field-control">
-                      <select class="settings-select" id="sv-gpu-acceleration">
-                        <option value="auto" ${gpuAccelValue === 'auto' ? 'selected' : ''}>Auto (WebGL, fall back to DOM)</option>
-                        <option value="on" ${gpuAccelValue === 'on' ? 'selected' : ''}>On (force WebGL)</option>
-                        <option value="off" ${gpuAccelValue === 'off' ? 'selected' : ''}>Off (DOM renderer)</option>
-                      </select>
-                    </div>
+              <div class="settings-subhead">Skills</div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Skills directory</span>${help}</div>
+                    <div class="settings-description">Where the app's own skills live — offered in every session whatever CLI is running there. Empty = the <code>skills</code> directory beside the database.</div>
+                    <div class="settings-more">A skill is a folder holding <code>SKILL.md</code>, or a single markdown file. A project can point somewhere else in its own settings, where a relative path is read from the project root.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-skills-dir" placeholder="the app's own skills" value="${escapeHtml(skillsDirValue)}">
                   </div>
                 </div>
-                ${isWinPlatform ? `<div class="settings-section">
-                  <div class="settings-field">
-                    <div class="settings-field-info">
-                      <div class="settings-field-header"><span class="settings-label">Windows ConPTY</span>${help}</div>
-                      <div class="settings-description">Pseudo-console backend for terminals. Applies to newly started terminals.</div>
-                      <div class="settings-more">Bundled uses the conpty.dll shipped with the app (Windows Terminal codebase) instead of the in-box Windows ConPTY. The system one mis-handles rapid in-place redraws, leaving stale or duplicated rows (e.g. a doubled status line) that only a resize clears. Pick System to fall back to the OS pseudo-console if terminals misbehave.</div>
-                    </div>
-                    <div class="settings-field-control">
-                      <select class="settings-select" id="sv-conpty-backend">
-                        <option value="bundled" ${conptyBackendValue === 'bundled' ? 'selected' : ''}>Bundled (recommended)</option>
-                        <option value="system" ${conptyBackendValue === 'system' ? 'selected' : ''}>System</option>
-                      </select>
-                    </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Skill insert template</span>${help}</div>
+                    <div class="settings-description">What the skill picker types when the CLI in the terminal has no skill command of its own, and for every skill of the app's own. A CLI that can run a skill gets its own invocation instead.</div>
+                    <div class="settings-more">Placeholders: <code>{path}</code> the full path to <code>SKILL.md</code>, <code>{name}</code> the skill's name. Leave empty for the default.</div>
                   </div>
-                </div>` : ''}
-                <div class="settings-section">
-                  <div class="settings-section-title">Saved variables</div>
-                  <div class="settings-field">
-                    <div class="settings-field-info">
-                      <div class="settings-field-header"><span class="settings-label">Delete secret temp files on session stop</span>${help}</div>
-                      <div class="settings-description">When a session ends, remove the temp files created for its inserted secret references.</div>
-                      <div class="settings-more">Secret variables inserted via <code>{path}</code>/<code>{ref}</code> write the value to a 0600 temp file the shell or tool reads. Leave on to wipe them as soon as the session stops. App quit and startup always wipe them regardless of this setting.</div>
-                    </div>
-                    <div class="settings-field-control">
-                      <label class="settings-toggle"><input type="checkbox" id="sv-secret-ref-cleanup" ${secretRefCleanupValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
-                    </div>
-                  </div>
-                  <div class="settings-field">
-                    <div class="settings-field-info">
-                      <div class="settings-field-header"><span class="settings-label">Secret temp-file sweep (minutes)</span>${help}</div>
-                      <div class="settings-description">Also delete secret temp files older than this many minutes. 0 = off.</div>
-                      <div class="settings-more">Extra age-based cleanup on top of session-stop/quit. Keep at 0 unless you want short-lived refs — set too low it can delete a ref before a long-running prompt uses it.</div>
-                    </div>
-                    <div class="settings-field-control">
-                      <input type="number" min="0" class="settings-input settings-input-compact" id="sv-secret-ref-sweep" value="${secretRefSweepValue}">
-                    </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}">
                   </div>
                 </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Picking a skill runs it</span>${help}</div>
+                    <div class="settings-description">The skill picker submits the line it types. Off leaves it in the prompt with the cursor after it, so you can add to it first.</div>
+                    <div class="settings-more">On by default, and deliberately unlike the variable and plan pickers: those insert material into a sentence you are still writing, while picking a skill is asking for it to run.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-submit-skill-on-pick" ${submitSkillOnPickValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-subhead">Handoffs</div>
+              <details class="settings-adv settings-explainer">
+                <summary>${advChev}How a handoff works</summary>
+                <div class="settings-explainer-body">A handoff is a packet that summarises the state of the work, written by an agent. You choose who writes it: <b>this session's agent</b> (it summarises what it is holding — it is resumed for one turn if it is not running), or <b>a new session</b> (a fresh agent reads this session's transcript and writes the packet itself). Each has its own prompt below, and each can be overridden per backend on its page under <b>Backends</b>.</div>
               </details>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Handoff directories</span>${help}</div>
+                    <div class="settings-description">Where a project's handoff packets are read from, comma separated and relative to the project root. Every directory that exists is listed; nothing is created.</div>
+                    <div class="settings-more">The default for every project, overridable in a project's own settings. The list is what lets a packet a handoff skill wrote into a project show up beside the ones this app saved.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-handoff-dir-names" placeholder=".handoffs, docs/handoffs" value="${escapeHtml(handoffDirNamesValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Save handoffs to</span>${help}</div>
+                    <div class="settings-description">The one directory a new packet is written to, relative to the project root. Created on the first save.</div>
+                    <div class="settings-more">Its own setting rather than the first entry above, so reordering the read list cannot silently move where future packets land. A dot-directory by default, because a packet is full of paths and machine names.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-handoff-dir" placeholder=".handoffs" value="${escapeHtml(handoffDirValue)}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Handoff insert template</span>${help}</div>
+                    <div class="settings-description">What the handoff picker types into the prompt. The packet itself is never inserted — an agent reads it with its own file tools.</div>
+                    <div class="settings-more">Placeholders: <code>{path}</code> the full path, <code>{title}</code> the packet's heading, <code>{filename}</code> the file name. Leave empty for the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-handoff-insert-template" placeholder="Continue from the handoff at {path}" value="${escapeHtml(handoffInsertTemplateValue)}">
+                  </div>
+                </div>
+              </div>
+              <div class="settings-section">
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Summarise prompt — asked of this session's agent</span>
+                    <div class="settings-description">Sent to the agent that ran this session: it summarises the state it already holds. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. A slash command (e.g. <code>/handoff</code>) runs that agent's own skill — each CLI has its own, so give a backend its own prompt on its <b>Backends</b> page when it needs a different one.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
+                  </div>
+                </div>
+
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Read prompt — given to a new session</span>
+                    <div class="settings-description">Sent to a FRESH agent that reads the old session's transcript and writes the handoff itself — nothing is resumed, and the old session spends nothing. <code>{transcript}</code> is the path it can read (a backend whose history lives in a database, like Hermes, has it exported for this). Other placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <textarea class="settings-input" id="sv-handoff-read-prompt" spellcheck="false" style="width:100%;min-height:180px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffReadPromptValue)}</textarea>
+                  </div>
+                </div>
+              </div>
             </section>
 
-            <!-- ===== Terminal tools (T-3.10) =====
+            <!-- ===== Secrets (#471) ===== -->
+            <section class="settings-cat" data-cat="secrets">
+              <div class="settings-cat-head"><h2>Secrets</h2><p>What becomes of a secret variable's temporary file once it has been used.</p></div>
+              <div class="settings-section">
+                <div class="settings-section-title">Saved variables</div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Delete secret temp files on session stop</span>${help}</div>
+                    <div class="settings-description">When a session ends, remove the temp files created for its inserted secret references.</div>
+                    <div class="settings-more">Secret variables inserted via <code>{path}</code>/<code>{ref}</code> write the value to a 0600 temp file the shell or tool reads. Leave on to wipe them as soon as the session stops. App quit and startup always wipe them regardless of this setting.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-secret-ref-cleanup" ${secretRefCleanupValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Secret temp-file sweep (minutes)</span>${help}</div>
+                    <div class="settings-description">Also delete secret temp files older than this many minutes. 0 = off.</div>
+                    <div class="settings-more">Extra age-based cleanup on top of session-stop/quit. Keep at 0 unless you want short-lived refs — set too low it can delete a ref before a long-running prompt uses it.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" min="0" class="settings-input settings-input-compact" id="sv-secret-ref-sweep" value="${secretRefSweepValue}">
+                  </div>
+                </div>
+              </div>
+            </section>
+
+
+            <!-- ===== Custom launchers (T-3.10) =====
                  Its own category under Terminal, not a section at the bottom of it: as
                  a trailing block of the Terminal page it was routinely missed (#178). -->
-            <section class="settings-cat" data-cat="tools">
-              <div class="settings-cat-head"><h2>Terminal tools</h2><p>Saved commands, offered in every project's launch menu.</p></div>
+            <section class="settings-cat" data-cat="launchers">
+              <div class="settings-cat-head"><h2>Custom launchers</h2><p>Saved commands, offered in every project's launch menu.</p></div>
               <div id="sv-launchers-root"></div>
             </section>
 
             <!-- ===== Layout & Tabs ===== -->
             <section class="settings-cat" data-cat="layout">
-              <div class="settings-cat-head"><h2>Layout &amp; Tabs</h2><p>How sessions and windows are arranged.</p></div>
+              <div class="settings-cat-head"><h2>Layout &amp; tabs</h2><p>How sessions and windows are arranged.</p></div>
 
               <div class="settings-subhead">Layout</div>
               <div class="settings-section">
@@ -715,7 +781,7 @@
 
             <!-- ===== Projects & Sidebar ===== -->
             <section class="settings-cat" data-cat="projects">
-              <div class="settings-cat-head"><h2>Projects &amp; Sidebar</h2><p>Which projects appear and how the session list is trimmed.</p></div>
+              <div class="settings-cat-head"><h2>Projects &amp; sidebar</h2><p>Which projects appear and how the session list is trimmed.</p></div>
 
               <div class="settings-subhead">Projects</div>
               <div class="settings-section">
@@ -921,7 +987,7 @@
 
             <!-- ===== Usage & Notifications ===== -->
             <section class="settings-cat" data-cat="usage">
-              <div class="settings-cat-head"><h2>Usage &amp; Notifications</h2><p>Usage-bar colours and when Switchboard alerts you.</p></div>
+              <div class="settings-cat-head"><h2>Usage &amp; notifications</h2><p>Usage-bar colours and when Switchboard alerts you.</p></div>
 
               <!-- Which backends the status bar shows (#191). One list, because the choice belongs to the
                    BAR — one widget, several segments — not to each backend. A row appears only for a
@@ -1043,7 +1109,7 @@
 
             <!-- ===== Keyboard Shortcuts ===== -->
             <section class="settings-cat" data-cat="shortcuts">
-              <div class="settings-cat-head"><h2>Keyboard Shortcuts</h2><p>Click a shortcut, then press the new combination.</p></div>
+              <div class="settings-cat-head"><h2>Hotkeys</h2><p>Click a shortcut, then press the new combination.</p></div>
               ${SHORTCUT_GROUPS.map(group => {
                 const defs = shortcutDefsByGroup(group.id);
                 if (!defs.length) return '';
@@ -1066,35 +1132,6 @@
             </section>
 
             <!-- ===== Handoff ===== -->
-            <section class="settings-cat" data-cat="handoff">
-              <div class="settings-cat-head"><h2>Handoff</h2><p>Save a session's context and pick it up later.</p></div>
-              <details class="settings-adv settings-explainer">
-                <summary>${advChev}How a handoff works</summary>
-                <div class="settings-explainer-body">A handoff is a packet that summarises the state of the work, written by an agent. You choose who writes it: <b>this session's agent</b> (it summarises what it is holding — it is resumed for one turn if it is not running), or <b>a new session</b> (a fresh agent reads this session's transcript and writes the packet itself). Each has its own prompt below, and each can be overridden per backend on its page under <b>Backends</b>.</div>
-              </details>
-
-              <div class="settings-section">
-                <div class="settings-field settings-field-wide">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Summarise prompt — asked of this session's agent</span>
-                    <div class="settings-description">Sent to the agent that ran this session: it summarises the state it already holds. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. A slash command (e.g. <code>/handoff</code>) runs that agent's own skill — each CLI has its own, so give a backend its own prompt on its <b>Backends</b> page when it needs a different one.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
-                  </div>
-                </div>
-
-                <div class="settings-field settings-field-wide">
-                  <div class="settings-field-info">
-                    <span class="settings-label">Read prompt — given to a new session</span>
-                    <div class="settings-description">Sent to a FRESH agent that reads the old session's transcript and writes the handoff itself — nothing is resumed, and the old session spends nothing. <code>{transcript}</code> is the path it can read (a backend whose history lives in a database, like Hermes, has it exported for this). Other placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <textarea class="settings-input" id="sv-handoff-read-prompt" spellcheck="false" style="width:100%;min-height:180px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffReadPromptValue)}</textarea>
-                  </div>
-                </div>
-              </div>
-            </section>
 
             <!-- ===== About ===== -->
             <section class="settings-cat" data-cat="about">

@@ -409,6 +409,19 @@
           </div>
           <div class="settings-field">
             <div class="settings-field-info">
+              <div class="settings-field-header"><span class="settings-label">Point this project's CLIs at it</span></div>
+              <div class="settings-description">Writes the setting each installed CLI needs, so plans land in the directory above instead of in the CLI's own home. You are shown every file it would change before anything is written.</div>
+            </div>
+            <div class="settings-field-control">
+              <button type="button" class="settings-action-btn" id="sv-plan-convention">Set up…</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-section-title">Skills</div>
+          <div class="settings-field">
+            <div class="settings-field-info">
               <div class="settings-field-header">
                 <span class="settings-label">Skills directory</span>
                 ${useGlobalCheckbox('skillsDir')}
@@ -431,15 +444,6 @@
             </div>
             <div class="settings-field-control">
               <input type="text" class="settings-input" id="sv-skill-insert-template" placeholder="Use the skill at {path}" value="${escapeHtml(skillInsertTemplateValue)}" ${fieldDisabled('skillInsertTemplate')}>
-            </div>
-          </div>
-          <div class="settings-field">
-            <div class="settings-field-info">
-              <div class="settings-field-header"><span class="settings-label">Point this project's CLIs at it</span></div>
-              <div class="settings-description">Writes the setting each installed CLI needs, so plans land in the directory above instead of in the CLI's own home. You are shown every file it would change before anything is written.</div>
-            </div>
-            <div class="settings-field-control">
-              <button type="button" class="settings-action-btn" id="sv-plan-convention">Set up…</button>
             </div>
           </div>
         </div>
@@ -578,6 +582,19 @@
       // --- Global two-pane wiring: category nav, live search, "?" help toggles ---
       const navItems = Array.from(settingsViewerBody.querySelectorAll('.settings-nav-item'));
       const cats = Array.from(settingsViewerBody.querySelectorAll('.settings-cat'));
+
+      // The counts beside the category names are COUNTED, not written down (#471). They used to be
+      // numbers typed into the markup, and they were wrong long before anyone looked: Terminal said 10
+      // while holding 26 fields. A category whose contents another module fills in later — Backends,
+      // Tags, Custom launchers — counts nothing and shows nothing, which is what it did before.
+      for (const nav of navItems) {
+        const badge = nav.querySelector('.settings-nav-count');
+        if (!badge) continue;
+        const section = cats.find(c => c.dataset.cat === nav.dataset.cat);
+        const n = section ? section.querySelectorAll('.settings-field').length : 0;
+        badge.textContent = n ? String(n) : '';
+        badge.hidden = !n;
+      }
       // Fill the About pane's version + runtime fields (async, best-effort).
       if (window.api.getAboutInfo) {
         window.api.getAboutInfo().then(info => {

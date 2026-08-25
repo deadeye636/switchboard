@@ -27,7 +27,7 @@ Settings are **one JSON blob per scope** in the `settings` table of `switchboard
 Saving **replaces the blob** (`set-setting` does not merge), which is why the panel writes nearly every key
 back on Save.
 
-## Sessions & CLI
+## Sessions
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
@@ -35,7 +35,6 @@ back on Save.
 | `confirmQuitWithRunningSessions` | Ask before closing while sessions run | bool | `true` | global |
 | `shellProfile` | CLI shell | `auto` or a profile id | `auto` | **cascades** |
 | `terminalShellProfile` | Terminal shell | `inherit` \| `auto` \| profile id | `inherit` | **cascades** |
-| `logLevel` | Log level | `info` \| `debug` \| `silly` | `info` | global |
 | `attentionHooks` | (toggle lives on Claude's backend page) | bool | `false` | global |
 
 ## Terminal
@@ -47,29 +46,46 @@ back on Save.
 | `terminalFontSize` | Font size | 8–28 | `12` | global |
 | `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy-on-select` \| `action-bar` \| `default` | `menu` | global |
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
+| `terminalCloseBehavior` | Closing a terminal tab | `kill` \| `keep` | `kill` | global |
+| `gpuAcceleration` | GPU rendering (WebGL) — *Advanced* | `auto` \| `on` \| `off` | `auto` | global |
+| `conptyBackend` | Windows ConPTY — *Advanced, Windows only* | `bundled` \| `system` | `bundled` | **cascades** |
+
+`terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
+
+### Copying after the terminal changes width (#459)
+
+`terminalFontSize` is the easiest way to change a terminal's column count, but a window resize, a
+pane split and the UI zoom do the same thing, and every one of them re-wraps the buffer. A selection
+is a range of cells rather than of text, so after a re-wrap it points at different characters — which
+is why Switchboard **drops the selection** whenever the column count changes. Copy after such a change
+and you get nothing, instead of lines you never selected. A change that only alters the height leaves
+the selection alone.
+
+The other half of this is not Switchboard's to fix. A CLI that draws a line **wider than the
+terminal** pads it out to the right edge. While that line is wrapped across two rows the padding sits
+at the end of a row, where it is invisible; widen the terminal and xterm rejoins the halves, leaving
+a run of spaces in the middle of the line. Copy that line and the spaces come with it. They belong to
+the line the CLI wrote — xterm has no option to turn reflow off, and throwing the scrollback away on
+every resize would cost more than it saves.
+
+Which CLIs this can affect depends on what they draw, not on which one it is: measured against
+Switchboard's own terminal, Claude Code and Pi write lines that reach or exceed the width, Codex and
+agy stay well inside it and are unaffected. **The workaround is to copy from the message history**
+(the session's Messages view), which reads the CLI's own transcript and never wrapped anything.
+
+## Editor & files
+
+| Key | Label | Values | Default | Scope |
+|---|---|---|---|---|
 | `externalEditorCommand` | External editor | string | `''` (OS default) | global |
-| `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
-| `planDirNames` | Plan directories to look for | list of project-relative paths | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global |
-| `planDir` | Where this project keeps plans | project-relative path | `.plans` | global + project |
-| `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
-| `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
-| `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global |
-| `handoffDirNames` | Handoff directories | list of project-relative paths | `['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']` | global + project |
-| `handoffDir` | Save handoffs to | project-relative path | `.handoffs` | global + project |
-| `handoffInsertTemplate` | Handoff insert template | string with `{path}` / `{title}` / `{filename}` | `Continue from the handoff at {path}` | global + project |
 | `fileClickTarget` | Clicking a file link opens | `internal` \| `external` | `internal` | global |
 | `markdownDefaultView` | Previewable files open as | `code` \| `preview` | `code` | global |
 | `editorToolbarMode` | Source editor | `toolbar` \| `plain` | `toolbar` | global |
 | `editorToolbarPlacement` | Where the formatting bar sits | `bar` \| `overlay` \| `selection` | `bar` | global |
 | `editorToolbarVisibility` | Show the formatting bar | `always` \| `hover` | `always` | global |
 | `editorToolbarHtmlTags` | HTML formatting in Markdown | `on` \| `off` | `on` | global |
-| `terminalCloseBehavior` | Closing a terminal tab | `kill` \| `keep` | `kill` | global |
-| `gpuAcceleration` | GPU rendering (WebGL) — *Advanced* | `auto` \| `on` \| `off` | `auto` | global |
-| `conptyBackend` | Windows ConPTY — *Advanced, Windows only* | `bundled` \| `system` | `bundled` | **cascades** |
-| `secretRefCleanupOnSessionStop` | Delete secret temp files on session stop — *Advanced* | bool | `true` | global |
-| `secretRefSweepMinutes` | Secret temp-file sweep (minutes) — *Advanced* | ≥ 0, `0` = off | `0` | global |
 
-`markdownDefaultView` keeps its legacy key name, but applies to every internal file viewer kind that has a rendered preview (currently Markdown and HTML). `terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
+`markdownDefaultView` keeps its legacy key name, but applies to every internal file viewer kind that has a rendered preview (currently Markdown and HTML).
 
 A previewable file has three view modes since #281, the same three Obsidian has:
 
@@ -114,37 +130,50 @@ The three toolbar switches apply live: changing `editorToolbarPlacement`, `edito
 or `editorToolbarHtmlTags` reaches an already-open viewer. `markdownDefaultView` and
 `editorToolbarMode` do not, on purpose — they decide which mode a file **opens** in, and applying
 them live would swap the mode out from under someone who is mid-edit.
-`tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
-stored preference survives — the setting stopped being about tabs when panes started obeying it.
 
-### Copying after the terminal changes width (#459)
+## Documents
 
-`terminalFontSize` is the easiest way to change a terminal's column count, but a window resize, a
-pane split and the UI zoom do the same thing, and every one of them re-wraps the buffer. A selection
-is a range of cells rather than of text, so after a re-wrap it points at different characters — which
-is why Switchboard **drops the selection** whenever the column count changes. Copy after such a change
-and you get nothing, instead of lines you never selected. A change that only alters the height leaves
-the selection alone.
+Plans, skills and handoffs: where each is kept, and what a picker types when one is handed to the CLI in
+a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/handoffs-convention.md`.
 
-The other half of this is not Switchboard's to fix. A CLI that draws a line **wider than the
-terminal** pads it out to the right edge. While that line is wrapped across two rows the padding sits
-at the end of a row, where it is invisible; widen the terminal and xterm rejoins the halves, leaving
-a run of spaces in the middle of the line. Copy that line and the spaces come with it. They belong to
-the line the CLI wrote — xterm has no option to turn reflow off, and throwing the scrollback away on
-every resize would cost more than it saves.
+| Key | Label | Values | Default | Scope |
+|---|---|---|---|---|
+| `planDirNames` | Plan directories to look for | list of project-relative paths | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global |
+| `planDir` | Where this project keeps plans | project-relative path | `.plans` | global + project |
+| `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
+| `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
+| `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
+| `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global |
+| `handoffDirNames` | Handoff directories | list of project-relative paths | `['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']` | global + project |
+| `handoffDir` | Save handoffs to | project-relative path | `.handoffs` | global + project |
+| `handoffInsertTemplate` | Handoff insert template | string with `{path}` / `{title}` / `{filename}` | `Continue from the handoff at {path}` | global + project |
 
-Which CLIs this can affect depends on what they draw, not on which one it is: measured against
-Switchboard's own terminal, Claude Code and Pi write lines that reach or exceed the width, Codex and
-agy stay well inside it and are unaffected. **The workaround is to copy from the message history**
-(the session's Messages view), which reads the CLI's own transcript and never wrapped anything.
+### The handoff prompts
 
-## Terminal tools
+| Key | Label | Default | Scope |
+|---|---|---|---|
+| `handoffPrompt` | Summarise prompt — asked of this session's agent | `''` = the built-in prompt | global |
+| `handoffReadPrompt` | Read prompt — given to a new session | `''` = the built-in prompt | global |
+| `handoffPromptByBackend` / `handoffReadPromptByBackend` | per-backend override (a backend's own page) | `{}` = use the global one | global |
+
+Placeholders: `{goal}` `{project}` `{sessionId}` `{metrics}`, plus `{transcript}` in the read prompt.
+Editing a prompt back to the built-in text stores `''` again — the default is never frozen into the blob,
+so improving it in a later version reaches everyone who did not change it.
+
+## Secrets
+
+| Key | Label | Values | Default | Scope |
+|---|---|---|---|---|
+| `secretRefCleanupOnSessionStop` | Delete secret temp files on session stop — *Advanced* | bool | `true` | global |
+| `secretRefSweepMinutes` | Secret temp-file sweep (minutes) — *Advanced* | ≥ 0, `0` = off | `0` | global |
+
+## Custom launchers
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
 | `customLaunchers` | Saved commands | array of `{id, name, cmd, cwd, env, …}` | `[]` | global **+ per project** (merged by `id`) |
 
-## Layout & Tabs
+## Layout & tabs
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
@@ -168,7 +197,10 @@ agy stay well inside it and are unaffected. **The workaround is to copy from the
 | `windowBounds` | (no UI) | — | — | global; never exported |
 | `detachedWindows` | (no UI) — what each window of its own held at quit: bounds, session ids, view tabs and its pane arrangement (#371, #372). Written on every change, read once at launch, and gated by `restoreSessionsOnLaunch` | — | `[]` | global; **never exported** — screen coordinates plus session ids from another machine's store |
 
-## Projects & Sidebar
+`tabsLiveRender` is retired too (#339): it is read as the fallback for `liveRenderBackground`, so a
+stored preference survives — the setting stopped being about tabs when panes started obeying it.
+
+## Projects & sidebar
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
@@ -217,7 +249,7 @@ one list pruned by different rules depending on which project a row came from, a
 would not be visible anywhere. They stay global on purpose (#239) — revisit only together with a UI that
 shows the override, or it becomes invisible state.
 
-## Usage & Notifications
+## Usage & notifications
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
@@ -235,7 +267,7 @@ shows the override, or it becomes invisible state.
 
 Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the defaults above.
 
-## Keyboard shortcuts — `shortcuts.<id>`
+## Hotkeys — `shortcuts.<id>`
 
 `primary` = Cmd on macOS, Ctrl elsewhere. Defaults live in `src/renderer/shell/shortcuts.js`.
 
@@ -274,17 +306,14 @@ character `\` could not be pressed on any keyboard (#353). The four punctuation 
 single view, walks the mosaic in grid, and in **panes** it moves to the pane that lies that way **on
 screen** — chosen by geometry, and it stops at the edge of the layout instead of wrapping.
 
-## Handoff
+## Maintenance
 
-| Key | Label | Default | Scope |
-|---|---|---|---|
-| `handoffPrompt` | Summarise prompt — asked of this session's agent | `''` = the built-in prompt | global |
-| `handoffReadPrompt` | Read prompt — given to a new session | `''` = the built-in prompt | global |
-| `handoffPromptByBackend` / `handoffReadPromptByBackend` | per-backend override (a backend's own page) | `{}` = use the global one | global |
+| Key | Label | Values | Default | Scope |
+|---|---|---|---|---|
+| `logLevel` | Log level | `info` \| `debug` \| `silly` | `info` | global |
 
-Placeholders: `{goal}` `{project}` `{sessionId}` `{metrics}`, plus `{transcript}` in the read prompt.
-Editing a prompt back to the built-in text stores `''` again — the default is never frozen into the blob,
-so improving it in a later version reaches everyone who did not change it.
+Export, import and the cache rebuild are actions rather than settings; they live in the same category on
+screen.
 
 ## Backends
 

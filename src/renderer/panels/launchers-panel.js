@@ -1,4 +1,4 @@
-// public/launchers-panel.js — Settings → Terminal → "Terminal tools": the user-managed list of
+// public/launchers-panel.js — Settings → "Custom launchers" (#471): the user-managed list of
 // Tier-3 custom launchers (T-3.10).
 //
 // Lives under the TERMINAL category (where users look for terminal things), not "Sessions & CLI".
@@ -288,7 +288,7 @@
       box.innerHTML = `
         <div class="settings-section">
           <div class="settings-section-title launcher-head">
-            <span>Terminal tools</span>
+            <span>Custom launchers</span>
             ${isProject && ctx.useGlobalCheckbox ? ctx.useGlobalCheckbox('customLaunchers') : ''}
           </div>
           <div class="settings-hint">${isProject

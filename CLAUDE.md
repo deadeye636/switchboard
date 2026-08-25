@@ -146,7 +146,7 @@ touched. Isolation, `userData`, and the per-backend store overrides: `docs/ai/ru
 ## Logging
 
 Three tiers (electron-log). Packaged builds default to `info`; the level is a global setting
-(**Sessions & CLI → Log level**) and applies live.
+(**Maintenance → Log level**) and applies live.
 
 | Level | Use it for | Rule of thumb |
 |---|---|---|

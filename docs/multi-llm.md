@@ -121,7 +121,7 @@ instead of quietly running the packet somewhere else.
 
 **The prompts.** There are two, because there are two routes: a *summarise* prompt (asked of this
 session's agent) and a *read* prompt (given to the new one, with `{transcript}` pointing at what it should
-open). Both have a built-in default, both can be changed globally in *Sessions & CLI → Handoff*, and both
+open). Both have a built-in default, both can be changed globally in *Documents → Handoffs*, and both
 can be overridden per backend on that backend's page — so a CLI with its own skill or wording gets exactly
 what you write for it. A slash command is that CLI's own; point a backend at a command it has.
 
