@@ -51,7 +51,7 @@
       collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
       confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
-      externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue,
+      externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue,
       handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
@@ -461,6 +461,16 @@
 
               <div class="settings-subhead">Plans</div>
               <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Plan directories</span>${help}</div>
+                    <div class="settings-description">Where a project's plans are read from, comma separated and relative to the project root. Every directory that exists is listed; nothing is created.</div>
+                    <div class="settings-more">The default for every project, overridable in a project's own settings. Switchboard does not produce plans, so this is what lets a directory a project already uses show up beside the one its CLIs write to.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-plan-dir-names" placeholder=".plans, docs/plans" value="${escapeHtml(planDirNamesValue)}">
+                  </div>
+                </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Plans directory</span>${help}</div>

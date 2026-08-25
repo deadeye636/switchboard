@@ -138,7 +138,7 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `planDirNames` | Plan directories to look for | list of project-relative paths | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global |
+| `planDirNames` | Plan directories to look for | list of project-relative paths | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global + project |
 | `planDir` | Where this project keeps plans | project-relative path | `.plans` | global + project |
 | `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
 | `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |

@@ -496,11 +496,17 @@ function attributePlans(plans, refOf) {
 // keeps the directory it came from, because a hand-written `docs/plans/` and a CLI's plan-mode output are
 // not the same kind of document and a list that silently merged them would be a markdown browser.
 
-/** The candidate directory names, from the settings — a list, so a project's own layout can be added. */
-function planDirCandidates() {
+/**
+ * The candidate directory names, from the settings — a list, so a project's own layout can be added.
+ *
+ * Asked PER PROJECT (#470). It used to ask the cascade with `null`, which is the global answer whatever a
+ * project had configured — so an override existed in the settings, was saved, and was then ignored by the
+ * only code that reads it, while `planDir` beside it resolved per project correctly.
+ */
+function planDirCandidates(projectPath = null) {
   const fallback = ['.plans', 'docs/plans', 'plans', '.agent/plans'];
   try {
-    const eff = ctx.effectiveSettings ? ctx.effectiveSettings(null) : null;
+    const eff = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath || null) : null;
     const names = eff && eff.planDirNames;
     if (!Array.isArray(names)) return fallback;
     // A blank entry would resolve to the project root and put every markdown file in the repo on the list.
@@ -547,10 +553,10 @@ function projectPlanSources() {
     out.push({ projectPath, dir, name });
   };
 
-  const candidates = planDirCandidates();
   const backends = memoryBackends();
   for (const projectPath of visibleProjectPaths()) {
-    for (const name of candidates) add(projectPath, path.resolve(projectPath, name), name);
+    // Per project, not once for all of them: this is the setting a project overrides.
+    for (const name of planDirCandidates(projectPath)) add(projectPath, path.resolve(projectPath, name), name);
     for (const b of backends) {
       let dir = null;
       try { dir = b.plansDir({ projectPath }); } catch { dir = null; }
@@ -1097,13 +1103,7 @@ function deleteWorkFile(filePath) {
 // trusting one from the renderer. A dialog that describes one thing and writes another is the failure
 // this shape exists to prevent.
 
-/** Is this project under version control? Decides the retirement rule and the ignore warning. */
-
-
-/** Does the project's .gitignore name this directory? A plain text check, not a git evaluation. */
-
-
-//** The plans directory this project should use: its own setting, else the global default. */
+/** The plans directory this project should use: its own setting, else the global default. */
 function planDirFor(projectPath) {
   try {
     const eff = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath) : null;
@@ -1250,6 +1250,11 @@ module.exports = {
   // was the only thing exercising it.
   _resourceGroups: resourceGroups,
   _isInstructionFile: isInstructionFile,
+  // …and where the Plans list looks, which is a setting a project may override (#470). The override was
+  // saved and then ignored for as long as the candidates were read once against the global settings, and
+  // nothing could see it: the tab renders the same either way unless a project actually has a directory
+  // of its own.
+  _planDirCandidates: planDirCandidates, _projectPlanSources: projectPlanSources,
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,

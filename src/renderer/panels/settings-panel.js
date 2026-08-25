@@ -127,6 +127,11 @@
     // #450 where this project keeps its plans. In the cascade, so a project that keeps them somewhere
     // else says so; the default has to match SETTING_DEFAULTS in src/app/settings.js.
     const planDirValue = fieldValue('planDir', '.plans');
+    // #470 the directories the Plans list LOOKS IN, beside the one it writes to. The pair handoffs
+    // already had (#468): a read list and a write target, both in the cascade. The default has to match
+    // SETTING_DEFAULTS in src/app/settings.js.
+    const planDirNamesRaw = fieldValue('planDirNames', ['.plans', 'docs/plans', 'plans', '.agent/plans']);
+    const planDirNamesValue = Array.isArray(planDirNamesRaw) ? planDirNamesRaw.join(', ') : '';
     // `normalizeAfk` lived here and was never called — by anything, anywhere. Deleted with #218's first
     // cut of this function: a 2250-line body is exactly where a dead helper survives being read past.
     const visCountValue = fieldValue('visibleSessionCount', 10);
@@ -397,6 +402,19 @@
           <div class="settings-field">
             <div class="settings-field-info">
               <div class="settings-field-header">
+                <span class="settings-label">Plan directories</span>
+                ${useGlobalCheckbox('planDirNames')}
+              </div>
+              <div class="settings-description">Where this project's plans are read from, comma separated and relative to the project root. Every directory that exists is listed.</div>
+              <div class="settings-more">Discovery only — nothing is created here. Switchboard does not produce plans; the list is what lets a directory this project already uses show up beside the one a CLI writes to.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-plan-dir-names" placeholder=".plans, docs/plans" value="${escapeHtml(planDirNamesValue)}" ${fieldDisabled('planDirNames')}>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header">
                 <span class="settings-label">Plans directory</span>
                 ${useGlobalCheckbox('planDir')}
               </div>
@@ -551,7 +569,7 @@
         collapseDefaultValue, collapseAgeValue, vcsChipEnabledValue, vcsShowBadgeValue, vcsPollSecondsValue, vcsCountUntrackedValue,
         confirmQuitValue, conptyBackendValue, displayModeValue, paneToolsPlacementValue,
         paneCloseEmptyValue, paneBackgroundScrollbackValue,
-        externalEditorValue, planInsertTemplateValue, planDirValue, skillInsertTemplateValue, skillsDirValue,
+        externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue,
         handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue,
         submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
@@ -729,6 +747,7 @@
           shellProfile: 'sv-shell-profile',
           terminalShellProfile: 'sv-terminal-shell-profile',
           planDir: 'sv-plan-dir',
+          planDirNames: 'sv-plan-dir-names',
           skillsDir: 'sv-skills-dir',
           skillInsertTemplate: 'sv-skill-insert-template',
           handoffDir: 'sv-handoff-dir',
@@ -837,6 +856,14 @@
      * would hide every packet they have. It falls back to the defaults, which is what the main process
      * does with an empty list anyway — the two agreeing is the point.
      */
+    // Comma separated, and an emptied field means the DEFAULT rather than "no directories": a list that
+    // can be emptied is a setting that hides every plan the project has (#470, the handoff rule below).
+    function readPlanDirNames() {
+      const raw = settingsViewerBody.querySelector('#sv-plan-dir-names')?.value || '';
+      const names = raw.split(',').map(n => n.trim()).filter(Boolean);
+      return names.length ? names : ['.plans', 'docs/plans', 'plans', '.agent/plans'];
+    }
+
     function readHandoffDirNames() {
       const raw = settingsViewerBody.querySelector('#sv-handoff-dir-names')?.value || '';
       const names = raw.split(',').map(n => n.trim()).filter(Boolean);
@@ -856,6 +883,7 @@
               // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
               shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
               planDir: () => (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans',
+              planDirNames: () => readPlanDirNames(),
               handoffDir: () => (settingsViewerBody.querySelector('#sv-handoff-dir')?.value || '').trim() || '.handoffs',
               handoffDirNames: () => readHandoffDirNames(),
               handoffInsertTemplate: () => (settingsViewerBody.querySelector('#sv-handoff-insert-template')?.value || '').trim(),
@@ -949,6 +977,7 @@
         settings.planInsertTemplate = (settingsViewerBody.querySelector('#sv-plan-insert-template')?.value || '').trim();
         const svPlanDir = settingsViewerBody.querySelector('#sv-plan-dir');
         if (svPlanDir) settings.planDir = (svPlanDir.value || '').trim() || '.plans';
+        if (settingsViewerBody.querySelector('#sv-plan-dir-names')) settings.planDirNames = readPlanDirNames();
         // Same rule for the skill fields: empty is stored as empty, meaning "whatever the default is",
         // so changing a default later still reaches everyone who has opened Settings once.
         const svSkillTemplate = settingsViewerBody.querySelector('#sv-skill-insert-template');
