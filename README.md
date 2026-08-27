@@ -119,8 +119,9 @@ chart rather than a row of zeroes.
   with status filters and bulk actions
 - **Plans** — every plan document grouped by the project it belongs to, whether the CLI wrote it into
   its own home or the project keeps its own `docs/plans/`. A shortcut hands one to the running terminal
-  as a reference, and a project can point its CLIs at one directory so a plan written in Claude is
-  readable by whatever runs next. → [the convention](docs/plans-convention.md)
+  as a reference, the palette can ask the agent to write one where this project keeps them, and a project
+  can point its CLIs at one directory so a plan written in Claude is readable by whatever runs next.
+  → [the convention](docs/plans-convention.md)
 - **Skills** — a shortcut hands the CLI in the terminal one of its own skills, or one you keep in
   Switchboard for every CLI. A CLI that can run a skill from its prompt gets its own command; the rest
   get a reference to the document. → [spec 21](docs/specs/21-skills.md)
@@ -129,10 +130,11 @@ chart rather than a row of zeroes.
   back: the format is checked first, the file's own line endings survive, and a save built on a version
   something else has changed since is refused rather than winning. Skills, commands, rules and agents can
   be created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
-- **Command palette** — Ctrl/Cmd+K over your sessions, your projects and the app's own actions, in one
-  ranked list. It answers the first keystroke, and an empty query is simply what you were last working
-  on. Actions that act on the session you are in are offered only when there is one, and say which one
-  by name. → [spec 23](docs/specs/23-command-palette.md)
+- **Command palette** — Ctrl/Cmd+K over your sessions, your projects and the app's own commands, under
+  headings. It opens on what the app can do rather than on where you were, answers from the first
+  keystroke, and each row says which key does the same thing. Commands that act on the session you are
+  in are offered only when there is one, and say which one by name.
+  → [spec 23](docs/specs/23-command-palette.md)
 - **PDFs open in the app** — rendered page by page in the panel, instead of arriving in the source
   editor as unreadable bytes. → [spec 22](docs/specs/22-pdf-preview.md)
 - **Documents stay live** — a file open in the viewer follows an agent rewriting it, keeping your

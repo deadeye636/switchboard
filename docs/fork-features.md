@@ -372,11 +372,18 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the app touch is that CLI's own declaration, so nothing executable is on the list. Skills, commands,
   rules and agents can also be created from a per-backend template and deleted, the deletion asking a
   narrower question than the reading did.
-- **A command palette** — Ctrl/Cmd+K over sessions, projects and the app's own actions in one ranked
-  list, matching from the first keystroke rather than the third, and opening on what you were last
-  working on. The actions are declared by whatever owns them, so a feature that gains one does not have
-  to be remembered in a list somewhere else. An action that acts on the session you are in is offered
-  only when there is one, and names it in the row rather than leaving you to guess which.
+- **A command palette** — Ctrl/Cmd+K over sessions, projects and the app's own commands, matching from
+  the first keystroke rather than the third. It opens on the **commands**, under a heading of their own,
+  with the jump targets below: an empty palette is being asked what the app can do, and where you were is
+  one keystroke away either way. Each group gets its own slice, so the longest cannot eat the list, and
+  typing ranks across everything at once with the best match still leading.
+  - The commands are declared by whatever owns them, so a feature that gains one does not have to be
+    remembered in a list somewhere else — opening a picker, splitting or closing a pane, bookmarking,
+    creating a task, writing a handoff or a plan. Navigation is deliberately not there: a direction lives
+    in the key press, and a row for it would say nothing without one.
+  - **A row says which key does the same thing**, read from the same binding table the key handler
+    matches against, so a rebound key cannot leave a stale hint behind. A command that acts on the
+    session you are in is offered only when there is one, and names it in the row.
 - **Every CLI that reads a file is credited on it** — a project's `AGENTS.md` is Codex', Pi's and
   Hermes'; `CLAUDE.md` is Claude's, Pi's and Hermes'. Hermes had declared no per-project instruction
   files at all while its own launch option offered to skip them, so a Hermes-only project showed nothing;

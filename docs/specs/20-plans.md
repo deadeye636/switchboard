@@ -116,6 +116,29 @@ than invented here:
   that hides every plan the project has, and no error would ever be shown for it.
 
 
+## Asking for one, without writing it (#486)
+
+The rule above holds, and this is the shape that respects it: the command palette's **Write a plan** types
+a prompt into the focused session and stops. No file is written by the app, nothing is captured, nothing is
+reviewed. The plan directories are already watched, so what the agent writes appears in the list by itself
+— which is why this needs no machinery of its own.
+
+**The prompt is the whole feature**, because the CLI writing the file has not read this document. So the
+built-in one carries the convention: `{planPath}`, `<date>-<slug>.md`, the title as first heading, the
+`status:` / `updated:` block. It is editable globally and per backend, and per backend matters more here
+than it does for handoffs — Claude has a plan mode that names its own files, Codex, Hermes and Pi have
+none at all, and one wording cannot fit both.
+
+A prompt that is a **slash command** is the case we cannot word: `/plan` runs the CLI's own skill and the
+skill picks the directory. Such a prompt is sent with the directory on a line of its own, unless it names
+it already; a prompt written as prose is sent exactly as written. The mechanic is shared with the handoff
+side (spec 25), and the directory itself comes from `src/app/convention-dirs.js` — one resolver, or a
+prompt and an insert template would name different directories.
+
+The row is offered only for a session with a **live PTY** that is not a plain terminal. `seedSessionWhenReady`
+returns silently otherwise, and an ungated row reported "asked the agent" over a session nothing was typed
+into.
+
 ## The convention degrades
 
 Not everyone has an issue tracker and not everyone has git. The header works with a heading, a status and

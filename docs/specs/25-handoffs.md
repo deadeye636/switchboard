@@ -154,6 +154,23 @@ un-normalised `.gitignore` lines: it stripped a leading dot from `.plans` and no
 own `.plans`, so the two could never match. The check answered "not ignored" about every dot-directory —
 which is every default this app has — and nothing noticed, because the only thing it produces is a note.
 
+## The prompt says where the packet goes (#485)
+
+While Switchboard captures the agent's answer and writes the file itself, the directory need not appear in
+the prompt at all. That stops being true the moment the agent writes the packet — which is exactly what a
+slash-command prompt does: `/handoff` runs the CLI's own skill, the skill picks the directory, and the app
+then looks in the project for a packet sitting in the skill's home.
+
+So both prompts take `{handoffDir}` (project-relative) and `{handoffPath}` (absolute), filled per session
+from the cascade, and a prompt that **is** a slash command is sent with the directory appended on a line of
+its own — only then, and only when it does not already name the directory. A prompt written as prose is
+someone's own text and is sent as written.
+
+`src/app/convention-dirs.js` answers where a project keeps handoffs and plans, and it is the only thing
+that does: the prompt, the plan prompt (spec 20) and a saved variable's insert template all ask it, or they
+would name different directories. A configured path that escapes the project falls back to the default
+rather than being handed to an agent — `path-containment.js`, asked about the directory before any `stat`.
+
 ## What this does not do
 
 - **No CLI is configured.** Plans need a setup step because the CLI writes the plan and Claude's

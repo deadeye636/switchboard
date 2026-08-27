@@ -69,7 +69,11 @@ table is the fallback and it is binding.
 11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
     compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
     is impossible, and the file's own line endings and BOM kept.
-12. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
+12. **Never ask the settings blob where a project keeps its documents** — `src/app/convention-dirs.js` is
+    the one answer for handoffs AND plans, relative and absolute, with the escape guard applied. Three
+    surfaces name those directories (the handoff prompts, the plan prompt, a saved variable's insert
+    template), and a second reading of `eff.handoffDir` is how two of them start naming different ones.
+13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
     about the DIRECTORY where the file may not exist yet, and **before** the `stat` — a guard placed after
