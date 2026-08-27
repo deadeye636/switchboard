@@ -455,7 +455,10 @@
     const SYNTH_PATH = '<secret-file>';
     // The convention directories render as themselves: which project answers them is decided at insert
     // time, so any concrete path here would be a preview of one project pretending to be the rule.
-    const SYNTH_DIRS = { handoffDir: '<handoff-dir>', handoffPath: '<handoff-dir>', planDir: '<plan-dir>', planPath: '<plan-dir>' };
+    // One placeholder PER TOKEN, not per directory: `{handoffDir}` and `{handoffPath}` differ by exactly
+    // the thing a preview is for — whether what lands in the command is a bare name or a full path.
+    // Rendering both as the same text hides the one mistake this preview exists to catch.
+    const SYNTH_DIRS = { handoffDir: '<handoff-dir>', handoffPath: '<handoff-path>', planDir: '<plan-dir>', planPath: '<plan-path>' };
     let previewShell = (navigator.platform || '').toLowerCase().startsWith('win') ? 'pwsh' : 'bash';
     const previewEl = overlay.querySelector('#va-f-preview');
     const notesEl = overlay.querySelector('#va-f-notes');
