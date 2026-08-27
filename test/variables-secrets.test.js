@@ -37,7 +37,7 @@ function fakeSafeStorage(available = true) {
   };
 }
 
-function setup(t, { rows = [], available = true, session = { shellType: 'bash', projectPath: null } } = {}) {
+function setup(t, { rows = [], available = true, session = { shellType: 'bash', projectPath: null }, conventionDirs = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-vars-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -64,6 +64,9 @@ function setup(t, { rows = [], available = true, session = { shellType: 'bash', 
       touchSavedVariable: (id) => touched.push(id),
     },
     log: { info() {}, warn: (m) => warnings.push(m), error() {} },
+    // Where the project keeps handoffs and plans, for a template naming one. A test that passes none
+    // exercises the branch main.js never takes — so the tests that care hand one in.
+    ...(conventionDirs ? { conventionDirs } : {}),
   };
   variables.init(ctx);
   return ctx;
@@ -338,4 +341,68 @@ test('tags are normalized: trimmed, deduped case-insensitively, and capped', (t)
   assert.deepEqual(variables.normalizeSavedVariableTags(' a , A ,b, ,b '), ['a', 'b']);
   assert.equal(variables.normalizeSavedVariableTags(Array.from({ length: 40 }, (_, i) => `t${i}`)).length, 20);
   assert.equal(variables.normalizeSavedVariableTags(['x'.repeat(60)])[0].length, 40);
+});
+
+// --- the convention directories, at the level where the project is chosen (#485) ------------------
+//
+// `compose()` is unit-tested with a hand-supplied `dirs` object, which proves the grammar and nothing
+// about WHOSE project answers it. That decision is made here, and it has exactly one right answer: the
+// session's. A variable scoped to another project inserted into this terminal must describe THIS project,
+// or a global variable would be useless and a project-scoped one would lie.
+
+const DIRS_FOR = (projectPath) => ({
+  handoffDir: '.handoffs',
+  planDir: '.plans',
+  handoffPath: `${projectPath}/.handoffs`,
+  planPath: `${projectPath}/.plans`,
+});
+
+test('a directory token resolves for the SESSION\'s project, not the variable\'s scope', (t) => {
+  const asked = [];
+  setup(t, {
+    rows: [{
+      id: 'v1', name: 'Plan', secret: 0, scope: 'project', projectPath: '/other/project',
+      value: '', valueEncoding: 'plain', insertTemplate: 'write it to {handoffPath} and {planDir}',
+    }],
+    session: { shellType: 'bash', projectPath: '/here/shop' },
+    conventionDirs: (projectPath) => { asked.push(projectPath); return DIRS_FOR(projectPath); },
+  });
+
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  assert.equal(out.ok, true, out.error);
+  assert.equal(out.text, 'write it to /here/shop/.handoffs and .plans');
+  assert.deepEqual(asked, ['/here/shop'], 'asked once, about the terminal we are inserting into');
+});
+
+test('a referenced variable naming a directory gets the SAME answer as the root', (t) => {
+  setup(t, {
+    rows: [
+      {
+        id: 'v1', name: 'Root', secret: 0, scope: 'global', value: '', valueEncoding: 'plain',
+        insertTemplate: '{var:Child}|{handoffDir}',
+      },
+      {
+        id: 'v2', name: 'Child', secret: 0, scope: 'global', value: '', valueEncoding: 'plain',
+        insertTemplate: '{handoffPath}',
+      },
+    ],
+    session: { shellType: 'bash', projectPath: '/here/shop' },
+    conventionDirs: DIRS_FOR,
+  });
+
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  assert.equal(out.ok, true, out.error);
+  assert.equal(out.text, '/here/shop/.handoffs|.handoffs', 'one insert, one project');
+});
+
+test('no resolver wired — a directory token resolves to empty rather than to a guess', (t) => {
+  setup(t, {
+    rows: [{
+      id: 'v1', name: 'Plan', secret: 0, scope: 'global', value: '', valueEncoding: 'plain',
+      insertTemplate: '[{handoffPath}]',
+    }],
+    session: { shellType: 'bash', projectPath: '/here/shop' },
+  });
+
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, '[]');
 });
