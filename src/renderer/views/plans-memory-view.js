@@ -926,7 +926,7 @@ async function openWorkFile(file) {
 // (`src/app/plans-memory.js`), so a plan the agent just wrote shows up in the list on its own.
 //
 // Reaches at parse time: registerCommandAction (shell/command-actions.js).
-// Reaches at call time: focusedActionSession, sessionMap, seedSessionWhenReady (app.js), getBackend
+// Reaches at call time: focusedActionSession, activePtyIds, seedSessionWhenReady (app.js), getBackend
 // (backends/backend-registry.js), sessionBackendId, cleanDisplayName, showControlToast, and from
 // session/session-health.js: resolvePlanPrompt, withDirHint, fillPromptTemplate.
 
@@ -955,8 +955,21 @@ async function buildPlanPrompt(session) {
   };
 }
 
+// Can this session be asked anything at all? A prompt goes into a RUNNING agent: `focusedActionSession`
+// resolves through `sessionMap`, which holds sessions whose CLI has exited and, in panes mode, dormant
+// ones that were never mounted. `seedSessionWhenReady` returns silently for those — so without this the
+// palette would report "asked the agent" over a session that was never typed into.
+//
+// A plain terminal is excluded for the same reason the handoff flow excludes it: a shell is not an agent,
+// and a plan prompt pasted into one is a command it will try to run.
+function canBeAskedForPlan(session) {
+  if (!session || !session.sessionId) return false;
+  if (session.type === 'terminal') return false;
+  return typeof activePtyIds !== 'undefined' && activePtyIds.has(session.sessionId);
+}
+
 async function startPlanForSession(session) {
-  if (!session || !session.sessionId) return;
+  if (!canBeAskedForPlan(session)) return;
   const { backend, text } = await buildPlanPrompt(session);
 
   // The same seeding primitive the handoff uses: it waits for the CLI to fall quiet rather than for a
@@ -988,7 +1001,9 @@ if (typeof registerCommandAction === 'function') registerCommandAction({
   },
   group: 'Plan',
   keywords: 'plan design approach steps before implementing write plan',
-  available: () => !!(typeof focusedActionSession === 'function' && focusedActionSession()),
+  // Offered when it applies, absent when it does not — and "applies" means a running agent, not merely a
+  // session in the list.
+  available: () => canBeAskedForPlan(typeof focusedActionSession === 'function' ? focusedActionSession() : null),
   run: () => {
     // Asked again rather than closed over: the palette may have been open while the session ended.
     const session = typeof focusedActionSession === 'function' ? focusedActionSession() : null;

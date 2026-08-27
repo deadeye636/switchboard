@@ -161,7 +161,7 @@ Avoid:
   }
 
   // Editable handoff request prompt. The placeholders {goal} {project}
-  // {sessionId} {metrics} are filled per-session by fillHandoffPrompt. Users can
+  // {sessionId} {metrics} are filled per-session by fillPromptTemplate. Users can
   // override this whole text in Settings (or replace it with a skill like /handoff).
   const DEFAULT_HANDOFF_PROMPT = `Create a concise handoff for starting a fresh session.
 

@@ -22,7 +22,7 @@ const health = require('../src/renderer/session/session-health.js');
 // what the view calls at parse time), then the view, with the free globals it reaches stubbed. Everything
 // plans-memory-view.js touches at PARSE time has to be present — the file is a whole viewer, so the DOM
 // handles it grabs are stubbed rather than mocked in detail.
-function load({ session = null, settings = {}, dirs = null } = {}) {
+function load({ session = null, settings = {}, dirs = null, running = true } = {}) {
   const seeded = [];
   const ctx = vm.createContext({});
   ctx.window = ctx;
@@ -40,6 +40,9 @@ function load({ session = null, settings = {}, dirs = null } = {}) {
 
   // What the view reaches for at call time.
   ctx.focusedActionSession = () => session;
+  // A session in the list is not a session that can be asked: `focusedActionSession` resolves through
+  // sessionMap, which holds sessions whose CLI has exited and, in panes mode, dormant ones.
+  ctx.activePtyIds = new Set(running && session ? [session.sessionId] : []);
   ctx.cleanDisplayName = (s) => (s || '').trim();
   ctx.sessionBackendId = (s) => (s && s.backendId) || '';
   ctx.getBackend = (id) => ({ id, label: id, seedGraceMs: 0 });
@@ -110,4 +113,25 @@ test('a session with no project still gets a prompt — the directory token just
   await action().run();
   assert.equal(seeded.length, 1);
   assert.ok(!seeded[0].text.includes('{planPath}'));
+});
+
+// The failure this gate exists for: `seedSessionWhenReady` returns silently when the session is not a
+// mounted, live terminal — so an ungated action reports "asked the agent" over a session nothing was
+// typed into. `handoff.create` reaches its flow behind the same two conditions.
+test('a session whose CLI has exited is not offered the action', () => {
+  const { action } = load({ session: { sessionId: 's1', name: 'done and gone' }, running: false });
+  assert.equal(action(), undefined);
+});
+
+test('a plain terminal is not offered it either — a shell is not an agent', () => {
+  const { action } = load({ session: { sessionId: 's1', name: 'bash', type: 'terminal' } });
+  assert.equal(action(), undefined);
+});
+
+test('and run() refuses too, in case the session ended while the palette was open', async () => {
+  const { ctx, seeded, action } = load({ session: { sessionId: 's1', name: 'x' } });
+  const row = action();
+  ctx.activePtyIds.clear();
+  await row.run();
+  assert.equal(seeded.length, 0, 'nothing typed, and nothing claimed');
 });
