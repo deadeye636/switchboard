@@ -31,6 +31,28 @@ They are separate on purpose. If the write target were "the first entry of the r
 list would quietly move where future packets land. Both are relative to the project root, and a path that
 escapes it is refused.
 
+## The agent is told where the packet goes
+
+Switchboard asks an agent for a handoff by typing a prompt into it, and that prompt can name the save
+directory: `{handoffDir}` relative to the project, `{handoffPath}` as a full path. Both are filled from
+the settings above, for the project the session belongs to.
+
+That matters for one case in particular. A prompt may be a slash command — `/handoff` runs the CLI's own
+skill, and the skill decides where it writes, which is often its own home directory rather than anything
+in the project. The wording of that skill is not ours to change. So a prompt that is a slash command is
+sent with the directory appended on a line of its own:
+
+```
+/handoff
+
+Switchboard: this project's handoff directory is /home/you/dev/shop/.handoffs — write the packet there.
+```
+
+Only for a slash command, and only when the prompt does not already name the directory itself. A prompt
+written as prose is sent exactly as written — it is yours, and a sentence appended to it would be noise.
+
+The same mechanic tells a `/plan` command where plans go; `docs/plans-convention.md` has that side.
+
 ## What a handoff looks like
 
 The first heading is the title. Under it, a header block carries the rest:

@@ -89,6 +89,23 @@ Plan documents go in `.plans/` in this project. Start each one with a `# heading
 That is a suggestion the model can ignore, which is the honest limit of the approach. Claude is the one
 case where the directory is enforced rather than suggested, because it has a setting for it.
 
+## Asking for one
+
+The command palette has a **Write a plan** action. It types a prompt into the session that has focus and
+stops there — the app still writes no plan, and it does not review what comes back. The plan directories
+are watched, so what the agent writes turns up in the list by itself.
+
+The prompt is the part that carries this convention, since the CLI writing the file has not read it:
+where the file goes, what it is called, the title as the first heading, the header block. It is editable
+under **Settings → Documents → Plans**, and a backend that needs different wording gets its own on its
+page under **Backends** — which matters more here than it does for handoffs, because Claude has a plan
+mode that names its own files while Codex, Hermes and Pi have none at all.
+
+`{planDir}` is the directory relative to the project, `{planPath}` its full path, `{today}` the date for
+the header block. A prompt that is a slash command — `/plan` — runs the CLI's own skill, and that skill
+decides where it writes; such a prompt is sent with the directory appended on a line of its own, unless
+it names the directory itself. `docs/handoffs-convention.md` describes the same mechanic on its side.
+
 ## What can go wrong quietly
 
 Claude refuses a plans directory outside the project root, one reached through a symbolic link or a

@@ -578,7 +578,7 @@
                 <div class="settings-field settings-field-wide">
                   <div class="settings-field-info">
                     <span class="settings-label">Summarise prompt — asked of this session's agent</span>
-                    <div class="settings-description">Sent to the agent that ran this session: it summarises the state it already holds. Placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default. A slash command (e.g. <code>/handoff</code>) runs that agent's own skill — each CLI has its own, so give a backend its own prompt on its <b>Backends</b> page when it needs a different one.</div>
+                    <div class="settings-description">Sent to the agent that ran this session: it summarises the state it already holds. Placeholders: {goal} {project} {sessionId} {metrics}, plus <code>{handoffDir}</code> the save directory relative to the project and <code>{handoffPath}</code> its full path. Clear the field to restore the default. A slash command (e.g. <code>/handoff</code>) runs that agent's own skill, which decides where it writes — such a prompt is sent with the directory on a line of its own, unless it names it already. Each CLI has its own skill, so give a backend its own prompt on its <b>Backends</b> page when it needs a different one.</div>
                   </div>
                   <div class="settings-field-control">
                     <textarea class="settings-input" id="sv-handoff-prompt" spellcheck="false" style="width:100%;min-height:200px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffPromptValue)}</textarea>
@@ -588,7 +588,7 @@
                 <div class="settings-field settings-field-wide">
                   <div class="settings-field-info">
                     <span class="settings-label">Read prompt — given to a new session</span>
-                    <div class="settings-description">Sent to a FRESH agent that reads the old session's transcript and writes the handoff itself — nothing is resumed, and the old session spends nothing. <code>{transcript}</code> is the path it can read (a backend whose history lives in a database, like Hermes, has it exported for this). Other placeholders: {goal} {project} {sessionId} {metrics}. Clear the field to restore the default.</div>
+                    <div class="settings-description">Sent to a FRESH agent that reads the old session's transcript and writes the handoff itself — nothing is resumed, and the old session spends nothing. <code>{transcript}</code> is the path it can read (a backend whose history lives in a database, like Hermes, has it exported for this). Other placeholders: {goal} {project} {sessionId} {metrics}, plus <code>{handoffDir}</code> and <code>{handoffPath}</code> for the save directory. Clear the field to restore the default.</div>
                   </div>
                   <div class="settings-field-control">
                     <textarea class="settings-input" id="sv-handoff-read-prompt" spellcheck="false" style="width:100%;min-height:180px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(handoffReadPromptValue)}</textarea>
