@@ -5,7 +5,7 @@
 // ways a row could not — `saveHandoffPacket` is where that is answered without dropping the packet.
 // Depends on globals from other classic scripts (shared top-level scope):
 //   getSessionHealth, buildHandoffTemplate, buildHandoffRequestPrompt,
-//   DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt, withHandoffDirHint (session-health.js);
+//   DEFAULT_HANDOFF_PROMPT, fillPromptTemplate, withDirHint (session-health.js);
 //   extractLatestAssistantText (handoff-extract.js); computeHandoffActions (handoff-actions.js);
 //   showControlDialog, showControlToast (control-dialogs.js);
 //   activePtyIds, findProjectForSession, resolveDefaultSessionOptions, launchNewSession,
@@ -97,8 +97,8 @@ async function handoffFromNewSession(session, project, transcriptPath) {
   const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
 
   const dirs = await handoffDirsFor(session.projectPath);
-  const prompt = fillHandoffPrompt(
-    withHandoffDirHint(resolveHandoffPrompt(backend, g, 'read'), dirs),
+  const prompt = fillPromptTemplate(
+    withDirHint(resolveHandoffPrompt(backend, g, 'read'), dirs),
     { ...session, ...dirs, transcriptPath },
   );
 
@@ -447,8 +447,8 @@ async function askRunningAgentForHandoff(session, { waitForBoot = false } = {}) 
   // the prompt goes in.
   const before = await readLatestHandoffPacket(session);
   const dirs = await handoffDirsFor(session.projectPath);
-  const requestPrompt = fillHandoffPrompt(
-    withHandoffDirHint(resolveHandoffPrompt(backend, g, 'summarise'), dirs),
+  const requestPrompt = fillPromptTemplate(
+    withDirHint(resolveHandoffPrompt(backend, g, 'summarise'), dirs),
     { ...session, ...dirs },
   );
 

@@ -297,6 +297,12 @@
     const handoffPromptValue = !isProject
       ? ((typeof current.handoffPrompt === 'string' && current.handoffPrompt.length) ? current.handoffPrompt : defaultHandoffPrompt)
       : '';
+    // The plan prompt (#486). Global only, same shape as the handoff pair: an empty stored value means
+    // the built-in default, and the field shows that default rather than an empty box.
+    const defaultPlanPrompt = (typeof window !== 'undefined' && window.DEFAULT_PLAN_PROMPT) || '';
+    const planPromptValue = !isProject
+      ? ((typeof current.planPrompt === 'string' && current.planPrompt.length) ? current.planPrompt : defaultPlanPrompt)
+      : '';
     // Notifications (global only) — alert sound on attention + read-only hotkey hint.
     const attentionSoundValue = !!((current.notifications || {}).sound);
     const isMacPlatform = !!(window.api && window.api.platform === 'darwin');
@@ -573,7 +579,7 @@
         handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue,
         submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
-        favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
+        favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
@@ -1049,6 +1055,10 @@
           settings.handoffPrompt = (hp.trim() && hp.trim() !== defaultHandoffPrompt.trim()) ? hp : '';
           const rp = settingsViewerBody.querySelector('#sv-handoff-read-prompt')?.value || '';
           settings.handoffReadPrompt = (rp.trim() && rp.trim() !== defaultHandoffReadPrompt.trim()) ? rp : '';
+          // The plan prompt follows the same rule — a copy of the default frozen into the settings blob
+          // is a prompt that stops improving when the default does.
+          const pp = settingsViewerBody.querySelector('#sv-plan-prompt')?.value || '';
+          settings.planPrompt = (pp.trim() && pp.trim() !== defaultPlanPrompt.trim()) ? pp : '';
         }
         settings.tabCloseBehavior = settingsViewerBody.querySelector('#sv-tab-close').value || 'closeView';
         settings.tabMiddleClickCloses = settingsViewerBody.querySelector('#sv-tab-middle-click').checked;
@@ -1094,6 +1104,8 @@
             // it is typed into the running agent, not put on its command line.
             settings.handoffPromptByBackend = bs.handoffPromptByBackend;
             settings.handoffReadPromptByBackend = bs.handoffReadPromptByBackend;
+            // …and the plan prompt, which is typed into the agent the same way (#486).
+            settings.planPromptByBackend = bs.planPromptByBackend;
           }
         }
         // Templates (profiles.json) are STAGED by their editor and committed here — so this one Save

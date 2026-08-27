@@ -915,3 +915,83 @@ async function openWorkFile(file) {
   workFilesPanel.open(file.filename, file.filePath, content);
   window.panesView?.reportViews?.(); // #371 — see openPlan
 }
+
+// --- The command-palette route to a plan (#486) ----------------------------------------------------
+//
+// The mirror image of `handoff.create`, and deliberately far smaller than it. A handoff is produced,
+// reviewed and written BY the app; a plan is the agent's own document — `docs/plans-convention.md` says
+// the app reads plans and never writes one, and that stays true here. So this types a prompt and stops.
+//
+// Nothing has to poll for an answer, and nothing has to be saved: the plan directories are watched
+// (`src/app/plans-memory.js`), so a plan the agent just wrote shows up in the list on its own.
+//
+// Reaches at parse time: registerCommandAction (shell/command-actions.js).
+// Reaches at call time: focusedActionSession, sessionMap, seedSessionWhenReady (app.js), getBackend
+// (backends/backend-registry.js), sessionBackendId, cleanDisplayName, showControlToast, and from
+// session/session-health.js: resolvePlanPrompt, withDirHint, fillPromptTemplate.
+
+// The prompt this session gets, with the project's plan directory in it. Split out from the action so
+// the wiring is readable: resolve the backend's prompt, tell a slash command where the plan belongs,
+// then substitute — the same three steps, in the same order, as the handoff routes.
+async function buildPlanPrompt(session) {
+  const g = (await window.api.getSetting('global')) || {};
+  const backendId = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || '';
+  const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
+
+  let dirs = {};
+  if (session.projectPath) {
+    try {
+      const answer = await window.api.projectConventionDirs(session.projectPath);
+      if (answer && typeof answer === 'object') dirs = answer;
+    } catch { dirs = {}; }
+  }
+
+  return {
+    backend,
+    text: fillPromptTemplate(
+      withDirHint(resolvePlanPrompt(backend, g), dirs, 'plan'),
+      { ...session, ...dirs },
+    ),
+  };
+}
+
+async function startPlanForSession(session) {
+  if (!session || !session.sessionId) return;
+  const { backend, text } = await buildPlanPrompt(session);
+
+  // The same seeding primitive the handoff uses: it waits for the CLI to fall quiet rather than for a
+  // fixed delay, and it submits with a carriage return. `graceMs` is the backend's own floor — a CLI
+  // that is still importing cannot hear a prompt, and one pasted into it is simply gone.
+  seedSessionWhenReady(session.sessionId, text, {
+    graceMs: (backend && backend.seedGraceMs) || 0,
+    timelineLabel: 'Plan requested',
+    timelineNote: 'Asked the agent to write a plan before implementing.',
+  });
+  if (typeof showControlToast === 'function') {
+    showControlToast({ message: 'Asked the agent for a plan — it appears in Plans once written.' });
+  }
+}
+
+// Guarded the way sidebar-collapse.js and grid-view.js guard theirs: this file is loaded on its own by
+// several test harnesses, and a bare call at parse time takes the whole file down where the registry is
+// not in scope.
+if (typeof registerCommandAction === 'function') registerCommandAction({
+  id: 'plan.create',
+  // It NAMES the session, for the reason handoff.create does: the action follows the app's focus, which
+  // can be a session whose terminal is not the thing on screen.
+  title: () => {
+    const session = typeof focusedActionSession === 'function' ? focusedActionSession() : null;
+    const name = session
+      ? (cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId)
+      : '';
+    return name ? `Write a plan for “${name}”` : 'Write a plan';
+  },
+  group: 'Plan',
+  keywords: 'plan design approach steps before implementing write plan',
+  available: () => !!(typeof focusedActionSession === 'function' && focusedActionSession()),
+  run: () => {
+    // Asked again rather than closed over: the palette may have been open while the session ended.
+    const session = typeof focusedActionSession === 'function' ? focusedActionSession() : null;
+    if (session) return startPlanForSession(session);
+  },
+});

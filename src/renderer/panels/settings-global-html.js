@@ -53,7 +53,7 @@
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
       externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue,
       handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
-      favoritesOwnListValue, gpuAccelValue, handoffPromptValue,
+      favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
@@ -489,6 +489,16 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="text" class="settings-input" id="sv-plan-insert-template" placeholder="Follow the plan at {path}" value="${escapeHtml(planInsertTemplateValue)}">
+                  </div>
+                </div>
+
+                <div class="settings-field settings-field-wide">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Plan prompt — asked of this session's agent</span>
+                    <div class="settings-description">What the command palette's <b>Write a plan</b> action types into the agent. It writes the file itself — the app never writes a plan — so the prompt is what carries the convention. Placeholders: <code>{planDir}</code> the directory relative to the project, <code>{planPath}</code> its full path, <code>{today}</code>, <code>{goal}</code>, <code>{project}</code>. Clear the field to restore the default. A slash command (e.g. <code>/plan</code>) runs that agent's own skill and is told the directory on a line of its own; a backend that needs different wording gets its own prompt on its <b>Backends</b> page.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <textarea class="settings-input" id="sv-plan-prompt" spellcheck="false" style="width:100%;min-height:180px;font-family:monospace;font-size:12px;line-height:1.5;resize:vertical;box-sizing:border-box;">${escapeHtml(planPromptValue)}</textarea>
                   </div>
                 </div>
               </div>

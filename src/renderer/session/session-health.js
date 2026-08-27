@@ -209,10 +209,24 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
 - Avoid
 `;
 
-  // Where this project keeps its packets, as the prompt may name it. `{handoffDir}` is project-relative
-  // ('.handoffs'), `{handoffPath}` absolute — an agent whose working directory we do not know needs the
-  // second one. Both come from the caller, which asks main for the cascade (`project-convention-dirs`).
-  const HANDOFF_DIR_TOKENS = ['{handoffDir}', '{handoffPath}'];
+  // Where this project keeps the document, as the prompt may name it. `{handoffDir}` / `{planDir}` are
+  // project-relative ('.handoffs'), `{handoffPath}` / `{planPath}` absolute — an agent whose working
+  // directory we do not know needs the second kind. All four come from the caller, which asks main for
+  // the cascade (`project-convention-dirs`).
+  //
+  // Two kinds, one mechanic, because the problem is the same one twice: a slash command is a skill we did
+  // not write, and it decides where it writes. What differs is only the noun.
+  const DIR_HINT_KINDS = {
+    handoff: { tokens: ['{handoffDir}', '{handoffPath}'], noun: 'handoff', what: 'the packet' },
+    plan: { tokens: ['{planDir}', '{planPath}'], noun: 'plan', what: 'the plan' },
+  };
+
+  // Today as YYYY-MM-DD, in the LOCAL zone. `toISOString().slice(0,10)` is the tempting one-liner and it
+  // is wrong for anyone east of UTC in the evening: it dates a plan written on Tuesday night as Wednesday.
+  function localDateStamp(date = new Date()) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  }
 
   // Is this prompt a slash command — a skill belonging to the CLI rather than a text we wrote?
   // The first non-empty line decides. A prompt that merely CONTAINS a slash somewhere is prose.
@@ -221,7 +235,7 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
     return !!first && first.trim().startsWith('/');
   }
 
-  // Tell a skill where the packet belongs.
+  // Tell a skill where the document belongs.
   //
   // A slash command is the one prompt we cannot word: `/handoff` runs the CLI's own skill, and that skill
   // decides where it writes — its own home directory, as often as not, while Switchboard looks in the
@@ -230,22 +244,29 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
   // Only for a slash command, and only when the template does not already name the directory itself: a
   // prompt someone wrote by hand is theirs, and a second sentence in it is noise. The line carries the
   // TOKEN rather than the path, so the one substitution point below stays the only one.
-  function withHandoffDirHint(template, { handoffPath, handoffDir } = {}) {
+  function withDirHint(template, dirs = {}, kind = 'handoff') {
+    const spec = DIR_HINT_KINDS[kind];
     const text = String(template == null ? '' : template);
-    if (!handoffPath && !handoffDir) return text;
+    if (!spec) return text;
+    const absolute = dirs[`${kind}Path`];
+    const relative = dirs[`${kind}Dir`];
+    if (!absolute && !relative) return text;
     if (!isSlashCommandPrompt(text)) return text;
-    if (HANDOFF_DIR_TOKENS.some(token => text.includes(token))) return text;
-    const token = handoffPath ? '{handoffPath}' : '{handoffDir}';
+    if (spec.tokens.some(token => text.includes(token))) return text;
+    const token = absolute ? `{${kind}Path}` : `{${kind}Dir}`;
     return `${text.replace(/\s+$/, '')}
 
-Switchboard: this project's handoff directory is ${token} — write the packet there.
+Switchboard: this project's ${spec.noun} directory is ${token} — write ${spec.what} there.
 `;
   }
 
-  // Substitute the {placeholders} in a handoff prompt template with the session's
-  // local values. Templates without placeholders (e.g. a bare "/handoff" skill
-  // command) pass through unchanged.
-  function fillHandoffPrompt(template, session = {}) {
+  // Substitute the {placeholders} in a prompt template with the session's local values. Templates
+  // without placeholders (e.g. a bare "/handoff" skill command) pass through unchanged.
+  //
+  // One filler for every prompt the app types into an agent — the handoff pair and the plan prompt —
+  // because a placeholder that works in one of them and not in the others is a trap nobody can see from
+  // the settings field.
+  function fillPromptTemplate(template, session = {}) {
     const metrics = [
       session.userMessageCount ? `${formatInteger(session.userMessageCount)} user turns` : null,
       session.cacheReadTokens ? `${formatCompact(session.cacheReadTokens)} cache-read tokens` : null,
@@ -259,17 +280,24 @@ Switchboard: this project's handoff directory is ${token} — write the packet t
       metrics,
       // Only set on the "a fresh agent reads the old session" route; empty elsewhere.
       transcript: session.transcriptPath || '',
-      // Where a packet belongs. Absent when the caller could not ask (no project, main unreachable) —
+      // Where a document belongs. Absent when the caller could not ask (no project, main unreachable) —
       // then the token resolves to empty rather than to a guess at a directory nobody keeps.
       handoffDir: session.handoffDir || '',
       handoffPath: session.handoffPath || '',
+      planDir: session.planDir || '',
+      planPath: session.planPath || '',
+      // The date a document should carry, in the convention's own format. Local rather than UTC: a plan
+      // written at half past midnight is dated the day its author would write on it, not the day the
+      // clock in Greenwich is having.
+      today: session.today || localDateStamp(),
     };
     return String(template == null ? '' : template)
-      .replace(/\{(goal|project|sessionId|metrics|transcript|handoffDir|handoffPath)\}/g, (_m, key) => values[key]);
+      .replace(/\{(goal|project|sessionId|metrics|transcript|handoffDir|handoffPath|planDir|planPath|today)\}/g,
+        (_m, key) => values[key]);
   }
 
   function buildHandoffRequestPrompt(session = {}) {
-    return fillHandoffPrompt(DEFAULT_HANDOFF_PROMPT, session);
+    return fillPromptTemplate(DEFAULT_HANDOFF_PROMPT, session);
   }
 
   // The prompt we type into THIS backend's session:
@@ -306,6 +334,49 @@ Switchboard: this project's handoff directory is ${token} — write the packet t
       || DEFAULT_HANDOFF_PROMPT;
   }
 
+  // --- Asking for a plan (#486) ---------------------------------------------------------------------
+  //
+  // The mirror image of the handoff, and deliberately much smaller. The app writes no plan and reviews
+  // none: a plan is the agent's document, `docs/plans-convention.md` says so, and the plan directories
+  // are watched — so a plan an agent just wrote appears in the list on its own. All this side does is
+  // type a prompt and get out of the way.
+  //
+  // The DEFAULT carries the convention, because nothing else will. A CLI that has a plan mode names its
+  // own files (Claude's three word lists), and the ones that have no plan mode at all write whatever the
+  // moment suggests. Neither reads our documentation. So the shape — the directory, the filename, the
+  // first heading, the header block — is stated here, in the text the agent actually receives.
+  const DEFAULT_PLAN_PROMPT = `Write a plan for the work we are about to do. Do not implement anything yet.
+
+Write it as a markdown file in {planPath}, named <date>-<slug>.md — for example 2026-08-20-tariff-end-date.md.
+
+The plan's title is its first heading, and a header block carries the state:
+
+# Remove the end date from the tariff — it follows from the successor
+
+> status: active · updated: {today}
+
+Then the plan itself: what is to be done, in the order it should happen, and what would show that it
+worked. Keep it short enough to be read before the work starts.
+
+Known local context from Switchboard:
+- Goal/session title: {goal}
+- Project: {project}
+`;
+
+  // Which prompt this backend gets. The same cascade the handoff prompts use — the backend's own, else
+  // the global one, else the built-in default.
+  //
+  // Per backend matters MORE here than it does for handoffs, and the reason is worth stating: Claude has
+  // a plan mode with its own naming, Codex, Hermes and Pi have no plan mode at all. One wording cannot
+  // fit both cases, and the per-backend field is where that gets said.
+  function resolvePlanPrompt(backend, settings = {}) {
+    const id = (backend && backend.id) || '';
+    const pick = (v) => (typeof v === 'string' && v.trim()) ? v.trim() : null;
+    return pick((settings.planPromptByBackend || {})[id])
+      || pick(settings.planPrompt)
+      || DEFAULT_PLAN_PROMPT;
+  }
+
 
 
   return {
@@ -316,8 +387,11 @@ Switchboard: this project's handoff directory is ${token} — write the packet t
     resolveHandoffPrompt,
     DEFAULT_HANDOFF_PROMPT,
     DEFAULT_HANDOFF_READ_PROMPT,
-    fillHandoffPrompt,
-    withHandoffDirHint,
+    DEFAULT_PLAN_PROMPT,
+    resolvePlanPrompt,
+    fillPromptTemplate,
+    withDirHint,
     isSlashCommandPrompt,
+    localDateStamp,
   };
 });

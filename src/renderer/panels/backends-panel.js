@@ -44,8 +44,8 @@
   let inheritedDefaults = {};   // project scope only: what it would inherit from global
   let pendingDefaults = {};     // edited since the panel mounted, on any page
   let clearedDefaults = {};     // project scope: overrides the user handed back to the global default
-  let storedHandoffPrompts = {};  // handoffPromptByBackend on disk
-  let pendingHandoffPrompts = {}; // ...edited in this settings session
+  let storedPromptOverrides = {};  // the *PromptByBackend blobs on disk
+  let pendingPromptOverrides = {}; // ...edited in this settings session
 
   // The global scope's two list-level values. They live HERE and not in the DOM, because opening a
   // backend's gear page replaces the list — including the enable toggles and the default-target select.
@@ -512,9 +512,10 @@
     });
   }
 
-  // The handoff prompt, per backend. NOT a launch option (it reaches no argv and no env) — it is what we
-  // TYPE INTO the running agent, so it is stored as its own setting: `handoffPromptByBackend.<id>`.
-  // Empty = use the global prompt from Sessions & CLI.
+  // The prompts we TYPE INTO a running agent, per backend: the two handoff prompts and the plan prompt
+  // (#486). None of them is a launch option — they reach no argv and no env — so each is its own setting:
+  // `handoffPromptByBackend.<id>`, `handoffReadPromptByBackend.<id>`, `planPromptByBackend.<id>`.
+  // Empty = use the global prompt.
   //
   // Why per backend at all: a CLI may want different wording, or have its own skill. And a slash command
   // is a Claude skill — the handoff path refuses to type one into a CLI that has none (it would be read
@@ -522,7 +523,7 @@
   // previous message as the "fresh" packet).
   const firstLine = (text) => String(text || '').split('\n')[0].trim();
 
-  function handoffPromptHtml(backend, values, globals) {
+  function promptOverridesHtml(backend, values, globals) {
     const row = (kind, id, label, hint, value, placeholder) => `
         <div class="settings-field settings-field-wide">
           <div class="settings-field-info">
@@ -530,7 +531,7 @@
             <div class="settings-description">${hint}</div>
           </div>
           <div class="settings-field-control">
-            <textarea class="settings-input backend-handoff-prompt" rows="4"
+            <textarea class="settings-input backend-prompt-override" rows="4"
               data-backend="${esc(backend.id)}" data-kind="${esc(kind)}"
               placeholder="${esc(firstLine(placeholder) || 'Use the global prompt')}">${esc(value || '')}</textarea>
           </div>
@@ -546,6 +547,13 @@
         ${row('read', 'read', `Read prompt — given to a new ${backend.label} session`,
           `Sent to a fresh ${esc(backend.label)} agent that reads the old session's transcript. <code>{transcript}</code> is the path it can open.`,
           (values || {}).read, (globals || {}).read)}
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Plan</div>
+        <div class="settings-hint">What the command palette's <b>Write a plan</b> action types into a ${esc(backend.label)} session. Leave it empty to use the global prompt.</div>
+        ${row('plan', 'plan', `Plan prompt — asked of a ${backend.label} session`,
+          `Sent to the ${esc(backend.label)} agent, which writes the file itself. <code>{planPath}</code> is where this project keeps plans. This override matters more here than it does for handoffs: a CLI with a plan mode of its own names its files differently from one that has none.`,
+          (values || {}).plan, (globals || {}).plan)}
       </div>`;
   }
 
@@ -557,7 +565,7 @@
   // Each field is a plain GLOBAL setting keyed by `f.id` (not a backendDefaults option — these reach no
   // argv), so the value comes from `ctx.fieldValue` and settings-panel.js reads the control back by
   // `f.domId` at save time. `f.description` is descriptor-authored markup, not user input, so it is
-  // interpolated raw the way handoffPromptHtml's hints are.
+  // interpolated raw the way promptOverridesHtml's hints are.
   function integrationsHtml(backend, ctx) {
     const spec = backend.integrations;
     if (!spec || !Array.isArray(spec.fields)) return '';
@@ -1042,13 +1050,14 @@
     // `mount` runs when the panel opens (and on a fresh re-render), so that is where they are dropped.
     storedBackendEnv = isProject ? {} : (ctx.fieldValue('backendEnv', {}) || {});
     if (!ctx.keepPending) {
-      pendingDefaults = {}; clearedDefaults = {}; pendingHandoffPrompts = {};
+      pendingDefaults = {}; clearedDefaults = {}; pendingPromptOverrides = {};
       pendingBackendEnv = {}; mountedGlobal = false;
       stagedTemplates = new Map(); deletedTemplates = new Set();
     }
-    storedHandoffPrompts = {
+    storedPromptOverrides = {
       summarise: ctx.fieldValue('handoffPromptByBackend', {}) || {},
       read: ctx.fieldValue('handoffReadPromptByBackend', {}) || {},
+      plan: ctx.fieldValue('planPromptByBackend', {}) || {},
     };
     const backendDefaults = mergedDefaults();
 
@@ -1327,10 +1336,15 @@
       if (!backend) return;
       const bySummarise = ctx.fieldValue('handoffPromptByBackend', {}) || {};
       const byRead = ctx.fieldValue('handoffReadPromptByBackend', {}) || {};
-      const extras = handoffPromptHtml(
+      const byPlan = ctx.fieldValue('planPromptByBackend', {}) || {};
+      const extras = promptOverridesHtml(
         backend,
-        { summarise: bySummarise[backend.id], read: byRead[backend.id] },
-        { summarise: ctx.fieldValue('handoffPrompt', ''), read: ctx.fieldValue('handoffReadPrompt', '') },
+        { summarise: bySummarise[backend.id], read: byRead[backend.id], plan: byPlan[backend.id] },
+        {
+          summarise: ctx.fieldValue('handoffPrompt', ''),
+          read: ctx.fieldValue('handoffReadPrompt', ''),
+          plan: ctx.fieldValue('planPrompt', ''),
+        },
       )
         + integrationsHtml(backend, ctx)
         + resourcesShell(backend, 'Global resources');
@@ -1380,7 +1394,7 @@
       });
       page.addEventListener('input', (e) => {
         recordDefault(e.target);
-        recordHandoffPrompt(e.target);
+        recordPromptOverride(e.target);
         if (e.target.classList && (e.target.classList.contains('bde-env-key') || e.target.classList.contains('bde-env-value'))) {
           readBackendEnvFromDom(page);
         }
@@ -1398,7 +1412,7 @@
           return;
         }
         recordDefault(e.target);
-        recordHandoffPrompt(e.target);
+        recordPromptOverride(e.target);
       });
     }
 
@@ -1577,20 +1591,22 @@
       defaultLaunchTarget: (select && select.value) || liveLaunchTarget,
       backendDefaults: readDefaults(root),
       backendEnv,
-      handoffPromptByBackend: readHandoffPrompts(root, 'summarise'),
-      handoffReadPromptByBackend: readHandoffPrompts(root, 'read'),
+      handoffPromptByBackend: readPromptOverrides(root, 'summarise'),
+      handoffReadPromptByBackend: readPromptOverrides(root, 'read'),
+      planPromptByBackend: readPromptOverrides(root, 'plan'),
     };
   }
 
-  // Per-backend handoff prompts. Same rule as the launch defaults: only ONE backend's page is in the DOM
+  // Per-backend prompt overrides, one `kind` at a time. Same rule as the launch defaults: only ONE
+  // backend's page is in the DOM
   // at a time, so the stored blob is the source of truth and the open page is merged over it. An emptied
   // field is REMOVED (= "use the global prompt"), not stored as an empty string.
-  function readHandoffPrompts(root, kind) {
-    const stored = (storedHandoffPrompts[kind] || {});
-    const pending = (pendingHandoffPrompts[kind] || {});
+  function readPromptOverrides(root, kind) {
+    const stored = (storedPromptOverrides[kind] || {});
+    const pending = (pendingPromptOverrides[kind] || {});
     const out = { ...stored, ...pending };
     if (root) {
-      root.querySelectorAll(`.backend-handoff-prompt[data-kind="${kind}"]`).forEach(el => {
+      root.querySelectorAll(`.backend-prompt-override[data-kind="${kind}"]`).forEach(el => {
         const id = el.dataset.backend;
         if (!id) return;
         const v = el.value.trim();
@@ -1696,13 +1712,13 @@
     return el.value;
   }
 
-  function recordHandoffPrompt(el) {
-    if (!el || !el.classList || !el.classList.contains('backend-handoff-prompt')) return;
+  function recordPromptOverride(el) {
+    if (!el || !el.classList || !el.classList.contains('backend-prompt-override')) return;
     const id = el.dataset.backend;
     const kind = el.dataset.kind;
     if (!id || !kind) return;
-    if (!pendingHandoffPrompts[kind]) pendingHandoffPrompts[kind] = {};
-    pendingHandoffPrompts[kind][id] = el.value.trim();   // '' -> dropped on read
+    if (!pendingPromptOverrides[kind]) pendingPromptOverrides[kind] = {};
+    pendingPromptOverrides[kind][id] = el.value.trim();   // '' -> dropped on read
   }
 
   function recordDefault(el) {

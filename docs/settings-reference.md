@@ -148,15 +148,23 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 | `handoffDir` | Save handoffs to | project-relative path | `.handoffs` | global + project |
 | `handoffInsertTemplate` | Handoff insert template | string with `{path}` / `{title}` / `{filename}` | `Continue from the handoff at {path}` | global + project |
 
-### The handoff prompts
+### The prompts typed into an agent
 
 | Key | Label | Default | Scope |
 |---|---|---|---|
 | `handoffPrompt` | Summarise prompt — asked of this session's agent | `''` = the built-in prompt | global |
 | `handoffReadPrompt` | Read prompt — given to a new session | `''` = the built-in prompt | global |
-| `handoffPromptByBackend` / `handoffReadPromptByBackend` | per-backend override (a backend's own page) | `{}` = use the global one | global |
+| `planPrompt` | Plan prompt — asked of this session's agent | `''` = the built-in prompt | global |
+| `handoffPromptByBackend` / `handoffReadPromptByBackend` / `planPromptByBackend` | per-backend override (a backend's own page) | `{}` = use the global one | global |
 
-Placeholders: `{goal}` `{project}` `{sessionId}` `{metrics}`, plus `{transcript}` in the read prompt.
+Placeholders: `{goal}` `{project}` `{sessionId}` `{metrics}` `{handoffDir}` `{handoffPath}` `{planDir}`
+`{planPath}` `{today}`, plus `{transcript}` in the read prompt. The `Dir` forms are relative to the
+project, the `Path` forms absolute.
+
+A prompt that IS a slash command — `/handoff`, `/plan` — runs the CLI's own skill, and the skill decides
+where it writes. Such a prompt is sent with the directory appended on a line of its own, unless it names
+the directory itself. A prompt written as prose is sent exactly as written.
+
 Editing a prompt back to the built-in text stores `''` again — the default is never frozen into the blob,
 so improving it in a later version reaches everyone who did not change it.
 

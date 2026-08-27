@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt, buildHandoffRequestPrompt } = require('../src/renderer/session/session-health.js');
+const { DEFAULT_HANDOFF_PROMPT, fillPromptTemplate, buildHandoffRequestPrompt } = require('../src/renderer/session/session-health.js');
 
 test('DEFAULT_HANDOFF_PROMPT carries placeholders', () => {
   for (const ph of ['{goal}', '{project}', '{sessionId}', '{metrics}']) {
@@ -8,8 +8,8 @@ test('DEFAULT_HANDOFF_PROMPT carries placeholders', () => {
   }
 });
 
-test('fillHandoffPrompt substitutes placeholders from the session', () => {
-  const out = fillHandoffPrompt(DEFAULT_HANDOFF_PROMPT, {
+test('fillPromptTemplate substitutes placeholders from the session', () => {
+  const out = fillPromptTemplate(DEFAULT_HANDOFF_PROMPT, {
     name: 'Checkout refactor',
     projectPath: '/home/me/dev/shop',
     sessionId: 'abc-123',
@@ -20,18 +20,18 @@ test('fillHandoffPrompt substitutes placeholders from the session', () => {
   assert.ok(!out.includes('{goal}') && !out.includes('{project}') && !out.includes('{sessionId}') && !out.includes('{metrics}'));
 });
 
-test('fillHandoffPrompt leaves a plain skill command unchanged', () => {
-  assert.strictEqual(fillHandoffPrompt('/handoff', {}), '/handoff');
+test('fillPromptTemplate leaves a plain skill command unchanged', () => {
+  assert.strictEqual(fillPromptTemplate('/handoff', {}), '/handoff');
 });
 
-test('fillHandoffPrompt falls back for missing fields', () => {
-  const out = fillHandoffPrompt('{goal} | {project} | {sessionId}', {});
+test('fillPromptTemplate falls back for missing fields', () => {
+  const out = fillPromptTemplate('{goal} | {project} | {sessionId}', {});
   assert.strictEqual(out, 'the current task | unknown | unknown');
 });
 
 test('buildHandoffRequestPrompt equals the filled default template', () => {
   const session = { name: 'X', projectPath: '/p', sessionId: 's1' };
-  assert.strictEqual(buildHandoffRequestPrompt(session), fillHandoffPrompt(DEFAULT_HANDOFF_PROMPT, session));
+  assert.strictEqual(buildHandoffRequestPrompt(session), fillPromptTemplate(DEFAULT_HANDOFF_PROMPT, session));
 });
 
 // --- per-backend prompt + the slash-command safety net -------------------------------------------
@@ -117,7 +117,7 @@ test('both fall back to their own built-in default', () => {
 });
 
 test('{transcript} is filled with the path the new agent can actually open', () => {
-  const filled = fillHandoffPrompt(DEFAULT_HANDOFF_READ_PROMPT, {
+  const filled = fillPromptTemplate(DEFAULT_HANDOFF_READ_PROMPT, {
     sessionId: 's1', projectPath: '/p', transcriptPath: '/tmp/switchboard-handoff/s1.md',
   });
   assert.match(filled, /\/tmp\/switchboard-handoff\/s1\.md/);
@@ -130,17 +130,17 @@ test('{transcript} is filled with the path the new agent can actually open', () 
 // behind a slash command does. Then the packet lands wherever that skill keeps its own, and the app looks
 // in the project.
 
-const { withHandoffDirHint, isSlashCommandPrompt } = require('../src/renderer/session/session-health.js');
+const { withDirHint, isSlashCommandPrompt } = require('../src/renderer/session/session-health.js');
 
 const DIRS = { handoffDir: '.handoffs', handoffPath: '/home/me/dev/shop/.handoffs' };
 
 test('{handoffDir} and {handoffPath} are filled from the caller', () => {
-  const out = fillHandoffPrompt('write it to {handoffPath} ({handoffDir})', { ...DIRS });
+  const out = fillPromptTemplate('write it to {handoffPath} ({handoffDir})', { ...DIRS });
   assert.strictEqual(out, 'write it to /home/me/dev/shop/.handoffs (.handoffs)');
 });
 
 test('the directory tokens resolve to empty when nobody could answer', () => {
-  assert.strictEqual(fillHandoffPrompt('{handoffDir}|{handoffPath}', {}), '|');
+  assert.strictEqual(fillPromptTemplate('{handoffDir}|{handoffPath}', {}), '|');
 });
 
 test('isSlashCommandPrompt looks at the first non-empty line only', () => {
@@ -151,26 +151,26 @@ test('isSlashCommandPrompt looks at the first non-empty line only', () => {
 });
 
 test('a slash-command prompt is told the directory — as a token, filled by the one substitution step', () => {
-  const hinted = withHandoffDirHint('/handoff', DIRS);
+  const hinted = withDirHint('/handoff', DIRS);
   assert.ok(hinted.startsWith('/handoff'), 'the command stays the first thing typed');
   assert.match(hinted, /\{handoffPath\}/, 'the line carries the token, not a path');
-  assert.match(fillHandoffPrompt(hinted, { ...DIRS }), /\/home\/me\/dev\/shop\/\.handoffs/);
+  assert.match(fillPromptTemplate(hinted, { ...DIRS }), /\/home\/me\/dev\/shop\/\.handoffs/);
 });
 
 test('a prompt that is not a slash command is left alone', () => {
-  assert.strictEqual(withHandoffDirHint(DEFAULT_HANDOFF_PROMPT, DIRS), DEFAULT_HANDOFF_PROMPT);
+  assert.strictEqual(withDirHint(DEFAULT_HANDOFF_PROMPT, DIRS), DEFAULT_HANDOFF_PROMPT);
 });
 
 test('a slash command that already names the directory is left alone', () => {
   const own = '/handoff into {handoffDir}';
-  assert.strictEqual(withHandoffDirHint(own, DIRS), own);
+  assert.strictEqual(withDirHint(own, DIRS), own);
 });
 
 test('no directory known — nothing is appended', () => {
-  assert.strictEqual(withHandoffDirHint('/handoff', {}), '/handoff');
-  assert.strictEqual(withHandoffDirHint('/handoff'), '/handoff');
+  assert.strictEqual(withDirHint('/handoff', {}), '/handoff');
+  assert.strictEqual(withDirHint('/handoff'), '/handoff');
 });
 
 test('the relative directory is used when there is no absolute one', () => {
-  assert.match(withHandoffDirHint('/handoff', { handoffDir: '.handoffs' }), /\{handoffDir\}/);
+  assert.match(withDirHint('/handoff', { handoffDir: '.handoffs' }), /\{handoffDir\}/);
 });
