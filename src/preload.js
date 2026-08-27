@@ -75,6 +75,10 @@ contextBridge.exposeInMainWorld('api', {
   readHandoff: (filePath) => ipcRenderer.invoke('read-handoff', filePath),
   deleteHandoff: (filePath) => ipcRenderer.invoke('delete-handoff', filePath),
   chooseHandoffDir: (projectPath) => ipcRenderer.invoke('choose-handoff-dir', projectPath),
+  // Where this project keeps handoffs and plans, relative AND absolute. The handoff prompt names the
+  // directory an agent should write to, which for a slash-command prompt is the only say we have over a
+  // skill we did not write.
+  projectConventionDirs: (projectPath) => ipcRenderer.invoke('project-convention-dirs', projectPath),
   sessionTagsGet: (sessionId) => ipcRenderer.invoke('session-tags-get', sessionId),
   sessionTagsSet: (sessionId, tags) => ipcRenderer.invoke('session-tags-set', { sessionId, tags }),
   tagsListAll: () => ipcRenderer.invoke('tags-list-all'),

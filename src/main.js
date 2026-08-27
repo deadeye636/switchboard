@@ -1271,6 +1271,13 @@ handoffs.init({
 handoffs.registerIpc(ipcMain);
 const { effectiveSettings, migrateClaudeLaunchDefaults, SETTING_DEFAULTS } = settings;
 
+// Where a project keeps handoffs and plans, for the two features that have to NAME one rather than read
+// it: the handoff prompt an agent is sent, and an insert template's {handoffDir}/{planDir}. One module so
+// a prompt and a template cannot name different directories.
+const conventionDirs = require('./app/convention-dirs');
+conventionDirs.init({ effectiveSettings: (projectPath) => effectiveSettings(projectPath) });
+conventionDirs.registerIpc(ipcMain);
+
 
 // --- Saved variables + secret materialization (spec 12) -> app/variables.js ---
 // The secret paths are the trust boundary and they live in the module: plaintext never reaches the
@@ -1285,6 +1292,9 @@ variables.init({
   safeStorage,
   db: { listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable },
   log,
+  // For a template naming a convention directory ({handoffDir} and friends) — resolved for the project
+  // the inserting session belongs to, never for the one the variable was defined in.
+  conventionDirs: (projectPath) => conventionDirs.dirsFor(projectPath),
   // Who else has the Variables admin on screen (#382), and the window class needed to tell the asker
   // apart from them. Both through ctx so the module stays loadable in `node --test`.
   BrowserWindow,

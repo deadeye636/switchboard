@@ -5,7 +5,7 @@
 // ways a row could not — `saveHandoffPacket` is where that is answered without dropping the packet.
 // Depends on globals from other classic scripts (shared top-level scope):
 //   getSessionHealth, buildHandoffTemplate, buildHandoffRequestPrompt,
-//   DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt (session-health.js);
+//   DEFAULT_HANDOFF_PROMPT, fillHandoffPrompt, withHandoffDirHint (session-health.js);
 //   extractLatestAssistantText (handoff-extract.js); computeHandoffActions (handoff-actions.js);
 //   showControlDialog, showControlToast (control-dialogs.js);
 //   activePtyIds, findProjectForSession, resolveDefaultSessionOptions, launchNewSession,
@@ -96,9 +96,10 @@ async function handoffFromNewSession(session, project, transcriptPath) {
   const backendId = backendOfSession(session);
   const backend = (typeof getBackend === 'function' ? getBackend(backendId) : null) || { id: backendId };
 
+  const dirs = await handoffDirsFor(session.projectPath);
   const prompt = fillHandoffPrompt(
-    resolveHandoffPrompt(backend, g, 'read'),
-    { ...session, transcriptPath },
+    withHandoffDirHint(resolveHandoffPrompt(backend, g, 'read'), dirs),
+    { ...session, ...dirs, transcriptPath },
   );
 
   const options = await resolveLaunchOptionsFor(project, backendId);
@@ -153,6 +154,20 @@ async function reviewAndPlacePacket(session, project, packet) {
 // comment warns about (#225).
 function backendOfSession(session) {
   return (typeof sessionBackendId === 'function' ? sessionBackendId(session) : null) || '';
+}
+
+// Where this project keeps its packets, for the prompt to name — `{handoffDir}` relative, `{handoffPath}`
+// absolute. Main answers it, because the cascade and the escape guard live there.
+//
+// A failure is not worth taking the handoff down for: an empty answer leaves the tokens resolving to
+// nothing and the slash-command hint unwritten, which is the same prompt this flow sent before it could
+// name a directory at all.
+async function handoffDirsFor(projectPath) {
+  if (!projectPath) return {};
+  try {
+    const dirs = await window.api.projectConventionDirs(projectPath);
+    return (dirs && typeof dirs === 'object') ? dirs : {};
+  } catch { return {}; }
 }
 
 async function readLatestHandoffPacket(session) {
@@ -431,7 +446,11 @@ async function askRunningAgentForHandoff(session, { waitForBoot = false } = {}) 
   // offering THAT as the packet is the silent wrongness this feature must never commit. Read it BEFORE
   // the prompt goes in.
   const before = await readLatestHandoffPacket(session);
-  const requestPrompt = fillHandoffPrompt(resolveHandoffPrompt(backend, g, 'summarise'), session);
+  const dirs = await handoffDirsFor(session.projectPath);
+  const requestPrompt = fillHandoffPrompt(
+    withHandoffDirHint(resolveHandoffPrompt(backend, g, 'summarise'), dirs),
+    { ...session, ...dirs },
+  );
 
   // Hand it to the SAME seeding primitive the other route uses (app.js `seedSessionWhenReady`).
   //

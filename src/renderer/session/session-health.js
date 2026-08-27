@@ -209,6 +209,39 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
 - Avoid
 `;
 
+  // Where this project keeps its packets, as the prompt may name it. `{handoffDir}` is project-relative
+  // ('.handoffs'), `{handoffPath}` absolute — an agent whose working directory we do not know needs the
+  // second one. Both come from the caller, which asks main for the cascade (`project-convention-dirs`).
+  const HANDOFF_DIR_TOKENS = ['{handoffDir}', '{handoffPath}'];
+
+  // Is this prompt a slash command — a skill belonging to the CLI rather than a text we wrote?
+  // The first non-empty line decides. A prompt that merely CONTAINS a slash somewhere is prose.
+  function isSlashCommandPrompt(template) {
+    const first = String(template == null ? '' : template).split('\n').find(line => line.trim());
+    return !!first && first.trim().startsWith('/');
+  }
+
+  // Tell a skill where the packet belongs.
+  //
+  // A slash command is the one prompt we cannot word: `/handoff` runs the CLI's own skill, and that skill
+  // decides where it writes — its own home directory, as often as not, while Switchboard looks in the
+  // project. Appending the directory as its own line is the only influence there is.
+  //
+  // Only for a slash command, and only when the template does not already name the directory itself: a
+  // prompt someone wrote by hand is theirs, and a second sentence in it is noise. The line carries the
+  // TOKEN rather than the path, so the one substitution point below stays the only one.
+  function withHandoffDirHint(template, { handoffPath, handoffDir } = {}) {
+    const text = String(template == null ? '' : template);
+    if (!handoffPath && !handoffDir) return text;
+    if (!isSlashCommandPrompt(text)) return text;
+    if (HANDOFF_DIR_TOKENS.some(token => text.includes(token))) return text;
+    const token = handoffPath ? '{handoffPath}' : '{handoffDir}';
+    return `${text.replace(/\s+$/, '')}
+
+Switchboard: this project's handoff directory is ${token} — write the packet there.
+`;
+  }
+
   // Substitute the {placeholders} in a handoff prompt template with the session's
   // local values. Templates without placeholders (e.g. a bare "/handoff" skill
   // command) pass through unchanged.
@@ -226,9 +259,13 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
       metrics,
       // Only set on the "a fresh agent reads the old session" route; empty elsewhere.
       transcript: session.transcriptPath || '',
+      // Where a packet belongs. Absent when the caller could not ask (no project, main unreachable) —
+      // then the token resolves to empty rather than to a guess at a directory nobody keeps.
+      handoffDir: session.handoffDir || '',
+      handoffPath: session.handoffPath || '',
     };
     return String(template == null ? '' : template)
-      .replace(/\{(goal|project|sessionId|metrics|transcript)\}/g, (_m, key) => values[key]);
+      .replace(/\{(goal|project|sessionId|metrics|transcript|handoffDir|handoffPath)\}/g, (_m, key) => values[key]);
   }
 
   function buildHandoffRequestPrompt(session = {}) {
@@ -280,5 +317,7 @@ Read the transcript first. Do not continue the work yet. Then return only a mark
     DEFAULT_HANDOFF_PROMPT,
     DEFAULT_HANDOFF_READ_PROMPT,
     fillHandoffPrompt,
+    withHandoffDirHint,
+    isSlashCommandPrompt,
   };
 });

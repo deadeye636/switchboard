@@ -69,7 +69,18 @@ function shellRefFor(shellType, filePath) {
 // `{var: x }` finds `x`. Case-SENSITIVE on purpose — the ORDER BY LOWER(name) in the list queries will tempt
 // someone into case-insensitive matching, and then `Server` and `server`, two legitimately distinct rows,
 // become one ambiguous reference.
-const TOKEN_SOURCE = '\\{(path|ref|value|var:[^{}]+)\\}';
+// The project's convention directories, for a template that has to NAME one: `{handoffDir}` / `{planDir}`
+// are project-relative, `{handoffPath}` / `{planPath}` absolute. Which project is not the template's
+// business — it is the one the terminal belongs to, resolved per insert, so ONE global variable works in
+// every project rather than one variable per project.
+//
+// Same class as {path}: system-generated text, never a stored value, so nothing here can be steered by
+// what someone typed into a variable. What they DO carry is a path the user picked, and a project
+// directory may contain spaces — a template that puts one where a shell splits words has to quote it, the
+// way it would quote any other path. {ref} is the only token that quotes itself.
+const DIR_TOKENS = ['handoffDir', 'handoffPath', 'planDir', 'planPath'];
+
+const TOKEN_SOURCE = `\\{(path|ref|value|${DIR_TOKENS.join('|')}|var:[^{}]+)\\}`;
 
 // Which variables does this template reference? Pure, so the graph can be walked (and cycles found) before
 // anything is decrypted or written.
@@ -182,7 +193,12 @@ function compose(template, values = {}) {
       resolved = v.ref == null ? '' : String(v.ref);
       if (resolved) refOffsets.push({ offset: out.length, nested: false });   // this template's OWN ref
     } else if (token === 'value') resolved = v.value == null ? '' : String(v.value);
-    else {
+    else if (DIR_TOKENS.includes(token)) {
+      // A caller that knows no project passes none — the token resolves to empty, like a missing {value},
+      // rather than to a guessed directory.
+      const dirs = v.dirs || {};
+      resolved = dirs[token] == null ? '' : String(dirs[token]);
+    } else {
       // {var:name} — the caller passes already-resolved, opaque child text. A name we were given nothing for
       // resolves to empty, matching the missing-{value} convention.
       const name = token.slice(4).trim();
@@ -310,6 +326,7 @@ return {
   compose,
   substituteInsertTemplate,
   scanRefSafety,
+  DIR_TOKENS,
   MAX_RESOLVED_NODES,
 };
 

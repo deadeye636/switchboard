@@ -232,6 +232,11 @@ function resolveVariableInsert(id, sessionId) {
     nodesById.set(root.id, root);
     const nameIndex = buildNameIndex(rows);
 
+    // Where THIS session's project keeps handoffs and plans, for a template naming one ({handoffDir} and
+    // friends). Resolved once for the whole insert and handed to every node: a referenced variable that
+    // names the directory must get the same answer the root does, or one insert describes two projects.
+    const conventionDirs = ctx.conventionDirs ? ctx.conventionDirs(session.projectPath || null) : null;
+
     const graph = resolveVarGraph(root.id, nodesById, nameIndex);
     if (graph.cycle) {
       return { ok: false, error: `Variables reference each other in a loop: ${graph.cycle.join(' → ')}` };
@@ -301,6 +306,7 @@ function resolveVariableInsert(id, sessionId) {
         path: filePath,
         ref: p.needsRef ? shellRefFor(shellType, filePath) : null,
         value: p.tmpl.includes('{value}') ? value : null,
+        dirs: conventionDirs,
         vars,
         varRefOffsets,
       });

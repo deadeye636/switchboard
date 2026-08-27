@@ -288,6 +288,8 @@
                 <button type="button" class="va-chip" data-tok="{path}" title="Path of a temp file holding the value — quote this one">{path}</button>
                 <button type="button" class="va-chip" data-tok="{ref}" title="The shell reads the temp file. A complete shell word — never quote it">{ref}</button>
                 <button type="button" class="va-chip va-chip-var" data-varpick="1" title="Reference another variable">Variable…</button>
+                <button type="button" class="va-chip" data-tok="{handoffPath}" title="This project's handoff directory, full path. {handoffDir} gives it relative to the project">{handoffPath}</button>
+                <button type="button" class="va-chip" data-tok="{planPath}" title="This project's plan directory, full path. {planDir} gives it relative to the project">{planPath}</button>
                 <select class="settings-select va-preset-sel" id="va-f-preset" title="Prefill a template">
                   <option value="">Presets…</option>
                   <option value="{ref}">Read from temp file — {ref}</option>
@@ -451,6 +453,9 @@
     // renders against a synthetic path. No temp file is ever written from this dialog.
     const VI = window.variableInsert;
     const SYNTH_PATH = '<secret-file>';
+    // The convention directories render as themselves: which project answers them is decided at insert
+    // time, so any concrete path here would be a preview of one project pretending to be the rule.
+    const SYNTH_DIRS = { handoffDir: '<handoff-dir>', handoffPath: '<handoff-dir>', planDir: '<plan-dir>', planPath: '<plan-dir>' };
     let previewShell = (navigator.platform || '').toLowerCase().startsWith('win') ? 'pwsh' : 'bash';
     const previewEl = overlay.querySelector('#va-f-preview');
     const notesEl = overlay.querySelector('#va-f-notes');
@@ -549,6 +554,10 @@
               ? (secretInput.checked ? '⟨value⟩' : (valueInput.value || '⟨value⟩'))
               : `⟨value of ${node.name}⟩`)
             : null,
+          // A convention directory belongs to the project the INSERT happens in, which this dialog cannot
+          // know — a global variable is inserted in every project there is. So the preview shows the token
+          // standing in for itself rather than picking one project's answer and calling it the result.
+          dirs: SYNTH_DIRS,
           vars,
           varRefOffsets,
         });
@@ -575,6 +584,12 @@
           : ['info', 'The result contains line breaks. The insert pastes it as one block, so nothing is submitted; a program without bracketed-paste support gets the breaks as spaces.']);
       }
       if (/\{var:(?![^{}]+\})/.test(tmpl)) notes.push(['warn', '{var: without a closing brace is treated as literal text.']);
+      for (const token of VI.DIR_TOKENS) {
+        if (!tmpl.includes(`{${token}}`)) continue;
+        const what = token.startsWith('handoff') ? 'handoff' : 'plan';
+        notes.push(['info', `{${token}} — this project's ${what} directory, resolved where the insert happens`
+          + `${token.endsWith('Path') ? ' (the full path)' : ' (relative to the project)'}. A path with spaces needs quoting.`]);
+      }
 
       previewEl.innerHTML = highlightRefs(own.text, own.refOffsets, unsafe);
       flagsEl.innerHTML = touchesSecret ? '<span class="va-secret-pill" title="This insert reads secret temp files.">Secret</span>' : '';

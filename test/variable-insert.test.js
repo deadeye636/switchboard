@@ -13,6 +13,7 @@ const {
   buildNameIndex,
   compose,
   scanRefSafety,
+  DIR_TOKENS,
 } = require('../src/shared/variable-insert');
 
 test('defaultInsertTemplate: secret → {ref}, non-secret → {value}', () => {
@@ -387,4 +388,36 @@ test('scanRefSafety: carries the origin through, so the caller can refuse only w
 
 test('scanRefSafety: a plain number offset still works (nested defaults to false)', () => {
   assert.ok(scanRefSafety("-p'X'", [3]).length, 'tolerates the bare-number shape');
+});
+
+// --- the project's convention directories (#485) ---------------------------------------------------
+// A template may NAME the directory this project keeps handoffs or plans in. Which project is decided at
+// insert time — the terminal's — so one global variable works everywhere instead of one per project.
+
+test('compose: the convention directories resolve from `dirs`', () => {
+  const out = compose('read {handoffPath} and {planDir}', {
+    dirs: { handoffDir: '.handoffs', handoffPath: '/p/.handoffs', planDir: '.plans', planPath: '/p/.plans' },
+  });
+  assert.strictEqual(out.text, 'read /p/.handoffs and .plans');
+});
+
+test('compose: a directory token with no project resolves to empty, like a missing {value}', () => {
+  assert.strictEqual(compose('[{handoffDir}]', {}).text, '[]');
+  assert.strictEqual(compose('[{planPath}]', { dirs: {} }).text, '[]');
+});
+
+test('compose: a directory token is not a value — a stored value spelling one stays literal text', () => {
+  // The single-pass rule: whatever a referenced variable resolves to is inert. A value that happens to
+  // read `{handoffPath}` must not pick up the project's directory on some later pass.
+  const out = compose('{var:x}|{handoffDir}', {
+    vars: { x: '{handoffPath}' },
+    dirs: { handoffDir: '.handoffs', handoffPath: '/p/.handoffs' },
+  });
+  assert.strictEqual(out.text, '{handoffPath}|.handoffs');
+});
+
+test('DIR_TOKENS is what the grammar accepts — the editor and the resolver read the same list', () => {
+  for (const token of DIR_TOKENS) {
+    assert.strictEqual(compose(`{${token}}`, { dirs: { [token]: 'X' } }).text, 'X', token);
+  }
 });
