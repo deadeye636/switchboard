@@ -24,6 +24,10 @@ const commandActions = [];
  *   keywords  — words that should find it but are not in the title ("mosaic", "grid")
  *   group     — the heading it sits under; a function, like `title`, when it names a subject
  *   available — optional; called per open, false hides the row
+ *   shortcutId— optional; an id from SHORTCUT_DEFS (shortcuts.js). The palette prints that chord on the
+ *               row, so the list teaches the hotkey instead of competing with it. It does not BIND
+ *               anything: the key is handled where it always was, and this only says which key does the
+ *               same thing (#489)
  *   run       — what taking the row does. May be async; the palette is already closed when it runs.
  */
 function registerCommandAction(action) {

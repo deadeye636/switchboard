@@ -242,3 +242,40 @@ function handleSessionNavKey(e) {
 
   return false;
 }
+
+// --- The panes-mode commands, in the palette (#489) -------------------------------------------------
+//
+// Declared here because this file owns the pane chords: `PANE_SHORTCUTS` and the dispatch table above are
+// one set on purpose, and a command that reached `window.panesView` from somewhere else would be a third
+// place to keep in step. Each row names the same method the chord calls, so the two cannot mean different
+// things, and `shortcutId` prints the chord on the row.
+//
+// Only the ones that are a THING TO DO. Focusing pane n, stepping to the next tab, walking sessions — a
+// direction lives in the key press for those, and a palette row for them would say nothing without one.
+const PANE_COMMANDS = [
+  { id: 'pane.split', title: 'Split pane to the right', shortcutId: 'paneSplit', run: (p) => p.splitActivePane('right'), keywords: 'split pane right vertical' },
+  { id: 'pane.splitLeft', title: 'Split pane to the left', shortcutId: 'paneSplitLeft', run: (p) => p.splitActivePane('left'), keywords: 'split pane left vertical' },
+  { id: 'pane.splitDown', title: 'Split pane downward', shortcutId: 'paneSplitDown', run: (p) => p.splitActivePane('down'), keywords: 'split pane down horizontal' },
+  { id: 'pane.splitUp', title: 'Split pane upward', shortcutId: 'paneSplitUp', run: (p) => p.splitActivePane('up'), keywords: 'split pane up horizontal' },
+  { id: 'pane.zoom', title: 'Zoom the active pane', shortcutId: 'paneZoom', run: (p) => p.toggleZoom(), keywords: 'zoom maximise fullscreen pane' },
+  { id: 'pane.closeTab', title: 'Close this tab', shortcutId: 'paneCloseTab', run: (p) => p.closeActiveTab(), keywords: 'close tab' },
+  { id: 'pane.close', title: 'Close this pane', shortcutId: 'paneClose', run: (p) => p.closeActivePane(), keywords: 'close pane split' },
+  { id: 'pane.moveTab', title: 'Move this tab to another pane', shortcutId: 'paneMoveMode', keywords: 'move tab pane arrange',
+    run: (p) => { if (p.isTabMoveModeActive()) p.exitTabMoveMode({ announce: true }); else p.enterTabMoveMode(); } },
+];
+
+if (typeof registerCommandAction === 'function') {
+  for (const command of PANE_COMMANDS) {
+    registerCommandAction({
+      id: command.id,
+      title: command.title,
+      group: 'Panes',
+      keywords: command.keywords,
+      shortcutId: command.shortcutId,
+      // Asked per open, like the chords are asked per key press: panes mode can be switched off while
+      // the palette is on screen, and a row that acted on a layout that is gone would throw.
+      available: () => !!(window.panesView && window.panesView.active()),
+      run: () => { if (window.panesView && window.panesView.active()) command.run(window.panesView); },
+    });
+  }
+}

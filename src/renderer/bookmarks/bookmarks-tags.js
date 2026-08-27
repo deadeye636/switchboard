@@ -626,3 +626,27 @@
     palette: TAG_PALETTE.slice(),
   };
 })();
+
+// --- Bookmark and task, in the palette (#489) -------------------------------------------------------
+//
+// Both are context-aware: the bookmark toggles the focused transcript message or the active session, and
+// the task is built from whatever is selected — the same two entry points the chords have always had, so
+// the row and the key do the same thing rather than nearly the same thing.
+if (typeof registerCommandAction === 'function') {
+  registerCommandAction({
+    id: 'bookmark.toggle',
+    title: 'Bookmark the focused message',
+    group: 'Session',
+    keywords: 'bookmark mark star message',
+    shortcutId: 'toggleBookmark',
+    run: () => window.bookmarksTags?.handleBookmarkShortcut(),
+  });
+  registerCommandAction({
+    id: 'task.create',
+    title: 'Create a task from the selection',
+    group: 'Session',
+    keywords: 'task todo note selection quote',
+    shortcutId: 'createTask',
+    run: () => window.bookmarksTags?.createTaskFromSelection(),
+  });
+}

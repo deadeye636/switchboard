@@ -71,20 +71,36 @@
   //   subtitle  — the project, the path; matched at a discount so it can disambiguate without ruling
   //   keywords  — words that should find the row but are not on it ("mosaic" for the grid toggle)
   //   kindRank  — a small per-kind nudge, so an action outranks a session that scored the same
-  //   recency   — ms timestamp; the ONLY order for the empty query, and a tiebreaker otherwise
+  //   recency   — ms timestamp; the tiebreaker on a query, and the order within a group without one
+  //   group     — the heading this row sits under, used only by the empty query (see below)
   //
-  // The empty query is not a search, it is a starting point: most recent first, so the palette opens on
-  // what the user was last doing rather than on an arbitrary slice of everything.
-  function rankEntries(entries, query, { limit = 40 } = {}) {
+  // THE EMPTY QUERY IS A MENU, NOT A SEARCH, and this is the part that was wrong (#488). It used to be
+  // recency alone, on the reasoning that an empty palette is "what was I doing" — which reads well and
+  // fails in use: sessions carry a timestamp, actions carry none, so every command sat behind every
+  // session and, past the row limit, was not on screen at all. A palette opened with nothing typed is
+  // being asked what the app can DO; where you were is one keystroke away either way.
+  //
+  // `emptyGroups` is that policy, and it lives with the caller rather than here: `[{ group, limit }]`,
+  // in the order the groups should appear, each taking at most `limit` rows by recency. A group the
+  // caller did not name is appended after them rather than dropped — a list that silently loses a whole
+  // kind is the failure this is fixing, not a smaller version of it.
+  function rankEntries(entries, query, { limit = 40, emptyGroups = null } = {}) {
     const list = Array.isArray(entries) ? entries : [];
     const q = String(query || '').trim();
     if (!q) {
-      // Recency first, and only then the kind. An empty palette is "what was I doing", so the sessions
-      // lead; the actions have no timestamp and settle behind them, where a verb the user has not typed
-      // yet belongs.
-      return [...list]
-        .sort((a, b) => (b.recency || 0) - (a.recency || 0) || (b.kindRank || 0) - (a.kindRank || 0))
-        .slice(0, limit);
+      const byRecency = (a, b) => (b.recency || 0) - (a.recency || 0) || (b.kindRank || 0) - (a.kindRank || 0);
+      if (!Array.isArray(emptyGroups) || !emptyGroups.length) {
+        return [...list].sort(byRecency).slice(0, limit);
+      }
+      const named = new Set(emptyGroups.map(g => g && g.group));
+      const out = [];
+      for (const spec of emptyGroups) {
+        const rows = list.filter(e => e && e.group === spec.group).sort(byRecency);
+        const take = Number.isFinite(spec.limit) ? spec.limit : rows.length;
+        out.push(...rows.slice(0, Math.max(0, take)));
+      }
+      out.push(...list.filter(e => !e || !named.has(e.group)).sort(byRecency));
+      return out.slice(0, limit);
     }
     const scored = [];
     for (const entry of list) {

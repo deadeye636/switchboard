@@ -77,11 +77,57 @@ test('a missing entry list is answered with an empty one, not a throw', () => {
   assert.deepEqual(rankEntries(null, ''), []);
 });
 
-test('an empty query leads with the most recent session, not with the actions', () => {
+test('with no group policy an empty query is still plain recency order', () => {
   const rows = rankEntries([
     { title: 'Toggle session overview', kindRank: 3, recency: 0 },
     { title: 'yesterday', kindRank: 0, recency: 100 },
     { title: 'just now', kindRank: 0, recency: 900 },
   ], '');
   assert.deepEqual(rows.map(r => r.title), ['just now', 'yesterday', 'Toggle session overview']);
+});
+
+// #488 — the empty palette used to be recency alone, which put every command behind every session and,
+// past the row limit, off the list entirely. The order is now the caller's policy.
+const MENU = [
+  { group: 'Commands', limit: Infinity },
+  { group: 'Sessions', limit: 2 },
+  { group: 'Projects', limit: 1 },
+];
+
+test('an empty query leads with the commands, then the recent sessions', () => {
+  const rows = rankEntries([
+    { title: 'yesterday', group: 'Sessions', recency: 100 },
+    { title: 'Toggle session overview', group: 'Commands', recency: 0 },
+    { title: 'just now', group: 'Sessions', recency: 900 },
+    { title: 'shop', group: 'Projects', recency: 0 },
+  ], '', { emptyGroups: MENU });
+  assert.deepEqual(rows.map(r => r.title), ['Toggle session overview', 'just now', 'yesterday', 'shop']);
+});
+
+test('each group takes at most its slice, so the longest one cannot eat the list', () => {
+  const sessions = [1, 2, 3, 4, 5].map(n => ({ title: 's' + n, group: 'Sessions', recency: n * 10 }));
+  const rows = rankEntries([
+    ...sessions,
+    { title: 'Write a plan', group: 'Commands', recency: 0 },
+    { title: 'shop', group: 'Projects', recency: 0 },
+  ], '', { emptyGroups: MENU });
+  assert.deepEqual(rows.map(r => r.title), ['Write a plan', 's5', 's4', 'shop'],
+    'the two newest sessions, and the project still gets its row');
+});
+
+test('a group the policy never mentions is appended, not dropped', () => {
+  const rows = rankEntries([
+    { title: 'Toggle', group: 'Commands', recency: 0 },
+    { title: 'something new', group: 'Bookmarks', recency: 5 },
+  ], '', { emptyGroups: MENU });
+  assert.deepEqual(rows.map(r => r.title), ['Toggle', 'something new'],
+    'a kind added later shows up behind the named ones rather than vanishing');
+});
+
+test('a typed query ignores the group policy — ranking decides', () => {
+  const rows = rankEntries([
+    { title: 'overview', group: 'Sessions', kindRank: 0, recency: 999 },
+    { title: 'ov', group: 'Commands', kindRank: 3, recency: 0 },
+  ], 'ov', { emptyGroups: MENU });
+  assert.equal(rows[0].title, 'ov', 'the shorter, better match wins whatever group it is in');
 });

@@ -964,6 +964,7 @@ if (typeof registerCommandAction === 'function') {
     title: 'Toggle session overview',
     keywords: 'grid mosaic cards overview',
     group: 'View',
+    shortcutId: 'gridToggle',
     available: () => !(typeof window.isDetachedWindow === 'function' && window.isDetachedWindow()),
     run: () => toggleGridView(),
   });

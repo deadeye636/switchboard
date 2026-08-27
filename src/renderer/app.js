@@ -179,6 +179,22 @@ function focusedActionSession() {
   return sessionMap.get(activeSessionId) || (openSessions.get(activeSessionId) || {}).session || null;
 }
 
+// The MOUNTED terminal of the focused session, for an action that types into one — the four insert
+// pickers, which the hotkey hands `(terminal, sessionId)` and which have nowhere to put their text
+// without it (#489).
+//
+// Deliberately not derived from `focusedActionSession`: that answers "which session does the user mean"
+// and resolves through `sessionMap`, which holds sessions whose CLI has exited and, in panes mode, ones
+// that were never mounted. A picker needs the xterm instance, so this asks `openSessions` — the map that
+// holds exactly the terminals that exist — and answers null for everything else, which is what lets the
+// action be ABSENT rather than fail on use.
+function focusedActionTerminal() {
+  if (!activeSessionId) return null;
+  const entry = openSessions.get(activeSessionId);
+  if (!entry || entry.closed || !entry.terminal) return null;
+  return { terminal: entry.terminal, sessionId: activeSessionId };
+}
+
 // A history entry is navigable only while its session is still mounted — a closed
 // or evicted session would otherwise be a dead jump target.
 function sessionHistoryAlive(sessionId) {

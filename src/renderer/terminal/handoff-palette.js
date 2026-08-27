@@ -163,3 +163,24 @@
     DEFAULT_HANDOFF_INSERT_TEMPLATE, openHandoffPalette,
   };
 });
+
+// --- The command-palette route to this picker (#489) -----------------------------------------------
+//
+// The hotkey stays the way in; this is the second door, for the person who does not remember the chord.
+// Registered here rather than in a central list, which is the registry's whole point: the picker that
+// owns the behaviour owns the row, and `shortcutId` makes the row print the key it also answers to.
+//
+// Absent without a mounted terminal, because that is what the picker types into — `focusedActionTerminal`
+// answers null for a session whose CLI has exited or that panes mode never mounted.
+if (typeof registerCommandAction === 'function') registerCommandAction({
+  id: 'insert.handoff',
+  title: 'Insert a reference to a handoff',
+  group: 'Insert',
+  keywords: 'handoff packet context continue insert',
+  shortcutId: 'insertHandoff',
+  available: () => !!(typeof focusedActionTerminal === 'function' && focusedActionTerminal()),
+  run: () => {
+    const focused = typeof focusedActionTerminal === 'function' ? focusedActionTerminal() : null;
+    if (focused && typeof openHandoffPalette === 'function') openHandoffPalette(focused.terminal, focused.sessionId);
+  },
+});

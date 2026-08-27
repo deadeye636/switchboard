@@ -18,6 +18,21 @@
 // (command-palette-rank.js); `listCommandActions` (command-actions.js); `openPalette`
 // (palette-core.js); `cleanDisplayName` (lib/utils.js). Guarded where a boot could reach here first.
 
+// The chord an action also answers to, printed on its row so the palette teaches the hotkey rather than
+// competing with it (#489). Guarded on every side: `formatBinding` lives in shortcuts.js, `appShortcuts`
+// in session-nav.js and `isMac` in terminal-manager.js, and a boot that reaches here first must produce a
+// row without a chord rather than no row at all.
+function commandPaletteChord(shortcutId) {
+  if (!shortcutId || typeof formatBinding !== 'function') return '';
+  try {
+    return formatBinding(
+      shortcutId,
+      typeof isMac !== 'undefined' ? isMac : false,
+      typeof appShortcuts !== 'undefined' ? appShortcuts : null,
+    ) || '';
+  } catch { return ''; }
+}
+
 // A session row's recency, the same value the sidebar sorts by.
 function commandPaletteSessionTime(session) {
   const live = (typeof lastActivityTime !== 'undefined' && lastActivityTime.get(session.sessionId)) || null;
@@ -35,6 +50,7 @@ function commandPaletteEntries() {
   for (const action of (typeof listCommandActions === 'function' ? listCommandActions() : [])) {
     entries.push({
       kind: 'action',
+      group: 'Commands',
       id: 'action:' + action.id,
       title: action.title,
       subtitle: action.group || 'Action',
@@ -43,6 +59,7 @@ function commandPaletteEntries() {
       // sessions than actions for a stray match to hide behind.
       kindRank: 3,
       recency: 0,
+      shortcut: commandPaletteChord(action.shortcutId),
       run: action.run,
     });
   }
@@ -58,6 +75,7 @@ function commandPaletteEntries() {
     const tail = project.projectPath.split(/[\\/]/).filter(Boolean).slice(-2).join('/');
     entries.push({
       kind: 'project',
+      group: 'Projects',
       id: 'project:' + project.projectPath,
       title: custom || tail,
       subtitle: project.projectPath,
@@ -80,6 +98,7 @@ function commandPaletteEntries() {
     const tail = (session.projectPath || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
     entries.push({
       kind: 'session',
+      group: 'Sessions',
       id: 'session:' + session.sessionId,
       title: name,
       subtitle: tail,
@@ -110,6 +129,30 @@ function revealProjectFromPalette(projectPath) {
   setTimeout(() => group.classList.remove('palette-revealed'), 1200);
 }
 
+// What an empty palette shows, in this order (#488). Every command — the set is small and bounded, and
+// it is the answer to "what can this app do" — then the sessions you were last in, then a few projects.
+// The per-group slices are what stop the longest group from eating the list: 40 rows of sessions is
+// exactly what made the commands invisible.
+const EMPTY_QUERY_GROUPS = [
+  { group: 'Commands', limit: Infinity },
+  { group: 'Sessions', limit: 14 },
+  { group: 'Projects', limit: 6 },
+];
+
+// The headings the core draws. Ordered by FIRST APPEARANCE in the ranked list rather than by a fixed
+// order, which is what keeps the best match at the top once something is typed: a query that finds a
+// session best puts Sessions first and leaves the ranking intact inside it.
+function commandPaletteGroups(rows) {
+  const order = [];
+  const byLabel = new Map();
+  for (const row of rows || []) {
+    const label = (row && row.group) || 'Other';
+    if (!byLabel.has(label)) { byLabel.set(label, []); order.push(label); }
+    byLabel.get(label).push(row);
+  }
+  return order.map(label => ({ label, rows: byLabel.get(label) }));
+}
+
 const COMMAND_PALETTE = {
   id: 'command',
   centered: true,                       // no terminal: centred on the window, with a backdrop (#274)
@@ -120,8 +163,10 @@ const COMMAND_PALETTE = {
   enterLabel: 'run',
   failedText: 'Could not build the command list.',
   load: () => ({ rows: commandPaletteEntries(), extra: null }),
-  filter: (rows, query) => ((typeof rankEntries === 'function') ? rankEntries(rows, query) : rows),
-  groups: null,                         // one ranked list: the ranking IS the grouping here
+  filter: (rows, query) => ((typeof rankEntries === 'function')
+    ? rankEntries(rows, query, { emptyGroups: EMPTY_QUERY_GROUPS })
+    : rows),
+  groups: (rows) => commandPaletteGroups(rows),
   rowKey: (row) => row.id,
   row: (row) => {
     const meta = row.kind === 'session'
@@ -129,7 +174,9 @@ const COMMAND_PALETTE = {
       : (row.kind === 'project' ? 'Project' : row.subtitle);
     return {
       main: row.title,
-      meta,
+      // The chord rides in the meta line rather than in a column of its own: the row shape is the
+      // core's, shared with four other pickers, and a key hint is not worth changing it for all of them.
+      meta: row.shortcut ? `${meta} · ${row.shortcut}` : meta,
       metaClass: row.kind === 'action' ? 'vpal-meta-action' : '',
     };
   },
