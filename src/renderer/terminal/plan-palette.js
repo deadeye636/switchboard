@@ -24,7 +24,8 @@
 //   `paletteMetaWithDate` (palette-core.js) — the row's date, worded like the Plans list (#475)
 //   `window.api.getPlans` / `.getEffectiveSettings` (preload.js)
 //
-// Callers into this file: terminal-manager.js's hotkey (`openPlanPalette`). Closing is the core's
+// Callers into this file: terminal-manager.js's hotkey and the command-palette row this file
+// registers at its own tail (both `openPlanPalette`). Closing is the core's
 // `closePalette` / `closePaletteForSession`.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {

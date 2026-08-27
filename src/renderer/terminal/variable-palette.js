@@ -27,7 +27,8 @@
 //   (palette-core.js) · `window.api.listSavedVariables` / `.resolveVariableInsert` / `.writeClipboard`
 //   (preload.js)
 //
-// Callers into this file: terminal-manager.js's hotkey (`openVariablePalette`). Closing is the core's
+// Callers into this file: terminal-manager.js's hotkey and the command-palette row this file
+// registers at its own tail (both `openVariablePalette`). Closing is the core's
 // `closePalette` / `closePaletteForSession` — one call closes whichever picker is open, so app.js,
 // grid-view.js and terminal-manager.js no longer name this one.
 (function (root, factory) {

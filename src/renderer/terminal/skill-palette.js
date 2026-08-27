@@ -26,7 +26,8 @@
 //   (backends/backend-registry.js) · `window.showControlToast` (dialogs/control-dialogs.js)
 //   `window.openPalette` (palette-core.js) · `window.api.getSkills` / `.getEffectiveSettings` (preload.js)
 //
-// Callers into this file: terminal-manager.js's hotkey (`openSkillPalette`). Closing is the core's
+// Callers into this file: terminal-manager.js's hotkey and the command-palette row this file
+// registers at its own tail (both `openSkillPalette`). Closing is the core's
 // `closePalette` / `closePaletteForSession`.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
