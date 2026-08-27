@@ -99,8 +99,13 @@
         const take = Number.isFinite(spec.limit) ? spec.limit : rows.length;
         out.push(...rows.slice(0, Math.max(0, take)));
       }
-      out.push(...list.filter(e => !e || !named.has(e.group)).sort(byRecency));
-      return out.slice(0, limit);
+      // `limit` bounds only what the policy did NOT name. A group with a slice has already said how many
+      // rows it may have, and truncating the concatenation afterwards would empty the LAST group as soon
+      // as an earlier one grew — the same silent disappearance this option exists to fix, one catalogue
+      // later. A named group is capped by its own slice or by nothing, which is what Infinity asks for.
+      const rest = list.filter(e => !e || !named.has(e.group)).sort(byRecency);
+      out.push(...rest.slice(0, Math.max(0, limit - out.length)));
+      return out;
     }
     const scored = [];
     for (const entry of list) {

@@ -163,9 +163,17 @@ const COMMAND_PALETTE = {
   enterLabel: 'run',
   failedText: 'Could not build the command list.',
   load: () => ({ rows: commandPaletteEntries(), extra: null }),
-  filter: (rows, query) => ((typeof rankEntries === 'function')
-    ? rankEntries(rows, query, { emptyGroups: EMPTY_QUERY_GROUPS })
-    : rows),
+  // Ranked, then FLATTENED THROUGH THE SAME GROUPING the headings use — the variable picker's rule, and
+  // it is not tidiness. palette-core numbers the rows as it draws them and takes `shown[index]` on Enter,
+  // so a draw order that differs from what `filter` returned means the row you see highlighted and the
+  // row Enter takes are two different rows. A ranked list interleaves kinds, the headings cluster them,
+  // and without this the two disagree from the first interleaved result on.
+  filter: (rows, query) => {
+    if (typeof rankEntries !== 'function') return rows;
+    const ranked = rankEntries(rows, query, { emptyGroups: EMPTY_QUERY_GROUPS });
+    return commandPaletteGroups(ranked).flatMap(group => group.rows);
+  },
+  // Re-partitions what `filter` already ordered, so this only inserts the headings.
   groups: (rows) => commandPaletteGroups(rows),
   rowKey: (row) => row.id,
   row: (row) => {

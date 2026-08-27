@@ -53,7 +53,43 @@ word start it happens to contain pays, so "Some window that is chaotic" outscore
 query `switch`. Uncapped, though, it buries the initials match the boundary bonus exists to reward
 (`tso` → "Toggle session overview"), so it is capped.
 
-An empty query is not a search but a starting point: the most recent sessions first.
+**An empty query is a menu, not a search** (#488). It used to be recency order — most recent sessions
+first — which reads well and fails in use: sessions carry a timestamp and commands do not, so every
+command sat behind every session and, past the row limit, was not on the list at all. A palette opened
+with nothing typed is being asked what the app can *do*; where you were is one keystroke away either way.
+
+So the empty query is a policy, and it lives with the caller rather than in the ranker: an ordered list of
+groups, each taking at most so many rows — `EMPTY_QUERY_GROUPS` in `src/renderer/shell/command-palette.js`
+is that list, commands first and unbounded, the jump targets behind them with a slice each. The slices are
+the point: the longest group must not be able to eat the list, and the overall row cap therefore bounds
+only what the policy did not name, or a growing catalogue would empty the last group instead. A group the
+policy does not name is appended rather than dropped, so a kind added later cannot vanish.
+
+## The list is grouped, and the grouping is the draw order
+
+`palette-core.js` draws headings when a picker declares `groups`, and the command palette declares them:
+**Commands**, **Sessions**, **Projects**. They are ordered by *first appearance in the ranked list*, not
+by a fixed order — a query that finds a session best puts Sessions first and keeps the best match at the
+top, which a fixed order would have buried.
+
+**What `filter` returns has to BE the draw order.** The core numbers the rows as it draws them and takes
+`shown[index]` on Enter, so a display order that differs from the array `filter` returned means the row
+you see highlighted and the row Enter takes are two different rows. A ranked list interleaves the kinds
+and the headings cluster them, so the palette flattens the ranked list through its own grouping before
+returning it — the rule `variable-palette.js` has always followed, for a reason that only shows itself
+once a list interleaves.
+
+## A row says which key does the same thing
+
+An action may name a `shortcutId` from `SHORTCUT_DEFS`, and the row prints that chord (#489). It binds
+nothing: the key is handled where it always was, and the row only says which key does the same thing —
+read through `formatBinding`, the same table `matchShortcut` matches against, so a rebound key cannot
+leave a stale hint behind.
+
+Which things are commands is a judgement the registry makes one row at a time: opening a picker, toggling
+a view, splitting or closing a pane, bookmarking, creating a task. **Navigation is not.** Previous/next
+session, the arrows, focus pane *n*, next tab in this pane — a direction lives in the key press, and a row
+for them would say nothing without one.
 
 ## The actions are not a table
 

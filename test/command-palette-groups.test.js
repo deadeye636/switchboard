@@ -105,3 +105,47 @@ test('an unknown shortcut id leaves the row alone rather than printing a broken 
   const ctx = load({ actions: [{ id: 'x', title: 'X', group: 'View', shortcutId: 'noSuchShortcut', run() {} }] });
   assert.equal(ctx.PALETTE_DEF.row(ctx.commandPaletteEntries()[0]).meta, 'View');
 });
+
+// The defect a review caught before this shipped: palette-core numbers the rows AS IT DRAWS THEM and
+// takes `shown[index]` on Enter. A ranked list interleaves the kinds; the headings cluster them. If
+// `filter` returns rank order while `groups` draws cluster order, the row you see highlighted and the row
+// Enter takes drift apart from the first interleaved result on — arrow down to a session, press Enter,
+// run a command instead. So `filter` must return exactly what the screen will show.
+test('what filter returns IS the draw order, or the highlight and Enter are two different rows', () => {
+  const ctx = load({
+    actions: [{ id: 'insert.plan', title: 'Insert a reference to a plan', group: 'Plan', run() {} }],
+    sessions: [
+      SESSION('s1', 'Plan', 9000),
+      SESSION('s2', 'plan the migration', 8000),
+      SESSION('s3', 'My plan notes for later', 7000),
+    ],
+  });
+  const shown = ctx.PALETTE_DEF.filter(ctx.commandPaletteEntries(), 'plan');
+  const drawn = ctx.PALETTE_DEF.groups(shown).flatMap(g => g.rows);
+
+  assert.ok(shown.length >= 4, 'the fixture has to interleave, or it proves nothing');
+  assert.deepEqual([...drawn.map(r => r.id)], [...shown.map(r => r.id)],
+    'every index palette-core hands to rowHtml has to address the same row as shown[index]');
+});
+
+test('a group is never listed twice, however the ranking interleaved it', () => {
+  const ctx = load({
+    actions: [{ id: 'a', title: 'plan it', group: 'Plan', run() {} }],
+    sessions: [SESSION('s1', 'plan one', 9000), SESSION('s2', 'plan two', 8000)],
+  });
+  const groups = ctx.PALETTE_DEF.groups(ctx.PALETTE_DEF.filter(ctx.commandPaletteEntries(), 'plan'));
+  const labels = [...groups.map(g => g.label)];
+  assert.deepEqual(labels, [...new Set(labels)], 'a repeated heading means the rows were not clustered');
+});
+
+test('a large command catalogue does not push the sessions or projects off the list', () => {
+  const actions = Array.from({ length: 30 }, (_, i) => ({ id: 'a' + i, title: 'Command ' + i, group: 'View', run() {} }));
+  const ctx = load({
+    actions,
+    sessions: [SESSION('s1', 'yesterday', 1000)],
+    projects: [{ projectPath: '/dev/shop' }],
+  });
+  const labels = [...ctx.PALETTE_DEF.groups(ctx.PALETTE_DEF.filter(ctx.commandPaletteEntries(), '')).map(g => g.label)];
+  assert.deepEqual(labels, ['Commands', 'Sessions', 'Projects'],
+    'thirty commands is over the old forty-row cap — the later groups must still get their slice');
+});
