@@ -589,3 +589,51 @@ never see. A guard that only runs on the success path protects the case that was
 Neither of these was found by the suite. Both were found by a verifier told to be adversarial about a
 specific function and a specific ordering — and in both cases the first report came back PARTIAL on work
 that had already been live-checked, tested and called done.
+
+## A blanket "open everything" defeats a rule it was never told about (#490)
+
+Project settings gained a search box. The search force-opens every `details.settings-adv` so a hit inside
+one is visible — code that predates the change and reads perfectly well on its own.
+
+A backend's resources block is a `details.settings-adv`. It is also the thing #472 made lazy, because
+listing five backends' resource directories on render was a filesystem walk per backend for lists nobody
+had asked to see. And #490 had just put every backend's pane into the DOM at once.
+
+So the first keystroke in the project search box walked the filesystem once per installed backend. Nothing
+errored, nothing was slow enough to notice on a warm cache, and the whole suite was green — twice, because
+the search path has no test at all and the laziness test only covers the click that opens one pane.
+
+Two things to take from it:
+
+- **A blanket operation over a shared DOM inherits every rule that DOM carries**, including the ones added
+  after it was written. `querySelectorAll('details.settings-adv')` is a promise to know what every
+  `settings-adv` in the app is for. It did not, and could not.
+- **The cost of a rule is where it gets re-broken.** #472 removed exactly this cost; #490 restored it
+  through a control that had never heard of it. The guard is now a condition in the code
+  (`dataset.loaded === '1'`) and a sentence in `.claude/rules/renderer.md` that describes the BEHAVIOUR
+  rather than the intention — the previous wording said the search opens "one" disclosure, which is what
+  the author meant and not what the loop does.
+
+## `normalizeShortcuts` is not a migration, and a stored default is not a choice (#491)
+
+Moving the command palette off Ctrl/Cmd+K needed one line: a new default. The first version shipped that
+line, and on a real store the chord did not move at all.
+
+The settings panel writes **every** binding whenever the global settings are saved. So anyone who has ever
+pressed Save has all twenty-two frozen at whatever they were that day — and "there is a stored value" says
+nothing about whether anyone chose it. Giving Ctrl+K back to the shell would have reached new installs only.
+
+The obvious repair — treat a stored value that equals the superseded default as never-chosen — is worse
+than the bug it fixes, and that is the actual lesson. `normalizeShortcuts` is not a migration that runs once
+at upgrade time: it runs on every settings open, on every boot, and its output is written back on every
+save. A comparison alone would therefore fire **forever**, so a user who deliberately rebinds the palette
+back to Ctrl+K has that choice quietly undone the next time anything loads. A chosen Ctrl+K and an
+inherited one are the same four fields; nothing in the value can tell them apart.
+
+What tells them apart is a stamp: `_defaultsVersion` rides in the shortcuts blob, so the rewrite applies to
+a table that predates the move and never again. **Before writing a migration into a normalizer, ask how
+often the normalizer runs.** If the answer is "on every read", it is not a migration, it is a rule — and a
+rule that erases user intent is a bug wearing an upgrade's clothes.
+
+Both of these were found by a verifier reading the diff, not by the suite, and both were on work that had
+already been live-checked and called done.

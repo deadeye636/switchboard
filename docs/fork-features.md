@@ -465,6 +465,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   strip and the session bar for the pane's alone. A tab whose session has ended offers a **Launch**
   button rather than restarting the CLI on a stray click. `Ctrl/Cmd+Shift+\` splits,
   `Ctrl/Cmd+Shift+1…9` focuses a pane.
+- **The settings screen is a category list, in both scopes** — a nav on the left, one page per subject on
+  the right, with the field count beside each name **counted** rather than written down (the Terminal page
+  said ten and held twenty-six). Project settings got the same shell in #490, and there every installed
+  backend is an entry of its own whose page holds its launch defaults **and** its own resources — before
+  that the screen listed every backend's defaults first and every backend's resources after them, so a
+  backend and the files belonging to it were never on screen together. An entry says how many launch
+  options this project overrides, which is the question a project screen exists to answer. A backend's
+  resources are read the first time you open its page, so opening settings walks no filesystem at all.
+  Design record: [`docs/specs/26-settings-screen.md`](specs/26-settings-screen.md).
 - **Settings overhaul** — two-column layout, permission modes aligned to the Claude CLI, and
   an optional pop-out settings window that paints instantly and is kept warm between opens.
   The actions are pinned to the bottom edge, reachable at any scroll position in any category:
@@ -668,6 +677,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
     is a complete shell word, and quoting it silently produces a wrong credential plus a leaked temp-file
     path — so the preview does not explain that rule, it runs the real check and says which reference is
     about to break, before you reach for the credential.
+  - **A template can name what is around it** (#485, #491): `{handoffDir}` / `{handoffPath}` /
+    `{planDir}` / `{planPath}` resolve for the project the terminal belongs to, so one global variable
+    works everywhere instead of one per project — and **`{clipboard}`** is whatever was copied last,
+    composed with the stored ones instead of pasted separately. A copied file or a screenshot inserts its
+    path as one quoted shell word, the same ladder paste and drop already walk; text is inserted with the
+    control characters a terminal would obey removed, and its line breaks kept. It is the one token whose
+    content the app has never seen, so it is treated exactly like another variable's value: resolved once,
+    never rescanned, and seen by the check that catches a file reference someone has quoted. A secret's
+    template does not resolve it at all — a clipboard usually holds someone's last password.
   - Design record: [`docs/specs/12-saved-variables.md`](specs/12-saved-variables.md).
 - **File preview** — the integrated file panel renders **Markdown**, a **sandboxed HTML preview**
   (`allow-same-origin`, no scripts), and **images** (PNG/JPG/GIF/WebP/SVG/… via a size-capped

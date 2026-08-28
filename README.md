@@ -101,7 +101,10 @@ chart rather than a row of zeroes.
 - **Bookmarks** — per-message transcript bookmarks with a hover gutter
 - **Saved variables** — a reusable snippet panel with template composition. A secret reached through a
   template is never inlined as plaintext: it goes through a 0600 temp file the shell reads at exec
-  time, so it stays out of your history, your scrollback and the transcript your CLI uploads.
+  time, so it stays out of your history, your scrollback and the transcript your CLI uploads. A template
+  can also name the project's plan and handoff directories, and `{clipboard}` composes whatever was
+  copied last with the stored ones — a file or a screenshot as its path, text with the control characters
+  a terminal would obey removed.
   → [spec 12](docs/specs/12-saved-variables.md)
 - **IDE emulation** — Switchboard registers as an IDE for the Claude CLI: file opens and proposed
   edits appear in a side panel with inline or side-by-side diffs, where you accept, reject or edit
@@ -211,11 +214,15 @@ follows the shipped default even after that default improves.
 
 | Shortcut | Action |
 |----------|--------|
+| `F1` | Command palette — a session, a project or an action |
 | `Cmd/Ctrl+F` | Find in file (also works in the terminal) |
 | `Cmd/Ctrl+G` | Go to line |
 | `Cmd/Ctrl+Shift+A` | Focus the next session needing attention |
 | `Cmd/Ctrl+Shift+G` | Toggle the grid overview |
 | `Cmd/Ctrl+Shift+V` | Insert a saved variable |
+| `Cmd/Ctrl+Shift+P` | Insert a plan into the focused session |
+| `Cmd/Ctrl+Shift+S` | Run a skill in the focused session |
+| `Cmd/Ctrl+Shift+H` | Insert a handoff into the focused session |
 | `Cmd/Ctrl+Shift+M` | Move mode on the focused grid card — arrows reorder, `Shift`+arrows resize |
 | `Cmd/Ctrl+Shift+,` / `.` | Back / forward through the sessions you visited |
 

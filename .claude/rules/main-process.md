@@ -43,6 +43,10 @@ DIRECTORY, before the stat**: `lstat` sees only the final component — every di
 already followed — and that reader answers a missing file with an empty side, so a check placed after the
 stat never sees a path that escaped and had nothing at the end of it. The LEAF keeps its own sentence: a
 link the user can see and fix must not be reported as "outside"), 
+`clipboard-insert.js` (what the system clipboard hands a `{clipboard}` insert — #491; the paste/drop
+ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
+bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the
+shell family and the secret flag live in `variables.js`, which is where those decisions belong),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
