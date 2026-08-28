@@ -168,6 +168,12 @@ the directory itself. A prompt written as prose is sent exactly as written.
 Editing a prompt back to the built-in text stores `''` again — the default is never frozen into the blob,
 so improving it in a later version reaches everyone who did not change it.
 
+A saved variable's **insert template** is a different set, stored per variable rather than as a setting:
+`{value}` `{path}` `{ref}` `{var:name}`, the four `Dir`/`Path` forms above, and `{clipboard}` — whatever is
+on the system clipboard when you insert. A copied file or screenshot inserts its path as one quoted shell
+word, text is inserted with control characters removed, and a secret's template does not resolve it at all
+(#491). → [spec 12](specs/12-saved-variables.md)
+
 ## Secrets
 
 | Key | Label | Values | Default | Scope |
@@ -285,6 +291,10 @@ A binding names either a **character** (letters — the same key wherever the la
 character `\` could not be pressed on any keyboard (#353). The four punctuation chords below store a
 `code`; everything else stores a `key`.
 
+Every binding needs at least one modifier, so that it cannot shadow plain typing — **except a function
+key**. `F1`…`F24` type nothing, so they stand alone, and that is what the command palette uses: it held
+Ctrl/Cmd+K until #491, which is kill-line in every readline shell and was being taken from the terminal.
+
 | Key | Action | Default |
 |---|---|---|
 | `sessionNavArrows` | Navigate sessions / grid | primary+Shift+arrows |
@@ -295,7 +305,7 @@ character `\` could not be pressed on any keyboard (#353). The four punctuation 
 | `insertVariable` | Insert variable | primary+Shift+V |
 | `insertPlan` | Insert plan | primary+Shift+P |
 | `insertSkill` | Insert skill | primary+Shift+S |
-| `commandPalette` | Command palette | primary+K |
+| `commandPalette` | Command palette | F1 |
 | `gridToggle` | Toggle grid view | primary+Shift+G |
 | `gridMoveMode` | Move / resize grid card | primary+Shift+M |
 | `paneSplit` | Split pane to the right (panes mode) | primary+Shift+`\` |
