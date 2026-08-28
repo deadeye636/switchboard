@@ -215,17 +215,27 @@ noticing.
   switching is generic, so adding a category is those two. A field goes where its subject is — the reason
   this rule exists is that Terminal accumulated documents, editor settings and secrets under a heading
   that sounded plausible, and held 26 fields when the screen said 10.
+- **Both scopes have the nav since #490**, and one function wires it (`wireTwoPane` in
+  `settings-panel.js`). It queries `.settings-nav-item` / `.settings-cat` on every use and delegates the
+  clicks, because the project scope grows an entry and a pane **per backend** after main has answered —
+  a list captured at wiring time leaves every one of those dead. The project nav's BACKENDS group is
+  built by `addBackendNav` from what `backendsPanel.mount` reports (`onBackendPanes`), never written down.
 - **The counts beside the names are counted** — `settings-panel.js` fills them from each section's
   `.settings-field` elements after the markup is in. Do not write a number into the markup; the ones that
   were there had been wrong for a while. A category another module fills in later counts nothing and
-  shows nothing.
-- **Per-backend sections are closed, and cost nothing while closed.** Project settings draw two blocks per
-  installed backend, so an expanded default is ten open blocks and a filesystem walk per backend before
-  anyone has looked. `bindLazyResources` in `backends-panel.js` fetches on `toggle` — which also covers
-  the settings search force-opening a disclosure to reveal a hit. Closed is closed for everyone: no
-  remembered state, so two people looking at one project see one screen. What a collapsed header must
-  keep saying is whether this project overrides anything, or the screen stops answering the question it
-  exists for.
+  shows nothing. `data-count-own="1"` opts an entry out: a project's backend shows how many launch options
+  it **overrides**, because every backend has the same fields and that is the question the screen answers.
+- **A backend's resources are read when its pane is SHOWN, never before.** A filesystem walk per backend
+  before anyone has looked is what the closed disclosures avoided until #490, and the pane keeps that
+  promise a different way: `showCat` fires `settings-cat-shown`, the pane opens its own disclosure, and
+  `bindLazyResources` fetches on `toggle`. One backend's walk, never every backend's. No remembered state,
+  so two people looking at one project see one screen.
+  **The search is the hole in that** and it is guarded, not assumed: `applyGlobalSearch` force-opens every
+  `details.settings-adv` so a hit inside one is visible, and `.backend-resources` is a `settings-adv`, so the
+  first keystroke would have opened all of them and walked the filesystem once per backend. It now force-opens
+  a resources disclosure only when `dataset.loaded === '1'` — one already read has nothing left to pay, one
+  nobody has opened stays closed and is not searched. Any future "open everything" over the settings DOM has
+  to answer this same question.
 
 ## Panes mode hosts the app's own view elements (#310, #342, #311)
 

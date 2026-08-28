@@ -352,8 +352,17 @@
   // A backend's launch options live on its OWN page, reached by the gear on its row (`launchDefaultsPage`
   // below). EVERY backend has one, Claude included (`backendDefaults.<id>.<opt>`, 00 §4a).
   //
-  // The PROJECT scope has no gear pages — it is one short "what this project overrides" list, so there
-  // every backend's options are shown inline under its own heading.
+  // How many launch options this project overrides for one backend. The number a project screen exists to
+  // answer, and since #490 it is what that backend's entry in the settings nav shows.
+  function overrideCount(backend, ownDefaults) {
+    const fields = Array.isArray(backend.configFields) ? backend.configFields : [];
+    const own = (ownDefaults && ownDefaults[backend.id]) || {};
+    return fields.filter(f => own[f.id] !== undefined && own[f.id] !== null).length;
+  }
+
+  // The PROJECT scope has no gear pages — since #490 each backend has a PANE of its own, reached from the
+  // settings nav, holding its launch defaults and its resources together. Before that they were two flat
+  // lists, and a backend was never next to the resources that belong to it.
   //
   // Each OPTION carries its own "Use global default" checkbox (#149). The defaults cascade per option:
   // a project stores only what it actually overrides, so overriding one Codex option does not freeze
@@ -384,22 +393,40 @@
         </div>`;
     }).join('');
 
-    // Collapsed (#472), and the header says whether this project changes anything for this backend.
-    // Without that marker, "what does this project override" would mean opening every section in turn —
-    // which is the question a project settings screen exists to answer.
-    const overrides = fields.filter(f => own[f.id] !== undefined && own[f.id] !== null).length;
+    // No disclosure around it any more (#490): the pane IS the disclosure, and the "N overrides" marker
+    // the summary used to carry moved onto the nav entry — otherwise "what does this project override"
+    // would mean opening every backend in turn, which is the question this screen exists to answer.
     return `
-      <details class="settings-adv backend-collapse" data-defaults-for="${esc(backend.id)}">
-        <summary>
-          <svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>
-          <span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="16" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>
-          <span class="backend-collapse-label">${esc(backend.label)}</span>
-          ${overrides ? `<span class="backend-pill backend-override-pill">${overrides} override${overrides === 1 ? '' : 's'}</span>` : ''}
-        </summary>
-        <div class="settings-section">
-          ${rows}
+      <div class="settings-section" data-defaults-for="${esc(backend.id)}">
+        ${rows}
+      </div>`;
+  }
+
+  // One backend's pane: its launch defaults, then its own resources. The pair is the point — before #490
+  // the panel drew every backend's defaults first and every backend's resources after them, so a backend
+  // and the resources that belong to it were never on screen together.
+  //
+  // The inheritance sentence is here rather than once at the top, because there is no landing pane to put
+  // it on: every entry under BACKENDS in the nav goes straight to a backend. It names the backend, so the
+  // repetition reads as being about this one rather than as boilerplate.
+  function backendPane(backend, ownDefaults, globalDefaults, projectPath) {
+    const defaults = inlineDefaultsSection(backend, ownDefaults, globalDefaults);
+    const resources = backend.resourceDiscovery
+      ? resourcesShell(
+        backend,
+        `${backend.label} resources${projectPath ? ` · ${projectFolderName(projectPath)}` : ''}`,
+        projectPath || null,
+      )
+      : '';
+    return `
+      <section class="settings-cat" data-cat="backend:${esc(backend.id)}">
+        <div class="settings-cat-head">
+          <h2><span class="backend-icon-slot" data-icon="${esc(backend.icon || backend.colour || backend.id)}" data-size="20" ${backend.monogram ? `data-monogram="${esc(backend.monogram)}"` : ''}></span>${esc(backend.label)}</h2>
+          <p>Each launch option falls back to the global default unless you override it here. Enabling ${esc(backend.label)} and the default launch target stay global settings.</p>
         </div>
-      </details>`;
+        ${defaults || '<div class="settings-hint">This backend has no launch options of its own.</div>'}
+        ${resources}
+      </section>`;
   }
 
   // The way into the capability matrix (#439), as one string, because there are two ways in (#446): the
@@ -1169,21 +1196,22 @@
     if (isProject) {
       // "Use global default" is checked while the project stores no own backendDefaults — then the
       // controls show the inherited values, disabled (same convention as the other project fields).
-      box.innerHTML = `
-        <div class="settings-section">
-          <div class="settings-section-title backend-defaults-head">
-            <span>Launch defaults</span>
-          </div>
-          <div class="settings-hint">Per-backend launch options for this project. Each option falls back to the global default unless you override it here. Enabling a backend and the default launch target stay global.</div>
-        </div>
-        ${readyBackends.map(b => inlineDefaultsSection(b, mergedOwnDefaults(), inheritedDefaults)).join('')}
-        ${readyBackends.filter(b => b.resourceDiscovery).map(b => resourcesShell(
-          b,
-          `${b.label} resources${ctx.projectPath ? ` · ${projectFolderName(ctx.projectPath)}` : ''}`,
-          ctx.projectPath || null,
-        )).join('')}`;
+      //
+      // One PANE per backend since #490, holding that backend's defaults and its own resources. The panes
+      // are `.settings-cat` sections like every other category; what the settings panel cannot write down
+      // is the nav entries that reach them, because the backend list arrives here — hence `onBackendPanes`.
+      box.innerHTML = readyBackends
+        .map(b => backendPane(b, mergedOwnDefaults(), inheritedDefaults, ctx.projectPath))
+        .join('');
       bindResourceCopy(box);
       bindLazyResources(box, ctx.projectPath || null);
+      // A pane reads its resources the first time it is SHOWN, not before anyone looked (#472). Opening
+      // the disclosure is what fetches them (`bindLazyResources` listens for `toggle`), so entering the
+      // pane opens it — one backend's walk of the filesystem, never every backend's at once.
+      box.addEventListener('settings-cat-shown', (e) => {
+        const details = e.target.querySelector && e.target.querySelector('details.backend-resources');
+        if (details && !details.open) details.open = true;
+      });
       box.addEventListener('input', (e) => recordDefault(e.target));
       box.addEventListener('change', (e) => {
         // Un-checking "use global default" starts an override at the value currently shown; re-checking
@@ -1200,6 +1228,15 @@
       });
       root.replaceChildren(box);
       paintIcons(box);
+      if (typeof ctx.onBackendPanes === 'function') {
+        ctx.onBackendPanes(readyBackends.map(b => ({
+          id: b.id,
+          label: b.label,
+          icon: b.icon || b.colour || b.id,
+          monogram: b.monogram || null,
+          overrides: overrideCount(b, mergedOwnDefaults()),
+        })));
+      }
       return;
     }
 

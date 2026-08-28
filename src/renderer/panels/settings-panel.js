@@ -16,6 +16,19 @@
   // window, so there is no second answer to give.
   const viewerIsOpen = () => !document.hidden;
 
+  // The category an Apply-rebuild has to come back to. It outlives one render on purpose: a project's
+  // backend panes are built after main answers, so the category the user was on may not exist yet when
+  // the rebuilt panel asks for it (#490). `addBackendNav` asks again once they do.
+  let pendingCatRestore = null;
+  function restoreCat(cat) {
+    if (cat !== undefined) pendingCatRestore = cat || null;
+    if (!pendingCatRestore) return;
+    const btn = settingsViewerBody.querySelector(`.settings-nav-item[data-cat="${CSS.escape(pendingCatRestore)}"]`);
+    if (!btn) return;   // not drawn yet — the next caller tries again
+    btn.click();
+    pendingCatRestore = null;
+  }
+
   function closeSettingsViewer() {
     viewerGeneration++;
     viewerListeners.abort();   // nothing of the closed panel keeps listening (see openSettingsViewer)
@@ -359,22 +372,222 @@
       settingsFooter.id = 'settings-viewer-footer';
       settingsViewer.appendChild(settingsFooter);
     }
-    // The global scope indents its footer past the category nav, so the buttons line
-    // up with the settings column rather than with the window.
-    settingsFooter.classList.toggle('two-pane', !isProject);
+    // The footer is indented past the category nav, so the buttons line up with the settings column
+    // rather than with the window. Both scopes have that nav since #490 — this used to be the one place
+    // that could tell them apart from the outside.
+    settingsFooter.classList.add('two-pane');
     settingsFooter.innerHTML = btnRow;
     // The buttons no longer live in the body — look them up in the viewer.
     const svBtn = (sel) => settingsViewer.querySelector(sel);
 
-    // Small building blocks for the global two-pane layout.
+    // Small building blocks for the two-pane layout.
     const help = `<button type="button" class="settings-help" aria-expanded="false" aria-label="More info">?</button>`;
     const advChev = `<svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>`;
 
+    // --- Two-pane wiring: category nav, live search, "?" help toggles ---
+    //
+    // BOTH scopes since #490. The nav and the panes are markup, and the markup differs; everything below
+    // is about `.settings-nav-item` and `.settings-cat`, which is all it ever needed to know.
+    //
+    // Nothing here is captured in a list. The nav and the panes are queried on every use and the clicks
+    // are delegated, because the project scope grows a nav entry and a pane PER BACKEND after main has
+    // answered — a snapshot taken at wiring time would leave every one of those entries dead.
+    let twoPane = null;
+    function wireTwoPane() {
+      const navRoot = settingsViewerBody.querySelector('.settings-nav');
+      if (!navRoot) return null;
+      const searchInput = settingsViewerBody.querySelector('#sv-search');
+      const noResults = settingsViewerBody.querySelector('#sv-no-results');
+      const mainScroll = settingsViewerBody.querySelector('.settings-main');
+      const navItems = () => Array.from(settingsViewerBody.querySelectorAll('.settings-nav-item'));
+      const cats = () => Array.from(settingsViewerBody.querySelectorAll('.settings-cat'));
+
+      // The counts beside the category names are COUNTED, not written down (#471). They used to be
+      // numbers typed into the markup, and they were wrong long before anyone looked: Terminal said 10
+      // while holding 26 fields. A category whose contents another module fills in later — Backends,
+      // Tags, Custom launchers — counts nothing and shows nothing, which is what it did before.
+      // `data-count-own` means the entry writes its own badge: a project's backend says how many launch
+      // options it OVERRIDES, which is the question that screen exists to answer, and every backend has
+      // the same number of fields anyway.
+      function refreshNavCounts() {
+        const sections = cats();
+        for (const nav of navItems()) {
+          const badge = nav.querySelector('.settings-nav-count');
+          if (!badge || nav.dataset.countOwn === '1') continue;
+          const section = sections.find(c => c.dataset.cat === nav.dataset.cat);
+          const n = section ? section.querySelectorAll('.settings-field').length : 0;
+          badge.textContent = n ? String(n) : '';
+          badge.hidden = !n;
+        }
+      }
+
+      // A "?" opens the explainer under its own field. Re-run for panes that arrive later; a button that
+      // already carries the listener is skipped, or a second click would toggle twice and land where it
+      // started.
+      function bindHelpToggles(root = settingsViewerBody) {
+        root.querySelectorAll('.settings-help').forEach(btn => {
+          if (btn.dataset.helpBound === '1') return;
+          btn.dataset.helpBound = '1';
+          btn.addEventListener('click', () => {
+            const info = btn.closest('.settings-field-info');
+            const more = info && info.querySelector('.settings-more');
+            if (!more) return;
+            const open = more.classList.toggle('open');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+          });
+        });
+      }
+
+      function showCat(cat) {
+        cats().forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
+        navItems().forEach(n => n.classList.toggle('active', n.dataset.cat === cat));
+        if (mainScroll) mainScroll.scrollTop = 0;
+        // A pane may want to know it is on screen — the project's backend panes read their resources on
+        // first sight rather than before anyone looked (#472, #490).
+        const shown = cats().find(c => c.dataset.cat === cat);
+        if (shown) shown.dispatchEvent(new CustomEvent('settings-cat-shown', { bubbles: true }));
+      }
+
+      function activeCat() {
+        const active = navItems().find(n => n.classList.contains('active')) || navItems()[0];
+        return active ? active.dataset.cat : null;
+      }
+
+      function applyGlobalSearch(q) {
+        q = (q || '').trim().toLowerCase();
+        if (!q) {
+          settingsViewerBody.querySelectorAll('.settings-cat .settings-field').forEach(f => { f.style.display = ''; });
+          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv').forEach(e => { e.style.display = ''; });
+          // A search force-opens every disclosure so a hit inside one is visible. Leaving the search must
+          // put the EXPLAINERS back — they are prose that defaults to collapsed, and without this one
+          // search left them open for the rest of the session. An Advanced block is a settings surface the
+          // user may have opened deliberately, so it is left as it is.
+          settingsViewerBody.querySelectorAll('details.settings-explainer').forEach(d => { d.open = false; });
+          if (noResults) noResults.style.display = 'none';
+          const cat = activeCat();
+          if (cat) showCat(cat);
+          return;
+        }
+        // Search across all categories at once.
+        cats().forEach(c => c.classList.add('active'));
+        settingsViewerBody.querySelectorAll('.settings-cat-head').forEach(e => e.style.display = 'none');
+        settingsViewerBody.querySelectorAll('details.settings-adv').forEach(d => {
+          d.style.display = '';
+          // A resources disclosure is not a settings surface: opening one READS that backend's files. Every
+          // ready backend now has a pane in the project scope, so force-opening them all would turn the
+          // first keystroke into a filesystem walk per backend — the cost #472 removed, coming back through
+          // the search box #490 added. One already read has nothing left to pay, so it opens like the rest;
+          // one that has not been looked at stays closed and is not searched.
+          if (!d.classList.contains('backend-resources') || d.dataset.loaded === '1') d.open = true;
+        });
+        let any = false;
+        cats().forEach(cat => {
+          cat.querySelectorAll('.settings-field').forEach(f => {
+            const match = f.textContent.toLowerCase().includes(q);
+            f.style.display = match ? '' : 'none';
+            if (match) any = true;
+          });
+          cat.querySelectorAll('.settings-section').forEach(s => {
+            const vis = Array.from(s.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
+            s.style.display = vis ? '' : 'none';
+          });
+          cat.querySelectorAll('details.settings-adv').forEach(d => {
+            const vis = Array.from(d.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
+            d.style.display = vis ? '' : 'none';
+          });
+          const hint = cat.querySelector('.settings-hint');
+          if (hint) hint.style.display = 'none';
+        });
+        if (noResults) noResults.style.display = any ? 'none' : 'block';
+      }
+
+      navRoot.addEventListener('click', (e) => {
+        const n = e.target.closest && e.target.closest('.settings-nav-item');
+        if (!n || !navRoot.contains(n)) return;
+        if (searchInput) searchInput.value = '';
+        applyGlobalSearch('');
+        showCat(n.dataset.cat);
+      });
+      if (searchInput) searchInput.addEventListener('input', (e) => applyGlobalSearch(e.target.value));
+
+      refreshNavCounts();
+      bindHelpToggles();
+      twoPane = { showCat, activeCat, refreshNavCounts, bindHelpToggles };
+      return twoPane;
+    }
+
+    // The BACKENDS group of the project nav, built from what backends-panel.js found (#490). It runs after
+    // the panel has drawn its panes, which is why the group's heading and separator start hidden: a machine
+    // with no backend installed must not show an empty heading.
+    //
+    // The badge is the backend's OVERRIDE count, not its field count — every backend has roughly the same
+    // number of launch options, and what a project screen is asked is which of them this project changes.
+    function addBackendNav(list) {
+      const host = settingsViewerBody.querySelector('#sv-nav-backends');
+      if (!host) return;
+      const rows = Array.isArray(list) ? list : [];
+      host.innerHTML = rows.map(b => `
+        <button class="settings-nav-item settings-nav-backend" data-cat="backend:${escapeHtml(b.id)}" data-count-own="1">
+          <span class="backend-icon-slot" data-icon="${escapeHtml(b.icon || b.id)}" data-size="14" ${b.monogram ? `data-monogram="${escapeHtml(b.monogram)}"` : ''}></span>
+          <span class="settings-nav-backend-label">${escapeHtml(b.label)}</span>
+          <span class="settings-nav-count" ${b.overrides ? '' : 'hidden'}>${b.overrides || ''}</span>
+        </button>`).join('');
+      const head = settingsViewerBody.querySelector('#sv-nav-backends-head');
+      const sep = settingsViewerBody.querySelector('#sv-nav-backends-sep');
+      if (head) head.hidden = !rows.length;
+      if (sep) sep.hidden = !rows.length;
+      // The nav entry wears the same badge the sidebar and the launch picker draw — a new control in this
+      // renderer inherits no styling, and a second hand-rolled icon would be one more thing to keep true.
+      if (typeof window.renderBackendIcon === 'function') {
+        host.querySelectorAll('.backend-icon-slot').forEach(slot => {
+          slot.appendChild(window.renderBackendIcon(slot.dataset.icon, Number(slot.dataset.size) || 14, {
+            monogram: slot.dataset.monogram || undefined,
+          }));
+        });
+      }
+      if (twoPane) twoPane.bindHelpToggles(settingsViewerBody.querySelector('#sv-backends-root') || settingsViewerBody);
+      // An Apply re-render lands here too: the category the user was on may be a backend's, and that pane
+      // did not exist when the panel reopened.
+      restoreCat();
+    }
+
     if (isProject) {
-      // ---- Project scope: single-column form (unchanged behaviour) ----
-      settingsViewerBody.classList.remove('sv-two-pane');
+      // ---- Project scope: two-pane layout (nav + category panes), #490 ----
+      // The same shell the global scope has had since #471, for the same reason: a subject is a category,
+      // and a screen that answers "what does this project change" cannot be one column a screen and a half
+      // long. The nav is built here rather than in a module of its own because it is short and because the
+      // BACKENDS group cannot be written down at all — its entries are one per installed backend, and that
+      // list arrives after `backendsPanel.mount` has asked main (see `addBackendNav` below).
+      settingsViewerBody.classList.add('sv-two-pane');
       settingsViewerBody.innerHTML = `
-      <div class="settings-form">
+      <div class="settings-shell">
+        <nav class="settings-nav">
+          <div class="settings-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7a7a90" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input id="sv-search" type="text" placeholder="Search settings…" autocomplete="off">
+          </div>
+          <div class="settings-nav-head">Project</div>
+          <button class="settings-nav-item active" data-cat="project">Project <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="shells">Shells <span class="settings-nav-count"></span></button>
+          <div class="settings-nav-sep"></div>
+          <div class="settings-nav-head">Documents</div>
+          <button class="settings-nav-item" data-cat="plans">Plans <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="skills">Skills <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="handoffs">Handoffs <span class="settings-nav-count"></span></button>
+          <div class="settings-nav-sep"></div>
+          <div class="settings-nav-head">Extensions</div>
+          <button class="settings-nav-item" data-cat="launchers">Terminal tools</button>
+          <div class="settings-nav-sep" id="sv-nav-backends-sep" hidden></div>
+          <div class="settings-nav-head" id="sv-nav-backends-head" hidden>Backends</div>
+          <div id="sv-nav-backends"></div>
+        </nav>
+
+        <div class="settings-main">
+        <div class="settings-form">
+        <div class="settings-no-results" id="sv-no-results">No settings match your search.</div>
+
+        <section class="settings-cat active" data-cat="project">
+        <div class="settings-cat-head"><h2>Project</h2><p>What this project is called, and how it is filed.</p></div>
         <div class="settings-section">
           <div class="settings-section-title">Project</div>
           <div class="settings-field">
@@ -403,6 +616,10 @@
           </div>
         </div>
 
+        </section>
+
+        <section class="settings-cat" data-cat="plans">
+        <div class="settings-cat-head"><h2>Plans</h2><p>Where this project's plans are read from, and where a CLI is told to write them.</p></div>
         <div class="settings-section">
           <div class="settings-section-title">Plans</div>
           <div class="settings-field">
@@ -442,6 +659,10 @@
           </div>
         </div>
 
+        </section>
+
+        <section class="settings-cat" data-cat="skills">
+        <div class="settings-cat-head"><h2>Skills</h2><p>Skills this project offers in every session, whatever CLI is running.</p></div>
         <div class="settings-section">
           <div class="settings-section-title">Skills</div>
           <div class="settings-field">
@@ -472,6 +693,10 @@
           </div>
         </div>
 
+        </section>
+
+        <section class="settings-cat" data-cat="handoffs">
+        <div class="settings-cat-head"><h2>Handoffs</h2><p>Where a handoff packet is read from, and the one directory a new one is written to.</p></div>
         <div class="settings-section">
           <div class="settings-section-title">Handoffs</div>
           <div class="settings-field">
@@ -515,6 +740,10 @@
           </div>
         </div>
 
+        </section>
+
+        <section class="settings-cat" data-cat="shells">
+        <div class="settings-cat-head"><h2>Shells</h2><p>What hosts a CLI here, and what hosts a plain terminal.</p></div>
         <div class="settings-section">
           <div class="settings-section-title">Shells</div>
 
@@ -556,12 +785,22 @@
           </div>
         </div>
 
-        <!-- Terminal tools (T-3.10) — the project's own custom launchers, on top of the global ones. -->
-        <div id="sv-launchers-root"></div>
+        </section>
 
-        <!-- Per-backend launch defaults (T-2.6) — rendered from each backend's configFields. -->
+        <!-- Terminal tools (T-3.10) — the project's own custom launchers, on top of the global ones. -->
+        <section class="settings-cat" data-cat="launchers">
+        <div class="settings-cat-head"><h2>Terminal tools</h2><p>This project's own launchers, on top of the global ones.</p></div>
+        <div id="sv-launchers-root"></div>
+        </section>
+
+        <!-- Per-backend launch defaults (T-2.6) + that backend's resources (#490). One SECTION per
+             backend, appended by backends-panel.js once main has answered which backends there are —
+             which is why this host is empty rather than holding a list written down here. -->
         <div id="sv-backends-root"></div>
+        </div>
+        </div>
       </div>`;
+      wireTwoPane();
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
@@ -603,22 +842,6 @@
       initTagDefsSection('project');
       initTagDefsSection('session');
 
-      // --- Global two-pane wiring: category nav, live search, "?" help toggles ---
-      const navItems = Array.from(settingsViewerBody.querySelectorAll('.settings-nav-item'));
-      const cats = Array.from(settingsViewerBody.querySelectorAll('.settings-cat'));
-
-      // The counts beside the category names are COUNTED, not written down (#471). They used to be
-      // numbers typed into the markup, and they were wrong long before anyone looked: Terminal said 10
-      // while holding 26 fields. A category whose contents another module fills in later — Backends,
-      // Tags, Custom launchers — counts nothing and shows nothing, which is what it did before.
-      for (const nav of navItems) {
-        const badge = nav.querySelector('.settings-nav-count');
-        if (!badge) continue;
-        const section = cats.find(c => c.dataset.cat === nav.dataset.cat);
-        const n = section ? section.querySelectorAll('.settings-field').length : 0;
-        badge.textContent = n ? String(n) : '';
-        badge.hidden = !n;
-      }
       // Fill the About pane's version + runtime fields (async, best-effort).
       if (window.api.getAboutInfo) {
         window.api.getAboutInfo().then(info => {
@@ -632,72 +855,10 @@
           set('#sv-about-platform', `${info.platform} / ${info.arch}`);
         }).catch(() => {});
       }
-      const searchInput = settingsViewerBody.querySelector('#sv-search');
-      const noResults = settingsViewerBody.querySelector('#sv-no-results');
-      const mainScroll = settingsViewerBody.querySelector('.settings-main');
 
-      function showCat(cat) {
-        cats.forEach(c => c.classList.toggle('active', c.dataset.cat === cat));
-        navItems.forEach(n => n.classList.toggle('active', n.dataset.cat === cat));
-        if (mainScroll) mainScroll.scrollTop = 0;
-      }
-
-      function applyGlobalSearch(q) {
-        q = (q || '').trim().toLowerCase();
-        if (!q) {
-          settingsViewerBody.querySelectorAll('.settings-cat .settings-field').forEach(f => { f.style.display = ''; });
-          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv').forEach(e => { e.style.display = ''; });
-          // A search force-opens every disclosure so a hit inside one is visible. Leaving the search must
-          // put the EXPLAINERS back — they are prose that defaults to collapsed, and without this one
-          // search left them open for the rest of the session. An Advanced block is a settings surface the
-          // user may have opened deliberately, so it is left as it is.
-          settingsViewerBody.querySelectorAll('details.settings-explainer').forEach(d => { d.open = false; });
-          if (noResults) noResults.style.display = 'none';
-          const active = navItems.find(n => n.classList.contains('active')) || navItems[0];
-          showCat(active ? active.dataset.cat : 'sessions');
-          return;
-        }
-        // Search across all categories at once.
-        cats.forEach(c => c.classList.add('active'));
-        settingsViewerBody.querySelectorAll('.settings-cat-head').forEach(e => e.style.display = 'none');
-        settingsViewerBody.querySelectorAll('details.settings-adv').forEach(d => { d.style.display = ''; d.open = true; });
-        let any = false;
-        cats.forEach(cat => {
-          cat.querySelectorAll('.settings-field').forEach(f => {
-            const match = f.textContent.toLowerCase().includes(q);
-            f.style.display = match ? '' : 'none';
-            if (match) any = true;
-          });
-          cat.querySelectorAll('.settings-section').forEach(s => {
-            const vis = Array.from(s.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
-            s.style.display = vis ? '' : 'none';
-          });
-          cat.querySelectorAll('details.settings-adv').forEach(d => {
-            const vis = Array.from(d.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
-            d.style.display = vis ? '' : 'none';
-          });
-          const hint = cat.querySelector('.settings-hint');
-          if (hint) hint.style.display = 'none';
-        });
-        if (noResults) noResults.style.display = any ? 'none' : 'block';
-      }
-
-      navItems.forEach(n => n.addEventListener('click', () => {
-        if (searchInput) searchInput.value = '';
-        applyGlobalSearch('');
-        showCat(n.dataset.cat);
-      }));
-      if (searchInput) searchInput.addEventListener('input', (e) => applyGlobalSearch(e.target.value));
-
-      settingsViewerBody.querySelectorAll('.settings-help').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const info = btn.closest('.settings-field-info');
-          const more = info && info.querySelector('.settings-more');
-          if (!more) return;
-          const open = more.classList.toggle('open');
-          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        });
-      });
+      // --- Two-pane wiring: category nav, live search, "?" help toggles ---
+      // The same call the project scope makes (#490) — see wireTwoPane above.
+      wireTwoPane();
     }
 
     // --- Backends (T-2.3/T-2.6): backends-panel.js owns the section's DOM. Global scope gets the
@@ -716,6 +877,10 @@
         globalDefaults: (globalSettings || {}).backendDefaults || {},
         fieldValue,
         useGlobalCheckbox,
+        // The project scope draws one PANE per backend (#490). Which backends exist is known here first,
+        // so the nav entries that reach those panes are built from what the panel reports rather than
+        // written down in the markup, where the list would be a guess.
+        onBackendPanes: isProject ? addBackendNav : null,
       }).catch(() => {
         backendsRoot.innerHTML = '<div class="settings-hint">Could not load the backend list.</div>';
       });
@@ -1301,7 +1466,9 @@
         // timer — it reopens the settings over whatever the user is now looking at.
         if (viewerGeneration !== openedAt || !viewerIsOpen()) return;
         await openSettingsViewer(scope, projectPath);
-        if (activeCat) settingsViewerBody.querySelector(`.settings-nav-item[data-cat="${activeCat}"]`)?.click();
+        // A backend's pane is drawn after main answers, so this may find nothing yet — `addBackendNav`
+        // asks again when it does (#490).
+        restoreCat(activeCat);
       }, 600);
     });
 

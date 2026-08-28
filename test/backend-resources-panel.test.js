@@ -150,26 +150,78 @@ test('nothing is read from disk until a resources section is opened', async () =
   } finally { ctx.dom.window.close(); }
 });
 
-test('a collapsed backend says whether this project overrides anything', async () => {
-  const ctx = setup();
-  try {
-    ctx.window.api.backends.list = async () => ({
-      backends: [{
+// --- #490: one pane per backend, and the override count travels to the nav ----
+
+function twoBackends() {
+  return {
+    backends: [
+      {
         id: 'claude', label: 'Claude Code', status: 'ready', available: true, resourceDiscovery: true,
         configFields: [
           { id: 'model', label: 'Model', type: 'text', default: '' },
           { id: 'sandbox', label: 'Sandbox', type: 'text', default: '' },
         ],
-      }],
-      defaultLaunchTarget: 'claude',
-    });
-    await mountPanel(ctx, { settings: { backendDefaults: { claude: { model: 'opus' } } } });
+      },
+      { id: 'codex', label: 'Codex', status: 'ready', available: true, resourceDiscovery: false, configFields: [] },
+    ],
+    defaultLaunchTarget: 'claude',
+  };
+}
 
-    const summary = ctx.root.querySelector('details.backend-collapse > summary');
-    assert.ok(summary, 'the launch defaults are a disclosure now');
-    assert.equal(ctx.root.querySelector('details.backend-collapse').open, false, 'closed');
-    // Without this, "what does this project change" means opening every section in turn.
-    assert.match(summary.textContent, /1 override\b/);
+test('a backend says whether this project overrides anything — now on its nav entry', async () => {
+  const ctx = setup();
+  try {
+    ctx.window.api.backends.list = async () => twoBackends();
+    const reported = [];
+    await mountPanel(ctx, {
+      settings: { backendDefaults: { claude: { model: 'opus' } } },
+      onBackendPanes: (list) => reported.push(list),
+    });
+
+    // Without this, "what does this project change" means opening every backend in turn — which is the
+    // question the project settings screen exists to answer.
+    assert.equal(reported.length, 1, 'the panel reports its panes once');
+    assert.deepEqual(reported[0].map(b => [b.id, b.overrides]), [['claude', 1], ['codex', 0]]);
+    // The disclosure it used to live in is gone: the pane is the disclosure now.
+    assert.equal(ctx.root.querySelector('details.backend-collapse'), null);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('each backend gets a pane of its own, with its resources inside it', async () => {
+  const ctx = setup();
+  try {
+    ctx.window.api.backends.list = async () => twoBackends();
+    await mountPanel(ctx);
+
+    const panes = [...ctx.root.querySelectorAll('section.settings-cat')];
+    assert.deepEqual(panes.map(p => p.dataset.cat), ['backend:claude', 'backend:codex']);
+    // The pair is the point: a backend and the resources that belong to it, in one place.
+    const claude = panes[0];
+    assert.ok(claude.querySelector('.settings-field'), 'its launch defaults are here');
+    assert.ok(claude.querySelector('details.backend-resources'), 'and so are its own resources');
+    // A backend without discovery shows its defaults alone rather than an empty disclosure.
+    assert.equal(panes[1].querySelector('details.backend-resources'), null);
+    // The pane names the backend and says what the options fall back to — there is no landing pane left
+    // to put that sentence on.
+    assert.match(claude.querySelector('.settings-cat-head').textContent, /Claude Code/);
+    assert.match(claude.querySelector('.settings-cat-head p').textContent, /falls back to the global default/);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('a backend pane reads its resources when it is shown, not before', async () => {
+  const ctx = setup();
+  try {
+    ctx.window.api.backends.list = async () => twoBackends();
+    await mountPanel(ctx);
+    assert.equal(ctx.listCalls.length, 0, 'nothing is read before anyone has looked');
+
+    const pane = ctx.root.querySelector('section.settings-cat[data-cat="backend:claude"]');
+    pane.dispatchEvent(new ctx.window.CustomEvent('settings-cat-shown', { bubbles: true }));
+    assert.equal(pane.querySelector('details.backend-resources').open, true, 'entering the pane opens it');
+    pane.querySelector('details.backend-resources').dispatchEvent(new ctx.window.Event('toggle'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(ctx.listCalls, [['claude', PROJECT_PATH]], 'one backend read, not every backend');
   } finally { ctx.dom.window.close(); }
 });
 

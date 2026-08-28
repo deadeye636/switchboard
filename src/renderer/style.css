@@ -6080,6 +6080,12 @@ mark.jsonl-search-hit-active {
 .settings-nav-item.active { background: rgba(128,136,255,0.14); color: #e0e0f0; font-weight: 500; }
 /* A category that belongs under the one above it (Terminal tools under Terminal, #178). */
 .settings-nav-sub { padding-left: 22px; font-size: 12.5px; color: #9a9ab0; }
+/* A backend's own entry in the project nav (#490): its badge, its name, then the override count. The
+   name takes the middle so the count still sits at the right edge — `space-between` alone would push
+   the badge away from the label it belongs to. */
+.settings-nav-backend { justify-content: flex-start; }
+.settings-nav-backend .backend-icon-slot { display: inline-flex; flex: 0 0 auto; }
+.settings-nav-backend-label { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-nav-item .settings-nav-count {
   font-size: 11px; color: #6a6a80;
   font-variant-numeric: tabular-nums;
@@ -6126,6 +6132,9 @@ mark.jsonl-search-hit-active {
 }
 .settings-section + .settings-subhead { margin-top: 18px; }
 .settings-cat-head h2 { font-size: 19px; font-weight: 600; margin: 0; letter-spacing: -0.02em; color: #e0e0f0; }
+/* A backend's pane names itself with the badge the rest of the app draws for it (#490). */
+.settings-cat-head h2 { display: flex; align-items: center; gap: 9px; }
+.settings-cat-head h2 .backend-icon-slot { display: inline-flex; flex: 0 0 auto; }
 .settings-cat-head p { margin: 4px 0 0; font-size: 12.5px; color: #7a7a90; }
 
 /* "?" help disclosure + inline extended text */
