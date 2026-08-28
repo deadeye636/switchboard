@@ -65,6 +65,44 @@ function shellRefFor(shellType, filePath) {
   return null;
 }
 
+// A path as ONE shell word, for the branch of {clipboard} that inserts a file rather than text (#491).
+// The same quoting shellRefFor uses, without the read around it — and the same admission: a shell with no
+// quoting rule we know (cmd, WSL, unknown) gets the bare path, because a wrong quote is worse than none.
+// The paste route quotes every path it inserts (`insertFromDataTransfer`); this is that rule where the
+// shell family is actually known.
+function shellQuotePath(shellType, filePath) {
+  const p = String(filePath ?? '');
+  if (!p) return '';
+  if (shellType === 'bash' || shellType === 'zsh' || shellType === 'sh') {
+    return `'${p.replace(/'/g, "'\\''")}'`;
+  }
+  if (shellType === 'pwsh' || shellType === 'powershell') {
+    return `'${p.replace(/'/g, "''")}'`;
+  }
+  return p;
+}
+
+// What may travel from the system clipboard into a terminal (#491).
+//
+// The clipboard is the least controlled text this app touches — whatever was copied last, from anywhere.
+// So it is cleaned before it is composed, not after: the resolver REFUSES a composed insert that still
+// carries an ESC byte, and a clipboard that happened to hold one would turn "insert my clipboard" into an
+// error the user cannot act on.
+//
+// What goes: every C0 control except tab and newline, DEL, and the C1 range — i.e. anything that a terminal
+// would read as a command rather than as text. That covers the bracketed-paste end marker on its own, since
+// it begins with ESC; nothing may end its own paste and have the rest arrive as keystrokes.
+//
+// What STAYS is the line break. Every insert path pastes, bracketed where the program supports it, so a
+// multi-line clipboard arrives as text rather than as Enter — the same answer a multi-line {value} already
+// gets. `\r\n` and a lone `\r` are normalized to `\n` so the count of lines is what the user copied.
+function sanitizeClipboardText(text) {
+  return String(text ?? '')
+    .replace(/\r\n?/g, '\n')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, '');
+}
+
 // The one token grammar. `var:` names may hold anything but braces; the name is trimmed at lookup so
 // `{var: x }` finds `x`. Case-SENSITIVE on purpose — the ORDER BY LOWER(name) in the list queries will tempt
 // someone into case-insensitive matching, and then `Server` and `server`, two legitimately distinct rows,
@@ -80,7 +118,11 @@ function shellRefFor(shellType, filePath) {
 // way it would quote any other path. {ref} is the only token that quotes itself.
 const DIR_TOKENS = ['handoffDir', 'handoffPath', 'planDir', 'planPath'];
 
-const TOKEN_SOURCE = `\\{(path|ref|value|${DIR_TOKENS.join('|')}|var:[^{}]+)\\}`;
+// `{clipboard}` is NOT in that class (#491). It is the one token whose text comes from outside the app
+// entirely, so it is treated the way a {var:} value is treated: resolved once, concatenated into the
+// output, never scanned again — and seen by scanRefSafety, because a quote it carries can re-open quoting
+// around a {ref} standing beside it just as a sibling variable's value can.
+const TOKEN_SOURCE = `\\{(path|ref|value|clipboard|${DIR_TOKENS.join('|')}|var:[^{}]+)\\}`;
 
 // Which variables does this template reference? Pure, so the graph can be walked (and cycles found) before
 // anything is decrypted or written.
@@ -193,7 +235,11 @@ function compose(template, values = {}) {
       resolved = v.ref == null ? '' : String(v.ref);
       if (resolved) refOffsets.push({ offset: out.length, nested: false });   // this template's OWN ref
     } else if (token === 'value') resolved = v.value == null ? '' : String(v.value);
-    else if (DIR_TOKENS.includes(token)) {
+    else if (token === 'clipboard') {
+      // Passed already cleaned (and already quoted, where it is a path). A caller that does not offer one —
+      // the preview, a secret's template — passes none, and it resolves to empty like a missing {value}.
+      resolved = v.clipboard == null ? '' : String(v.clipboard);
+    } else if (DIR_TOKENS.includes(token)) {
       // A caller that knows no project passes none — the token resolves to empty, like a missing {value},
       // rather than to a guessed directory.
       const dirs = v.dirs || {};
@@ -320,6 +366,8 @@ return {
   forceRefForNested,
   finalTemplateFor,
   shellRefFor,
+  shellQuotePath,
+  sanitizeClipboardText,
   parseVarRefs,
   resolveVarGraph,
   buildNameIndex,

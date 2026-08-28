@@ -33,8 +33,8 @@ const { readableError } = require('./readable-error');
 // Lives under shared/ so the renderer can load it as a plain <script> too: the template editor's preview has
 // to compose with the SAME code the insert runs, or it drifts from what it claims to show.
 const {
-  shellRefFor, compose, parseVarRefs, finalTemplateFor, effectiveTemplate,
-  resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES,
+  shellRefFor, shellQuotePath, sanitizeClipboardText, compose, parseVarRefs, finalTemplateFor,
+  effectiveTemplate, resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES,
 } = require('../shared/variable-insert');
 
 let ctx = null;
@@ -53,6 +53,9 @@ const secretRefBySession = new Map(); // sessionId -> Set<path>
  * @param {object} context.safeStorage  Electron's; injected so this module needs no electron require.
  * @param {object} context.db  the saved-variable queries: list/listAll/get/save/delete/touch.
  * @param {object} context.log
+ * @param {() => ({kind: string, path?: string, text?: string})} [context.clipboardInsert]  what the system
+ *   clipboard holds, for a template naming {clipboard} (#491). Injected like everything else Electron owns,
+ *   so this module stays loadable in `node --test`; absent means the token resolves to empty.
  */
 function init(context) {
   ctx = context;
@@ -214,6 +217,28 @@ function cleanupSecretRefs() {
  * exists. PHASE 2 then materializes, and any failure there unlinks whatever this insert already wrote.
  * Splitting it is what preserves the old handler's property: never leave a stray secret file behind.
  */
+// The clipboard as ONE piece of text a terminal can be handed (#491).
+//
+// The ladder itself is `app/clipboard-insert.js` — file, then bitmap, then text. What is decided here is
+// what each answer has to survive: a path becomes one quoted shell word, the way the paste route quotes
+// every path it inserts; text is cleaned of everything a terminal would read as a command, because the
+// composed insert is refused later if an ESC byte is still in it, and "insert my clipboard" must not fail
+// on what happened to be copied.
+//
+// A clipboard this app cannot read at all resolves to empty — the missing-{value} convention — rather than
+// failing the insert: a template usually names {clipboard} beside tokens that do have an answer.
+function clipboardInsertValue(shellType) {
+  if (!ctx.clipboardInsert) return '';
+  let read = null;
+  try { read = ctx.clipboardInsert(); } catch (err) {
+    ctx.log.warn(`[variables] clipboard unreadable: ${err.message}`);
+    return '';
+  }
+  if (!read) return '';
+  if (read.kind === 'file' || read.kind === 'image') return shellQuotePath(shellType, read.path);
+  return sanitizeClipboardText(read.text);
+}
+
 function resolveVariableInsert(id, sessionId) {
   const written = [];   // files THIS insert created — unwound on any failure below
   try {
@@ -251,7 +276,16 @@ function resolveVariableInsert(id, sessionId) {
     const plan = graph.order.map((nodeId) => {
       const node = nodesById.get(nodeId);
       const tmpl = finalTemplateFor(node, nodeId === root.id);
-      return { nodeId, node, tmpl, needsRef: tmpl.includes('{ref}'), needsPath: tmpl.includes('{path}') };
+      return {
+        nodeId, node, tmpl,
+        needsRef: tmpl.includes('{ref}'),
+        needsPath: tmpl.includes('{path}'),
+        // A secret's template does not get the clipboard (#491). Its insert is the one place the app
+        // promises careful handling of what it composes, and a clipboard usually holds someone's last
+        // password — pulling that into a secret's line puts it in the prompt, the scrollback and the
+        // transcript, in the surface built to keep exactly that out of them.
+        needsClipboard: tmpl.includes('{clipboard}') && !(node && node.secret),
+      };
     });
 
     // A {ref} on a shell with no inline read cannot be inserted. For the ROOT alone this stays the old
@@ -268,6 +302,14 @@ function resolveVariableInsert(id, sessionId) {
     }
 
     // ---- PHASE 2: materialize ----
+    // What is on the clipboard, read ONCE for the whole insert and only when a template asks — the same
+    // rule the convention directories follow. Reading it per node would let two nodes of one insert
+    // describe two different clipboards, and reading it unasked would snapshot a bitmap to disk for a
+    // template that never mentions it.
+    const clipboardValue = plan.some((p) => p.needsClipboard)
+      ? clipboardInsertValue(shellType)
+      : null;
+
     // One sweep for the whole insert, not one per node.
     if (plan.some((p) => p.needsRef || p.needsPath)) {
       fs.mkdirSync(ctx.getSecretRefDir(), { recursive: true });
@@ -306,6 +348,7 @@ function resolveVariableInsert(id, sessionId) {
         path: filePath,
         ref: p.needsRef ? shellRefFor(shellType, filePath) : null,
         value: p.tmpl.includes('{value}') ? value : null,
+        clipboard: p.needsClipboard ? clipboardValue : null,
         dirs: conventionDirs,
         vars,
         varRefOffsets,

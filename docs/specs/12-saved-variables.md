@@ -23,6 +23,10 @@ text placed in a terminal. What it may emit is decided entirely by that variable
 
 Default: `secret ? '{ref}' : '{value}'`.
 
+Two more placeholders emit nothing of the variable itself: `{handoffDir}` / `{handoffPath}` / `{planDir}` /
+`{planPath}` name the project's convention directories, and **`{clipboard}`** (#491) is whatever is on the
+system clipboard at the moment of the insert. See "The clipboard is not the app's text" below.
+
 **The property:** a secret's plaintext leaves main **only when its template says `{value}`**. Otherwise the
 terminal receives a shell expression, so the plaintext is not in shell history, not in scrollback, and not in
 the CLI transcript.
@@ -219,6 +223,36 @@ resolves is empty, so the command still runs — with an empty value where the c
 `parseVarRefs`, not a SQL `LIKE`: `'%{var:' || name || '}%'` turns a name containing `%` or `_` into a
 wildcard that over-matches, and the parser agrees with the resolver by construction because it *is* the
 resolver's parser.
+
+---
+
+## The clipboard is not the app's text (#491)
+
+`{clipboard}` resolves to whatever was copied last, from anywhere on the machine. It is the only token whose
+content the app has never seen before, which decides everything about how it is handled.
+
+**What it emits depends on what is on the clipboard**, and the ladder is the paste route's, not a second
+answer: a copied **file** inserts its path, a **bitmap** with no file behind it is written to the image temp
+dir and inserts that path, and everything else is **text**. `src/app/clipboard-insert.js` reads it;
+`src/renderer/terminal/terminal-manager.js` walks the same order for paste and drop (#307). The two differ in
+one place, deliberately: paste checks the bitmap first because a copied image file carries none, while the
+clipboard reader checks the file formats first, because where both exist a real path beats a snapshot.
+
+**A path is emitted as one quoted shell word** (`shellQuotePath`), the way the paste route quotes every path
+it inserts. **Text is cleaned first** — every C0 control except tab and newline, DEL, and C1 — because the
+resolver refuses a composed insert still carrying an ESC byte, and *"insert my clipboard"* must not fail on
+what happened to be copied. Line breaks stay: every insert path pastes, so they arrive as text.
+
+**It is user-controlled text, exactly like a `{var:}` value.** Resolved once, concatenated into the output,
+never scanned again — and `scanRefSafety` sees it, because an apostrophe on the clipboard can re-open quoting
+around a `{ref}` standing beside it just as a sibling variable's value can.
+
+**A secret's template does not resolve it.** A clipboard usually holds someone's last password, and a
+secret's insert is the one surface built to keep plaintext out of the prompt, the scrollback and the
+transcript. There it resolves to empty, and the editor says why.
+
+**The editor's preview never reads the real clipboard.** It repaints on every keystroke, in a panel nobody is
+inserting from; `<clipboard>` stands in for itself the way a convention directory does.
 
 ---
 

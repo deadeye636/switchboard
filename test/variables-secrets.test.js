@@ -37,13 +37,20 @@ function fakeSafeStorage(available = true) {
   };
 }
 
-function setup(t, { rows = [], available = true, session = { shellType: 'bash', projectPath: null }, conventionDirs = null } = {}) {
+function setup(t, {
+  rows = [], available = true, session = { shellType: 'bash', projectPath: null },
+  conventionDirs = null, clipboard = null,
+} = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-vars-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const byId = new Map(rows.map((r) => [r.id, r]));
   const touched = [];
   const warnings = [];
+  // How often the clipboard was actually read. A test asserting "a secret does not get the clipboard"
+  // has to prove it was never READ, not just that it did not appear — reading it snapshots a bitmap to
+  // disk, so an unasked read has a side effect even when nothing is inserted.
+  const clipboardReads = [];
   const ctx = {
     dir,
     touched,
@@ -67,6 +74,10 @@ function setup(t, { rows = [], available = true, session = { shellType: 'bash', 
     // Where the project keeps handoffs and plans, for a template naming one. A test that passes none
     // exercises the branch main.js never takes — so the tests that care hand one in.
     ...(conventionDirs ? { conventionDirs } : {}),
+    clipboardReads,
+    // Absent unless a test hands one in — main.js always wires it, but the token must resolve to empty
+    // rather than throw where it is missing.
+    ...(clipboard ? { clipboardInsert: () => { clipboardReads.push(1); return clipboard; } } : {}),
   };
   variables.init(ctx);
   return ctx;
@@ -405,4 +416,108 @@ test('no resolver wired — a directory token resolves to empty rather than to a
   });
 
   assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, '[]');
+});
+
+// --- #491: {clipboard} ---------------------------------------------------------
+//
+// The one token whose text comes from outside the app. Three things are being protected: it is cleaned
+// before it is composed (the resolver refuses an ESC byte, so an uncleaned clipboard would turn "insert my
+// clipboard" into an error nobody can act on), a copied FILE arrives as one quoted shell word, and a
+// secret's template does not get it at all — nor does reading it happen for one.
+
+const plainRow = (over = {}) => ({
+  id: 'v1', name: 'note', secret: 0, scope: 'global',
+  value: 'stored', valueEncoding: 'plain', insertTemplate: '{clipboard}', ...over,
+});
+
+test('{clipboard}: clipboard text is inserted, cleaned of what a terminal would obey', (t) => {
+  const ctx = setup(t, {
+    rows: [plainRow()],
+    clipboard: { kind: 'text', text: 'echo \x1b[31mred\x07\r\nsecond line' },
+  });
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+
+  assert.equal(out.ok, true);
+  assert.equal(out.text, 'echo [31mred\nsecond line');
+  assert.ok(!/\x1b|\x07/.test(out.text), 'no control byte survives — the resolver would refuse the insert');
+  assert.equal(ctx.clipboardReads.length, 1, 'read once for the whole insert');
+});
+
+test('{clipboard}: a multi-line clipboard keeps its breaks — the insert pastes, it does not submit', (t) => {
+  setup(t, { rows: [plainRow()], clipboard: { kind: 'text', text: 'one\r\ntwo\r\nthree' } });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'one\ntwo\nthree');
+});
+
+test('{clipboard}: a copied file inserts its path as one quoted shell word', (t) => {
+  setup(t, { rows: [plainRow()], clipboard: { kind: 'file', path: "/tmp/o'brien report.pdf" } });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, "'/tmp/o'\\''brien report.pdf'");
+});
+
+test('{clipboard}: a snapshotted bitmap is a path like any other file', (t) => {
+  setup(t, {
+    rows: [plainRow({ insertTemplate: 'read {clipboard} and tell me' })],
+    clipboard: { kind: 'image', path: '/tmp/paste-1.png' },
+  });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, "read '/tmp/paste-1.png' and tell me");
+});
+
+test('{clipboard}: pwsh gets its own quoting, an unknown shell gets the bare path', (t) => {
+  setup(t, {
+    rows: [plainRow()],
+    session: { shellType: 'pwsh', projectPath: null },
+    clipboard: { kind: 'file', path: "C:\\it's\\here.txt" },
+  });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, "'C:\\it''s\\here.txt'");
+
+  setup(t, {
+    rows: [plainRow()],
+    session: { shellType: 'cmd', projectPath: null },
+    clipboard: { kind: 'file', path: 'C:\\here.txt' },
+  });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'C:\\here.txt');
+});
+
+test('{clipboard}: a secret does not resolve it, and the clipboard is never even read', (t) => {
+  const ctx = setup(t, {
+    rows: [secretRow({ insertTemplate: 'login {clipboard}' })],
+    clipboard: { kind: 'text', text: 'someone-elses-password' },
+  });
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+
+  assert.equal(out.ok, true);
+  assert.equal(out.text, 'login ');
+  assert.ok(!out.text.includes('someone-elses-password'));
+  assert.equal(ctx.clipboardReads.length, 0, 'reading it would snapshot a bitmap for nothing');
+});
+
+test('{clipboard}: a template that never names it does not read the clipboard', (t) => {
+  const ctx = setup(t, {
+    rows: [plainRow({ insertTemplate: '{value}' })],
+    clipboard: { kind: 'text', text: 'unrelated' },
+  });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'stored');
+  assert.equal(ctx.clipboardReads.length, 0);
+});
+
+test('{clipboard}: no clipboard reader wired resolves to empty rather than throwing', (t) => {
+  setup(t, { rows: [plainRow({ insertTemplate: 'x{clipboard}y' })] });
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+  assert.equal(out.ok, true);
+  assert.equal(out.text, 'xy');
+});
+
+test('{clipboard}: a quote on the clipboard is seen by the ref-safety scan, like any other value', (t) => {
+  // The scan runs on the FINISHED string, which is the whole reason it exists: the quote that breaks a
+  // {ref} need not come from the template. Here it comes from outside the app entirely.
+  const rows = [
+    secretRow({ id: 'v-token', name: 'token', insertTemplate: '{ref}' }),
+    plainRow({ id: 'v1', name: 'cmd', insertTemplate: "curl -H 'X: {clipboard}{var:token}'" }),
+  ];
+  const ctx = setup(t, { rows, clipboard: { kind: 'text', text: 'abc' } });
+  const out = variables.resolveVariableInsert('v1', 'sess-1');
+
+  assert.equal(out.ok, false);
+  assert.match(out.error, /inside .*quotes|quote is left open/);
+  assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')) ? fs.readdirSync(path.join(ctx.dir, 'secret-refs')).length : 0,
+    0, 'the refused insert unwound the temp file it had written');
 });

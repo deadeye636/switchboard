@@ -421,3 +421,48 @@ test('DIR_TOKENS is what the grammar accepts — the editor and the resolver rea
     assert.strictEqual(compose(`{${token}}`, { dirs: { [token]: 'X' } }).text, 'X', token);
   }
 });
+
+// --- #491: {clipboard} and what it is allowed to carry -------------------------
+
+const { shellQuotePath, sanitizeClipboardText } = require('../src/shared/variable-insert');
+
+test('sanitizeClipboardText: strips what a terminal would obey, keeps what a human typed', () => {
+  // An ESC is the one byte the resolver hard-refuses, so it has to be gone before composition.
+  assert.equal(sanitizeClipboardText('a\x1b[31mb'), 'a[31mb');
+  // The bracketed-paste end marker cannot survive either — it begins with ESC, so nothing on the
+  // clipboard can close its own paste and have the rest arrive as keystrokes.
+  assert.equal(sanitizeClipboardText('x\x1b[201~y'), 'x[201~y');
+  assert.equal(sanitizeClipboardText('bell\x07 del\x7f c1\x9b'), 'bell del c1');
+  // Tabs and newlines are text, not commands.
+  assert.equal(sanitizeClipboardText('a\tb\nc'), 'a\tb\nc');
+  // Line endings are normalized so the line count is what was copied.
+  assert.equal(sanitizeClipboardText('a\r\nb\rc'), 'a\nb\nc');
+  assert.equal(sanitizeClipboardText(null), '');
+  assert.equal(sanitizeClipboardText(undefined), '');
+});
+
+test('shellQuotePath: one shell word per family, bare where we know no rule', () => {
+  assert.equal(shellQuotePath('bash', '/tmp/a b'), "'/tmp/a b'");
+  assert.equal(shellQuotePath('zsh', "/tmp/o'brien"), "'/tmp/o'\\''brien'");
+  assert.equal(shellQuotePath('pwsh', "C:\\it's here"), "'C:\\it''s here'");
+  // cmd / WSL / unknown: a wrong quote is worse than none — the same admission shellRefFor makes.
+  assert.equal(shellQuotePath('cmd', 'C:\\x'), 'C:\\x');
+  assert.equal(shellQuotePath('bash', ''), '');
+});
+
+test('compose: {clipboard} resolves like any other supplied value, and only once', () => {
+  assert.equal(compose('run {clipboard}', { clipboard: 'ls -la' }).text, 'run ls -la');
+  // Not supplied → empty, the missing-{value} convention.
+  assert.equal(compose('run {clipboard}', {}).text, 'run ');
+  // Whatever it contains is inert text: a clipboard holding the literal token does not get a second pass.
+  assert.equal(compose('{clipboard}', { clipboard: '{value}', value: 'SECRET' }).text, '{value}');
+  assert.equal(compose('{clipboard}', { clipboard: '{ref}', ref: 'READ' }).text, '{ref}');
+});
+
+test('a quote from the clipboard breaks a ref standing beside it, and the scan sees it', () => {
+  // The point of scanning the FINISHED string: this template quotes nothing, and the clipboard does.
+  const out = compose('{clipboard}{ref}', { clipboard: "it's", ref: `"$(cat '/tmp/x')"` });
+  const hits = scanRefSafety(out.text, out.refOffsets);
+  // The apostrophe opens a quote that never closes: the ref lands inside it, AND the text ends quoted.
+  assert.deepEqual(hits.map((h) => h.reason), ['quoted', 'unbalanced']);
+});

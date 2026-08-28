@@ -287,6 +287,7 @@
                 <button type="button" class="va-chip" data-tok="{value}" title="Insert the raw value inline">{value}</button>
                 <button type="button" class="va-chip" data-tok="{path}" title="Path of a temp file holding the value — quote this one">{path}</button>
                 <button type="button" class="va-chip" data-tok="{ref}" title="The shell reads the temp file. A complete shell word — never quote it">{ref}</button>
+                <button type="button" class="va-chip" data-tok="{clipboard}" title="Whatever is on the clipboard when you insert: text, or the path of a copied file or screenshot">{clipboard}</button>
                 <button type="button" class="va-chip va-chip-var" data-varpick="1" title="Reference another variable">Variable…</button>
                 <button type="button" class="va-chip" data-tok="{handoffPath}" title="This project's handoff directory, full path. {handoffDir} gives it relative to the project">{handoffPath}</button>
                 <button type="button" class="va-chip" data-tok="{planPath}" title="This project's plan directory, full path. {planDir} gives it relative to the project">{planPath}</button>
@@ -459,6 +460,11 @@
     // the thing a preview is for — whether what lands in the command is a bare name or a full path.
     // Rendering both as the same text hides the one mistake this preview exists to catch.
     const SYNTH_DIRS = { handoffDir: '<handoff-dir>', handoffPath: '<handoff-path>', planDir: '<plan-dir>', planPath: '<plan-path>' };
+    // What {clipboard} stands for while the dialog is open. The REAL clipboard is deliberately not read
+    // here (#491): a preview that repaints on every keystroke would show whatever the user last copied —
+    // often a password — in a panel they are not inserting from, and a dialog is no reason to put it on
+    // screen. The token stands in for itself, like a convention directory does.
+    const SYNTH_CLIPBOARD = '<clipboard>';
     let previewShell = (navigator.platform || '').toLowerCase().startsWith('win') ? 'pwsh' : 'bash';
     const previewEl = overlay.querySelector('#va-f-preview');
     const notesEl = overlay.querySelector('#va-f-notes');
@@ -557,6 +563,9 @@
               ? (secretInput.checked ? '⟨value⟩' : (valueInput.value || '⟨value⟩'))
               : `⟨value of ${node.name}⟩`)
             : null,
+          // Same reasoning for the clipboard, plus one of its own: a secret's template does not get it at
+          // all, so the preview must not show it resolving there either.
+          clipboard: (tmpl.includes('{clipboard}') && !node.secret) ? SYNTH_CLIPBOARD : null,
           // A convention directory belongs to the project the INSERT happens in, which this dialog cannot
           // know — a global variable is inserted in every project there is. So the preview shows the token
           // standing in for itself rather than picking one project's answer and calling it the result.
@@ -587,6 +596,11 @@
           : ['info', 'The result contains line breaks. The insert pastes it as one block, so nothing is submitted; a program without bracketed-paste support gets the breaks as spaces.']);
       }
       if (/\{var:(?![^{}]+\})/.test(tmpl)) notes.push(['warn', '{var: without a closing brace is treated as literal text.']);
+      if (tmpl.includes('{clipboard}')) {
+        notes.push(secretInput.checked
+          ? ['warn', '{clipboard} resolves to nothing on a secret. A clipboard usually holds someone else\'s password, and this insert is the one that keeps plaintext out of the prompt.']
+          : ['info', '{clipboard} — whatever is on the clipboard when you insert. A copied file or screenshot inserts its path as one quoted word; text is inserted with control characters removed.']);
+      }
       for (const token of VI.DIR_TOKENS) {
         if (!tmpl.includes(`{${token}}`)) continue;
         const what = token.startsWith('handoff') ? 'handoff' : 'plan';

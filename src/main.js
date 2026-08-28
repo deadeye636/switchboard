@@ -864,6 +864,12 @@ const terminalImages = require('./app/terminal/images');
 terminalImages.init({ clipboard, net, log });
 terminalImages.registerIpc(ipcMain);
 
+// --- What the clipboard hands a {clipboard} insert -> app/clipboard-insert.js (#491) ---
+// The same ladder the paste route walks (file, bitmap, text), on the side of the IPC where there is no
+// DataTransfer. It borrows the image writer above so a snapshot lands where a pasted one does.
+const clipboardInsert = require('./app/clipboard-insert');
+clipboardInsert.init({ clipboard, saveClipboardImage: terminalImages.saveClipboardImage, log });
+
 // --- IPC: MCP bridge ---
 ipcMain.on('mcp-diff-response', (_event, sessionId, diffId, action, editedContent) => {
   resolvePendingDiff(sessionId, diffId, action, editedContent);
@@ -1295,6 +1301,10 @@ variables.init({
   // For a template naming a convention directory ({handoffDir} and friends) — resolved for the project
   // the inserting session belongs to, never for the one the variable was defined in.
   conventionDirs: (projectPath) => conventionDirs.dirsFor(projectPath),
+  // What the system clipboard holds, for a template naming {clipboard} (#491) — a file's path, a
+  // snapshotted bitmap's path, or text. The ladder is app/clipboard-insert.js; the quoting and the
+  // cleaning happen in variables.js, which is the side that knows the shell.
+  clipboardInsert: () => clipboardInsert.readClipboardInsert(),
   // Who else has the Variables admin on screen (#382), and the window class needed to tell the asker
   // apart from them. Both through ctx so the module stays loadable in `node --test`.
   BrowserWindow,
