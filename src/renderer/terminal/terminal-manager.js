@@ -186,7 +186,7 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
-    // The command palette (default Cmd/Ctrl+K, #274). A focused xterm swallows the chord before the
+    // The command palette (default F1, #274/#491). A focused xterm swallows the chord before the
     // document handler in app.js can see it, so it is answered here too — and it is the one picker chord
     // that does not act on this terminal.
     if (matchShortcut('commandPalette', e, isMac, appShortcuts)) {

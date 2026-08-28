@@ -372,7 +372,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the app touch is that CLI's own declaration, so nothing executable is on the list. Skills, commands,
   rules and agents can also be created from a per-backend template and deleted, the deletion asking a
   narrower question than the reading did.
-- **A command palette** — Ctrl/Cmd+K over sessions, projects and the app's own commands, matching from
+- **A command palette** — F1 over sessions, projects and the app's own commands, matching from
   the first keystroke rather than the third. It opens on the **commands**, under a heading of their own,
   with the jump targets below: an empty palette is being asked what the app can do, and where you were is
   one keystroke away either way. Each group gets its own slice, so the longest cannot eat the list, and

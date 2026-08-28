@@ -253,3 +253,99 @@ test('captureBinding: needs a modifier + real key; rejects bare/modifier-only pr
   // on macOS the cross-modifier is Ctrl
   assert.equal(captureBinding(ev('ArrowRight', 'meta+ctrl+shift'), arrowsDef, true), null);
 });
+
+// --- #491: the palette on a bare function key -------------------------------
+//
+// The palette held Ctrl/Cmd+K, and a focused terminal answers the chord before xterm does — so the app
+// was taking kill-line away from every readline shell. F1 is the way out, and it is the first binding
+// in the app that carries no modifier at all.
+
+test('the command palette defaults to a bare F1, leaving Ctrl+K to the shell', () => {
+  assert.deepEqual(DEFAULT_SHORTCUTS.commandPalette,
+    { primary: false, alt: false, shift: false, key: 'f1' });
+  assert.equal(matchShortcut('commandPalette', ev('F1'), false, D), true);
+  // The chord it vacated must not still open the palette, or the move changed nothing.
+  assert.equal(matchShortcut('commandPalette', ev('k', 'ctrl'), false, D), false);
+  assert.equal(matchShortcut('commandPalette', ev('k', 'meta'), true, D), false);
+  // A modifier held with F1 is a different chord, not this one.
+  assert.equal(matchShortcut('commandPalette', ev('F1', 'ctrl'), false, D), false);
+});
+
+test('the move leaves the picker family and the pane chords where they were', () => {
+  assert.deepEqual(DEFAULT_SHORTCUTS.insertPlan, { primary: true, alt: false, shift: true, key: 'p' });
+  assert.deepEqual(DEFAULT_SHORTCUTS.paneClose, { primary: true, alt: false, shift: true, key: 'k' });
+});
+
+test('formatBinding: a bare function key prints as itself', () => {
+  assert.equal(formatBinding('commandPalette', false, D), 'F1');
+  assert.equal(formatBinding('commandPalette', true, D), 'F1');
+});
+
+test('captureBinding: a function key needs no modifier, a letter still does', () => {
+  const keyDef = SHORTCUT_DEFS.find(d => d.id === 'commandPalette');
+  assert.deepEqual(captureBinding(ev('F1'), keyDef, false),
+    { primary: false, alt: false, shift: false, key: 'f1' });
+  assert.deepEqual(captureBinding(ev('F12'), keyDef, false),
+    { primary: false, alt: false, shift: false, key: 'f12' });
+  // Modified function keys are still bindings — the exception is about the missing modifier only.
+  assert.deepEqual(captureBinding(ev('F5', 'ctrl+shift'), keyDef, false),
+    { primary: true, alt: false, shift: true, key: 'f5' });
+  // The rule the exception does not touch: a bare letter would shadow plain typing.
+  assert.equal(captureBinding(ev('k', '', 'KeyK'), keyDef, false), null);
+  // Neither a function key nor a single character.
+  assert.equal(captureBinding(ev('F25'), keyDef, false), null);
+  assert.equal(captureBinding(ev('Home'), keyDef, false), null);
+});
+
+test('normalizeShortcuts: a stored function key survives, garbage still does not', () => {
+  const n = normalizeShortcuts({ commandPalette: { primary: false, alt: false, shift: false, key: 'F8' } });
+  assert.equal(n.commandPalette.key, 'f8');
+  assert.equal(normalizeShortcuts({ commandPalette: { key: 'f99' } }).commandPalette.key,
+    DEFAULT_SHORTCUTS.commandPalette.key);
+  assert.equal(normalizeShortcuts({ gridToggle: { key: 'f1' } }).gridToggle.key, 'f1',
+    'the family accepts a function key wherever it accepts a character');
+});
+
+const CTRL_K = { primary: true, alt: false, shift: false, key: 'k' };
+
+test('a stored binding that is only the OLD default follows the new one (#491)', () => {
+  // The settings panel writes every binding on every save, so a stored Ctrl+K is not evidence that
+  // anyone chose it — without this, the move would reach new installs only.
+  const stale = normalizeShortcuts({ commandPalette: { ...CTRL_K } });
+  assert.deepEqual(stale.commandPalette, DEFAULT_SHORTCUTS.commandPalette);
+
+  // A binding the user actually changed is theirs and stays.
+  const chosen = normalizeShortcuts({ commandPalette: { primary: true, alt: true, shift: false, key: 'k' } });
+  assert.deepEqual(chosen.commandPalette, { primary: true, alt: true, shift: false, key: 'k' });
+  const rebound = normalizeShortcuts({ commandPalette: { primary: false, alt: false, shift: false, key: 'f4' } });
+  assert.equal(rebound.commandPalette.key, 'f4');
+
+  // Only the action that moved is treated this way — paneClose's Ctrl+Shift+K is untouched.
+  const pane = normalizeShortcuts({ paneClose: { primary: true, alt: false, shift: true, key: 'k' } });
+  assert.deepEqual(pane.paneClose, DEFAULT_SHORTCUTS.paneClose);
+});
+
+test('letting go of the old default happens ONCE — a deliberate Ctrl+K then survives (#491)', () => {
+  // normalizeShortcuts is not a migration that runs at upgrade time: it runs on every settings open, on
+  // every boot, and its output is written back on every Save. Without the stamp, a user who rebinds the
+  // palette BACK to Ctrl+K has that choice undone the next time anything loads — forever, because a chosen
+  // Ctrl+K and an inherited one are the same four fields.
+  const migrated = normalizeShortcuts({ commandPalette: { ...CTRL_K } });
+  assert.deepEqual(migrated.commandPalette, DEFAULT_SHORTCUTS.commandPalette, 'the old default is let go of');
+
+  // What the settings panel saves is that normalized table, stamp and all. Choosing Ctrl+K on top of it:
+  const chosen = { ...migrated, commandPalette: { ...CTRL_K } };
+  assert.deepEqual(normalizeShortcuts(chosen).commandPalette, CTRL_K, 'the choice is kept');
+  // And it keeps being kept, however often anything reloads.
+  assert.deepEqual(normalizeShortcuts(normalizeShortcuts(chosen)).commandPalette, CTRL_K);
+});
+
+test('the stamp rides in the table so whatever saves it records the move (#491)', () => {
+  // It has to survive being written to the settings blob as JSON — that is the only place it is any use.
+  const table = normalizeShortcuts(null);
+  const throughJson = JSON.parse(JSON.stringify(table));
+  assert.equal(throughJson._defaultsVersion, 491);
+  assert.deepEqual(normalizeShortcuts(throughJson).commandPalette, DEFAULT_SHORTCUTS.commandPalette);
+  // The stamp is not an action, and nothing may mistake it for one.
+  assert.equal(SHORTCUT_DEFS.some(d => d.id === '_defaultsVersion'), false);
+});

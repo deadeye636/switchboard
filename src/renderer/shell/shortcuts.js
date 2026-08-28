@@ -10,7 +10,7 @@
 //   brackets    → [ and ]                   (previous/next session)
 //   commaPeriod → , and .                   (back/forward through visited sessions)
 //   digits      → 1…9                       (pane focus, #309)
-//   key         → a single literal CHARACTER (e.g. grid toggle = G)
+//   key         → a single literal CHARACTER, or a FUNCTION key (e.g. grid toggle = G, palette = F1)
 //   code        → a single PHYSICAL key      (e.g. split = the Backslash key, #353)
 // The user customises the *modifiers*; `primary` is Cmd on macOS / Ctrl elsewhere.
 //
@@ -21,6 +21,17 @@
 // Shift plus the character `\`, could not be pressed on any keyboard from #309 until #353. It
 // survived a live verification because a scripted keydown sets `key` directly, which no keyboard
 // does. Anything that is not a letter belongs in the `code` family.
+//
+// A FUNCTION key is the one binding that carries no modifier (#491). Every other binding must hold
+// at least one, or it would shadow plain typing; F1…F24 type nothing, so they are the exception —
+// and they are the only way out of a chord the shell needs for itself.
+
+// F1…F24, as `KeyboardEvent.key` reports them. Compared lower-cased everywhere, because a stored
+// binding keeps its key lower-cased and `matchShortcut` lower-cases the event.
+const FUNCTION_KEY_RE = /^f([1-9]|1[0-9]|2[0-4])$/;
+function isFunctionKeyName(key) {
+  return FUNCTION_KEY_RE.test(String(key || '').toLowerCase());
+}
 
 const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+Arrows — moved off bare Ctrl+Arrows so the terminal keeps
@@ -47,10 +58,12 @@ const DEFAULT_SHORTCUTS = {
   // Ctrl/Cmd+Shift+P — open the plan picker in the focused terminal (#453). Same family as the
   // variable picker beside it, and the same shape of popover, so one is learned from the other.
   insertPlan: { primary: true, alt: false, shift: true, key: 'p' },
-  // Ctrl/Cmd+K — the command palette (#274). Deliberately NOT in the Ctrl/Cmd+Shift family the three
-  // insert pickers share: those act on the terminal you are in, this one acts on the app, and Ctrl/Cmd+K
-  // is the chord every editor has trained that meaning into.
-  commandPalette: { primary: true, alt: false, shift: false, key: 'k' },
+  // F1 — the command palette (#274, moved in #491). It was Ctrl/Cmd+K, and a focused terminal answers
+  // this chord before xterm does: in a readline shell Ctrl+K is kill-line, so the app was taking one of
+  // the most-used editing keys exactly where the user spends their time. F1 is VS Code's second binding
+  // for the same panel and collides with nothing here, which is why nothing else had to move for it.
+  // The cost is deliberate: a full-screen TUI in the terminal no longer sees F1.
+  commandPalette: { primary: false, alt: false, shift: false, key: 'f1' },
   // Ctrl/Cmd+Shift+H — open the handoff picker in the focused terminal (#469). Fourth of the family, and
   // it behaves like the plan picker rather than the skill one below: a handoff is context for what comes
   // next, so the reference is left in the prompt instead of being submitted.
@@ -268,22 +281,65 @@ function getDef(id) {
   return SHORTCUT_DEFS.find((d) => d.id === id) || null;
 }
 
+// A default that MOVED, and what it used to be (#491).
+//
+// "There is a stored binding" does not mean "the user chose this binding": the settings panel writes every
+// binding whenever the global settings are saved, so anyone who ever pressed Save has all of them frozen at
+// whatever they were that day. Without this, the command palette would have kept Ctrl/Cmd+K for every
+// existing install — and giving that chord back to the shell is the whole point of the move.
+//
+// So a stored value that is EXACTLY the superseded default is treated as never-chosen and follows the new
+// one. Anything else is the user's own and is kept.
+//
+// ONCE, though — and that is the whole reason for the stamp. This function is not a migration that runs at
+// upgrade time: it runs on every settings open, on every boot, and its output is written back to the blob on
+// every Save. On a value comparison alone, a user who deliberately rebinds the palette BACK to Ctrl+K would
+// have that choice quietly undone the next time anything loaded, forever, because a chosen Ctrl+K and an
+// inherited one are the same four fields. The stamp is what tells them apart: it rides in the blob the
+// normalized table is saved as, so the rewrite happens for a table that predates the move and never again.
+const SUPERSEDED_DEFAULTS = {
+  commandPalette: [{ primary: true, alt: false, shift: false, key: 'k' }],
+};
+
+// Bumped when a default moves and the old value must be let go of once. Stored as `_defaultsVersion` inside
+// the shortcuts blob — a key no action can ever be called, and one that `normalizeShortcuts` writes itself,
+// so no caller has to know about it.
+const DEFAULTS_VERSION = 491;
+const VERSION_KEY = '_defaultsVersion';
+
+function isSupersededDefault(id, s) {
+  const olds = SUPERSEDED_DEFAULTS[id];
+  if (!olds || !s) return false;
+  return olds.some((o) => Object.keys(o).every((k) => {
+    const v = s[k];
+    return k === 'key' ? String(v ?? '').toLowerCase() === o[k] : !!v === !!o[k];
+  }));
+}
+
 // Merge a stored (possibly partial / untrusted) shortcuts object over the
 // defaults, keeping only the fields each binding is allowed to carry.
 function normalizeShortcuts(stored) {
   const out = {};
+  // A table saved before the move has no stamp; one saved since carries the user's answer and is taken at
+  // its word. A table that is not there at all is a fresh install, which needs no letting go of anything.
+  // `Number(undefined)` is NaN and every comparison with NaN is false, so this asks the question the other
+  // way round: anything that is not already stamped at or past the version is a table from before it.
+  const letGoOfOldDefaults = !!stored && typeof stored === 'object'
+    && !(Number(stored[VERSION_KEY]) >= DEFAULTS_VERSION);
   for (const def of SHORTCUT_DEFS) {
     const base = DEFAULT_SHORTCUTS[def.id];
-    const s = (stored && typeof stored === 'object' && stored[def.id]) || null;
+    let s = (stored && typeof stored === 'object' && stored[def.id]) || null;
+    if (letGoOfOldDefaults && isSupersededDefault(def.id, s)) s = null;
     const b = {
       primary: s && typeof s.primary === 'boolean' ? s.primary : base.primary,
       alt: s && typeof s.alt === 'boolean' ? s.alt : base.alt,
       shift: s && typeof s.shift === 'boolean' ? s.shift : base.shift,
     };
     if (def.family === 'key') {
-      b.key = s && typeof s.key === 'string' && s.key.length === 1
-        ? s.key.toLowerCase()
-        : base.key;
+      // A single character, or a function-key name — anything else is garbage and falls back to the
+      // default. Without the second half a rebind to F-anything would not survive being stored.
+      const k = s && typeof s.key === 'string' ? s.key.toLowerCase() : '';
+      b.key = (k.length === 1 || isFunctionKeyName(k)) ? k : base.key;
     }
     if (def.family === 'code') {
       // A `code` is a KeyboardEvent.code — a name, not a character, so it is kept verbatim.
@@ -291,6 +347,10 @@ function normalizeShortcuts(stored) {
     }
     out[def.id] = b;
   }
+  // The stamp travels with the table, so whatever saves it also records that the move has been applied.
+  // Non-enumerable would be tidier and is exactly wrong: this has to survive being written to the settings
+  // blob as JSON, which is the only place it is any use.
+  out[VERSION_KEY] = DEFAULTS_VERSION;
   return out;
 }
 
@@ -392,10 +452,14 @@ function captureBinding(e, def, isMac) {
   if (secondary) return null;
   const primary = isMac ? e.metaKey : e.ctrlKey;
   const binding = { primary: !!primary, alt: !!e.altKey, shift: !!e.shiftKey };
-  // Require at least one modifier so we never shadow a bare arrow / letter.
-  if (!binding.primary && !binding.alt && !binding.shift) return null;
+  const fnKey = def.family === 'key' && isFunctionKeyName(e.key);
+  // Require at least one modifier so we never shadow a bare arrow / letter. A function key is the
+  // exception (#491): it types nothing, so a bare one shadows nothing — and without this the palette's
+  // own default could not be captured back after a rebind.
+  if (!binding.primary && !binding.alt && !binding.shift && !fnKey) return null;
   if (def.family === 'key') {
-    if (e.key && e.key.length === 1) binding.key = e.key.toLowerCase();
+    if (fnKey) binding.key = e.key.toLowerCase();
+    else if (e.key && e.key.length === 1) binding.key = e.key.toLowerCase();
     else return null;
   }
   if (def.family === 'code') {
@@ -419,5 +483,6 @@ if (typeof module !== 'undefined' && module.exports) {
     formatBinding,
     codeLabel,
     captureBinding,
+    isFunctionKeyName,
   };
 }

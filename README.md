@@ -130,7 +130,7 @@ chart rather than a row of zeroes.
   back: the format is checked first, the file's own line endings survive, and a save built on a version
   something else has changed since is refused rather than winning. Skills, commands, rules and agents can
   be created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
-- **Command palette** — Ctrl/Cmd+K over your sessions, your projects and the app's own commands, under
+- **Command palette** — F1 over your sessions, your projects and the app's own commands, under
   headings. It opens on what the app can do rather than on where you were, answers from the first
   keystroke, and each row says which key does the same thing. Commands that act on the session you are
   in are offered only when there is one, and say which one by name.

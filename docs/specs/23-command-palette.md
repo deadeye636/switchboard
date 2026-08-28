@@ -1,7 +1,8 @@
 # Command palette
 
-Issue: #274. Built: Ctrl/Cmd+K opens one ranked list over the sessions, the projects and the actions the
-app can run.
+Issue: #274. Built: one ranked list over the sessions, the projects and the actions the app can run,
+opened by F1 (Ctrl/Cmd+K until #491 — that chord is kill-line in a readline shell, and a focused
+terminal answered it before xterm did).
 
 ## What was missing
 
@@ -151,5 +152,5 @@ action never pays for a name nobody reads. `test/handoff-command-action.test.js`
 — absent with no session, named with one, and reaching the same flow the health chip opens.
 
 The keyboard path has no test and cannot have a useful one: `node scripts/drive-app.js` is what proves
-Ctrl/Cmd+K opens it from a focused terminal, that the same chord closes it, and that a chord no longer
+F1 opens it from a focused terminal, that the same key closes it, and that a chord no longer
 reaches the app while it is open.

@@ -2244,7 +2244,7 @@ async function reapplyGlobalSettings() {
       closeAdminView();
       return;
     }
-    // The command palette (default Cmd/Ctrl+K, #274). Before the view shortcuts below so it opens from
+    // The command palette (default F1, #274/#491). Before the view shortcuts below so it opens from
     // anywhere; a focused terminal never reaches here, which is why terminal-manager has its own branch.
     if (matchShortcut('commandPalette', e, isMac, appShortcuts)) {
       e.preventDefault();

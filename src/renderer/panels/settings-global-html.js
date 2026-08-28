@@ -1148,7 +1148,7 @@
                 </div>`).join('')}
               </div>`;
               }).join('')}
-              <div class="settings-hint">At least one modifier (${scIsMac ? 'Cmd' : 'Ctrl'}, ${scIsMac ? 'Option' : 'Alt'} or Shift) is required. Press Esc to cancel, or click a shortcut again to reset it to defaults.</div>
+              <div class="settings-hint">At least one modifier (${scIsMac ? 'Cmd' : 'Ctrl'}, ${scIsMac ? 'Option' : 'Alt'} or Shift) is required, except for a function key — F1 to F24 stand on their own. Press Esc to cancel, or click a shortcut again to reset it to defaults.</div>
             </section>
 
             <!-- ===== Handoff ===== -->
