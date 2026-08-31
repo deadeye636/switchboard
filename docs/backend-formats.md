@@ -28,6 +28,45 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   `.claude/` resources when a project is in scope. It deliberately excludes credentials, logs, history,
   transcripts and Claude's main config file, which can carry secrets.
 
+### Not every `user` entry is the user (#495)
+
+Three things wear `type: 'user'` and none of them is somebody typing. Reading them as a turn is how the
+app came to report a turn start on every tool call:
+
+| Marker | What it is |
+|---|---|
+| `message.content` is an array holding `tool_result` blocks | the result of a tool call the agent made |
+| `isSidechain: true` | a subagent's line, from its own conversation |
+| `isMeta: true` | injected text — a skill's body, a system reminder — written as a user message with an ordinary text block |
+
+The last one is the least obvious and the most common: **452 of them** in the store this was measured
+against, each with a perfectly ordinary `[{type: 'text', …}]` content array.
+
+### The prompt queue is in the transcript (#495)
+
+Type while Claude is working and the prompt is queued rather than sent, and every movement of that queue
+is a line of its own. This is the only record of it: the `UserPromptSubmit` hook fires at **enqueue**, so
+a hook alone cannot say whether a prompt is still waiting.
+
+```json
+{"type":"queue-operation","operation":"enqueue","sessionId":"<id>","content":"<the prompt>"}
+{"type":"queue-operation","operation":"remove","sessionId":"<id>","content":"<the prompt>"}
+{"type":"queue-operation","operation":"dequeue","sessionId":"<id>"}
+{"type":"queue-operation","operation":"popAll","sessionId":"<id>"}
+```
+
+- **Every `enqueue` is closed by exactly one of the other three.** Measured over 116 transcripts: 1625
+  enqueues against 1617 closures, and the difference is prompts still queued when the file was read. So
+  the depth is countable — `enqueue` adds one, `remove` and `dequeue` take one, `popAll` empties.
+- `remove` carries the prompt it took and `dequeue` does not, but both mean one prompt left the queue.
+  Nothing should read meaning into which of the two it was.
+- **A tail read cannot answer "is anything queued".** The depth is a count over the whole history, and a
+  window cuts it in two places that each mislead. An enqueue that is still open gets pushed out of view
+  by the very turn that is still running: over 1570 real pairs, 7 are more than 128 KB apart and the
+  widest is **985 KB**. And the queue is FIFO, so a closure seen inside a window takes the oldest queued
+  prompt rather than the one whose enqueue sits beside it.
+- These lines carry **no `timestamp`**, unlike the message entries around them.
+
 ## Codex — file, JSONL (date-bucketed)
 
 ```

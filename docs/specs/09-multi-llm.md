@@ -345,11 +345,12 @@ usage: {
 ```
 
 Every capability returns the **same shape** (`src/backends/usage-format.js` documents it): a list of buckets
-(`key, label, percent, reset, tier, bar`) plus an optional credit pool. `src/main.js` iterates
+(`key, label, percent, reset, tier, bar`) plus an optional credit pool, and — when the backend was told why
+it ran out — `limitReached` with a `limitReachedMessage` beside the buckets (#494). `src/main.js` iterates
 `backends.list().filter(b => b.enabled && b.usage)`, stamps each result with the descriptor's identity, and
 caches it **per backend** (`usage:lastSuccessful:<id>`).
 
-Three things this got wrong before, and now does not:
+Four things this got wrong before, and now does not:
 
 - **A switched-off backend is not fetched.** `get-usage` used to call Claude's fetch unconditionally, so a
   user who disabled Claude and ran only Codex still had the app reading Claude's OAuth credentials and
@@ -366,6 +367,14 @@ Three things this got wrong before, and now does not:
   `5h` and `7d` — *Claude's* windows, hardcoded in the settings page. Codex reports `window_minutes` and
   the provider may change it; Google Antigravity reports no time window at all (its quotas are per
   **model**). A tier of `short` / `long` carries all three; `5h` / `7d` carries exactly one.
+
+- **The last record a store holds is not the last reading, and a reason is not a measurement** (#494).
+  Codex ends a session by writing a rate-limit block that has no windows in it, only the reason it stopped.
+  Reading the literal last block threw away the good readings sitting earlier in the same file and put the
+  bar on "no data yet" — the one answer that tells the user nothing — while the backend had said exactly
+  what was wrong. Two things come out of such a store now: the last record that **measures** something,
+  and the reason, which rides beside a current reading rather than replacing it. `docs/backend-formats.md`
+  carries the captured shape.
 
 Hermes and Pi declare no capability and therefore appear nowhere in this UI — not even as an empty control
 that could never show a value. Pi's `usage.cost` is its own *cost estimate*, not a quota.

@@ -637,3 +637,53 @@ rule that erases user intent is a bug wearing an upgrade's clothes.
 
 Both of these were found by a verifier reading the diff, not by the suite, and both were on work that had
 already been live-checked and called done.
+
+## The last record is not the last reading (#494)
+
+Codex writes its rate limits into the transcript, and the reader took the last block it found. That is
+the obvious reading of "only the newest figure is current", and it was wrong in a way nothing pointed
+at: a session ENDS by writing a block with no windows in it at all, only the reason it stopped. So the literal last block was regularly a reason rather than a measurement, and taking it
+threw away the forty-odd good readings sitting earlier in the same file.
+
+The symptom was the worst kind. Not an error, not an empty bar — "no data yet", which the user reads
+as *the app cannot tell*, while the backend had in fact said exactly what was wrong and Switchboard
+had dropped it on the floor. The fix reads two things out of the file instead of one: the last record
+that measures something, and the last record of any kind, the second only for its reason.
+
+**Ask what a record MEANS before deciding which one is current.** "Newest wins" is a rule about
+position; it answers nothing about whether the thing in that position is the kind of thing you are
+looking for.
+
+The same pass found a field that had moved under us — the credits pool changed from a percentage to a
+balance with no total — and the honest answer there was to report no quota rather than invent the
+denominator. A bar drawn from a number nobody has captured is worse than an absent bar.
+
+## The fix that reproduced the bug it was closing (#495)
+
+A `Stop` hook arriving while a prompt was still queued made a working session read as "Ready". The fix
+reads the queue out of the transcript and holds the signal, and the reader did that by counting the
+last 128 KB — a tail, because the file runs to megabytes and this is asked while the user waits.
+
+The argument for the tail was written into the file as a comment, and it was persuasive: an enqueue
+whose closure is out of frame is impossible, because the closure always comes later. It was also
+incomplete in two directions at once. An enqueue that is still OPEN gets pushed out of view by the
+very turn that is still running — 7 of 1570 real pairs are further apart than the window and the widest
+is 985 KB — and, the queue being FIFO, a closure seen inside the window takes the oldest queued prompt
+rather than the one whose enqueue sits beside it. Either way a queued prompt read as none, no hold was
+taken, and the bug was back with the timeout that would have caught it never engaging.
+
+Nothing in the suite could see it: every fixture was a handful of lines, so the window was never
+reached. It took an adversarial review asking "construct an input where this under-reports", and then
+a measurement over the real store to settle whether that input occurs.
+
+Three things worth carrying:
+
+- **A comment that argues an optimisation is safe is a claim, not a proof.** This one covered one of
+  the two ways a window can cut a history and read as though it covered both.
+- **A fixture that never reaches the boundary does not test the boundary.** The tests were meaningful
+  about the logic and blind to the mechanism the feature exists for.
+- **The cheap fix was possible only after removing a parameter.** The scan took the caller's cutoff and
+  answered a yes/no, which made the result unique to each asker and therefore uncacheable. Reporting
+  the newest instant instead, and comparing the cutoff afterwards, made one scan answer everyone — and
+  a memo on mtime and size then removed the repeated read entirely. **An answer shaped around the
+  question cannot be shared; an answer shaped around the data can.**

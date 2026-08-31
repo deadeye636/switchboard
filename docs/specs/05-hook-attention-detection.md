@@ -8,6 +8,8 @@
 >
 > **Where the code is now** — everything under "Current state" below names `main.js` with line numbers from the day it was written; both moved. The OSC-9 / OSC-0 parsing is in **`src/app/terminal/spawn.js`**'s PTY `onData` handler, and the busy/idle it derives is **Claude's alone** (#120): the idle half is the literal `✳`, so running it against another CLI that spins in its title latches "working" forever. Every other backend reports state through `liveState` — see **`src/watch/adopt.js`**. The dev/installed hook-sentinel clash is **#219**.
 >
+> **A `Stop` is not proof the session is idle (#495).** The hooks fire in an order the contract below does not describe, and the section "A turn that announces nothing" at the end of this file is the part to read before reasoning about busy/ready. Short version: `UserPromptSubmit` fires when a prompt is **enqueued**, so a `Stop` can arrive while the CLI still owes a turn, and the turn it then runs announces nothing at all.
+>
 > **Moved (#228):** the renderer funnel described below split out of `src/renderer/app.js`. The `onTerminalNotification` / `onAttentionSignal` IPC listeners are in **`src/renderer/shell/session-ipc.js`**; `applyAttention` (the single funnel both feed) is in **`src/renderer/shell/attention-engine.js`**; `classifyAttentionSignal` is the pure **`src/shared/attention-source.js`**. app.js line numbers below are pre-#228.
 
 ## Problem & goal
@@ -89,7 +91,8 @@ Move the inline regex from `app.js:409` into this helper (keeps one source of tr
 - Handlers can be `type: "command"` (event JSON on **stdin**) **or `type: "http"` (event JSON as the POST request body)**. HTTP handlers take `{ type: "http", url, timeout? }` and are **deduplicated by URL**. This is the cleanest fit — no `curl`/`jq`/shell dependency, no temp scripts.
 - Relevant events:
   - `Notification` — fires when Claude needs the user (matcher = notification type: `permission_prompt`, `idle_prompt`, `elicitation_dialog`, …). This is the signal the OSC-9 regex misses for some tool/MCP permission prompts.
-  - `Stop` — fires when Claude finishes responding (→ "ready"). No matcher support (matcher silently ignored).
+  - `Stop` — fires when Claude finishes the turn it was running (→ "ready"). No matcher support (matcher silently ignored). **It does not say the session is idle**, only that one turn ended; see #495 below.
+  - `UserPromptSubmit` — fires when a prompt is **enqueued**, not when it is sent (→ "busy"). Measured, and the whole of #495: type while the agent is working and this arrives at once, while the prompt itself waits.
   - (`PermissionRequest` also exists and maps to needs-attention; covered by `Notification`'s `permission_prompt`, so we register the smaller set.)
 
 ### Session correlation — direct, no cwd mapping needed
@@ -102,3 +105,70 @@ Every hook payload includes `session_id`, and `transcript_path` points at `~/.cl
 
 ### Validation caveat
 A *live* end-to-end hook round-trip can't be exercised from the automated smoke run (it needs a real Claude Code process firing a permission prompt). The classification/precedence logic is fully unit-tested in `test/attention-source.test.js`; the smoke run verifies the app boots, the HTTP ingest server binds, and the IPC wiring loads without runtime errors.
+
+---
+
+## A turn that announces nothing (#495)
+
+The two hooks above describe the start and the end of a turn, and nothing guarantees they arrive in
+that order. `UserPromptSubmit` fires when a prompt is **enqueued**. Type while the agent is working
+and the busy edge arrives at once, which is fine as long as the queue drains before the turn ends.
+When the agent finishes first, the order measured on a real session is this:
+
+```
+19:19:54.369  enqueue                → UserPromptSubmit → busy
+19:20:35.093  Stop (the OLD turn)    → ready            ← wins, 72 ms too early
+19:20:35.131  dequeue                → no hook fires
+19:20:35.165  the queued prompt runs, and announces nothing
+```
+
+That session then worked for another fifteen minutes with its row on "Ready". Nothing later could
+heal it: the event that would have announced the new turn had already fired 41 seconds earlier and
+been overwritten by the previous turn's `Stop`. Getting whose turn it is wrong is the one thing the
+attention inbox may not do, so a `Stop` is now checked before it is believed.
+
+### The transcript is the second source
+
+Claude records the queue in the transcript, one line per movement, and it is regular enough to
+count — `docs/backend-formats.md` has the shape and the numbers behind that claim. A `Stop` arriving
+with a depth above zero is a `Stop` with another turn behind it, and it is held rather than
+delivered.
+
+**A hold that nothing can release would be worse than the bug**, so there are three ways out of one:
+
+| What happens | What the hold does |
+|---|---|
+| The queued prompt starts its turn — an entry newer than the `Stop` that is a turn, not a tool result | dropped, never delivered. The busy state was right, and that turn ends with its own `Stop` |
+| The queue empties without running — the user changed their mind, and no hook will ever say so | delivered late, because the session really is idle |
+| Neither, for a minute | delivered anyway, with a line in the log. An unresolvable hold has to end in the honest answer rather than in a session stuck on "Working" |
+
+Any other signal for that session releases a held one too: whatever it described has moved on.
+
+### What belongs to whom
+
+`src/app/turn-hold.js` holds the signal and knows no CLI's format. Whether a turn is still owed is a
+question about one CLI's own transcript, so it is the `readTurnQueue` descriptor hook, answered by
+`src/backends/claude/turn-queue.js` and declined by every other backend through the `queuedTurn`
+capability row. **A declined answer means exactly the behaviour that shipped before this**, which is
+what lets the four backends that fire no turn hooks stay out of it entirely.
+
+`src/app/hooks.js` delivers a signal through one closure, so a held one does what an immediate one
+would have done. Every path other than `ready` is untouched.
+
+### Two things the first implementation got wrong
+
+Both were found by review and both were settled by measurement rather than argument, which is why
+the numbers are written down in `docs/backend-formats.md` rather than recalled:
+
+- **A tail cannot answer this.** The reader started by counting the queue in the last 128 KB of the
+  transcript. The depth is enqueues minus closures over the whole history, and a window cuts that
+  history in two places that each mislead: an enqueue that is still open gets pushed out of view by
+  the very turn that is still running, and, the queue being FIFO, a closure inside the window takes
+  the oldest queued prompt rather than the one beside it. Either way a queued prompt reads as none,
+  no hold is taken, and this bug is back with no timeout behind it. A partial read is not trusted.
+- **Injected entries are not turns.** A skill's body and a system reminder are written as `user`
+  entries with an ordinary text block, and counting one as a turn start releases the held signal
+  *without* delivering it — taking the timeout that would otherwise have rescued the session along
+  with it. `isMeta` is the flag that tells them apart.
+
+`test/turn-hold.test.js` carries the measured order above as a fixture, including the 72 ms.

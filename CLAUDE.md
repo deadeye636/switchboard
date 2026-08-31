@@ -34,6 +34,7 @@ table is the fallback and it is binding.
 | plans — the list, the picker, the convention, the viewer's liveness | `docs/specs/20-plans.md` (why) + `docs/plans-convention.md` (what) |
 | writing a file a CLI reads — a skill, a rule, a settings blob | `docs/specs/24-resource-editing.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | the settings screen — a category, a count, a per-backend page, what the search may open | `docs/specs/26-settings-screen.md` (why) + `.claude/rules/renderer.md` (the rule) |
+| attention — busy/ready, the hooks, a turn that announces nothing | `docs/specs/05-hook-attention-detection.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |

@@ -42,8 +42,10 @@ of its plan files is **referred to** in its sessions and what it would take to *
 plans directory** (`planRef` / `planDirSetup`, #449/#450), where it keeps **handoff packets inside a
 project** (`handoffDirs({ projectPath })`, #468 — Claude's handoff skills write into `.claude/handoffs`,
 and a core that spelled that would have learned one backend's layout), whether it has
-**subagents** (`supportsSubagents`, #230 — only Claude does), and its CLI home variable
-(`cliHomeEnv`, #241).
+**subagents** (`supportsSubagents`, #230 — only Claude does), whether it still **owes a turn** it has
+not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
+the core must not believe, and only Claude can say so from its own transcript), and its CLI home
+variable (`cliHomeEnv`, #241).
 
 ## A directory is listed; `expandResource` reads it (#440)
 
@@ -159,6 +161,13 @@ It does not copy the walk. Discovery, `watchTargets`, the birth-time `matchLiveS
 suffix `liveRefFor` are the same code for every backend that keeps one transcript per session;
 declare `root` (lazy), `matches`, `parseSession` and `refSuffix` and take the rest. `findOnPath`
 lives there too (PATHEXT — the npm CLIs are `.cmd` shims).
+
+**`readFileTail` is there for the same reason** (#495). Two backends read a fact out of the END of a
+transcript that grows to tens of megabytes — Codex' rate limits and Claude's prompt queue — and both
+are asked while the user is waiting. One implementation, because reading the whole file for a question
+about its last few kilobytes is exactly the shape this repo has watched get fixed in one backend and
+kept in its twin. It reports whether the view is `partial`, and **that answer is load-bearing**: a
+caller whose question cannot be answered from a fragment has to notice and read the file.
 
 ## `configFields`: a default describes what the CLI does anyway — it is NEVER sent
 
