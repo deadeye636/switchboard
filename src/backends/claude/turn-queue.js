@@ -36,20 +36,30 @@ const fs = require('fs');
 
 const { readFileTail } = require('../file-store');
 
-// How much of the transcript's end to read. The queue moves at conversation speed — a handful of lines
-// per prompt — so everything currently open is within a few kilobytes of the end. A transcript runs to
-// megabytes and this is read at a turn boundary, so the whole file is never the right answer.
+// How much of the transcript's end to read before giving up on the shortcut. Most transcripts fit in
+// this whole, and then the answer is exact for free.
 //
-// Reading only the tail cannot under-report: an `enqueue` whose removal is out of frame is impossible
-// (the removal always comes later), and a removal whose `enqueue` is out of frame is a pair that is
-// already closed — which is what the clamp at zero below absorbs.
+// A TAIL ALONE CANNOT ANSWER THIS QUESTION, and the first draft of this file claimed it could. The depth
+// is enqueues minus closures over the WHOLE history, and a window can cut that history in two places
+// that both mislead: an `enqueue` that is still open can be pushed out of view by the very turn that is
+// still running — measured over 1570 real enqueue/closure pairs, 7 of them are more than 128 KB apart
+// and the widest is 985 KB — and, because the queue is FIFO, a closure seen in the window takes the
+// OLDEST queued prompt rather than the one whose enqueue is beside it. Either way a prompt that is
+// genuinely still queued reads as none, no hold is taken, and the bug this file exists to close is back
+// with no safety net behind it. So a partial read is not trusted: the file is counted in full.
 const QUEUE_TAIL_BYTES = 128 * 1024;
 
-// Is this entry a TURN, as opposed to the machinery inside one? A tool result is written as a `user`
-// entry, and treating that as "the user said something" would report a turn start on every tool call.
-// A subagent's line is not this session's turn either.
+// Is this entry a TURN, as opposed to the machinery inside one?
+//
+// Three things wear `type: 'user'` and are not the user starting a turn. A tool result is one, and
+// reading those as a turn would report one on every tool call. A subagent's line belongs to its own
+// transcript's conversation, not to this one. And an INJECTED entry — a skill's body, a system reminder —
+// is written as a user message with an ordinary text block: 452 of them in the store this was measured
+// against, each of which would have counted as a turn starting. That one matters more than it looks: a
+// false `turnStarted` releases a held signal WITHOUT delivering it, betting on a turn that never began,
+// and the timeout that would otherwise have rescued the session is gone with the hold.
 function isTurnEntry(entry) {
-  if (!entry || entry.isSidechain) return false;
+  if (!entry || entry.isSidechain || entry.isMeta) return false;
   if (entry.type === 'assistant') return true;
   if (entry.type !== 'user') return false;
   const content = entry.message && entry.message.content;
@@ -71,7 +81,13 @@ function readTurnQueue(transcriptPath, sinceMs = 0) {
   try { size = fs.statSync(transcriptPath).size; } catch { return null; }
 
   let text;
-  try { text = readFileTail(transcriptPath, size, QUEUE_TAIL_BYTES).text; } catch { return null; }
+  try {
+    const tail = readFileTail(transcriptPath, size, QUEUE_TAIL_BYTES);
+    // A partial view can only under-report the depth (see QUEUE_TAIL_BYTES), and under-reporting is the
+    // one error that costs the whole feature. This runs at a turn boundary, not on a timer, so paying
+    // for the file when it does not fit is the right trade.
+    text = tail.partial ? fs.readFileSync(transcriptPath, 'utf8') : tail.text;
+  } catch { return null; }
 
   let queued = 0;
   let turnStarted = false;
@@ -84,8 +100,8 @@ function readTurnQueue(transcriptPath, sinceMs = 0) {
     if (entry.type === 'queue-operation') {
       if (entry.operation === 'enqueue') queued++;
       else if (entry.operation === 'popAll') queued = 0;
-      // `dequeue` and `remove` each take one. The clamp is what makes a tail read safe: a removal whose
-      // enqueue fell outside the window would otherwise drive the count negative and hide a real one.
+      // `dequeue` and `remove` each take one. The clamp costs nothing over a full count and keeps a
+      // truncated or rotated file from driving the total negative, which would hide a real enqueue.
       else queued = Math.max(0, queued - 1);
       continue;
     }

@@ -89,12 +89,43 @@ test('turn queue: popAll empties whatever is queued, however much', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('turn queue: a removal whose enqueue is out of view does not hide a real one', () => {
+test('turn queue: a closure with no enqueue before it does not hide a real one', () => {
   const dir = tmpDir();
-  // Only the END of a transcript is read, so a pair can be cut in half. Counting into the negative would
-  // then swallow the enqueue that follows — the one prompt that is genuinely still owed.
+  // A truncated or rotated file can start mid-pair. Counting into the negative would then swallow the
+  // enqueue that follows — the one prompt that is genuinely still owed.
   const file = writeTranscript(dir, [queueOp('remove', 'older'), queueOp('enqueue', 'newer')]);
   assert.equal(readTurnQueue(file).queued, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('turn queue: an enqueue pushed out of the tail window is still counted', () => {
+  const dir = tmpDir();
+  // Measured over 1570 real enqueue/closure pairs: 7 are further apart than the 128 KB window and the
+  // widest is 985 KB. A verbose turn writes past its own queued prompt, and a window that lost sight of
+  // it reports an empty queue — no hold is taken, and #495 is back with no timeout behind it.
+  const noise = Array.from({ length: 700 }, (_, i) => (
+    { type: 'assistant', timestamp: '2026-08-31T17:20:00.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(300), n: i }] } }
+  ));
+  const file = writeTranscript(dir, [queueOp('enqueue', 'still waiting'), ...noise]);
+  assert.ok(fs.statSync(file).size > 128 * 1024, 'the fixture has to exceed the window to prove anything');
+
+  assert.equal(readTurnQueue(file).queued, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('turn queue: an injected user entry is not the user starting a turn', () => {
+  const dir = tmpDir();
+  const stop = Date.parse('2026-08-31T17:20:35.093Z');
+  // A skill's body and a system reminder are written as `user` entries with an ordinary text block —
+  // 452 of them in the store this was measured against. Counting one as a turn start releases the held
+  // signal WITHOUT delivering it, and takes the timeout that would have rescued the session with it.
+  const file = writeTranscript(dir, [{
+    type: 'user',
+    isMeta: true,
+    timestamp: '2026-08-31T17:20:36.000Z',
+    message: { role: 'user', content: [{ type: 'text', text: 'Base directory for this skill: …' }] },
+  }]);
+  assert.equal(readTurnQueue(file, stop).turnStarted, false);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
