@@ -157,7 +157,9 @@
   function formatUsageStatus(usage = {}) {
     const who = usage.label || 'Usage';
     if (usage._rateLimited) {
-      return { text: `${who}: rate limited`, title: rateLimitTitle(usage.retryAfterSeconds), level: 'warning', percent: null };
+      // A backend that named its own reason says it here. Codex does ("Your workspace credits are used
+      // up."), and the generic retry sentence would talk over the one fact the user needs (#494).
+      return { text: `${who}: rate limited`, title: usage.message || rateLimitTitle(usage.retryAfterSeconds), level: 'warning', percent: null };
     }
     if (usage._error) {
       return { text: `${who}: unavailable`, title: usage.message || 'Could not fetch usage data.', level: 'warning', percent: null };
@@ -190,9 +192,18 @@
       const ago = observedAgo(usage.observedAt);
       if (ago) lines.push(`Measured ${ago}.`);
     }
+    // A reading AND a reason: Codex can report a limit it has hit while the windows it also reports are
+    // perfectly current. The bars stay; the reason is a line of its own (#494).
+    if (usage.limitReachedMessage) lines.push(usage.limitReachedMessage);
     if (usage._stale) {
-      const why = usage._staleMessage ? ` Last error: ${usage._staleMessage}` : '';
-      lines.push(`Cached — the last fetch failed. ${retryTitle(usage._retryAfterSeconds)}${why}`);
+      // WHY it is cached, not "the last fetch failed" for all three. Nothing was fetched and nothing
+      // failed when a file-read backend simply has not written a newer number (#494).
+      const isError = usage._staleKind !== 'no-data' && usage._staleKind !== 'rate-limited';
+      const why = usage._staleMessage ? ` ${isError ? 'Last error: ' : ''}${usage._staleMessage}` : '';
+      const opening = usage._staleKind === 'no-data' ? 'Cached — no newer reading yet.'
+        : usage._staleKind === 'rate-limited' ? 'Cached — a limit was reached.'
+          : 'Cached — the last fetch failed.';
+      lines.push(`${opening} ${retryTitle(usage._retryAfterSeconds)}${why}`);
     }
     return lines.join('\n');
   }

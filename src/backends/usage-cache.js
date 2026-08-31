@@ -30,9 +30,27 @@ function buildCachedUsageValue(usage, fetchedAt = new Date()) {
 }
 
 function usageFailureMessage(usage) {
-  if (usage?._rateLimited) return 'Usage API rate limited';
+  // The backend's own sentence first: Codex names its reason (`workspace_member_credits_depleted` →
+  // "Your workspace credits are used up."), and "Usage API rate limited" would talk over it about an API
+  // it never called (#494).
+  if (usage?._rateLimited) return usage.message || 'Usage API rate limited';
   if (usage?._error) return usage.message || 'Could not fetch usage data.';
+  if (usage?._noData) return 'No newer limit reported yet';
   return 'Usage unavailable';
+}
+
+/**
+ * WHY the cached reading is being served — not the same question as what went wrong (#494).
+ *
+ * "The last fetch failed" was said for all three, and for `_noData` it is simply untrue: nothing was
+ * fetched and nothing failed, the backend has just not written a newer number. The renderer picks its
+ * wording from this.
+ */
+function usageStaleKind(usage) {
+  if (usage?._rateLimited) return 'rate-limited';
+  if (usage?._error) return 'error';
+  if (usage?._noData) return 'no-data';
+  return 'error';
 }
 
 // A backend that is installed but has never reported a limit (Codex, never run) is NOT a failure and has
@@ -55,6 +73,7 @@ function withMainProcessUsageCache(usage, cachedValue) {
         // response knew so a cached body can never claim to be another backend.
         backendId: usage?.backendId || cachedUsage.backendId,
         _stale: true,
+        _staleKind: usageStaleKind(usage),
         _staleMessage: usageFailureMessage(usage),
         _retryAfterSeconds: retrySecondsForUsage(usage),
         _cachedAt: cachedValue.fetchedAt || null,
@@ -74,6 +93,8 @@ function withMainProcessUsageCache(usage, cachedValue) {
 module.exports = {
   DEFAULT_USAGE_RETRY_SECONDS,
   isSuccessfulUsage,
+  usageFailureMessage,
+  usageStaleKind,
   retrySecondsForUsage,
   buildCachedUsageValue,
   withMainProcessUsageCache,

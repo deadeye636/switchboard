@@ -265,9 +265,12 @@ function buildUsageSection(payload) {
       notice.className = 'usage-rate-limited';
       if (usage._rateLimited) {
         const mins = Math.ceil((usage.retryAfterSeconds || 0) / 60);
-        notice.textContent = mins > 0
-          ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
-          : 'Usage API rate limited. Try again later.';
+        // A backend that named the reason says it here — Codex reports one and has no usage API to be
+        // rate limited by (#494).
+        notice.textContent = usage.message
+          || (mins > 0
+            ? `Usage API rate limited. Try again in ~${mins} min${mins !== 1 ? 's' : ''}.`
+            : 'Usage API rate limited. Try again later.');
       } else if (usage._error) {
         notice.textContent = usage.message || 'Could not fetch usage data.';
       } else {
@@ -276,6 +279,15 @@ function buildUsageSection(payload) {
       group.appendChild(notice);
       container.appendChild(group);
       continue;
+    }
+
+    // A reading AND a reason: the windows below are current, and the backend has also said it ran into a
+    // limit. Both are true, so both are shown rather than one replacing the other (#494).
+    if (usage.limitReachedMessage) {
+      const reached = document.createElement('div');
+      reached.className = 'usage-rate-limited';
+      reached.textContent = usage.limitReachedMessage;
+      group.appendChild(reached);
     }
 
     const grid = document.createElement('div');

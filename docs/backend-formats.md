@@ -74,17 +74,36 @@ network call, no credential access, and `~/.codex/auth.json` stays untouched:
   "rate_limits":{
     "limit_id":"codex","limit_name":null,"plan_type":"<plan>",
     "primary":  {"used_percent":0.0,"window_minutes":10080,"resets_at":<epoch seconds>},
-    "secondary":null,"credits":null,"individual_limit":null,"rate_limit_reached_type":null}}}
+    "secondary":null,
+    "credits":{"has_credits":false,"unlimited":false,"balance":null},
+    "individual_limit":null,"rate_limit_reached_type":null}}}
 ```
 
 - **Two windows, and Codex does not name them.** `primary` / `secondary`, each with its own
   `window_minutes` — the label (`5h`, `7d`) is **derived** from that number, never hardcoded: the provider
   is free to change the window, and `secondary` is frequently `null`.
 - `used_percent` is a **float**, `resets_at` is **epoch seconds** (Claude sends an ISO string).
-- **The LAST one wins.** A rollout emits `token_count` on every turn; only the final block is current.
+- **The last block that MEASURES something wins — not the last block** (#494). A session ends by writing
+  one with no windows at all, so the literal final block is regularly a reason rather than a reading:
+
+  ```json
+  {"limit_id":"premium","primary":null,"secondary":null,
+   "credits":{"has_credits":false,"unlimited":false,"balance":null},
+   "individual_limit":null,"spend_control_reached":null,"plan_type":"<plan>",
+   "rate_limit_reached_type":"workspace_member_credits_depleted"}
+  ```
+
+  Taking it literally threw away the forty-odd good readings earlier in the same file and reported
+  “no data” while Codex had said exactly what was wrong.
+- **`rate_limit_reached_type` is the reason, and it is worth reading.** `null` in the ordinary case;
+  `workspace_member_credits_depleted` is the value captured from a real install.
+- **`credits` carries no denominator.** The current shape is `{has_credits, unlimited, balance}` — a
+  balance, never a total — so there is no percentage to draw from it and Switchboard reports no quota
+  rather than a bar at nought. An older CLI wrote `used_percent` / `used` / `limit` instead, which is the
+  only shape the quota is read from.
 - **It is not live.** The figure is the state as of that turn — go three days without running Codex and it
   is three days old. Anything rendering it beside Claude's live number has to say so, or the number
-  silently promotes itself to "now".
+  silently promotes itself to “now”.
 - A rollout that never got a reply carries no `rate_limits` at all → fall through to the next-newest.
 
 A session's **title is not in its own transcript.** Codex keeps the names the user gave their threads in a
