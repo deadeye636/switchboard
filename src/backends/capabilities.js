@@ -119,6 +119,13 @@ const CATALOG = [
     declaredBy: 'supportsLiveRebinding',
   },
   {
+    id: 'queuedTurn',
+    group: 'live',
+    label: 'Notice a turn it has not announced',
+    description: 'Tell whether the CLI still owes a turn, so a finished one is not reported as idle.',
+    declaredBy: 'readTurnQueue',
+  },
+  {
     id: 'quota',
     group: 'live',
     label: 'Quota in the status bar',

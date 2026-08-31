@@ -216,24 +216,42 @@ function handleHookRequest(req, res, token = attentionHookToken) {
         }
       }
       const signal = attentionSource.classifyAttentionSignal({ source: 'hook', payload: hook });
-      const mainWindow = ctx.getMainWindow();
-      if (sessionId && signal && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('attention-signal', {
-          sessionId,
-          kind: signal.kind,
-          reason: signal.reason,
-          source: 'hook',
-          // Subagent lifecycle events carry the subagent's identity (#119).
-          agentId: signal.agentId || null,
-          agentType: signal.agentType || null,
-        });
-        const agentSuffix = signal.agentId ? ` agentId=${signal.agentId}` : '';
-        ctx.log.info(`[attention-hook] session=${sessionId} kind=${signal.kind}${agentSuffix} reason="${signal.reason}"`);
-      }
-      // …and the window that RENDERS the session records it too, when that is not the main one (#395).
-      // Deliberately outside the guard above: this must not depend on the main window being alive.
-      if (sessionId && signal && ctx.sendTimelineSignal) {
-        ctx.sendTimelineSignal(sessionId, { kind: signal.kind, reason: signal.reason, source: 'hook' });
+
+      // Both halves of delivering one signal, kept together because a HELD one is delivered later from
+      // somewhere else and must do exactly the same thing (#495).
+      const deliver = () => {
+        const mainWindow = ctx.getMainWindow();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('attention-signal', {
+            sessionId,
+            kind: signal.kind,
+            reason: signal.reason,
+            source: 'hook',
+            // Subagent lifecycle events carry the subagent's identity (#119).
+            agentId: signal.agentId || null,
+            agentType: signal.agentType || null,
+          });
+          const agentSuffix = signal.agentId ? ` agentId=${signal.agentId}` : '';
+          ctx.log.info(`[attention-hook] session=${sessionId} kind=${signal.kind}${agentSuffix} reason="${signal.reason}"`);
+        }
+        // …and the window that RENDERS the session records it too, when that is not the main one (#395).
+        // Deliberately outside the guard above: this must not depend on the main window being alive.
+        if (ctx.sendTimelineSignal) {
+          ctx.sendTimelineSignal(sessionId, { kind: signal.kind, reason: signal.reason, source: 'hook' });
+        }
+      };
+
+      if (sessionId && signal) {
+        // A `Stop` announces the end of the turn that just ran, not the end of the session's work: a
+        // prompt queued mid-turn already spent its `UserPromptSubmit`, so the turn it is about to start
+        // would announce nothing and the row would sit on "Ready" while the agent worked (#495). Any
+        // other signal supersedes a held one — the state it described has moved on.
+        if (signal.kind === 'ready' && ctx.holdReady) {
+          if (!ctx.holdReady(sessionId, deliver)) deliver();
+        } else {
+          if (ctx.cancelHeldReady) ctx.cancelHeldReady(sessionId);
+          deliver();
+        }
       }
     } catch (err) {
       ctx.log.warn(`[attention-hook] bad payload: ${err.message}`);

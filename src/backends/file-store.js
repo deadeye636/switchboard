@@ -72,6 +72,35 @@ function walkStore(dir, matches, out = [], stats = null) {
 }
 
 /**
+ * The last `bytes` of a file as text, with the (probably truncated) first line dropped.
+ *
+ * Two backends read a fact out of the END of a transcript that grows to tens of megabytes — Codex' rate
+ * limits (#494) and Claude's prompt queue (#495) — and both are asked on a timer, in the main process.
+ * Reading the whole file for either was the expensive way to answer a question about its last few
+ * kilobytes. One implementation, because this is exactly the shape that got fixed twice in two backends
+ * and kept in a third.
+ *
+ * `partial` says whether anything was left out: the caller needs it to tell "this file holds none of
+ * what I am looking for" from "none near its end", and only the first justifies reading it all.
+ */
+function readFileTail(file, size, bytes) {
+  if (!Number.isFinite(size) || size <= bytes) {
+    return { text: fs.readFileSync(file, 'utf8'), partial: false };
+  }
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(bytes);
+    const read = fs.readSync(fd, buf, 0, bytes, size - bytes);
+    const text = buf.toString('utf8', 0, read);
+    const nl = text.indexOf('\n');
+    // A cut lands mid-line and possibly mid-codepoint, which is why the first line is always discarded.
+    return { text: nl === -1 ? '' : text.slice(nl + 1), partial: true };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
  * How far a filename-derived birth may be WRONG before we stop trusting it to mean "old" (#209).
  *
  * Deliberately huge. A transcript filename carries no timezone in the formats we read (Codex writes
@@ -205,4 +234,4 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   return { discoverSessions, watchTargets, matchLiveSession, liveRefFor };
 }
 
-module.exports = { createFileStore, findOnPath, pathExtensions, walkStore, BIRTH_HINT_SKEW_MS };
+module.exports = { createFileStore, findOnPath, pathExtensions, walkStore, readFileTail, BIRTH_HINT_SKEW_MS };

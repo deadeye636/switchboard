@@ -403,6 +403,7 @@ module.exports = {
     subagentSessions: 'no',
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
     liveRebinding: 'yes',
+    queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

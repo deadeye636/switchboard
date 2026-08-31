@@ -41,7 +41,7 @@
 
 const fs = require('fs');
 
-const { walkStore } = require('../file-store');
+const { walkStore, readFileTail } = require('../file-store');
 const { formatResetTime, tierForWindowMinutes, labelForWindowMinutes } = require('../usage-format');
 
 // How many recent rollouts to look through before giving up. Raised from five in #494: Codex writes one
@@ -86,26 +86,6 @@ function recentRollouts(sessionsRoot, limit = MAX_ROLLOUTS_SCANNED) {
   return stamped.slice(0, limit);
 }
 
-// The last `size` bytes of a file as text, with the (probably truncated) first line dropped. `partial`
-// says whether anything was left out — the caller needs it to know whether an empty result means "no
-// reading in this file" or only "none near the end".
-function readTail(file, size, bytes = TAIL_BYTES) {
-  if (!Number.isFinite(size) || size <= bytes) {
-    return { text: fs.readFileSync(file, 'utf8'), partial: false };
-  }
-  const fd = fs.openSync(file, 'r');
-  try {
-    const buf = Buffer.allocUnsafe(bytes);
-    const read = fs.readSync(fd, buf, 0, bytes, size - bytes);
-    const text = buf.toString('utf8', 0, read);
-    const nl = text.indexOf('\n');
-    // A cut mid-line — and possibly mid-codepoint — is why the first line is always discarded.
-    return { text: nl === -1 ? '' : text.slice(nl + 1), partial: true };
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
 // Every `rate_limits` block in a chunk of rollout text, reduced to the two that matter.
 function scanRateLimits(text) {
   let usable = null;
@@ -148,7 +128,7 @@ function readRateLimits(file, mtimeMs, size) {
 
   let value = { usable: null, latest: null };
   try {
-    const tail = readTail(file, size);
+    const tail = readFileTail(file, size, TAIL_BYTES);
     value = scanRateLimits(tail.text);
     if (!value.usable && tail.partial && Date.now() - (fruitlessFullRead.get(file) || 0) >= FULL_READ_COOLDOWN_MS) {
       const full = scanRateLimits(fs.readFileSync(file, 'utf8'));

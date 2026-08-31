@@ -1372,6 +1372,23 @@ const hooks = require('./app/hooks');
 // #223: which terminal cleared which session. State only — the hook ingest fills it, the transition
 // detector reads it, and neither owns it.
 const clearClaims = require('./session/clear-claims');
+
+// #495: a `Stop` that arrives while the CLI still owes a turn. The core asks the descriptor and holds
+// the signal on its answer; no transcript is read here, and a backend that declares no `readTurnQueue`
+// gets exactly today's behaviour.
+const turnHold = require('./app/turn-hold');
+turnHold.init({
+  log,
+  readTurnQueue: (sessionId, sinceMs) => {
+    const row = getCachedSession(sessionId);
+    const backend = row && row.backendId ? backends.get(row.backendId) : null;
+    if (!backend || typeof backend.readTurnQueue !== 'function') return null;
+    // The path goes through the descriptor (#211) — this must not compose one under Claude's store.
+    const file = backend.transcriptPathFor(row);
+    return file ? backend.readTurnQueue(file, sinceMs) : null;
+  },
+});
+
 hooks.init({
   getMainWindow: () => mainWindow,
   getSetting,
@@ -1386,6 +1403,10 @@ hooks.init({
   // The same signal, written to the session's own record (#396) and echoed to the window that renders it
   // (#395). Raising it — the inbox, the badge, the chime — stays here, on the channel above.
   sendTimelineSignal: recordAndRouteTimelineSignal,
+  // #495. `holdReady` answers whether this "the agent finished" is about to be wrong; `cancelHeldReady`
+  // drops a held one the moment any other signal for that session arrives.
+  holdReady: (sessionId, deliver) => turnHold.holdReady(sessionId, deliver),
+  cancelHeldReady: (sessionId) => turnHold.cancel(sessionId),
 });
 hooks.registerIpc(ipcMain);
 const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;

@@ -433,6 +433,12 @@ module.exports = {
   // file registering a SessionEnd:clear hook (which session ENDED, #223) and, on ordinary turn events, a
   // "this terminal IS that session" post (#303) — see live-binding.js for what was measured for each.
   supportsLiveRebinding: true,
+
+  // Does the CLI still owe a turn? (#495) Claude fires `UserPromptSubmit` when a prompt is ENQUEUED, so
+  // a `Stop` can arrive after that busy edge and overwrite it while a queued prompt is still waiting to
+  // run — and the turn it then starts announces nothing, because its event was already spent. The queue
+  // is in the transcript; `turn-queue.js` is what reads it, and the core holds the signal on the answer.
+  readTurnQueue: (transcriptPath, sinceMs) => require('./turn-queue').readTurnQueue(transcriptPath, sinceMs),
   buildLiveBinding: ({ dir, tag, url, sessionUrl, log } = {}) => {
     const file = liveBinding.writeBindingSettings({ dir, tag, url, sessionUrl, log });
     if (!file) return null;
@@ -681,6 +687,7 @@ description:
     subagentSessions: 'yes',
     liveOwners: 'yes',
     liveRebinding: 'yes',
+    queuedTurn: 'yes',
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
