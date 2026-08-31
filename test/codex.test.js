@@ -405,3 +405,85 @@ test('#283 liveState gate: the rollout tail is re-read only when its signature c
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// --- #492: Codex' own internal subagents write rollouts into the same directory
+
+// A guardian review header, trimmed to the fields that decide it (a real one also carries the whole
+// judging system prompt in `base_instructions`).
+function guardianHeader(overrides = {}) {
+  return {
+    timestamp: '2026-08-31T10:29:39.614Z',
+    type: 'session_meta',
+    payload: {
+      session_id: 'PARENT-1',
+      id: 'GUARDIAN-1',
+      parent_thread_id: 'PARENT-1',
+      timestamp: '2026-08-31T10:28:56.946Z',
+      cwd: 'D:\\Projekte\\demo',
+      originator: 'codex-tui',
+      cli_version: '0.151.0',
+      source: { subagent: { other: 'guardian' } },
+      thread_source: 'guardian_review',
+      ...overrides,
+    },
+  };
+}
+
+function writeRollout(name, header) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-internal-'));
+  const p = path.join(dir, name);
+  const line = (o) => JSON.stringify(o) + '\n';
+  fs.writeFileSync(p,
+    line(header) +
+    line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: 'judge this action' }] } }) +
+    line({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: 'allow' }] } }));
+  return p;
+}
+
+test('#492 a guardian review rollout is not a session', () => {
+  const p = writeRollout('rollout-guardian.jsonl', guardianHeader());
+  assert.strictEqual(parser.parseSession({ kind: 'file', path: p }), null,
+    'an internal review subagent never started a session the user can resume');
+});
+
+test('#492 the subagent source alone is enough — the kind name is not a list to maintain', () => {
+  const p = writeRollout('rollout-other.jsonl',
+    guardianHeader({ thread_source: 'some_future_review', source: { subagent: { other: 'whatever' } } }));
+  assert.strictEqual(parser.parseSession({ kind: 'file', path: p }), null);
+});
+
+test('#492 a rollout with no subagent marker is still a session', () => {
+  const p = writeRollout('rollout-user.jsonl', {
+    timestamp: '2026-08-31T10:29:39.614Z',
+    type: 'session_meta',
+    payload: { id: 'USER-1', cwd: 'D:\\Projekte\\demo', timestamp: '2026-08-31T10:28:56.946Z' },
+  });
+  const row = parser.parseSession({ kind: 'file', path: p });
+  assert.ok(row, 'the guard must not swallow ordinary rollouts');
+  assert.strictEqual(row.sessionId, 'USER-1');
+});
+
+test('#492 the incremental read declares the file internal, so an indexed row can be reconciled away', () => {
+  const p = writeRollout('rollout-inc.jsonl', guardianHeader());
+  const res = parser.parseSessionIncremental({ kind: 'file', path: p });
+  assert.strictEqual(res.row, null);
+  assert.strictEqual(res.internal, true, 'the scan may only forget a file the backend declared internal');
+
+  const ok = parser.parseSessionIncremental({ kind: 'file', path: FIXTURE });
+  assert.ok(ok.row, 'a real session still parses');
+  assert.strictEqual(ok.internal, false, 'and it is never declared internal');
+});
+
+test('#492 the scan drops the already-indexed row for a file that turned out to be internal', () => {
+  const { parseBackendSessions } = require('../src/backends/parse');
+  const p = writeRollout('rollout-scan.jsonl', guardianHeader());
+  const reply = parseBackendSessions(codex, {
+    handles: [{ kind: 'file', path: p }],
+    // What an older parser (v4) left behind: the guardian rollout indexed as a session of its own.
+    cachedByFile: new Map([[p, { sessionId: 'GUARDIAN-1', filePath: p, modified: 'stale', parserVersion: 1 }]]),
+    cachedById: new Map(),
+  });
+  assert.deepStrictEqual(reply.sessions, [], 'nothing to index');
+  assert.ok(!reply.seenFiles.includes(p),
+    'the file must not count as seen, or the reconcile keeps the stale row forever');
+});

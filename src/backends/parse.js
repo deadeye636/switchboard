@@ -49,7 +49,8 @@ const FILE_READ_STATE_MAX = 512;
 //   seenIds       — every cached id STILL present (skipped-unchanged + re-read + shaped); with `seenFiles`
 //                   it drives main's snapshot-scoped, per-cached-row delete-diff (file rows key on the file,
 //                   db rows on the id — a db session has no file).
-//   seenFiles     — every FILE handle visited (added before the change gate, so a skipped file counts).
+//   seenFiles     — every FILE handle visited (added before the change gate, so a skipped file counts),
+//                   minus the ones a backend declared internal (#492) — see the `internal` note below.
 //   skippedIds    — the #155 skip-path markPersisted ids (BOTH the file-mtime and db-marker skip branches);
 //                   main replays markPersisted — a skipped session never reaches the sink.
 //   storeProjects — [{projectPath, newestAt}] for EVERY parsed session, UNCONDITIONALLY (Axis-B's biggest
@@ -126,6 +127,12 @@ function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = fa
       } else {
         _axisBReadState.delete(h.path);
       }
+      // The backend may declare that a file in its store is NOT a user session at all — a transcript
+      // written by one of the CLI's own internal agents (#492). That is a different answer from "no row
+      // yet": a header-only file is a session about to exist, and forgetting it would be a delete of
+      // something real. So only this explicit declaration takes the file back out of `seenFiles`, which
+      // is what lets the reconcile below delete the row an earlier parser already indexed for it.
+      if (res && res.internal) seenFiles.delete(h.path);
     } else {
       try { row = b.parseSession(h, {}); } catch { row = null; }
     }

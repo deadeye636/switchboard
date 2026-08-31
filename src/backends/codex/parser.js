@@ -31,7 +31,8 @@ const { threadName } = require('./thread-names');
 //   v2: the parse state carries per-(date, model) metrics (#154)
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with the two cost columns (#159)
 //   v4: the title prefers the user's thread name from session_index.jsonl, where there is one (#153)
-const PARSER_SCHEMA_VERSION = 4;
+//   v5: a rollout written by an internal subagent (guardian review) is not a session at all (#492)
+const PARSER_SCHEMA_VERSION = 5;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -58,6 +59,10 @@ function createParseState() {
     contextWindow: 0,
     // rollout tail state for busy/idle (deriveState reads these)
     lastTaskEvent: null, // 'task_started' | 'task_complete' | null
+
+    // This rollout was written by one of Codex's own internal subagents, not by a user session (#492).
+    // Set from the header; a rollout that never carries one stays false and is a session like any other.
+    internal: false,
 
     // Per-(date, hour, model) metrics — what the Stats charts are built from (#154, #159). Codex
     // re-emits RUNNING totals, so a bucket gets the DELTA since the previous token_count, attributed to
@@ -130,6 +135,17 @@ function applyEntry(st, entry) {
     case 'session_meta': {
       // Authoritative identity. NOTE: skip payload.base_instructions (huge system prompt).
       st.sessionId = payload.id || payload.session_id || st.sessionId;
+      // Codex spawns internal review subagents of its own (cli 0.151.0+): the guardian that judges a
+      // planned action gets a rollout file next to the real ones, in the same directory, with the same
+      // name shape. Its header is the only thing that says so — `thread_source` names the kind of
+      // subagent, `source.subagent` says there was one at all, and `parent_thread_id` points back at the
+      // session it was spawned for. Whatever internal kind Codex adds next declares itself the same way,
+      // so read the presence of a subagent source rather than a list of names. Such a rollout is not a
+      // session the user ever started, so it must not be one in the sidebar (#492).
+      if (payload.thread_source === 'guardian_review'
+          || (payload.source && typeof payload.source === 'object' && payload.source.subagent)) {
+        st.internal = true;
+      }
       if (typeof payload.cwd === 'string') st.cwd = payload.cwd;
       if (typeof payload.timestamp === 'string') st.startedAt = payload.timestamp;
       if (typeof payload.cli_version === 'string') st.cliVersion = payload.cli_version;
@@ -249,6 +265,9 @@ function readFrom(filePath, st, startOffset) {
 
 /** Build the normalised row session-cache consumes (same shape as read-session-file's). */
 function buildRow(st, filePath, opts = {}) {
+  // An internal subagent's rollout is a transcript, but never a session: it has an id, a cwd and
+  // messages, so everything downstream would happily list it beside the session it was spawned for (#492).
+  if (st.internal) return null;
   if (!st.sessionId || st.messageCount < 1) return null;
 
   // The title: the name the user gave the thread, if they gave it one — otherwise their first real
@@ -343,6 +362,10 @@ function parseSessionIncremental(handle, opts = {}, prev = null) {
 
   return {
     row: buildRow(st, filePath, opts),
+    // "There is no session here, and there never will be" — told apart from a row that is merely not
+    // ready yet (a header-only file still being written), because the scan may only forget a file it
+    // has already indexed on the first answer. See the `internal` note in backends/parse.js.
+    internal: st.internal === true,
     parseState: { version: PARSER_SCHEMA_VERSION, offset: res.offset, fingerprint: res.fingerprint, state: st },
   };
 }

@@ -42,6 +42,14 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
 - State: Codex **states** it — `event_msg` payloads `task_started` / `task_complete`. Read the tail, but
   with a **growing** window: a busy turn writes reasoning and tool output, so `task_started` scrolls out
   of a fixed 64 KB tail long before `task_complete` arrives.
+- **Trap:** not every rollout is a session. Since cli 0.151.0 Codex spawns internal review subagents of
+  its own — the guardian that judges a planned action — and each one writes a rollout of the same name
+  shape into the same day folder. The header is the only thing that says so: `thread_source` names the
+  kind (`guardian_review`), `source.subagent` says there was one at all, and `parent_thread_id` points
+  back at the session it was spawned for. Note that `payload.id` is then the SUBAGENT's id and
+  `payload.session_id` the parent's, so an id read alone looks like a perfectly ordinary new session.
+  The parser reads the presence of a subagent source rather than a list of kind names, and yields no row
+  at all (#492).
 - **Trap:** the first "user" message is usually **not** the user's prompt — Codex injects the project's
   `AGENTS.md` / an instructions block. Taking it as the title puts the same text on every session of a
   project (and poisons the search index with it).
