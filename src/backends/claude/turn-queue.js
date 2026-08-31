@@ -68,29 +68,12 @@ function isTurnEntry(entry) {
   return content.some(block => block && block.type !== 'tool_result');
 }
 
-/**
- * `{ queued, turnStarted }` for one transcript, or null when it cannot be read.
- *
- * @param {string} transcriptPath  the session's own .jsonl
- * @param {number} sinceMs         epoch ms; `turnStarted` answers about entries NEWER than this. Zero
- *                                 (the default) asks nothing and always answers false.
- */
-function readTurnQueue(transcriptPath, sinceMs = 0) {
-  if (!transcriptPath) return null;
-  let size;
-  try { size = fs.statSync(transcriptPath).size; } catch { return null; }
-
-  let text;
-  try {
-    const tail = readFileTail(transcriptPath, size, QUEUE_TAIL_BYTES);
-    // A partial view can only under-report the depth (see QUEUE_TAIL_BYTES), and under-reporting is the
-    // one error that costs the whole feature. This runs at a turn boundary, not on a timer, so paying
-    // for the file when it does not fit is the right trade.
-    text = tail.partial ? fs.readFileSync(transcriptPath, 'utf8') : tail.text;
-  } catch { return null; }
-
+// What one pass over a transcript establishes, and NEITHER half depends on who is asking. `lastTurnAt`
+// is the newest instant at which a turn began; the caller's own `sinceMs` is compared against it
+// afterwards, which is what makes this answer cacheable at all.
+function scanTranscript(text) {
   let queued = 0;
-  let turnStarted = false;
+  let lastTurnAt = 0;
   for (const line of text.split('\n')) {
     if (!line) continue;
     let entry;
@@ -106,12 +89,55 @@ function readTurnQueue(transcriptPath, sinceMs = 0) {
       continue;
     }
 
-    if (turnStarted || !sinceMs) continue;
     const at = Date.parse(entry.timestamp || '');
-    if (Number.isFinite(at) && at > sinceMs && isTurnEntry(entry)) turnStarted = true;
+    if (Number.isFinite(at) && at > lastTurnAt && isTurnEntry(entry)) lastTurnAt = at;
   }
-
-  return { queued, turnStarted };
+  return { queued, lastTurnAt };
 }
 
-module.exports = { readTurnQueue, isTurnEntry, QUEUE_TAIL_BYTES };
+// Per-file memo, keyed on the identity of the CONTENT (mtime + size) rather than the path alone.
+//
+// It pays for itself on exactly the path that would otherwise hurt. A held signal is re-examined every
+// few seconds for up to a minute, and each of those asks would re-read a transcript that can run to
+// megabytes, synchronously, on the main process. But the loop only REPEATS while nothing is happening —
+// the moment the queued turn starts, the file grows and the first ask releases the hold. So the case
+// that repeats is precisely the case where the file has not changed, and this answers it without
+// touching the disk at all.
+const MAX_MEMO_ENTRIES = 32;
+const memo = new Map();
+
+/**
+ * `{ queued, turnStarted }` for one transcript, or null when it cannot be read.
+ *
+ * @param {string} transcriptPath  the session's own .jsonl
+ * @param {number} sinceMs         epoch ms; `turnStarted` answers about entries NEWER than this. Zero
+ *                                 (the default) asks nothing and always answers false.
+ */
+function readTurnQueue(transcriptPath, sinceMs = 0) {
+  if (!transcriptPath) return null;
+  let st;
+  try { st = fs.statSync(transcriptPath); } catch { return null; }
+
+  let scanned = null;
+  const cached = memo.get(transcriptPath);
+  if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+    memo.delete(transcriptPath);               // re-insert so eviction is by LAST USE, not by age
+    memo.set(transcriptPath, cached);
+    scanned = cached.value;
+  } else {
+    let text;
+    try {
+      const tail = readFileTail(transcriptPath, st.size, QUEUE_TAIL_BYTES);
+      // A partial view can only under-report the depth (see QUEUE_TAIL_BYTES), and under-reporting is
+      // the one error that costs the whole feature — so a file that does not fit is read in full.
+      text = tail.partial ? fs.readFileSync(transcriptPath, 'utf8') : tail.text;
+    } catch { return null; }
+    scanned = scanTranscript(text);
+    if (memo.size >= MAX_MEMO_ENTRIES) memo.delete(memo.keys().next().value);
+    memo.set(transcriptPath, { mtimeMs: st.mtimeMs, size: st.size, value: scanned });
+  }
+
+  return { queued: scanned.queued, turnStarted: sinceMs > 0 && scanned.lastTurnAt > sinceMs };
+}
+
+module.exports = { readTurnQueue, isTurnEntry, scanTranscript, QUEUE_TAIL_BYTES };

@@ -372,3 +372,46 @@ test('hook ingest: a new turn releases a held signal instead of leaving it pendi
   assert.equal(sent[0].payload.kind, 'busy', 'and the stale "ready" never arrives behind it');
   turnHold._reset();
 });
+
+test('turn queue: an unchanged transcript is read once, however often it is asked', () => {
+  const dir = tmpDir();
+  // The recheck loop asks every few seconds for up to a minute while a signal is held, and a transcript
+  // over the window is read WHOLE. That only repeats while nothing is happening — the moment the queued
+  // turn starts the file grows and the first ask releases the hold — so the repeating case is exactly
+  // the one where the file has not changed.
+  const noise = Array.from({ length: 700 }, (_, i) => (
+    { type: 'assistant', timestamp: '2026-08-31T17:20:00.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(300), n: i }] } }
+  ));
+  const file = writeTranscript(dir, [queueOp('enqueue', 'still waiting'), ...noise]);
+
+  const realReadFileSync = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (...args) => {
+    if (String(args[0]).endsWith('.jsonl')) reads++;
+    return realReadFileSync(...args);
+  };
+  try {
+    assert.equal(readTurnQueue(file).queued, 1);
+    const afterFirst = reads;
+    assert.ok(afterFirst > 0, 'the first ask has to read the file');
+    for (let i = 0; i < 15; i++) assert.equal(readTurnQueue(file).queued, 1);
+    assert.equal(reads, afterFirst, 'and every ask after it answers from the memo');
+  } finally {
+    fs.readFileSync = realReadFileSync;
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('turn queue: the memo is keyed on the content, so an appended transcript is re-read', () => {
+  const dir = tmpDir();
+  const file = writeTranscript(dir, [queueOp('enqueue', 'still waiting')]);
+  assert.equal(readTurnQueue(file).queued, 1);
+
+  // The queued prompt is taken and its turn begins — the answer must move with the file.
+  fs.appendFileSync(file, JSON.stringify(queueOp('dequeue')) + '\n'
+    + JSON.stringify(userPrompt('2026-08-31T17:20:35.165Z', 'du machst das komplett')) + '\n');
+  const after = readTurnQueue(file, Date.parse('2026-08-31T17:20:35.093Z'));
+  assert.equal(after.queued, 0);
+  assert.equal(after.turnStarted, true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
