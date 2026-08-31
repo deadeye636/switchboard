@@ -197,6 +197,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/terminal/skill-palette.js': [],
   'src/renderer/terminal/handoff-palette.js': [],
   'src/renderer/terminal/page-key-routing.js': [],
+  'src/renderer/terminal/newline-key-routing.js': [],
   // #281 — the editor's formatting bar. Both files are about file kinds, not backends.
   'src/renderer/views/format-commands.js': [],
   'src/renderer/views/format-toolbar.js': [],

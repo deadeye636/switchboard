@@ -354,6 +354,33 @@ table exists because a change aimed at one backend twice moved backends that wer
 backend that already works is the regression control; changing its answer has to be a deliberate edit
 that fails the suite by name until someone makes it.
 
+## The newline chord
+
+Shift+Enter — and Ctrl+Enter off macOS, which follows the PowerShell convention — has to insert a
+newline in the CLI's composer instead of submitting the prompt. Switchboard answers the chord itself
+and writes bytes to the PTY, so **which** bytes is the CLI's answer. Until #493 one sequence was sent
+to everyone: Claude's, which made the chord a dead key in every CLI that does not read it.
+
+Each row below was measured the same way: the CLI spawned in a real pty, text typed on either side of
+the candidate sequence, and the rendered screen read back to see whether the composer grew a second
+row.
+
+| Backend | `newlineKeySequence` | What the measurement showed |
+|---|---|---|
+| Claude | `ESC [ 1 3 ; 2 u` | Reads the kitty keyboard protocol, so this IS a Shift+Enter to it. The one backend the old hardcoded sequence was right for. |
+| Codex | `ESC CR` | Ignores the kitty sequence **and** a bare LF — the cursor does not move for either. `ESC CR` inserts the newline. This is the backend #493 was about. |
+| Pi | `ESC [ 1 3 ; 2 u` | Inserts a newline; the chord already worked. |
+| Hermes | `ESC [ 1 3 ; 2 u` | Inserts a newline; the chord already worked. |
+| agy | `ESC [ 1 3 ; 2 u` | Inserts a newline; the chord already worked. |
+
+A backend that declares no sequence gets an **inert** chord: the key is swallowed and nothing is sent.
+That is the opposite default from the page keys above, on purpose — there, letting the key through only
+risks a failure to scroll, while here it would let xterm send CR and the CLI would submit a half-written
+prompt, which nobody gets back.
+
+**The per-backend answer is pinned in `test/terminal-newline-key.test.js` (`NEWLINE_KEY_SEQUENCES`)**,
+for the same reason the page-key table is pinned.
+
 ### Hardware cursor updates — attempted and reverted
 
 Codex and Pi briefly declared a `cursorUpdatePolicy: 'settle'` that had the renderer bracket every PTY

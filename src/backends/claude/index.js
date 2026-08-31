@@ -649,6 +649,10 @@ description:
   // where xterm has no scrollback at all, so there is nothing here to page even if we wanted to. The bare
   // keys must reach the PTY. This one was working before #410 touched it; do not change it again.
   pageKeyTarget: 'pty',
+  // What Shift+Enter has to send for Claude's composer to insert a newline instead of submitting (#493).
+  // MEASURED in a live session: it reads the kitty keyboard protocol, so CSI 13;2u is a Shift+Enter to it.
+  // This is the sequence the app sent to every backend before #493, and the one backend it was right for.
+  newlineKeySequence: '\x1b[13;2u',
   // Which environment-variable family this CLI reads its endpoint from (#212), or nothing if it has
   // none. An Axis-A template pointed at a third-party endpoint (DeepSeek, GLM, OpenRouter) works by
   // setting ANTHROPIC_* variables, so the profile editor offers its Endpoint fields only on a base that

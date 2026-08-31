@@ -1579,6 +1579,10 @@ ipcMain.handle('backends-list', () => {
       // Bare PageUp/PageDown either reach this backend's TUI or scroll xterm's viewport. The renderer
       // applies the declaration without naming a backend; unknown values conservatively reach the PTY.
       pageKeyTarget: b.pageKeyTarget || 'pty',
+      // Which bytes Shift+Enter has to send for THIS CLI to take a newline instead of submitting (#493).
+      // No fallback: a backend that declares none gets an inert chord rather than one that submits a
+      // half-written prompt through some other CLI's sequence.
+      newlineKeySequence: b.newlineKeySequence || null,
       modelDiscovery: typeof b.listModels === 'function',
       resourceDiscovery: typeof b.listResources === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable

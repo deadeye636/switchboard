@@ -198,6 +198,9 @@ module.exports = {
   // TUI is not using them and xterm holds the transcript. What stood here before ("Hermes scrolls its
   // transcript and overlays on PageUp/PageDown") was read off a keymap and was wrong.
   pageKeyTarget: 'viewport',
+  // MEASURED in a real pty: Hermes' composer inserts a newline on the kitty protocol's CSI 13;2u, so
+  // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
+  newlineKeySequence: '\x1b[13;2u',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
   supportsSubagents: false,   // no subagent concept (#230)
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader

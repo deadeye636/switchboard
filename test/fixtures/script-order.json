@@ -73,6 +73,7 @@
     "handoff-palette.js",
     "terminal-fit.js",
     "page-key-routing.js",
+    "newline-key-routing.js",
     "terminal-manager.js",
     "session-nav.js",
     "grid-bulk-actions.js",

@@ -182,6 +182,9 @@ module.exports = {
   // only pages under Shift, which is xterm's own scrollback, so the TUI is not using them. What stood
   // here before ("agy's navigation and edit areas handle PageUp/PageDown themselves") was a reading.
   pageKeyTarget: 'viewport',
+  // MEASURED in a real pty: agy's composer inserts a newline on the kitty protocol's CSI 13;2u, so
+  // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
+  newlineKeySequence: '\x1b[13;2u',
   // No confirmed fork flag — declaring false HIDES the Fork button for agy's sessions rather than
   // launching an unrelated empty session when it is pressed.
   supportsFork: false,

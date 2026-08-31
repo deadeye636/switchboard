@@ -9,6 +9,7 @@
 // Depends on: shellEscape (utils.js)
 // Depends on: pasteIntoTerminal, fileUriToPath (terminal-context-menu.js)
 // Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
+// Depends on: handleTerminalNewlineKeyEvent (newline-key-routing.js)
 
 // --- One insert route for paste and drop (#307) ---
 // Paste and drop hand the terminal the same thing — a DataTransfer — so they read it the same way.
@@ -142,12 +143,12 @@ async function insertFromDataTransfer(dt, terminal, sessionId, { clipboardBitmap
 }
 
 // --- Terminal key bindings ---
-// Shift+Enter → kitty protocol (CSI 13;2u) so Claude Code treats it as newline, not submit.
+// Shift+Enter → the newline sequence THIS backend reads (#493), never a fixed one.
 // Two layers needed:
 //   1. attachCustomKeyEventHandler returning false — blocks xterm's key pipeline (onKey/onData)
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 const isMac = window.api.platform === 'darwin';
-function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, getPageKeyTarget } = {}) {
+function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, getPageKeyTarget, getNewlineSequence } = {}) {
   // Set when the Insert-variable shortcut (default Ctrl/Cmd+Shift+V) fires, so the
   // paste event that same keystroke also generates is swallowed once (#89).
   let suppressPasteOnce = false;
@@ -252,22 +253,12 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
     const pageKeyResult = handleTerminalPageKeyEvent(e, getPageKeyTarget?.(), pages => terminal.scrollPages(pages));
     if (pageKeyResult !== null) return pageKeyResult;
 
-    // Shift+Enter → newline (kitty protocol CSI 13;2u) so Claude Code treats it as newline, not submit.
-    if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      if (e.type === 'keydown') {
-        window.api.sendInput(getSessionId(), '\x1b[13;2u');
-      }
-      return false;
-    }
-
-    // Ctrl+Enter → newline on Windows/Linux (matches PowerShell convention).
-    // Send the same Shift+Enter kitty sequence that Claude Code recognizes as newline.
-    if (!isMac && e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
-      if (e.type === 'keydown') {
-        window.api.sendInput(getSessionId(), '\x1b[13;2u');
-      }
-      return false;
-    }
+    // Shift+Enter (and Ctrl+Enter off macOS) → newline instead of submit. Which bytes mean that is the
+    // backend's declaration: Claude reads the kitty protocol's CSI 13;2u, Codex ignores it and takes
+    // ESC CR. Both chords carry the same sequence — one answer per backend, not one per chord (#493).
+    const newlineResult = handleTerminalNewlineKeyEvent(
+      e, getNewlineSequence?.(), seq => window.api.sendInput(getSessionId(), seq), isMac);
+    if (newlineResult !== null) return newlineResult;
 
     // On Windows/Linux, xterm maps Ctrl+V to a control character (0x16). Block
     // that so no stray ^V reaches the PTY. The actual paste is handled once by
@@ -1384,6 +1375,11 @@ function createTerminalEntry(session, opts = {}) {
       const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
       const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
       return backend?.pageKeyTarget;
+    },
+    getNewlineSequence: () => {
+      const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
+      const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
+      return backend?.newlineKeySequence;
     },
   });
   setupTerminalContextMenu(container, terminal, () => entry.session.sessionId, () => hoveredLinkUri);

@@ -338,6 +338,9 @@ module.exports = {
   // MEASURED, not read off its keymap: Pi ignores ESC[5~/ESC[6~ at its prompt, and it runs on the
   // NORMAL buffer, so xterm holds the session history. The bare keys therefore page that history here.
   pageKeyTarget: 'viewport',
+  // MEASURED in a real pty: Pi's composer inserts a newline on the kitty protocol's CSI 13;2u, so
+  // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
+  newlineKeySequence: '\x1b[13;2u',
   supportsFork: true,     // `pi --fork <id>`
   supportsSubagents: false,   // fork, yes; subagents, no (#230)
   supportsLiveRebinding: true,

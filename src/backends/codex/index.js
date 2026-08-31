@@ -199,6 +199,10 @@ module.exports = {
   // MEASURED, not read off its keymap: Codex ignores ESC[5~/ESC[6~ at its prompt, and it runs on the
   // NORMAL buffer, so xterm holds the session history. The bare keys therefore page that history here.
   pageKeyTarget: 'viewport',
+  // MEASURED against cli 0.151.0 in a real pty, typing either side of the candidate: Codex ignores the
+  // kitty protocol's CSI 13;2u AND a bare LF (both leave the cursor where it was), and inserts a newline
+  // on ESC CR. Sending Claude's sequence here made Shift+Enter a dead key for the whole CLI (#493).
+  newlineKeySequence: '\x1b\r',
   // Codex added a native `codex fork <session-id>` command. The backend owns that argv shape so the core
   // can offer the generic Fork action without learning Codex subcommands.
   supportsFork: true,

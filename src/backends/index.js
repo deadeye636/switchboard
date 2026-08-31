@@ -145,6 +145,8 @@ function profileToDescriptor(p) {
     supportsFork: base ? base.supportsFork : false,
     // Page keys belong to the binary the template runs, exactly like its launch options.
     pageKeyTarget: base ? base.pageKeyTarget : 'pty',
+    // So does the newline chord (#493): the composer reading it is the base's, not the template's.
+    newlineKeySequence: base ? base.newlineKeySequence : null,
     supportsSubagents: base ? base.supportsSubagents === true : false,   // #230
     // A template runs the base's binary, so it can do exactly what the base can (#439). The matrix gives
     // it no column of its own for that reason — a column would be a copy under another name — but the
