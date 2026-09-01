@@ -1,7 +1,7 @@
-# Windows-Build (NSIS-Installer)
+# Windows build (NSIS installer)
 
-Anleitung zum Bauen des Windows-Installers für Switchboard auf dieser Maschine
-(VS 2026 / Visual Studio Build Tools, x64). Stand: 2026-07-31.
+How to build Switchboard's Windows installer with VS 2026 / Visual Studio Build Tools, x64.
+As of 2026-07-31.
 
 ## TL;DR
 
@@ -9,136 +9,127 @@ Anleitung zum Bauen des Windows-Installers für Switchboard auf dieser Maschine
 unset NoDefaultCurrentDirectoryInExePath && npm run build:win
 ```
 
-Ergebnis: `dist/Switchboard Setup <version>.exe` (NSIS) + entpackter `dist/win-unpacked/`.
+Result: `dist/Switchboard Setup <version>.exe` (NSIS) plus the unpacked `dist/win-unpacked/`.
 
-Das `unset` ist der **einzige** manuelle Schritt pro Shell. Die beiden anderen
-historischen Stolpersteine (node-gyp-Version, node-pty-Spectre) sind dauerhaft im
-Repo verankert und brauchen kein manuelles Zutun mehr.
+The `unset` is the **only** manual step, once per shell. The other two historical stumbling blocks
+(the node-gyp version, node-pty's Spectre mitigation) are pinned in the repo and need no hand-holding
+any more.
 
-## Voraussetzungen
+## Prerequisites
 
-- **Node.js** (gleiche Major wie in `package.json`/CI; Electron 41 ABI).
-- **Visual Studio 2026 Build Tools** mit C++-Desktop-Workload (für native Module
-  `better-sqlite3`, `node-pty`).
-- **Python** (von node-gyp benötigt).
-- Ziel-Architektur: **x64** (arm64-Toolchain hier nicht verfügbar).
+- **Node.js** — the same major as `package.json`/CI (Electron 41 ABI).
+- **Visual Studio 2026 Build Tools** with the C++ desktop workload, for the native modules
+  `better-sqlite3` and `node-pty`.
+- **Python**, which node-gyp needs.
+- Target architecture: **x64**. No arm64 toolchain is set up.
 
-## Die drei Stolpersteine — Ursache & Lösung
+## The three stumbling blocks — cause and cure
 
-### 1. node-gyp ≥ 13 (VS 2026 = MSVC major 18)
+### 1. node-gyp >= 13 (VS 2026 is MSVC major 18)
 
-Ältere node-gyp erkennt VS 2026 (Toolset major 18) nicht und bricht die native
-Kompilierung ab.
+An older node-gyp does not recognise VS 2026 (toolset major 18) and aborts the native compilation.
 
-**Lösung (durable):** in `package.json`:
+**Durable fix** — in `package.json`:
 ```json
 "overrides": { "node-gyp": "13.0.0" }
 ```
-Erzwingt node-gyp 13 für alle transitiven Abhängigkeiten. **Nicht entfernen.**
+That forces node-gyp 13 for every transitive dependency. **Do not remove it.**
 
-### 2. node-pty Spectre-Mitigation (MSB8040)
+### 2. node-pty's Spectre mitigation (MSB8040)
 
-node-pty fordert in `binding.gyp` `SpectreMitigation: 'Spectre'`. Sind die
-Spectre-gehärteten MSVC-Runtime-Libs nicht installiert → Build bricht mit
-**MSB8040** ab. Wir bauen ohne Spectre-Mitigation (Desktop-App, lokales PTY — kein
-relevantes Spectre-Angriffsmodell).
+node-pty's `binding.gyp` asks for `SpectreMitigation: 'Spectre'`. Without the Spectre-hardened MSVC
+runtime libraries installed, the build stops at **MSB8040**. We build without the mitigation: this is
+a desktop app with a local PTY, and there is no Spectre attack model here worth the dependency.
 
-**Lösung (durable):** `patches/node-pty+1.2.0-beta.14.patch` setzt an **einer** Stelle
-`SpectreMitigation: 'false'`:
-- `node_modules/node-pty/binding.gyp` (1×)
+**Durable fix** — `patches/node-pty+1.2.0-beta.14.patch` sets `SpectreMitigation: 'false'` in exactly
+**one** place:
+- `node_modules/node-pty/binding.gyp` (once)
 
-Seit node-pty 1.2.x ist **winpty aus dem Paket verschwunden** — die beiden früheren
-Patch-Stellen in `deps/winpty/src/winpty.gyp` gibt es nicht mehr.
+Since node-pty 1.2.x **winpty is gone from the package**, so the two former patch sites in
+`deps/winpty/src/winpty.gyp` no longer exist.
 
-**Der Patch hängt am Dateinamen und damit an der exakten Version.** `package.json`
-pinnt `"node-pty": "^1.2.0-beta.14"` — ein Caret auf einem Prerelease, das npm auch
-mit `1.2.0` final erfüllt. Ein beiläufiges `npm update` entpatcht den Windows-Build
-also **still**, und er kommt als MSB8040 zurück. Nach jedem Versionswechsel:
-Patch neu erzeugen (unten) und die alte Datei löschen.
+**The patch is keyed to the file name and therefore to the exact version.** `package.json` pins
+`"node-pty": "^1.2.0-beta.14"` — a caret on a prerelease, which npm also satisfies with a final
+`1.2.0`. So a casual `npm update` un-patches the Windows build **silently**, and it comes back as
+MSB8040. After any version change: regenerate the patch (below) and delete the old file.
 
-Der Patch wird durch den **`postinstall`-Hook** automatisch reappliziert:
+The `postinstall` hook re-applies it:
 ```json
 "scripts": { "postinstall": "patch-package && node scripts/postinstall.js && node scripts/ensure-conpty-dll.js" }
 ```
-(`ensure-conpty-dll.js` kopiert node-ptys gebündelte `conpty.dll` an ihren Platz —
-läuft zusätzlich als electron-builder-`beforePack`-Hook, siehe unten.)
-→ überlebt jedes `npm install`. **Patch und postinstall-Hook nicht entfernen.**
+(`ensure-conpty-dll.js` copies node-pty's bundled `conpty.dll` into place; it also runs as an
+electron-builder `beforePack` hook — see below.) So it survives every `npm install`. **Do not remove
+the patch or the postinstall hook.**
 
-Verifizieren, dass node_modules aktuell gepatcht ist:
+To check that `node_modules` is currently patched:
 ```bash
 grep -c "false" node_modules/node-pty/binding.gyp
-# erwartet: 1
+# expected: 1
 ```
 
-### 2b. Warum node-pty auf einem Beta-Kanal läuft
+### 2b. Why node-pty runs on a beta channel
 
-node-pty 1.1.0 greift aus dem Watcher-Thread jedes PTYs **ohne Lock** auf seine globale
-Handle-Tabelle zu, während der JS-Thread anhängt. Der Vektor kann mitten in einer
-Iteration umkopiert werden — und das Entfernen, das seinen eigenen Erfolg assertiert,
-schlägt dann fehl: ein nativer **`Assertion failed!`**-Dialog mit Abort/Retry/Ignore,
-über dem Use-after-free, vor dem er warnt.
+node-pty 1.1.0 touches its global handle table from every PTY's watcher thread **without a lock**
+while the JS thread is appending to it. The vector can be reallocated mid-iteration — and the removal,
+which asserts its own success, then fails: a native **`Assertion failed!`** dialog with
+Abort/Retry/Ignore, on top of the use-after-free it is warning about.
 
-Upstream hat das in **1.2.0-beta.13** behoben (Mutex um die Tabelle, `std::erase_if`
-statt des assertierenden Entfernens). `latest` ist weiterhin 1.1.0 und liegt davor —
-der Fix existiert nur im Beta-Kanal, und VS Code liefert aus demselben Grund von dort
-(`"node-pty": "^1.2.0-beta.13"`).
+Upstream fixed it in **1.2.0-beta.13** (a mutex around the table, `std::erase_if` instead of the
+asserting removal). `latest` is still 1.1.0 and predates that, so the fix exists only on the beta
+channel — VS Code ships from there for the same reason (`"node-pty": "^1.2.0-beta.13"`).
 
-**Kein Ausweg ist `NDEBUG`**: das Assert trägt das Entfernen als Argument, der Aufruf
-fiele mit weg — aus einem lauten Absturz würde ein stiller Use-after-free plus
-Handle-Leak.
+**`NDEBUG` is not a way out**: the assert carries the removal as its argument, so the call would go
+with it, turning a loud crash into a silent use-after-free plus a handle leak.
 
-Patch nach node-pty-Update neu erzeugen (falls Version wechselt → neuer
-Patch-Dateiname `node-pty+<neue-version>.patch`):
+Regenerating the patch after a node-pty update (a version change means a new patch file name,
+`node-pty+<new-version>.patch`):
 ```bash
-# node_modules/node-pty/*.gyp von Hand auf SpectreMitigation:'false' setzen, dann:
+# set SpectreMitigation:'false' by hand in node_modules/node-pty/*.gyp, then:
 npx patch-package node-pty
 git add patches/ && # commit
 ```
 
-### 3. `NoDefaultCurrentDirectoryInExePath` (per-Shell, nicht patchbar)
+### 3. `NoDefaultCurrentDirectoryInExePath` (per shell, not patchable)
 
-Ist diese Env-Variable gesetzt, schlug winptys gyp-`.bat`-Zwischenschritt fehl
-(findet relativ aufgerufene Tools nicht im CWD). Das ist eine Laufzeit-Env, kein
-Datei-Patch → muss pro Shell vor dem Build entfernt werden:
+With this environment variable set, winpty's gyp `.bat` intermediate step used to fail — it could not
+find relatively invoked tools in the working directory. It is a runtime environment variable rather
+than a file, so it has to be cleared per shell before the build:
 
-> **Ungeprüft seit node-pty 1.2.x:** die genannte Ursache — winptys `.bat`-Schritt —
-> **existiert nicht mehr**, winpty ist aus dem Paket verschwunden und `binding.gyp`
-> hat keinen solchen Zwischenschritt. Ob der Workaround noch nötig ist, beantwortet
-> erst ein Build mit gesetzter Variable. Bis dahin stehen lassen: falsch-positiv
-> kostet ein `unset`, falsch-negativ einen rätselhaften Buildbruch.
+> **Unverified since node-pty 1.2.x:** the cause named above — winpty's `.bat` step — **no longer
+> exists**. winpty is gone from the package and `binding.gyp` has no such intermediate step. Whether
+> the workaround is still needed can only be answered by a build with the variable set. Until then it
+> stays: a false positive costs one `unset`, a false negative costs a baffling build failure.
 
 ```bash
 unset NoDefaultCurrentDirectoryInExePath && npm run build:win
 ```
 
-(Bewusst **nicht** ins `build:win`-Script gezogen: `unset` ist bash-Syntax, npm
-führt Scripts auf Windows je nach Konfiguration in cmd/sh aus — der Wrapper wäre
-nicht zuverlässig portabel. Manuelles Voranstellen ist robuster.)
+(Deliberately **not** folded into the `build:win` script: `unset` is bash syntax, and npm runs scripts
+on Windows in cmd or sh depending on configuration, so the wrapper would not be portable. Prefixing it
+by hand is the more robust answer.)
 
-## Build-Schritte im Detail
+## What `build:win` actually does
 
-`npm run build:win` =
-1. `node scripts/gen-build-info.js` — stempelt `build-info.json` (Branch/Commit/
-   dirty/Datum) für die About-Anzeige (gitignored).
-2. `npm run bundle:codemirror` — esbuild bündelt `src/renderer/jsonl/codemirror-setup.js` →
-   `src/renderer/codemirror-bundle.js` (gitignored).
-3. `electron-builder --win` — native Module gegen Electron-ABI rebuilden
-   (node-gyp 13 + gepatchte node-pty-gyps), dann NSIS-Installer packen. Der
-   `beforePack`-Hook `scripts/ensure-conpty-dll.js` kopiert node-ptys gebündelte
-   `conpty.dll` neben den lokalen node-pty-Build (der Rebuild beim Packen wischt
-   `build/Release`, darum reicht der postinstall-Lauf allein nicht — #114).
+1. `node scripts/gen-build-info.js` — stamps `build-info.json` (branch, commit, dirty flag, date) for
+   the About screen. Gitignored.
+2. `npm run bundle:codemirror` — esbuild bundles `src/renderer/jsonl/codemirror-setup.js` into
+   `src/renderer/codemirror-bundle.js`. Gitignored.
+3. `electron-builder --win` — rebuilds the native modules against the Electron ABI (node-gyp 13 plus
+   the patched node-pty gyp), then packs the NSIS installer. The `beforePack` hook
+   `scripts/ensure-conpty-dll.js` copies node-pty's bundled `conpty.dll` next to the local node-pty
+   build: the rebuild during packing wipes `build/Release`, so the postinstall run alone is not
+   enough (#114).
 
 ## Troubleshooting
 
-| Symptom | Ursache | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
-| `MSB8040` Spectre libs | node-pty-Patch nicht appliziert | `npx patch-package` bzw. `npm install` (postinstall) |
-| gyp `.bat`-Schritt failt mit Pfad-Fehler | `NoDefaultCurrentDirectoryInExePath` gesetzt | `unset …` vor dem Build |
-| node-gyp erkennt VS nicht / Toolset-Fehler | node-gyp < 13 | `overrides`-Eintrag prüfen, `npm install` |
-| Patch applied nicht (Version-Mismatch) | node-pty-Version ≠ Patch-Dateiname | Patch neu erzeugen (siehe oben) |
+| `MSB8040`, Spectre libs | the node-pty patch is not applied | `npx patch-package`, or `npm install` for the postinstall |
+| the gyp `.bat` step fails with a path error | `NoDefaultCurrentDirectoryInExePath` is set | `unset …` before the build |
+| node-gyp does not find VS, or a toolset error | node-gyp older than 13 | check the `overrides` entry, then `npm install` |
+| the patch does not apply (version mismatch) | node-pty's version no longer matches the patch file name | regenerate the patch, above |
 
-## Offen / nicht gemacht
+## Open / not done
 
-- **Code-Signing**: Windows-Installer wird **nicht signiert** (kein Zertifikat).
-- **CI**: kein automatisierter Windows-Build (kein eigenes GitHub-Hosting; siehe
-  Katalog Section 5).
+- **Code signing**: the Windows installer is **not signed** — there is no certificate.
+- **CI**: no automated Windows build.

@@ -58,11 +58,26 @@ table is the fallback and it is binding.
    `test/main-no-new-ipc.test.js` will say so.
 5. **No backend id outside its own folder.** A capability that varies per backend is a descriptor
    hook, never a `switch (backendId)` in the core, and never `|| 'claude'`.
-6. **No personal or local identifiers in public artifacts** — no absolute paths, machine names, home
-   dirs, personal names or emails in issues, commits, code or docs. This repo is public, and issue
-   **edit history** is world-readable too.
-7. **Commits, code comments and all user-facing UI text are English.** One logical change per commit,
-   Conventional Commits.
+6. **No personal or local identifiers. Anywhere that leaves this machine.** No personal name, email,
+   machine or account name, and **no real path** — that includes a bare drive letter and folder
+   (`<drive>:\<your-folder>\…`), not only a home directory. Use `~`, `<project>`, `<user>`, or an
+   obviously invented path. It binds **every** artifact, and an enumeration is how the last one got missed, so
+   read it as *all of them*: code, comments, tests and their **fixtures**, docs, specs, `.claude/**`,
+   file **names**, commit messages, issue and PR titles, bodies **and comments**. The repo is public;
+   git history and issue **edit history** are world-readable and effectively permanent, so a deletion
+   afterwards un-publishes nothing. **The check happens before you write, because there is no
+   afterwards** — a rewrite of public history is not on the table for a stray path.
+7. **English. Every artifact in the previous rule, same list, no exceptions.** Not "commits and UI
+   text" — docs, specs, rules, test names, handoffs and issue comments too. `docs/build-windows.md`
+   sat in the public repo in German for months because the rule used to name three artifact kinds and
+   a reader could conclude a doc was not one of them. What you write **to** a person in chat follows
+   the conversation's language; what you write **into a file or an issue** is English regardless.
+   One logical change per commit, Conventional Commits.
+
+   Both rules are cheap to audit and nothing enforces them yet:
+   `grep -rP '\b(nicht|wird|dass|keine|damit|beim)\b'` over the tracked tree finds German prose,
+   `grep -riP '(C:\\Users\\[A-Za-z]|[A-Z]:[\\/]\w+[\\/])'` finds real paths. Run them on what you are
+   about to commit rather than trusting that someone else did.
 8. **A new control in the renderer inherits NO styling** — reuse an existing class, never ship a bare
    `<button>`.
 9. **A setting added/renamed/re-scoped/re-defaulted → `docs/settings-reference.md`.** Same for a new
