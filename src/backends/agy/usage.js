@@ -258,7 +258,10 @@ function transformQuotaSummaryResponse(raw) {
   const buckets = [];
   for (const [groupIndex, group] of (payload?.groups || []).entries()) {
     const groupLabel = quotaGroupLabel(group?.displayName);
-    for (const [bucketIndex, bucket] of (group?.buckets || []).entries()) {
+      // A group whose `buckets` is not an array is a payload this reverse-engineered service could hand
+    // over any day. `.entries()` on a string would throw and cost the whole poll, fallback included.
+    const groupBuckets = Array.isArray(group?.buckets) ? group.buckets : [];
+    for (const [bucketIndex, bucket] of groupBuckets.entries()) {
       const remaining = remainingFraction(bucket);
       if (bucket?.disabled || remaining == null || remaining === '') continue;
       const fraction = Number(remaining);

@@ -13,6 +13,10 @@ const {
 // A reset well over a day out, so the tier is deterministic regardless of when the suite runs.
 const farReset = new Date(Date.now() + 40 * 24 * 60 * 60 * 1000).toISOString();
 
+// Process discovery shells out to tasklist/ps and would talk to a real AGY the developer happens to be
+// running. Every test that reaches the local path stubs it out.
+const NO_LOCAL_PROCESSES = { discoverPids: async () => [] };
+
 test('agy usage: each model bucket carries its used percent, reset and card label', () => {
   const usage = transformQuotaResponse({
     buckets: [
@@ -116,6 +120,13 @@ test('agy usage: current quota summaries preserve both groups and both cadences'
   assert.equal(usage.buckets.find(bucket => bucket.bar).label, 'Claude/GPT 5h');
 });
 
+test('agy usage: a group whose buckets are not a list is empty, not a thrown poll', () => {
+  // The service is reverse-engineered: a shape change must cost the reading, not the whole fetch —
+  // a throw here is caught far away and takes the remote fallback down with it.
+  const usage = transformQuotaSummaryResponse({ response: { groups: [{ displayName: 'Gemini', buckets: 'x' }] } });
+  assert.deepEqual(usage.buckets, []);
+});
+
 test('agy usage: local model fallback keeps AGY display labels', () => {
   const usage = transformLocalModelsResponse({
     clientModelConfigs: [{
@@ -131,6 +142,7 @@ test('agy usage: local model fallback keeps AGY display labels', () => {
 test('agy usage: a forbidden legacy endpoint is limits-unavailable, not signed-out', async () => {
   const usage = await fetchUsage({
     hasCachedUsage: true,
+    localDeps: NO_LOCAL_PROCESSES,
     remoteFetch: async () => ({ kind: 'permissionDenied' }),
   });
   assert.equal(usage._noData, true);
@@ -141,6 +153,7 @@ test('agy usage: a forbidden legacy endpoint is limits-unavailable, not signed-o
 test('agy usage: authentication and throttling remain distinct states', async () => {
   const auth = await fetchUsage({
     hasCachedUsage: true,
+    localDeps: NO_LOCAL_PROCESSES,
     remoteFetch: async () => ({ kind: 'authRequired' }),
   });
   assert.equal(auth._error, true);
@@ -148,6 +161,7 @@ test('agy usage: authentication and throttling remain distinct states', async ()
 
   const throttled = await fetchUsage({
     hasCachedUsage: true,
+    localDeps: NO_LOCAL_PROCESSES,
     remoteFetch: async () => ({ kind: 'rateLimited', retryAfterSeconds: 90 }),
   });
   assert.equal(throttled._rateLimited, true);
@@ -174,7 +188,7 @@ test('agy usage: not signed in (no creds file) is a rendered _error, never a thr
   const prev = process.env.SWITCHBOARD_AGY_CREDS;
   process.env.SWITCHBOARD_AGY_CREDS = path.join(os.tmpdir(), `agy-no-creds-${process.pid}.json`);
   try {
-    const usage = await fetchUsage();
+    const usage = await fetchUsage({ localDeps: NO_LOCAL_PROCESSES });
     assert.equal(usage.backendId, 'agy');
     assert.equal(usage.live, true);
     assert.equal(usage._error, true);

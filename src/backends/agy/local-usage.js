@@ -15,6 +15,17 @@ const USER_STATUS_PATH = '/exa.language_server_pb.LanguageServerService/GetUserS
 const MODEL_CONFIG_PATH = '/exa.language_server_pb.LanguageServerService/GetCommandModelConfigs';
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const PROBE_TIMEOUT_MS = 10000;
+
+// A probe that never succeeds must not repeat forever. The usage poll runs every 60 s and the durable
+// cache only engages after a SUCCESSFUL reading, so an install that is present but not signed in used to
+// have Switchboard spawn and kill a full AGY PTY about once a minute for the app's whole lifetime.
+// Bounded per attempt is not the same as bounded in repetition (#509).
+const PROBE_BACKOFF_BASE_MS = 5 * 60 * 1000;
+const PROBE_BACKOFF_MAX_MS = 60 * 60 * 1000;
+
+// Reverse-engineered from AGY's interactive output — a GUESS, not something a reader can check against
+// the binary. If a pattern is wrong the probe still stops on PROBE_TIMEOUT_MS, so the failure mode is a
+// slower stop rather than an unattended browser login.
 const AUTH_PATTERNS = [
   /select\s+login\s+method\s*:?/i,
   /you\s+are\s+not\s+logged\s+into\s+antigravity/i,
@@ -56,6 +67,51 @@ function parseProcNet(output, socketInodes) {
 
 function validPort(port) {
   return Number.isInteger(port) && port > 0 && port <= 65535;
+}
+
+function validPid(pid) {
+  return Number.isInteger(pid) && pid > 0;
+}
+
+// Only the CLI itself. A loose match ("anything that looks like a language server") would have
+// Switchboard POST into the loopback ports of processes it knows nothing about.
+const AGY_PROCESS_NAME = /^agy(\.exe)?$/i;
+
+function parseWindowsTasklist(output) {
+  const pids = [];
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const fields = line.match(/"([^"]*)"/g);
+    if (!fields || fields.length < 2) continue;
+    const name = fields[0].slice(1, -1);
+    const pid = Number(fields[1].slice(1, -1));
+    if (AGY_PROCESS_NAME.test(name) && validPid(pid)) pids.push(pid);
+  }
+  return pids;
+}
+
+function parsePosixPs(output) {
+  const pids = [];
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const match = line.trim().match(/^(\d+)\s+(\S.*)$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const name = match[2].trim().split(/[\\/]/).pop();
+    if (AGY_PROCESS_NAME.test(name) && validPid(pid)) pids.push(pid);
+  }
+  return pids;
+}
+
+// Every AGY process on this machine, not only the ones Switchboard spawned. `execFile`, no shell string.
+async function discoverPids(deps = {}) {
+  const run = deps.execFileText || execFileText;
+  try {
+    if (process.platform === 'win32') {
+      return parseWindowsTasklist(await run('tasklist.exe', ['/FO', 'CSV', '/NH', '/FI', 'IMAGENAME eq agy.exe']));
+    }
+    return parsePosixPs(await run('ps', ['-Ao', 'pid=,comm=']));
+  } catch {
+    return [];
+  }
 }
 
 function execFileText(file, args, opts = {}) {
@@ -246,17 +302,61 @@ async function runManagedProbe(executable, deps = {}) {
 }
 
 let _probePromise = null;
+let _probeBackoff = { failures: 0, nextAttemptAt: 0, lastResult: null };
+
+function resetProbeBackoff() {
+  _probeBackoff = { failures: 0, nextAttemptAt: 0, lastResult: null };
+}
+
+function isReading(result) {
+  return result && (result.kind === 'summary' || result.kind === 'models');
+}
+
+// A failed probe is remembered along with the wait, so the polls inside the window keep reporting what
+// the last attempt found instead of flipping the status bar between "not signed in" and "unavailable".
+function recordProbeResult(result, now) {
+  if (isReading(result)) {
+    resetProbeBackoff();
+    return result;
+  }
+  const failures = _probeBackoff.failures + 1;
+  const wait = Math.min(PROBE_BACKOFF_BASE_MS * (2 ** (failures - 1)), PROBE_BACKOFF_MAX_MS);
+  _probeBackoff = { failures, nextAttemptAt: now + wait, lastResult: result };
+  return result;
+}
 
 async function fetchLocalRaw({ livePids = [], allowLaunch = true, findExecutable, deps = {} } = {}) {
-  for (const pid of [...new Set(livePids)].filter(Number.isInteger)) {
+  const tried = new Set();
+  const askPid = async (pid) => {
+    if (tried.has(pid)) return null;
+    tried.add(pid);
     const result = await fetchFromPid(pid, deps);
-    if (result.kind !== 'unavailable') return result;
+    if (result.kind === 'unavailable') return null;
+    if (isReading(result)) resetProbeBackoff();
+    return result;
+  };
+
+  for (const pid of [...new Set(livePids)].filter(validPid)) {
+    const result = await askPid(pid);
+    if (result) return result;
   }
+  // "Prefer an already-running AGY process, INCLUDING a PTY launched by Switchboard" (#509) names a set
+  // of which our own launch is one member. A CLI the user started in their own terminal owns the same
+  // quota service, so ask it before spawning a second process next to it.
+  for (const pid of await (deps.discoverPids || discoverPids)(deps)) {
+    const result = await askPid(pid);
+    if (result) return result;
+  }
+
   if (!allowLaunch || typeof findExecutable !== 'function') return { kind: 'unavailable' };
+  const now = (deps.now || Date.now)();
+  if (_probeBackoff.nextAttemptAt > now) return _probeBackoff.lastResult || { kind: 'unavailable' };
   const executable = findExecutable();
   if (!executable) return { kind: 'unavailable' };
   if (!_probePromise) {
-    _probePromise = runManagedProbe(executable, deps).finally(() => { _probePromise = null; });
+    _probePromise = runManagedProbe(executable, deps)
+      .then(result => recordProbeResult(result, now))
+      .finally(() => { _probePromise = null; });
   }
   return _probePromise;
 }
@@ -268,6 +368,10 @@ module.exports = {
   parseWindowsNetstat,
   parseLsof,
   parseProcNet,
+  parseWindowsTasklist,
+  parsePosixPs,
+  discoverPids,
+  resetProbeBackoff,
   quotaSummaryPayload,
   modelConfigsPayload,
   containsAuthPrompt,

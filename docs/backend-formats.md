@@ -372,10 +372,16 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   real `.exe`, not a `.cmd` shim.
 
 **Usage (#191, #509).** Current agy owns its OAuth token in the OS keyring and exposes the data behind
-`/usage` through a loopback HTTPS service. Switchboard prefers a running AGY process, discovers only the
-ports owned by that process, and calls `RetrieveUserQuotaSummary`, then `GetUserStatus` and
-`GetCommandModelConfigs` as compatibility fallbacks. With no running session and no durable cached reading,
-it starts one bounded PTY probe and shuts it down after the fetch. The summary can carry grouped Weekly/5-hour
+`/usage` through a loopback HTTPS service. Switchboard prefers a running AGY process — first the sessions
+it spawned itself, then any other `agy` process on the machine, found by image name through `tasklist` or
+`ps` — discovers only the ports owned by that process, and calls `RetrieveUserQuotaSummary`, then
+`GetUserStatus` and `GetCommandModelConfigs` as compatibility fallbacks. With no running process and no
+durable cached reading, it starts one bounded PTY probe and shuts it down after the fetch. A probe that
+does not return a reading backs off — five minutes, doubling to an hour — and its answer is re-served
+while the wait runs, so an install that is present but not signed in is not respawned once a minute for
+the app's whole lifetime. On a machine with several users signed in, the process list is not private:
+a discovered `agy` can belong to another account, and if its loopback service answers, the figure shown
+is that account's. The summary can carry grouped Weekly/5-hour
 limits; older/local fallbacks carry per-model fractions and reset times. All map into the same usage buckets.
 When `SWITCHBOARD_STORE_AGY` marks an isolated demo/sandbox, Switchboard never starts that probe: the
 override moves only Switchboard's scanner, not agy's own home, so launching it would escape the sandbox.
