@@ -38,7 +38,7 @@ window.api.onTerminalData((sessionId, data) => {
     if (typeof flowTrackReceived === 'function') flowTrackReceived(sessionId, data.length);
     let buf = terminalWriteBuffers.get(sessionId);
     if (!buf) {
-      buf = { chunks: [], rafId: 0, timerId: 0 };
+      buf = { chunks: [], rafId: 0, timerId: 0, firstAt: 0 };
       terminalWriteBuffers.set(sessionId, buf);
     }
     buf.chunks.push(data);
@@ -48,7 +48,9 @@ window.api.onTerminalData((sessionId, data) => {
     // buffering needed: the old syncDepth guard was redundant and mis-counted mixed
     // ?2026h/l markers landing in one coalesced IPC chunk, sticking syncDepth > 0 and
     // holding data until a 500 ms timeout — which left the prompt/status blank (#85).
-    // Just coalesce writes on the next frame; xterm keeps redraws atomic.
+    // Just coalesce the writes; xterm keeps redraws atomic. The coalescing waits for the stream to
+    // settle rather than firing on the next frame, so a redraw the PTY split across several reads is
+    // written whole — see FLUSH_SETTLE_MS in terminal-manager.js (#513).
     scheduleFlush(sessionId, buf);
   }
   // Update last activity time (noise-filtered)

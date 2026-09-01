@@ -226,21 +226,99 @@ test('Stage B: flushTerminalBuffer uses background interval for non-visible sess
   }
 });
 
-test('Stage B: visible session uses the fast 33ms cadence (no regression)', () => {
+// Records what scheduleFlush asks setTimeout for. The delay IS the contract here, and nothing else
+// in these isolated tests touches a timer.
+function captureFlushDelays(inCtx) {
+  inCtx(`globalThis.__delays = []; globalThis.__cleared = 0;
+         globalThis.__realSetTimeout = setTimeout; globalThis.__realClearTimeout = clearTimeout;
+         globalThis.setTimeout = (fn, ms) => { __delays.push(ms); return __realSetTimeout(fn, 100000); };
+         globalThis.clearTimeout = (id) => { if (id) __cleared++; return __realClearTimeout(id); };`);
+  return {
+    delays: () => inCtx('__delays'),
+    cleared: () => inCtx('__cleared'),
+    restore: () => inCtx('globalThis.setTimeout = __realSetTimeout; globalThis.clearTimeout = __realClearTimeout;'),
+  };
+}
+
+test('Stage B: a visible session waits for the settle, still inside the 33 ms cadence (#513)', () => {
   const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
   try {
     window.createTerminalEntry({ sessionId: 's1' });
     const entry = window.openSessions.get('s1');
     entry.element.classList.add('visible'); // mark as visible
 
-    // No prior flush → elapsed is infinite → must take rAF path immediately
-    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['y'], rafId: 0, timerId: 0 })`);
+    // No prior flush. The old behaviour flushed on the very next animation frame, which is how the
+    // first read of a redraw became a frame of its own — the cursor flickering between the prompt and
+    // the redraw position (#513). It waits for the stream to go quiet instead.
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['y'], rafId: 0, timerId: 0, firstAt: 0 })`);
     inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
 
     const buf = inCtx(`terminalWriteBuffers.get('s1')`);
-    assert.ok(buf.rafId !== 0, 'rAF scheduled for visible session (fast path)');
-    assert.strictEqual(buf.timerId, 0, 'no slow timer for visible session');
+    assert.strictEqual(buf.rafId, 0, 'no immediate rAF — the buffer waits for the settle first');
+    assert.ok(buf.timerId !== 0, 'a settle timer is scheduled');
+    // Compared value by value: the array comes out of the vm realm, so deepStrictEqual would fail on
+    // the prototype alone and say nothing about the delay.
+    assert.strictEqual(cap.delays().length, 1, 'exactly one wait was scheduled');
+    assert.strictEqual(cap.delays()[0], inCtx('FLUSH_SETTLE_MS'), 'the wait is exactly the settle');
+    assert.ok(inCtx('FLUSH_SETTLE_MS') < inCtx('MIN_FLUSH_INTERVAL_MS'),
+      'the settle must stay under the visible cadence, or it would slow streaming down');
+    assert.ok(inCtx('FLUSH_SETTLE_MS') < inCtx('BACKGROUND_FLUSH_INTERVAL_MS'),
+      'a visible session must not fall onto the background cadence');
   } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+test('Stage B: a following chunk REPLACES the pending flush rather than letting it fire (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    const entry = window.openSessions.get('s1');
+    entry.element.classList.add('visible');
+
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['a'], rafId: 0, timerId: 0, firstAt: 0 })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+    const first = inCtx(`terminalWriteBuffers.get('s1').timerId`);
+
+    // The second read of the same redraw. Returning early here — which is what it used to do — is what
+    // let the first read be written on its own.
+    inCtx(`terminalWriteBuffers.get('s1').chunks.push('b')`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+    const second = inCtx(`terminalWriteBuffers.get('s1').timerId`);
+
+    assert.ok(cap.cleared() >= 1, 'the pending flush was cleared, not left to fire');
+    assert.notStrictEqual(second, first, 'the second chunk re-scheduled the flush');
+    assert.strictEqual(cap.delays().length, 2, 'one wait per chunk');
+  } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+test('Stage B: the settle never pushes a flush past one interval from the first chunk (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    const entry = window.openSessions.get('s1');
+    entry.element.classList.add('visible');
+
+    // A buffer whose first chunk landed a full interval ago: a continuously streaming session. The
+    // ceiling has to win over the settle here, or streaming would be delayed indefinitely by its own
+    // steady arrival of data.
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: ['a'], rafId: 0, timerId: 0,
+             firstAt: performance.now() - MIN_FLUSH_INTERVAL_MS })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+
+    const buf = inCtx(`terminalWriteBuffers.get('s1')`);
+    assert.ok(buf.rafId !== 0, 'the ceiling is reached, so it flushes on the next frame');
+    assert.strictEqual(buf.timerId, 0, 'no further settle once the ceiling is reached');
+    assert.strictEqual(cap.delays().length, 0, 'no timer at all on the ceiling path');
+  } finally {
+    cap.restore();
     destroy();
   }
 });

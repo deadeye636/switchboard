@@ -758,7 +758,7 @@ window._nudgeTerminalFontSize = (delta) => {
 
 // --- Terminal write buffering ---
 // Batch incoming terminal data to coalesce IPC chunks into fewer write() calls.
-const terminalWriteBuffers = new Map(); // sessionId → { chunks, rafId, timerId }
+const terminalWriteBuffers = new Map(); // sessionId → { chunks, rafId, timerId, firstAt }
 
 // ~30 fps flush cap — halves paint/compositor work vs. 60 fps during streaming.
 // Measured (JBR #64): compositor burns 40-60% of a core at 60 fps; a 33 ms
@@ -784,6 +784,25 @@ function visibleFlushInterval() {
 // at 30 fps when the terminal is hidden (display:none or in a non-visible grid card).
 // ~0.5 fps reduces parse CPU for idle background sessions without correctness risk.
 const BACKGROUND_FLUSH_INTERVAL_MS = 2000;
+
+// How long a buffer that is still receiving waits for the stream to go quiet before it is written.
+//
+// A redraw that ends in a transient state is only paintable if it is written ALONE (#513). ConPTY hands
+// a TUI's redraw over in small reads — measured at 5-56 bytes, a MEDIAN of 14 ms apart — and it cuts the
+// redraw across them, so a CLI that parks the cursor at its viewport origin before the correcting read
+// arrives had that origin painted for one frame: the cursor visibly flickering between the prompt and the
+// redraw position. Flushing on the very next animation frame is what made the first read a frame of its
+// own — it caught only the reads that landed in the 0-16 ms sliver before it fired.
+//
+// So the flush is a settle, not a cadence: every arriving chunk pushes it out, and the interval above
+// stays the CEILING, which is what keeps throughput under load unchanged. The cost is on a lone chunk
+// with nothing following it — an echoed keystroke waits this long instead of one frame.
+//
+// THIS VALUE IS A MARGIN OVER A MEDIAN, NOT A PROVEN BOUND. No tail was measured, and the ceiling wins
+// over the settle once one interval has passed, so a redraw whose second read arrives late enough is
+// still written split. It makes the flicker rare rather than impossible; treat a report that it still
+// happens as plausible rather than as something else.
+const FLUSH_SETTLE_MS = 24;
 
 const lastFlushAt = new Map(); // sessionId → performance.now() of last flush
 
@@ -1136,27 +1155,40 @@ function flushTerminalBuffer(sessionId) {
 }
 
 function scheduleFlush(sessionId, buf) {
-  // If a timer or rAF is already pending, don't stack another.
-  if (buf.timerId || buf.rafId) return;
+  const now = performance.now();
+  if (!buf.firstAt) buf.firstAt = now;
 
   const last = lastFlushAt.get(sessionId);
-  const elapsed = last === undefined ? Infinity : performance.now() - last;
 
   // Stage B: use a longer flush interval for non-visible sessions to reduce VT
   // parse frequency. Visible sessions get the adaptive 33/66 ms budget (#81).
   const effectiveMin = isSessionVisible(sessionId) ? visibleFlushInterval() : BACKGROUND_FLUSH_INTERVAL_MS;
 
-  if (elapsed >= effectiveMin) {
-    // Enough time has passed — flush on the next animation frame (current behavior).
+  // Three bounds decide when this buffer is written:
+  //   floor    the ~30 fps cap — never flush sooner than one interval after the last one (#81)
+  //   settle   wait for the stream to go quiet, so a redraw split across reads is written whole (#513)
+  //   ceiling  and never wait longer than one interval past the buffer's FIRST chunk, which is what
+  //            keeps a continuously streaming session on its old cadence
+  const floor = last === undefined ? now : last + effectiveMin;
+  const ceiling = buf.firstAt + effectiveMin;
+  const delay = Math.max(0, Math.max(floor, Math.min(now + FLUSH_SETTLE_MS, ceiling)) - now);
+
+  // Every chunk re-schedules: that is what makes this a settle rather than a cadence, so a pending
+  // flush is REPLACED, not left to fire on its own. (It used to return early here, which is how the
+  // first read of a redraw became a frame of its own.)
+  clearTimeout(buf.timerId);
+  cancelAnimationFrame(buf.rafId);
+  buf.timerId = 0;
+  buf.rafId = 0;
+
+  if (delay <= 0) {
     buf.rafId = requestAnimationFrame(() => flushTerminalBuffer(sessionId));
   } else {
-    // Too soon — schedule a timer for the remaining interval, then rAF from there.
     // Reuses buf.timerId so destroySession/flushTerminalBuffer teardown works unchanged.
-    const remaining = effectiveMin - elapsed;
     buf.timerId = setTimeout(() => {
       buf.timerId = 0;
       buf.rafId = requestAnimationFrame(() => flushTerminalBuffer(sessionId));
-    }, remaining);
+    }, delay);
   }
 }
 
