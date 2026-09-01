@@ -7,6 +7,8 @@
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   const KNOWN_TONES = new Set(['default', 'danger', 'warning', 'success']);
   const KNOWN_FOCUS_TARGETS = new Set(['confirm', 'secondary', 'tertiary', 'cancel']);
+  // One counter per page, so every dialog's ids are its own (#503).
+  let controlDialogSeq = 0;
 
   function formatControlDialogDetails(details) {
     if (!details) return [];
@@ -103,6 +105,12 @@
 
   function showControlDialog(options = {}) {
     const normalized = normalizeControlDialogOptions(options);
+    // Ids are per DIALOG, not per file (#503). The title used to carry a fixed `control-dialog-title`,
+    // so two dialogs open at once pointed both `aria-labelledby`s at the first one's heading.
+    const uid = ++controlDialogSeq;
+    const titleId = `control-dialog-title-${uid}`;
+    const messageId = `control-dialog-message-${uid}`;
+    const detailsId = `control-dialog-details-${uid}`;
 
     return new Promise(resolve => {
       const overlay = document.createElement('div');
@@ -112,7 +120,13 @@
       dialog.className = `control-dialog ${controlDialogToneClass(normalized.tone)}`;
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
-      dialog.setAttribute('aria-labelledby', 'control-dialog-title');
+      dialog.setAttribute('aria-labelledby', titleId);
+      // …and the dialog says what it is ASKING ABOUT, not only what it is called (#503). The title alone
+      // is "Archive Session"; the sentence and the detail rows carry the scope and the counts the answer
+      // rests on. Only ids that exist are referenced — a dangling one reads as nothing at all, which is
+      // how a description silently disappears.
+      const describedBy = [normalized.message ? messageId : '', normalized.details.length ? detailsId : ''].filter(Boolean);
+      if (describedBy.length) dialog.setAttribute('aria-describedby', describedBy.join(' '));
 
       const detailRows = normalized.details.map(({ label, value }) => `
         <div class="control-dialog-detail-row">
@@ -125,9 +139,9 @@
 
       dialog.innerHTML = `
         <div class="control-dialog-kicker">${normalized.tone === 'danger' ? 'Destructive Action' : 'Confirm Action'}</div>
-        <h3 id="control-dialog-title">${escapeHtml(normalized.title)}</h3>
-        ${normalized.message ? `<p>${escapeHtml(normalized.message)}</p>` : ''}
-        ${detailRows ? `<div class="control-dialog-details">${detailRows}</div>` : ''}
+        <h3 id="${titleId}">${escapeHtml(normalized.title)}</h3>
+        ${normalized.message ? `<p id="${messageId}">${escapeHtml(normalized.message)}</p>` : ''}
+        ${detailRows ? `<div class="control-dialog-details" id="${detailsId}">${detailRows}</div>` : ''}
         ${normalized.prompt ? `
         <input type="text" class="control-dialog-input" maxlength="${normalized.prompt.maxLength}"
                placeholder="${escapeHtml(normalized.prompt.placeholder)}" value="${escapeHtml(normalized.prompt.value)}">` : ''}
@@ -176,6 +190,27 @@
       }
 
       function onKey(event) {
+        // The keyboard stays inside an open dialog (#503). `aria-modal="true"` tells assistive technology
+        // to ignore everything behind this dialog — but it does not move focus, so Tab past the last
+        // button walked into a page the screen reader had just been told is not there. Queried per press
+        // rather than captured: the confirm button can be disabled and become pressable while the dialog
+        // is open (the archive-all checkbox), and a captured list would keep offering yesterday's answer.
+        if (event.key === 'Tab') {
+          // `contains` answers false for null and for a node in another tree, so it needs no type test —
+          // and `Element` is not in the renderer lint environment's globals anyway.
+          const inThisDialog = !!event.target && dialog.contains(event.target);
+          // Only the TOP dialog pulls stray focus back, or two open dialogs fight over it.
+          const overlays = document.querySelectorAll('.control-dialog-overlay');
+          if (!inThisDialog && overlays[overlays.length - 1] !== overlay) return;
+          const focusables = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
+          if (!focusables.length) return;
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          if (!inThisDialog) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return; }
+          if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
+          else if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
+          return;
+        }
         // Escape throws the dialog away exactly like a backdrop click does, so a dialog that holds work
         // has to be safe from both. It is not "one is deliberate and the other is not": Escape is a
         // reflex, and the packet it discards took an agent minutes and tokens to write. An explicit
