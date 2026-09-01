@@ -226,6 +226,75 @@ test('agy descriptor: probe reports installed/not-installed with an actionable r
   if (!res.ok) assert.ok(res.reason && res.reason.length > 10);
 });
 
+// #510 — agy inserts the MODEL row when a turn starts and fills it in as the answer streams, so the last
+// message step is 15 from the first moment and the old role rule could never report busy. `steps.status`
+// is what says so: 8 while a step runs, 3 once it is done.
+test('agy state: the last step\'s status decides busy, not which role wrote it (#510)', () => {
+  const state = require('../src/backends/agy/state');
+  const fresh = new Date().toISOString();
+  // The exact shape a live turn produces: a model step (15) that has not finished.
+  assert.equal(state.deriveState({ lastStatus: 8, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
+    'a running model step is a turn in progress, whatever the role says');
+  assert.equal(state.deriveState({ lastStatus: 3, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle');
+  // A tool step runs too, and the question about it is the same one.
+  assert.equal(state.deriveState({ lastStatus: 8, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy');
+  assert.equal(state.deriveState({ lastStatus: 3, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
+    'a finished step is finished even behind a trailing user message');
+  // Anything not known to mean "in progress" is idle: a session stuck on Working is the worse failure.
+  for (const unknown of [0, 7, 99]) {
+    assert.equal(state.deriveState({ lastStatus: unknown, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
+      `status ${unknown} is not a turn in progress`);
+  }
+  // No status at all (a scanned row, or a store that reports none) falls back to the role rule.
+  assert.equal(state.deriveState({ lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy');
+  assert.equal(state.deriveState({ lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle');
+});
+
+test('agy state: the safeguards still bound a step left running (#166, #510)', () => {
+  const state = require('../src/backends/agy/state');
+  const now = Date.now();
+  const stale = new Date(now - state.ACTIVITY_WINDOW_MS - 1000).toISOString();
+  const running = { lastStatus: 8, lastRole: 'assistant', lastEntryAt: stale };
+
+  assert.equal(state.deriveState(running, now), 'idle', 'silent past the activity window -> idle');
+  assert.equal(state.deriveState(running, now, { lastOutputMs: now - 5000 }), 'busy',
+    'the PTY keeps it alive, but only because the store already said running');
+  assert.equal(state.deriveState({ lastStatus: 3, lastRole: 'assistant', lastEntryAt: stale }, now, { lastOutputMs: now }), 'idle',
+    'output never DECLARES a turn — a finished step stays finished');
+
+  const wedged = { lastStatus: 8, lastRole: 'assistant', lastEntryAt: new Date(now - state.OUTPUT_LIVENESS_CEILING_MS - 1000).toISOString() };
+  assert.equal(state.deriveState(wedged, now, { lastOutputMs: now }), 'idle', 'past the ceiling it heals itself');
+});
+
+test('agy state: readDbFacts reports the last step\'s status, and copes without the column (#510)', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const state = require('../src/backends/agy/state');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-status-'));
+  try {
+    const withStatus = path.join(dir, 'with-status.db');
+    let db = new DatabaseSync(withStatus);
+    db.exec('CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER)');
+    db.exec('INSERT INTO steps (idx, step_type, status) VALUES (0, 14, 3), (1, 15, 8)');
+    db.close();
+    let facts = state.readDbFacts(withStatus);
+    assert.equal(facts.lastStatus, 8, 'the LAST step, not the last message step');
+    assert.equal(facts.lastRole, 'assistant');
+
+    // A store with no status column must still be readable — the role rule takes over.
+    const noStatus = path.join(dir, 'no-status.db');
+    db = new DatabaseSync(noStatus);
+    db.exec('CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER)');
+    db.exec('INSERT INTO steps (idx, step_type) VALUES (0, 14)');
+    db.close();
+    facts = state.readDbFacts(noStatus);
+    assert.equal(facts.lastStatus, null, 'no column -> no answer, rather than a failed read');
+    assert.equal(facts.lastRole, 'user');
+  } finally {
+    state._clearFactsCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // #282 lever 1: busy/idle re-opens the conversation `.db` only when its signature (mtime+size, plus the
 // `-wal` sibling) actually changed. adopt.updateBackendLiveStates re-reads liveState on every watcher
 // flush from ANY backend, so without this an idle agy `.db` was re-opened several times a second.

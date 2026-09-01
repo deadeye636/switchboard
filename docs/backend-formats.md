@@ -331,6 +331,11 @@ retired CLI and are a decoy. agy's own store is elsewhere.
     is never paired with the CLI running it, so its session shows "Running" for its whole life (#508).
   - **step roles** — `step_type` 14 = the user prompt, 15 = a model message, 9 = a tool call/result, others
     (23, 98) are lifecycle/title steps. Turn/message count derives from the 14/15 rows.
+  - **busy/idle** — `steps.status` on the LAST step: **8 while it is running, 3 once it is done**. That is
+    the whole signal, and it is the only one: agy inserts the model row when a turn *starts* and fills it
+    in as the answer streams, so the last message step is 15 from the first moment and the role order says
+    nothing about whether a turn is in progress (#510). Only 8 means running — a store census found 3
+    everywhere at rest and a 7 on some lifecycle steps, and 8 never at rest.
   - **title** — agy generates one ("Fix the build" in the sample); it appears in a step. Fall
     back to the first user prompt (step 14, or `history.jsonl`'s `display` for that workspace) when absent.
   - **model** — recorded as a display string in the blobs (`Gemini 3.5 Flash (Medium)`, also ids like
@@ -339,10 +344,11 @@ retired CLI and are a decoy. agy's own store is elsewhere.
 - **No timestamp lives in the DB blobs** (scanned; none in the 2026 epoch-ms range). So the change marker is
   the **`.db` file mtime** (the file-store default), and `history.jsonl`'s `timestamp` (epoch **ms**) gives a
   birth/first-prompt time per workspace if a first-seen date is wanted.
-- **State**: agy states nothing a file read can see — no lifecycle event in the DB, and its `--print` mode is
-  mutually exclusive with the interactive TUI. Busy/idle is inferred like Pi: the last turn's role (a trailing
-  user step = a turn is running) plus the terminal-liveness signal with a ceiling. It does **not** own an OSC
-  title heuristic (that is Claude-only, keyed on the binary).
+- **State**: read from the `steps.status` column above, not inferred from the turn's role — the role order says
+  nothing here, because the model row exists from the moment a turn starts. The safeguards around it are Pi's:
+  the terminal-liveness signal, which can only KEEP a turn busy and never declare one, under a ceiling that
+  heals a session left with a step marked running. agy does **not** own an OSC title heuristic (that is
+  Claude-only, keyed on the binary).
 - **Transcript**: agy declares **`transcriptAccess: 'export'`** with a `readMessages`, exactly like Hermes — the
   `.db` is a *binary* SQLite/protobuf file, so the message viewer and the handoff read the **exported turns**,
   never the raw file (handing that path to the JSONL reader, or to a fresh agent, would yield garbage). It is
