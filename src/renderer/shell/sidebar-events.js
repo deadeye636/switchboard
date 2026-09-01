@@ -725,7 +725,12 @@ async function archiveSessionFromRow(session) {
   // The scope is what the "N earlier" toggle shows, so it asks the toggle's own question (#502):
   // `lineageThreadChain` is the chain cut where the sidebar stops folding. Deriving it here a second time
   // is how the dialog came to count a thread the toggle counted differently.
-  const chain = typeof lineageThreadChain === 'function' ? lineageThreadChain(session) : [];
+  const thread = typeof lineageThreadChain === 'function' ? lineageThreadChain(session) : [];
+  // The one thing the scope asks that the fold does not: an ALREADY-ARCHIVED ancestor ends it. Folding has
+  // no opinion there (with "Show archived" on it folds like any other idle row), but there is nothing to
+  // archive above one, and an undo that un-archived it would put back a state the user never had.
+  const firstArchived = thread.findIndex(s => s.archived);
+  const chain = firstArchived === -1 ? thread : thread.slice(0, firstArchived);
 
   let targets = [session];
   if (chain.length > 0) {

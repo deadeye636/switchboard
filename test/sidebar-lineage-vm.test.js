@@ -258,3 +258,41 @@ test('foldedAncestorIds and lineageThreadChain answer with the same rule', () =>
     assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), [], 'so it is not in leaf\'s thread');
   } finally { s.destroy(); }
 });
+
+// The expanded/collapsed state is keyed on the TRUE root (#229), and #502's cut must not move that key:
+// a thread the user opened would fold itself shut the moment an ancestor started running, and the
+// ancestor that broke the chain would open its own thread unasked.
+test('the thread key stays the lineage root even when the chain is cut', () => {
+  const sessions = [
+    sess('root'), sess('mid1', { lineageParentId: 'root' }),
+    sess('mid2', { lineageParentId: 'mid1' }), sess('leaf', { lineageParentId: 'mid2' }),
+  ];
+  const head = { sessionId: 'leaf', lineageParentId: 'mid2' };
+  const idle = setup(sessions);
+  let keyWhileIdle;
+  try {
+    keyWhileIdle = idle.call('buildLineageThread', head).querySelector('.session-lineage-toggle').dataset.lineageRoot;
+    assert.equal(keyWhileIdle, 'root');
+  } finally { idle.destroy(); }
+
+  const cut = setup(sessions, { running: ['mid1'] });
+  try {
+    const thread = cut.call('buildLineageThread', head);
+    const toggle = thread.querySelector('.session-lineage-toggle');
+    assert.match(toggle.textContent, /1 earlier/, 'the head now folds mid2 alone');
+    assert.equal(toggle.dataset.lineageRoot, keyWhileIdle,
+      'the key must not move with the cut, or an open thread closes itself when an ancestor starts');
+  } finally { cut.destroy(); }
+});
+
+// Folding has no opinion about archived rows: they only reach it with "Show archived" on, where they
+// folded before #502 and still do. The archive scope is the one that ends the chain there.
+test('an archived ancestor still folds under its descendant', () => {
+  const sessions = [sess('root', { archived: 1 }), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })];
+  const s = setup(sessions);
+  try {
+    assert.equal(s.call('foldedAncestorIds', sessions).has('root'), true,
+      'with the archive toggle on it is a visible row like any other, and it belongs under mid');
+    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), ['mid', 'root']);
+  } finally { s.destroy(); }
+});

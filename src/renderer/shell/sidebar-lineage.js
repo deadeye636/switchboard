@@ -77,8 +77,12 @@ function lineageAncestorChain(session) {
 // which rows the sidebar drops (below), which ancestors the thread lists (`lineageThreadChain`), and what
 // the archive scope covers (sidebar-events.js). They were two copies for the length of #502, and a rule
 // written twice is a rule that will be changed once.
+// It says nothing about ARCHIVED on purpose. The rows reaching the fold have already been filtered
+// (`filterSidebarSessions`), so an archived ancestor is only ever here with "Show archived" on — and there
+// it folded under its descendant before #502 and still does. The archive scope wants a different answer
+// about those, and asks for it itself.
 function foldsUnderDescendant(session) {
-  if (!session || session.archived) return false;
+  if (!session) return false;
   const id = session.sessionId;
   if (activePtyIds.has(id)) return false;
   if (typeof launchPending === 'function' && launchPending(id)) return false;
@@ -122,7 +126,13 @@ function buildLineageThread(session) {
   // Same affordance as the subagent caret (▶ that rotates to ▼ via `.expanded`) so a folded thread reads
   // like every other collapsible nesting in the sidebar. `session-lineage-toggle` stays for the delegated
   // click selector; `sidebar-children-caret` brings the shared caret look.
-  const rootId = chain[chain.length - 1].sessionId;
+  // The key is the TRUE root of the lineage, not the last row this head happens to fold. #229 keyed the
+  // open/closed state on the root precisely because it is the one end of the relationship that never
+  // moves; keying it on the cut chain would make it move whenever an ancestor starts or stops running —
+  // a thread the user opened would fold itself shut, and the ancestor that broke the chain would open its
+  // own thread unasked. Two heads sharing a root open together, which is Model A's stated bargain.
+  const fullChain = lineageAncestorChain(session);
+  const rootId = fullChain[fullChain.length - 1].sessionId;
   const expanded = getExpandedLineage().has(rootId);
 
   const toggle = document.createElement('div');
