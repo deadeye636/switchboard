@@ -103,6 +103,56 @@
       : false;
   }
 
+  // Everything an overlay with the control-dialog look owes the keyboard, in ONE place (#503, #505):
+  // the Tab cycle inside it, and the caret handed back to whoever had it when the dialog goes away.
+  //
+  // It is exported because `showControlDialog` is not the only dialog wearing these classes — the
+  // remove-project confirm builds its own markup, for checkbox lists this API has no shape for, and the
+  // "topmost overlay" rule below is only true while EVERY `.control-dialog-overlay` traps. One that does
+  // not is a hole in the other's promise, not just in its own.
+  //
+  // Call it once the overlay is in the document; call the returned release when it comes out.
+  function trapControlDialogFocus(overlay, dialog) {
+    const previouslyFocused = document.activeElement;
+
+    function onTabKey(event) {
+      if (event.key !== 'Tab') return;
+      // `aria-modal="true"` tells assistive technology to ignore everything behind this dialog — but it
+      // does not move focus, so Tab past the last button walked into a page the screen reader had just
+      // been told is not there. The list is queried per press rather than captured: a confirm can be
+      // disabled and become pressable while the dialog is open (the archive-all checkbox), and a captured
+      // list would keep offering yesterday's answer.
+      //
+      // `contains` answers false for null and for a node in another tree, so it needs no type test — and
+      // `Element` is not in the renderer lint environment's globals anyway.
+      const inThisDialog = !!event.target && dialog.contains(event.target);
+      // Only the TOP dialog pulls stray focus back, or two open dialogs fight over it.
+      const overlays = document.querySelectorAll('.control-dialog-overlay');
+      if (!inThisDialog && overlays[overlays.length - 1] !== overlay) return;
+      const focusables = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!inThisDialog) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return; }
+      if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
+      else if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
+    }
+
+    document.addEventListener('keydown', onTabKey);
+
+    return function releaseControlDialogFocus() {
+      document.removeEventListener('keydown', onTabKey);
+      // Closing used to leave focus on <body>: the focused button is removed with the overlay and nothing
+      // claims it. That strands the caret outside every dialog — including one still open UNDERNEATH this
+      // one, whose trap cannot pull it back until the next Tab press.
+      const returnTo = previouslyFocused && previouslyFocused.isConnected
+        && !overlay.contains(previouslyFocused) && typeof previouslyFocused.focus === 'function'
+        ? previouslyFocused
+        : null;
+      if (returnTo) returnTo.focus();
+    };
+  }
+
   function showControlDialog(options = {}) {
     const normalized = normalizeControlDialogOptions(options);
     // Ids are per DIALOG, not per file (#503). The title used to carry a fixed `control-dialog-title`,
@@ -113,8 +163,6 @@
     const detailsId = `control-dialog-details-${uid}`;
 
     return new Promise(resolve => {
-      // Whoever had the keyboard before this dialog opened gets it back when the dialog closes.
-      const previouslyFocused = document.activeElement;
       const overlay = document.createElement('div');
       overlay.className = 'control-dialog-overlay';
 
@@ -162,6 +210,8 @@
 
       overlay.appendChild(dialog);
       document.body.appendChild(overlay);
+      // The Tab cycle and the "give the keyboard back" promise, from the one place that owns them.
+      const releaseFocus = trapControlDialogFocus(overlay, dialog);
 
       const cancelBtn = dialog.querySelector('.control-dialog-cancel');
       const secondaryBtn = dialog.querySelector('.control-dialog-secondary');
@@ -181,14 +231,6 @@
       // A dialog with a checkbox answers TWO questions, so it resolves with both. Without one the result
       // stays the bare true/false/'secondary'/'tertiary' every existing caller reads.
       function close(result) {
-        // The keyboard goes back where it came from (#503). Closing used to leave focus on <body>: the
-        // focused button is removed with the overlay and nothing claims it. That strands the caret outside
-        // every dialog — including one still open UNDERNEATH this one, which `aria-modal` says owns the
-        // page, and whose trap cannot pull focus back until the next Tab press.
-        const returnTo = previouslyFocused && previouslyFocused.isConnected
-          && !overlay.contains(previouslyFocused) && typeof previouslyFocused.focus === 'function'
-          ? previouslyFocused
-          : null;
         // A prompt resolves with the TEXT, or null when it was dismissed — a caller that asked for a
         // name has nothing to do with `true`. Everything else keeps the shape it always had.
         if (normalized.prompt) {
@@ -197,31 +239,12 @@
         } else {
           closeControlDialog(overlay, onKey, normalized.checkbox ? { confirmed: result, checked } : result, resolve);
         }
-        if (returnTo) returnTo.focus();
+        releaseFocus();
       }
 
       function onKey(event) {
-        // The keyboard stays inside an open dialog (#503). `aria-modal="true"` tells assistive technology
-        // to ignore everything behind this dialog — but it does not move focus, so Tab past the last
-        // button walked into a page the screen reader had just been told is not there. Queried per press
-        // rather than captured: the confirm button can be disabled and become pressable while the dialog
-        // is open (the archive-all checkbox), and a captured list would keep offering yesterday's answer.
-        if (event.key === 'Tab') {
-          // `contains` answers false for null and for a node in another tree, so it needs no type test —
-          // and `Element` is not in the renderer lint environment's globals anyway.
-          const inThisDialog = !!event.target && dialog.contains(event.target);
-          // Only the TOP dialog pulls stray focus back, or two open dialogs fight over it.
-          const overlays = document.querySelectorAll('.control-dialog-overlay');
-          if (!inThisDialog && overlays[overlays.length - 1] !== overlay) return;
-          const focusables = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled])')];
-          if (!focusables.length) return;
-          const first = focusables[0];
-          const last = focusables[focusables.length - 1];
-          if (!inThisDialog) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return; }
-          if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
-          else if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
-          return;
-        }
+        // Tab is the shared trap's (`trapControlDialogFocus`, above), on its own listener.
+        if (event.key === 'Tab') return;
         // Escape throws the dialog away exactly like a backdrop click does, so a dialog that holds work
         // has to be safe from both. It is not "one is deliberate and the other is not": Escape is a
         // reflex, and the packet it discards took an agent minutes and tokens to write. An explicit
@@ -311,6 +334,7 @@
     formatControlDialogDetails,
     showControlDialog,
     showControlMessage,
+    trapControlDialogFocus,
     showControlToast,
   };
 });

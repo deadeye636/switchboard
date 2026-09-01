@@ -330,6 +330,11 @@
       dialog.className = 'control-dialog control-dialog-danger';
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
+      // The same promises `showControlDialog` makes (#505): a name, a description, and a keyboard that
+      // stays inside. This dialog builds its own markup because the shared one has no shape for a list of
+      // per-backend checkboxes — that is no reason for it to announce itself as an unnamed dialog.
+      dialog.setAttribute('aria-labelledby', 'pa-remove-title');
+      dialog.setAttribute('aria-describedby', 'pa-remove-desc pa-remove-details');
 
       const backendRows = backends.length
         ? backends.map(b => (b.deletable
@@ -350,10 +355,10 @@
 
       dialog.innerHTML = `
         <div class="control-dialog-kicker">Destructive Action</div>
-        <h3>Remove project</h3>
-        <p>Always hides the project and clears its Switchboard cache. Deleting a backend's session
-        history removes those transcripts from disk — that is irreversible.</p>
-        <div class="control-dialog-details">
+        <h3 id="pa-remove-title">Remove project</h3>
+        <p id="pa-remove-desc">Always hides the project and clears its Switchboard cache. Deleting a
+        backend's session history removes those transcripts from disk — that is irreversible.</p>
+        <div class="control-dialog-details" id="pa-remove-details">
           <div class="control-dialog-detail-row">
             <span class="control-dialog-detail-label">Project</span>
             <span class="control-dialog-detail-value">${escapeHtml(shortName(path))}</span>
@@ -368,10 +373,17 @@
       overlay.appendChild(dialog);
       document.body.appendChild(overlay);
 
+      // One implementation of the Tab cycle and the focus hand-back, from control-dialogs.js — a second
+      // copy is how the two dialogs would drift. Armed only once the overlay is in the document.
+      const releaseFocus = typeof trapControlDialogFocus === 'function'
+        ? trapControlDialogFocus(overlay, dialog)
+        : () => {};
+
       const close = (result) => {
         document.removeEventListener('keydown', onKey);
         overlay.remove();
         resolve(result);
+        releaseFocus();
       };
       function onKey(e) { if (e.key === 'Escape') close(null); }
       dialog.querySelector('.control-dialog-cancel').addEventListener('click', () => close(null));
@@ -381,6 +393,9 @@
       }));
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
       document.addEventListener('keydown', onKey);
+      // Cancel, not Remove: this dialog deletes transcripts, and the keyboard must not open on the button
+      // that does it. Same stance as `initialFocus` in the shared dialog (#501).
+      dialog.querySelector('.control-dialog-cancel').focus();
     });
   }
 

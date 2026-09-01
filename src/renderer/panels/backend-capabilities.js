@@ -138,10 +138,13 @@
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-labelledby', 'capability-matrix-title');
+    // The sentence under the heading says what the table is for, so it is part of what this dialog
+    // announces rather than something only a sighted reader gets (#505).
+    dialog.setAttribute('aria-describedby', 'capability-matrix-desc');
     dialog.innerHTML = `
       <div class="control-dialog-kicker">Backends</div>
       <h3 id="capability-matrix-title">What each backend supports</h3>
-      <p>Every backend covers a different part of what Switchboard can do. Hover a cell for the detail
+      <p id="capability-matrix-desc">Every backend covers a different part of what Switchboard can do. Hover a cell for the detail
         behind a limited or missing answer. Templates are not listed: a template runs its backend's
         binary, so it can do exactly what that backend can.</p>
       <div class="cap-legend">
@@ -157,9 +160,16 @@
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
 
+    // The shared Tab cycle and focus hand-back (#505). Every `.control-dialog-overlay` has to trap, or the
+    // "topmost overlay wins" rule the others rely on is false whenever this one is open.
+    const releaseFocus = typeof trapControlDialogFocus === 'function'
+      ? trapControlDialogFocus(overlay, dialog)
+      : () => {};
+
     const close = () => {
       document.removeEventListener('keydown', onKey, true);
       overlay.remove();
+      releaseFocus();
     };
     function onKey(e) {
       if (e.key === 'Escape') { e.preventDefault(); close(); }
