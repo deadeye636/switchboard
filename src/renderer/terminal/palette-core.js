@@ -58,6 +58,26 @@
     return ((from + delta) % count + count) % count;
   }
 
+  // The same move, stopping at both ends instead of wrapping. One arrow step past the last row reads
+  // as "keep going" and wrapping is right there; a page jump that lands back at the top reads as a
+  // scroll that went wrong. `delta` may be ±Infinity, which is how Home and End are expressed.
+  function clampIndex(current, count, delta) {
+    if (!count || count < 1) return -1;
+    const from = Number.isInteger(current) && current >= 0 ? current : 0;
+    return Math.max(0, Math.min(count - 1, from + delta));
+  }
+
+  // How far a page key jumps: as many whole rows as the list shows at once. Measured rather than
+  // fixed, because both heights are decisions made elsewhere — the row's in the stylesheet, the
+  // list's in `paletteGeometry` — and a constant here would be wrong for one palette or the other.
+  // The fallback covers the moment before the first row is drawn, where there is nothing to measure.
+  const PAGE_ROWS_FALLBACK = 10;
+
+  function pageStep(listHeight, rowHeight) {
+    if (!(listHeight > 0) || !(rowHeight > 0)) return PAGE_ROWS_FALLBACK;
+    return Math.max(1, Math.floor(listHeight / rowHeight));
+  }
+
   // Where the palette sits: the lower half of the terminal's rectangle. Pure, so the awkward cases
   // (a short grid card, a terminal near the viewport edge) are testable rather than eyeballed.
   //
@@ -321,6 +341,32 @@
     renderList();
   }
 
+  // Page and Home/End: the same walk, stopped at the ends. `renderList` already scrolls the active
+  // row into view, so the list follows the highlight without a second scroll call here.
+  function moveClamped(delta) {
+    paletteState.index = clampIndex(paletteState.index, paletteState.shown.length, delta);
+    renderList();
+  }
+
+  // A page, measured off what is on screen right now: the rows the visible band holds WHOLE. Counted
+  // rather than divided, because a grouped list draws headings between the rows — a step derived from
+  // the row height alone would carry the highlight past however many headings are in view, and those
+  // rows would never be seen. Rectangles, not `offsetTop`: the rows' offset parent is the palette,
+  // not the scrolling list, so an offset here would be measured against the wrong box.
+  function visiblePageStep() {
+    const list = palette && el('.vpal-list');
+    const rows = list ? list.querySelectorAll('.vpal-row') : [];
+    if (!rows.length) return pageStep(0, 0);
+    const box = list.getBoundingClientRect();
+    let whole = 0;
+    for (const row of rows) {
+      const r = row.getBoundingClientRect();
+      if (r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5) whole++;
+    }
+    // Nothing whole in view (a palette shorter than one row) still has to move.
+    return whole > 0 ? whole : pageStep(box.height, rows[0].getBoundingClientRect().height);
+  }
+
   /** Take the highlighted row: close first, then hand it to the picker with the terminal it belongs to. */
   async function pickActive() {
     if (!paletteState || !paletteState.loaded || paletteState.failed) return; // in flight, or failed
@@ -385,6 +431,13 @@
     if (event.key === 'Escape') { claim(event); closePalette(); return; }
     if (event.key === 'ArrowDown') { claim(event); move(1); return; }
     if (event.key === 'ArrowUp') { claim(event); move(-1); return; }
+    // The list is what these walk, not the filter box. Home and End would otherwise move the caret
+    // inside a query that is one short line — the far end of a long list is the thing that is hard
+    // to reach by keyboard, and the footer says so.
+    if (event.key === 'PageDown') { claim(event); moveClamped(visiblePageStep()); return; }
+    if (event.key === 'PageUp') { claim(event); moveClamped(-visiblePageStep()); return; }
+    if (event.key === 'Home') { claim(event); moveClamped(-Infinity); return; }
+    if (event.key === 'End') { claim(event); moveClamped(Infinity); return; }
     if (event.key === 'Enter') { claim(event); pickActive(); }
   }
 
@@ -422,6 +475,8 @@
       <div class="vpal-list" id="${esc(listboxId)}" role="listbox" aria-label="${esc(config.listLabel)}"></div>
       <div class="vpal-foot">
         <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
+        <span><kbd>PgUp</kbd><kbd>PgDn</kbd> page</span>
+        <span><kbd>Home</kbd><kbd>End</kbd> ends</span>
         <span><kbd>Enter</kbd> ${esc(config.enterLabel || 'insert')}</span>
         <span><kbd>Esc</kbd> close</span>
       </div>`;
@@ -514,7 +569,8 @@
   }
 
   return {
-    nextIndex, paletteGeometry, centeredGeometry, openPalette, closePalette, closePaletteForSession,
+    nextIndex, clampIndex, pageStep,
+    paletteGeometry, centeredGeometry, openPalette, closePalette, closePaletteForSession,
     paletteIsSessionless, paletteMetaWithDate,
   };
 });

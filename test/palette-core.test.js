@@ -7,7 +7,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { nextIndex, paletteGeometry, paletteMetaWithDate } = require('../src/renderer/terminal/palette-core');
+const {
+  nextIndex, clampIndex, pageStep, paletteGeometry, paletteMetaWithDate,
+} = require('../src/renderer/terminal/palette-core');
 
 test('the highlight wraps at both ends', () => {
   assert.equal(nextIndex(0, 3, 1), 1);
@@ -25,6 +27,41 @@ test('a highlight of -1 moving forward lands on the first row', () => {
   // After a filter emptied the list and a new one refilled it, the index is restored from -1.
   assert.equal(nextIndex(-1, 3, 1), 1);
   assert.equal(nextIndex(-1, 3, -1), 2);
+});
+
+// --- Page and Home/End (#506) ---
+// The arrows wrap; a page jump must not. Landing back at the top after PageDown reads as a scroll
+// that went wrong, so these stop at the ends instead.
+
+test('a page jump stops at the ends instead of wrapping', () => {
+  assert.equal(clampIndex(0, 50, 10), 10);
+  assert.equal(clampIndex(45, 50, 10), 49);   // past the end → last row, not the first
+  assert.equal(clampIndex(4, 50, -10), 0);    // before the start → first row, not the last
+  assert.equal(clampIndex(20, 50, -10), 10);
+});
+
+test('Home and End are the same walk with an unbounded step', () => {
+  assert.equal(clampIndex(17, 50, -Infinity), 0);
+  assert.equal(clampIndex(17, 50, Infinity), 49);
+  assert.equal(clampIndex(0, 1, Infinity), 0);
+});
+
+test('an empty list has no highlight for a page key either', () => {
+  assert.equal(clampIndex(0, 0, 10), -1);
+  assert.equal(clampIndex(-1, 0, -Infinity), -1);
+});
+
+test('a page is as many whole rows as the list shows at once', () => {
+  assert.equal(pageStep(300, 24), 12);
+  assert.equal(pageStep(310, 24), 12);   // a half-visible row is not a row
+  assert.equal(pageStep(20, 24), 1);     // a list shorter than one row still steps
+});
+
+test('an unmeasurable list falls back rather than standing still', () => {
+  // Before the first row is drawn there is nothing to measure, and a step of 0 would make the key dead.
+  for (const [listHeight, rowHeight] of [[0, 24], [300, 0], [NaN, 24], [300, undefined]]) {
+    assert.equal(pageStep(listHeight, rowHeight), 10);
+  }
 });
 
 // --- Where the palette sits ---
