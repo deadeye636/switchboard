@@ -330,6 +330,44 @@ Three things that are easy to undo by accident:
   caller: panes mode looked covered only because `render()` calls `refitVisible()` right after the
   policy, which `focusPane` does not.
 
+## PTY bytes are written on a settle, not on the next frame (#81, #513)
+
+`terminal-manager.js`'s `scheduleFlush` decides when the buffered PTY chunks reach `terminal.write()`,
+and its shape is load-bearing in a way that looks like pointless latency:
+
+- **A pending flush is REPLACED by the next chunk, not left to fire.** ConPTY hands a TUI's redraw over
+  in small reads — measured at 5-56 bytes, a *median* of 14 ms apart — and cuts the redraw across them.
+  Flushing on the very next animation frame wrote the first read alone, so a CLI that parks its cursor
+  at the viewport origin before the correcting read arrives had that origin painted for one frame: a
+  cursor visibly flickering between the prompt and the redraw position (#513).
+- **Three bounds, and all three matter.** The floor is the ~30 fps cap (#81); `FLUSH_SETTLE_MS` is how
+  long a still-receiving buffer waits; the ceiling is one interval past the buffer's FIRST chunk, and it
+  is what keeps a continuously streaming session on its old cadence instead of waiting forever on its own
+  steady arrival of data. Remove the ceiling and streaming stalls; remove the settle and #513 returns.
+- **The settle is a margin over a median, not a proven bound.** No tail was measured, and the ceiling
+  wins once an interval has passed, so a redraw whose second read arrives late enough is still written
+  split. A report that the flicker still happens occasionally is plausible, not evidence of something
+  else.
+- **Do not "fix" the echo latency by dropping the settle.** A lone chunk with nothing behind it waits
+  `FLUSH_SETTLE_MS` instead of one frame. That is the price, and it is the whole mechanism.
+
+`test/terminal-background-write.test.js` holds the three bounds. The old test asserting an immediate rAF
+for a visible session was replaced, not weakened — that guarantee is what #513 removed on purpose.
+
+## A change that only moves numbers inside a rendered row does not rebuild the sidebar
+
+`refreshSidebar()` costs 121-157 ms of main thread at seven projects and 78 sessions, nearly all of it in
+`renderProjects` (split evenly between building the tree and morphdom diffing it), and more than ten call
+sites reach for it. Two patch paths exist for the high-frequency ones — `patchSidebarStatuses` (#80) for a
+busy/idle edge, `patchSidebarChips`/`patchCardChips` (#515) for a VCS status — and a third belongs
+wherever a caller fires repeatedly during ordinary work.
+
+A patch is only safe when **the render can re-derive it**: update the cache first, then patch, and derive
+what you paint from the same function the builder calls. Two copies of a derivation, one in the builder and
+one in the patch, is the #229 trap wearing a different hat — it agrees today and drifts on the next edit.
+Report structural change (a thing that has to appear or disappear) back to the caller and let it rebuild.
+The remaining cost of a full render is #516.
+
 ## The session timeline is READ here, never written (#396)
 
 `session/session-timeline.js` is a read-through **cache** of what the main process holds, not a record.

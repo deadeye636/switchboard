@@ -68,9 +68,18 @@ dedupe/backoff/concurrency logic and is injected with its deps so it is `node --
 ## Renderer — the chip
 
 The main-process pushes `vcs-status-changed`; `src/renderer/shell/sidebar-vcs.js` keeps a renderer-side cache
-and reads it **synchronously when a header is built** (the `tasksBtn` pattern) — never an async DOM patch,
-which the next morphdom render would wipe (the #229 trap). A push updates the cache and requests a debounced
-re-render.
+and reads it **synchronously when a header is built** (the `tasksBtn` pattern). The cache is the source of
+truth, and that is the whole of the #229 trap: a DOM patch written where the render cannot re-derive it is
+wiped by the next morphdom pass and never comes back.
+
+A push therefore updates the cache **first** and only then touches the DOM. `patchSidebarChips` and
+`patchCardChips` write what the next render would produce anyway — both paths derive it from the same two
+functions, `pillInner` and `isDirty` — so a rebuild is idempotent rather than corrective, and there is no
+second copy of the derivation to fall out of step with. A rebuild is asked for only when the chip has to
+appear or disappear, because that changes what the row contains rather than what it says (#515). The full
+`refreshSidebar()` that every push used to trigger measured 121–157 ms of renderer main thread on a sidebar
+of seven projects and 78 sessions; that cost is now paid only for a structural change. The remaining cost of
+a full render, which every one of its callers pays, is #516.
 
 - A **git glyph button** sits on every project/worktree header (and grid card) — always present for a repo,
   always opens the changes window. This is the "button suffices" affordance.

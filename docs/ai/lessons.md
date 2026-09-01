@@ -687,3 +687,37 @@ Three things worth carrying:
   the newest instant instead, and comparing the cutoff afterwards, made one scan answer everyone — and
   a memo on mtime and size then removed the repeated read entirely. **An answer shaped around the
   question cannot be shared; an answer shaped around the data can.**
+
+## Measuring downstream of the layer you are blaming (#513)
+
+A cursor that flickered between the prompt and the position a TUI was repainting. The investigation
+captured the PTY stream with `node-pty`, outside the app, and read the answer straight off it: the CLI
+itself parks the cursor at its viewport origin and makes it visible there. Reported as an upstream bug in
+the CLI, with byte evidence.
+
+The owner then ran the same CLI in a plain console window. No flicker. Same binary, same version.
+
+What the capture had actually measured was **ConPTY's output**, not the CLI's — on Windows a PTY sits
+between the program and the recorder, keeps its own screen buffer, and re-emits a stream of its own. So the
+bytes were real and the conclusion drawn from them was about the wrong writer. The second attempt blamed
+ConPTY instead, and that was wrong too: the owner ran the CLI under Windows Terminal, which hosts its shell
+through ConPTY exactly as the app does, and it was clean there as well.
+
+Only the third measurement asked a question neither party could answer by being blamed: *what happens to
+the bytes after they arrive*. Recording the PTY read boundaries instead of concatenating them showed the
+redraw arriving in two reads a median of 14 ms apart, never once in the same read across 81 of them — and
+the renderer wrote each read on the next animation frame, making the transient state a frame of its own.
+
+Four things worth carrying:
+
+- **A capture taken behind a translation layer is evidence about the layer, not about the program.** The
+  fix for that is not a better regex over the same bytes; it is a second observation point.
+- **Every backend was a control that controlled nothing.** Four other CLIs ran clean through the same PTY —
+  but none of them uses the terminal's own cursor while it works, so none of them could have shown this.
+  A control that cannot exhibit the symptom does not exonerate anything.
+- **The discriminator was the one the owner ran, not the one that was instrumented.** Two of the three
+  turns in this investigation were reversed by someone running the thing by hand for ten seconds.
+- **An A/B across two versions can correlate perfectly and still not be the cause.** An older build of the
+  CLI placed the cursor differently and the version cut in the rollouts lined up to the second with a
+  binary replaced on disk. It was a real difference and it explained nothing about why one terminal showed
+  it and another did not.
