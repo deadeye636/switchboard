@@ -31,6 +31,14 @@ function selectors() {
 
 const overlayRules = () => selectors().filter(({ sel }) => sel.includes('.subagent-active'));
 
+// The exclusion has to sit on the DOT, which is the element that carries `status-unpaired` — the class
+// never lands on the row, card or tab that the selector starts with. `:not(.status-unpaired)` parked on
+// an ancestor always matches and protects nothing, so this reads the last compound segment only.
+function dotSegment(sel) {
+  const parts = sel.split(/\s*>\s*|\s+/).filter(Boolean);
+  return parts[parts.length - 1];
+}
+
 test('every view draws the subagent overlay, so every view is in this guard', () => {
   const views = ['.session-item', '.grid-card', '.session-tab'];
   for (const view of views) {
@@ -40,7 +48,7 @@ test('every view draws the subagent overlay, so every view is in this guard', ()
 });
 
 test('no subagent overlay rule paints over a muted dot', () => {
-  const painting = overlayRules().filter(({ sel }) => !sel.includes(':not(.status-unpaired)'));
+  const painting = overlayRules().filter(({ sel }) => !dotSegment(sel).includes(':not(.status-unpaired)'));
   assert.deepEqual(painting, [],
-    'add `:not(.status-unpaired)` — the overlay wins on specificity, so leaving it out makes the muted dot pulse');
+    'add `:not(.status-unpaired)` to the DOT — the overlay wins on specificity, so leaving it out makes the muted dot pulse');
 });
