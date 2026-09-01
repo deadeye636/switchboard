@@ -51,6 +51,7 @@ function setup(g = {}) {
     buildSessionItem: (s) => {
       const el = window.document.createElement('div');
       el.id = 'si-' + s.sessionId;
+      el.className = 'session-item'; // the class the fold tests count by (#516)
       el.dataset.sessionId = s.sessionId;
       return el;
     },
@@ -61,6 +62,8 @@ function setup(g = {}) {
     formatDate: () => 'just now',
     escapeHtml: (s) => s,
     ICONS: { archive: () => '<svg/>' },
+    // Which sessions have a tab open — buildSessionsList asks before it folds rows away (#516).
+    openSessions: new Map(),
   };
   Object.assign(window, defaults, g);
 
@@ -235,7 +238,7 @@ test('processProjectSessions truncates past the visible count into "older"', () 
     // Count limit 1, none running/pinned → first visible, rest older.
     assert.equal(result.visible.length, 1);
     assert.equal(result.older.length, 2);
-    assert.equal(result.visible[0].element.id, 'si-a');
+    assert.equal(result.visible[0].id, 'si-a');
   } finally { destroy(); }
 });
 
@@ -254,8 +257,8 @@ test('processProjectSessions keeps running/pinned visible even past the count li
       ],
     };
     const result = call('processProjectSessions', project, true);
-    const visibleIds = [...result.visible].map(i => i.element.id);
-    const olderIds = [...result.older].map(i => i.element.id);
+    const visibleIds = [...result.visible].map(i => i.id);
+    const olderIds = [...result.older].map(i => i.id);
     assert.ok(visibleIds.includes('si-run1'), 'the in-limit running session is visible');
     assert.ok(visibleIds.includes('si-run2'), 'a running session past the cutoff must stay visible (the exception)');
     assert.deepEqual(olderIds, ['si-plain'], 'the plain session past the limit is truncated to older');
@@ -328,4 +331,76 @@ test('getSessionProjectLabel survives a window without the lookup', () => {
     assert.equal(call('getSessionProjectLabel', { sessionId: 's1', projectPath: '/srv/work/switchboard' }),
       'work/switchboard');
   } finally { destroy(); }
+});
+
+// --- #516: the rows behind a fold nobody opened ---
+//
+// 65 of the 74 rows in the measured instance sat inside a collapsed "N older" list, built and then
+// hidden. They are built on demand now, and these pin the three cases that decide it.
+
+function olderCase(g = {}) {
+  const h = setup({ visibleSessionCount: 1, sessionMaxAgeDays: 0, ...g });
+  const project = {
+    projectPath: '/p',
+    sessions: [sess('a', T - 1 * DAY), sess('b', T - 2 * DAY), sess('c', T - 3 * DAY)],
+  };
+  const result = h.call('processProjectSessions', project, true);
+  const fId = h.call('folderId', '/p');
+  const list = h.call('buildSessionsList', fId, result.visible, result.older, null, '/p', new Set());
+  return { ...h, fId, list, older: list.querySelector('.sessions-older') };
+}
+
+test('#516: a fold nobody opened builds no rows and stamps the ids it would have shown', () => {
+  const { list, older, destroy } = olderCase();
+  try {
+    assert.equal(list.querySelectorAll('.session-item').length, 1, 'only the visible row is built');
+    assert.equal(older.querySelectorAll('.session-item').length, 0);
+    assert.equal(older.dataset.deferred, '1');
+    assert.deepEqual(String(older.dataset.deferredSessionIds).split(' '), ['b', 'c'],
+      'the archive-all button reads these instead of the rows');
+    assert.equal(list.querySelector('.sessions-more-toggle').dataset.olderCount, '2',
+      'the count is the same one the label shows — it never came from the DOM');
+  } finally { destroy(); }
+});
+
+test('#516: a fold holding an OPEN session is built in full', () => {
+  // Session navigation and the grid read their order off the sidebar's rows, folded ones included.
+  // Dropping a row for a session with a tab open would silently reorder both.
+  const { list, older, destroy } = olderCase({ openSessions: new Map([['c', { closed: false }]]) });
+  try {
+    assert.equal(older.querySelectorAll('.session-item').length, 2);
+    assert.equal(older.dataset.deferred, undefined);
+  } finally { destroy(); }
+});
+
+test('#516: a closed tab does not keep the fold built', () => {
+  const { older, destroy } = olderCase({ openSessions: new Map([['c', { closed: true }]]) });
+  try {
+    assert.equal(older.querySelectorAll('.session-item').length, 0);
+    assert.equal(older.dataset.deferred, '1');
+  } finally { destroy(); }
+});
+
+test('#516: a fold the user opened is built again on the next render', () => {
+  // The live list is where the fold state lives — the toggle writes it and preserveSidebarState carries
+  // it across the morph. A render that read anything else would close a list while it is being read.
+  const h = setup({ visibleSessionCount: 1, sessionMaxAgeDays: 0 });
+  try {
+    const fId = h.call('folderId', '/p');
+    const live = h.window.document.createElement('div');
+    live.id = 'older-list-' + fId;
+    live.className = 'sessions-older';
+    live.style.display = '';
+    h.window.document.body.appendChild(live);
+
+    const project = {
+      projectPath: '/p',
+      sessions: [sess('a', T - 1 * DAY), sess('b', T - 2 * DAY), sess('c', T - 3 * DAY)],
+    };
+    const result = h.call('processProjectSessions', project, true);
+    const list = h.call('buildSessionsList', fId, result.visible, result.older, null, '/p', new Set());
+    const older = list.querySelector('.sessions-older');
+    assert.equal(older.querySelectorAll('.session-item').length, 2);
+    assert.equal(older.dataset.deferred, undefined);
+  } finally { h.destroy(); }
 });

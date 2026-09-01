@@ -322,3 +322,34 @@ test('#229: a caret nobody opened is not marked expanded by the copy', () => {
   assert.equal(to.has('expanded'), false);
   assert.equal(to.attrs['aria-expanded'], undefined);
 });
+
+// --- #516: the pass that has nothing to do ---
+
+test('#516: a row that is already what the builder wants is skipped, a changed one is not', () => {
+  // jsdom rather than the stub above: this clause is a native deep compare, so it needs real nodes.
+  const { JSDOM } = require('jsdom');
+  const { window } = new JSDOM('<!DOCTYPE html><html><body></body></html>');
+  const row = (name) => {
+    const el = window.document.createElement('div');
+    el.className = 'session-item';
+    el.id = 'si-a';
+    el.innerHTML = '<span class="session-summary">' + name + '</span>';
+    return el;
+  };
+
+  assert.equal(preserveSidebarState(row('Same'), row('Same')), false,
+    'an identical row: morphdom would end in no mutation, so the subtree is skipped');
+  assert.equal(preserveSidebarState(row('Same'), row('Renamed')), true,
+    'a row whose text changed must still be patched');
+
+  // The skip never costs a carry-over: the clauses above run first and have already mutated `toEl`.
+  const fromOpen = window.document.createElement('div');
+  fromOpen.className = 'sessions-older';
+  fromOpen.style.display = '';
+  const toHidden = window.document.createElement('div');
+  toHidden.className = 'sessions-older';
+  toHidden.style.display = 'none';
+  preserveSidebarState(fromOpen, toHidden);
+  assert.equal(toHidden.style.display, '', 'an open list still comes out open');
+  window.close();
+});

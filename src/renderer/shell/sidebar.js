@@ -49,6 +49,21 @@ function folderId(projectPath) {
   return 'project-' + projectPath.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+// Is this project's "N older" fold open right now? Asked while the NEW sidebar is being built, so it
+// reads the live DOM — the same place the toggle writes and preserveSidebarState carries across the
+// morph, rather than a second copy of the fold state that could drift from it (#516).
+function olderListIsShowing(fId) {
+  const live = document.getElementById('older-list-' + fId);
+  return !!live && live.style.display !== 'none';
+}
+
+// A session with a tab open, closed tabs excluded — the same test session navigation and the grid use
+// when they read their order off the sidebar's rows.
+function isOpenSession(sessionId) {
+  const entry = openSessions.get(sessionId);
+  return !!entry && !entry.closed;
+}
+
 // The one runtime snapshot builder lives in app.js (window.sessionRuntimeState, #260). This name is
 // what the sidebar row + tabs call; keep it as a thin delegate so those callers are untouched.
 function getSessionRuntimeState() {
@@ -349,17 +364,39 @@ function processProjectSessions(project, resort) {
         ungrouped.push(session);
       }
     }
+    // An item is described here and BUILT later (#516). The split into visible/older happens below, and
+    // most of a real sidebar lands in `older` — 65 of 74 rows in the measured instance — where it used to
+    // be built and then hidden with `display: none`. Everything the sort and the split need is known
+    // without a DOM node: the id morphdom keys on, the ids the row would carry, and the times.
     const allItems = [];
     for (const session of ungrouped) {
       const isRunning = activePtyIds.has(session.sessionId) || launchPending(session.sessionId);
-      allItems.push({ sortTime: new Date(session.modified).getTime(), pinned: !!session.starred, running: isRunning, element: buildSessionItem(session) });
+      allItems.push({
+        sortTime: new Date(session.modified).getTime(),
+        pinned: !!session.starred,
+        running: isRunning,
+        id: 'si-' + session.sessionId,
+        topLevelId: session.sessionId,
+        sessionIds: [session.sessionId],
+        build: () => buildSessionItem(session),
+      });
     }
     for (const [slug, sessions] of slugMap) {
       const mostRecentTime = Math.max(...sessions.map(s => new Date(s.modified).getTime()));
       const hasRunning = sessions.some(s => activePtyIds.has(s.sessionId) || launchPending(s.sessionId));
       const hasPinned = sessions.some(s => s.starred);
-      const element = sessions.length === 1 ? buildSessionItem(sessions[0]) : buildSlugGroup(slug, sessions);
-      allItems.push({ sortTime: mostRecentTime, pinned: hasPinned, running: hasRunning, element });
+      const single = sessions.length === 1;
+      allItems.push({
+        sortTime: mostRecentTime,
+        pinned: hasPinned,
+        running: hasRunning,
+        // A slug GROUP carries the group's id and no session id of its own — the same as the element it
+        // builds, which has no `data-session-id` for the subagent nesting or the older-archive to read.
+        id: single ? 'si-' + sessions[0].sessionId : slugId(slug),
+        topLevelId: single ? sessions[0].sessionId : null,
+        sessionIds: sessions.map(s => s.sessionId),
+        build: single ? () => buildSessionItem(sessions[0]) : () => buildSlugGroup(slug, sessions),
+      });
     }
 
     // Sort render items
@@ -374,8 +411,8 @@ function processProjectSessions(project, resort) {
     } else {
       const orderIndex = new Map(prevEntry.itemIds.map((id, i) => [id, i]));
       allItems.sort((a, b) => {
-        const aPos = orderIndex.get(a.element.id);
-        const bPos = orderIndex.get(b.element.id);
+        const aPos = orderIndex.get(a.id);
+        const bPos = orderIndex.get(b.id);
         if (aPos !== undefined && bPos !== undefined) return aPos - bPos;
         if (aPos === undefined && bPos !== undefined) return -1;
         if (aPos !== undefined && bPos === undefined) return 1;
@@ -419,7 +456,7 @@ function processProjectSessions(project, resort) {
 
     return {
       filtered, visible, older,
-      sortOrderEntry: { projectPath: project.projectPath, itemIds: allItems.map(item => item.element.id) },
+      sortOrderEntry: { projectPath: project.projectPath, itemIds: allItems.map(item => item.id) },
     };
 }
 
@@ -437,11 +474,9 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
   sessionsList.className = 'project-sessions';
   sessionsList.id = 'sessions-' + fId;
   for (const item of visible) {
-    sessionsList.appendChild(item.element);
-    if (nestSubagents) {
-      const sid = item.element.dataset && item.element.dataset.sessionId;
-      if (sid) appendSubagentChildren(item.element, sid, subagentIndex);
-    }
+    const element = item.build();
+    sessionsList.appendChild(element);
+    if (nestSubagents && item.topLevelId) appendSubagentChildren(element, item.topLevelId, subagentIndex);
   }
   if (older.length > 0) {
     // Same ▶/▼ caret as the subagent tree and the lineage thread (#193) — three expanders in one
@@ -468,12 +503,26 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
     olderList.className = 'sessions-older';
     olderList.id = 'older-list-' + fId;
     olderList.style.display = 'none';
-    for (const item of older) {
-      olderList.appendChild(item.element);
-      if (nestSubagents) {
-        const sid = item.element.dataset && item.element.dataset.sessionId;
-        if (sid) appendSubagentChildren(item.element, sid, subagentIndex);
+    // Folded away and nobody is reading it → build nothing (#516). Two things make it readable while
+    // folded, and both keep the old behaviour exactly:
+    //   - the user opened it, in which case the live list is already showing and preserveSidebarState
+    //     re-opens the rebuilt one;
+    //   - it holds a session that is OPEN. Session navigation and the grid derive their order from the
+    //     sidebar's rows, folded ones included, so a missing row would silently reorder both.
+    const holdsOpenSession = older.some(item => item.sessionIds.some(isOpenSession));
+    if (olderListIsShowing(fId) || holdsOpenSession) {
+      for (const item of older) {
+        const element = item.build();
+        olderList.appendChild(element);
+        if (nestSubagents && item.topLevelId) appendSubagentChildren(element, item.topLevelId, subagentIndex);
       }
+    } else {
+      // The rows the fold would have held, for the one caller that reads them without opening it: the
+      // group's own archive button. It archives what the sidebar folded away, and must not disagree
+      // with it — so this is the same set, and only the entries that WOULD have been direct rows
+      // (a slug group is not one, and was never archived from here either).
+      olderList.dataset.deferred = '1';
+      olderList.dataset.deferredSessionIds = older.map(item => item.topLevelId).filter(Boolean).join(' ');
     }
     sessionsList.appendChild(moreBtn);
     sessionsList.appendChild(olderList);
@@ -483,8 +532,7 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
   // Gated on showSubagentsOn (#231) too — the nested path (appendSubagentChildren) is not the only one
   // that renders subagent rows, so hiding subagents must cover the orphan group as well.
   if (nestSubagents && (typeof showSubagentsOn !== 'function' || showSubagentsOn())) {
-    const topLevelIds = new Set([...visible, ...older]
-      .map(i => i.element.dataset && i.element.dataset.sessionId).filter(Boolean));
+    const topLevelIds = new Set([...visible, ...older].map(i => i.topLevelId).filter(Boolean));
     // Who belongs here and who is too old for it lives in sidebar-state.js (#247/#248) — the same
     // place the other "does this even render" decisions do, and the only one of them that is tested.
     const shown = orphanSubagents({

@@ -340,6 +340,10 @@ function dispatchSidebarActivation(e) {
     // Only the label is rewritten — rewriting the row's innerHTML would drop the archive button.
     const olderLabel = olderToggle.querySelector('.sessions-more-label');
     if (olderLabel) olderLabel.textContent = `${count} older`;
+    // The rows of a fold nobody had opened are not built (#516). The fold now says it is open, which is
+    // what the next render reads, so one full render fills it — the state machine above is unchanged
+    // and still the only thing that decides what is showing.
+    if (!showing && olderList.dataset.deferred === '1') refreshSidebar();
     return;
   }
 
@@ -609,9 +613,15 @@ async function archiveOlderGroup(olderToggle) {
   // (#193), and those ancestors are sessions this group never folded away — a plain `.session-item`
   // sweep archived 22 sessions where the toggle said 20. Subagents are not rows here either: they sit
   // in their own container beside the rows, and come back below with their parent.
+  // A fold nobody opened holds no rows (#516) — the sidebar stamped the ids those rows would have had
+  // instead. Same set, same decision, still the sidebar's: this reads what it wrote, not its own idea
+  // of what counts as older.
+  const rowIds = olderList.dataset.deferred === '1'
+    ? String(olderList.dataset.deferredSessionIds || '').split(' ').filter(Boolean)
+    : [...olderList.querySelectorAll(':scope > .session-item')].map(item => item.dataset.sessionId);
   const roots = [];
-  for (const item of olderList.querySelectorAll(':scope > .session-item')) {
-    const session = sessionMap.get(item.dataset.sessionId);
+  for (const sessionId of rowIds) {
+    const session = sessionMap.get(sessionId);
     if (!session || session.archived) continue;
     roots.push(session);
   }

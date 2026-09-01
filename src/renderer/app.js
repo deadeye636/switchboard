@@ -1775,6 +1775,14 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
 
   syncPtySize(sessionId); // push real dimensions to the (re)spawned/reattached PTY (#81)
   if (show) showSession(sessionId);
+  // The rows behind a fold nobody opened are not built (#516), and a session BEHIND one can be opened
+  // without ever passing a render — from the palette, a bookmark, a direct call. Session cycling and the
+  // grid read their membership off the sidebar's rows, so a session with a tab open and no row is one the
+  // grid gives no card and Ctrl+Shift+[/] skips. The fold keeps an open session's row; this is what makes
+  // the sidebar notice that it now has one.
+  if (sidebarContent && sidebarContent.querySelector('.session-item') && !canonicalSessionRow(sessionId)) {
+    refreshSidebar();
+  }
   pollActiveSessions();
 }
 

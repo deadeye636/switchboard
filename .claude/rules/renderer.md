@@ -356,11 +356,28 @@ for a visible session was replaced, not weakened — that guarantee is what #513
 
 ## A change that only moves numbers inside a rendered row does not rebuild the sidebar
 
-`refreshSidebar()` costs 121-157 ms of main thread at seven projects and 78 sessions, nearly all of it in
-`renderProjects` (split evenly between building the tree and morphdom diffing it), and more than ten call
-sites reach for it. Two patch paths exist for the high-frequency ones — `patchSidebarStatuses` (#80) for a
-busy/idle edge, `patchSidebarChips`/`patchCardChips` (#515) for a VCS status — and a third belongs
+`refreshSidebar()` used to cost 121-157 ms of main thread at seven projects and 78 sessions, nearly all of
+it in `renderProjects` (split evenly between building the tree and morphdom diffing it), and more than ten
+call sites reach for it. Two patch paths exist for the high-frequency ones — `patchSidebarStatuses` (#80)
+for a busy/idle edge, `patchSidebarChips`/`patchCardChips` (#515) for a VCS status — and a third belongs
 wherever a caller fires repeatedly during ordinary work.
+
+**Two things make the full render cheap, and both have a rule attached** (#516, measured 63-100 ms → 9-16 ms
+on the same instance):
+
+- **A row behind a fold nobody opened is not built.** `buildSessionsList` builds the "N older" rows only
+  when the live fold is showing or one of them is an OPEN session — 65 of 74 rows in the measured instance
+  were built and then hidden. So an item is *described* (`id`, `topLevelId`, `sessionIds`, `build()`) and
+  built later, and **anything that reads sessions out of the sidebar's DOM has to say so here**: session
+  navigation and the grid derive their order from the rows, folded ones included, which is why an open
+  session keeps its row; the older-group archive reads `data-deferred-session-ids` instead. Add a reader
+  and you add a case to that list, or it silently sees a shorter sidebar than the user does. "Keeps its
+  row" is decided at RENDER time, so `openSession` renders when the session it just opened has no row —
+  the palette and a bookmark open one without passing a render, and until one came the grid gave that
+  session no card and `Ctrl+Shift+[`/`]` skipped it.
+- **A node that already is what the builder wants is skipped.** `preserveSidebarState` ends in
+  `fromEl.isEqualNode(toEl)`, so morphdom does not walk a subtree it would not have changed. Native deep
+  compare on purpose: a hand-written signature that forgets a field is a row that goes stale.
 
 A patch is only safe when **the render can re-derive it**: update the cache first, then patch, and derive
 what you paint from the same function the builder calls. Two copies of a derivation, one in the builder and

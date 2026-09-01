@@ -111,6 +111,13 @@
       toEl.setAttribute('aria-expanded', 'true');
     }
     if (has('slug-group-more') && has('expanded')) toEl.classList.add('expanded');
+    // Every clause above is done mutating `toEl`, so this is the finished node the builder wants on
+    // screen. If the live one already IS that node — attributes, text and the whole subtree — morphdom's
+    // walk would end in no mutation at all, and skipping it is the same DOM for a fraction of the cost
+    // (#516). Native deep compare, not a hand-written signature: a signature that forgets a field is a
+    // row that goes stale, and this one cannot forget. Skipping also keeps the live node, which is
+    // strictly more preserving than a patch — the clauses above only ever have less to protect.
+    if (typeof fromEl.isEqualNode === 'function' && fromEl.isEqualNode(toEl)) return false;
     return true;
   }
 
