@@ -293,3 +293,66 @@ test('the running stop-and-archive dialog still opens on its confirm', async () 
     assert.deepEqual(t.calls.archived, ['lone']);
   } finally { t.destroy(); }
 });
+
+// --- #502: the scope is what the toggle folds, nothing above it -------------
+//
+// `foldedAncestorIds` folds an ancestor only while it is idle, not launch-pending and not the session
+// on screen. A chain walked to the top could therefore hand "All" a session standing beside the clicked
+// row as its own row — and stop it, for a number the dialog showed as `Earlier`.
+
+test('the chain ends at a RUNNING ancestor, which the sidebar shows as its own row', async () => {
+  const t = setup();
+  try {
+    t.session('root');
+    t.session('middle', { parent: 'root', running: true });
+    const head = t.session('head', { parent: 'middle' });
+    await t.call('archiveSessionFromRow')(head);
+
+    assert.equal(t.dialog(), null, 'nothing is folded under this head, so there is no scope to ask about');
+    assert.deepEqual(t.calls.archived, ['head']);
+    assert.deepEqual(t.calls.stopped, [], 'a running row beside the clicked one must not be stopped');
+  } finally { t.destroy(); }
+});
+
+test('the chain ends at the ACTIVE session, and keeps the ancestors below it', async () => {
+  const t = setup();
+  try {
+    t.session('root');
+    t.session('middle', { parent: 'root' });
+    const head = t.session('head', { parent: 'middle' });
+    t.window.activeSessionId = 'middle';
+    const done = t.call('archiveSessionFromRow')(head);
+    await t.tick();
+
+    assert.equal(t.dialog(), null, 'the only ancestor above the head is on screen, so nothing folds');
+    await done;
+    assert.deepEqual(t.calls.archived, ['head']);
+  } finally { t.destroy(); }
+});
+
+test('a launch-pending ancestor ends the chain too', async () => {
+  const t = setup();
+  try {
+    t.session('root');
+    t.session('middle', { parent: 'root' });
+    const head = t.session('head', { parent: 'middle' });
+    t.window.launchPending = id => id === 'middle';
+    await t.call('archiveSessionFromRow')(head);
+
+    assert.equal(t.dialog(), null);
+    assert.deepEqual(t.calls.archived, ['head']);
+  } finally { t.destroy(); }
+});
+
+test('an idle ancestor above a running one is out of the scope, not pulled past it', async () => {
+  const t = setup();
+  try {
+    t.session('root');                                   // idle, but above a running ancestor
+    t.session('middle', { parent: 'root', running: true });
+    const head = t.session('head', { parent: 'middle', running: false });
+    t.session('below', { parent: 'head' });              // not an ancestor of the head; ignored
+    await t.call('archiveSessionFromRow')(head);
+
+    assert.deepEqual(t.calls.archived, ['head'], 'the thread stops where the sidebar stops folding');
+  } finally { t.destroy(); }
+});

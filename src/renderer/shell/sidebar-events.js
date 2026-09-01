@@ -722,12 +722,18 @@ async function archiveSessionFromRow(session) {
     return;
   }
 
-  // The scope is what the "N earlier" toggle shows, so the chain ENDS at an archived ancestor rather
-  // than skipping it: anything above one is already out of the sidebar, and archiving it would cover a
-  // session the dialog never named.
+  // The scope is what the "N earlier" toggle shows, and the toggle folds an ancestor only while it is
+  // idle and not the session on screen (`foldedAncestorIds`). So the chain ENDS at the first ancestor
+  // the sidebar would not have folded rather than skipping it (#502): everything above one of those is
+  // a row of its own, and "All" would have archived — and for a running one, stopped — a session the
+  // dialog named as nothing more than a number.
+  const foldedUnderThisHead = s => !s.archived
+    && !activePtyIds.has(s.sessionId)
+    && !(typeof launchPending === 'function' && launchPending(s.sessionId))
+    && s.sessionId !== activeSessionId;
   const fullChain = typeof lineageAncestorChain === 'function' ? lineageAncestorChain(session) : [];
-  const firstArchived = fullChain.findIndex(s => s.archived);
-  const chain = firstArchived === -1 ? fullChain : fullChain.slice(0, firstArchived);
+  const firstUnfolded = fullChain.findIndex(s => !foldedUnderThisHead(s));
+  const chain = firstUnfolded === -1 ? fullChain : fullChain.slice(0, firstUnfolded);
 
   let targets = [session];
   if (chain.length > 0) {
