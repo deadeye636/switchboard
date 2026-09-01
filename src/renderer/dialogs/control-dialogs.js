@@ -10,6 +10,14 @@
   // One counter per page, so every dialog's ids are its own (#503).
   let controlDialogSeq = 0;
 
+  // An id nothing else on the page holds, for a dialog that builds its own markup (#505). Two overlays
+  // sharing an id is not a cosmetic clash: `aria-labelledby` resolves to the FIRST match in the document,
+  // so the second dialog would announce the first one's heading — which is the defect #503 fixed here and
+  // that a hand-written `id="pa-remove-title"` puts straight back.
+  function controlDialogId(prefix) {
+    return `${String(prefix || 'control-dialog')}-${++controlDialogSeq}`;
+  }
+
   function formatControlDialogDetails(details) {
     if (!details) return [];
     if (Array.isArray(details)) {
@@ -335,6 +343,7 @@
     showControlDialog,
     showControlMessage,
     trapControlDialogFocus,
+    controlDialogId,
     showControlToast,
   };
 });

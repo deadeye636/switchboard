@@ -130,6 +130,8 @@
   function openBackendCapabilityMatrix({ backends, catalog } = {}) {
     const columns = capabilityColumns(backends);
 
+    const titleId = controlDialogId('capability-matrix-title');
+    const descId = controlDialogId('capability-matrix-desc');
     const overlay = document.createElement('div');
     overlay.className = 'control-dialog-overlay';
 
@@ -137,14 +139,14 @@
     dialog.className = 'control-dialog capability-matrix-dialog';
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-labelledby', 'capability-matrix-title');
+    dialog.setAttribute('aria-labelledby', titleId);
     // The sentence under the heading says what the table is for, so it is part of what this dialog
     // announces rather than something only a sighted reader gets (#505).
-    dialog.setAttribute('aria-describedby', 'capability-matrix-desc');
+    dialog.setAttribute('aria-describedby', descId);
     dialog.innerHTML = `
       <div class="control-dialog-kicker">Backends</div>
-      <h3 id="capability-matrix-title">What each backend supports</h3>
-      <p id="capability-matrix-desc">Every backend covers a different part of what Switchboard can do. Hover a cell for the detail
+      <h3 id="${titleId}">What each backend supports</h3>
+      <p id="${descId}">Every backend covers a different part of what Switchboard can do. Hover a cell for the detail
         behind a limited or missing answer. Templates are not listed: a template runs its backend's
         binary, so it can do exactly what that backend can.</p>
       <div class="cap-legend">
@@ -162,9 +164,7 @@
 
     // The shared Tab cycle and focus hand-back (#505). Every `.control-dialog-overlay` has to trap, or the
     // "topmost overlay wins" rule the others rely on is false whenever this one is open.
-    const releaseFocus = typeof trapControlDialogFocus === 'function'
-      ? trapControlDialogFocus(overlay, dialog)
-      : () => {};
+    const releaseFocus = trapControlDialogFocus(overlay, dialog);
 
     const close = () => {
       document.removeEventListener('keydown', onKey, true);

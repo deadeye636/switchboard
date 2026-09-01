@@ -324,6 +324,12 @@
     try { backends = await window.api.projectDeletableBackends(path) || []; } catch { backends = []; }
 
     return new Promise((resolve) => {
+      // Per DIALOG, not per file (#503/#505): two Remove clicks land two overlays on the page if the
+      // second one comes while the first is still waiting on `projectDeletableBackends`, and a shared id
+      // makes the second dialog announce the first one's project.
+      const titleId = controlDialogId('pa-remove-title');
+      const descId = controlDialogId('pa-remove-desc');
+      const detailsId = controlDialogId('pa-remove-details');
       const overlay = document.createElement('div');
       overlay.className = 'control-dialog-overlay';
       const dialog = document.createElement('div');
@@ -333,8 +339,8 @@
       // The same promises `showControlDialog` makes (#505): a name, a description, and a keyboard that
       // stays inside. This dialog builds its own markup because the shared one has no shape for a list of
       // per-backend checkboxes — that is no reason for it to announce itself as an unnamed dialog.
-      dialog.setAttribute('aria-labelledby', 'pa-remove-title');
-      dialog.setAttribute('aria-describedby', 'pa-remove-desc pa-remove-details');
+      dialog.setAttribute('aria-labelledby', titleId);
+      dialog.setAttribute('aria-describedby', `${descId} ${detailsId}`);
 
       const backendRows = backends.length
         ? backends.map(b => (b.deletable
@@ -355,10 +361,10 @@
 
       dialog.innerHTML = `
         <div class="control-dialog-kicker">Destructive Action</div>
-        <h3 id="pa-remove-title">Remove project</h3>
-        <p id="pa-remove-desc">Always hides the project and clears its Switchboard cache. Deleting a
+        <h3 id="${titleId}">Remove project</h3>
+        <p id="${descId}">Always hides the project and clears its Switchboard cache. Deleting a
         backend's session history removes those transcripts from disk — that is irreversible.</p>
-        <div class="control-dialog-details" id="pa-remove-details">
+        <div class="control-dialog-details" id="${detailsId}">
           <div class="control-dialog-detail-row">
             <span class="control-dialog-detail-label">Project</span>
             <span class="control-dialog-detail-value">${escapeHtml(shortName(path))}</span>
@@ -374,10 +380,11 @@
       document.body.appendChild(overlay);
 
       // One implementation of the Tab cycle and the focus hand-back, from control-dialogs.js — a second
-      // copy is how the two dialogs would drift. Armed only once the overlay is in the document.
-      const releaseFocus = typeof trapControlDialogFocus === 'function'
-        ? trapControlDialogFocus(overlay, dialog)
-        : () => {};
+      // copy is how the two dialogs would drift. Armed only once the overlay is in the document. Called
+      // straight, not behind a `typeof` guard: a page that loads this file without control-dialogs.js has
+      // a broken dialog, and silently dropping the trap would hide that instead of showing it
+      // (test/dialog-overlay-wiring.test.js keeps the pages honest).
+      const releaseFocus = trapControlDialogFocus(overlay, dialog);
 
       const close = (result) => {
         document.removeEventListener('keydown', onKey);
