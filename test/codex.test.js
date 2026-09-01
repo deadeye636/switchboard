@@ -283,6 +283,53 @@ test('deriveStateFromFileTail: an unreadable file returns null (state left untou
   assert.strictEqual(codex.deriveStateFromFileTail('D:\\nope\\missing.jsonl'), null);
 });
 
+// --- #511: a turn interrupted with Esc ends the turn, and no task_complete ever follows
+
+test('deriveState: turn_aborted ends the turn, in the parse state and in the tail', () => {
+  const st = parser.createParseState();
+  parser.applyLine(st, JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }));
+  assert.strictEqual(codex.deriveState(st), 'busy');
+  parser.applyLine(st, JSON.stringify({
+    type: 'event_msg',
+    payload: { type: 'turn_aborted', reason: 'interrupted', duration_ms: 3980 },
+  }));
+  assert.strictEqual(st.lastTaskEvent, 'turn_aborted', 'the parser records it like the other two');
+  assert.strictEqual(codex.deriveState(st), 'idle');
+
+  // The array form reads the same vocabulary.
+  assert.strictEqual(codex.deriveState(['task_started', 'turn_aborted']), 'idle');
+  assert.strictEqual(codex.deriveState(['task_complete', 'task_started']), 'busy');
+});
+
+test('deriveStateFromFileTail: an interrupted turn reads idle, not busy for ever', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-abort-'));
+  const f = path.join(dir, 'rollout.jsonl');
+  const line = (payload) => JSON.stringify({ type: 'event_msg', payload }) + '\n';
+
+  fs.writeFileSync(f, line({ type: 'task_started' }));
+  assert.strictEqual(codex.deriveStateFromFileTail(f), 'busy');
+  fs.appendFileSync(f, line({ type: 'turn_aborted', reason: 'interrupted' }));
+  assert.strictEqual(codex.deriveStateFromFileTail(f), 'idle',
+    'the interrupt is the end of the turn — nothing else is coming for it');
+});
+
+test('#511: error and shutdown_complete are NOT turn ends', () => {
+  // Both were checked against the rollouts on hand: a task_complete follows every `error`, and
+  // `shutdown_complete` is never written to a rollout at all. Treating either as an end would announce
+  // idle while Codex is still working.
+  const { isTurnEvent } = require('../src/backends/codex/state');
+  assert.strictEqual(isTurnEvent('turn_aborted'), true);
+  assert.strictEqual(isTurnEvent('error'), false);
+  assert.strictEqual(isTurnEvent('shutdown_complete'), false);
+
+  const st = parser.createParseState();
+  parser.applyLine(st, JSON.stringify({ type: 'event_msg', payload: { type: 'task_started' } }));
+  parser.applyLine(st, JSON.stringify({ type: 'event_msg', payload: { type: 'error', message: 'x' } }));
+  assert.strictEqual(codex.deriveState(st), 'busy', 'an error inside a turn does not end it');
+  parser.applyLine(st, JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete' } }));
+  assert.strictEqual(codex.deriveState(st), 'idle');
+});
+
 // --- D10: identity adoption. Codex names its own session, so the id we launch under is NOT the id it
 // records. matchLiveSession is how the main process finds the rollout belonging to a session it just
 // spawned. Getting this wrong steals another session's rollout — so it is worth testing directly.

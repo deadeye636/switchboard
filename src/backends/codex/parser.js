@@ -24,6 +24,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { threadName } = require('./thread-names');
+const { isTurnEvent } = require('./state');
 
 // Bump on ANY behavioural change to this parser — persisted parse-state keyed on it is then dropped,
 // and (since #152) every session this parser already wrote is re-read, so a change like v3 below
@@ -58,7 +59,7 @@ function createParseState() {
     totalTokens: 0,
     contextWindow: 0,
     // rollout tail state for busy/idle (deriveState reads these)
-    lastTaskEvent: null, // 'task_started' | 'task_complete' | null
+    lastTaskEvent: null, // 'task_started' | one of state.js's TURN_END_EVENTS | null
 
     // This rollout was written by one of Codex's own internal subagents, not by a user session (#492).
     // Set from the header; a rollout that never carries one stays false and is a session like any other.
@@ -206,8 +207,9 @@ function applyEntry(st, entry) {
           };
         }
         if (typeof info.model_context_window === 'number') st.contextWindow = info.model_context_window;
-      } else if (payload.type === 'task_started' || payload.type === 'task_complete') {
-        // Busy/idle signal for deriveState (rollout tail).
+      } else if (isTurnEvent(payload.type)) {
+        // Busy/idle signal for deriveState (rollout tail). Which events those are is state.js's to say —
+        // this used to spell them out, and that is how `turn_aborted` got past it (#511).
         st.lastTaskEvent = payload.type;
       }
       break;

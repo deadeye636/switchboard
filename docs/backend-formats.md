@@ -78,9 +78,14 @@ a hook alone cannot say whether a prompt is still waiting.
 - Identity + cwd come from the `session_meta` entry (`payload.id`, `payload.cwd`) — never from the
   filename or the folder.
 - Model: the **last** `turn_context` wins.
-- State: Codex **states** it — `event_msg` payloads `task_started` / `task_complete`. Read the tail, but
-  with a **growing** window: a busy turn writes reasoning and tool output, so `task_started` scrolls out
-  of a fixed 64 KB tail long before `task_complete` arrives.
+- State: Codex **states** it — `event_msg` payloads `task_started` / `task_complete`, and a third that
+  cost a bug: a turn interrupted with Esc ends on `turn_aborted` and **no `task_complete` ever follows**,
+  so a reader that knows only the first two holds the session at "Working" until some LATER turn finishes
+  (#511). The vocabulary lives in `src/backends/codex/state.js`; nothing else spells it out. Two more were
+  checked against real rollouts and are deliberately NOT turn ends: `error` appears inside a turn that
+  still completes, and `shutdown_complete` is never written to a rollout at all. Read the tail, but with a
+  **growing** window: a busy turn writes reasoning and tool output, so `task_started` scrolls out of a
+  fixed 64 KB tail long before the turn ends.
 - **Trap:** not every rollout is a session. Since cli 0.151.0 Codex spawns internal review subagents of
   its own — the guardian that judges a planned action — and each one writes a rollout of the same name
   shape into the same day folder. The header is the only thing that says so: `thread_source` names the

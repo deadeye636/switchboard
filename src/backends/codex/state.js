@@ -4,6 +4,7 @@
 // lifecycle events into the rollout file itself, which we already tail for parsing:
 //   event_msg / task_started  -> the agent is working   (BUSY)
 //   event_msg / task_complete -> the turn finished      (IDLE)
+//   event_msg / turn_aborted  -> the turn was interrupted, and will never complete (IDLE, #511)
 // The parser records the last of these in `state.lastTaskEvent`, so state derivation is just a read of
 // the rollout tail — the same file-watch model Claude uses, and strictly better than the generic
 // PTY-activity fallback.
@@ -11,6 +12,25 @@
 
 const BUSY = 'busy';
 const IDLE = 'idle';
+
+const TURN_START = 'task_started';
+
+// What ends a turn. The whole vocabulary lives here, and the parser reads it from here, because three
+// separate places used to spell it out and a third event slipped past all three: a turn interrupted with
+// Esc writes `turn_aborted` and no `task_complete` ever follows, so the session read BUSY until some
+// LATER turn finished (#511).
+//
+// Two events checked in the same pass and deliberately left out, against the rollouts on this machine:
+//   `error`             — appears inside a turn, and a `task_complete` still follows every time. Ending
+//                         the turn here would announce idle while Codex is still finishing.
+//   `shutdown_complete` — appears in no rollout at all. It is not written to this file.
+// Both are a guess without a rollout that shows otherwise; add one when a rollout does.
+const TURN_END_EVENTS = new Set(['task_complete', 'turn_aborted']);
+
+/** Is this `event_msg` payload type one of the turn-lifecycle events state derivation reads? */
+function isTurnEvent(type) {
+  return type === TURN_START || TURN_END_EVENTS.has(type);
+}
 
 /**
  * Derive the session state from a Codex parse state (or from a raw list of tail events).
@@ -23,15 +43,15 @@ function deriveState(input) {
   if (Array.isArray(input)) {
     for (let i = input.length - 1; i >= 0; i--) {
       const t = typeof input[i] === 'string' ? input[i] : (input[i] && input[i].type);
-      if (t === 'task_started') return BUSY;
-      if (t === 'task_complete') return IDLE;
+      if (t === TURN_START) return BUSY;
+      if (TURN_END_EVENTS.has(t)) return IDLE;
     }
     return IDLE;
   }
 
   // Parse-state form.
-  if (input.lastTaskEvent === 'task_started') return BUSY;
-  return IDLE; // task_complete, or nothing seen yet
+  if (input.lastTaskEvent === TURN_START) return BUSY;
+  return IDLE; // a turn-end event, or nothing seen yet
 }
 
 // Read the last task-lifecycle event straight from a rollout file's TAIL.
@@ -63,8 +83,8 @@ function scanWindow(fd, size, len) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
     const t = entry && entry.payload && entry.payload.type;
-    if (t === 'task_started') return BUSY;
-    if (t === 'task_complete') return IDLE;
+    if (t === TURN_START) return BUSY;
+    if (TURN_END_EVENTS.has(t)) return IDLE;
   }
   return null;   // no lifecycle event in view — say NOTHING rather than guess IDLE
 }
@@ -113,4 +133,7 @@ function deriveStateFromFileTailGated(filePath) {
 /** Test seam: drop the gate's memo. */
 function _clearStateCache() { _stateCache.clear(); }
 
-module.exports = { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated, _clearStateCache, TAIL_WINDOWS, BUSY, IDLE };
+module.exports = {
+  deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated, _clearStateCache,
+  TAIL_WINDOWS, BUSY, IDLE, TURN_START, TURN_END_EVENTS, isTurnEvent,
+};
