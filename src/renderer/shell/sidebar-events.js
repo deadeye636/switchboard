@@ -26,7 +26,7 @@
 //
 // A classic <script>, like the file it came from: nothing runs at parse time. It reaches back into
 // sidebar.js (getAllRenderableSessions, getSessionRuntimeState, folderId, refreshSidebar's callers), into
-// sidebar-lineage.js (lineageAncestorChain, for the archive scope), into app.js's session maps and caches,
+// sidebar-lineage.js (lineageThreadChain, for the archive scope), into app.js's session maps and caches,
 // out to the dialogs — all at click time.
 //
 // It WRITES fields on objects other files own (`session.archived`, `session.starred`, `session.name` on
@@ -722,18 +722,10 @@ async function archiveSessionFromRow(session) {
     return;
   }
 
-  // The scope is what the "N earlier" toggle shows, and the toggle folds an ancestor only while it is
-  // idle and not the session on screen (`foldedAncestorIds`). So the chain ENDS at the first ancestor
-  // the sidebar would not have folded rather than skipping it (#502): everything above one of those is
-  // a row of its own, and "All" would have archived — and for a running one, stopped — a session the
-  // dialog named as nothing more than a number.
-  const foldedUnderThisHead = s => !s.archived
-    && !activePtyIds.has(s.sessionId)
-    && !(typeof launchPending === 'function' && launchPending(s.sessionId))
-    && s.sessionId !== activeSessionId;
-  const fullChain = typeof lineageAncestorChain === 'function' ? lineageAncestorChain(session) : [];
-  const firstUnfolded = fullChain.findIndex(s => !foldedUnderThisHead(s));
-  const chain = firstUnfolded === -1 ? fullChain : fullChain.slice(0, firstUnfolded);
+  // The scope is what the "N earlier" toggle shows, so it asks the toggle's own question (#502):
+  // `lineageThreadChain` is the chain cut where the sidebar stops folding. Deriving it here a second time
+  // is how the dialog came to count a thread the toggle counted differently.
+  const chain = typeof lineageThreadChain === 'function' ? lineageThreadChain(session) : [];
 
   let targets = [session];
   if (chain.length > 0) {

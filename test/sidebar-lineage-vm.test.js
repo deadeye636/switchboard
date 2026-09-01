@@ -197,3 +197,64 @@ test('#229: the one-shot GC drops roots whose session is gone, and keeps the one
     assert.deepEqual(JSON.parse(s.window.localStorage.getItem('expandedLineage')), ['root']);
   } finally { s.destroy(); }
 });
+
+// --- #502: the thread ends where the sidebar stops folding -------------------
+//
+// A running ancestor keeps its own row, so a head that still listed it (and everything above it) claimed
+// provenance that was standing beside it — and the archive scope, which asks the same question, counted
+// the thread differently.
+//
+// The chains come back from the vm context, so they are spread into this realm before being compared;
+// a foreign Array fails a deepEqual against a native one even when the contents match.
+const threadIds = (s, head) => [...s.call('lineageThreadChain', head)].map(x => x.sessionId);
+
+test('lineageThreadChain cuts at a running ancestor, not past it', () => {
+  const s = setup(
+    [sess('root'), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })],
+    { running: ['mid'] },
+  );
+  try {
+    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), [],
+      'root is reachable under mid\'s own row — it is not this head\'s thread');
+  } finally { s.destroy(); }
+});
+
+test('lineageThreadChain cuts at the active session and at a launch-pending ancestor', () => {
+  const sessions = [sess('root'), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })];
+  const head = { sessionId: 'leaf', lineageParentId: 'mid' };
+  for (const [label, opts] of [['active', { active: 'mid' }], ['pending', { pending: ['mid'] }]]) {
+    const s = setup(sessions, opts);
+    try {
+      assert.deepEqual(threadIds(s, head), [], `${label} ancestor ends the chain`);
+    } finally { s.destroy(); }
+  }
+});
+
+test('lineageThreadChain keeps a chain of idle ancestors whole', () => {
+  const s = setup([sess('root'), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })]);
+  try {
+    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), ['mid', 'root']);
+  } finally { s.destroy(); }
+});
+
+test('the toggle counts what it folds: a running ancestor is not "1 earlier"', () => {
+  const s = setup(
+    [sess('root'), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })],
+    { running: ['mid'] },
+  );
+  try {
+    assert.equal(s.call('buildLineageThread', { sessionId: 'leaf', lineageParentId: 'mid' }), null,
+      'nothing folds under this head, so it renders no thread at all');
+  } finally { s.destroy(); }
+});
+
+test('foldedAncestorIds and lineageThreadChain answer with the same rule', () => {
+  const sessions = [sess('root'), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })];
+  const s = setup(sessions, { running: ['mid'] });
+  try {
+    const folded = s.call('foldedAncestorIds', sessions);
+    assert.equal(folded.has('mid'), false, 'a running ancestor keeps its row');
+    assert.equal(folded.has('root'), true, 'and root folds under THAT row');
+    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), [], 'so it is not in leaf\'s thread');
+  } finally { s.destroy(); }
+});

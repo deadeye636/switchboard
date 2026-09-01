@@ -72,6 +72,19 @@ function lineageAncestorChain(session) {
   return chain;
 }
 
+// May this ancestor fold under a descendant at all? Idle, not starting, not the session on screen — a
+// LIVE ancestor (the user went back to it) keeps its own row. ONE definition, because three places ask:
+// which rows the sidebar drops (below), which ancestors the thread lists (`lineageThreadChain`), and what
+// the archive scope covers (sidebar-events.js). They were two copies for the length of #502, and a rule
+// written twice is a rule that will be changed once.
+function foldsUnderDescendant(session) {
+  if (!session || session.archived) return false;
+  const id = session.sessionId;
+  if (activePtyIds.has(id)) return false;
+  if (typeof launchPending === 'function' && launchPending(id)) return false;
+  return id !== activeSessionId;
+}
+
 // Ids that must NOT render as their own top-level row: they are another visible session's lineage parent
 // AND idle (not running, not the active tab). A LIVE ancestor (the user went back to it) stays its own row.
 function foldedAncestorIds(sessions) {
@@ -80,10 +93,20 @@ function foldedAncestorIds(sessions) {
   for (const s of sessions) {
     const pid = s.lineageParentId;
     if (!pid || !present.has(pid)) continue;
-    const running = activePtyIds.has(pid) || (typeof launchPending === 'function' && launchPending(pid));
-    if (!running && pid !== activeSessionId) folded.add(pid);
+    if (foldsUnderDescendant(sessionMap.get(pid))) folded.add(pid);
   }
   return folded;
+}
+
+// The ancestors that belong to THIS head's thread: the chain, cut where the sidebar stops folding (#502).
+// Everything above the cut is reachable from the ancestor that stayed a row of its own — it carries its
+// own thread — so nothing is hidden, and the head stops claiming provenance that is not folded under it.
+// Before this, the toggle said "2 earlier" for a chain whose running middle stood beside it as its own
+// row, and the archive scope and the toggle counted the same thread differently.
+function lineageThreadChain(session) {
+  const chain = lineageAncestorChain(session);
+  const cut = chain.findIndex(s => !foldsUnderDescendant(s));
+  return cut === -1 ? chain : chain.slice(0, cut);
 }
 
 // The collapsed thread beneath a head: a toggle plus the idle ancestors it folded, newest → oldest. Each
@@ -91,7 +114,7 @@ function foldedAncestorIds(sessions) {
 // by the session's own fields, so a plain session resumes and a subagent opens its transcript (#288).
 // Returns null when there is no chain.
 function buildLineageThread(session) {
-  const chain = lineageAncestorChain(session);
+  const chain = lineageThreadChain(session);
   if (chain.length === 0) return null;
   const wrap = document.createElement('div');
   wrap.className = 'session-lineage-thread';
