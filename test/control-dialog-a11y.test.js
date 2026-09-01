@@ -119,25 +119,94 @@ test('focus that escaped the dialog is pulled back on the next Tab', async () =>
   } finally { t.destroy(); }
 });
 
-test('a disabled confirm is not a stop on the way round', async () => {
+test('a disabled confirm is skipped on the way round, and the wrap still fires', async () => {
   const t = setup();
   try {
     t.show({
       title: 'Archive Project Sessions',
-      confirmLabel: () => 'Archive 0 Sessions',
-      confirmDisabled: () => true,
+      confirmLabel: (checked) => (checked ? 'Archive 1 Session' : 'Archive 0 Sessions'),
+      confirmDisabled: (checked) => !checked,
       checkbox: { label: 'Also stop and archive 1 running session', checked: false },
     });
     await t.tick();
 
     const d = t.dialog();
     const checkbox = d.querySelector('.control-dialog-checkbox input');
-    assert.equal(t.doc.activeElement, checkbox, 'the dialog still opens on what makes it answerable');
+    const cancel = d.querySelector('.control-dialog-cancel');
+    const confirm = d.querySelector('.control-dialog-confirm');
+    assert.equal(t.doc.activeElement, checkbox, 'the dialog opens on what makes it answerable');
 
-    // Cancel and the checkbox are the focusable pair while the confirm is disabled, so the cycle wraps
-    // between those two and never parks on a button that cannot be pressed.
-    t.tab(checkbox);
-    assert.ok(d.contains(t.doc.activeElement), 'the wrap stays inside the dialog');
-    assert.notEqual(t.doc.activeElement, d.querySelector('.control-dialog-confirm'));
+    // DOM order inside the dialog is checkbox, cancel, confirm — and the disabled confirm is out of the
+    // cycle, so CANCEL is the last focusable. Tab there has to wrap, which is the assertion the trap has
+    // to earn rather than a step jsdom would fake for us.
+    const forward = t.tab(cancel);
+    assert.equal(forward.defaultPrevented, true, 'the wrap is answered by the trap, not by the page');
+    assert.equal(t.doc.activeElement, checkbox, 'a button that cannot be pressed is not the end of the cycle');
+    assert.notEqual(t.doc.activeElement, confirm);
+
+    // …and once the checkbox makes it pressable, the confirm joins the cycle: cancel stops being the end,
+    // because the list is read per press rather than captured when the dialog opened.
+    checkbox.click();
+    assert.equal(confirm.disabled, false);
+    assert.equal(t.tab(cancel).defaultPrevented, false, 'cancel is in the middle now, so the browser has it');
+    assert.equal(t.tab(confirm).defaultPrevented, true, 'and the confirm is the new end of the cycle');
+    assert.equal(t.doc.activeElement, checkbox);
+  } finally { t.destroy(); }
+});
+
+test('aria-describedby names the message alone, or the details alone', async () => {
+  const t = setup();
+  try {
+    t.show({ title: 'Message only', message: 'Just a sentence.' });
+    await t.tick();
+    const messageOnly = t.dialog().getAttribute('aria-describedby').split(' ');
+    assert.equal(messageOnly.length, 1);
+    assert.equal(t.doc.getElementById(messageOnly[0]).textContent, 'Just a sentence.');
+  } finally { t.destroy(); }
+
+  const t2 = setup();
+  try {
+    t2.show({ title: 'Details only', details: { Session: 'one' } });
+    await t2.tick();
+    const detailsOnly = t2.dialog().getAttribute('aria-describedby').split(' ');
+    assert.equal(detailsOnly.length, 1);
+    assert.match(t2.doc.getElementById(detailsOnly[0]).textContent, /Session/);
+  } finally { t2.destroy(); }
+});
+
+test('closing hands the keyboard back to whoever had it', async () => {
+  const t = setup();
+  try {
+    const behind = t.doc.getElementById('behind');
+    behind.focus();
+
+    const done = t.show({ title: 'Archive Session' });
+    await t.tick();
+    assert.ok(t.dialog().contains(t.doc.activeElement), 'the dialog takes the keyboard while it is open');
+
+    t.doc.querySelector('.control-dialog-cancel').click();
+    await done;
+    assert.equal(t.doc.activeElement, behind,
+      'a dialog that closes onto <body> strands the caret outside everything');
+  } finally { t.destroy(); }
+});
+
+test('a dialog closing on top of another gives the keyboard back to the one underneath', async () => {
+  const t = setup();
+  try {
+    const first = t.show({ title: 'First question' });
+    await t.tick();
+    const firstDialog = t.dialog(0);
+    const focusedInFirst = t.doc.activeElement;
+    assert.ok(firstDialog.contains(focusedInFirst));
+
+    const second = t.show({ title: 'Second question' });
+    await t.tick();
+    t.doc.querySelectorAll('.control-dialog-cancel')[1].click();
+    await second;
+
+    assert.equal(t.doc.activeElement, focusedInFirst, 'the dialog still open owns the keyboard again');
+    t.doc.querySelector('.control-dialog-cancel').click();
+    await first;
   } finally { t.destroy(); }
 });

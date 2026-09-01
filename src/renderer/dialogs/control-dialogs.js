@@ -113,6 +113,8 @@
     const detailsId = `control-dialog-details-${uid}`;
 
     return new Promise(resolve => {
+      // Whoever had the keyboard before this dialog opened gets it back when the dialog closes.
+      const previouslyFocused = document.activeElement;
       const overlay = document.createElement('div');
       overlay.className = 'control-dialog-overlay';
 
@@ -179,14 +181,23 @@
       // A dialog with a checkbox answers TWO questions, so it resolves with both. Without one the result
       // stays the bare true/false/'secondary'/'tertiary' every existing caller reads.
       function close(result) {
+        // The keyboard goes back where it came from (#503). Closing used to leave focus on <body>: the
+        // focused button is removed with the overlay and nothing claims it. That strands the caret outside
+        // every dialog — including one still open UNDERNEATH this one, which `aria-modal` says owns the
+        // page, and whose trap cannot pull focus back until the next Tab press.
+        const returnTo = previouslyFocused && previouslyFocused.isConnected
+          && !overlay.contains(previouslyFocused) && typeof previouslyFocused.focus === 'function'
+          ? previouslyFocused
+          : null;
         // A prompt resolves with the TEXT, or null when it was dismissed — a caller that asked for a
         // name has nothing to do with `true`. Everything else keeps the shape it always had.
         if (normalized.prompt) {
           const text = result === true && textInput ? textInput.value.trim() : '';
           closeControlDialog(overlay, onKey, text || null, resolve);
-          return;
+        } else {
+          closeControlDialog(overlay, onKey, normalized.checkbox ? { confirmed: result, checked } : result, resolve);
         }
-        closeControlDialog(overlay, onKey, normalized.checkbox ? { confirmed: result, checked } : result, resolve);
+        if (returnTo) returnTo.focus();
       }
 
       function onKey(event) {
