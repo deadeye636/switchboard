@@ -666,6 +666,9 @@ async function confirmLineageArchiveScope(session, chain) {
       : 'Archived sessions are hidden from the default sidebar view. "All" also takes the earlier sessions folded under this one.',
     confirmLabel: 'All',
     secondaryLabel: 'Single',
+    // The confirm here is the WIDEST answer, so the dialog opens on the narrow one (#501): the click
+    // that got here was on one row's archive button, and Enter should not turn that into the thread.
+    initialFocus: 'secondary',
     tone: running ? 'danger' : 'warning',
     details: {
       Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,

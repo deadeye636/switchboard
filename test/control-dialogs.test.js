@@ -118,3 +118,16 @@ test('an undefined detail value drops out, so an optional row can be omitted by 
     { label: 'Running', value: '0' },
   ]);
 });
+
+// #501: which button the dialog opens on, and therefore what Enter does.
+test('normalizeControlDialogOptions defaults the initial focus to the confirm button', () => {
+  assert.equal(normalizeControlDialogOptions({ title: 'x' }).initialFocus, 'confirm');
+});
+
+test('normalizeControlDialogOptions keeps a known focus target and refuses an unknown one', () => {
+  assert.equal(normalizeControlDialogOptions({ title: 'x', initialFocus: 'secondary' }).initialFocus, 'secondary');
+  assert.equal(normalizeControlDialogOptions({ title: 'x', initialFocus: 'cancel' }).initialFocus, 'cancel');
+  // A typo must not leave focus nowhere — it falls back to the button every dialog has.
+  assert.equal(normalizeControlDialogOptions({ title: 'x', initialFocus: 'the-blue-one' }).initialFocus, 'confirm');
+  assert.equal(normalizeControlDialogOptions({ title: 'x', initialFocus: null }).initialFocus, 'confirm');
+});

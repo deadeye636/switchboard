@@ -240,3 +240,56 @@ test('un-archiving stays a single-session act', async () => {
     assert.equal(head.archived, 0);
   } finally { t.destroy(); }
 });
+
+// --- #501: the keyboard must not pick the widest answer ---------------------
+
+test('the scope dialog opens focused on Single, and Enter there archives the row alone', async () => {
+  const t = setup();
+  try {
+    const { head, middle, root } = thread(t);
+    const done = t.call('archiveSessionFromRow')(head);
+    await t.tick();
+
+    assert.equal(t.window.document.activeElement, t.secondaryBtn(),
+      'the confirm here is "All" — opening on it makes Enter the widest answer');
+
+    // Enter with the button focused: the browser activates that button, and the dialog's own key
+    // handler must keep its hands off, or the confirm answers first and "Single" is decoration.
+    t.secondaryBtn().dispatchEvent(new t.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    t.secondaryBtn().click(); // what a real Enter on a focused <button> does
+    await done;
+
+    assert.deepEqual(t.calls.archived, ['head']);
+    assert.equal(middle.archived, 0);
+    assert.equal(root.archived, 0);
+  } finally { t.destroy(); }
+});
+
+test('Enter outside the buttons still answers with the confirm', async () => {
+  const t = setup();
+  try {
+    const { head } = thread(t);
+    const done = t.call('archiveSessionFromRow')(head);
+    await t.tick();
+
+    t.dialog().dispatchEvent(new t.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await done;
+
+    assert.deepEqual(t.calls.archived, ['head', 'middle', 'root'], 'the confirm is still what Enter means');
+  } finally { t.destroy(); }
+});
+
+test('the running stop-and-archive dialog still opens on its confirm', async () => {
+  const t = setup();
+  try {
+    const lone = t.session('lone', { running: true });
+    const done = t.call('archiveSessionFromRow')(lone);
+    await t.tick();
+
+    assert.equal(t.window.document.activeElement, t.confirmBtn(),
+      'a dialog that did not ask for anything else is unchanged');
+    t.confirmBtn().click();
+    await done;
+    assert.deepEqual(t.calls.archived, ['lone']);
+  } finally { t.destroy(); }
+});

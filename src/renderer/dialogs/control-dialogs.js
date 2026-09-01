@@ -6,6 +6,7 @@
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   const KNOWN_TONES = new Set(['default', 'danger', 'warning', 'success']);
+  const KNOWN_FOCUS_TARGETS = new Set(['confirm', 'secondary', 'tertiary', 'cancel']);
 
   function formatControlDialogDetails(details) {
     if (!details) return [];
@@ -62,6 +63,13 @@
       tertiaryLabel: String(options.tertiaryLabel || ''),
       tone: KNOWN_TONES.has(options.tone) ? options.tone : 'default',
       details: formatControlDialogDetails(options.details),
+      // Which button the dialog OPENS on, and therefore what Enter does (#501). The confirm is the right
+      // answer for a two-button "are you sure?", where it is also the only thing to say yes to. It is the
+      // wrong one where the confirm is deliberately the WIDEST of several answers — the archive scope
+      // dialog confirms "All" beside a "Single", and a reflexive Enter would take the whole thread. A
+      // caller naming a button the dialog does not render falls back to the confirm rather than leaving
+      // focus nowhere, so this can never make a dialog unusable by the keyboard.
+      initialFocus: KNOWN_FOCUS_TARGETS.has(options.initialFocus) ? options.initialFocus : 'confirm',
       // Can a click on the backdrop dismiss this? For a "are you sure?" it is a convenience — nothing is
       // lost by closing it. For a dialog holding WORK — a handoff packet an agent just spent tokens and
       // minutes producing — a stray click beside it throws that away, unrecoverably. Those opt out.
@@ -173,6 +181,10 @@
         // reflex, and the packet it discards took an agent minutes and tokens to write. An explicit
         // button is the only way out of those.
         if (event.key === 'Escape' && normalized.dismissible) close(false);
+        // Enter on ANOTHER of the dialog's buttons answers with THAT button, not the confirm (#501). The
+        // button's own activation already does it; this handler runs first, so without the bail-out a
+        // dialog opened on "Single" would still answer "All" and `initialFocus` would be decoration.
+        if (event.key === 'Enter' && (event.target === secondaryBtn || event.target === tertiaryBtn || event.target === cancelBtn)) return;
         // Enter is the confirm button, so a disabled button disables Enter too — otherwise the keyboard
         // walks straight past the state the button is greyed out for.
         // …and Enter INSIDE the prompt confirms it, which is what a one-field dialog is for. The
@@ -195,8 +207,12 @@
       // checkbox is what makes it pressable, so that is where the user is put.
       // A prompt opens with the cursor in the field — the dialog exists to be typed into, and putting
       // focus on the confirm button would make Enter answer with an empty string.
+      // …and a caller may name a different button (#501), which is read LAST: the two rules above are
+      // about a dialog that would otherwise be unusable, and a preference does not outrank that.
+      const requestedFocus = { secondary: secondaryBtn, tertiary: tertiaryBtn, cancel: cancelBtn }[normalized.initialFocus];
       if (textInput) { textInput.focus(); textInput.select(); }
       else if (confirmBtn.disabled && checkboxInput) checkboxInput.focus();
+      else if (requestedFocus) requestedFocus.focus();
       else confirmBtn.focus();
     });
   }
