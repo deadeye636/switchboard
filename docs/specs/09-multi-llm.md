@@ -159,7 +159,7 @@ never had.
 | Backend | Signal | Failure mode to respect |
 |---|---|---|
 | Claude | **states** it in the terminal (OSC title: spinner = busy, `✳` = idle) | — |
-| Codex | **states** it in its transcript (`task_started` / `task_complete`) | a busy turn out-writes a fixed tail window long before it completes → the window must **grow** |
+| Codex | **states** it in its transcript (`task_started`, and one of the turn-END events its backend folder lists) | two, and both bit: a busy turn out-writes a fixed tail window long before it completes → the window must **grow**; and a turn interrupted with Esc ends on `turn_aborted` with no `task_complete` ever following → a reader that knows only the two obvious events holds the session at "Working" until some LATER turn finishes (#511) |
 | Hermes | the **last message row**: a trailing user prompt = a turn is running; an assistant row whose `finish_reason` is not a tool one = it is answered | `ended_at` is **never written** — it reads null on every session, answered or not, so a rule built on it says "working" for three minutes after every reply (#165) |
 | Pi | launched sessions post neutral extension events; indexed sessions still fall back to transcript-tail inference (a trailing user/tool result, or assistant `toolUse`, = a turn is running) | tree-shaped JSONL means the visible branch is the leaf's parent path, and one message is one JSONL line, so a large answer can fill the whole tail window |
 
@@ -340,9 +340,15 @@ descriptor, which is what lets Antigravity arrive later as a folder and nothing 
 ```js
 usage: {
   live: true,                        // fetched now (Claude) vs. as of the last run (Codex)
-  fetch: async () => ({ … }),        // stays in main; only `live` crosses IPC
+  fetch: async (context) => ({ … }), // stays in main; only `live` crosses IPC
 }
 ```
+
+`context` is what main knows and the backend cannot ask for itself: the pids of the sessions this app is
+running for that backend, whether a successful reading is already cached, the clean spawn environment, and
+a way to find the CLI on PATH. It exists so a backend that has to TALK to its own running process (agy, #509)
+does not reach into main for it, and every field is optional — Claude's and Codex' `fetch` ignore the
+argument entirely.
 
 Every capability returns the **same shape** (`src/backends/usage-format.js` documents it): a list of buckets
 (`key, label, percent, reset, tier, bar`) plus an optional credit pool, and — when the backend was told why

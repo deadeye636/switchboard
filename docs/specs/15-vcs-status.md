@@ -78,8 +78,10 @@ functions, `pillInner` and `isDirty` — so a rebuild is idempotent rather than 
 second copy of the derivation to fall out of step with. A rebuild is asked for only when the chip has to
 appear or disappear, because that changes what the row contains rather than what it says (#515). The full
 `refreshSidebar()` that every push used to trigger measured 121–157 ms of renderer main thread on a sidebar
-of seven projects and 78 sessions; that cost is now paid only for a structural change. The remaining cost of
-a full render, which every one of its callers pays, is #516.
+of seven projects and 78 sessions; that cost is now paid only for a structural change. The full render that
+every other caller pays for was #516, and it is 9–16 ms since: most of that time went on rows behind a
+collapsed fold, built and then hidden. `.claude/rules/renderer.md` carries what a reader of the sidebar's
+DOM now has to know.
 
 - A **git glyph button** sits on every project/worktree header (and grid card) — always present for a repo,
   always opens the changes window. This is the "button suffices" affordance.

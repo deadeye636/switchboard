@@ -721,3 +721,43 @@ Four things worth carrying:
   CLI placed the cursor differently and the version cut in the rollouts lined up to the second with a
   binary replaced on disk. It was a real difference and it explained nothing about why one terminal showed
   it and another did not.
+
+## The store already knew which events end a turn (#511)
+
+A Codex turn interrupted with Esc left the session reading "Working" for ever. The cause was one event
+nobody had told us about — `turn_aborted`, with no `task_complete` ever following it — and the issue asked
+whether `error` and `shutdown_complete` leave the same hole.
+
+That question was answerable without guessing, because the rollouts on the machine are the specification.
+Counting event types across 29 of them: 776 `task_started`, 766 `task_complete`, 10 `turn_aborted`. The
+difference is exactly the aborted turns, which both names the missing event and proves the list is now
+complete. The same scan settled the other two: every `error` is followed by a `task_complete`, so it happens
+INSIDE a turn that still ends normally, and `shutdown_complete` is written to no rollout at all. Adding
+either "to be safe" would have announced idle while the CLI was still working — the failure the issue was
+about, in the other direction.
+
+Two things worth carrying:
+
+- **A vocabulary spelled out in three places lets a fourth member past all three.** `deriveState` twice,
+  `scanWindow`, and the parser's record each carried their own copy of "task_started or task_complete". The
+  fix was one set and one predicate in the backend's own module; the three call sites now ask instead of
+  remember.
+- **A guess in the safe-looking direction is still a guess.** Not adding `error` needed the same evidence
+  as adding `turn_aborted`. Both were checked; the code says which, and why, where the set is defined.
+
+## Making a render cheap moves the risk to whoever reads its output (#516)
+
+A full sidebar render cost 121–157 ms because 65 of 74 rows were built and then hidden inside collapsed
+"N older" folds. Not building them took it to 9–16 ms, and every test stayed green.
+
+What the tests could not see is that the sidebar's DOM is an *interface*. Session navigation, the grid's
+card membership and the older-group's archive button all read sessions out of it, folded rows included. Two
+of those were covered by keeping a fold built when it holds an open session — and the verifier found the
+third case that rule does not reach: a session opened from the command palette or a bookmark passes no
+render at all, so it had a tab and no row, and the grid gave it no card until something unrelated
+re-rendered minutes later.
+
+- **Before you stop rendering something, enumerate its readers.** Not the ones that draw it — the ones that
+  *query* it. A hidden node is still a node, and code had been reading it for years.
+- **"Keeps its row" is a render-time decision, so something has to trigger a render.** The rule was right
+  and unreachable on the one path that mattered. A rule with no event to fire it is a comment.

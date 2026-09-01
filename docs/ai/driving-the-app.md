@@ -269,6 +269,31 @@ the user's installed app with it (`npm run stop:dev` does exactly that filtering
 projects and sessions every run. Plain `npm start` scans the **real** `~/.claude` store and is the
 exception, for when you deliberately want live data.
 
+## Timing a renderer function from outside (#516)
+
+An issue that asks for a cost "before and after" wants numbers from a real sidebar, not a benchmark.
+`eval` reaches the renderer's own functions, so measuring one is a loop around a call:
+
+```
+node scripts/drive-app.js eval "JSON.stringify((function(){var r=[];for(var i=0;i<5;i++){var t=performance.now();refreshSidebar();r.push(+(performance.now()-t).toFixed(1));}return r;})())"
+```
+
+To find out WHERE the time goes, wrap the parts. A top-level `function` in the renderer is a rebindable
+binding every file shares (see `.claude/rules/renderer.md`), so a wrapper installed from `eval` is called
+by the real code and can be put back afterwards — that is how #516's split (row building vs. morphdom vs.
+the event rebind) was measured without touching a source file.
+
+Three things that made the numbers honest:
+
+- **Take several runs and report the spread**, not one figure. The same call measured 62.7 to 100.4 ms
+  before the change on the same sidebar.
+- **Use the same snippet for before and after.** Instrumented and uninstrumented runs differ by more than
+  the effect on a small change.
+- **Say what the instance held.** "9-16 ms" means nothing without "seven projects, 74 rows, 65 of them
+  behind collapsed folds" — the cost scales with what is on screen.
+
+Single quotes around the JS, double quotes inside it: the shell eats the outer pair.
+
 ## Launching a REAL CLI session from a driven app (#243)
 
 `window.api.openTerminal(id, projectPath, true, {backendId})` spawns a genuine CLI. Three things make
