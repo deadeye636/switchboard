@@ -2,9 +2,14 @@
 //
 // The main-process poller (src/app/vcs.js) pushes `vcs-status-changed` with a normalized summary per
 // working directory. This module keeps a renderer-side cache and reads it SYNCHRONOUSLY when a header is
-// built (the tasksBtn/bookmarksBtn pattern in sidebar.js) — never a direct async DOM patch, which the
-// next morphdom render would wipe (#229's trap). A push just updates the cache and requests a debounced
-// re-render, so the header re-reads the fresh value.
+// built (the tasksBtn/bookmarksBtn pattern in sidebar.js). THE CACHE IS THE SOURCE OF TRUTH, and that is
+// the whole of #229's trap: a DOM patch written where the render cannot re-derive it is wiped by the next
+// morphdom pass and never comes back.
+//
+// A push therefore updates the cache FIRST and only then touches the DOM — `patchSidebarChips` and
+// `patchCardChips` write what the next render would produce anyway, so a rebuild is idempotent rather
+// than corrective. A rebuild is asked for only when the chip has to appear or disappear, because that
+// changes what the row contains rather than what it says (#515).
 //
 // It owns no sidebar state: it appends a glyph button + a branch/counts pill to a header, and reports the
 // on-screen repo cwds back to main via `vcsWatch` so main polls exactly what's visible (#277 F1).
@@ -34,6 +39,11 @@
         if (payload.summary) cache.set(payload.cwd, payload.summary);
         else cache.delete(payload.cwd);
         patchCardChips(payload.cwd, payload.summary);   // live-update mounted grid cards
+        // A status change moves numbers inside a chip that is already on screen, and rebuilding the
+        // whole sidebar for that cost 120-500 ms of main thread every time a repo reported (#515).
+        // Patch it where it stands; only a chip that has to appear or disappear needs the rebuild,
+        // and that is what the patch reports back.
+        if (patchSidebarChips(payload.cwd, payload.summary)) return;
         // Coalesce a burst (many repos reporting at once) into one re-render.
         if (refreshTimer) return;
         refreshTimer = setTimeout(() => {
@@ -49,6 +59,15 @@
   function dirtyCount(s) {
     return (s.staged || 0) + (s.unstaged || 0) + (s.conflicted || 0)
       + (typeof s.untracked === 'number' ? s.untracked : 0);
+  }
+
+  // "Does this repo want the user's eye?" — counts, or a state like a rebase in progress. THREE places
+  // ask (the card chip, the header glyph, and the patch that updates the glyph), and while the pill's
+  // markup is shared through `pillInner`, this used to be the same expression written out three times.
+  // The patch path is only safe as long as it paints what a rebuild would, so the derivation has to be
+  // one function rather than three copies someone keeps in step by hand.
+  function isDirty(s) {
+    return dirtyCount(s) > 0 || !!(s.state && s.state !== 'detached');
   }
 
   // Per-render collection: sidebar.js calls beginCollect() before building headers and endCollect()
@@ -103,7 +122,7 @@
     } else {
       chip.classList.add('vcs-glyph-only');
       chip.innerHTML = GLYPH_SM;
-      if (dirtyCount(s) > 0 || (s.state && s.state !== 'detached')) chip.classList.add('has-changes');
+      if (isDirty(s)) chip.classList.add('has-changes');
     }
   }
 
@@ -137,6 +156,42 @@
     }
   }
 
+  // Live-patch the sidebar's own chip for this cwd — the glyph button in the header, and the
+  // branch/counts pill under it when the badge is on. The same move `patchCardChips` makes for a grid
+  // card and `patchSidebarStatuses` (#80) makes for a busy/idle edge: a change that only moves numbers
+  // inside a rendered row does not need the row rebuilt.
+  //
+  // The cache stays the source of truth — `decorateHeader` reads it synchronously on the next full
+  // render — and both paths derive what they paint from the SAME two functions, `pillInner` and
+  // `isDirty`. That is what makes this safe rather than the trap in this file's header: not that a patch
+  // happens to agree with a rebuild today, but that there is no second copy of the derivation to fall
+  // out of step with.
+  //
+  // Returns false when the change is STRUCTURAL — the chip has to appear or disappear — and the caller
+  // must fall back to the full render.
+  function patchSidebarChips(cwd, summary) {
+    // The same gate `decorateHeader` opens with: with the chip switched off there is nothing this may
+    // touch, and the render is the one that takes the chips away.
+    if (!chipEnabled() || !cwd) return false;
+    const sel = '[data-vcs-cwd="' + (window.CSS && CSS.escape ? CSS.escape(cwd) : cwd) + '"]';
+    const btns = document.querySelectorAll('.project-vcs-btn' + sel);
+    // No chip on screen for this cwd yet (a repo reporting for the first time), or one that now has to
+    // go: both change what the row contains, not just what it says.
+    if (!summary || btns.length === 0) return false;
+    // One pill per glyph button while the badge is on, none while it is off. Anything else means the
+    // badge setting changed under us, or a header rendered without its pill — rebuild rather than guess.
+    const pills = document.querySelectorAll('.vcs-pill-row .vcs-pill' + sel);
+    if (pills.length !== (showBadge() ? btns.length : 0)) return false;
+
+    for (const btn of btns) btn.classList.toggle('has-changes', isDirty(summary));
+    for (const pill of pills) {
+      const { html, inProgress } = pillInner(summary);
+      pill.classList.toggle('vcs-inprogress', inProgress);
+      pill.innerHTML = html;
+    }
+    return true;
+  }
+
   // header  = the .project-header / .worktree-header element (gets the glyph button)
   // group   = the group container; the pill row is inserted before sessionsList
   function decorateHeader(header, group, sessionsList, cwd) {
@@ -155,7 +210,7 @@
     btn.innerHTML = GLYPH;
     btn.dataset.vcsCwd = cwd;
     btn.dataset.vcsLabel = shortLabel;
-    if (dirtyCount(s) > 0 || (s.state && s.state !== 'detached')) btn.classList.add('has-changes');
+    if (isDirty(s)) btn.classList.add('has-changes');
     // Sit just left of the New (+) button to match the mockup; else append.
     const newBtn = header.querySelector('.project-new-btn');
     if (newBtn) header.insertBefore(btn, newBtn); else header.appendChild(btn);
@@ -172,5 +227,5 @@
     }
   }
 
-  window.vcsView = { status, decorateHeader, buildCardChip, beginCollect, endCollect, _cache: cache };
+  window.vcsView = { status, decorateHeader, buildCardChip, patchSidebarChips, beginCollect, endCollect, _cache: cache };
 })();
