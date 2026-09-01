@@ -8635,9 +8635,18 @@ body.grid-dragging .grid-card-header {
 .session-tab.subagent-active .session-tab-dot.status-busy {
   background: var(--status-running);
 }
+/* The one tab-specific difference, and it is about legibility rather than taste (#500): the sidebar
+   pulses the dot's OPACITY, which reads because the row gives it whitespace to fade into. At 7 px in a
+   dense strip that motion is invisible, so the tab breathes the HALO instead — same colour, same 1.4 s,
+   the movement carried by something big enough to see. The static box-shadow is the resting state and
+   what remains under `prefers-reduced-motion`. */
 .session-tab.subagent-active .session-tab-dot.status-dot:not(.status-busy):not(.status-needs-attention) {
   box-shadow: 0 0 0 2px var(--status-subagent);
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  animation: pulse-halo-tab 1.4s ease-in-out infinite;
+}
+@keyframes pulse-halo-tab {
+  0%, 100% { box-shadow: 0 0 0 1px var(--status-subagent); opacity: 1; }
+  50%      { box-shadow: 0 0 0 3px var(--status-subagent); opacity: 0.7; }
 }
 .session-tab-label { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
 .session-tab-close {

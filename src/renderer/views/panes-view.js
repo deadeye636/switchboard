@@ -1179,6 +1179,13 @@ window.__sessionDragId = null;
     // drift between the three places that show it (#257, #269).
     const status = (session && typeof getSessionStatus === 'function') ? getSessionStatus(session, runtime) : null;
     if (status) el.classList.add(status.className);
+    // The subagent overlay is set HERE as well as in patchStatuses (#500). `refreshChrome` rebuilds the
+    // whole strip on every status edge and runs right after the patcher, so a class only the patcher
+    // sets dies with the old node — the pulse was never visible for longer than a frame. The sidebar
+    // never had this because its row builder sets it too (sidebar-session-row.js).
+    if (typeof subagentActiveSessions !== 'undefined' && subagentActiveSessions.has(sessionId)) {
+      el.classList.add('subagent-active');
+    }
     // Project · backend · state beside the name (#334). Built by the same helper the tabs-mode strip
     // uses, so the two cannot drift on what a tooltip says.
     el.title = (session && typeof window.tabTooltipFor === 'function' && window.tabTooltipFor(session, status)) || name;

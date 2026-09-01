@@ -3616,3 +3616,48 @@ test('#458: a view that was never scrolled is left alone', async () => {
     assert.equal(host.scrollTop, 0, 'nothing to restore, nothing restored');
   } finally { h.destroy(); }
 });
+
+// --- #500: the subagent overlay has to survive a strip rebuild ---------------
+//
+// `patchStatuses` set `subagent-active`, and `refreshSessionStatusViews` calls `refreshChrome` right
+// after it — which rebuilds the whole strip from `buildTab`. The class therefore lived for the length
+// of one function call and the pulse was never seen. The builder sets it now, like the sidebar's row
+// builder always has.
+
+test('a rebuilt tab keeps the subagent overlay (#500)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.window.subagentActiveSessions.add('a');
+    h.enable();
+    await h.settle();
+
+    const tab = () => h.document.querySelector('.session-tab[data-session-id="a"]');
+    assert.ok(tab().classList.contains('subagent-active'), 'the builder sets it, not only the patcher');
+
+    // What every status edge does: patch the dots, then rebuild the chrome.
+    h.panes.patchStatuses();
+    h.panes.refreshChrome();
+    assert.ok(tab().classList.contains('subagent-active'),
+      'the rebuild used to drop it, which is why the pulse was never visible');
+  } finally { h.destroy(); }
+});
+
+test('a session with no live subagents carries no overlay (#500)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    const tab = () => h.document.querySelector('.session-tab[data-session-id="a"]');
+    assert.equal(tab().classList.contains('subagent-active'), false);
+
+    // The setting going off empties the set — the overlay has to go with it, on the next rebuild too.
+    h.window.subagentActiveSessions.add('a');
+    h.panes.refreshChrome();
+    assert.ok(tab().classList.contains('subagent-active'));
+    h.window.subagentActiveSessions.delete('a');
+    h.panes.refreshChrome();
+    assert.equal(tab().classList.contains('subagent-active'), false);
+  } finally { h.destroy(); }
+});
