@@ -77,12 +77,15 @@ function lineageAncestorChain(session) {
 // which rows the sidebar drops (below), which ancestors the thread lists (`lineageThreadChain`), and what
 // the archive scope covers (sidebar-events.js). They were two copies for the length of #502, and a rule
 // written twice is a rule that will be changed once.
-// It says nothing about ARCHIVED on purpose. The rows reaching the fold have already been filtered
-// (`filterSidebarSessions`), so an archived ancestor is only ever here with "Show archived" on — and there
-// it folded under its descendant before #502 and still does. The archive scope wants a different answer
-// about those, and asks for it itself.
+// ARCHIVED counts as "does not fold", and the reason is that this file does NOT see the sidebar's
+// filter. `foldedAncestorIds` runs on the filtered rows, but `lineageThreadChain` walks `sessionMap`,
+// which holds the archived sessions unconditionally (app.js fetches both lists on every load). Leave
+// archived out of the rule and a thread lists an archived ancestor as a full row while "Show archived"
+// is OFF — hidden from the sidebar, and back in it one nesting level down. The visible cost is the other
+// direction: with the toggle ON, an archived ancestor keeps its own row instead of folding. Nothing
+// disappears that way, which is the failure worth avoiding.
 function foldsUnderDescendant(session) {
-  if (!session) return false;
+  if (!session || session.archived) return false;
   const id = session.sessionId;
   if (activePtyIds.has(id)) return false;
   if (typeof launchPending === 'function' && launchPending(id)) return false;

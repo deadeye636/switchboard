@@ -285,14 +285,26 @@ test('the thread key stays the lineage root even when the chain is cut', () => {
   } finally { cut.destroy(); }
 });
 
-// Folding has no opinion about archived rows: they only reach it with "Show archived" on, where they
-// folded before #502 and still do. The archive scope is the one that ends the chain there.
-test('an archived ancestor still folds under its descendant', () => {
+// An archived ancestor never folds — in EITHER direction, and the asymmetry is the point. This file
+// walks `sessionMap`, which holds archived sessions whether or not "Show archived" is on, so a rule that
+// let them fold would list an archived session as a full row inside a thread while the sidebar was busy
+// hiding it. The cost is that with the toggle ON it keeps its own row instead of folding; nothing
+// disappears that way, which is the failure worth avoiding.
+test('an archived ancestor neither folds nor joins a thread', () => {
   const sessions = [sess('root', { archived: 1 }), sess('mid', { lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })];
   const s = setup(sessions);
   try {
-    assert.equal(s.call('foldedAncestorIds', sessions).has('root'), true,
-      'with the archive toggle on it is a visible row like any other, and it belongs under mid');
-    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), ['mid', 'root']);
+    assert.equal(s.call('foldedAncestorIds', sessions).has('root'), false,
+      'with "Show archived" on it is a row of its own, not something folded away twice over');
+    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), ['mid'],
+      'and with the toggle off it must not come back as a nested row');
+  } finally { s.destroy(); }
+});
+
+test('the archive scope stops at an archived ancestor because the thread does', () => {
+  const s = setup([sess('root'), sess('mid', { archived: 1, lineageParentId: 'root' }), sess('leaf', { lineageParentId: 'mid' })]);
+  try {
+    assert.deepEqual(threadIds(s, { sessionId: 'leaf', lineageParentId: 'mid' }), [],
+      "nothing above an archived ancestor is this head's to archive");
   } finally { s.destroy(); }
 });
