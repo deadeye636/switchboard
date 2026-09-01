@@ -5,8 +5,10 @@
 // (agy calls a conversation a *trajectory*). There is no schema shipped, so we do NOT decode the full
 // protobuf — we read what we need by extracting the embedded strings from the blobs:
 //
-//   - cwd     — `trajectory_metadata_blob.data` begins with the workspace as a `file://` URI
-//               (`file:///C:/proj` -> `C:\proj`). Authoritative; never trust `last_conversations.json`.
+//   - cwd     — `trajectory_metadata_blob.data` carries the workspace as a `file://` URI in a nested
+//               message (`file:///C:/proj` -> `C:\proj`). Authoritative; never trust
+//               `last_conversations.json`. This ONE field goes through the wire-format walk rather than
+//               the string scan, because losing it costs the session — see #508 and `findWorkspaceUri`.
 //   - roles   — `steps.step_type` 14 = a user prompt, 15 = a model message, 9 = a tool call/result,
 //               23/98 = lifecycle/title steps. Turn/message count is the 14/15 rows.
 //   - title   — agy generates one ("Fix the build"); it lands in a step_type 23 blob.
@@ -29,7 +31,8 @@ const { driver } = require('../sqlite-driver');
 // Bump on ANY behavioural change here — persisted parse-state keyed on it is dropped (§5.10) and every
 // agy session already in the cache re-reads itself, so a change reaches the UI without a manual Rebuild.
 //   v1: first real parser (cwd, title, model, message/user counts)
-const PARSER_SCHEMA_VERSION = 1;
+//   v2: cwd read through the protobuf wire-format walk instead of the printable-run scan (#508)
+const PARSER_SCHEMA_VERSION = 2;
 
 // A conversation is a handful of turns; the blobs we care about hold SHORT strings (a cwd URI, a title,
 // a prompt, a model name), so a single-byte protobuf length prefix (<= 127 bytes) recovers them exactly.
@@ -157,12 +160,11 @@ function readConversation(db) {
     lastRole: null,      // 'user' | 'assistant' — the last 14/15 step
   };
 
-  // cwd — the first `file://` string in the trajectory metadata blob (proto field 1.1).
+  // cwd — the workspace URI in the trajectory metadata blob, read off the wire format (#508).
   try {
     const rows = db.all('SELECT data FROM trajectory_metadata_blob');
     for (const r of rows) {
-      const buf = asBuffer(r.data);
-      const uri = protoStrings(buf, 3).find(s => /^file:\/\//i.test(s));
+      const uri = findWorkspaceUri(asBuffer(r.data));
       if (uri) { facts.cwd = fileUriToPath(uri); break; }
     }
   } catch { /* no metadata blob -> cwd stays null (session falls into the backend bucket) */ }
@@ -331,6 +333,65 @@ function walkProtoText(buf, out, depth = 0) {
   }
 }
 
+/**
+ * The workspace URI in a trajectory metadata blob, walked as wire format rather than scraped (#508).
+ *
+ * The printable-run scan is fine for a title or a prompt: a miss there costs a blank field. A miss on the
+ * cwd costs the SESSION — `matchLiveSession` drops every candidate without one, so the conversation is
+ * never paired with the running CLI, no busy/idle edge is ever sent, and the tab reads "Running" for its
+ * whole life however busy agy is.
+ *
+ * And it missed one, because where a printable run starts depends on bytes that have nothing to do with
+ * the string. Two real conversations from one store, same agy version:
+ *
+ *   loses it:  0a 29 0a 25 "file:///<37-char URI>"    — the outer length fits in one byte, so a `0a` lands
+ *                                                       where the scan reads a length; it takes the ten
+ *                                                       bytes after it ("%file:///C") and steps over the URI
+ *   keeps it:  0a bc 01 0a 1f "file:///<31-char URI>" — a two-byte outer length shifts the alignment, and
+ *                                                       0x1f is below printable, so the scan lines up
+ *
+ * So the shape that silently lost its cwd is an ordinary one: a young conversation whose first metadata
+ * field is under 128 bytes, with a workspace path of 32 characters or more.
+ *
+ * `walkProtoText` cannot answer this one either, and for a related reason: it decides string-versus-message
+ * with `isTextBytes`, which allows \n — and \n IS the tag byte of field 1, wire type 2. A submessage whose
+ * only field is a printable string therefore reads as text, and the URI stays wrapped inside it. So this
+ * walk asks the only question that separates the two here — does the field START with the scheme — and
+ * tries the bytes as a message when it does not.
+ */
+const WORKSPACE_MAX_DEPTH = 4;
+
+function findWorkspaceUri(buf, depth = 0) {
+  if (!buf || !buf.length || depth > WORKSPACE_MAX_DEPTH) return null;
+  let i = 0;
+  while (i < buf.length) {
+    const [tag, afterTag] = readVarint(buf, i);
+    if (tag === null || afterTag === i) return null;
+    const wire = tag & 0x07;
+    i = afterTag;
+    if (wire === 0) {                       // varint
+      const [, next] = readVarint(buf, i);
+      if (next === i) return null;
+      i = next;
+    } else if (wire === 1) {                // 64-bit
+      i += 8;
+    } else if (wire === 5) {                // 32-bit
+      i += 4;
+    } else if (wire === 2) {                // a string, bytes, or a nested message
+      const [len, afterLen] = readVarint(buf, i);
+      if (len === null || len < 0 || afterLen + len > buf.length) return null;
+      const sub = buf.subarray(afterLen, afterLen + len);
+      if (/^file:\/\//i.test(sub.toString('utf8', 0, Math.min(sub.length, 8)))) return sub.toString('utf8');
+      const nested = findWorkspaceUri(sub, depth + 1);
+      if (nested) return nested;
+      i = afterLen + len;
+    } else {
+      return null;                          // group / unknown wire type -> stop at this level
+    }
+  }
+  return null;
+}
+
 // Is a leaf string an actual MESSAGE, versus an id / path / tool-call / structural token?
 function messageish(t) {
   if (!t || t.length < 2) return false;
@@ -426,6 +487,7 @@ module.exports = {
   readMessages,
   // exported for the unit test / reuse
   protoStrings,
+  findWorkspaceUri,
   printableRuns,
   fileUriToPath,
   extractModel,

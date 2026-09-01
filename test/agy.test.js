@@ -21,12 +21,38 @@ function field1(s) {
   return Buffer.concat([Buffer.from([0x0a, body.length]), body]);
 }
 
+/** A protobuf varint — the length prefix needs one byte below 128 and two above it, which is the whole
+ *  of #508: the number of bytes it takes decided whether the cwd survived. */
+function varint(n) {
+  const bytes = [];
+  let v = n;
+  while (v > 0x7f) { bytes.push((v & 0x7f) | 0x80); v = Math.floor(v / 128); }
+  bytes.push(v);
+  return Buffer.from(bytes);
+}
+
+/** A length-delimited field of any size — `field1` only reaches 127 bytes. */
+function lenField(fieldNo, body) {
+  return Buffer.concat([Buffer.from([(fieldNo << 3) | 2]), varint(body.length), body]);
+}
+
+/** The metadata blob as agy really writes it: the workspace URI sits in a NESTED message, not at the
+ *  head of the blob. `padTo` grows the submessage past 127 bytes so its outer length takes two bytes —
+ *  the layout in which the old printable-run scan happened to line up (#508). */
+function metadataBlob(uri, padTo = 0) {
+  let inner = lenField(1, Buffer.from(uri, 'utf8'));
+  if (padTo && inner.length < padTo) {
+    inner = Buffer.concat([inner, lenField(9, Buffer.alloc(padTo - inner.length - 3, 0x61))]);
+  }
+  return lenField(1, inner);
+}
+
 /**
  * Build a minimal but real-shaped conversation DB with node:sqlite (better-sqlite3 is Electron-only).
  * Mirrors the columns the parser reads: steps(idx, step_type, step_payload, metadata) and
  * trajectory_metadata_blob(id, data). Blobs carry the marker strings the parser extracts.
  */
-function makeFixtureDb(dbPath) {
+function makeFixtureDb(dbPath, { workspaceUri = 'file:///X:/proj', padTo = 0 } = {}) {
   const { DatabaseSync } = require('node:sqlite');
   const db = new DatabaseSync(dbPath);
   db.exec(`
@@ -34,8 +60,9 @@ function makeFixtureDb(dbPath) {
     CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);
   `);
 
-  // cwd lives at the head of the trajectory metadata blob as a file:// URI.
-  db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)').run('main', field1('file:///X:/proj'));
+  // cwd lives in the trajectory metadata blob as a file:// URI, one message in.
+  db.prepare('INSERT INTO trajectory_metadata_blob (id, data) VALUES (?, ?)')
+    .run('main', metadataBlob(workspaceUri, padTo));
 
   // idx 0: user prompt (14). idx 1: model reply (15) — a proto text field for the reply, plus the model
   // display string as a trailing raw run (that is where the model hunt reads it, not the message walk).
@@ -48,11 +75,11 @@ function makeFixtureDb(dbPath) {
   db.close();
 }
 
-function withFixture(fn) {
+function withFixture(fn, opts) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-'));
   const dbPath = path.join(dir, 'abcd1234-5678-4abc-8def-111122223333.db');
   try {
-    makeFixtureDb(dbPath);
+    makeFixtureDb(dbPath, opts);
     fn(dbPath);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -73,6 +100,43 @@ test('agy parser: sessionId from the filename, cwd from the metadata blob, 14/15
     assert.equal(row.model, 'Gemini 3.5 Flash (Medium)', 'best-effort model from the blob');
     assert.equal(row.lastRole, 'assistant', 'the last message step was the model message -> idle');
   });
+});
+
+// #508 — the cwd used to come out of a printable-run scan, and whether it survived depended on bytes
+// that have nothing to do with the string: a one-byte outer length puts a `0a` where the scan reads a
+// length, and it swallowed the URI as "%file:///C". A session with no cwd is never paired with its
+// running CLI, so its tab reads "Running" for its whole life however busy agy is. Both layouts are real
+// — one store, one agy version, two conversations.
+// `uriLen` is asserted rather than commented: the length IS the case each row stands for, and a URI
+// edited for readability would otherwise leave the row passing while testing a layout it no longer builds.
+const WORKSPACE_LAYOUTS = [
+  // A length byte of 0x25 — printable, so the scan lined up on it. This is the shape that lost its cwd.
+  { name: 'a one-byte outer length', uri: 'file:///X:/workspace-with-a-long-name', uriLen: 37, padTo: 0, cwd: 'X:\\workspace-with-a-long-name' },
+  // The same URI in a submessage past 127 bytes, so the outer length takes two — the shape that survived.
+  { name: 'a two-byte outer length', uri: 'file:///X:/workspace-with-a-long-name', uriLen: 37, padTo: 200, cwd: 'X:\\workspace-with-a-long-name' },
+  // 0x1f is below printable, which is the other reason a blob happened to line up.
+  { name: 'a length byte below printable', uri: 'file:///X:/short-workspace-name', uriLen: 31, padTo: 0, cwd: 'X:\\short-workspace-name' },
+];
+
+for (const layout of WORKSPACE_LAYOUTS) {
+  test(`agy parser: the cwd survives ${layout.name} (#508)`, () => {
+    assert.equal(layout.uri.length, layout.uriLen, 'the URI length is the case this row builds');
+    withFixture((dbPath) => {
+      const row = parser.parseSession({ kind: 'file', path: dbPath });
+      assert.equal(row.cwd, layout.cwd);
+    }, { workspaceUri: layout.uri, padTo: layout.padTo });
+  });
+}
+
+test('agy parser: findWorkspaceUri reads the field, not a run of printable bytes (#508)', () => {
+  // The layout of a real conversation that lost its cwd, written out as bytes: field 1 is a submessage,
+  // its own field 1 is the URI (0x25 = 37 bytes), and a `1a 00` follows. The scan read the `0a` at offset
+  // 2 as a length and took the ten bytes after it — "%file:///C" — stepping over the URI entirely.
+  const blob = Buffer.from('0a270a2566696c653a2f2f2f583a2f776f726b73706163652d776974682d612d6c6f6e672d6e616d651a00', 'hex');
+  assert.equal(parser.findWorkspaceUri(blob), 'file:///X:/workspace-with-a-long-name');
+  assert.equal(parser.findWorkspaceUri(Buffer.alloc(0)), null);
+  assert.equal(parser.findWorkspaceUri(null), null);
+  assert.equal(parser.findWorkspaceUri(field1('nothing here')), null, 'a blob with no workspace says so');
 });
 
 test('agy parser: parseSessionIncremental returns the { row, parseState } shape (parity §5.10)', () => {

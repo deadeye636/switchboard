@@ -321,10 +321,14 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   `trajectory_meta`, `trajectory_metadata_blob` (`id='main'`, the conversation-level metadata), plus
   `gen_metadata`, `executor_metadata`, `battle_mode_infos`, `parent_references`. There is no schema shipped,
   so the parser reads what it needs by **extracting the embedded strings** from the blobs rather than decoding
-  the full protobuf:
-  - **cwd** — `trajectory_metadata_blob.data` begins (proto field 1.1) with the workspace as a `file://` URI:
-    `file:///C:/proj` → `C:\proj`. This is the authoritative cwd; do not trust `last_conversations.json`
-    (it only holds the *latest* conversation per cwd, not all).
+  the full protobuf — with one exception, the cwd:
+  - **cwd** — `trajectory_metadata_blob.data` carries the workspace as a `file://` URI inside a nested
+    message: `file:///C:/proj` → `C:\proj`. This is the authoritative cwd; do not trust
+    `last_conversations.json` (it only holds the *latest* conversation per cwd, not all).
+    This one is **walked as wire format**, not scraped. A string scan recovers it or not depending on bytes
+    that have nothing to do with it — a conversation whose first metadata field is under 128 bytes puts a
+    `0a` where the scan reads a length, and the URI is swallowed as `%file:///C`. A conversation with no cwd
+    is never paired with the CLI running it, so its session shows "Running" for its whole life (#508).
   - **step roles** — `step_type` 14 = the user prompt, 15 = a model message, 9 = a tool call/result, others
     (23, 98) are lifecycle/title steps. Turn/message count derives from the 14/15 rows.
   - **title** — agy generates one ("Fix the build" in the sample); it appears in a step. Fall
