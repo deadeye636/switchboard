@@ -26,7 +26,8 @@
 //
 // A classic <script>, like the file it came from: nothing runs at parse time. It reaches back into
 // sidebar.js (getAllRenderableSessions, getSessionRuntimeState, folderId, refreshSidebar's callers), into
-// app.js's session maps and caches, out to the dialogs — all at click time.
+// sidebar-lineage.js (lineageAncestorChain, for the archive scope), into app.js's session maps and caches,
+// out to the dialogs — all at click time.
 //
 // It WRITES fields on objects other files own (`session.archived`, `session.starred`, `session.name` on
 // app.js's sessionMap rows; `p.favorited` on cachedProjects). Those are field writes on shared objects,
@@ -643,9 +644,93 @@ function forkSessionFromRow(session) {
   if (project) forkSession(session, project);
 }
 
+// --- Archiving one row: the thread it heads is the scope question (#499) ---
+//
+// A lineage head folds its idle ancestors under the "N earlier" toggle (#193), and the sidebar decides
+// what is folded AFTER dropping the archived rows (filterSidebarSessions, then foldedAncestorIds). So
+// archiving the head alone does not clear the thread — it promotes the ancestor into the head's place,
+// and a thread of N sessions costs N clicks. The scope is asked once, with the two answers there are:
+// this row, or the whole thread.
+//
+// Subagents are not part of that question: they follow their parent through the cache's derived filter
+// (#129), so nothing here has to collect them.
+//
+// Returns the sessions to archive, or null when the user backed out.
+async function confirmLineageArchiveScope(session, chain) {
+  const scope = [session, ...chain];
+  const running = scope.filter(s => activePtyIds.has(s.sessionId)).length;
+  const choice = await showControlDialog({
+    title: 'Archive Session',
+    message: running
+      ? 'Archived sessions are hidden from the default sidebar view. "All" also takes the earlier sessions folded under this one. Running sessions in the scope are stopped first.'
+      : 'Archived sessions are hidden from the default sidebar view. "All" also takes the earlier sessions folded under this one.',
+    confirmLabel: 'All',
+    secondaryLabel: 'Single',
+    tone: running ? 'danger' : 'warning',
+    details: {
+      Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
+      Project: session.projectPath ? sidebarShortName(session.projectPath) : '',
+      Earlier: chain.length,
+      // A zero here is not a row: formatControlDialogDetails drops an empty value, so the dialog has a
+      // Running line only when there is something to stop.
+      Running: running || '',
+    },
+  });
+  if (!choice) return null;
+  return choice === 'secondary' ? [session] : scope;
+}
+
+// Stop what is running, archive the set, and offer an undo that restores exactly it.
+async function applySessionArchive(targets) {
+  let stopped = false;
+  for (const s of targets) {
+    if (activePtyIds.has(s.sessionId)) {
+      window._markUserStopped?.(s.sessionId);
+      await window.api.stopSession(s.sessionId);
+      stopped = true;
+    }
+    await window.api.archiveSession(s.sessionId, 1);
+    s.archived = 1;
+  }
+  if (stopped) pollActiveSessions();
+  loadProjects();
+  showControlToast({
+    message: targets.length === 1
+      ? 'Session archived.'
+      : `Archived ${targets.length} sessions in this thread.`,
+    actionLabel: 'Undo',
+    onAction: async () => {
+      for (const s of targets) {
+        await window.api.archiveSession(s.sessionId, 0);
+        s.archived = 0;
+      }
+      loadProjects();
+    },
+  });
+}
+
 async function archiveSessionFromRow(session) {
-  const newVal = session.archived ? 0 : 1;
-  if (newVal && activePtyIds.has(session.sessionId)) {
+  // Un-archiving stays a single-session act: bringing one row back says nothing about the rest of a
+  // thread, and the toast's Undo already restores exactly the set an archive covered.
+  if (session.archived) {
+    await window.api.archiveSession(session.sessionId, 0);
+    session.archived = 0;
+    loadProjects();
+    return;
+  }
+
+  // The scope is what the "N earlier" toggle shows, so the chain ENDS at an archived ancestor rather
+  // than skipping it: anything above one is already out of the sidebar, and archiving it would cover a
+  // session the dialog never named.
+  const fullChain = typeof lineageAncestorChain === 'function' ? lineageAncestorChain(session) : [];
+  const firstArchived = fullChain.findIndex(s => s.archived);
+  const chain = firstArchived === -1 ? fullChain : fullChain.slice(0, firstArchived);
+
+  let targets = [session];
+  if (chain.length > 0) {
+    targets = await confirmLineageArchiveScope(session, chain);
+    if (!targets) return;
+  } else if (activePtyIds.has(session.sessionId)) {
     const confirmed = await showControlDialog({
       title: 'Archive Running Session',
       message: 'Archiving this running session will stop its process first.',
@@ -657,24 +742,8 @@ async function archiveSessionFromRow(session) {
       },
     });
     if (!confirmed) return;
-    window._markUserStopped?.(session.sessionId);
-    await window.api.stopSession(session.sessionId);
-    pollActiveSessions();
   }
-  await window.api.archiveSession(session.sessionId, newVal);
-  session.archived = newVal;
-  loadProjects();
-  if (newVal) {
-    showControlToast({
-      message: 'Session archived.',
-      actionLabel: 'Undo',
-      onAction: async () => {
-        await window.api.archiveSession(session.sessionId, 0);
-        session.archived = 0;
-        loadProjects();
-      },
-    });
-  }
+  await applySessionArchive(targets);
 }
 
 // Generic pointer-drag scaffold behind the manual project reorder (#79): threshold-gated begin, cursor ghost, elementFromPoint
