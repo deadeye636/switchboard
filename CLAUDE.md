@@ -145,7 +145,11 @@ absent from the installer.
 - `npm test` — `node --test` over `test/*.test.js`. No Electron needed. Keep it green (run it for the
   current pass count — don't trust a number written down here). Takes ~20 s:
   `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets
-  the wall clock since files run in parallel.
+  the wall clock since files run in parallel. That same file has **hung outright** more than once under
+  load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
+  the script carries `--test-timeout=60000`: a test that stops making progress fails loudly instead. The
+  cap is per TEST, so it does not catch a file that hangs between them; a run past a minute or two is
+  still worth killing and re-running rather than waiting out.
 - `npm run demo:start` — **the default for dev/verify work**: an isolated demo instance against
   seeded stores under `C:\temp\switchboard`. Backend limitations and the explicit read-only usage
   exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds

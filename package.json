@@ -12,7 +12,7 @@
     "demo:start": "node scripts/demo-start.js",
     "demo:seed": "node scripts/seed-demo.js",
     "demo:auth": "node scripts/demo-auth.js",
-    "test": "node --test",
+    "test": "node --test --test-timeout=60000",
     "electron": "electron .",
     "stop:dev": "node scripts/stop-dev.js",
     "bundle:codemirror": "esbuild src/renderer/jsonl/codemirror-setup.js --bundle --outfile=src/renderer/codemirror-bundle.js --format=iife --platform=browser --minify",
