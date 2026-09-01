@@ -1934,11 +1934,15 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
 }
 
 /* Subagent-activity overlay (#112): the parent keeps its own dot; a live subagent adds a teal halo.
-   Over a busy (spinning) parent, fill the core green inside the ring so both read at once. */
-.session-item.subagent-active > .session-row .session-status-dot.status-busy {
+   Over a busy (spinning) parent, fill the core green inside the ring so both read at once.
+   A dot the app has MUTED stays muted (#504). `status-unpaired` (#460) says the backend has no record
+   of the session, and it means it: hollow, still, no colour of its own. It carries two class selectors
+   and this overlay carries five, so it lost on specificity alone and the quietest state in the app
+   would have pulsed teal. The exclusion belongs in every view that draws this overlay, not only here. */
+.session-item.subagent-active > .session-row .session-status-dot.status-busy:not(.status-unpaired) {
   background: var(--status-running);
 }
-.session-item.subagent-active > .session-row .session-status-dot:not(.status-busy):not(.status-needs-attention) {
+.session-item.subagent-active > .session-row .session-status-dot:not(.status-busy):not(.status-needs-attention):not(.status-unpaired) {
   box-shadow: 0 0 0 2px var(--status-subagent);
   animation: pulse-dot 1.4s ease-in-out infinite;
 }
@@ -3107,11 +3111,12 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 /* ---- Grid card dot — colour AND motion come from the shared `.status-dot.status-*` rules (#269), so
    it now reads identically to the sidebar (spinner / ripple / glow), not a lighter pulse. Only the
    subagent overlay is grid-specific, and it mirrors the sidebar: green core inside a busy ring,
-   otherwise green core + teal halo; needs-attention keeps precedence. ---- */
-.grid-card.subagent-active .grid-card-dot.status-busy {
+   otherwise green core + teal halo; needs-attention keeps precedence, and so does the muted
+   `status-unpaired` dot (#504). ---- */
+.grid-card.subagent-active .grid-card-dot.status-busy:not(.status-unpaired) {
   background: var(--status-running);
 }
-.grid-card.subagent-active .grid-card-dot.status-dot:not(.status-busy):not(.status-needs-attention) {
+.grid-card.subagent-active .grid-card-dot.status-dot:not(.status-busy):not(.status-needs-attention):not(.status-unpaired) {
   box-shadow: 0 0 0 2px var(--status-subagent);
   animation: pulse-dot 1.4s ease-in-out infinite;
 }
@@ -8631,8 +8636,9 @@ body.grid-dragging .grid-card-header {
 }
 
 /* Subagent overlay (#123), mirroring the sidebar exactly: over a busy (spinning) parent, fill the core
-   green inside the ring; otherwise green core + teal halo. needs-attention keeps precedence. */
-.session-tab.subagent-active .session-tab-dot.status-busy {
+   green inside the ring; otherwise green core + teal halo. needs-attention keeps precedence, and so
+   does the muted `status-unpaired` dot (#504). */
+.session-tab.subagent-active .session-tab-dot.status-busy:not(.status-unpaired) {
   background: var(--status-running);
 }
 /* The one tab-specific difference, and it is about legibility rather than taste (#500): the sidebar
@@ -8642,7 +8648,7 @@ body.grid-dragging .grid-card-header {
    declared one is only what paints with no animation at all — so it matches the keyframe's resting 1px,
    which is also where `prefers-reduced-motion` lands the dot (that rule collapses the animation to one
    0.001ms pass, it does not remove it). A 2px declaration would name a halo nothing ever draws. */
-.session-tab.subagent-active .session-tab-dot.status-dot:not(.status-busy):not(.status-needs-attention) {
+.session-tab.subagent-active .session-tab-dot.status-dot:not(.status-busy):not(.status-needs-attention):not(.status-unpaired) {
   box-shadow: 0 0 0 1px var(--status-subagent);
   animation: pulse-halo-tab 1.4s ease-in-out infinite;
 }
