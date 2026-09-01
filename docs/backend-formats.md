@@ -371,18 +371,23 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   for backend-owned model suggestions instead of pinning a stale choice list. On Windows `agy` on PATH is a
   real `.exe`, not a `.cmd` shim.
 
-**Usage (#191).** Its quota is **per MODEL**, not per time window — community monitors report `Pro-L 80% ·
-Claude 25%`, each with its own reset, plus a shared **credit pool** spent once a model's quota is exhausted.
-There is no `5h`/`7d` window, which is why the usage capability keys its colour thresholds on how fast a bucket
-refills. **No clean local quota file exists** in the store (unlike Codex's `token_count`), so the capability is
-`live: true` with a **network fetch** (#201): `POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`
-with body `{}` and an OAuth2 bearer returns `buckets[]`, one per model (`modelId`, `tokenType`,
-`remainingFraction`, `resetTime`). The bearer is refreshed in memory from agy's imported gemini-cli
-`~/.gemini/oauth_creds.json` (gemini-cli's public installed-app OAuth client); the file is never written. This
-rides Gemini Code Assist's **internal, undocumented** `v1internal` API and can change without notice — the honest
-cost of agy having no local quota file. The richer grouped Weekly/5-hour panel is the `retrieveUserQuotaSummary`
-sibling, whose request proto is not yet reversed, so it stays out of scope; `backends/agy/usage.js` ships the
-per-model request quotas, which are enough for a status-bar figure.
+**Usage (#191, #509).** Current agy owns its OAuth token in the OS keyring and exposes the data behind
+`/usage` through a loopback HTTPS service. Switchboard prefers a running AGY process, discovers only the
+ports owned by that process, and calls `RetrieveUserQuotaSummary`, then `GetUserStatus` and
+`GetCommandModelConfigs` as compatibility fallbacks. With no running session and no durable cached reading,
+it starts one bounded PTY probe and shuts it down after the fetch. The summary can carry grouped Weekly/5-hour
+limits; older/local fallbacks carry per-model fractions and reset times. All map into the same usage buckets.
+When `SWITCHBOARD_STORE_AGY` marks an isolated demo/sandbox, Switchboard never starts that probe: the
+override moves only Switchboard's scanner, not agy's own home, so launching it would escape the sandbox.
+The legacy remote request is skipped there as well, and AGY reports neutral limits-unavailable.
+
+The #201 remote workaround remains best-effort: it refreshes the imported Gemini CLI
+`~/.gemini/oauth_creds.json` in memory and calls
+`POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`. Current AGY releases authenticate
+with their own OAuth client, so that legacy source may return 403. A denial is rendered neutrally as limits
+unavailable; it never means that a personal account is unmetered or that AGY sessions cannot run. Both the
+loopback service and the remote endpoint are internal interfaces and can change without notice — the honest
+cost of agy exposing no stable quota command or local quota file for machine consumers.
 
 ---
 

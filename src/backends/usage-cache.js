@@ -35,7 +35,7 @@ function usageFailureMessage(usage) {
   // it never called (#494).
   if (usage?._rateLimited) return usage.message || 'Usage API rate limited';
   if (usage?._error) return usage.message || 'Could not fetch usage data.';
-  if (usage?._noData) return 'No newer limit reported yet';
+  if (usage?._noData) return usage.message || 'No newer limit reported yet';
   return 'Usage unavailable';
 }
 

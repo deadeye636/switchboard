@@ -1,22 +1,22 @@
 // backends/agy/usage.js — agy's usage capability (#191, #201).
 //
-// Unlike Codex (whose figure falls out of a file it already writes) agy exposes NO local quota file, so
-// this is a LIVE network read — the same shape of thing Claude does, against agy's own backend:
+// Unlike Codex (whose figure falls out of a file it already writes) agy exposes NO local quota file.
+// Current releases own their OAuth token in the OS keyring and expose quota through their loopback HTTPS
+// service. local-usage.js reads that service first, so AGY remains the credential owner. This older remote
+// request survives only as a best-effort fallback for installs on which it is still entitled:
 //
 //   POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota   body {}   (OAuth2 bearer)
 //   -> { "buckets": [ { "modelId":"gemini-2.5-pro", "tokenType":"REQUESTS",
 //                       "remainingFraction": 1, "resetTime":"<ISO8601>" }, … ] }
 //
-// This is the Gemini Code Assist private API (`cloudcode-pa`, `v1internal`) — the same backend gemini-cli
-// talks to. Confirmed live against a real account (#201): the endpoint returns one bucket per model, each
-// a REQUESTS pool with a remaining fraction and a reset time. It is an INTERNAL, undocumented API and can
-// change without notice — the honest cost of agy having no local quota file. The richer grouped
-// Weekly/5-hour panel (the `retrieveUserQuotaSummary` sibling) needs a proto we have not reversed yet, so
-// it is deliberately out of scope here; this ships the per-model request quotas, which are enough for a
-// status-bar figure. See #201 for the recon.
+// This is Gemini CLI's private Code Assist API (`cloudcode-pa`, `v1internal`). It was confirmed live
+// against the imported credentials when #201 shipped, but current AGY OAuth uses a different client and
+// the legacy request may return 403. That response means this SOURCE cannot expose limits — not that a
+// personal account is unmetered, and not that AGY itself is unavailable (#509).
 //
-// Credentials: agy imports gemini-cli's config, so its OAuth lands in ~/.gemini/oauth_creds.json (an
-// installed-app refresh token). We READ it and never write it — agy owns that file. When the stored
+// Legacy fallback credentials: older agy installs imported gemini-cli's config, so OAuth may exist in
+// ~/.gemini/oauth_creds.json (an installed-app refresh token). We READ it and never write it — agy owns
+// that file. When the stored
 // access token has expired we mint a fresh one via gemini-cli's PUBLIC installed-app OAuth client, in
 // memory only, and never touch agy's file or log the token.
 //
@@ -30,6 +30,7 @@ const os = require('os');
 const path = require('path');
 
 const { formatResetTime } = require('../usage-format');
+const localUsage = require('./local-usage');
 
 // gemini-cli's PUBLIC installed-app OAuth client (open source: google-gemini/gemini-cli, packages/core
 // src/code_assist/oauth2.ts). agy signs in through the same client and writes the same oauth_creds.json,
@@ -41,8 +42,8 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 const QUOTA_URL = 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota';
 
-// Where agy keeps the imported gemini-cli OAuth. SWITCHBOARD_AGY_CREDS points an isolated instance (demo/
-// sandbox) at a different file so it never reads the real account; unset, it is agy's real store.
+// Where older agy installs may keep imported gemini-cli OAuth. SWITCHBOARD_AGY_CREDS can point tests or
+// an isolated instance at another file; unset, the read-only usage exception uses the real account.
 function credsPath() {
   return process.env.SWITCHBOARD_AGY_CREDS || path.join(os.homedir(), '.gemini', 'oauth_creds.json');
 }
@@ -111,12 +112,12 @@ async function requestQuota(token) {
   });
 }
 
-async function fetchRaw() {
+async function fetchRemoteRaw() {
   const creds = readCreds();
-  if (!creds) return null;
+  if (!creds) return { kind: 'notConfigured' };
 
   let token = await getAccessToken(creds);
-  if (!token) return null;
+  if (!token) return { kind: 'authRequired' };
 
   let res = await requestQuota(token);
 
@@ -125,19 +126,21 @@ async function fetchRaw() {
   if (res.status === 401 || res.status === 403) {
     _cachedToken = null;
     token = await getAccessToken(creds, { forceRefresh: true });
-    if (!token) return null;
+    if (!token) return { kind: 'authRequired' };
     res = await requestQuota(token);
   }
 
   if (res.status === 429) {
     const retryAfter = parseInt(res.headers.get('retry-after') || '0', 10);
-    return { _rateLimited: true, retryAfterSeconds: retryAfter };
+    return { kind: 'rateLimited', retryAfterSeconds: retryAfter };
   }
+  if (res.status === 401) return { kind: 'authRequired' };
+  if (res.status === 403) return { kind: 'permissionDenied' };
   if (!res.ok) {
     console.error('[agy-usage] quota API error:', res.status);
-    return null;
+    return { kind: 'error', status: res.status };
   }
-  return res.json();
+  return { kind: 'quota', raw: await res.json() };
 }
 
 // 'gemini-2.5-pro' → '2.5 Pro' (bar) / 'Gemini 2.5 Pro' (card). A non-REQUESTS pool (a token quota) is
@@ -175,7 +178,8 @@ function mapModelBucket(b, i) {
   if (!Number.isFinite(frac)) return null;
   const percent = Math.max(0, Math.min(100, Math.floor((1 - frac) * 100)));
   const model = String((b && b.modelId) || '');
-  const { short, card } = humaniseModel(model);
+  const named = String((b && (b.displayName || b.label)) || '').trim();
+  const { short, card } = named ? { short: named, card: named } : humaniseModel(model);
   const suffix = tokenTypeSuffix(b && b.tokenType);
   return {
     key: model || `bucket-${i}`,
@@ -224,19 +228,119 @@ function transformQuotaResponse(raw) {
   return { ...base, buckets, quota: null };
 }
 
+function remainingFraction(bucket) {
+  const direct = bucket && bucket.remainingFraction;
+  if (direct != null && direct !== '') return direct;
+  const nested = bucket && bucket.remaining;
+  if (!nested || typeof nested !== 'object') return null;
+  if (nested.remainingFraction != null && nested.remainingFraction !== '') return nested.remainingFraction;
+  if (nested.case === 'remainingFraction') return nested.value;
+  return null;
+}
+
+function quotaGroupLabel(value) {
+  const label = String(value || '').trim();
+  const lower = label.toLowerCase();
+  if (lower.includes('gemini')) return 'Gemini';
+  if (lower.includes('claude') || lower.includes('gpt')) return 'Claude/GPT';
+  return label || 'Quota';
+}
+
+function quotaCadence(bucket) {
+  const raw = `${bucket?.bucketId || ''} ${bucket?.displayName || ''}`.toLowerCase().replace(/_/g, '-');
+  if (/\b(session|5h|5-hour|five[- ]hour)\b/.test(raw)) return { label: '5h', tier: 'short' };
+  if (/\bweekly\b/.test(raw)) return { label: '7d', tier: 'long' };
+  return { label: String(bucket?.displayName || bucket?.bucketId || 'Limit'), tier: null };
+}
+
+function transformQuotaSummaryResponse(raw) {
+  const payload = localUsage.quotaSummaryPayload(raw);
+  const buckets = [];
+  for (const [groupIndex, group] of (payload?.groups || []).entries()) {
+    const groupLabel = quotaGroupLabel(group?.displayName);
+    for (const [bucketIndex, bucket] of (group?.buckets || []).entries()) {
+      const remaining = remainingFraction(bucket);
+      if (bucket?.disabled || remaining == null || remaining === '') continue;
+      const fraction = Number(remaining);
+      if (!Number.isFinite(fraction)) continue;
+      const cadence = quotaCadence(bucket);
+      const keyPart = String(bucket?.bucketId || bucketIndex);
+      buckets.push({
+        key: `summary:${groupIndex}:${keyPart}`,
+        label: `${groupLabel} ${cadence.label}`,
+        percent: Math.max(0, Math.min(100, Math.floor((1 - fraction) * 100))),
+        reset: bucket?.resetTime ? formatResetTime(bucket.resetTime) : (bucket?.description || null),
+        tier: cadence.tier || tierForReset(bucket?.resetTime),
+        bar: false,
+        cardLabel: `${groupLabel} ${cadence.label}`,
+      });
+    }
+  }
+  return { backendId: 'agy', live: true, buckets: markStatusBarBucket(buckets), quota: null };
+}
+
+function transformLocalModelsResponse(raw) {
+  const configs = localUsage.modelConfigsPayload(raw) || [];
+  return transformQuotaResponse({
+    buckets: configs.map(config => ({
+      modelId: config?.modelOrAlias?.model,
+      displayName: config?.label,
+      tokenType: 'REQUESTS',
+      remainingFraction: config?.quotaInfo?.remainingFraction,
+      resetTime: config?.quotaInfo?.resetTime,
+    })),
+  });
+}
+
 // The capability's entry point. Never throws: an error is a state the status bar renders, not a crash.
-async function fetchUsage() {
+async function fetchUsage(context = {}) {
   try {
-    const raw = await fetchRaw();
-    if (raw === null) {
-      return { backendId: 'agy', live: true, _error: true, message: 'Could not fetch usage (not signed in or API error)' };
+    // An isolated store moves only Switchboard's scanner; agy has no matching CLI-home override. Starting
+    // a probe there would escape the demo/sandbox and boot the user's real CLI. The legacy HTTP fallback
+    // is skipped too: a demo verification must not become a live-account verification by accident.
+    const isolatedStore = !!context.processEnv?.SWITCHBOARD_STORE_AGY;
+    if (isolatedStore) {
+      return {
+        backendId: 'agy', live: true, buckets: [], quota: null, _noData: true, _limitsUnavailable: true,
+        message: 'AGY limits are unavailable in isolated mode.',
+      };
     }
-    if (raw._rateLimited) {
-      return { backendId: 'agy', live: true, _rateLimited: true, retryAfterSeconds: raw.retryAfterSeconds };
+    const local = await localUsage.fetchLocalRaw({
+      livePids: context.livePids || [],
+      allowLaunch: !context.hasCachedUsage,
+      findExecutable: context.findExecutable,
+      deps: { ...(context.localDeps || {}), env: context.processEnv || context.localDeps?.env },
+    });
+    if (local.kind === 'summary' || local.kind === 'models') {
+      const usage = local.kind === 'summary'
+        ? transformQuotaSummaryResponse(local.raw)
+        : transformLocalModelsResponse(local.raw);
+      if (usage.buckets.length > 0) return usage;
     }
-    const usage = transformQuotaResponse(raw);
-    // Signed in and reachable, but the endpoint returned no model buckets — say so rather than paint an
-    // empty segment as if it had answered with a limit.
+    if (local.kind === 'rateLimited') {
+      return { backendId: 'agy', live: true, _rateLimited: true, retryAfterSeconds: local.retryAfterSeconds };
+    }
+    if (local.kind === 'authRequired') {
+      return { backendId: 'agy', live: true, _error: true, message: 'Antigravity CLI is not signed in.' };
+    }
+
+    const remote = await (context.remoteFetch || fetchRemoteRaw)();
+    if (remote.kind === 'rateLimited') {
+      return { backendId: 'agy', live: true, _rateLimited: true, retryAfterSeconds: remote.retryAfterSeconds };
+    }
+    if (remote.kind === 'permissionDenied') {
+      return {
+        backendId: 'agy', live: true, buckets: [], quota: null, _noData: true, _limitsUnavailable: true,
+        message: 'AGY is ready, but this Google OAuth source does not expose its limits.',
+      };
+    }
+    if (remote.kind === 'authRequired') {
+      return { backendId: 'agy', live: true, _error: true, message: 'Antigravity CLI usage authentication failed.' };
+    }
+    if (remote.kind !== 'quota') {
+      return { backendId: 'agy', live: true, _error: true, message: 'Antigravity CLI usage could not be read.' };
+    }
+    const usage = transformQuotaResponse(remote.raw);
     if (usage.buckets.length === 0) return { backendId: 'agy', live: true, buckets: [], quota: null, _noData: true };
     return usage;
   } catch (err) {
@@ -244,4 +348,10 @@ async function fetchUsage() {
   }
 }
 
-module.exports = { fetchUsage, transformQuotaResponse, credsPath };
+module.exports = {
+  fetchUsage,
+  transformQuotaResponse,
+  transformQuotaSummaryResponse,
+  transformLocalModelsResponse,
+  credsPath,
+};

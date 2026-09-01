@@ -117,6 +117,15 @@ test('a backend with nothing to draw states which backend it is', () => {
   const noData = formatUsageStatus({ label: 'Codex', _noData: true });
   assert.equal(noData.text, 'Codex: no data yet');
   assert.equal(noData.level, 'empty');
+  const unavailable = formatUsageStatus({
+    label: 'Antigravity CLI',
+    _noData: true,
+    _limitsUnavailable: true,
+    message: 'AGY is ready, but this source does not expose its limits.',
+  });
+  assert.equal(unavailable.text, 'Antigravity CLI: limits unavailable');
+  assert.equal(unavailable.level, 'empty');
+  assert.match(unavailable.title, /AGY is ready/);
 });
 
 test('an absent tick shows the segment; only an explicit false hides it', () => {

@@ -88,6 +88,9 @@ touches nothing real. `test/store-isolation.test.js` is the guard.
   OWN environment, and the isolated home is only ever handed to the spawned session — so the status bar and
   the Usage panel show real quota even in the demo. Read-only, and the alternative (an isolated home with no
   usage history) shows nothing at all.
+- **The demo never starts an AGY usage probe.** `SWITCHBOARD_STORE_AGY` isolates Switchboard's scanner but
+  cannot move agy's own home, so a background probe would escape the sandbox. It also skips the legacy
+  Google fallback: AGY usage is neutral “limits unavailable” in an isolated run, never a live-account test.
 - **agy cannot be isolated.** Its CLI has no env var for its store, so a demo-launched agy session writes to
   the real `~/.gemini/antigravity-cli`. Its descriptor declines the hook rather than pretending.
 - **…and in the demo agy's RESOURCE list is empty — that is the isolation, not agy.**

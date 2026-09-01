@@ -365,8 +365,9 @@ Four things this got wrong before, and now does not:
 
 - **The colour thresholds are keyed on how fast a bucket REFILLS, not on a window name.** They used to be
   `5h` and `7d` — *Claude's* windows, hardcoded in the settings page. Codex reports `window_minutes` and
-  the provider may change it; Google Antigravity reports no time window at all (its quotas are per
-  **model**). A tier of `short` / `long` carries all three; `5h` / `7d` carries exactly one.
+  the provider may change it; Google Antigravity's current local summary can report grouped short/weekly
+  limits, while older fallback responses are per **model**. A tier of `short` / `long` carries all three;
+  `5h` / `7d` carries exactly one.
 
 - **The last record a store holds is not the last reading, and a reason is not a measurement** (#494).
   Codex ends a session by writing a rate-limit block that has no windows in it, only the reason it stopped.

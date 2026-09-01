@@ -17,7 +17,7 @@ guardIpcHandlers(ipcMain, log);
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
-const { withMainProcessUsageCache } = require('./backends/usage-cache');
+const { isSuccessfulUsage, withMainProcessUsageCache } = require('./backends/usage-cache');
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
 const backends = require('./backends');
@@ -1189,9 +1189,22 @@ async function collectUsage() {
   const results = await Promise.all(capable.map(async (b) => {
     const cacheKey = `usage:lastSuccessful:${b.id}`;
     const cached = getSetting(cacheKey);
+    const livePids = [];
+    for (const [sessionId, session] of activeSessions) {
+      if (!session || session.exited || !session.pty) continue;
+      const realId = session.realSessionId || sessionId;
+      const owner = sessionBackends.get(realId) || sessionBackends.get(sessionId);
+      if (owner?.backendId !== b.id) continue;
+      const pid = Number(session.pty.pid);
+      if (Number.isInteger(pid) && pid > 0) livePids.push(pid);
+    }
     let usage;
     try {
-      usage = await b.usage.fetch() || {};
+      usage = await b.usage.fetch({
+        livePids,
+        hasCachedUsage: isSuccessfulUsage(cached?.usage),
+        processEnv: cleanPtyEnv,
+      }) || {};
     } catch (err) {
       log.error(`[usage] ${b.id} fetch threw`, err?.message || String(err));
       usage = { backendId: b.id, _error: true, message: readableError(err, `${b.label || b.id} did not answer.`) };

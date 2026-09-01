@@ -131,8 +131,9 @@ absent from the installer.
   current pass count — don't trust a number written down here). Takes ~20 s:
   `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets
   the wall clock since files run in parallel.
-- `npm run demo:start` — **the default for dev/verify work**: a fully isolated demo instance against
-  seeded stores under `C:\temp\switchboard`. Never touches real data. `npm run demo:seed` seeds
+- `npm run demo:start` — **the default for dev/verify work**: an isolated demo instance against
+  seeded stores under `C:\temp\switchboard`. Backend limitations and the explicit read-only usage
+  exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds
   without launching; `npm run demo:auth` copies credentials into the isolated home. See
   `docs/demo-env.md`.
 - `npm start` — bundles CodeMirror, then launches Electron against the **real** stores. The exception,

@@ -132,7 +132,10 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - **Claude** is fetched live from the API (5h, weekly, Sonnet, Opus, and the extra-usage credit pool
   with money formatting). **Codex** is read out of its own transcript — no network call, no credential
   access — so its figure is *as of its last run*: the segment dims past an hour and its tooltip says
-  when it was measured. Hermes and Pi have no quota and never appear.
+  when it was measured. **Antigravity** reads AGY's loopback quota service, preferring a running process
+  and otherwise using one bounded probe; the old Google OAuth endpoint remains a best-effort fallback.
+  Isolated demo/sandbox runs never start or query the real AGY CLI. Hermes and Pi have no quota and never
+  appear.
 - **A switched-off backend is never fetched.** Colour thresholds are keyed on how fast a bucket
   refills, not on a window name, so a backend that invents its own windows still colours correctly.
 - Graceful states for rate-limited / unavailable / never-reported / **stale-cached** usage, including

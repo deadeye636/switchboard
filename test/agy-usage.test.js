@@ -3,7 +3,12 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const path = require('node:path');
 
-const { transformQuotaResponse, fetchUsage } = require('../src/backends/agy/usage');
+const {
+  transformQuotaResponse,
+  transformQuotaSummaryResponse,
+  transformLocalModelsResponse,
+  fetchUsage,
+} = require('../src/backends/agy/usage');
 
 // A reset well over a day out, so the tier is deterministic regardless of when the suite runs.
 const farReset = new Date(Date.now() + 40 * 24 * 60 * 60 * 1000).toISOString();
@@ -80,6 +85,87 @@ test('agy usage: a bucket with no remaining fraction is dropped, not shown as 10
 test('agy usage: an empty or shapeless response is a shape, not a crash', () => {
   assert.deepEqual(transformQuotaResponse(null), { backendId: 'agy', live: true, buckets: [], quota: null });
   assert.deepEqual(transformQuotaResponse({}), { backendId: 'agy', live: true, buckets: [], quota: null });
+});
+
+test('agy usage: current quota summaries preserve both groups and both cadences', () => {
+  const usage = transformQuotaSummaryResponse({
+    response: {
+      groups: [
+        {
+          displayName: 'Gemini Models',
+          buckets: [
+            { bucketId: 'session', displayName: 'Five Hour Limit', remainingFraction: 0.75, resetTime: farReset },
+            { bucketId: 'weekly', displayName: 'Weekly Limit', remaining: { remainingFraction: 0.5 }, resetTime: farReset },
+          ],
+        },
+        {
+          displayName: 'Claude and GPT Models',
+          buckets: [
+            { bucketId: 'session', displayName: 'Five Hour Limit', remainingFraction: 0.25, resetTime: farReset },
+            { bucketId: 'weekly', displayName: 'Weekly Limit', remainingFraction: 1, resetTime: farReset },
+          ],
+        },
+      ],
+    },
+  });
+  assert.deepEqual(usage.buckets.map(bucket => bucket.label), [
+    'Gemini 5h', 'Gemini 7d', 'Claude/GPT 5h', 'Claude/GPT 7d',
+  ]);
+  assert.deepEqual(usage.buckets.map(bucket => bucket.percent), [25, 50, 75, 0]);
+  assert.equal(usage.buckets.filter(bucket => bucket.bar).length, 1);
+  assert.equal(usage.buckets.find(bucket => bucket.bar).label, 'Claude/GPT 5h');
+});
+
+test('agy usage: local model fallback keeps AGY display labels', () => {
+  const usage = transformLocalModelsResponse({
+    clientModelConfigs: [{
+      label: 'Gemini 3.5 Flash (High)',
+      modelOrAlias: { model: 'gemini-3.5-flash-high' },
+      quotaInfo: { remainingFraction: 0.4, resetTime: farReset },
+    }],
+  });
+  assert.equal(usage.buckets[0].label, 'Gemini 3.5 Flash (High)');
+  assert.equal(usage.buckets[0].percent, 60);
+});
+
+test('agy usage: a forbidden legacy endpoint is limits-unavailable, not signed-out', async () => {
+  const usage = await fetchUsage({
+    hasCachedUsage: true,
+    remoteFetch: async () => ({ kind: 'permissionDenied' }),
+  });
+  assert.equal(usage._noData, true);
+  assert.equal(usage._limitsUnavailable, true);
+  assert.equal(usage._error, undefined);
+});
+
+test('agy usage: authentication and throttling remain distinct states', async () => {
+  const auth = await fetchUsage({
+    hasCachedUsage: true,
+    remoteFetch: async () => ({ kind: 'authRequired' }),
+  });
+  assert.equal(auth._error, true);
+  assert.match(auth.message, /authentication failed/i);
+
+  const throttled = await fetchUsage({
+    hasCachedUsage: true,
+    remoteFetch: async () => ({ kind: 'rateLimited', retryAfterSeconds: 90 }),
+  });
+  assert.equal(throttled._rateLimited, true);
+  assert.equal(throttled.retryAfterSeconds, 90);
+});
+
+test('agy usage: an isolated store never launches the real AGY CLI', async () => {
+  let executableLookups = 0;
+  let remoteCalls = 0;
+  const usage = await fetchUsage({
+    processEnv: { SWITCHBOARD_STORE_AGY: 'isolated-demo-store' },
+    findExecutable: () => { executableLookups += 1; return 'agy'; },
+    remoteFetch: async () => { remoteCalls += 1; return { kind: 'permissionDenied' }; },
+  });
+  assert.equal(executableLookups, 0);
+  assert.equal(remoteCalls, 0);
+  assert.equal(usage._limitsUnavailable, true);
+  assert.match(usage.message, /isolated mode/i);
 });
 
 test('agy usage: not signed in (no creds file) is a rendered _error, never a throw', async () => {

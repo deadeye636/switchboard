@@ -78,3 +78,14 @@ test('a backend that has never reported a limit is passed through, not dressed u
   assert.equal(result.response._error, undefined);
   assert.equal(result.cacheValue, null);
 });
+
+test('a cached reading preserves a backend-owned no-data reason', () => {
+  const cachedValue = buildCachedUsageValue(reading(), '2026-06-16T10:00:00.000Z');
+  const result = withMainProcessUsageCache({
+    backendId: 'agy',
+    _noData: true,
+    message: 'This OAuth source does not expose AGY limits.',
+  }, cachedValue);
+  assert.equal(result.response._staleKind, 'no-data');
+  assert.equal(result.response._staleMessage, 'This OAuth source does not expose AGY limits.');
+});

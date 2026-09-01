@@ -248,13 +248,13 @@ module.exports = {
   listModels,
   _parseModelList: parseModelList,
 
-  // Usage capability (#191, #201). agy exposes no local quota file, so unlike Codex this is a LIVE
-  // network read against agy's own backend (Gemini Code Assist's `cloudcode-pa` private API) — hence
-  // `live: true`, the figure is current as of each poll. Only the declaration crosses IPC; `fetch` stays
-  // in main. The credential read + OAuth refresh live entirely in usage.js.
+  // Usage capability (#191, #201, #509). Current agy owns its OAuth in the OS keyring and exposes its
+  // quota through the running CLI's loopback service. The collector hands this descriptor only its own
+  // live PTY pids; usage.js may start one bounded probe when no cached reading exists. The legacy Gemini
+  // OAuth request remains a best-effort fallback, never the primary source.
   usage: {
     live: true,
-    fetch: () => require('./usage').fetchUsage(),
+    fetch: (context) => require('./usage').fetchUsage({ ...context, findExecutable }),
   },
 
   // The transcript viewer + handoff read the conversation through here (transcriptAccess: 'export'), not

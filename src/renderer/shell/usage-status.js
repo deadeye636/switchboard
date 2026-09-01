@@ -167,6 +167,14 @@
     if (usage._noData) {
       // Installed and switched on, but it has never reported a limit. Say that; a 0% would read as
       // "you have used none of your quota", which is a claim we cannot make.
+      if (usage._limitsUnavailable) {
+        return {
+          text: `${who}: limits unavailable`,
+          title: usage.message || `${who} is ready, but its usage source did not expose limits.`,
+          level: 'empty',
+          percent: null,
+        };
+      }
       return { text: `${who}: no data yet`, title: `${who} has not reported a usage limit yet.`, level: 'empty', percent: null };
     }
     return { text: '', title: '', level: 'empty', percent: null };
