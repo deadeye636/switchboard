@@ -8638,10 +8638,12 @@ body.grid-dragging .grid-card-header {
 /* The one tab-specific difference, and it is about legibility rather than taste (#500): the sidebar
    pulses the dot's OPACITY, which reads because the row gives it whitespace to fade into. At 7 px in a
    dense strip that motion is invisible, so the tab breathes the HALO instead — same colour, same 1.4 s,
-   the movement carried by something big enough to see. The static box-shadow is the resting state and
-   what remains under `prefers-reduced-motion`. */
+   the movement carried by something big enough to see. Because the animation owns `box-shadow` here, the
+   declared one is only what paints with no animation at all — so it matches the keyframe's resting 1px,
+   which is also where `prefers-reduced-motion` lands the dot (that rule collapses the animation to one
+   0.001ms pass, it does not remove it). A 2px declaration would name a halo nothing ever draws. */
 .session-tab.subagent-active .session-tab-dot.status-dot:not(.status-busy):not(.status-needs-attention) {
-  box-shadow: 0 0 0 2px var(--status-subagent);
+  box-shadow: 0 0 0 1px var(--status-subagent);
   animation: pulse-halo-tab 1.4s ease-in-out infinite;
 }
 @keyframes pulse-halo-tab {

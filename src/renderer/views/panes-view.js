@@ -3636,6 +3636,9 @@ window.__sessionDragId = null;
         tab.classList.add(status.className);
         if (dot) dot.classList.add(status.className);
       }
+      // `buildTab` owns this class since #500 — every caller here pairs the patch with a `refreshChrome`
+      // that rebuilds the tab anyway, so this line is what keeps a patch WITHOUT a rebuild honest rather
+      // than the thing the pulse depends on. Both read the same set, so they cannot disagree.
       tab.classList.toggle('subagent-active',
         typeof subagentActiveSessions !== 'undefined' && subagentActiveSessions.has(tab.dataset.sessionId));
       // The muting is not a status class, so the strip above does not take it off — and a session that
