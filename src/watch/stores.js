@@ -61,8 +61,13 @@ function startBackendWatchers() {
     // 612 ms — the debounce interval, so a flush was being scheduled continuously — and nothing said by
     // what (#521). The answer was in this variable and thrown away. Note the empty case: no ids means an
     // UNSCOPED post, a full sweep of every backend, so an empty flush is the most expensive one.
-    ctx.log.debug(`[watch] flush → reconcile ${changed.length ? changed.join(',') : '(empty → FULL sweep)'}`);
-    try { ctx.indexWorker.postReconcile(changed.length ? { backendIds: changed } : {}); } catch (err) { ctx.log.warn(`[watch] backend reconcile post failed: ${err?.message || err}`); }
+    ctx.log.debug(`[watch] flush → reconcile ${changed.length ? changed.join(',') : '(nothing pending)'}`);
+    // Nothing pending means nothing to reconcile — and posting anyway is the WORST case, not a harmless
+    // one: an empty scope is the UNSCOPED request, a full sweep of every backend. `schedule()` always
+    // adds an id, so this should be unreachable; it is here because the cheapest flush must not be the
+    // one that costs the most if a future caller ever arms the timer without naming a store (#521).
+    if (!changed.length) return;
+    try { ctx.indexWorker.postReconcile({ backendIds: changed }); } catch (err) { ctx.log.warn(`[watch] backend reconcile post failed: ${err?.message || err}`); }
     // The store that just changed is also the busy/idle signal — and the place a freshly launched session's
     // real id first appears (T-4.5 / T-5.3). This reads the live PTY set, NOT a transcript, so it stays
     // synchronous on main: the spinner must update at once, not after a worker round-trip.

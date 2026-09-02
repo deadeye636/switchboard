@@ -100,12 +100,12 @@ test('the root is read on every call — setHome()/setRoot() must keep working',
   }
 });
 
-test('watchTargets watches the root recursively, and its match accepts transcripts + WAL siblings', () => {
+test('watchTargets watches the root recursively, and its match accepts transcripts + the WAL sibling', () => {
   // Recursive, because new subdirectories appear on their own: a date bucket at midnight (Codex), a
   // cwd folder with its first session (Pi). A non-recursive watch would go blind at the rollover.
   // The target carries a `match` so the dir watcher never hardcodes an extension (the `.jsonl` hardcode
-  // made agy's `.db` store invisible); it also accepts a `-wal`/`-shm` sibling, because a WAL-buffered
-  // store (agy) commits its live busy signal there without touching the main file's mtime.
+  // made agy's `.db` store invisible); it also accepts a `-wal` sibling, because a WAL-buffered store
+  // (agy) commits its live busy signal there without touching the main file's mtime.
   const { root } = makeStore();
   try {
     const [target] = storeFor(root).watchTargets();
@@ -115,7 +115,10 @@ test('watchTargets watches the root recursively, and its match accepts transcrip
     assert.equal(typeof target.match, 'function');
     assert.ok(target.match('log-abc.jsonl'));          // a transcript
     assert.ok(target.match('log-abc.jsonl-wal'));       // its WAL sibling
-    assert.ok(target.match('log-abc.jsonl-shm'));       // its SHM sibling
+    // NOT the SHM sibling (#521): a `-shm` moves when the database is merely OPENED, including by the
+    // reconcile this watcher's own flush posts, so matching it made the app reconcile itself in a loop.
+    assert.ok(!target.match('log-abc.jsonl-shm'));
+    assert.ok(!target.match('2026/07/12/log-abc.jsonl-shm'), 'nor under a subdir');
     // A recursive fs.watch reports a path relative to the root, NOT a basename. A prefix-anchored
     // matcher (this synthetic backend, like Codex, requires `log-`/`rollout-` at the START) would drop
     // every date-bucketed event if match did not basename its input first.

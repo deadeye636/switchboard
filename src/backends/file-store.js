@@ -152,9 +152,16 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
    *  `match` tells the dir watcher which filenames are this backend's transcripts, so it does not have to
    *  hardcode an extension. The hardcode was `.jsonl`, which fit Codex/Pi but made agy's `.db` store
    *  invisible to the watcher — its live busy edge then only surfaced on the slow fallback tick, never
-   *  during the turn. A store whose commits are WAL-buffered (agy) lands the live signal in a
-   *  `<name>-wal`/`-shm` sibling WITHOUT touching the main file's mtime, so accept those too — the same
-   *  reason the db-kind poll watches `-wal`. */
+   *  during the turn. A store whose commits are WAL-buffered (agy) lands the live signal in a `<name>-wal`
+   *  sibling WITHOUT touching the main file's mtime, so accept that too — the same reason the db-kind poll
+   *  watches `-wal`.
+   *
+   *  NOT `-shm`, and that is the whole of #521. A `-shm` is the shared-memory index of a WAL database and
+   *  its mtime moves when the database is merely OPENED — including by the reconcile that this watcher's
+   *  own flush just posted. agy keeps one database per conversation, so the app drove itself in a circle:
+   *  reconcile opens them, the open touches every `-shm`, the watcher calls that a change, and 612 ms
+   *  later it reconciles again. Measured at 5-8 % of a core, forever, with no agy process running at all.
+   *  A commit lands in `-wal`; `-shm` says "somebody looked", which is not a signal this watcher wants. */
   function watchTargets() {
     const isTranscript = (filename) => {
       // A recursive fs.watch reports a path RELATIVE to the root (`2026/07/21/rollout-<id>.jsonl`), not a
@@ -162,7 +169,7 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
       // anchored matcher (Codex: `startsWith('rollout-')`) would reject every date-bucketed event without
       // this basename step; `endsWith` matchers (agy, Pi) would survive it, so the bug would hide on them.
       const f = path.basename(String(filename));
-      return matches(f) || matches(f.replace(/-(wal|shm)$/, ''));
+      return matches(f) || matches(f.replace(/-wal$/, ''));
     };
     return [{ kind: 'dir', path: root(), recursive: true, match: isTranscript }];
   }
