@@ -58,6 +58,7 @@ function rebindSidebarEvents(projects) {
 
   syncTitleToAriaLabel(sidebarContent);
   syncTitleToTooltip(sidebarContent);
+  observeRowVisibility();
 
   // Auto-expand a slug group that holds the active session, so the selection is never hidden in a
   // collapsed group after a re-render.
@@ -73,10 +74,36 @@ function rebindSidebarEvents(projects) {
   }
 }
 
+// Which rows are on screen (#519). A busy row's spinner and shimmer each cost a style recalculation per
+// frame, and a row scrolled out of the sidebar pays exactly the same as one the user is looking at —
+// measured at six sevenths of the renderer's whole style-recalculation time. The CSS pauses them; this
+// says which rows. `rootMargin` keeps a screenful of slack either side, so scrolling reveals a row that
+// is already running rather than one that starts as it appears.
+let rowVisibilityObserver = null;
+
+function observeRowVisibility() {
+  if (!sidebarContent || typeof IntersectionObserver !== 'function') return;
+  if (!rowVisibilityObserver) {
+    rowVisibilityObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) entry.target.classList.toggle('offscreen', !entry.isIntersecting);
+    }, { root: sidebarContent, rootMargin: '300px 0px' });
+  }
+  // morphdom keeps the nodes it can and builds the rest, and a row behind a fold is not built at all
+  // (#516) — so the set to watch is whatever is in the tree right now, every render.
+  rowVisibilityObserver.disconnect();
+  for (const row of sidebarContent.querySelectorAll('.session-item')) rowVisibilityObserver.observe(row);
+}
+
 // Attach the delegated listeners once. sidebarContent is the morphdom root, so these outlive every patch.
 function ensureSidebarDelegation() {
   if (sidebarEventsDelegated || !sidebarContent) return;
   sidebarEventsDelegated = true;
+  // A minimised or fully covered window animates on, unseen, at full cost (#519). `visibilitychange` is
+  // the right signal and focus is not: a window can sit unfocused beside the one being typed in, in
+  // plain view, and a paused spinner there would read as a session that stopped working.
+  const syncWindowVisibility = () => document.body.classList.toggle('window-hidden', document.hidden);
+  document.addEventListener('visibilitychange', syncWindowVisibility);
+  syncWindowVisibility();
   sidebarContent.addEventListener('click', dispatchSidebarActivation);
   sidebarContent.addEventListener('dblclick', handleSidebarDblclick);
   sidebarContent.addEventListener('keydown', handleSidebarKeyboard);

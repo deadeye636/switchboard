@@ -19,7 +19,11 @@ const ROOT = path.join(__dirname, '..');
 const { seedDemo, resolveDemoDir } = require('./seed-demo');
 
 const DEBUG = process.argv.slice(2).includes('--debug');
-const DEBUG_PORT = 9222;
+// The same variable the other three CDP scripts read, for the same reason they read it: the port is
+// taken by whatever bound it first, and an installed instance running with a debugging port leaves the
+// demo nothing to bind. `check-debug-port.js` (which this runs first) already honours it, so without
+// this the guard and the launch would disagree about which port is being claimed.
+const DEBUG_PORT = Number(process.env.SWITCHBOARD_DEBUG_PORT) || 9222;
 
 function main() {
   const demoDir = resolveDemoDir();

@@ -438,7 +438,7 @@ Still open:
 | `SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS` | How long a trigger waits for a session to go idle | the built-in default; a non-numeric value falls back to it |
 | `SWITCHBOARD_SUBMIT_ENTER_DELAY_MS` | Delay between writing the text and writing Enter on a PTY submit | built-in default; only finite values ≥ 0 are accepted |
 | `SWITCHBOARD_SUBMIT_VERIFY_MS` | Window in which a submit waits for the busy rising edge | built-in default; same validation |
-| `SWITCHBOARD_DEBUG_PORT` | CDP port for `drive-app.js` / `check-debug-port.js` | `9222` |
+| `SWITCHBOARD_DEBUG_PORT` | CDP port for `drive-app.js` / `check-debug-port.js` / `perf-sample.js`, and the port `demo:start -- --debug` binds. Set it when an instance already holds the default — an installed app started with a debugging port leaves the demo nothing to bind. | `9222` |
 | `SWITCHBOARD_DEMO_DIR` | Root of the isolated demo environment | `C:/temp/switchboard` |
 
 **The isolation set** is seven variables: `SWITCHBOARD_DATA_DIR`, `SWITCHBOARD_USER_DATA` and the five

@@ -323,6 +323,20 @@ test('#229: a caret nobody opened is not marked expanded by the copy', () => {
   assert.equal(to.attrs['aria-expanded'], undefined);
 });
 
+test('#519: a row scrolled out of the scroller stays marked across a render', () => {
+  // The observer re-delivers after every render, but a frame or two later — long enough for a paused
+  // animation to run again on a row nobody can see.
+  const to = el(['session-item']);
+  preserveSidebarState(el(['session-item', 'offscreen']), to);
+  assert.equal(to.has('offscreen'), true);
+});
+
+test('#519: a row that is on screen is not marked by the copy', () => {
+  const to = el(['session-item']);
+  preserveSidebarState(el(['session-item']), to);
+  assert.equal(to.has('offscreen'), false);
+});
+
 // --- #516: the pass that has nothing to do ---
 
 test('#516: a row that is already what the builder wants is skipped, a changed one is not', () => {

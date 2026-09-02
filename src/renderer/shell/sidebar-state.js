@@ -111,6 +111,10 @@
       toEl.setAttribute('aria-expanded', 'true');
     }
     if (has('slug-group-more') && has('expanded')) toEl.classList.add('expanded');
+    // Where the row sits in the scroller is not the builder's business either (#519). The observer
+    // re-delivers after every render, but a frame or two later — long enough for a paused animation to
+    // start up again on a row nobody can see, twice per render, on every busy row in the sidebar.
+    if (has('session-item') && has('offscreen')) toEl.classList.add('offscreen');
     // Every clause above is done mutating `toEl`, so this is the finished node the builder wants on
     // screen. If the live one already IS that node — attributes, text and the whole subtree — morphdom's
     // walk would end in no mutation at all, and skipping it is the same DOM for a fraction of the cost
