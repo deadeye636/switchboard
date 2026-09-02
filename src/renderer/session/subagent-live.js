@@ -13,9 +13,27 @@
 
 const SUBAGENT_SOURCE_HOOK = 'hook';
 const SUBAGENT_SOURCE_SCAN = 'scan';
+// The scan's completion guess, once it has held for long enough that no live agent explains it (#518).
+// It may retract a hook-owned agent, and it is the only thing that may: a cancelled subagent emits no
+// SubagentStop, so without this the entry the hook opened has no edge that can ever close it.
+const SUBAGENT_SOURCE_FINAL = 'scan-final';
 
 function subagentKey(parentSessionId, agentId) {
   return parentSessionId + ':' + agentId;
+}
+
+// Which agents the hook has ever owned, per live set. This exists because a settled retraction can be
+// WRONG: the agent sat inside a long tool call, wrote nothing for over two minutes, and comes back
+// through the scan's spawn path. Without a memory that would make it scan-owned — and a scan-owned
+// agent is retractable by the ordinary 30 s guess, so #121's flicker would be back on a fuse four
+// times shorter than the bug this deadline was written to fix. `SubagentStart` fires once per agent
+// and cannot re-assert anything, so the set remembers on the hook's behalf. Only a real SubagentStop
+// forgets: that agent is over, and nothing about it needs protecting any more.
+const hookOwned = new WeakMap();
+
+function rememberedAsHook(live, key) {
+  const seen = hookOwned.get(live);
+  return !!seen && seen.has(key);
 }
 
 // Apply one edge to `live` (Map<key, source>). Returns true when the agent's
@@ -27,16 +45,27 @@ function applySubagentEdge(live, parentSessionId, agentId, isLive, source = SUBA
   const current = live.get(key);
 
   if (isLive) {
+    if (source === SUBAGENT_SOURCE_HOOK) {
+      if (!hookOwned.has(live)) hookOwned.set(live, new Set());
+      hookOwned.get(live).add(key);
+    }
     // Hook ownership sticks: a later scan sighting must not downgrade it, or the
-    // scan would regain the right to retract the agent.
-    const next = current === SUBAGENT_SOURCE_HOOK ? SUBAGENT_SOURCE_HOOK : source;
+    // scan would regain the right to retract the agent. It also survives a settled
+    // retraction, so an agent that comes back is protected exactly as it was.
+    const owned = current === SUBAGENT_SOURCE_HOOK || rememberedAsHook(live, key);
+    const next = owned ? SUBAGENT_SOURCE_HOOK : source;
     if (current === next) return false;
     live.set(key, next);
     return current === undefined;
   }
 
+  if (source === SUBAGENT_SOURCE_HOOK) {
+    const seen = hookOwned.get(live);
+    if (seen) seen.delete(key);
+  }
   if (current === undefined) return false;
-  // The heuristic may only retract what it owns.
+  // The heuristic may only retract what it owns — unless it is the settled one, which outranks a hook
+  // edge that was never going to arrive.
   if (source === SUBAGENT_SOURCE_SCAN && current === SUBAGENT_SOURCE_HOOK) return false;
   live.delete(key);
   return true;
@@ -65,6 +94,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SUBAGENT_SOURCE_HOOK,
     SUBAGENT_SOURCE_SCAN,
+    SUBAGENT_SOURCE_FINAL,
     subagentKey,
     applySubagentEdge,
     isSubagentLive,

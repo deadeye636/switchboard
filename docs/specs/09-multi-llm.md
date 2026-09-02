@@ -564,6 +564,15 @@ now takes an optional `subagentOf`). The lifecycle state machine — bootstrap q
 the answer. `subagents` is now a Claude path token in `backend-path-neutrality`, so the layout cannot leak
 back out.
 
+**#518** added the deadline that state machine was missing. The CLI announces the end of a subagent that
+*finished*; a subagent that is cancelled, or that dies with the turn on a usage limit, ends in silence. The
+hook edge that closes the entry never arrives, and #121's rule — the mtime heuristic may not retract what
+the hook opened — turned that silence into a row that claimed work forever. So the refusal now expires: two
+minutes after the completion guess, with the sweep still watching for a reopen throughout, the scan's
+verdict outranks the hook edge that was never coming. Being wrong here is survivable in a way the old
+behaviour was not — an agent that writes again re-lights itself through the reopen path, while the stuck
+indicator healed only on a restart.
+
 Which backend a LIVE session belongs to comes from the launch overlay (`session/session-backends.js`),
 injected as `getSessionBackend`. An `activeSessions` entry carries no `backendId` field, so reading one off
 it would have looked like dispatch while resolving to the legacy default for every session — the first

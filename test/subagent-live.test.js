@@ -47,6 +47,58 @@ test('SubagentStop retracts a hook-tracked subagent', () => {
   assert.strictEqual(isSubagentLive(live, P, 'a1'), false);
 });
 
+test('the settled completion retracts a hook-tracked subagent (#518)', () => {
+  // A cancelled subagent emits no SubagentStop, so the hook edge that would close the entry never
+  // arrives and the #121 rule above turns "no news" into "running forever".
+  const live = new Map();
+  applySubagentEdge(live, P, 'a1', true, 'hook');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan-final'), true);
+  assert.strictEqual(isSubagentLive(live, P, 'a1'), false);
+});
+
+test('the settled completion of an agent that already went is a no-op', () => {
+  const live = new Map();
+  applySubagentEdge(live, P, 'a1', true, 'hook');
+  applySubagentEdge(live, P, 'a1', false, 'hook');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan-final'), false, 'nothing to repaint');
+});
+
+test('a settled completion does not make a stranger live', () => {
+  // It only ever closes: an edge for an agent nobody announced must not create one.
+  const live = new Map();
+  assert.strictEqual(applySubagentEdge(live, P, 'ghost', false, 'scan-final'), false);
+  assert.strictEqual(live.size, 0);
+});
+
+test('an agent re-lit after a settled retraction is protected again (#518)', () => {
+  // The settled retraction can be wrong: the agent was inside a long tool call. It comes back through
+  // the scan's spawn path, and if that made it scan-owned the ordinary 30 s guess could retract it —
+  // #121's flicker, on a shorter fuse than the bug this fixed.
+  const live = new Map();
+  applySubagentEdge(live, P, 'a1', true, 'hook');
+  applySubagentEdge(live, P, 'a1', false, 'scan-final');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', true, 'scan'), true, 'the reopen re-lights it');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan'), false, 'and it is hook-owned again');
+  assert.strictEqual(isSubagentLive(live, P, 'a1'), true);
+});
+
+test('after a real SubagentStop the agent is no longer remembered as hook-owned', () => {
+  // The agent is over. A file of that name reappearing is the scan's business, not a protected agent.
+  const live = new Map();
+  applySubagentEdge(live, P, 'a1', true, 'hook');
+  applySubagentEdge(live, P, 'a1', false, 'hook');
+  applySubagentEdge(live, P, 'a1', true, 'scan');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan'), true, 'scan-owned again');
+});
+
+test('the hook memory is per live set', () => {
+  const a = new Map();
+  const b = new Map();
+  applySubagentEdge(a, P, 'a1', true, 'hook');
+  applySubagentEdge(b, P, 'a1', true, 'scan');
+  assert.strictEqual(applySubagentEdge(b, P, 'a1', false, 'scan'), true, 'the other set is untouched');
+});
+
 test('a hook may retract what the scan set', () => {
   const live = new Map();
   applySubagentEdge(live, P, 'a1', true, 'scan');

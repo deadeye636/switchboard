@@ -136,7 +136,9 @@ function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, age
 (function initSubagentListeners() {
   if (!window.api) return; // guard for non-Electron contexts
   window.api.onSubagentSpawned((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, true, 'scan'));
-  window.api.onSubagentCompleted((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, false, 'scan'));
+  // `final` marks the completion the scan stood by long enough to outrank a hook edge that never came
+  // (#518) — the ordinary guess still may not retract a hook-tracked agent.
+  window.api.onSubagentCompleted((payload) => setSubagentLive(payload.parentSessionId, payload.agentId, false, payload.final ? 'scan-final' : 'scan'));
   window.api.onSubagentWatchEvent((payload) => {
     const key = payload.parentSessionId + ':' + payload.agentId;
     document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {

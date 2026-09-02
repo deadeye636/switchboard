@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const sessionTransitions = require('../src/session/session-transitions');
-const { detectSubagentTransitions, detectSessionTransitions, init, readNewSessionSignals } = sessionTransitions;
+const { detectSubagentTransitions, detectSessionTransitions, init, readNewSessionSignals, hasOpenSubagents } = sessionTransitions;
 
 function mkTmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-st-'));
@@ -210,6 +210,95 @@ test('post-bootstrap with no new agents emits zero events (IPC-flood regression)
   } finally {
     cleanup(tmp);
   }
+});
+
+test('a completion that has held long enough retracts the hook-tracked agent (#518)', () => {
+  const events = setupModule();
+  const tmp = mkTmp();
+  try {
+    const sessionId = 'parent';
+    fs.mkdirSync(path.join(tmp, sessionId, 'subagents'), { recursive: true });
+    const session = {};
+    detectSubagentTransitions(sessionId, session, tmp);
+    seedAgents(tmp, sessionId, [{ id: 'cancelled' }]);
+    detectSubagentTransitions(sessionId, session, tmp);
+    assert.equal(events[0].channel, 'subagent-spawned');
+
+    // The agent is cancelled: the file never grows again, and no SubagentStop ever arrives.
+    const entry = session.knownSubagents.get('cancelled');
+    entry.completed = true;
+    entry._completedAt = Date.now() - 60000;      // one minute in — not yet settled
+    detectSubagentTransitions(sessionId, session, tmp);
+    assert.equal(events.length, 1, 'a minute of silence is not evidence yet');
+
+    entry._completedAt = Date.now() - 121000;     // past the wait
+    detectSubagentTransitions(sessionId, session, tmp);
+    const last = events[events.length - 1];
+    assert.equal(last.channel, 'subagent-completed');
+    assert.equal(last.payload.agentId, 'cancelled');
+    assert.equal(last.payload.final, true, 'marked as the completion that outranks a missing hook edge');
+
+    // Said once, not once per walk.
+    const before = events.length;
+    detectSubagentTransitions(sessionId, session, tmp);
+    detectSubagentTransitions(sessionId, session, tmp);
+    assert.equal(events.length, before, 'the retraction is announced once');
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('an agent that writes again during the wait is not retracted (#121)', () => {
+  const events = setupModule();
+  const tmp = mkTmp();
+  try {
+    const sessionId = 'parent';
+    fs.mkdirSync(path.join(tmp, sessionId, 'subagents'), { recursive: true });
+    const session = {};
+    detectSubagentTransitions(sessionId, session, tmp);
+    seedAgents(tmp, sessionId, [{ id: 'slow' }]);
+    detectSubagentTransitions(sessionId, session, tmp);
+
+    // The stable-mtime guess fired while the agent sat inside a long tool call.
+    const entry = session.knownSubagents.get('slow');
+    entry.completed = true;
+    entry._completedAt = Date.now() - 60000;
+
+    // It writes again: the reopen resets the wait, so the settled retraction never comes. The recorded
+    // mtime is aged by hand — two writes inside one filesystem tick carry the same mtime, and the reopen
+    // is decided by that number, so trusting the clock here is how this test fails one run in six.
+    entry.mtimeMs -= 5000;
+    seedAgents(tmp, sessionId, [{ id: 'slow', content: 'another line\n' }]);
+    detectSubagentTransitions(sessionId, session, tmp);
+    assert.equal(session.knownSubagents.get('slow').completed, false, 'reopened');
+    assert.equal(session.knownSubagents.get('slow')._final, false);
+    assert.equal(events.filter(e => e.channel === 'subagent-completed').length, 0);
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+test('the sweep runs through the retraction wait and stops after it (#518)', () => {
+  // The 5 s sweep is what notices a reopen, so it must outlive the completion guess — and it must
+  // still stop, or an idle app pays for a timer forever.
+  const sessions = new Map();
+  init({
+    PROJECTS_DIR: '/unused',
+    activeSessions: sessions,
+    getMainWindow: () => null,
+    log: { info: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
+    rekeyMcpServer: () => {},
+  });
+  const session = { knownSubagents: new Map() };
+  sessions.set('parent', session);
+  session.knownSubagents.set('a', { mtimeMs: 1, completed: false, _final: false });
+  assert.equal(hasOpenSubagents(), true, 'a running agent');
+
+  session.knownSubagents.get('a').completed = true;
+  assert.equal(hasOpenSubagents(), true, 'still open while the retraction wait runs');
+
+  session.knownSubagents.get('a')._final = true;
+  assert.equal(hasOpenSubagents(), false, 'nothing left to watch');
 });
 
 // --- detectSessionTransitions: /clear (and fork regression) ---

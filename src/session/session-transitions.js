@@ -52,12 +52,30 @@ function init(ctx) {
 // open subagents on a timer instead. It starts on the first spawn and stops itself
 // once none are open, so an idle app pays nothing.
 const SUBAGENT_SWEEP_MS = 5000;
+// How long a completion guess has to survive before it may retract a subagent the HOOK opened (#518).
+//
+// A cancelled subagent emits no `SubagentStop` — the CLI announces the end of an agent that finished,
+// and nothing at all for one that was stopped or died with the turn on a usage limit. The hook edge
+// that would close the entry therefore never arrives, and #121's rule that the scan may not retract a
+// hook-owned agent turns "no news" into "running forever". The scan saw the real end twice in the
+// reproduction and was refused both times.
+//
+// So the refusal gets a deadline instead of being absolute. Silence this long, on top of the 30 s the
+// completion guess already costs, is the evidence — and it is safe to be wrong here in a way it was not
+// before: the sweep keeps checking during the wait, and a subagent that writes again reopens itself
+// through the path that already exists. A wrong retraction re-lights on the next line the agent writes;
+// the missing one never healed at all.
+const SUBAGENT_FINAL_MS = 120000;
 let subagentSweepTimer = null;
 
+// "Open" includes a completed agent still inside its retraction wait: that is the window in which a
+// reopen has to be noticed quickly, so the sweep must not stop at the completion guess.
 function hasOpenSubagents() {
   for (const [, session] of activeSessions) {
     if (session.exited || !session.knownSubagents) continue;
-    for (const [, state] of session.knownSubagents) if (!state.completed) return true;
+    for (const [, state] of session.knownSubagents) {
+      if (!state.completed || !state._final) return true;
+    }
   }
   return false;
 }
@@ -66,7 +84,7 @@ function sweepOpenSubagents() {
   for (const [sessionId, session] of [...activeSessions]) {
     if (session.exited || session.isPlainTerminal || !session.knownSubagents || !session.projectFolder) continue;
     let open = false;
-    for (const [, state] of session.knownSubagents) if (!state.completed) { open = true; break; }
+    for (const [, state] of session.knownSubagents) if (!state.completed || !state._final) { open = true; break; }
     if (!open) continue;
     detectSubagentTransitions(
       session.realSessionId || sessionId,
@@ -169,6 +187,10 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
           mtimeMs,
           completed: !looksAlive,
           _completedAt: looksAlive ? null : now,
+          // Bootstrap says nothing to the renderer, so there is nothing to retract later either —
+          // marked final at birth, or every agent that finished before the app started would announce
+          // its own retraction two minutes in.
+          _final: !looksAlive,
         });
         // An agent still running at cold start would otherwise wait for a watcher
         // event that never comes once it stops writing.
@@ -177,7 +199,7 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
       }
       // First sighting post-bootstrap of a freshly written file — a real spawn.
       const meta = readMeta(agentId);
-      session.knownSubagents.set(agentId, { mtimeMs, completed: false });
+      session.knownSubagents.set(agentId, { mtimeMs, completed: false, _final: false });
       // A live subagent stops producing watcher events once it finishes writing —
       // the sweep keeps re-checking it so completion isn't declared arbitrarily late.
       startSubagentSweep();
@@ -196,6 +218,7 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
       // (#121). Renderer-side the re-spawn is idempotent.
       known.completed = false;
       known._completedAt = null;
+      known._final = false;
       known.mtimeMs = mtimeMs;
       known._stableStart = null;
       startSubagentSweep();
@@ -220,6 +243,7 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
           known._stableStart = now;
         } else if (now - known._stableStart >= STABLE_MS) {
           known.completed = true;
+          known._final = false;      // the retraction wait starts here (#518)
           log.info(`[subagent-complete] parent=${sessionId} agentId=${agentId}`);
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('subagent-completed', {
@@ -235,11 +259,26 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
   // GC: remove completed entries after 5 minutes to avoid unbounded growth
   const GC_TTL = 5 * 60 * 1000;
   for (const [agentId, state] of session.knownSubagents) {
-    if (state.completed && state._completedAt && now - state._completedAt > GC_TTL) {
-      session.knownSubagents.delete(agentId);
-    }
     if (state.completed && !state._completedAt) {
       state._completedAt = now;
+    }
+    // The completion guess has held long enough to be believed against a hook that never closed its
+    // entry (#518). Said once per agent, and only to what the renderer was told about.
+    if (state.completed && !state._final && now - state._completedAt >= SUBAGENT_FINAL_MS) {
+      state._final = true;
+      log.info(`[subagent-final] parent=${sessionId} agentId=${agentId} (silent since the completion guess)`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('subagent-completed', {
+          parentSessionId: sessionId,
+          agentId,
+          final: true,
+        });
+      }
+    }
+    // Only a finalized entry may be dropped: forgetting one still inside its wait would rediscover the
+    // file on the next walk and start the whole wait again.
+    if (state._final && state._completedAt && now - state._completedAt > GC_TTL) {
+      session.knownSubagents.delete(agentId);
     }
   }
 }
