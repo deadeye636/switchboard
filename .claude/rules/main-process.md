@@ -272,6 +272,15 @@ add an IPC handler.
 - `src/watch/projects.js` — fs.watch on Claude's store (folders + per-file refreshes).
 - `src/watch/stores.js` — every OTHER backend's store. Scan-generalization is not
   watch-generalization, so this works on `watchTargets()`, not on discovery's per-session handles.
+  **A flush says which store it reconciles, at `debug`.** An idle instance was found posting a reconcile
+  every 612 ms — the debounce interval, so a flush was being scheduled without pause — and nothing named
+  the source. It is agy, and the app drives it itself: a db-mode store matches its `-wal`/`-shm` siblings
+  as a change (`file-store.js`), a `-shm` moves when a database is merely OPENED, and the reconcile opens
+  agy's per-conversation databases to read them. Reconcile → open → `-shm` moves → the watcher calls that
+  a change → reconcile. Five of those files had moved in 90 seconds with no agy process running at all.
+  It costs 5-8 % of a core, forever; it is #521, and it is open — read that before changing either side
+  of the match. Note also that an EMPTY `changed` set posts `{}`, which is the UNSCOPED request: the
+  emptiest flush is the most expensive one.
 - `src/watch/adopt.js` — identity adoption + busy/idle for the backends that name their own
   sessions. It owns `liveStoreRef`/`liveBusy` and **exports the Maps themselves**: main's PTY-exit
   handler drops a dead session's claim from them, so a copy would leave the claim standing forever

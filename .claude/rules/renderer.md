@@ -358,6 +358,62 @@ and its shape is load-bearing in a way that looks like pointless latency:
 timeout. The old test asserting an immediate rAF for a visible session was replaced, not weakened — that
 guarantee is what #513 removed on purpose.
 
+## Motion is paid for BY THE FRAME, wherever it is, and by PLACE is the only lever (#519)
+
+An animation that Blink cannot accelerate recalculates style on the main thread every frame for as long
+as it runs — and it runs whether or not anybody can see it. Measured on a live instance, across the
+pipeline rather than style alone: about 1.9 s of rendering work per 20 s with the sidebar's spinner,
+shimmer and icon blink going, against ~0.3 s with them off. Paint was the biggest line of it and never
+showed up in a style-only reading.
+
+Four things were measured before the rule below was settled on, and each killed an obvious fix:
+
+- **The spinner IS composited.** `LayerTree.compositingReasons` answers `ActiveTransformAnimation`, the
+  pi icon answers `ActiveOpacityAnimation`. Choosing a different property fixes nothing, and the first
+  attempt paused the one animation that was already free while leaving the two that were not.
+- **A composited animation still recalculates style per frame** — by design: Blink ticks a main-thread
+  copy so the element's computed style stays in step with the compositor.
+- **One running animation costs what five cost** (69.9 recalculations a second against 72-77 for five,
+  0.8 with none). So reducing the NUMBER of animated indicators saves nothing; the static-dot and
+  animate-only-the-focused-row options were both weighed against a benefit that does not exist.
+- **Selector complexity is not it either.** The row's dot, reached through five compound selectors and
+  three negations, cost 135 µs per element; a probe `div` with one class nothing else targets cost 142.
+
+So the rule is **pause by PLACE, never by property**: everything inside a row nobody can see stops.
+`.session-item.offscreen > .session-row *` and `body.window-hidden #sidebar-content *` /
+`.sidebar-tab *` in style.css, `animation-play-state: paused` so a row scrolled back resumes mid-spin.
+A new decorative animation inside a session row is covered on the day it is written; do not "tidy" that
+into a list of the animations that exist today.
+
+Three parts that look redundant and are not:
+
+- **`visibilitychange`, not focus.** A window can sit unfocused in plain view, and a spinner frozen
+  there reads as a session that stopped working.
+- **`preserveSidebarState` carries `.offscreen` across a render.** The observer re-delivers after
+  morphdom, but a frame or two later — long enough for every paused animation in the sidebar to start up
+  again, twice per render.
+- **`> .session-row`**, like every state rule in that file: a row CONTAINS other rows, each observed on
+  its own, and a nested row still on screen must not be paused by the head it sits under.
+  `test/sidebar-nested-row-scoping.test.js` catches the descendant form.
+
+**And measuring this is its own trap.** Three runs of ONE identical configuration on a live instance gave
+592, 748 and 879 ms — a spread of nearly 50 %. `scripts/perf-trace.js` prints what was animating in every
+run for that reason; two runs that do not name the same state are not comparable, and a whole issue's
+worth of conclusions was drawn from a table that sat entirely inside that spread.
+
+## An icon is markup, and markup is parsed (#520)
+
+`el.innerHTML = '<svg…>'` invokes the HTML parser. The row builder did it twelve times per row, for a
+constant string, on every render: 12 778 `ParseHTML` events in 20 seconds, all attributed to
+`buildSessionItem`. `setIcon(el, markup)` in `lib/icons.js` parses each distinct string once and hands
+out `cloneNode(true)` copies — measured at 5040 parses before against 1820 after, same window, same
+forced render loop.
+
+Keyed by the markup itself, not by a name: the callers hold their SVG inline, and a key they have to
+invent is a key that goes stale against the string beside it. **A new icon-bearing control uses
+`setIcon`**; the other builders (project headers, chips) still assign `innerHTML` and are the remaining
+1820.
+
 ## A change that only moves numbers inside a rendered row does not rebuild the sidebar
 
 `refreshSidebar()` used to cost 121-157 ms of main thread at seven projects and 78 sessions, nearly all of

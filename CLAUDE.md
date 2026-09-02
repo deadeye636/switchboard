@@ -39,6 +39,7 @@ table is the fallback and it is binding.
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |
 | driving the app without clicking | `docs/ai/driving-the-app.md` |
+| a performance question — what the app costs, what a frame did, whether an animation is composited | `docs/ai/driving-the-app.md` (the two tools) + `docs/ai/lessons.md` (how this measurement goes wrong) |
 | remotes, cherry-picking from a fork | `docs/ai/fork-and-porting.md` |
 | the Windows build toolchain | `docs/build-windows.md` |
 | why a rule exists / what it cost | `docs/ai/lessons.md` |
