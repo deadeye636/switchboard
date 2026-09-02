@@ -800,9 +800,45 @@ const BACKGROUND_FLUSH_INTERVAL_MS = 2000;
 //
 // THIS VALUE IS A MARGIN OVER A MEDIAN, NOT A PROVEN BOUND. No tail was measured, and the ceiling wins
 // over the settle once one interval has passed, so a redraw whose second read arrives late enough is
-// still written split. It makes the flicker rare rather than impossible; treat a report that it still
-// happens as plausible rather than as something else.
+// still written split. A completed synchronized frame that exposes a cursor at column 1 gets the narrow
+// structural hold below instead of relying on that timing margin.
 const FLUSH_SETTLE_MS = 24;
+
+// A TUI may complete one synchronized frame with its cursor visible at the origin of the area it just
+// repainted, then send a separate correction that returns the cursor to the composer. Both frames are
+// individually valid VT, but presenting the first one makes the cursor jump (#513). Measured corrections
+// arrived after the ordinary 33 ms ceiling had already forced the transient frame out; the 33 ms floor
+// then delayed the correction and left the wrong cursor visible for a 50 ms median.
+//
+// Hold only that structural state. As soon as a later cursor placement joins the buffer the predicate
+// becomes false, the ordinary (already expired) ceiling wins, and both frames are written together on the
+// next animation frame. The bound preserves a legitimate TUI decision to leave its cursor at column 1.
+// Hidden sessions need no exception: they are not painted and retain their 2 s background cadence.
+const TRANSIENT_CURSOR_FRAME_HOLD_MS = 150;
+
+function endsWithVisibleSynchronizedCursorAtColumnOne(chunks) {
+  const data = chunks.join('');
+  const close = data.lastIndexOf('\x1b[?2026l');
+  if (close === -1) return false;
+
+  // Find the opener paired with the last completed block, not the last opener overall: the next block
+  // may already have started in a later PTY read while the correction is still outstanding.
+  const open = data.lastIndexOf('\x1b[?2026h', close);
+  if (open === -1) return false;
+
+  let lastCursorPosition = null;
+  const cursorPosition = /\x1b\[(\d+);(\d+)H/g;
+  for (const match of data.matchAll(cursorPosition)) lastCursorPosition = match;
+  if (!lastCursorPosition
+      || lastCursorPosition.index <= open
+      || lastCursorPosition.index >= close
+      || Number(lastCursorPosition[2]) !== 1) {
+    return false;
+  }
+
+  const show = data.lastIndexOf('\x1b[?25h');
+  return show > lastCursorPosition.index && show < close;
+}
 
 const lastFlushAt = new Map(); // sessionId → performance.now() of last flush
 
@@ -1162,7 +1198,8 @@ function scheduleFlush(sessionId, buf) {
 
   // Stage B: use a longer flush interval for non-visible sessions to reduce VT
   // parse frequency. Visible sessions get the adaptive 33/66 ms budget (#81).
-  const effectiveMin = isSessionVisible(sessionId) ? visibleFlushInterval() : BACKGROUND_FLUSH_INTERVAL_MS;
+  const visible = isSessionVisible(sessionId);
+  const effectiveMin = visible ? visibleFlushInterval() : BACKGROUND_FLUSH_INTERVAL_MS;
 
   // Three bounds decide when this buffer is written:
   //   floor    the ~30 fps cap — never flush sooner than one interval after the last one (#81)
@@ -1170,8 +1207,10 @@ function scheduleFlush(sessionId, buf) {
   //   ceiling  and never wait longer than one interval past the buffer's FIRST chunk, which is what
   //            keeps a continuously streaming session on its old cadence
   const floor = last === undefined ? now : last + effectiveMin;
-  const ceiling = buf.firstAt + effectiveMin;
-  const delay = Math.max(0, Math.max(floor, Math.min(now + FLUSH_SETTLE_MS, ceiling)) - now);
+  const holdTransientCursorFrame = visible && endsWithVisibleSynchronizedCursorAtColumnOne(buf.chunks);
+  const settle = holdTransientCursorFrame ? TRANSIENT_CURSOR_FRAME_HOLD_MS : FLUSH_SETTLE_MS;
+  const ceiling = buf.firstAt + (holdTransientCursorFrame ? TRANSIENT_CURSOR_FRAME_HOLD_MS : effectiveMin);
+  const delay = Math.max(0, Math.max(floor, Math.min(now + settle, ceiling)) - now);
 
   // Every chunk re-schedules: that is what makes this a settle rather than a cadence, so a pending
   // flush is REPLACED, not left to fire on its own. (It used to return early here, which is how the
@@ -1818,4 +1857,3 @@ function setupDragAndDrop(container, terminal, getSessionId) {
     insertFromDataTransfer(e.dataTransfer, terminal, sessionId);
   });
 }
-

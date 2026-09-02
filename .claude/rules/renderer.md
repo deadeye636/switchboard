@@ -340,19 +340,23 @@ and its shape is load-bearing in a way that looks like pointless latency:
   Flushing on the very next animation frame wrote the first read alone, so a CLI that parks its cursor
   at the viewport origin before the correcting read arrives had that origin painted for one frame: a
   cursor visibly flickering between the prompt and the redraw position (#513).
-- **Three bounds, and all three matter.** The floor is the ~30 fps cap (#81); `FLUSH_SETTLE_MS` is how
+- **Three ordinary bounds, and all three matter.** The floor is the ~30 fps cap (#81); `FLUSH_SETTLE_MS` is how
   long a still-receiving buffer waits; the ceiling is one interval past the buffer's FIRST chunk, and it
   is what keeps a continuously streaming session on its old cadence instead of waiting forever on its own
   steady arrival of data. Remove the ceiling and streaming stalls; remove the settle and #513 returns.
-- **The settle is a margin over a median, not a proven bound.** No tail was measured, and the ceiling
-  wins once an interval has passed, so a redraw whose second read arrives late enough is still written
-  split. A report that the flicker still happens occasionally is plausible, not evidence of something
-  else.
+- **One structural state gets a bounded exception.** Some TUIs complete a synchronized-output block by
+  showing the cursor at column 1, then send the real composer placement in a separate frame. The ordinary
+  ceiling presented that transient state and the floor delayed its already-arrived correction. A visible
+  session whose last completed DEC-2026 block has exactly that shape is held until a later placement joins
+  the buffer or `TRANSIENT_CURSOR_FRAME_HOLD_MS` expires. This is terminal semantics, never a backend-id
+  branch; hidden sessions keep their background cadence, and the timeout preserves a legitimate column-1
+  placement.
 - **Do not "fix" the echo latency by dropping the settle.** A lone chunk with nothing behind it waits
   `FLUSH_SETTLE_MS` instead of one frame. That is the price, and it is the whole mechanism.
 
-`test/terminal-background-write.test.js` holds the three bounds. The old test asserting an immediate rAF
-for a visible session was replaced, not weakened — that guarantee is what #513 removed on purpose.
+`test/terminal-background-write.test.js` holds the three ordinary bounds plus the structural hold and its
+timeout. The old test asserting an immediate rAF for a visible session was replaced, not weakened — that
+guarantee is what #513 removed on purpose.
 
 ## A change that only moves numbers inside a rendered row does not rebuild the sidebar
 

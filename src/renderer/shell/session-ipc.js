@@ -50,7 +50,8 @@ window.api.onTerminalData((sessionId, data) => {
     // holding data until a 500 ms timeout — which left the prompt/status blank (#85).
     // Just coalesce the writes; xterm keeps redraws atomic. The coalescing waits for the stream to
     // settle rather than firing on the next frame, so a redraw the PTY split across several reads is
-    // written whole — see FLUSH_SETTLE_MS in terminal-manager.js (#513).
+    // written whole. A completed frame that visibly parks the cursor at column 1 is held until its
+    // separate correction arrives or a bounded timeout expires — see terminal-manager.js (#513).
     scheduleFlush(sessionId, buf);
   }
   // Update last activity time (noise-filtered)

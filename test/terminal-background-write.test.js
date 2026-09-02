@@ -324,6 +324,168 @@ test('Stage B: the settle never pushes a flush past one interval from the first 
 });
 
 // ---------------------------------------------------------------------------
+// #513 — a completed synchronized frame may expose a transient cursor at column 1
+// ---------------------------------------------------------------------------
+
+const SYNC_CURSOR_AT_COLUMN_ONE =
+  '\x1b[?2026h\x1b[?25l\x1b[46;1H\x1b[?25h\x1b[?2026l';
+const COMPOSER_CURSOR_CORRECTION =
+  '\x1b[?25l \x1b[48;51H\x1b[?25h';
+
+test('Stage B: recognizes a completed synchronized frame that exposes column 1 (#513)', () => {
+  const { inCtx, destroy } = setupDom();
+  try {
+    const frame = JSON.stringify(SYNC_CURSOR_AT_COLUMN_ONE);
+    assert.strictEqual(
+      inCtx(`endsWithVisibleSynchronizedCursorAtColumnOne([${frame}])`),
+      true,
+      'the complete synchronized cursor frame needs the structural hold'
+    );
+
+    const split = [
+      SYNC_CURSOR_AT_COLUMN_ONE.slice(0, 24),
+      SYNC_CURSOR_AT_COLUMN_ONE.slice(24),
+    ].map(JSON.stringify).join(',');
+    assert.strictEqual(
+      inCtx(`endsWithVisibleSynchronizedCursorAtColumnOne([${split}])`),
+      true,
+      'PTY chunk boundaries do not change the VT state'
+    );
+  } finally {
+    destroy();
+  }
+});
+
+test('Stage B: a later composer placement releases the transient cursor hold (#513)', () => {
+  const { inCtx, destroy } = setupDom();
+  try {
+    const chunks = [SYNC_CURSOR_AT_COLUMN_ONE, COMPOSER_CURSOR_CORRECTION]
+      .map(JSON.stringify).join(',');
+    assert.strictEqual(
+      inCtx(`endsWithVisibleSynchronizedCursorAtColumnOne([${chunks}])`),
+      false,
+      'the correction must make the combined buffer immediately eligible again'
+    );
+  } finally {
+    destroy();
+  }
+});
+
+test('Stage B: a partial following sync block does not hide the completed transient frame (#513)', () => {
+  const { inCtx, destroy } = setupDom();
+  try {
+    const chunks = [SYNC_CURSOR_AT_COLUMN_ONE, '\x1b[?2026h\x1b[?25l']
+      .map(JSON.stringify).join(',');
+    assert.strictEqual(
+      inCtx(`endsWithVisibleSynchronizedCursorAtColumnOne([${chunks}])`),
+      true,
+      'the opener paired with the last close matters, not the last opener overall'
+    );
+  } finally {
+    destroy();
+  }
+});
+
+test('Stage B: ordinary synchronized cursor placements keep the normal settle (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    window.openSessions.get('s1').element.classList.add('visible');
+    const ordinary = JSON.stringify(
+      '\x1b[?2026h\x1b[?25l\x1b[46;3H\x1b[?25h\x1b[?2026l'
+    );
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: [${ordinary}], rafId: 0, timerId: 0, firstAt: 0 })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+
+    assert.strictEqual(cap.delays()[0], inCtx('FLUSH_SETTLE_MS'),
+      'a non-origin cursor frame must not pay the exceptional hold');
+  } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+test('Stage B: a transient cursor frame waits for its bounded correction window (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    window.openSessions.get('s1').element.classList.add('visible');
+    const frame = JSON.stringify(SYNC_CURSOR_AT_COLUMN_ONE);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: [${frame}], rafId: 0, timerId: 0, firstAt: 0 })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+
+    assert.strictEqual(cap.delays()[0], inCtx('TRANSIENT_CURSOR_FRAME_HOLD_MS'),
+      'both settle and ceiling use the bounded structural hold');
+  } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+test('Stage B: a late correction makes the combined frame immediately eligible (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    window.openSessions.get('s1').element.classList.add('visible');
+    const chunks = [SYNC_CURSOR_AT_COLUMN_ONE, COMPOSER_CURSOR_CORRECTION]
+      .map(JSON.stringify).join(',');
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: [${chunks}], rafId: 0, timerId: 0,
+             firstAt: performance.now() - MIN_FLUSH_INTERVAL_MS - 1 })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+
+    const buf = inCtx(`terminalWriteBuffers.get('s1')`);
+    assert.ok(buf.rafId !== 0, 'the expired ordinary ceiling releases both frames on the next rAF');
+    assert.strictEqual(buf.timerId, 0, 'the correction is not held for another settle');
+    assert.strictEqual(cap.delays().length, 0, 'no timeout remains once the correction is buffered');
+  } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+test('Stage B: an uncorrected column-1 frame is released at the safety bound (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    window.openSessions.get('s1').element.classList.add('visible');
+    const frame = JSON.stringify(SYNC_CURSOR_AT_COLUMN_ONE);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: [${frame}], rafId: 0, timerId: 0,
+             firstAt: performance.now() - TRANSIENT_CURSOR_FRAME_HOLD_MS })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+
+    const buf = inCtx(`terminalWriteBuffers.get('s1')`);
+    assert.ok(buf.rafId !== 0, 'a legitimate column-1 placement is eventually presented');
+    assert.strictEqual(buf.timerId, 0, 'the safety bound cannot reschedule itself indefinitely');
+    assert.strictEqual(cap.delays().length, 0, 'the reached bound flushes without another timer');
+  } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+test('Stage B: hidden sessions keep their background cadence for the same VT frame (#513)', () => {
+  const { window, inCtx, destroy } = setupDom();
+  const cap = captureFlushDelays(inCtx);
+  try {
+    window.createTerminalEntry({ sessionId: 's1' });
+    inCtx(`lastFlushAt.set('s1', performance.now())`);
+    const frame = JSON.stringify(SYNC_CURSOR_AT_COLUMN_ONE);
+    inCtx(`terminalWriteBuffers.set('s1', { chunks: [${frame}], rafId: 0, timerId: 0, firstAt: 0 })`);
+    inCtx(`scheduleFlush('s1', terminalWriteBuffers.get('s1'))`);
+
+    assert.ok(cap.delays()[0] >= 1500,
+      'an invisible cursor must not shorten the background flush interval');
+  } finally {
+    cap.restore();
+    destroy();
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Stage A — skip write / buffer / replay
 // ---------------------------------------------------------------------------
 
