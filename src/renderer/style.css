@@ -1956,26 +1956,27 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   to { transform: rotate(360deg); }
 }
 
-/* A decorative animation costs a style recalculation per frame for as long as it runs — and it runs
-   whether or not anybody can see it. Measured on a live instance with six busy sessions: 716 ms of
-   `UpdateLayoutTree` per 20 s with these running, 101 ms with them off. Six sevenths of the renderer's
-   style-recalculation time, for motion on rows that were mostly scrolled out of sight.
-   None of the usual escapes applies here: neither `steps()` (648 ms) nor the independent `rotate`
-   property with `will-change` (625 ms) got the spinner composited, so the only lever left is WHEN it
-   runs. Paused, not stopped: `animation-play-state` keeps the frame it was on, so a row scrolled back
+/* An animation that is not composited costs a style recalculation per frame for as long as it runs, and
+   it runs whether or not anybody can see it. Controlled A/B on a live instance, same two spinning dots
+   and one shimmering name in every run: 963 and 909 ms of `UpdateLayoutTree` per 20 s with the motion,
+   647 and 663 ms with it off. So the motion is around 280 ms per 20 s — real, and about a seventh of
+   what a first, uncontrolled reading claimed.
+   NAMED PROPERTIES ARE THE WRONG THING TO LIST HERE, which is what that first reading got wrong. It
+   paused the busy spinner, and the spinner turns out to be the one animation Blink DOES composite —
+   `LayerTree.compositingReasons` answers `ActiveTransformAnimation` for its layer, and its trace record
+   carries `compositeFailed: 0`. The main-thread cost sat in the animations nobody had looked at: the
+   subagent pulse on a `status-running` dot and the pi icon's blink, both opacity, neither composited.
+   So this pauses BY PLACE, not by property: everything inside a row nobody can see. A future animation
+   is covered on the day it is written, and no one has to re-derive which properties Blink accelerates.
+   Paused rather than stopped — `animation-play-state` keeps the frame it was on, so a row scrolled back
    into view resumes mid-spin instead of restarting.
    `.offscreen` is set by the sidebar's visibility observer, `.window-hidden` on <body> while the whole
-   window is minimised or covered. A new decorative animation inside a session row belongs in this list;
-   one on a surface that is always visible (a tab dot) does not — it would pause while still on screen.
-   `> .session-row` for the same reason every state rule here carries it: a row CONTAINS other rows (a
-   folded lineage ancestor, a subagent), and each of those is observed on its own — a nested row that is
-   still on screen must not be paused by the head it sits under. */
-body.window-hidden .status-dot.status-busy,
-body.window-hidden .session-summary,
-body.window-hidden .sidebar-tab .pi-frame-a,
-body.window-hidden .sidebar-tab .pi-frame-b,
-.session-item.offscreen > .session-row .status-dot.status-busy,
-.session-item.offscreen > .session-row .session-summary {
+   window is minimised or covered. `> .session-row` for the reason every state rule here carries it: a
+   row CONTAINS other rows (a folded lineage ancestor, a subagent), each observed on its own, and a
+   nested row still on screen must not be paused by the head it sits under. */
+body.window-hidden #sidebar-content *,
+body.window-hidden .sidebar-tab *,
+.session-item.offscreen > .session-row * {
   animation-play-state: paused;
 }
 
