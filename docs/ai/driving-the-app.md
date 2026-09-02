@@ -31,6 +31,21 @@ node scripts/perf-sample.js --os-only --interval=60   # no debugging port: the p
 node scripts/perf-sample.js report <file.jsonl>       # first/last/peak, per-hour rates, restarts split
 ```
 
+For the twenty seconds in front of you rather than the eight hours behind you, `scripts/perf-trace.js`.
+A CPU profile is the wrong instrument for this renderer — style recalculation, layout and paint are not JS
+frames, so it blames `(program)` and shows the busiest JS frame at half a percent. The trace names the phase,
+the reason, the node and the JS frame that scheduled it.
+
+```
+node scripts/perf-trace.js 20                        # where the frame went, and who dirtied it
+node scripts/perf-trace.js composited ".status-dot"  # is that animation on the compositor?
+```
+
+**Two runs of a live instance are not comparable unless they name the same state.** Three runs of ONE identical
+configuration measured 592, 748 and 879 ms — a spread of nearly 50 %, because session activity varies. Every run
+prints how many animations, busy dots and rows were live while it ran; if those differ, the durations do not mean
+what a comparison would make them mean. A whole issue's worth of conclusions was drawn from that mistake first.
+
 **An instance that is already running cannot be given a debugging port.** The flag is read at launch, so
 the full page-level measurement costs a restart — on a live instance, every session in it. `--os-only`
 is the reading that costs nothing: it answers whether something grows, not which renderer grows it. Take

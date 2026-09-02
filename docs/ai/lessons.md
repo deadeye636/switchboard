@@ -761,3 +761,37 @@ re-rendered minutes later.
   *query* it. A hidden node is still a node, and code had been reading it for years.
 - **"Keeps its row" is a render-time decision, so something has to trigger a render.** The rule was right
   and unreachable on the one path that mattered. A rule with no event to fire it is a comment.
+
+## Six numbers, one number, and the instrument that lied (#519)
+
+A perf hunt on the sidebar's busy indicators produced a tidy-looking table: baseline 716 ms of style
+recalculation per 20 s, `steps()` 648, the `rotate` property 625, `contain: strict` 575, everything off
+101. It read as "the spinner cannot be composited, so pause it". Every part of that was wrong, and each
+error is one an instrument invited.
+
+- **A duration compared across two runs of a LIVE instance is not a measurement.** Three runs of one
+  identical configuration later measured 592, 748 and 879 ms. The whole table sat inside its own noise;
+  only the 101 stood out, and that run happened to catch a quiet moment rather than a better setting.
+  `perf-trace.js` prints what was animating in every run for this reason — two runs that do not name the
+  same state cannot be compared at all.
+- **Five "is it composited?" variants all ran with a main-thread animation still going**, so none of them
+  could have shown a difference. The conclusion drawn from them — "no property choice helps" — was not
+  something the data could say.
+- **`LayerTree.compositingReasons` answers it in seconds.** The spinner was composited all along
+  (`ActiveTransformAnimation`), and so was the pi icon (`ActiveOpacityAnimation`). The first fix paused the
+  one animation that was already free and left the ones that were not.
+- **A CPU profile blames `(program)`** when the cost is rendering, and 70 % idle with a busiest JS frame at
+  0.5 % reads as "nothing to fix here".
+- **Style recalculation was the wrong headline.** Across the pipeline the motion cost about 1.9 s per 20 s
+  — paint, layerize, commit and GPU together — five times what the recalculation figure suggested.
+
+What finally settled the design question was a measurement nobody had thought to take: **one running
+animation costs what five cost** (69.9 recalculations per second against 72-77 for five, and 0.8 with
+none). So reducing the NUMBER of animated indicators — the static dot, animating only the focused row —
+would have saved nothing, and both had been weighed as if they would. The only lever is zero animations in
+a region, which is what the shipped fix does for rows nobody can see.
+
+The rule that comes out of it: **before optimising an animation, ask Blink whether it is on the
+compositor, and before comparing two durations, prove the two runs were in the same state.** Both take
+seconds. Neither was done, and the reasoning built on top of them survived three rounds of confident
+writing — including into a commit message that had to be amended.
