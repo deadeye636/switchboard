@@ -19,6 +19,23 @@ node scripts/drive-app.js shot out.png                # screenshot the window
 node scripts/drive-app.js --target=settings shot s.png  # …a SECOND window, by title or URL
 ```
 
+The other half of "run it and look" is what the app costs while nobody looks. `scripts/perf-sample.js`
+reads the same port on an interval and writes one JSON line per sample — the per-page counters that are
+not supposed to grow (`Nodes`, `JSEventListeners`, `JSHeapUsedSize`) next to the process tree's working
+set and CPU seconds. It only reads: nothing is injected into a page and nothing is clicked, so it can be
+left running for a working day without becoming a suspect itself.
+
+```
+node scripts/perf-sample.js --minutes=240             # sample every 30 s into .claude/scratchpad/
+node scripts/perf-sample.js --os-only --interval=60   # no debugging port: the process tree only
+node scripts/perf-sample.js report <file.jsonl>       # first/last/peak, per-hour rates, restarts split
+```
+
+**An instance that is already running cannot be given a debugging port.** The flag is read at launch, so
+the full page-level measurement costs a restart — on a live instance, every session in it. `--os-only`
+is the reading that costs nothing: it answers whether something grows, not which renderer grows it. Take
+the page-level run at the next restart that was going to happen anyway.
+
 No dependency (Node 22 ships a global `WebSocket`; CDP is JSON over one). `window.api.*` is reachable
 from `eval`, so the app's own IPC can be exercised directly — e.g. `await window.api.getProjects(false)`
 to read what the sidebar would render, or `await window.api.unhideProject(path)` to do what a click
