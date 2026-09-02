@@ -272,15 +272,18 @@ add an IPC handler.
 - `src/watch/projects.js` — fs.watch on Claude's store (folders + per-file refreshes).
 - `src/watch/stores.js` — every OTHER backend's store. Scan-generalization is not
   watch-generalization, so this works on `watchTargets()`, not on discovery's per-session handles.
-  **A flush says which store it reconciles, at `debug`.** An idle instance was found posting a reconcile
-  every 612 ms — the debounce interval, so a flush was being scheduled without pause — and nothing named
-  the source. It is agy, and the app drives it itself: a db-mode store matches its `-wal`/`-shm` siblings
-  as a change (`file-store.js`), a `-shm` moves when a database is merely OPENED, and the reconcile opens
-  agy's per-conversation databases to read them. Reconcile → open → `-shm` moves → the watcher calls that
-  a change → reconcile. Five of those files had moved in 90 seconds with no agy process running at all.
-  It costs 5-8 % of a core, forever; it is #521, and it is open — read that before changing either side
-  of the match. Note also that an EMPTY `changed` set posts `{}`, which is the UNSCOPED request: the
-  emptiest flush is the most expensive one.
+  **The sibling match accepts `-wal` and NOT `-shm`, and that is load-bearing (#521).** A `-shm` is a WAL
+  database's shared-memory index, and its mtime moves when the database is merely OPENED — including by
+  the reconcile this watcher's own flush posted. agy keeps one database per conversation, so matching
+  `-shm` made the app answer its own reads: reconcile opens them, the open touches every `-shm`, the
+  watcher calls that a change, and 612 ms later it reconciles again. It cost 5-8 % of a core permanently,
+  with no agy process running at all — the main process was the only thing on the machine that never
+  reached idle. A commit lands in `-wal`, which is the signal the sibling match exists for; `-shm` says
+  "somebody looked".
+  **A flush says which store it reconciles, at `debug`** — that one line named agy in a minute, after the
+  three obvious suspects (the renderer, transcript writes, the VCS poller) had each been excluded by
+  measurement. And a flush with nothing pending posts NOTHING: an empty scope is the unscoped request, a
+  full sweep of every backend, so the flush with the least to do would otherwise cost the most.
 - `src/watch/adopt.js` — identity adoption + busy/idle for the backends that name their own
   sessions. It owns `liveStoreRef`/`liveBusy` and **exports the Maps themselves**: main's PTY-exit
   handler drops a dead session's claim from them, so a copy would leave the claim standing forever

@@ -113,10 +113,11 @@ function startBackendWatchers() {
         continue;
       }
       // Which filenames are this backend's transcripts. The target declares it (file-store's `match`,
-      // which also accepts a `-wal`/`-shm` sibling for a WAL-buffered store like agy); the `.jsonl`
-      // fallback keeps any target that declares none behaving as before. A hardcoded `.jsonl` here made
-      // agy's `.db` store invisible to the watcher, so its busy edge only ever surfaced on the slow tick
-      // below, never during the turn.
+      // which also accepts a `-wal` sibling for a WAL-buffered store like agy — and deliberately NOT
+      // `-shm`, which moves on a mere open and had this watcher answering its own reads, #521); the
+      // `.jsonl` fallback keeps any target that declares none behaving as before. A hardcoded `.jsonl`
+      // here made agy's `.db` store invisible to the watcher, so its busy edge only ever surfaced on the
+      // slow tick below, never during the turn.
       const matchFile = typeof target.match === 'function'
         ? target.match
         : (filename) => String(filename).endsWith('.jsonl');

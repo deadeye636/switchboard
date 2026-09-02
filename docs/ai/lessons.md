@@ -795,3 +795,34 @@ The rule that comes out of it: **before optimising an animation, ask Blink wheth
 compositor, and before comparing two durations, prove the two runs were in the same state.** Both take
 seconds. Neither was done, and the reasoning built on top of them survived three rounds of confident
 writing — including into a commit message that had to be amended.
+
+## The app was answering its own reads, and three exclusions found it (#521)
+
+The main process never reached idle: sampled once a minute for three hours, the renderer and the GPU
+process both touched 0 % of a core in quiet minutes and the main process never went below 4.9 %. It was
+posting a store reconcile every 612 ms — the watcher's debounce interval, so a flush was being scheduled
+without pause — and nothing in the log said by what.
+
+What found it was subtraction, not inspection. Three suspects, each excluded by measurement rather than
+by reading code:
+
+- **the renderer** — `window.api.getProjects` wrapped and counted: 0 calls in 30 s against ~48 reconciles
+- **transcript writes** — not one `postFile` in the same minute as 98 reconciles
+- **the VCS poller** — suppressed over alternating two-minute windows, median moved by −0.6 points
+
+Then one `log.debug` of a variable the code already had (`changed`, in the watcher's flush) named it in a
+minute: every flush was agy, never another backend. agy keeps one SQLite database per conversation, the
+sibling match accepted `-shm`, and a `-shm` moves when a database is merely **opened** — including by the
+reconcile that flush had just posted. Reconcile → open → `-shm` moves → "the store changed" → reconcile.
+Five of those files had moved in the previous 90 seconds with no agy process running at all.
+
+- **A watcher can be triggered by the reader it triggers.** The match was written for "a commit lands in
+  a sibling without touching the main file", which is true of `-wal` and not of `-shm`: one says the
+  contents changed, the other says somebody looked. Nothing about the code looked wrong, and the loop
+  cost more than every other finding in that session put together.
+- **The cheapest flush was the most expensive one.** An empty `changed` set posted `{}`, and `{}` is the
+  UNSCOPED request — a full sweep of every backend rather than the one that moved.
+- **A floor is invisible in a mean.** 5 % under three hours of ordinary activity is nothing in an average
+  and obvious in a minimum. `perf-sample.js` reports the distribution for that reason.
+- **The log line stays.** It is per-decision detail at `debug`, where the logging rules put it, and the
+  next flush storm will name its store in a minute instead of a night.
