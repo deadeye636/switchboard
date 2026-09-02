@@ -54,7 +54,7 @@ function setup(backend = {}) {
   window.getSessionHealth = () => ({ className: 'health-ok', label: 'OK', state: 'healthy' });
   window.getQuietDetailParts = () => [];
   window.getWorktreeLabel = () => '';
-  window.ICONS = { archive: () => '<svg/>', launchConfig: () => '<svg/>' };
+  // lib/icons.js (loaded below) defines the real ICONS and setIcon; nothing to stub.
   window.getSessionRuntimeState = () => ({});
 
   // The registry surface under test. `sessionBackendId` and `getBackend` are read as window.* in the badge
@@ -66,8 +66,10 @@ function setup(backend = {}) {
   window.getBackend = backend.getBackend || (() => null);
   window.backendMonogram = (id) => id.slice(0, 2).toUpperCase();
 
-  // Real a11y-utils so ariaButton (and its siblings) resolve exactly as in the browser.
-  for (const rel of ['lib/a11y-utils.js', 'shell/sidebar-session-row.js']) {
+  // Real a11y-utils and the real icon helper, so `ariaButton` and `setIcon` resolve exactly as in the
+  // browser — `setIcon` hands out clones of a once-parsed node (#520), and a stub that just assigned
+  // innerHTML would leave the caching path untested in the one file that renders every row.
+  for (const rel of ['lib/a11y-utils.js', 'lib/icons.js', 'shell/sidebar-session-row.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
 
