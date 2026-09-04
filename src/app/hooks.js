@@ -177,19 +177,38 @@ function handleHookRequest(req, res, token = attentionHookToken) {
             ctx.log.warn(`[session-bind] could not follow terminal=${tag.slice(0, 8)}: ${err.message}`);
           }
         }
-        // Some backends can also report a neutral busy/idle edge on the same terminal binding. The route
+        // Some backends can also report a neutral lifecycle edge on the same terminal binding. The route
         // still knows nothing about WHICH backend sent it; it only trusts the per-spawn URL+token and the
-        // session id reported by the terminal-bound extension.
-        const bindKind = hook.kind === 'busy' || hook.kind === 'idle' ? hook.kind : null;
-        if (sessionId && bindKind) {
+        // session id reported by the terminal-bound extension. What the edge MEANS is decided in
+        // `shared/attention-source.js`, the same place every other source is decided.
+        const bindSignal = sessionId
+          ? attentionSource.classifyAttentionSignal({ source: 'bind', payload: hook })
+          : null;
+        if (bindSignal) {
+          // `needs-attention` from a binding is a CLI blocked on a question mid-turn (#529): it is
+          // attention AND it is the end of being busy. Reading only `kind` would leave the row spinning
+          // behind the inbox flag, which is the state this exists to remove — so the busy edge is taken
+          // from `busy` when the signal carries one.
+          const busy = typeof bindSignal.busy === 'boolean' ? bindSignal.busy : bindSignal.kind === 'busy';
           const mainWindow = ctx.getMainWindow();
           if (mainWindow && !mainWindow.isDestroyed()) {
             // Third arg = exact backend lifecycle edge. Renderer keeps OSC/store guesses from clearing a
             // Ready row, but a terminal-bound lifecycle hook is the user's new turn and must clear it.
-            mainWindow.webContents.send('cli-busy-state', sessionId, bindKind === 'busy', true);
+            mainWindow.webContents.send('cli-busy-state', sessionId, busy, true);
+            if (bindSignal.kind === 'needs-attention') {
+              mainWindow.webContents.send('attention-signal', {
+                sessionId,
+                kind: bindSignal.kind,
+                reason: bindSignal.reason,
+                source: bindSignal.source,
+                agentId: null,
+                agentType: null,
+              });
+              ctx.log.info(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} reason="${bindSignal.reason}"`);
+            }
           }
           if (ctx.sendTimelineSignal) {
-            ctx.sendTimelineSignal(sessionId, { kind: bindKind, source: 'hook', reason: 'terminal binding' });
+            ctx.sendTimelineSignal(sessionId, { kind: bindSignal.kind, source: bindSignal.source, reason: bindSignal.reason });
           }
         }
         res.writeHead(200, { 'content-type': 'application/json' });

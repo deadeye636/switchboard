@@ -71,9 +71,48 @@
     }
   }
 
+  // What a terminal-bound extension is waiting for, when it is waiting on the USER (#529).
+  //
+  // Pi 0.84.4 separates active agent work from time spent on a blocking `ctx.ui` prompt (`ui_prompt_start`
+  // / `ui_prompt_end`), which is the difference between a session that is thinking and one that is
+  // waiting — indistinguishable before, and reported as busy, so a session sat "Working" while it was
+  // actually blocked on an unanswered question.
+  //
+  // The wording comes from a CLOSED vocabulary, never from a title the CLI supplies. A prompt title is
+  // arbitrary text from whatever the agent is running, and this reason is rendered in the inbox; the kind
+  // of prompt is enough to say what is wanted.
+  const BIND_PROMPT_REASONS = {
+    select: 'Waiting for you to choose',
+    confirm: 'Waiting for you to confirm',
+    input: 'Waiting for your input',
+    editor: 'Waiting for you in an editor',
+    custom: 'Waiting for your answer',
+  };
+
+  // A terminal binding's own lifecycle edge (#303). The route that receives these knows nothing about
+  // WHICH backend sent them — it trusts the per-spawn URL and token — so the vocabulary is neutral and a
+  // backend that has no notion of one of these simply never sends it.
+  function classifyBindEvent(payload) {
+    if (!payload || typeof payload !== 'object') return null;
+    const kind = payload.kind;
+    if (kind === 'busy' || kind === 'idle') return { kind, reason: 'terminal binding' };
+    if (kind === 'waiting') {
+      const promptKind = String(payload.prompt_kind || payload.promptKind || '').toLowerCase();
+      return {
+        kind: 'needs-attention',
+        reason: BIND_PROMPT_REASONS[promptKind] || BIND_PROMPT_REASONS.custom,
+        // The edge the row needs, kept apart from `kind`: this is attention AND it is the end of being
+        // busy, and a caller that only read `kind` would leave the session spinning.
+        busy: false,
+      };
+    }
+    return null;
+  }
+
   // Unified entry point used by both ingest paths.
   //   classifyAttentionSignal({ source: 'osc9', payload: '<message string>' })
   //   classifyAttentionSignal({ source: 'hook', payload: <raw hook JSON object> })
+  //   classifyAttentionSignal({ source: 'bind', payload: <terminal-binding JSON object> })
   // Returns { kind, reason, source } or null.
   function classifyAttentionSignal(input) {
     if (!input) return null;
@@ -97,16 +136,27 @@
       return { ...sig, source: 'hook' };
     }
 
+    if (source === 'bind') {
+      const sig = classifyBindEvent(input.payload);
+      if (!sig) return null;
+      // Spread so `busy` survives (#529) — see classifyBindEvent.
+      return { ...sig, source: 'bind' };
+    }
+
     return null;
   }
 
-  // Precedence when two signals compete for the same session: a structured hook
-  // signal beats the OSC-9 heuristic. Same-source → the latest wins.
+  // Precedence when two signals compete for the same session: a STRUCTURED signal beats the OSC-9
+  // heuristic. Same-source → the latest wins.
+  //
+  // Structured means anything the CLI stated about itself — a hook, or a terminal-bound extension's own
+  // lifecycle edge (#529). Written as "is it osc9" rather than as a list of the structured sources,
+  // because a new one of those must not silently lose to a spinner frame the day it is added.
   function reduceAttention(prev, next) {
     if (!prev) return next || null;
     if (!next) return prev;
-    if (next.source === 'hook' && prev.source === 'osc9') return next;
-    if (next.source === 'osc9' && prev.source === 'hook') return prev;
+    if (next.source !== 'osc9' && prev.source === 'osc9') return next;
+    if (next.source === 'osc9' && prev.source !== 'osc9') return prev;
     return next;
   }
 
@@ -115,6 +165,7 @@
     OSC9_WAITING_REGEX,
     describeNotification,
     classifyHookEvent,
+    classifyBindEvent,
     classifyAttentionSignal,
     reduceAttention,
   };

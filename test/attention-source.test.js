@@ -163,3 +163,59 @@ test('reduceAttention handles missing operands and same-source latest-wins', () 
   assert.equal(reduceAttention(a, null), a);
   assert.equal(reduceAttention(a, b), b);
 });
+
+// --- #529: a terminal binding's own lifecycle edge ----------------------------------------------------
+//
+// The third source. A terminal-bound extension states what its CLI is doing; the route that receives it
+// knows nothing about which backend sent it, so the vocabulary is neutral and the wording lives here with
+// every other source's.
+
+test('a bind waiting edge is attention, and carries the busy edge separately (#529)', () => {
+  const sig = classifyAttentionSignal({ source: 'bind', payload: { kind: 'waiting', prompt_kind: 'select' } });
+  assert.equal(sig.kind, 'needs-attention');
+  assert.equal(sig.reason, 'Waiting for you to choose');
+  assert.equal(sig.source, 'bind');
+  // The half a caller reading only `kind` would miss: this ends being busy as well as raising attention.
+  assert.equal(sig.busy, false);
+});
+
+test('every prompt kind Pi can raise has wording (#529)', () => {
+  const wording = {};
+  for (const kind of ['select', 'confirm', 'input', 'editor', 'custom']) {
+    const sig = classifyAttentionSignal({ source: 'bind', payload: { kind: 'waiting', prompt_kind: kind } });
+    assert.equal(sig.kind, 'needs-attention');
+    assert.match(sig.reason, /^Waiting for you/, `${kind}: says what is wanted`);
+    wording[sig.reason] = (wording[sig.reason] || 0) + 1;
+  }
+  // Not five identical sentences — the prompt kind is the only thing distinguishing them, since the
+  // prompt's own title is deliberately not sent.
+  assert.ok(Object.keys(wording).length >= 4, 'the kinds are told apart');
+});
+
+test('an unknown prompt kind still says something (#529)', () => {
+  // Pi may add a sixth kind, and a session that goes silent because we did not recognise a string is the
+  // failure this whole signal exists to prevent.
+  const sig = classifyAttentionSignal({ source: 'bind', payload: { kind: 'waiting', prompt_kind: 'hologram' } });
+  assert.equal(sig.kind, 'needs-attention');
+  assert.equal(sig.reason, 'Waiting for your answer');
+
+  const bare = classifyAttentionSignal({ source: 'bind', payload: { kind: 'waiting' } });
+  assert.equal(bare.reason, 'Waiting for your answer');
+});
+
+test('bind busy and idle pass through; anything else is not a signal (#529)', () => {
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: { kind: 'busy' } }).kind, 'busy');
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: { kind: 'idle' } }).kind, 'idle');
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: {} }), null);
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: { kind: 'nonsense' } }), null);
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: null }), null);
+});
+
+test('a bind signal beats the OSC-9 heuristic, both ways round (#529)', () => {
+  // Precedence is written as "is it osc9", not as a list of the structured sources — so a source added
+  // later cannot lose to a spinner frame on the day it appears.
+  const osc9 = { kind: 'needs-attention', reason: 'spinner said something', source: 'osc9' };
+  const bind = { kind: 'needs-attention', reason: 'Waiting for you to confirm', source: 'bind' };
+  assert.deepEqual(reduceAttention(osc9, bind), bind);
+  assert.deepEqual(reduceAttention(bind, osc9), bind);
+});

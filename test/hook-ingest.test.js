@@ -359,3 +359,72 @@ test('a ctx without the echo is not an error', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(ctx.sent.length, 1);
 });
+
+// --- #529: a CLI blocked on its own prompt is waiting, not working ------------------------------------
+//
+// Pi 0.84.4 separates active agent work from time spent on a blocking `ctx.ui` prompt. Before those
+// events the two were one state and the session sat on "Working" while it held an unanswered question:
+// the row said the agent was busy and the inbox said nothing at all. So a `waiting` binding has to do
+// BOTH halves — take the row out of Working and raise the attention flag — and doing only one is the
+// state this exists to remove.
+//
+// The route is deliberately backend-blind: it trusts the per-spawn URL and token, and the vocabulary is
+// neutral, so this is asserted with no backend in sight.
+
+const BIND_URL = '/switchboard-session-bind?t=' + TOKEN + '&tag=terminal-tag-1';
+
+function bindCtx() {
+  return makeCtx({ adoptSessionId: () => null, log: { info() {}, warn() {}, debug() {}, error() {} } });
+}
+
+test('a waiting binding takes the row out of Working AND raises attention (#529)', async () => {
+  const ctx = bindCtx();
+  const res = await post(BIND_URL, { session_id: 'sess-9', kind: 'waiting', prompt_kind: 'confirm' }, TOKEN);
+  assert.equal(res.statusCode, 200);
+
+  const busy = ctx.sent.filter(s => s.channel === 'cli-busy-state');
+  assert.equal(busy.length, 1, 'the busy edge was sent');
+  assert.deepEqual(busy[0].payload, 'sess-9');
+
+  const attention = ctx.sent.filter(s => s.channel === 'attention-signal');
+  assert.equal(attention.length, 1, 'and so was the attention signal');
+  assert.equal(attention[0].payload.kind, 'needs-attention');
+  assert.equal(attention[0].payload.reason, 'Waiting for you to confirm');
+  assert.equal(attention[0].payload.source, 'bind');
+});
+
+test('the busy edge of a waiting binding is FALSE, not the kind (#529)', async () => {
+  // `cli-busy-state` takes (sessionId, busy, exact) as separate arguments, so the fake records only the
+  // first. Driving the real send through a recorder that keeps all of them is the only way to assert the
+  // half that would leave the row spinning behind the inbox flag.
+  const args = [];
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+    getMainWindow: () => ({
+      isDestroyed: () => false,
+      webContents: { send: (...all) => args.push(all) },
+    }),
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'waiting', prompt_kind: 'input' }, TOKEN);
+
+  const busy = args.find(a => a[0] === 'cli-busy-state');
+  assert.deepEqual(busy, ['cli-busy-state', 'sess-9', false, true], 'not busy, and exactly so');
+  assert.ok(ctx);
+});
+
+test('an ordinary busy binding is unchanged and raises no attention (#529)', async () => {
+  const ctx = bindCtx();
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'busy' }, TOKEN);
+
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1);
+  assert.deepEqual(ctx.sent.filter(s => s.channel === 'attention-signal'), [], 'busy is not attention');
+});
+
+test('a binding with no lifecycle kind still binds and sends nothing (#529)', async () => {
+  // `session_start` and `session_info_changed` post the id alone — they say where the terminal is, not
+  // what it is doing, and inventing an edge for them would flip the row on every rename.
+  const ctx = bindCtx();
+  await post(BIND_URL, { session_id: 'sess-9' }, TOKEN);
+  assert.deepEqual(ctx.sent, []);
+});
