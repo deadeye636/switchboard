@@ -170,13 +170,18 @@ function listModels({ search } = {}) {
   });
 }
 
-/** The version of the node ON PATH (`v22.22.0`), or null when there is none. */
-function systemNodeVersion() {
+// A timeout is not evidence that Node is absent. Keep it distinct from null so the caller can fail open
+// and so the transient answer is not held in the five-minute toolchain cache.
+const NODE_VERSION_UNAVAILABLE = Symbol('node-version-unavailable');
+
+/** The version of the node ON PATH (`v22.22.0`), null when absent, or unavailable when the probe timed out. */
+function systemNodeVersion(run = execFileSync) {
   try {
-    const out = execFileSync('node', ['--version'], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: PROBE_STDIO });
+    const out = run('node', ['--version'], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: PROBE_STDIO });
     const v = String(out).trim();
     return /^v?\d+\./.test(v) ? v : null;
-  } catch {
+  } catch (err) {
+    if (err && err.code === 'ETIMEDOUT') return NODE_VERSION_UNAVAILABLE;
     return null;
   }
 }
@@ -206,13 +211,23 @@ function findBash() {
 // (#155). A toolchain does not change under a running app; when it does (someone installs Node while
 // Switchboard is open), five minutes is soon enough — and a restart is instant.
 const TOOLCHAIN_TTL_MS = 5 * 60 * 1000;
-let _toolchain = null;   // { at, nodeVersion, bash }
+let _toolchain = null;   // { at, nodeVersion, nodeVersionUnavailable, bash }
 
-function toolchain() {
-  const now = Date.now();
-  if (_toolchain && now - _toolchain.at < TOOLCHAIN_TTL_MS) return _toolchain;
-  _toolchain = { at: now, nodeVersion: systemNodeVersion(), bash: findBash() };
-  return _toolchain;
+function toolchain({ run = execFileSync, now = Date.now, bashProbe = findBash } = {}) {
+  const at = now();
+  if (_toolchain && at - _toolchain.at < TOOLCHAIN_TTL_MS) return _toolchain;
+  const nodeVersionResult = systemNodeVersion(run);
+  const nodeVersionUnavailable = nodeVersionResult === NODE_VERSION_UNAVAILABLE;
+  const result = {
+    at,
+    nodeVersion: nodeVersionUnavailable ? null : nodeVersionResult,
+    nodeVersionUnavailable,
+    bash: bashProbe(),
+  };
+  // A timeout is an unanswered question, not a toolchain state. Do not make a transient probe failure
+  // last five minutes; the next availability query should ask again.
+  if (!nodeVersionUnavailable) _toolchain = result;
+  return result;
 }
 
 /** Test hook: forget the cached toolchain, so a test can change PATH and probe again. */
@@ -225,8 +240,8 @@ function _resetToolchainCache() {
  * launch without either dies in the terminal with nothing the user can act on. Say it here instead: the
  * spawn path refuses with this reason and Settings shows it (D15).
  */
-function probe() {
-  const exe = findExecutable();
+function probe({ nodeRunner = execFileSync, executable = findExecutable(), bashProbe = findBash } = {}) {
+  const exe = executable;
   if (!exe) {
     return {
       ok: false,
@@ -238,7 +253,7 @@ function probe() {
   // `process.versions.node`: inside Electron that is the app's own embedded Node (22.x), so a machine
   // whose real node is 18 would sail through the check and then die raw in the terminal, and a machine
   // that IS too old would be told a version number it cannot find anywhere.
-  const { nodeVersion, bash } = toolchain();
+  const { nodeVersion, nodeVersionUnavailable, bash } = toolchain({ run: nodeRunner, bashProbe });
   if (nodeVersion) {
     const [maj, min] = nodeVersion.replace(/^v/, '').split('.').map(Number);
     if (maj < 22 || (maj === 22 && min < 19)) {
@@ -247,7 +262,7 @@ function probe() {
   }
   // No node on PATH at all: pi's npm shim cannot run. (A future non-npm distribution would make this
   // wrong — revisit then; today the shim is how it ships.)
-  if (!nodeVersion) {
+  if (!nodeVersion && !nodeVersionUnavailable) {
     return { ok: false, reason: 'Pi runs on Node, and no node was found on your PATH. Install Node 22.19 or newer.' };
   }
 
@@ -457,6 +472,8 @@ description:
 ` },
   ],
   _parseModelList: parseModelList,
+  _systemNodeVersion: systemNodeVersion,
+  _toolchain: toolchain,
 
   // the dual-mode seam, file side (backends/file-store.js)
   discoverSessions: store.discoverSessions,

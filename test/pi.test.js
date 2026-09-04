@@ -498,6 +498,35 @@ test('probe caches the toolchain — it does not shell out to `node --version` o
   }
 });
 
+test('probe treats a node version timeout as unknown and does not cache it as missing', () => {
+  const timeout = Object.assign(new Error('node probe timed out'), { code: 'ETIMEDOUT' });
+  let calls = 0;
+  const timedOut = () => { calls += 1; throw timeout; };
+  const answered = () => { calls += 1; return 'v22.22.0'; };
+  pi._resetToolchainCache();
+  try {
+    const unknown = pi._toolchain({ run: timedOut, now: () => 1, bashProbe: () => 'bash' });
+    assert.equal(unknown.nodeVersion, null);
+    assert.equal(unknown.nodeVersionUnavailable, true);
+    assert.equal(calls, 1);
+
+    const refreshed = pi._toolchain({ run: answered, now: () => 2, bashProbe: () => 'bash' });
+    assert.equal(refreshed.nodeVersion, 'v22.22.0');
+    assert.equal(refreshed.nodeVersionUnavailable, false);
+    assert.equal(calls, 2, 'an unanswered probe must not be held in the five-minute cache');
+
+    const result = pi.probe({
+      nodeRunner: timedOut,
+      executable: 'pi',
+      bashProbe: () => 'bash',
+    });
+    assert.equal(result.ok, true, 'an unanswered Node probe must not claim Node is absent');
+    assert.equal(calls, 3);
+  } finally {
+    pi._resetToolchainCache();
+  }
+});
+
 // --- lineage: a fork names its parent (#193) -----------------------------------------------------
 //
 // Pi's session header carries `parentSession` — the full PATH of the parent transcript — but ONLY on a
