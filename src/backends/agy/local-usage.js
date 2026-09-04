@@ -9,6 +9,7 @@ const fs = require('fs');
 const https = require('https');
 const os = require('os');
 const { execFile } = require('child_process');
+const { closeStdin } = require('../cli-probe');
 
 const QUOTA_SUMMARY_PATH = '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary';
 const USER_STATUS_PATH = '/exa.language_server_pb.LanguageServerService/GetUserStatus';
@@ -116,12 +117,13 @@ async function discoverPids(deps = {}) {
 
 function execFileText(file, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    execFile(file, args, {
+    // closeStdin, not a `stdio` option: execFile ignores that one (#532, backends/cli-probe.js).
+    closeStdin(execFile(file, args, {
       encoding: 'utf8', windowsHide: true, timeout: 2500, maxBuffer: 1024 * 1024, ...opts,
     }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout || '');
-    });
+    }));
   });
 }
 

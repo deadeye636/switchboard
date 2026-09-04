@@ -20,6 +20,7 @@ const { spawnSync } = require('child_process');
 const parser = require('./parser');
 const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
+const { PROBE_STDIO } = require('../cli-probe');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromDb } = require('./state');
 const { changelogSource } = require('./changelog');
@@ -69,7 +70,8 @@ function listModels() {
     return Promise.resolve({ ok: true, models: _modelCache.models, cached: true });
   }
   const exe = findExecutable() || 'agy';
-  const res = spawnSync(exe, ['models'], { encoding: 'utf8', timeout: 8000, windowsHide: true });
+  // stdin closed (#532): `agy models` read standard input before 1.1.23 and hung on an open pipe.
+  const res = spawnSync(exe, ['models'], { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: PROBE_STDIO });
   if (res.error || res.status !== 0) {
     const reason = String((res.stderr || res.error?.message || 'Could not list agy models.')).trim();
     return Promise.resolve({ ok: false, reason });

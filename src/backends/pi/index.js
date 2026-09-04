@@ -29,6 +29,7 @@ const liveBinding = require('./live-binding');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
+const { PROBE_STDIO, closeStdin } = require('../cli-probe');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
@@ -156,7 +157,8 @@ function listModels({ search } = {}) {
     const launch = piExecCommand();
     const args = [...launch.args, '--list-models'];
     if (q) args.push(q);
-    execFile(launch.command, args, { encoding: 'utf8', timeout: 8000, windowsHide: true }, (err, stdout, stderr) => {
+    // closeStdin, not a `stdio` option: execFile ignores that one (#532, backends/cli-probe.js).
+    closeStdin(execFile(launch.command, args, { encoding: 'utf8', timeout: 8000, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
         resolve({ ok: false, reason: String((stderr || err.message || 'Could not list Pi models.')).trim() });
         return;
@@ -164,14 +166,14 @@ function listModels({ search } = {}) {
       const models = parseModelList(stdout);
       _modelCache = { at: Date.now(), search: q, models };
       resolve({ ok: true, models, cached: false });
-    });
+    }));
   });
 }
 
 /** The version of the node ON PATH (`v22.22.0`), or null when there is none. */
 function systemNodeVersion() {
   try {
-    const out = execFileSync('node', ['--version'], { encoding: 'utf8', timeout: 3000, windowsHide: true });
+    const out = execFileSync('node', ['--version'], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: PROBE_STDIO });
     const v = String(out).trim();
     return /^v?\d+\./.test(v) ? v : null;
   } catch {

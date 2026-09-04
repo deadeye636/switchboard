@@ -27,6 +27,7 @@
 'use strict';
 
 const { execFile } = require('child_process');
+const { closeStdin } = require('../cli-probe');
 
 // How long an answer stays usable.
 //
@@ -129,10 +130,13 @@ function refresh({
       // Windows: Node refuses to spawn one without a shell. The measured install here is a real `.exe`,
       // so this branch exists for the machines where it is not — with the same two constant arguments.
       const viaShim = /\.(cmd|bat)$/i.test(String(bin));
-      exec(bin, ['agents', '--json'], { timeout: timeoutMs, windowsHide: true, shell: viaShim, env }, (err, stdout) => {
+      //
+      // And its stdin is closed (#532): the child is only ever read from, and a CLI that reads standard
+      // input before answering would sit on an open pipe until the timeout.
+      closeStdin(exec(bin, ['agents', '--json'], { timeout: timeoutMs, windowsHide: true, shell: viaShim, env }, (err, stdout) => {
         if (err) return done(null);
         done(parseAgents(String(stdout || '')));
-      });
+      }));
     } catch {
       done(null);
     }

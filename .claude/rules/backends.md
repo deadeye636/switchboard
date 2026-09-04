@@ -171,6 +171,16 @@ about its last few kilobytes is exactly the shape this repo has watched get fixe
 kept in its twin. It reports whether the view is `partial`, and **that answer is load-bearing**: a
 caller whose question cannot be answered from a fragment has to notice and read the file.
 
+## A probe goes through `src/backends/cli-probe.js` (#532)
+
+Running a CLI just to read what it prints — `agy models`, `pi --list-models`, `claude agents --json`,
+`tasklist` — must close the child's stdin, or a CLI that reads standard input before answering waits
+for an EOF that never comes and the probe burns its whole timeout. **The two call shapes need different
+fixes and that is the trap**: `spawnSync`/`execFileSync` honour a `stdio` option and take `PROBE_STDIO`,
+while `execFile` silently IGNORES one (Node passes `spawn` an allow-list without it) and has to be
+wrapped — `closeStdin(execFile(...))`. `test/cli-probe.test.js` sweeps this directory for both forms, so
+a new probe that skips them fails there rather than in a user's model picker.
+
 ## `configFields`: a default describes what the CLI does anyway — it is NEVER sent
 
 It is what a control shows when nobody has said otherwise, not a value to put on the command line.
