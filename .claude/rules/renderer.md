@@ -295,7 +295,7 @@ arrived at twice from opposite directions:
 
 | Mode | Policy | Why |
 |---|---|---|
-| tabs / single | every open terminal keeps its context | only one is *visible*; a reveal repaints (`forceRepaint`, #118), which heals whatever a sibling did to the atlas meanwhile. **Nothing bounds the count** — see below |
+| tabs / single | every open terminal keeps its context | only one is *visible*; a reveal heals whatever a sibling did to the atlas meanwhile (`forceRepaint`, #118 — and read what it heals with, below). **Nothing bounds the count** — see below |
 | **panes** | **WebGL only while ONE terminal is visible; two or more panes → every terminal on DOM**, never a mix | two visible terminals have no reveal moment, so the one nobody touched keeps the holes. All-or-nothing because a split renderer is a split *cell metric* — at dpr 2, 8.000 px under WebGL against 8.2065 px under DOM (#320) |
 | grid | only the focused card | same reason, reached first (#140) |
 
@@ -323,6 +323,23 @@ Three things that are easy to undo by accident:
 - **`loadTerminalWebgl` is idempotent, and `disposeWebglAddon` runs even with no addon** — the
   context-loss handler drops the reference without touching the DOM, and the orphaned canvases sit on
   top of the DOM renderer's rows as an opaque layer (#309's shape).
+- **A reveal heals by rebuilding ITS OWN model, and wipes the shared atlas only when that atlas
+  restructured (#525).** `terminal.refresh()` alone heals nothing across terminals: `_updateModel` skips
+  every cell whose code, fg, bg and ext are unchanged, so a repaint of an unchanged screen looks nothing
+  up again. What heals is `_clearModel(true)` — reached through the renderer's public `clear()`, or as a
+  side effect of `clearTextureAtlas()`. Only the second one is shared, and it is what a merge or a new
+  page needs, because then the coordinates everyone holds have actually moved (`_mergePages` rewrites
+  them, `_deletePage` shifts `texturePage`). Wiping on every reveal is what made #525: `AtlasPage.clear()`
+  resets the canvas and row layout but never the page's `glyphs` array, so each re-rasterised glyph is
+  appended and the old one is kept — 1403 entries for one clear of a 58-row terminal, 219 063 entries and
+  ~65 MB in a day. `atlasStructure` (page count plus each page's canvas size) is the local stand-in for
+  upstream's `_pageLayoutVersion` — which is on master and the 0.20.0-beta line, so a consumer on stable
+  0.19.0 cannot reach it. **The stand-in is weaker than the original in one specific way**, and that is
+  what makes the model rebuild load-bearing rather than optional: upstream bumps its version inside
+  `clearTexture()` too, so a sibling's wipe reaches every renderer, while a structural signature cannot
+  see a wipe at all — nothing moved. Delete the non-wiping branch's `renderer.clear()` as "redundant" and
+  #118 comes back. **And do not put `page.version` in that signature** — this xterm bumps it per glyph
+  added, so it would gate nothing.
 - **Every renderer switch re-fits, `suspendTerminalWebgl` included (#322).** The two renderers do not
   agree on a cell (8.2065 px against 8.000 px at dpr 2, xterm.js#6015), so a terminal demoted to DOM
   keeps a stale fit and clips its bottom row — the #81 family. Load re-fits, the context-loss handler

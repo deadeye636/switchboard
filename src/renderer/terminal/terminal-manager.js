@@ -599,19 +599,99 @@ function refreshViewport(entry) {
   try { entry.terminal.refresh(0, entry.terminal.rows - 1); } catch { /* ignore */ }
 }
 
-// Clear the shared glyph atlas, then repaint. ONLY for the case a DIFFERENT WebGL
-// terminal may have grown/recycled the process-wide atlas while this tab was
-// covered (#118) — its last frame then shows scrambled glyphs a plain refresh
-// cannot fix. Every WebGL terminal shares one atlas (identical config), and
-// clearTextureAtlas wipes it for ALL of them while only repainting the caller —
-// so this is a targeted, expensive heal, not a routine repaint (#262). Kept only
-// on the tab-switch / grid-reveal paths; the staircase/ghost callers use
-// refreshViewport above. No-op on the DOM renderer.
+// --- the reveal heal, and why it is GATED (#118, #262, #320, #525) ---
+//
+// Every WebGL terminal shares one glyph atlas (identical config), so one terminal can invalidate what
+// another has already drawn. Two ways, and they need different answers:
+//
+//   1. The atlas RESTRUCTURES — a new page, or a merge of one to four pages into one of double size.
+//      `_mergePages` rewrites the texture coordinates of every glyph it moves and `_deletePage` shifts
+//      `texturePage` down, for glyphs the OTHER terminals' models still point at. Their last frame then
+//      shows scrambled glyphs. That is #118, and #320 is the record of it being talked away: two panes
+//      measured under a burst showed nothing, and daily alternating use broke within hours.
+//   2. Somebody CLEARED the atlas. Nothing moved, but the rows are wiped and both cache maps are empty,
+//      so every glyph gets repacked from the origin under coordinates the other terminals have not seen.
+//
+// Neither is healed by `terminal.refresh()` alone, and that is the trap this function is shaped around:
+// the WebGL renderer skips any cell whose code, fg, bg and ext are unchanged since its last model update
+// (`WebglRenderer._updateModel`), so a repaint of a screen that did not change re-looks-up NOTHING. What
+// heals a terminal is rebuilding ITS OWN model — the `_clearModel(true)` that the renderer's public
+// `clear()` does, and that `clearTextureAtlas()` also does as a side effect.
+//
+// The old version healed by calling `clearTextureAtlas()` on every reveal, and that is what made #525: a
+// clear empties the cache maps but NOT the per-page `glyphs` array (`AtlasPage.clear()` resets the canvas
+// and the row layout only), so every re-rasterised glyph is APPENDED and the old entry stays forever.
+// Measured on a live instance: one clear plus repaint of a 58-row terminal added 1403 entries with the
+// screen unchanged, a reveal of a dense session added 26 632, and the array had reached 219 063 entries —
+// roughly 65 MB — in a day's uptime.
+//
+// So the two are separated. Wiping the SHARED atlas is reserved for a restructure, where the coordinates
+// everyone holds have actually moved; every other reveal rebuilds only THIS terminal's model, which costs
+// nothing shared and appends no glyph. `atlasStructure` is the local stand-in for upstream's
+// `_pageLayoutVersion` (xterm.js master and the 0.20.0-beta line; stable 0.19.0 has only the sticky
+// `_requestClearModel`, set by the first merge or the first oversized-glyph page and never reset). It
+// deliberately does NOT include `page.version`, which this xterm bumps on every single glyph added; a
+// signature carrying it would differ on every reveal and gate nothing.
+//
+// Where the local stand-in FALLS SHORT of upstream's version, and why the else branch is load-bearing:
+// upstream bumps `_pageLayoutVersion` inside `clearTexture()` as well, so a sibling's wipe reaches every
+// renderer. A structural signature cannot see that — a wipe moves no page — which is exactly why the
+// non-wiping branch still rebuilds this model instead of trusting the repaint.
+//
+// `clear()` also resets the link render layer (a hover underline from before the tab was hidden is
+// dropped) and restarts the cursor blink. Both are cosmetic, and both are new next to the old always-wipe.
+
+// The WebGL renderer behind an entry, or null when the internals are not where we expect them.
+function webglRendererOf(entry) {
+  try {
+    const renderer = entry.webglAddon && entry.webglAddon._renderer;
+    return (renderer && renderer.value ? renderer.value : renderer) || null;
+  } catch { return null; }
+}
+
+// The atlas behind an entry, or null when it is not there yet — a renderer that has not drawn a frame has
+// no `_charAtlas`. A null answer makes the caller clear, which is the old behaviour and, on an atlas that
+// does not exist, a no-op.
+function webglAtlasOf(entry) {
+  try {
+    const atlas = webglRendererOf(entry)?._charAtlas;
+    return atlas && Array.isArray(atlas._pages) ? atlas : null;
+  } catch { return null; }
+}
+
+// Page count + each page's canvas size: what a merge or a new page changes, and what glyph coordinates
+// are relative to. Null when the atlas cannot be read.
+function atlasStructure(entry) {
+  const atlas = webglAtlasOf(entry);
+  if (!atlas) return null;
+  try {
+    return `${atlas._pages.length}:${atlas._pages.map(p => `${p.canvas.width}x${p.canvas.height}`).join(',')}`;
+  } catch { return null; }
+}
+
+// Repaint on reveal, wiping the shared atlas only when it restructured under this terminal and rebuilding
+// this terminal's own model otherwise. Kept to the tab-switch / grid-reveal paths; the staircase/ghost
+// callers use refreshViewport above. No-op on the DOM renderer.
 function forceRepaint(entry) {
   if (!entry.webglAddon) return; // WebGL-atlas fix only; the DOM renderer repaints correctly on its own
   try {
-    entry.webglAddon.clearTextureAtlas();
+    const structure = atlasStructure(entry);
+    const renderer = webglRendererOf(entry);
+    // Case 1, or an atlas we cannot read: wipe the shared atlas, which also rebuilds this model. A
+    // renderer whose `clear()` is not reachable takes the same branch — `clearTextureAtlas()` rebuilds the
+    // model too, so a renamed method still heals. With no `_renderer` at all it heals nothing, because
+    // there is no model to rebuild; the addon's own `clearTextureAtlas` is optional-chained the same way.
+    if (structure === null || structure !== entry._atlasStructureAtPaint || typeof renderer?.clear !== 'function') {
+      entry.webglAddon.clearTextureAtlas();
+    } else {
+      // Case 2, and the ordinary reveal: rebuild THIS model so every cell is looked up again. The shared
+      // atlas keeps its rows, its cache maps and its glyph array.
+      renderer.clear();
+    }
     entry.terminal.refresh(0, entry.terminal.rows - 1);
+    // Stored before the repaint lands (refresh only schedules one). A clear does not move a page, so the
+    // signature is the same either way; erring towards one extra clear later is the safe direction.
+    entry._atlasStructureAtPaint = structure;
   } catch { /* ignore */ }
 }
 
