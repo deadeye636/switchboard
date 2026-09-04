@@ -22,6 +22,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
 const turnQueue = require('../src/backends/pi/turn-queue');
 
@@ -118,9 +119,13 @@ test('only a real Pi transcript names a session (#530)', () => {
   assert.equal(turnQueue.readTurnQueue('', 0, T0), null);
   assert.equal(turnQueue.readTurnQueue('rollout-2026-09-04T10-11-12-something.jsonl', 0, T0), null, "another backend's file");
   assert.equal(turnQueue.readTurnQueue(`${SESSION}.jsonl`, 0, T0), null, 'the id alone is not the name Pi writes');
-  // The real thing, spelled with a directory in front of it, which is how the core hands it over.
-  assert.ok(turnQueue.readTurnQueue(`\\\\store\\\\sessions\\\\${TRANSCRIPT}`, 0, T0), 'backslash-spelled');
-  assert.ok(turnQueue.readTurnQueue(`/store/sessions/${TRANSCRIPT}`, 0, T0), 'slash-spelled');
+  // The real thing, spelled with a directory in front of it, which is how the core hands it over. The
+  // separator has to be the PLATFORM's: `path.basename` treats a backslash as an ordinary filename
+  // character on POSIX, so a backslash-spelled path there is one long name that matches nothing — and
+  // asserting it does is how this test went red on a Linux runner while passing on the machine that
+  // wrote it.
+  assert.ok(turnQueue.readTurnQueue(path.join('store', 'sessions', TRANSCRIPT), 0, T0), 'inside a directory');
+  assert.ok(turnQueue.readTurnQueue(`/store/sessions/${TRANSCRIPT}`, 0, T0), 'forward slashes, which both platforms accept');
 });
 
 test('a report older than the bound answers null again (#530)', () => {
