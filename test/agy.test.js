@@ -334,3 +334,31 @@ test('#282 agy liveState gate: the `.db` is re-read only when its signature chan
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('agy descriptor: model discovery reads the tab-separated shape too (#539)', () => {
+  // What 1.1.26 actually prints. The old parser kept only lines with no whitespace at all, so every one of
+  // these was dropped and `listModels` answered `{ ok: true, models: [] }` — a blank picker with nothing
+  // to explain it, because an empty list is indistinguishable from a backend that has no models.
+  assert.deepEqual(
+    agy._parseModelList('gemini-3.8-flash-high\tGemini 3.8 Flash (High)\nclaude-opus-4-6-thinking\tClaude Opus 4.6 (Thinking)\n'),
+    [
+      { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
+      { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)' },
+    ],
+  );
+});
+
+test('agy descriptor: a line that is not a model is still not one (#539)', () => {
+  // The reason the old filter existed, and it has to survive the fix: agy prints "Fetching available
+  // models..." while it works. That goes to stderr today, which is agy's choice rather than a promise —
+  // and an id with a space in it is not an id.
+  assert.deepEqual(agy._parseModelList('Fetching available models...\nid-1\tLabel'), [
+    { id: 'id-1', label: 'Label' },
+  ]);
+  assert.deepEqual(agy._parseModelList('\tonly a label\n'), [], 'a tab with nothing before it names nothing');
+  assert.deepEqual(agy._parseModelList('   \n\n'), []);
+  assert.deepEqual(agy._parseModelList(''), []);
+  assert.deepEqual(agy._parseModelList(null), []);
+  // A label may hold anything, including another tab; only the FIRST one separates.
+  assert.deepEqual(agy._parseModelList('id-2\tsome\tlabel'), [{ id: 'id-2', label: 'some\tlabel' }]);
+});

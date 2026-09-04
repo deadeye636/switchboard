@@ -421,9 +421,13 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   (repeatable), `--agent`, `--mode {accept-edits,plan}`, `--sandbox`, `--dangerously-skip-permissions`,
   `--print`/`-p`/`--prompt` (non-interactive), `--prompt-interactive`/`-i`, `--conversation`,
   `--continue`/`-c`. Subcommands: `models`, `agents`, `changelog`, `install`, `plugin`, `update`.
-  **`agy models`** lists the launchable model ids (for example `gemini-3.6-flash-high`,
-  `claude-sonnet-4-6`) — multi-provider, which is why its quota is per-model. Switchboard uses that command
-  for backend-owned model suggestions instead of pinning a stale choice list. On Windows `agy` on PATH is a
+  **`agy models`** lists the launchable model ids — multi-provider, which is why its quota is per-model.
+  Switchboard uses that command for backend-owned model suggestions instead of pinning a stale choice list.
+  **Its output shape changed** (#539, measured on 1.1.26): each line is now `<id><TAB><human label>`
+  (`gemini-3.8-flash-high⇥Gemini 3.8 Flash (High)`), where 1.1.1 printed the id alone. The parser reads
+  both, because an older install is still an install. The progress line ("Fetching available models…")
+  goes to stderr — today; the parser does not rely on that and still refuses a line whose id would contain
+  a space. On Windows `agy` on PATH is a
   real `.exe`, not a `.cmd` shim.
 
 **Usage (#191, #509).** Current agy owns its OAuth token in the OS keyring and exposes the data behind

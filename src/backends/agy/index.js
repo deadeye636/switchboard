@@ -10,7 +10,8 @@
 // the parser reads it with the shared dual SQLite driver, the way Hermes reads its store.
 //
 // Recon: docs/backend-formats.md "agy (Antigravity CLI)" + `agy --help` / `agy models` on a real
-// install (v1.1.1). Everything the parser does is documented there.
+// install (v1.1.1), re-measured on 1.1.26 for the model list (#539). Everything the parser does is
+// documented there.
 'use strict';
 
 const os = require('os');
@@ -55,13 +56,31 @@ function setRoot(dir) {
 const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
 let _modelCache = null; // { at, models }
 
+/**
+ * `agy models` output -> `[{ id, label }]`.
+ *
+ * **Two shapes, and both have to work** (#539). 1.1.26 prints `<id><TAB><human label>` per line; the
+ * version this was first written against printed the id alone. The old parser kept only lines with no
+ * whitespace in them at all — right for the old shape, and it silently dropped EVERY line of the new one.
+ * The probe answered `{ ok: true, models: [] }`, so the picker went blank with nothing to explain it: an
+ * empty list is indistinguishable from a backend that has no models.
+ *
+ * A line with whitespace but no tab is still not a model. That is what kept a stray status line out — agy
+ * prints "Fetching available models..." on stderr today, but that is its choice and not a guarantee — and
+ * an id with a space in it is not an id.
+ */
 function parseModelList(output) {
-  return String(output || '')
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean)
-    .filter(l => !/\s/.test(l))
-    .map(id => ({ id, label: id }));
+  const models = [];
+  for (const raw of String(output || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const tab = line.indexOf('\t');
+    const id = (tab === -1 ? line : line.slice(0, tab)).trim();
+    if (!id || /\s/.test(id)) continue;
+    const label = tab === -1 ? '' : line.slice(tab + 1).trim();
+    models.push({ id, label: label || id });
+  }
+  return models;
 }
 
 function listModels() {
