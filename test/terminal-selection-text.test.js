@@ -194,6 +194,29 @@ test('an empty selection stays empty', () => {
 // Every copy path goes through it
 // ---------------------------------------------------------------------------
 
+test('a task quote is the same text a copy would produce (#526)', () => {
+  // The quote had the identical defect on a different surface: it read `getSelection()` verbatim, so a
+  // quote spanning a prompt box arrived welded exactly as the clipboard used to. Three entry points, two
+  // call sites — the context menu and the selection action bar share `runTerminalMenuAction`.
+  const menu = read('src/renderer/terminal/terminal-context-menu.js');
+  const manager = read('src/renderer/terminal/terminal-manager.js');
+  assert.match(menu, /quote: terminal\.hasSelection\(\) \? terminalCopyText\(terminal\)/);
+  assert.match(manager, /terminal\.hasSelection\(\) \? terminalCopyText\(terminal\)/);
+  for (const [rel, src] of [['terminal-context-menu.js', menu], ['terminal-manager.js', manager]]) {
+    assert.equal(
+      /quote:[^\n]*terminal\.getSelection\(\)/.test(src), false,
+      `${rel} quotes xterm's selection text verbatim — build it instead (#526)`,
+    );
+  }
+});
+
+test('the search prefill deliberately keeps xterm\'s own text', () => {
+  // A search needle must not carry breaks this module inserted. Pinned so a later pass that "finishes
+  // the job" has to argue with this line first.
+  const manager = read('src/renderer/terminal/terminal-manager.js');
+  assert.match(manager, /const sel = terminal\.getSelection\(\);\s*\n\s*if \(sel\) \{ searchInput\.value = sel;/);
+});
+
 test('no copy path reads getSelection() straight into the clipboard', () => {
   // The four paths of the acceptance: the context menu and the selection action bar (both through
   // runTerminalMenuAction's `copy`), copy-on-select, and Ctrl+C. The right-click `copy-paste` mode is a

@@ -181,7 +181,9 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
     if (matchShortcut('createTask', e, isMac, appShortcuts)) {
       if (e.type === 'keydown') {
         e._handled = true;
-        const sel = terminal.hasSelection() ? terminal.getSelection() : '';
+        // The quote breaks where the screen breaks (#526) — the same text a copy of that selection
+        // produces, through the same resolver.
+        const sel = terminal.hasSelection() ? terminalCopyText(terminal) : '';
         window.tasksView?.createFromSource({ sessionId: getSessionId(), quote: sel || undefined });
       }
       return false;

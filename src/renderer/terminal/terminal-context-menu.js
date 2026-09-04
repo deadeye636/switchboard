@@ -36,10 +36,14 @@
 
 let terminalRightClickMode = 'menu';
 
-// The selection as COPY TEXT (#467). `getSelection()` welds a row painted out to the last column onto
-// whatever the CLI painted next, so the text is rebuilt from the buffer — selection-text.js carries the
-// reasoning. Resolved per call rather than at load: this file is a plain script in the renderer (where
-// the helper is a global) and a CommonJS module under `node --test` (where it is not).
+// The text a COPY of this selection produces (#467, #526). `getSelection()` welds a row painted out to
+// the last column onto whatever the CLI painted next, so the text is rebuilt from the buffer —
+// selection-text.js carries the reasoning. Every surface that hands a selection to a person goes through
+// here, the clipboard and a task's quote alike; only the search-bar prefill does not, on purpose, because
+// a search needle must not carry injected breaks.
+//
+// Resolved per call rather than at load: this file is a plain script in the renderer (where the helper is
+// a global) and a CommonJS module under `node --test` (where it is not).
 function terminalCopyText(terminal) {
   const build = typeof terminalSelectionText === 'function'
     ? terminalSelectionText
@@ -265,7 +269,7 @@ async function runTerminalMenuAction(id, ctx) {
     case 'create-task':
       if (window.tasksView) {
         // No selection → a plain session task; with a selection → include the quote.
-        window.tasksView.createFromSource({ sessionId, quote: terminal.hasSelection() ? terminal.getSelection() : undefined });
+        window.tasksView.createFromSource({ sessionId, quote: terminal.hasSelection() ? terminalCopyText(terminal) : undefined });
       }
       break;
   }
