@@ -94,6 +94,18 @@ const LAST_MESSAGE_JOIN = `
 
 // Default ingest: only sessions the user actually drove from the CLI. The `source` column is
 // cli | gateway | … — Telegram/cron/gateway chats are not coding sessions and would be noise.
+//
+// The values 0.21.0 can write, read out of its own source rather than out of one store (#535):
+// `cli`, `bot_room`, `discord`, `telegram`, `peer`, `recovered`. (`holder`, `seed` and `user` appear only
+// in Hermes' own test fixtures.) So Bot Mode and its group chat rooms — default-on since 0.21.0 — are
+// held out by this filter without it needing to know they exist, which is what #535 asked.
+//
+// `recovered` is the one that is NOT noise and is filtered anyway. Hermes writes it when it rebuilds a
+// session row from orphaned messages (`session_recovery.py`, `session_lost_and_found.py`) — a crash is the
+// ordinary way to get one, the messages are real, and the original source is gone by then. So a CLI
+// session that Hermes repaired disappears from Switchboard. Left as it is here on purpose: a recovered
+// stub has no `cwd`, which is what the scan groups by, so including it is a change with its own
+// consequences rather than a one-word fix.
 function sourceFilter(includeAll) {
   return includeAll ? '' : " WHERE s.source = 'cli'";
 }

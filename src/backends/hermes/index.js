@@ -218,7 +218,15 @@ module.exports = {
   // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
   newlineKeySequence: '\x1b[13;2u',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
-  supportsSubagents: false,   // no subagent concept (#230)
+  // Still false, and #535 is why the wording changed: Hermes DOES have a delegation concept —
+  // `delegate_task` writes rows to an `async_delegations` table with a state, a `task_json` and a
+  // `result_json`. What it does not have is a delegated child that is a SESSION: nothing writes a
+  // `sessions` row for one, so there is no transcript for `listSubagents` to name and nothing for the
+  // core to open. Measured against a real 0.21.0 store (schema_version 23) and its own source.
+  //
+  // `sessions.parent_session_id` IS written, by conversation COMPRESSION — that is lineage, not a
+  // subagent, and this backend already declares `resolveLineage` for it.
+  supportsSubagents: false,
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader
   // surfaces as `lineageParentRef`. A hard link.
   resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),
