@@ -17,7 +17,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile, execFileSync, spawnSync } = require('node:child_process');
 
-const { PROBE_STDIO, closeStdin } = require('../src/backends/cli-probe');
+const { PROBE_STDIO, closeStdin, cliComplaint } = require('../src/backends/cli-probe');
 
 const BACKENDS = path.join(__dirname, '..', 'src', 'backends');
 
@@ -139,4 +139,42 @@ test('every child process spawned under src/backends closes its stdin', () => {
   // a renamed directory or a broken pattern looks like. The five known call sites are agy/index, pi/index
   // (twice), agy/local-usage and claude/live-agents; claude/usage brings the sixth.
   assert.ok(inspected >= 6, `the sweep inspected ${inspected} call sites — it has stopped seeing the code`);
+});
+
+// --- #540: what a failing probe is allowed to say ------------------------------------------------------
+//
+// A probe's failure message is the one place a raw string from another program reaches the user, and it
+// had two doors for an absolute path: the spawn errno, which names the executable, and the CLI's own
+// stderr — a Node-based CLI that fails to start prints a whole stack trace with paths in it, and all of
+// that used to land in the message.
+
+test('a complaint a person can act on is passed through (#540)', () => {
+  assert.equal(cliComplaint('not signed in — run agy login'), 'not signed in — run agy login');
+  assert.equal(cliComplaint('   quota exhausted   \nsomething else'), 'quota exhausted', 'the first line, trimmed');
+});
+
+test('anything that looks like a path or a stack is refused (#540)', () => {
+  const B = String.fromCharCode(92);
+  const cases = [
+    `Error: Cannot find module 'C:${B}store${B}cli.js'`,
+    'node:internal/modules/cjs/loader:1386',
+    '    at Function._resolveFilename (node:internal/modules/cjs/loader:1383:15)',
+    'failed reading /home/someone/.config/agy',
+    'could not open /Users/someone/thing',
+  ];
+  for (const c of cases) {
+    assert.equal(cliComplaint(c), null, `${JSON.stringify(c.slice(0, 40))} says nothing safe`);
+  }
+});
+
+test('nothing to say is null, so the caller words it (#540)', () => {
+  for (const empty of ['', '   \n\n', null, undefined]) assert.equal(cliComplaint(empty), null);
+});
+
+test('a complaint is capped and stripped of colour (#540)', () => {
+  const long = cliComplaint('x'.repeat(400));
+  assert.ok(long.length <= 200, `capped at 200, got ${long.length}`);
+  assert.ok(long.endsWith('…'), 'and says it was cut');
+  const ESC = String.fromCharCode(27);
+  assert.equal(cliComplaint(`${ESC}[31mred text${ESC}[0m`), 'red text');
 });

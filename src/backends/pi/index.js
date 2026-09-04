@@ -30,7 +30,7 @@ const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
-const { PROBE_STDIO, closeStdin } = require('../cli-probe');
+const { PROBE_STDIO, closeStdin, cliComplaint } = require('../cli-probe');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
@@ -125,6 +125,12 @@ function findExecutable() {
 }
 
 const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
+
+// How long the model probe may take before it is called a failure (#540). Measured on 0.84.4: 2.5-3.7 s
+// across five runs. The same 20 s ceiling agy's carries, for the same reason — this runs on a user opening
+// the model field, not on the scan path, and the answer is cached for ten minutes afterwards.
+const MODEL_PROBE_TIMEOUT_MS = 20 * 1000;
+
 let _modelCache = null; // { at, search, models }
 
 function parseModelList(output) {
@@ -163,9 +169,18 @@ function listModels({ search } = {}) {
     const args = [...launch.args, '--list-models'];
     if (q) args.push(q);
     // closeStdin, not a `stdio` option: execFile ignores that one (#532, backends/cli-probe.js).
-    closeStdin(execFile(launch.command, args, { encoding: 'utf8', timeout: 8000, windowsHide: true }, (err, stdout, stderr) => {
+    closeStdin(execFile(launch.command, args, { encoding: 'utf8', timeout: MODEL_PROBE_TIMEOUT_MS, windowsHide: true }, (err, stdout, stderr) => {
       if (err) {
-        resolve({ ok: false, reason: String((stderr || err.message || 'Could not list Pi models.')).trim() });
+        // NOT `err.message`. execFile's message is "Command failed: <the whole argv>", which for Pi on
+        // Windows is an absolute path into node_modules — in a message the user reads (#540, same defect
+        // as agy's). What helps is that it took too long and why it might.
+        const timedOut = !!(err.killed || err.code === 'ETIMEDOUT');
+        resolve({
+          ok: false,
+          reason: timedOut
+            ? `Pi did not answer within ${Math.round(MODEL_PROBE_TIMEOUT_MS / 1000)} seconds. Try again, or type the model id.`
+            : (cliComplaint(stderr) || 'Could not list Pi models.'),
+        });
         return;
       }
       const models = parseModelList(stdout);

@@ -49,4 +49,37 @@ function closeStdin(child) {
   return child;
 }
 
-module.exports = { PROBE_STDIO, closeStdin };
+/**
+ * What a CLI printed while failing, trimmed to something a person can read — or `null` when there is
+ * nothing safe to pass on (#540).
+ *
+ * A probe's failure message is the one place a raw string from another program reaches the user, and two
+ * doors let a path through it. The spawn errno is the obvious one (`spawnSync <exe> ETIMEDOUT` names the
+ * executable). The CLI's own stderr is the one that surprises: a Node-based CLI that fails to start prints
+ * a full stack trace with absolute paths, and the whole thing used to land in the message a user reads.
+ *
+ * So: the first non-empty line only, capped, and refused outright when it looks like a path or a stack.
+ * The caller then supplies its own sentence, the way `src/app/readable-error.js` does for the main
+ * process — a backend words its own refusals rather than importing that helper.
+ */
+const LOOKS_LIKE_A_PATH = new RegExp([
+  '[A-Za-z]:[\\\\/]',                       // a Windows drive
+  '/(?:home|Users|usr|var|opt|tmp)/',       // a POSIX home or system directory
+  'node:internal',                          // a Node stack, which carries the whole argv with it
+  '\\bat [A-Za-z_$][\\w$.]*\\s*\\(',        // …and its frames
+].join('|'));
+
+const ANSI = /\[[0-9;]*m/g;
+const MAX_REASON = 200;
+
+function cliComplaint(stderr) {
+  const first = String(stderr == null ? '' : stderr)
+    .split(/\r?\n/)
+    .map(line => line.replace(ANSI, '').trim())
+    .find(Boolean);
+  if (!first) return null;
+  if (LOOKS_LIKE_A_PATH.test(first)) return null;
+  return first.length > MAX_REASON ? `${first.slice(0, MAX_REASON - 1)}…` : first;
+}
+
+module.exports = { PROBE_STDIO, closeStdin, cliComplaint };

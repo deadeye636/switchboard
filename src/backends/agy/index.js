@@ -21,7 +21,7 @@ const { spawnSync } = require('child_process');
 const parser = require('./parser');
 const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
-const { PROBE_STDIO } = require('../cli-probe');
+const { PROBE_STDIO, cliComplaint } = require('../cli-probe');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromDb } = require('./state');
 const { changelogSource } = require('./changelog');
@@ -54,6 +54,17 @@ function setRoot(dir) {
 // Also left out: `--project`/`--new-project`/`--agent` (agy's own project/agent selection, orthogonal to
 // how Switchboard groups a cwd), and `--print`/`--prompt`/`-i` (non-interactive — we run the TUI).
 const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
+
+// How long the model probe may take before it is called a failure (#540).
+//
+// Measured on a 1.1.26 install: 2.0-4.4 s warm across six runs, and 8159 ms on a cold one — over the 8 s
+// this used to allow, so a probe that was about to answer was reported as broken. The call fetches the
+// list over the network, so the cold case is the shape rather than an outlier.
+//
+// Generous on purpose. This does NOT run on the scan path — only a user opening the model field reaches
+// it, and the answer is then cached for ten minutes — so the cost of waiting longer is a slower dropdown
+// once, while the cost of cutting it short is a control that says the CLI is broken when it is not.
+const MODEL_PROBE_TIMEOUT_MS = 20 * 1000;
 let _modelCache = null; // { at, models }
 
 /**
@@ -90,9 +101,15 @@ function listModels() {
   }
   const exe = findExecutable() || 'agy';
   // stdin closed (#532): `agy models` read standard input before 1.1.23 and hung on an open pipe.
-  const res = spawnSync(exe, ['models'], { encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: PROBE_STDIO });
+  const res = spawnSync(exe, ['models'], { encoding: 'utf8', timeout: MODEL_PROBE_TIMEOUT_MS, windowsHide: true, stdio: PROBE_STDIO });
   if (res.error || res.status !== 0) {
-    const reason = String((res.stderr || res.error?.message || 'Could not list agy models.')).trim();
+    // NOT `res.error.message`. A spawn errno names the executable it failed on — an absolute path, into a
+    // message the user reads (#540). What a person can act on is that it took too long and where the time
+    // goes; what the CLI itself printed is the only other thing worth passing on.
+    const timedOut = !!(res.error && (res.error.code === 'ETIMEDOUT' || res.error.killed));
+    const reason = timedOut
+      ? `agy did not answer within ${Math.round(MODEL_PROBE_TIMEOUT_MS / 1000)} seconds. It fetches the list over the network — try again, or type the model id.`
+      : (cliComplaint(res.stderr) || 'Could not list agy models.');
     return Promise.resolve({ ok: false, reason });
   }
   const models = parseModelList(res.stdout);
