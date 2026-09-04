@@ -108,6 +108,25 @@ a hook alone cannot say whether a prompt is still waiting.
   configs, instructions, plugins, skills, rules, memories and model catalogs, including project
   `AGENTS.md` / `.codex/` resources when a project is in scope. It deliberately excludes auth, logs,
   transcripts and secret sandboxes.
+- **Installed plugins**, measured on 0.153.2 (#536): `config.toml` carries one table per plugin, keyed
+  `[plugins."<plugin>@<marketplace>"]` with `enabled = true`, and the files sit under
+  `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/`. The top level is the MARKETPLACE's name, not
+  the plugin's; `.codex-plugin/plugin.json` carries the real one, and `skills/` is a skills tree with a
+  `SKILL.md` at each leaf — the same shape Claude's plugins have. More than one version can be cached and
+  nothing says which is live, so the highest is taken, compared as numbers. A plugin that ships no
+  `skills/` (scripts and an MCP manifest only) is real and simply has nothing to list.
+  Whether a project's own `.codex/config.toml` can enable a plugin for that project is **not measured**,
+  so every plugin row is reported as global.
+- **A plugin's skills are editable and deletable, and that is deliberate parity with Claude** (#463/#536),
+  not an oversight of "read-only first". Both backends list the skills tree itself, and the generic guards
+  then allow what the backend's `resourceEditing` extensions allow. What a user should know, and what the
+  app cannot tell them from the row: the CLI owns that cache and re-fetches it on the next plugin update,
+  so an edit made there is temporary. A plugin skill worth keeping belongs in the user's own skills
+  directory, which is a different row.
+- **An install key is user input that becomes a path.** `[plugins."../../..@marketplace"]` in `config.toml`
+  would put an arbitrary directory into the listing — and the listing is the allow-list every other guard
+  consults. Both halves of the key are checked for being a single path segment, and the resolved directory
+  is checked against the cache root through `app/path-containment.js`, before anything is listed.
 - Forking uses Codex' native `codex fork <session-id>` command. Switchboard can launch/adopt the forked
   rollout, but no verified on-disk parent field has been found in Codex JSONL yet, so `resolveLineage()`
   still returns `null` rather than inventing a relationship.

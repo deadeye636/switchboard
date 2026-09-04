@@ -57,11 +57,19 @@ and remembers it (#530), and a backend that cannot tell answers `null`, which is
 `src/backends/resource-expand.js` holds three modes (`skillTree`, `flatFiles`, `dirs`) and each backend
 declares which rule each of its directories follows, keyed by the `source` its listing entry carries.
 
-**The rules may be a FUNCTION, not only a map** (#463). Claude's plugin skills are one directory per
-installed plugin, so the source carries the plugin's name and no static key can spell it; the backend
-resolves the rule instead. That keeps a plugin layout inside `src/backends/claude/` — the walk is still
-the shared one. A listing entry may also carry `originLabel`, for a directory whose path does not say
-what a reader should call it (a plugin is cached under the MARKETPLACE's name, not its own).
+**The rules may be a FUNCTION, not only a map** (#463). Plugin skills are one directory per installed
+plugin, so the source carries the plugin's name and no static key can spell it; the backend resolves the
+rule instead. That keeps a plugin layout inside the backend's own folder — the walk is still the shared
+one. **Two backends do this now** — Claude (#463) and Codex (#536) — and the second one is the reminder
+that the resolver has to keep answering the STATIC sources too: a resolver that forgot its map would leave
+every ordinary directory unexpandable, and `reachable()` gates read, write and delete on that same answer
+(`expandResource.knowsSource`), so nothing else would notice.
+
+A listing entry may also carry `originLabel`, for a directory whose path does not say what a reader should
+call it (a plugin is cached under the MARKETPLACE's name, not its own). **And a name that becomes a path
+segment is checked before it is joined**: Codex builds its cache path out of an install key from
+`config.toml`, and a key spelled `../../..@marketplace` put an arbitrary directory into the listing — which
+IS the allow-list every other guard consults. A segment out of a config file is user input.
 
 **Do not put the walk back into `listResources`.** hermes and pi used to enumerate inline, so every
 settings-panel open paid for a recursive scan — hermes capped at 500, pi uncapped and unguarded, where

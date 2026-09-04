@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { createExpandResource } = require('../resource-expand');
+const { installedPluginSkillDirs, pluginSkillsSource, pluginFromSource } = require('./plugins');
 
 // One level into each listed directory (#440), keyed by the `source` its listing entry carries.
 const EXPAND_RULES = {
@@ -36,6 +37,10 @@ function add(out, item) {
     path: item.path,
     source: item.source || null,
     description: item.description || null,
+    // What a reader should call this directory when its path does not say (#536). A plugin's skills are
+    // cached under the MARKETPLACE's name with a version folder in between, so the path names neither the
+    // plugin nor anything a person would recognise.
+    originLabel: item.originLabel || null,
   });
 }
 
@@ -47,6 +52,27 @@ function addFile(out, base, rel, kind, source, scope = 'global') {
 function addDir(out, base, rel, kind, source, scope = 'global') {
   const p = path.join(base, rel);
   if (isDir(p)) add(out, { kind, scope, name: path.basename(p), path: p, source });
+}
+
+/**
+ * One row per installed, enabled plugin that ships skills (#536).
+ *
+ * The row is the plugin's SKILLS directory, not its checkout: that is the part a reader can act on, and
+ * the rest of a plugin's cache is scripts and assets the CLI runs. The source carries the plugin's own
+ * name — the cache folder is the MARKETPLACE's name for it, and the version sits between them — so the
+ * `originLabel` says which plugin a directory belongs to without anyone having to read the path.
+ */
+function addPluginSkills(out, home) {
+  for (const plugin of installedPluginSkillDirs(home)) {
+    add(out, {
+      kind: 'skill',
+      scope: 'global',
+      name: plugin.name,
+      path: plugin.skillsDir,
+      source: pluginSkillsSource(plugin.name),
+      originLabel: `Plugin ${plugin.name}`,
+    });
+  }
 }
 
 function addProfileFiles(out, home) {
@@ -70,6 +96,7 @@ function createListResources({ codexHome }) {
     addDir(resources, home, 'skills', 'skill', 'skills-directory');
     addDir(resources, home, 'rules', 'rule', 'rules-directory');
     addDir(resources, home, 'memories', 'memory-store', 'memories-directory');
+    addPluginSkills(resources, home);
     addProfileFiles(resources, home);
 
     if (projectPath) {
@@ -92,6 +119,11 @@ function createListResources({ codexHome }) {
   };
 }
 
-const expandResource = createExpandResource(EXPAND_RULES);
+// Every plugin's skills directory follows the same rule as any other skills tree; only the KEY is not
+// known in advance, because it carries the plugin's name (#536, the shape is Claude's #463).
+const PLUGIN_SKILLS_RULE = { mode: 'skillTree', kind: 'skill' };
+const expandResource = createExpandResource(
+  (source) => (pluginFromSource(source) ? PLUGIN_SKILLS_RULE : EXPAND_RULES[source]),
+);
 
 module.exports = { createListResources, expandResource, EXPAND_RULES };

@@ -134,7 +134,8 @@ const MODES = {
  */
 /**
  * `rules` is a map from `source` to rule — or a FUNCTION from source to rule, for a backend whose
- * sources are not all known in advance. Claude's plugin skills are the case: each installed plugin has a
+ * sources are not all known in advance. Plugin skills are the case — Claude's (#463) and Codex' (#536)
+ * alike: each installed plugin has a
  * skills directory of its own, so the source carries the plugin's name (#463) and no static map can
  * spell every key. A resolver keeps that knowledge in the backend, which is where a plugin layout
  * belongs, without giving it a second copy of this walk.
