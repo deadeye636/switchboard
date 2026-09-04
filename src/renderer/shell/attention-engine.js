@@ -212,6 +212,12 @@ function recordAttentionSignal(sessionId, signal) {
   if (kind === 'needs-attention') {
     // The EVENT is main's (#396); this window has nothing else to do with an attention signal it may
     // not raise. Kept as a branch so an unknown kind still falls through to the return below.
+    //
+    // EXCEPT the activity edge, when the signal carries one (#529). "Needs You" is a main-window
+    // statement, but "Working" is drawn wherever the session is — and a CLI blocked on its own prompt has
+    // stopped working. Without this the window that RENDERS the session kept the spinner turning behind
+    // an inbox flag it cannot see, which is the exact state the waiting signal exists to remove.
+    if (typeof signal.busy === 'boolean') recordActivityEdge(sessionId, signal.busy);
   } else if (kind === 'ready' || kind === 'idle') {
     recordActivityEdge(sessionId, false);
   } else if (kind === 'busy') {

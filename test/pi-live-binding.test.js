@@ -32,20 +32,50 @@ test('the generated extension reports every lifecycle edge it claims to', () => 
   }
 });
 
-test('a blocking UI prompt is reported as waiting, and its end as busy (#529)', () => {
-  // `ui_prompt_end` is busy rather than idle on purpose: answering a prompt returns the agent to the turn
-  // it was in the middle of. The turn's own `turn_end` / `agent_settled` still ends it.
+test('a blocking UI prompt is reported as waiting (#529)', () => {
   const { source } = generate();
   assert.match(source, /pi\.on\("ui_prompt_start", async \(event: any, ctx\) => \{ await post\(ctx, "waiting", event\?\.kind\); \}\);/);
-  assert.match(source, /pi\.on\("ui_prompt_end", async \(_event, ctx\) => \{ await post\(ctx, "busy"\); \}\);/);
+});
+
+test('the end of a prompt answers with whichever state it interrupted (#529)', () => {
+  // A prompt raised INSIDE a turn returns the agent to work, and that turn's own end still closes it. One
+  // raised outside a turn — from a slash command, or from an extension's own `turn_end` handler — has no
+  // turn behind it, and `busy` would be the last word anyone says about the session: nothing in the app
+  // clears a busy edge a backend stated exactly, so the row would read "Working" until the next real turn.
+  const { source } = generate();
+  assert.match(source, /let inTurn = false;/);
+  assert.match(source, /pi\.on\("turn_start", async \(_event, ctx\) => \{ inTurn = true; await post\(ctx, "busy", undefined, true\); \}\);/);
+  assert.match(source, /pi\.on\("ui_prompt_end", async \(_event, ctx\) => \{ await post\(ctx, inTurn \? "busy" : "idle"\); \}\);/);
+  // And every edge that ends a turn puts the flag back, or the next prompt outside a turn answers wrongly.
+  for (const event of ['session_start', 'turn_end', 'agent_settled']) {
+    assert.ok(source.includes(`pi.on("${event}", async (_event, ctx) => { inTurn = false;`), `${event} clears it`);
+  }
 });
 
 test('the prompt KIND is sent and its title is not (#529)', () => {
   // The title is arbitrary text from whatever the agent is running and it would be rendered in the
   // attention inbox. The kind is a closed set and says enough to word the reason.
   const { source } = generate();
-  assert.match(source, /body: JSON\.stringify\(\{ session_id: id, kind, prompt_kind: promptKind \}\)/);
+  assert.match(source, /body: JSON\.stringify\(\{ session_id: id, kind, prompt_kind: promptKind, pending, turn_start: turnStart \}\)/);
   assert.equal(/title/i.test(source), false, 'no prompt title reaches the payload');
+});
+
+test('every post carries whether a prompt is still waiting (#530)', () => {
+  // `ctx.hasPendingMessages()` is the only reachable answer to "does this session still owe a turn" — the
+  // clear_queue RPC lives in a headless mode Switchboard does not run, and consumes what it reports.
+  //
+  // Read defensively on purpose: an older Pi has no such method, and `undefined` drops out of the JSON
+  // rather than reaching us as a claim that the queue is empty.
+  const { source } = generate();
+  assert.match(source, /const pending = typeof ctx\?\.hasPendingMessages === "function" \? ctx\.hasPendingMessages\(\) : undefined;/);
+  assert.match(source, /pending, turn_start: turnStart \}\)/, 'and it rides on every post, not only the lifecycle ones');
+
+  // Everything the context is asked for sits inside the try: both accessors go through `assertActive()`,
+  // which throws once a session has been replaced (#303), and optional chaining does not save a caller
+  // from a getter that throws.
+  const body = source.slice(source.indexOf('async function post'), source.indexOf('export default'));
+  assert.ok(body.indexOf('try {') < body.indexOf('hasPendingMessages'), 'the queue read is inside the try');
+  assert.ok(body.indexOf('try {') < body.indexOf('getSessionId'), 'so is the session id read');
 });
 
 test('the extension posts to the per-spawn URL and nothing else', () => {

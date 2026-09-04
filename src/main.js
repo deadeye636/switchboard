@@ -1420,6 +1420,19 @@ hooks.init({
   // drops a held one the moment any other signal for that session arrives.
   holdReady: (sessionId, deliver) => turnHold.holdReady(sessionId, deliver),
   cancelHeldReady: (sessionId) => turnHold.cancel(sessionId),
+  // #530: a binding that also reports whether a prompt is still waiting. The backend that owns the
+  // session keeps it, because how long such an answer stays true is its own format's business; a backend
+  // that declares no `noteTurnQueue` simply never hears about it.
+  //
+  // A session the cache does not know yet drops its report, and that is the honest outcome rather than a
+  // gap to paper over: without a row there is no backend to hand it to, and guessing one would be the
+  // `|| 'claude'` this repo spent #212 removing. The cost is bounded — the first turns of a brand-new
+  // session answer `null`, which is today's behaviour — and it heals as soon as the transcript is indexed.
+  noteTurnQueue: (sessionId, state) => {
+    const row = getCachedSession(sessionId);
+    const backend = row && row.backendId ? backends.get(row.backendId) : null;
+    if (backend && typeof backend.noteTurnQueue === 'function') backend.noteTurnQueue(sessionId, state);
+  },
 });
 hooks.registerIpc(ipcMain);
 const { startAttentionHookServer, removeClaudeAttentionHook, attentionHooksEnabled } = hooks;

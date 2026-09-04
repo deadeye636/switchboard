@@ -26,6 +26,7 @@ const { execFile, execFileSync } = require('child_process');
 const parser = require('./parser');
 const trust = require('./trust');
 const liveBinding = require('./live-binding');
+const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
@@ -35,10 +36,9 @@ const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
 const { changelogSource } = require('./changelog');
 
-// A Pi transcript's filename: `<ISO-timestamp>_<uuid>.jsonl`. Anchored at BOTH ends on purpose — it is
-// what tells a real parent reference from any other path that happens to contain an underscore (#193).
-// The uuid group is what a fork's parent id is read from.
-const PI_TRANSCRIPT_NAME = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_([0-9a-fA-F-]{36})\.jsonl$/;
+// A Pi transcript's filename, from the module that also reads a session id out of one (#530). One pattern,
+// not two that agree until somebody edits one of them — the rationale is over there with it.
+const { PI_TRANSCRIPT_NAME } = turnQueue;
 
 
 let _root = null;
@@ -376,6 +376,11 @@ module.exports = {
   },
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
+  // Does this session still owe a turn (#530)? The answer is pushed by the per-spawn binding extension and
+  // remembered in ./turn-queue.js — read that file for why it is not the RPC the issue named, and for what
+  // a null answer means. Both halves are declared here so the seam is one backend's business end to end.
+  readTurnQueue: (transcriptPath, sinceMs) => turnQueue.readTurnQueue(transcriptPath, sinceMs),
+  noteTurnQueue: (sessionId, state) => turnQueue.noteTurnQueue(sessionId, state),
   // Pi keeps no plans store (#227).
   plansDir: () => null,
   // Pi reads AGENTS.md AND CLAUDE.md as its context files (the `noContextFiles` toggle turns both off),
@@ -409,7 +414,7 @@ module.exports = {
     subagentSessions: 'no',
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
     liveRebinding: 'yes',
-    queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
+    queuedTurn: { state: 'limited', note: 'its extension reports whether a prompt waits, but not how many' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

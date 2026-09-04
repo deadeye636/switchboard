@@ -98,9 +98,14 @@
     if (kind === 'busy' || kind === 'idle') return { kind, reason: 'terminal binding' };
     if (kind === 'waiting') {
       const promptKind = String(payload.prompt_kind || payload.promptKind || '').toLowerCase();
+      // `hasOwnProperty`, not a plain lookup: `constructor` and `__proto__` are keys on every object
+      // literal, and either of them would put a function or a prototype where a sentence belongs. The
+      // payload comes off a socket, and an unclonable `reason` throws inside `webContents.send` — the
+      // attention would be lost to a catch rather than raised.
+      const known = Object.prototype.hasOwnProperty.call(BIND_PROMPT_REASONS, promptKind);
       return {
         kind: 'needs-attention',
-        reason: BIND_PROMPT_REASONS[promptKind] || BIND_PROMPT_REASONS.custom,
+        reason: known ? BIND_PROMPT_REASONS[promptKind] : BIND_PROMPT_REASONS.custom,
         // The edge the row needs, kept apart from `kind`: this is attention AND it is the end of being
         // busy, and a caller that only read `kind` would leave the session spinning.
         busy: false,

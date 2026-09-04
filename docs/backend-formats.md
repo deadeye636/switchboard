@@ -286,8 +286,13 @@ The only backend whose history is **not** in files — the reason the discovery 
   with a growing tail window (one message is one line, and a large answer can exceed the window entirely)
   plus the terminal-liveness signal. For sessions launched
   by Switchboard, Pi also gets a per-spawn `--extension` file that posts the current `session_id` and
-  neutral busy/idle edges (`turn_start`, `turn_end`, `agent_settled`) to the existing terminal-binding
-  ingest; this is declared by Pi's descriptor, not by a core backend-id branch.
+  neutral lifecycle edges to the existing terminal-binding ingest; this is declared by Pi's descriptor,
+  not by a core backend-id branch. What it sends, measured on 0.84.4:
+  `busy` (`turn_start`, and `ui_prompt_end` when a turn was open) with `turn_start: true` only on a real
+  turn beginning, `idle` (`turn_end`, `agent_settled`, and `ui_prompt_end` outside a turn), and `waiting`
+  with a `prompt_kind` on `ui_prompt_start` (#529) — plus `pending` from `ctx.hasPendingMessages()` on
+  every post (#530). Note `ui_prompt_start`/`ui_prompt_end` fire only for prompts an EXTENSION raises;
+  Pi's own dialogs go through a different path and emit nothing.
 - Undocumented dependencies: **Node ≥ 22.19** (the one on PATH, not the app's embedded one) and, on
   Windows, a **bash**. Both are probed, because a launch without them dies with nothing to act on.
 - Project trust lives in `(PI_CODING_AGENT_DIR | ~/.pi/agent)/trust.json`: a JSON object mapping canonical

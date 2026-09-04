@@ -45,7 +45,9 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'yes',
-    queuedTurn: 'no', quota: 'no',
+    // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
+    // whose extension never reported has no answer at all rather than an empty one.
+    queuedTurn: 'limited', quota: 'no',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },

@@ -265,3 +265,65 @@ test('the handover in detach-window.js goes through the guarded door', () => {
   assert.doesNotMatch(src, /recordActivityEdge\s*\(/,
     'the busy carry must call setActivity — the record half skips the ready-guard');
 });
+
+// --- #529: a CLI blocked on its own prompt has stopped working -----------------------------------------
+//
+// "Needs You" is a main-window statement and stays one. "Working" is drawn wherever the session is, and a
+// session waiting on a question is not working — so the ACTIVITY half of a waiting signal has to reach
+// the window that renders it, even though the inbox half must not.
+//
+// This is the half the first pass missed: `recordAttentionSignal` had an empty `needs-attention` branch,
+// so a detached window kept the spinner turning behind a flag it cannot see.
+
+test('a waiting signal stops the spinner in the window that renders the session (#529)', () => {
+  const t = setup({ activeSessionId: 'other' });
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'busy', reason: 'terminal binding', source: 'bind' });
+    assert.equal(t.window.sessionBusyState.get('s1'), true, 'the turn started');
+
+    t.call('recordAttentionSignal')('s1', { kind: 'needs-attention', reason: 'Waiting for you to confirm', source: 'bind', busy: false });
+    assert.equal(t.window.sessionBusyState.get('s1'), false, 'and the waiting prompt ended it');
+  } finally { t.destroy(); }
+});
+
+test('a window that only records still raises nothing (#529)', () => {
+  // The activity edge is all it takes. The inbox flag, the reason and the chime stay with the main
+  // window — a second window announcing is #390, and this must not become a way back into it.
+  const t = setup({ activeSessionId: 'other' });
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'needs-attention', reason: 'Waiting for your input', source: 'bind', busy: false });
+    assert.equal(t.attention('s1'), false, 'no inbox flag');
+    assert.equal(t.window.attentionReason.has('s1'), false, 'no reason kept');
+    assert.deepEqual(t.sounds, [], 'no chime');
+    assert.deepEqual(t.timeline, [], 'and no event written here');
+  } finally { t.destroy(); }
+});
+
+test('an attention signal WITHOUT an activity edge leaves the row alone (#529)', () => {
+  // Every other source sends no `busy` field, and those must keep the behaviour they had: this window
+  // has nothing to do with an attention signal it may not raise.
+  const t = setup({ activeSessionId: 'other' });
+  try {
+    t.call('recordAttentionSignal')('s1', { kind: 'busy', reason: 'x', source: 'hook' });
+    t.call('recordAttentionSignal')('s1', { kind: 'needs-attention', reason: 'Claude needs permission', source: 'hook' });
+    assert.equal(t.window.sessionBusyState.get('s1'), true, 'still working — a permission prompt is not an idle edge');
+  } finally { t.destroy(); }
+});
+
+test('the main window raises AND stops the spinner for a waiting signal (#529)', () => {
+  const t = setup({ activeSessionId: 'other' });
+  try {
+    t.call('applyAttention')('s1', { kind: 'busy', reason: 'terminal binding', source: 'bind' });
+    assert.equal(t.window.sessionBusyState.get('s1'), true);
+
+    // Both halves reach the main window on their own channels — the attention signal raises the flag,
+    // the busy edge that main sends alongside it stops the spinner. Driven separately here because that
+    // is how they arrive.
+    t.call('applyAttention')('s1', { kind: 'needs-attention', reason: 'Waiting for you to choose', source: 'bind', busy: false });
+    t.call('setExactActivity')('s1', false);
+
+    assert.equal(t.attention('s1'), true, 'flagged');
+    assert.equal(t.window.attentionReason.get('s1').reason, 'Waiting for you to choose');
+    assert.equal(t.window.sessionBusyState.get('s1'), false, 'and not working');
+  } finally { t.destroy(); }
+});

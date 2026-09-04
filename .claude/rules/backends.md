@@ -46,8 +46,9 @@ and a core that spelled that would have learned one backend's layout), whether i
 (`changelogSource`, #528 — `npm run backends:changelog-check` asks every backend rather than holding a
 list of pages, and a CLI without a public changelog declares `null`), whether it still **owes a turn** it has
 not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
-the core must not believe, and only Claude can say so from its own transcript), and its CLI home
-variable (`cliHomeEnv`, #241).
+the core must not believe; Claude reads it out of its own transcript, Pi is told by its binding extension
+and remembers it (#530), and a backend that cannot tell answers `null`, which is **not** the same as
+"nothing is queued"), and its CLI home variable (`cliHomeEnv`, #241).
 
 ## A directory is listed; `expandResource` reads it (#440)
 

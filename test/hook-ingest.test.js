@@ -428,3 +428,167 @@ test('a binding with no lifecycle kind still binds and sends nothing (#529)', as
   await post(BIND_URL, { session_id: 'sess-9' }, TOKEN);
   assert.deepEqual(ctx.sent, []);
 });
+
+test('a binding that reports a waiting prompt passes it to the backend that owns the session (#530)', async () => {
+  // The route stays unable to name a backend: it hands the fact over and the descriptor decides what it
+  // means. Reported separately from the lifecycle edge because a session with something queued is not
+  // thereby busy or idle.
+  const notes = [];
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    noteTurnQueue: (sessionId, state) => notes.push([sessionId, state]),
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: true }, TOKEN);
+  assert.deepEqual(notes, [['sess-9', { pending: true, kind: 'idle', turnStart: false }]]);
+  assert.ok(ctx);
+});
+
+test('only a real turn start is reported as one (#530)', async () => {
+  // The binding posts a busy edge when a UI prompt ENDS too (#529). Passing that on as a turn beginning
+  // would let the backend release a hold as "the queued prompt ran" for a turn that never started, so the
+  // extension says which one this is and the route carries the answer rather than inferring it.
+  const notes = [];
+  makeCtx({
+    adoptSessionId: () => null,
+    noteTurnQueue: (sessionId, state) => notes.push(state),
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'busy', pending: false, turn_start: true }, TOKEN);
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'busy', pending: false }, TOKEN);
+  assert.deepEqual(notes.map(n => n.turnStart), [true, false]);
+});
+
+test('a binding with no pending field claims nothing about the queue (#530)', async () => {
+  // An older Pi has no `hasPendingMessages`, so the field is simply absent. Recording that as `false`
+  // would release a hold that was right — "cannot tell" and "nothing queued" are different answers.
+  const notes = [];
+  makeCtx({
+    adoptSessionId: () => null,
+    noteTurnQueue: (sessionId, state) => notes.push([sessionId, state]),
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle' }, TOKEN);
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: 'yes' }, TOKEN);
+  assert.deepEqual(notes, []);
+});
+
+test('a backend that cannot remember a queue is not an error (#530)', async () => {
+  const ctx = makeCtx({ adoptSessionId: () => null, log: { info() {}, warn() {}, debug() {}, error() {} } });
+  const res = await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: true }, TOKEN);
+  assert.equal(res.statusCode, 200);
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1, 'and the edge still lands');
+});
+
+test('a throwing noteTurnQueue does not take the binding down (#530)', async () => {
+  const warnings = [];
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    noteTurnQueue: () => { throw new Error('nope'); },
+    log: { info() {}, warn: (m) => warnings.push(m), debug() {}, error() {} },
+  });
+  const res = await post(BIND_URL, { session_id: 'sess-9', kind: 'busy', pending: true }, TOKEN);
+  assert.equal(res.statusCode, 200);
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1, 'the lifecycle edge still landed');
+  assert.equal(warnings.length, 1);
+});
+
+test('the waiting signal reaches the window that RENDERS the session, activity edge and all (#529)', async () => {
+  // The channel a detached window hears. It gets no `attention-signal` — raising is the main window's
+  // alone (#390/#395) — so if the busy half does not ride along here, that window keeps the spinner
+  // turning behind a flag it cannot see. This branch had no assertion at all in the first pass, which is
+  // exactly why the gap survived it.
+  const routed = [];
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    sendTimelineSignal: (sessionId, signal) => routed.push([sessionId, signal]),
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'waiting', prompt_kind: 'select' }, TOKEN);
+
+  assert.deepEqual(routed, [['sess-9', {
+    kind: 'needs-attention',
+    source: 'bind',
+    reason: 'Waiting for you to choose',
+    busy: false,
+  }]]);
+  assert.ok(ctx);
+});
+
+test('an ordinary lifecycle edge is routed without an activity field (#529)', async () => {
+  // `busy`/`idle` say what they are in `kind`, and the receiving engine already reads that. Only the
+  // waiting edge needs the second statement, because "the agent asked something" says nothing about
+  // whether it is still working.
+  const routed = [];
+  makeCtx({
+    adoptSessionId: () => null,
+    sendTimelineSignal: (sessionId, signal) => routed.push(signal),
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle' }, TOKEN);
+  assert.deepEqual(routed, [{ kind: 'idle', source: 'bind', reason: 'terminal binding' }]);
+});
+
+test('an idle binding goes through the turn hold, like a Stop does (#530)', async () => {
+  // The whole point of Pi answering `readTurnQueue`: without this the descriptor answers a question
+  // nobody asks. `holdReady` used to be reached only from the attention-hook branch below, which the
+  // session-bind route returns before — so a Pi `turn_end` was delivered straight through and the hook
+  // was never consulted for any Pi session.
+  const asked = [];
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    holdReady: (sessionId) => { asked.push(sessionId); return true; },   // held: deliver later
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: true }, TOKEN);
+
+  assert.deepEqual(asked, ['sess-9'], 'the hold was asked');
+  assert.deepEqual(ctx.sent, [], 'and nothing was delivered while it holds');
+});
+
+test('a held idle binding is delivered when the hold releases it (#530)', async () => {
+  let release = null;
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    holdReady: (_sessionId, deliver) => { release = deliver; return true; },
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: true }, TOKEN);
+  assert.deepEqual(ctx.sent, []);
+
+  release();
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1, 'the same edge, later');
+});
+
+test('a hold that declines delivers immediately (#530)', async () => {
+  // `holdReady` returning false is "nothing to wait for" — the backend could not tell, or said the queue
+  // is empty. Either way the answer is today's behaviour, delivered now.
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    holdReady: () => false,
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: false }, TOKEN);
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1);
+});
+
+test('any other binding edge cancels a held signal and is delivered at once (#530)', async () => {
+  // The state a held "finished" described has moved on. Same rule as the attention hook's.
+  const cancelled = [];
+  const ctx = makeCtx({
+    adoptSessionId: () => null,
+    holdReady: () => true,
+    cancelHeldReady: (sessionId) => cancelled.push(sessionId),
+    log: { info() {}, warn() {}, debug() {}, error() {} },
+  });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'busy', pending: false, turn_start: true }, TOKEN);
+
+  assert.deepEqual(cancelled, ['sess-9']);
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1);
+});
+
+test('a binding with no hold available behaves exactly as before (#530)', async () => {
+  const ctx = makeCtx({ adoptSessionId: () => null, log: { info() {}, warn() {}, debug() {}, error() {} } });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: true }, TOKEN);
+  assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1);
+});

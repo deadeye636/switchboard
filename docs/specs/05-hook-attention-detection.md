@@ -47,16 +47,19 @@ Document findings in this spec's "Spike notes" before building.
 ### Step 2 — Pure mapping helper `src/shared/attention-source.js` (UMD, tested)
 ```js
 // classifyAttentionSignal({ source, payload }) -> { kind, reason } | null
-//   source: 'osc9' | 'hook'
+//   source: 'osc9' | 'hook' | 'bind'
 //   for osc9: run the existing regex (move it here from app.js) -> needs-attention|null
 //   for hook: trust the structured kind/reason
-// Single place that decides attention, used by both paths so behavior is consistent + testable.
+//   for bind: a terminal-bound extension's own lifecycle edge (#529). busy/idle pass through; a
+//             `waiting` edge — the CLI blocked on its own prompt — is needs-attention AND carries the
+//             busy edge separately as `busy: false`, because it is both at once.
+// Single place that decides attention, used by every path so behavior is consistent + testable.
 ```
 Move the inline regex from `app.js:409` into this helper (keeps one source of truth; reduces drift).
 
 ### Step 3 — Renderer wiring (`app.js`, `src/preload.js`)
 - `src/preload.js`: add `onAttentionSignal(cb)`.
-- `app.js`: both `onTerminalNotification` (→ `classifyAttentionSignal({source:'osc9', payload})`) and `onAttentionSignal` (→ `classifyAttentionSignal({source:'hook', payload})`) funnel into one `applyAttention(sessionId, {kind, reason})` that updates `attentionSessions`/`responseReadySessions` and records a timeline event with the richer `reason`. Hook signals win over OSC-9 when both present.
+- `app.js`: both `onTerminalNotification` (→ `classifyAttentionSignal({source:'osc9', payload})`) and `onAttentionSignal` (→ `classifyAttentionSignal({source:'hook', payload})`) funnel into one `applyAttention(sessionId, {kind, reason})` that updates `attentionSessions`/`responseReadySessions` and records a timeline event with the richer `reason`. **A structured signal wins over OSC-9** when both are present — written as "is it osc9" rather than as a list of the structured sources, so one added later cannot lose to a spinner frame on the day it appears (#529).
 
 ### Step 4 — Settings
 - Add a Global Setting "Use Claude Code hooks for attention (recommended)" (default on if the spike shows it's reliable; otherwise opt-in). When off, OSC-9-only.
@@ -147,13 +150,22 @@ Any other signal for that session releases a held one too: whatever it described
 ### What belongs to whom
 
 `src/app/turn-hold.js` holds the signal and knows no CLI's format. Whether a turn is still owed is a
-question about one CLI's own transcript, so it is the `readTurnQueue` descriptor hook, answered by
-`src/backends/claude/turn-queue.js` and declined by every other backend through the `queuedTurn`
-capability row. **A declined answer means exactly the behaviour that shipped before this**, which is
-what lets the four backends that fire no turn hooks stay out of it entirely.
+question about one CLI's own state, so it is the `readTurnQueue` descriptor hook, and each backend
+answers it out of whatever it actually has — declining through the `queuedTurn` capability row when it
+has nothing. **A declined answer means exactly the behaviour that shipped before this**, which is what
+lets a backend that cannot tell stay out of it entirely.
+
+Two backends answer today, and they answer from different places (#530): Claude reads its own transcript
+(`src/backends/claude/turn-queue.js`), Pi is TOLD by its per-spawn binding extension and remembers the
+report (`src/backends/pi/turn-queue.js`). The second shape matters for anyone adding a third: a push
+remembered for a pull can only be as fresh as the last event, it answers `null` — never `{queued: 0}` —
+for a session it has not heard from, and only a real turn START may count as the queued prompt having
+run. A busy edge is not that: the same binding posts one when a UI prompt ends (#529).
 
 `src/app/hooks.js` delivers a signal through one closure, so a held one does what an immediate one
-would have done. Every path other than `ready` is untouched.
+would have done. **Both routes that can announce the end of a turn go through it** — the attention hook's
+`ready`, and the terminal binding's `idle` — because a route that delivers straight through is a route
+where the descriptor's answer is never asked for.
 
 ### Two things the first implementation got wrong
 
