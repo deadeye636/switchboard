@@ -218,3 +218,157 @@ test('renameProjectEntry: merges over an existing target (source wins overlaps)'
   assert.equal(p['/home/u/new'].lastCost, 9);
   assert.equal(p['/home/u/new'].foo, 'bar');                    // target field kept
 });
+
+// --- #533: a concurrent CLI write must survive ours --------------------------------------------------
+//
+// Every helper above changes one field, but the unit that reaches the disk is the whole document. So a
+// key Claude Code stored between our read and our write is not overwritten by a conflicting value — it is
+// absent from what we hand back. Claude Code 2.1.259 fixed that between two of its own sessions; these
+// stage the same race with Switchboard as the other party.
+//
+// The interference happens INSIDE the mutation, which is the only moment that is reliably between our read
+// and our write — hence the test-only export.
+const { _mutateClaudeConfig, _WRITE_ATTEMPTS } = require('../src/backends/claude/config');
+
+test('a write re-derives against a config the CLI changed underneath it (#533)', () => {
+  const file = makeTempConfig({
+    oauthAccount: { secret: 'keep-me' },
+    projects: { '/home/u/proj': { hasTrustDialogAccepted: false } },
+  });
+
+  let interfered = false;
+  const res = _mutateClaudeConfig(file, (cfg) => {
+    if (!interfered) {
+      interfered = true;
+      // The CLI, mid-turn: it records an MCP server and a cost on the same project.
+      const theirs = JSON.parse(fs.readFileSync(file, 'utf8'));
+      theirs.projects['/home/u/proj'].mcpServers = { ide: {} };
+      theirs.projects['/home/u/proj'].lastCost = 0.42;
+      fs.writeFileSync(file, JSON.stringify(theirs, null, 2));
+    }
+    cfg.projects['/home/u/proj'].hasTrustDialogAccepted = true;
+    return { result: { ok: true } };
+  });
+
+  assert.deepEqual(res, { ok: true });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(after.projects['/home/u/proj'].hasTrustDialogAccepted, true, 'our own change landed');
+  assert.deepEqual(after.projects['/home/u/proj'].mcpServers, { ide: {} }, "the CLI's write survived");
+  assert.equal(after.projects['/home/u/proj'].lastCost, 0.42, "the CLI's write survived");
+  assert.equal(after.oauthAccount.secret, 'keep-me');
+});
+
+test('a config rewritten on every attempt is reported, not spun on (#533)', () => {
+  const file = makeTempConfig({ projects: { '/home/u/proj': { hasTrustDialogAccepted: false } } });
+
+  let attempts = 0;
+  const res = _mutateClaudeConfig(file, (cfg) => {
+    attempts++;
+    const theirs = JSON.parse(fs.readFileSync(file, 'utf8'));
+    theirs.projects['/home/u/proj'].round = attempts;
+    fs.writeFileSync(file, JSON.stringify(theirs, null, 2));
+    cfg.projects['/home/u/proj'].hasTrustDialogAccepted = true;
+    return { result: { ok: true } };
+  });
+
+  assert.equal(attempts, _WRITE_ATTEMPTS, 'it gave up after the declared number of attempts');
+  assert.match(res.error, /kept changing/);
+  assert.equal(res.ok, undefined);
+  // The loser leaves the file as the other writer left it — never half of each.
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(after.projects['/home/u/proj'].round, _WRITE_ATTEMPTS);
+  assert.equal(after.projects['/home/u/proj'].hasTrustDialogAccepted, false);
+});
+
+test('setProjectTrust keeps the line endings the file was written with (#533)', () => {
+  // Now that the bytes go through safe-write, the file's own encoding is preserved. A CRLF config must not
+  // come back LF-only — that is a diff of every line, in a file a CLI re-reads.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-cfg-eol-'));
+  const file = path.join(dir, '.claude.json');
+  const body = JSON.stringify({ projects: { '/home/u/proj': { hasTrustDialogAccepted: false } } }, null, 2);
+  fs.writeFileSync(file, body.replace(/\n/g, '\r\n'));
+
+  assert.equal(setProjectTrust('/home/u/proj', true, file).ok, true);
+  const after = fs.readFileSync(file, 'utf8');
+  assert.ok(after.includes('\r\n'), 'CRLF kept');
+  assert.equal(/(?<!\r)\n/.test(after), false, 'no LF-only line slipped in');
+  assert.equal(JSON.parse(after).projects['/home/u/proj'].hasTrustDialogAccepted, true);
+});
+
+test('removeProjectEntry loses nothing the CLI wrote while it ran (#533)', () => {
+  const file = makeTempConfig({
+    projects: {
+      '/home/u/gone': { hasTrustDialogAccepted: true },
+      '/home/u/stays': { hasTrustDialogAccepted: true },
+    },
+  });
+
+  let interfered = false;
+  // Stage the race the same way: the interference has to happen between our read and our write, and the
+  // only hook that sits there is the mutation itself.
+  const res = _mutateClaudeConfig(file, (cfg) => {
+    if (!interfered) {
+      interfered = true;
+      const theirs = JSON.parse(fs.readFileSync(file, 'utf8'));
+      theirs.projects['/home/u/fresh'] = { hasTrustDialogAccepted: false };
+      fs.writeFileSync(file, JSON.stringify(theirs, null, 2));
+    }
+    delete cfg.projects['/home/u/gone'];
+    return { result: { ok: true, removed: 1 } };
+  });
+
+  assert.deepEqual(res, { ok: true, removed: 1 });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).projects;
+  assert.equal('/home/u/gone' in after, false, 'our removal landed');
+  assert.equal('/home/u/stays' in after, true);
+  assert.equal('/home/u/fresh' in after, true, "the CLI's new project survived");
+});
+
+test('renameProjectEntry merges once, not twice, across a retry (#533)', () => {
+  // The mutation runs again on the second attempt. A move that merged its source into the target and then
+  // saw its own output would produce a different answer the second time round.
+  const file = makeTempConfig({
+    projects: { '/home/u/old': { hasTrustDialogAccepted: true, lastCost: 9 } },
+  });
+
+  let interfered = false;
+  const res = _mutateClaudeConfig(file, (cfg) => {
+    if (!interfered) {
+      interfered = true;
+      const theirs = JSON.parse(fs.readFileSync(file, 'utf8'));
+      theirs.projects['/home/u/new'] = { foo: 'bar' };   // the CLI creates the target meanwhile
+      fs.writeFileSync(file, JSON.stringify(theirs, null, 2));
+    }
+    const src = cfg.projects['/home/u/old'];
+    if (!src) return { skipWrite: true, result: { ok: true, moved: false } };
+    cfg.projects['/home/u/new'] = { ...(cfg.projects['/home/u/new'] || {}), ...src };
+    delete cfg.projects['/home/u/old'];
+    return { result: { ok: true, moved: true } };
+  });
+
+  assert.deepEqual(res, { ok: true, moved: true });
+  const after = JSON.parse(fs.readFileSync(file, 'utf8')).projects;
+  assert.equal('/home/u/old' in after, false);
+  assert.equal(after['/home/u/new'].lastCost, 9, 'the move landed');
+  assert.equal(after['/home/u/new'].foo, 'bar', "the CLI's target field survived");
+});
+
+test('.bak is taken once per call, not once per attempt (#533)', () => {
+  // A copy per attempt would overwrite the fallback with the interloper's newer version — a .bak that
+  // tracks the file it is a fallback for is not one.
+  const file = makeTempConfig({ projects: { '/home/u/proj': { hasTrustDialogAccepted: false } } });
+
+  let attempts = 0;
+  _mutateClaudeConfig(file, (cfg) => {
+    attempts++;
+    const theirs = JSON.parse(fs.readFileSync(file, 'utf8'));
+    theirs.projects['/home/u/proj'].round = attempts;
+    fs.writeFileSync(file, JSON.stringify(theirs, null, 2));
+    cfg.projects['/home/u/proj'].hasTrustDialogAccepted = true;
+    return { result: { ok: true } };
+  });
+
+  assert.equal(attempts, _WRITE_ATTEMPTS);
+  const bak = JSON.parse(fs.readFileSync(file + '.bak', 'utf8'));
+  assert.equal(bak.projects['/home/u/proj'].round, 1, 'the backup is from the first attempt, not the last');
+});

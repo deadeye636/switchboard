@@ -247,6 +247,9 @@ answer that stays true.
   and stays as it is. Only thrown things go through the translator.
 - **`src/backends/**` words its own refusals** rather than importing the helper — a backend reaching
   into `src/app/` is the wrong direction. `err.code` in a sentence of the backend's own is enough.
+  The one exception is `src/app/safe-write.js`, which CLAUDE.md rule 11 makes mandatory for any file a
+  CLI also reads, so `src/backends/claude/config.js` imports it on purpose (#533). That rule is the
+  stronger claim: a second copy of the baseline compare is worse than the import.
 - **A handler that does NOT catch is the worst case, not the safe one.** Electron serialises a thrown
   Error across `invoke`, so the renderer's own `catch (err)` receives `err.message` verbatim. `main.js`
   installs `guardIpcHandlers` before it requires a single module, which covers every handler and every
