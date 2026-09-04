@@ -14,7 +14,8 @@ adding two major feature waves plus a set of reliability/packaging fixes.
 
 At a glance:
 
-- **19 new renderer modules** in `public/` (pure, `node --test`-covered logic)
+- **19 new renderer modules** in `src/renderer/` (pure, `node --test`-covered logic — they lived in
+  `public/` until #214 moved every source file under `src/`)
 - **47 new test files** (72 total under `test/`; the base fork had 29)
 - **Two feature waves**: an *Agent Supervision* layer and a *Productivity* layer
 - **A reliability/infra wave**: crash-resistance, packaging, caching, hardening
@@ -218,7 +219,7 @@ context switch. Each feature has a full design doc under `docs/specs/`.
 - Two settings: show it at all, and how long counts as away.
 
 ### 04 — One-click handoff
-`public/handoff-flow.js`, `src/renderer/dialogs/dialogs.js`
+`src/renderer/handoff/handoff-actions.js`, `src/renderer/dialogs/dialogs.js`
 
 - Turns "Handoff Recommended" into a single guided flow: ask the current agent
   for a handoff packet → start a fresh, lean session seeded with it → switch to

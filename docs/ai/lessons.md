@@ -909,3 +909,60 @@ on the branch that does not wipe.
 - **The demo environment is a control group, not a stage.** Its terminals hold no content, so a visual
   check there proves nothing — the corruption test had to write synthetic coloured output first, then
   simulate a sibling's wipe by calling `clearTexture()` on the shared atlas directly.
+
+## A comment can blind a guard, and the guard says nothing (#drift-audit)
+
+Two source-scanning guards — `test/backend-path-neutrality.test.js` and `test/store-isolation.test.js` —
+removed comments before reading the code, and did it in the order that breaks:
+
+```js
+src.replace(/\/\*[\s\S]*?\*\//g, '')            // block comments first…
+   .split('\n').map(l => l.replace(/\/\/.*$/, ''))  // …then line comments
+```
+
+A `/**` written inside a **line** comment opens a block comment for that regex, and everything up to the
+next `*/` disappears. Prose does this constantly here: `~/.claude/projects/**`, `src/backends/**`. Four
+files lost real code before anyone scanned them — `src/app/hooks.js` 1060 bytes, `src/backends/cli-probe.js`
+1030, `src/backends/rewrite-cwd.js` 811, `src/app/skills.js` 680.
+
+Three things worth keeping from it:
+
+- **Both affected guards are ones whose over-stripping HIDES violations.** They kept reporting success
+  about code they had never read. A guard that sees less than it thinks is worse than no guard, because it
+  is trusted.
+- **The trap needs a second ingredient, which is why it went unnoticed.** A `/**` in a line comment is
+  harmless on its own — the regex needs a closer. It only springs in files that also contain a JSDoc block,
+  i.e. the documented ones.
+- **It was found by measuring, not by reading.** The audit that raised it quoted byte counts; the counts
+  were re-derived before anything was changed, and one of them turned out to be about a file the fix had
+  already touched. Fixing the ORDER, not the four comments, is what makes the next `/**` harmless.
+
+`test/helpers/strip-comments.js` is the one stripper now, with the old order kept inside
+`test/strip-comments.test.js` as the control. What it still cannot do is a `//` inside a string or a regex
+literal — a guard that cannot tolerate that scans the raw source instead, as `test/cli-probe.test.js` does.
+
+## A vendor changelog entry is a lead, not evidence (#531, #535)
+
+`npm run backends:changelog-check` reads what the CLIs say they shipped. The very first issue it produced
+was not reproducible: #531 said Antigravity 1.1.24 accepts comments in `mcp_config.json`, and the installed
+1.1.26 answers
+
+```
+Error: failed to parse <home>/.gemini/config/mcp_config.json: failed to parse JSON config:
+invalid character '/' looking for beginning of object key string
+```
+
+A JSONC path and a `jsonc-parser` dependency were built against the changelog and reverted against the
+binary. The shape to build **if a CLI ever does accept them**: the backend declares which of its base names
+are JSONC, and `validateContent` takes that answer as an argument — never "every `.json` is JSONC", which
+would let a comment into a settings file whose parser rejects one.
+
+Two more of the same family, both from #535:
+
+- **A CLI at version X does not mean a store at version X.** Hermes migrates its database on open, so a
+  machine updated but not yet used still has the old schema. What was measured as "a 0.21.0 store" was at
+  schema_version 23 against that release's own `SCHEMA_VERSION = 30` — so every column recorded as "added
+  by 0.21.0" had been there all along, and the ten it really adds were absent from the sample.
+- **A grep hit is not an enumeration.** Searching for `INSERT INTO sessions` missed the path through
+  `create_session` and produced a confident, committed, wrong claim that Hermes writes no child session
+  rows. Its own test fixture said otherwise in three lines.

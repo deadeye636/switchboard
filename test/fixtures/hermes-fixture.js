@@ -7,7 +7,7 @@
 // test runs, and it is reviewable in a diff instead of being an opaque blob.
 //
 // It was always meant to be synthetic. Hermes' own store on a real install has ZERO sessions
-// (docs/plans/research/hermes-format.md §2: "the parser must be proven against a synthetic fixture
+// (docs/plans/multi_llm/research/hermes-format.md §2: "the parser must be proven against a synthetic fixture
 // built from this exact schema, not against live rows"). What is real is the SCHEMA — 33 `sessions`
 // columns and 19 `messages` columns, dumped read-only off a live install and reproduced verbatim
 // below, including the columns we never read. A fixture with only the columns we happen to use would
@@ -25,7 +25,7 @@ const path = require('node:path');
 // never drift — this is why nothing here reads the clock.
 const T0 = 1780000000;
 
-// --- schema: verbatim from the live install (docs/plans/research/hermes-format.md §2) ---
+// --- schema: verbatim from the live install (docs/plans/multi_llm/research/hermes-format.md §2) ---
 
 const SCHEMA = `
 CREATE TABLE sessions (

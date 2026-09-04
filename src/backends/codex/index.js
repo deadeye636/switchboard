@@ -1,6 +1,6 @@
 // backends/codex/index.js — the Codex backend descriptor (Axis B: its own binary, own store, own format).
 //
-// Recon: docs/plans/research/codex-cli-recon.md (live install v0.142.2). Smoke-tested in our node-pty/
+// Recon: docs/plans/multi_llm/research/codex-cli-recon.md (live install v0.142.2). Smoke-tested in our node-pty/
 // ConPTY stack (T-0.1 = GO): the interactive TUI renders and takes raw-ANSI keystrokes, and
 // `codex resume` finds the TTY. Two things that bite on Windows:
 //   - spawn via CLEAN ARGV (spawnMode 'argv'), not a shell-quoted string — shell quoting mangles it.

@@ -143,7 +143,7 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 | `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
 | `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
 | `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
-| `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global |
+| `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global + project |
 | `handoffDirNames` | Handoff directories | list of project-relative paths | `['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']` | global + project |
 | `handoffDir` | Save handoffs to | project-relative path | `.handoffs` | global + project |
 | `handoffInsertTemplate` | Handoff insert template | string with `{path}` / `{title}` / `{filename}` | `Continue from the handoff at {path}` | global + project |
@@ -356,7 +356,7 @@ own `config.toml`.)
 | `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
-| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules`, `reasoning` |
+| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources and knowledge directories. Switchboard does not install or execute resources from there.
@@ -381,16 +381,17 @@ with the reason, so a new flag shows up as a failing check rather than as silenc
   `claude --system-prompt-snapshot` changes a caching behaviour nobody here has watched. A control whose
   effect has not been seen is worse than no control.
 
-Two more that are not flags at all, and so cannot become options: Pi's `defaultTools` setting picks the
+One more that is not a flag at all, and so cannot become an option: Pi's `defaultTools` setting picks the
 initial built-in tools when no `--tools` is given — which means Pi's **`tools` option here overrides it**,
-and its description says so. Hermes' `agent.reasoning_effort` in `config.yaml` is what the empty
-`reasoning` default falls back to.
+and its description says so. Hermes' `agent.reasoning_effort` stays in its own `config.yaml`, and there is
+no option here that falls back to it: `--reasoning` is audited out because the modern TUI drops it.
 
 ## What a project can override
 
-Cascading keys (`visibleSessionCount`, `sidebarWidth`, `terminalTheme`, `shellProfile`,
-`terminalShellProfile`, `conptyBackend`) plus `displayName`, `customLaunchers`, per-backend option defaults
-and tags. Everything else is global-only. **A session has no stored overrides** — the Configure dialog's
+**`SETTING_DEFAULTS` in `src/app/settings.js` is the list** — read it there rather than here, because the
+enumeration that stood in this paragraph named six of its members and had missed the rest for a while
+(everything the plans, skills and handoff conventions added). Plus `displayName`, `customLaunchers`,
+per-backend option defaults and tags. Everything else is global-only. **A session has no stored overrides** — the Configure dialog's
 choices are one-off launch parameters, not a scope.
 
 ## Not settings: what the renderer keeps in `localStorage`
@@ -549,7 +550,7 @@ notice, because those were explicit configuration choices.
 
 | Command | What it does |
 |---|---|
-| `npm start` | Stamp build info → bundle CodeMirror → launch Electron (dev: `~/.switchboard-dev`) |
+| `npm start` | Stamp build info → bundle CodeMirror **and PDF.js** → launch Electron (dev: `~/.switchboard-dev`) |
 | `npm run start:debug` | The same with `--remote-debugging-port=9222`; refuses if the port is already bound |
 | `npm run demo:start` | **The default for dev/testing**: seeds and launches a fully isolated instance (own DB, userData, all five stores). `-- --debug` adds the CDP port. |
 | — | `demo:start` also runs `scripts/demo-settings.js`, which **enables every ready backend** in the demo DB (#244). A fresh install enables Claude only; without this the seeded Codex/Pi sessions are never scanned. Idempotent, and it refuses any data dir outside the demo tree. |
@@ -567,7 +568,7 @@ notice, because those were explicit configuration choices.
 
 | Command | Notes |
 |---|---|
-| `node scripts/drive-app.js [--target=<window>] <cmd>` | Drives the running app over CDP: `eval <js>`, `text <sel>`, `count <sel>`, `click <sel>`, `clicktext <sel> <text>`, `console [seconds]` (default 2), `shot [file]` (default `app.png`). Port from `SWITCHBOARD_DEBUG_PORT`. `--target=` matches a **second** window by title or URL (`settings`, `changes`); without it, the first page. |
+| `node scripts/drive-app.js [--target=<window>] <cmd>` | Drives the running app over CDP: `eval <js>`, `text <sel>`, `count <sel>`, `click <sel>`, `clicktext <sel> <text>`, `drag <from> <to>` (a real mouse path — a synthesised DragEvent is not an interaction), `dims [sel]`, `console [seconds]` (default 2), `shot [file]` (default `app.png`). **`docs/ai/driving-the-app.md` is the current list** — this row has been short before. Port from `SWITCHBOARD_DEBUG_PORT`. `--target=` matches a **second** window by title or URL (`settings`, `changes`); without it, the first page. |
 | `node scripts/perf-sample.js [--os-only] [--interval=<s>] [--minutes=<n>] [--out=<file>] [--port=<n>]` | Samples a running instance over hours and appends one JSON line per tick: Chromium's per-page counters (`Nodes`, `JSEventListeners`, `JSHeapUsedSize`, the cumulative durations) plus the process tree (count, working set, CPU seconds). Defaults: 30 s, until Ctrl-C, into the gitignored `.claude/scratchpad/`. Needs a debugging port; `--os-only` drops the page half and measures an instance that is already running, without restarting it. `report <file.jsonl>` prints first/last/peak and per-hour rates, and segments the run at a restart. |
 | `node scripts/perf-trace.js [seconds]` \| `composited "<selector>"` | Traces one window of a running instance: per-phase main-thread cost, why the styles were invalidated, on what, and from which JS frame. Every run prints what was animating while it ran — two runs that do not name the same state cannot be compared. `composited` answers whether an element's animation runs on the compositor (`LayerTree.compositingReasons` plus Blink's own `compositeFailed`). Port from `SWITCHBOARD_DEBUG_PORT`. |
 | `ELECTRON_RUN_AS_NODE=1 electron scripts/db-probe.js <dataDir>` | Characterisation snapshot of the DB. `<dataDir>` required. |
@@ -586,10 +587,13 @@ notice, because those were explicit configuration choices.
 | `node scripts/check-debug-port.js` | Exists because Electron silently starts *without* a debug port when the port is taken. |
 | `node scripts/build-backlog.js` | Regenerates `docs/BACKLOG.md` / `.jsonl` from GitHub issues. Both outputs are gitignored — run it once per clone. |
 | `.claude/hooks/guard-commands.js` | A **PreToolUse hook** (`.claude/settings.json`, matcher `Bash\|PowerShell`) that refuses three commands CLAUDE.md otherwise only asks for in prose: a `taskkill`/`Stop-Process` aimed at every `electron` image, a `gh` command naming `doctly`, and a `git push` to one of the read-only fork remotes. Reading from those remotes stays allowed — that is what `upstream:check` is for. It runs on **every** shell call rather than behind an `if` prefix filter, because a compound command (`… && taskkill …`) does not start with the word being guarded. `test/hook-guard-commands.test.js` pins both halves. |
+| `node scripts/heap-snapshot.js` / `heap-summary.js` / `heap-retainers.js` | Take and read a heap snapshot of the running app — what grew, and what still holds it (#525). |
+| `node scripts/io-sample.js` | What the app reads and writes while it sits there. |
 | `node scripts/check-doc-refs.js` | Fails when a repo path named in backticks in `CLAUDE.md`, `README.md`, `.claude/rules/**` or `docs/**` no longer exists. `docs/plans/**` is skipped (gitignored scaffolding, written against a tree that does not exist yet). A path named on purpose — a removal record, a plan option not taken — goes in `DELIBERATE` in that file **with its reason**, keyed by the doc that names it; an exemption whose path comes back is reported too. `test/doc-refs.test.js` runs it in the suite. |
 
 ## Known inconsistency
 
-`PATHEXT` has two different fallbacks — `.COM;.EXE;.BAT;.CMD` in `src/main.js` and `.EXE;.CMD;.BAT` in
-`src/backends/file-store.js`. Only reachable on a Windows system with `PATHEXT` unset, but it is one
-question with two answers.
+None recorded. (The `PATHEXT` pair that stood here was settled by #240 — `pathExtensions()` in
+`file-store.js` is the single answer, and `main.js` calls `findOnPath` rather than walking PATH itself.
+The entry outlived the fix by a while, which is the argument for deleting one when it is fixed rather
+than leaving it as history.)

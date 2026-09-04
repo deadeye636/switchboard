@@ -1,6 +1,6 @@
 // backends/pi/parser.js — Pi's JSONL transcript -> the normalised row session-cache consumes.
 //
-// Format (observed on a real install, docs/plans/research/pi-format.md):
+// Format (observed on a real install, docs/plans/multi_llm/research/pi-format.md):
 //   line 1  {"type":"session","version":3,"id":…,"timestamp":…,"cwd":"Z:\\temp"}      <- authoritative
 //   then    {"type":"model_change","provider":"anthropic","modelId":"claude-opus-4-7"}
 //           {"type":"thinking_level_change",…}

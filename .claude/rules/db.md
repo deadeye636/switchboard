@@ -9,7 +9,7 @@ paths:
 
 ## Layout
 
-`src/db/db.js` is a **façade** (#217, 1997 → 156 lines) over modules named after what they hold —
+`src/db/db.js` is a **façade** (#217, down from 1997 lines) over modules named after what they hold —
 same exports, so `require('../db/db')` is unchanged and no caller outside `src/db/` cares.
 
 - `connection.js` (DATA_DIR + the one handle), `schema.js`, `migrations.js`

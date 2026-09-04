@@ -30,8 +30,10 @@ decision, rather than being deleted.
 
 ## New fork feature → document it
 
-A feature unique to this fork (not inherited from upstream) goes in the **README "What this fork
-adds"** list **and** in `docs/fork-features.md`. Terse, matched to the existing style.
+A feature unique to this fork (not inherited from upstream) goes in the README's **"What it does"**
+section **and** in `docs/fork-features.md`. Terse, matched to the existing style. (The heading was
+"What this fork adds" when this rule was written — the table above already records that, and this
+sentence had kept the old name anyway.)
 
 ## A path you write in a doc is checked; a count you write is not
 
@@ -42,7 +44,7 @@ reason** — and the guard reports an exemption whose path came back, so the lis
 
 **Nothing checks a number, a caller count or "the last place X is still open".** Those went stale in
 four docs at once and no test could see it: `.claude/rules/renderer.md` said the backend-id guard ran
-over eleven renderer files while `ALLOWED_BINDINGS` held 45, two `src/app/` modules were missing from
+over eleven renderer files while `ALLOWED_BINDINGS` held far more, two `src/app/` modules were missing from
 both enumerations that list them, and spec 09 called #211 open in one paragraph and closed in another.
 So **do not write the number** — name the list, the test or the directory that holds the answer. If
 you must write one, write what you compared it against.

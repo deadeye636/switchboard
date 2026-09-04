@@ -98,7 +98,7 @@ any caller-count, dependency or "identical" claim in a header as unverified unti
 not this line:** it claimed the renderer was clean for eleven issues while #212 counted 23
 `|| 'claude'` fallbacks plus id branches. `test/backend-integrations.test.js` runs over every file in
 `ALLOWED_BINDINGS` (id comparison check, literal counter, no-table-keyed-by-backend-id) — **read the
-list there rather than a number here**: this line said "eleven files" while the map held 45. Clean a
+list there rather than a number here**: this line said "eleven files" while the map held dozens. Clean a
 file → add it to `ALLOWED_BINDINGS`.
 
 **`window._defaultBackendId` is already resolved — never rescue it.** It is the stored target while

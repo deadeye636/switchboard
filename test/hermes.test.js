@@ -3,7 +3,7 @@
 // {kind:'db'} handles, a row-based parse, and a change marker that stands in for a file mtime.
 //
 // The fixture is BUILT (test/fixtures/hermes-fixture.js) from the REAL schema dumped off a live install
-// (docs/plans/research/hermes-format.md) — the live DB itself has zero sessions, so there is nothing real
+// (docs/plans/multi_llm/research/hermes-format.md) — the live DB itself has zero sessions, so there is nothing real
 // to read. It used to be a checked-in `hermes-state.db`, which `.gitignore` (`*.db`) silently kept out of
 // the repo: the file existed only where it was made, and these tests failed on every clone (#158).
 const { test } = require('node:test');

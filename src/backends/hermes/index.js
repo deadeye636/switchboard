@@ -3,7 +3,7 @@
 // Hermes is the reason the discovery seam is dual-mode: its history lives in SQLite, not in files. All
 // the db-specific work sits in reader.js; this file is the thin descriptor over it.
 //
-// Recon (docs/plans/research/hermes-format.md — from a REAL install, not web inference):
+// Recon (docs/plans/multi_llm/research/hermes-format.md — from a REAL install, not web inference):
 //   - Store: %LOCALAPPDATA%\hermes (HERMES_HOME overrides; ~/.hermes only on Linux/WSL). state.db is WAL.
 //   - The binary is a real .exe (not an npm shim), so argv-mode spawn genuinely applies here.
 //   - The TUI drives fine in our node-pty/ConPTY stack (smoke-tested) — BUT it takes ~12s to become

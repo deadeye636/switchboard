@@ -1,6 +1,6 @@
 // Pi (Phase 6) — descriptor, JSONL parser, busy/idle, the identity seam.
 //
-// The fixture is a REAL transcript (docs/plans/research/pi-format.md): a session that started on
+// The fixture is a REAL transcript (docs/plans/multi_llm/research/pi-format.md): a session that started on
 // anthropic, failed (no provider configured), then switched to openai-codex mid-flight. That is not an
 // edge case — Pi is multi-provider per session, so the "last model wins" rule and the cross-provider
 // token/cost totals are the normal path.

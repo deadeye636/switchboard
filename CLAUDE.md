@@ -83,7 +83,11 @@ table is the fallback and it is binding.
    `<button>`.
 9. **A setting added/renamed/re-scoped/re-defaulted → `docs/settings-reference.md`.** Same for a new
    `SWITCHBOARD_*` env var or script.
-10. **Prefer `execFile`** over shell string interpolation for any external process.
+10. **Prefer `execFile`** over shell string interpolation for any external process — and a probe that
+    only READS a CLI's output must close the child's stdin, or a CLI that reads standard input hangs until
+    the timeout. `spawnSync`/`execFileSync` take a `stdio` option for that; **`execFile` silently ignores
+    one** and needs `closeStdin(execFile(...))`. `src/backends/cli-probe.js` is the one way, and its scope
+    is `src/backends/**` — the probes elsewhere are not covered yet (#541).
 11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
     compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
     is impossible, and the file's own line endings and BOM kept.
@@ -122,7 +126,7 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
 
 **All app code lives under `src/`.** The repo root holds only project metadata and tooling
 (`package.json`, `docs/`, `scripts/`, `test/`, `build/`). `"main"` in package.json is `src/main.js`,
-and `build.files` is `src/**/*` — an **allow-list**, so a new directory outside `src/` is silently
+and `build.files` is an **allow-list** led by `src/**/*` — so a new directory outside `src/` is silently
 absent from the installer.
 
 | Area | What lives there |
@@ -135,8 +139,9 @@ absent from the installer.
 | `src/db/**` | `db.js` = façade (#217) over `connection`/`schema`/`migrations` + the stores |
 | `src/index/**` | `session-cache.js` = façade (#199) over the index/search worker clients |
 | `src/workers/**` | the scan + search workers |
-| `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js` |
-| `src/backends/**` | one folder per coding CLI + `index.js` registry + `file-store.js` |
+| `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js`, `record-claim.js` |
+| `src/backends/**` | one folder per coding CLI + `index.js` registry + the shared modules beside them (`file-store.js`, `capabilities.js`, `cli-probe.js`, `resource-expand.js`, … — **list the directory**) |
+| `src/session/**` | what happens to a session across its life — transitions, clear-claims, the subagent seam |
 | `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`) |
 | `src/vcs/**` | the VCS seam (#277) — provider registry + git provider + pure porcelain-v2/diff parser; core is VCS-blind. The poller/IPC live in `src/app/vcs.js` |
 | `src/projects/**` | the project registry — backend-neutral since #211 (`projectMeta` / `transcriptPathFor`, no backend module required) |
@@ -156,7 +161,7 @@ absent from the installer.
   exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds
   without launching; `npm run demo:auth` copies credentials into the isolated home. See
   `docs/demo-env.md`.
-- `npm start` — bundles CodeMirror, then launches Electron against the **real** stores. The exception,
+- `npm start` — bundles CodeMirror and PDF.js, then launches Electron against the **real** stores. The exception,
   for when you deliberately want live data.
 - `npm run start:debug` — the same with DevTools port 9222 open → `docs/ai/driving-the-app.md`.
 - `npm run stop:dev` — stop **this checkout's** dev run. Killing every `electron` image takes the
@@ -164,6 +169,8 @@ absent from the installer.
   (`.claude/hooks/guard-commands.js`).
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe` → `docs/ai/release.md`.
 - `npm run upstream:check` / `upstream:seen` — → `docs/ai/fork-and-porting.md`.
+- `npm run backends:help-check` (and one per backend) — does each CLI still advertise the flags this app
+  sends, and has it grown any nobody has decided about? Every exclusion carries its reason in the script.
 - `npm run backends:changelog-check` / `backends:changelog-seen` — what the backend CLIs shipped since
   the last review. Reports only; whether an entry is worth an issue is a conversation, not a filter.
   Flags and the seen-marker: `docs/settings-reference.md`.

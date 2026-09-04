@@ -105,7 +105,7 @@ function readMain() {
 //   - `const im = ipcMain; im.handle('x', …)` — an alias defeats a textual match on `ipcMain.`.
 //   - a handler registered by a helper in ANOTHER file that main.js requires and calls.
 // Neither is cheap to catch by reading text, and neither is what actually happens: the thing this guards
-// against is someone appending handler #87 next to the 86 that are already here, because that is the
+// against is someone appending one more handler next to the ones already here, because that is the
 // natural move. The second case also does not violate the invariant — a handler in another file is a
 // handler that is not in main.js, which is the whole ask. Where it belongs is judgement, and the issue
 // deliberately keeps that out of scope.

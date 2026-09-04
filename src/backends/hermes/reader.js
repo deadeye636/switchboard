@@ -10,9 +10,12 @@
 //   - WAL-aware: the DB runs in `journal_mode=wal`, so a commit can sit in `state.db-wal` without
 //     touching the main file's mtime. Never gate a re-read on state.db's mtime alone.
 //
-// Live schema (docs/plans/research/hermes-format.md, dumped from a real install): `sessions` has 33
-// columns incl. a real `cwd`, a full token breakdown, `parent_session_id` lineage, and USD cost
-// (`estimated_cost_usd` / `actual_cost_usd` / `cost_status` / `cost_source` / `pricing_version`).
+// Live schema (docs/plans/multi_llm/research/hermes-format.md, dumped from a real install): `sessions`
+// carries a real `cwd`, a full token breakdown, `parent_session_id` lineage, and USD cost
+// (`estimated_cost_usd` / `actual_cost_usd` / `cost_status` / `cost_source` / `pricing_version`). The
+// column COUNT that stood here belonged to one machine's schema version — 33 then, 48 and 58 at the two
+// versions #535 measured. Nothing in this file depends on it, and a number that moves is a number to
+// leave out.
 // There is no `updated_at` column, so the change marker is built from `ended_at` / message activity.
 // (0.21.0's schema — version 30 — does add `last_activity_at`, but it is a rate-limited heartbeat that
 // Hermes' own code says never to trust alone, and a store only reaches that schema once 0.21.0 has opened

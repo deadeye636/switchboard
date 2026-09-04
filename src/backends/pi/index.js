@@ -1,6 +1,6 @@
 // backends/pi/index.js — the Pi backend descriptor (Axis B: own binary, own store, own format).
 //
-// Recon on a REAL install: docs/plans/research/pi-format.md. Smoke-tested in a pty (T-6.0 = GO): the TUI
+// Recon on a REAL install: docs/plans/multi_llm/research/pi-format.md. Smoke-tested in a pty (T-6.0 = GO): the TUI
 // paints in ~50ms, takes keystrokes, and then goes completely quiet — the cmux flicker loop (#3831) did
 // not reproduce.
 //
