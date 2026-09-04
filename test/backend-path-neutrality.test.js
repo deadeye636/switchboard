@@ -23,14 +23,13 @@ const path = require('node:path');
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'src');
 
-// Strip block comments AND line/trailing comments — a path token in a comment (this file's neighbours are
-// full of "~/.claude" prose) is not a hardcoded path, only a mention. A real violation sits in code before
-// any `//`, so removing everything from `//` to EOL keeps it while dropping the prose.
-function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');
-}
+// Strip line comments AND block comments — a path token in a comment (this file's neighbours are full of
+// "~/.claude" prose) is not a hardcoded path, only a mention. A real violation sits in code before any
+// `//`, so removing everything from `//` to EOL keeps it while dropping the prose.
+//
+// The stripper is shared and its ORDER is load-bearing: `test/helpers/strip-comments.js` says why, and
+// this guard is one of the two that was silently blinded by having it the other way round.
+const { stripComments } = require('./helpers/strip-comments');
 
 // Each backend's OWN store tokens: its dot-dir / config file (as a quoted or slash-bounded path segment)
 // and its store env var. These are legal only under src/backends/<id>/**.

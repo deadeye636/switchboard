@@ -25,11 +25,9 @@ const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..');
 
-function stripComments(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');
-}
+// The stripper is shared, and its ORDER is load-bearing — `test/helpers/strip-comments.js` says why. This
+// guard is one of the two that was silently blinded by having it the other way round.
+const { stripComments } = require('./helpers/strip-comments');
 
 // Files that legitimately compose a path inside a CLI's home. Each must resolve it against that backend's
 // store override. Codex is here because it repeated the defect one backend over: its trust module WRITES

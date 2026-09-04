@@ -123,11 +123,12 @@ const ID_COMPARE = (id) => new RegExp(
   `(===?\\s*['"]${id}['"])|(['"]${id}['"]\\s*===?)`,
 );
 
-// Strip comments so prose may explain WHY a backend is named while code may not. Deliberately conservative:
-// it does not try to understand string literals containing `//` or `/*`, so it can over-strip. That direction
-// is safe here — over-stripping can only hide a violation from a test that is a backstop, and every file it
-// runs on is checked by the allow-list below as well.
-const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+// Strip comments so prose may explain WHY a backend is named while code may not. The shared stripper, not
+// two regexes written here: this file used to remove BLOCK comments first, which lets a `/**` inside a line
+// comment open a block and delete real code from what this guard scans. Over-stripping can only HIDE a
+// violation from a guard, so nothing would have reported it. See `test/helpers/strip-comments.js` for the
+// measurement and for what the stripper still cannot do.
+const { stripComments } = require('./helpers/strip-comments');
 
 // The names a file may bind a backend id to, each because it is NOT a guess: a record written before the
 // multi-LLM era, or a coupling in another module that this file only reports. Anything else must resolve to
