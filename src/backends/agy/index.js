@@ -22,6 +22,7 @@ const resources = require('./resources');
 const { createFileStore, findOnPath } = require('../file-store');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromDb } = require('./state');
+const { changelogSource } = require('./changelog');
 
 // The store root. agy documents no env override (it imports ~/.gemini and writes there), so the path is
 // fixed; `setRoot()` exists only so a test can point it at a fixture dir. Resolved lazily — the root can
@@ -166,6 +167,9 @@ function liveState(ref, ctx = {}) {
 
 module.exports = {
   id: 'agy',
+  // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
+  // backend, and a backend without a public changelog simply declares nothing.
+  changelogSource,
   // Where the CLI ITSELF writes (#241) — agy offers NO env var for its conversations dir (see
   // conversationsRoot: the path is fixed under ~/.gemini/antigravity-cli). So an isolated instance can
   // point our scan at a demo store, but cannot move agy's own writes there. Declining is the honest

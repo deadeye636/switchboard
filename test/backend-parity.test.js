@@ -500,3 +500,18 @@ test('a backend that names its own sessions can say whether it knows one yet', (
       `${id} must NOT claim to know an id it never issued`);
   }
 });
+
+test('every backend answers where its CLI publishes what changed', () => {
+  // #528. Declining is a valid answer — a CLI with no public changelog says `changelogSource: null` —
+  // but saying nothing at all is not: an absent field reads as "nobody got round to it", and the
+  // report would silently skip that backend for as long as that lasted.
+  for (const b of READY) {
+    const src = b.changelogSource;
+    assert.notEqual(typeof src, 'undefined', `${b.id}: declare a changelogSource, or null if it has none`);
+    if (src === null) continue;
+    assert.equal(typeof src, 'object', `${b.id}: changelogSource must be an object or null`);
+    assert.ok(/^https:\/\//.test(src.url || ''), `${b.id}: changelogSource.url must be an https URL`);
+    assert.equal(typeof src.load, 'function', `${b.id}: changelogSource.load() is what the check script calls`);
+    assert.equal(typeof src.label, 'string', `${b.id}: changelogSource.label names the source in the report`);
+  }
+});

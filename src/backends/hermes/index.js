@@ -20,6 +20,7 @@ const reader = require('./reader');
 const resources = require('./resources');
 const { findOnPath } = require('../file-store');
 const { deriveState } = require('./state');
+const { changelogSource } = require('./changelog');
 
 // Hermes' own launch options — taken from its real `--help` (#160), not from its docs.
 //
@@ -185,6 +186,9 @@ function cliHomeEnv() {
 
 module.exports = {
   id: 'hermes',
+  // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
+  // backend, and a backend without a public changelog simply declares nothing.
+  changelogSource,
   cliHomeEnv,
   label: 'Hermes',
   description: 'General AI agent with its own session store.',   // shown in the Backends settings list (#212)

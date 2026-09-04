@@ -26,6 +26,8 @@
     "pi:help-check": "node scripts/check-pi-help.js",
     "agy:help-check": "node scripts/check-agy-help.js",
     "backends:help-check": "npm run claude:help-check && npm run codex:help-check && npm run hermes:help-check && npm run pi:help-check && npm run agy:help-check",
+    "backends:changelog-check": "node scripts/check-backend-changelogs.js",
+    "backends:changelog-seen": "node scripts/check-backend-changelogs.js --seen",
     "build": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder",
     "build:mac": "node scripts/gen-build-info.js && npm run bundle:codemirror && npm run bundle:pdf && electron-builder --mac && node scripts/postinstall.js && codesign --sign - --force --deep dist/mac-arm64/Switchboard.app 2>/dev/null; true",
     "build:mac:arm64": "electron-builder --mac --arm64 2>/dev/null; true",

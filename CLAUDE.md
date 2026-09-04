@@ -164,6 +164,9 @@ absent from the installer.
   (`.claude/hooks/guard-commands.js`).
 - `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe` → `docs/ai/release.md`.
 - `npm run upstream:check` / `upstream:seen` — → `docs/ai/fork-and-porting.md`.
+- `npm run backends:changelog-check` / `backends:changelog-seen` — what the backend CLIs shipped since
+  the last review. Reports only; whether an entry is worth an issue is a conversation, not a filter.
+  Flags and the seen-marker: `docs/settings-reference.md`.
 
 Both start commands can **refuse** on purpose (single-instance lock, occupied debug port). That is
 the guard working, not a bug — `docs/ai/running-and-data.md` has the two-line fix.

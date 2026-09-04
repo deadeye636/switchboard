@@ -24,6 +24,7 @@ const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
+const { changelogSource } = require('./changelog');
 
 // CODEX_HOME overrides the whole dir; default ~/.codex. Resolved lazily so an env change (or a test)
 // is honoured, and overridable via setHome().
@@ -188,6 +189,9 @@ function liveState(ref) {
 
 module.exports = {
   id: 'codex',
+  // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
+  // backend, and a backend without a public changelog simply declares nothing.
+  changelogSource,
   cliHomeEnv,
   label: 'Codex',
   description: "OpenAI's terminal coding agent.",   // shown in the Backends settings list (#212)

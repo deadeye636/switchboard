@@ -28,6 +28,7 @@ const { findOnPath } = require('../file-store');
 const { readFolderSessions } = require('./folder-reader');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { projectShortName } = require('../../session/derive-project-path');
+const { changelogSource } = require('./changelog');
 
 // Claude's home directory (~/.claude, or the isolated demo/sandbox home) is the PARENT of its projects
 // store root — always. Deriving it from _roots[0] keeps plans + global memory isolated by the same
@@ -361,6 +362,9 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 
 module.exports = {
   id: 'claude',
+  // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
+  // backend, and a backend without a public changelog simply declares nothing.
+  changelogSource,
   cliHomeEnv,
   supportsFork,
   supportsSubagents,

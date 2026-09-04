@@ -32,6 +32,7 @@ const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, piLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
+const { changelogSource } = require('./changelog');
 
 // A Pi transcript's filename: `<ISO-timestamp>_<uuid>.jsonl`. Anchored at BOTH ends on purpose — it is
 // what tells a real parent reference from any other path that happens to contain an underscore (#193).
@@ -327,6 +328,9 @@ function liveState(ref, ctx = {}) {
 
 module.exports = {
   id: 'pi',
+  // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
+  // backend, and a backend without a public changelog simply declares nothing.
+  changelogSource,
   cliHomeEnv,
   label: 'Pi',
   description: 'Terminal coding agent.',   // shown in the Backends settings list (#212)
