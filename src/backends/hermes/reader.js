@@ -13,7 +13,10 @@
 // Live schema (docs/plans/research/hermes-format.md, dumped from a real install): `sessions` has 33
 // columns incl. a real `cwd`, a full token breakdown, `parent_session_id` lineage, and USD cost
 // (`estimated_cost_usd` / `actual_cost_usd` / `cost_status` / `cost_source` / `pricing_version`).
-// There is NO `updated_at` column, so the change marker is built from `ended_at` / message activity.
+// There is no `updated_at` column, so the change marker is built from `ended_at` / message activity.
+// (0.21.0's schema — version 30 — does add `last_activity_at`, but it is a rate-limited heartbeat that
+// Hermes' own code says never to trust alone, and a store only reaches that schema once 0.21.0 has opened
+// it. The synthesised marker stays.)
 'use strict';
 
 const os = require('os');
@@ -95,17 +98,26 @@ const LAST_MESSAGE_JOIN = `
 // Default ingest: only sessions the user actually drove from the CLI. The `source` column is
 // cli | gateway | … — Telegram/cron/gateway chats are not coding sessions and would be noise.
 //
-// The values 0.21.0 can write, read out of its own source rather than out of one store (#535):
-// `cli`, `bot_room`, `discord`, `telegram`, `peer`, `recovered`. (`holder`, `seed` and `user` appear only
-// in Hermes' own test fixtures.) So Bot Mode and its group chat rooms — default-on since 0.21.0 — are
-// held out by this filter without it needing to know they exist, which is what #535 asked.
+// **`source` is an OPEN set, and that is the point of an allow-list** (#535, corrected). `hermes --source
+// <anything>` sets it through `HERMES_SESSION_SOURCE`, and every gateway platform contributes its own
+// name, so it cannot be enumerated — an earlier version of this comment tried and was wrong twice over.
+// The ones worth knowing: `cli` is ours; `bot_room` is a group chat room and `discord`/`telegram`/… are
+// gateway chats, all held out here without this filter needing to know they exist, which is what #535
+// asked; `subagent` is a delegated child; `claude-code` and `codex-cli` are sessions IMPORTED by
+// `hermes sessions import`.
 //
-// `recovered` is the one that is NOT noise and is filtered anyway. Hermes writes it when it rebuilds a
-// session row from orphaned messages (`session_recovery.py`, `session_lost_and_found.py`) — a crash is the
-// ordinary way to get one, the messages are real, and the original source is gone by then. So a CLI
-// session that Hermes repaired disappears from Switchboard. Left as it is here on purpose: a recovered
-// stub has no `cwd`, which is what the scan groups by, so including it is a change with its own
-// consequences rather than a one-word fix.
+// Two values are NOT noise and are filtered anyway:
+//
+//   `recovered` — written when Hermes rebuilds a session row from orphaned messages
+//   (`session_recovery.py`, `session_lost_and_found.py`). A crash is the ordinary way to get one and the
+//   messages are real, but the stub has no `cwd`, which is what the scan groups by (#551).
+//
+//   `claude-code` / `codex-cli` — sessions imported by `hermes sessions import`
+//   (`hermes_cli/foreign_sessions.py`). Those DO carry a cwd, so they are the cleaner candidate of the
+//   two (#552).
+//
+// Both are left out here on purpose rather than by oversight: widening the allow-list is a decision about
+// what those rows should look like in the sidebar, not a one-word edit.
 function sourceFilter(includeAll) {
   return includeAll ? '' : " WHERE s.source = 'cli'";
 }

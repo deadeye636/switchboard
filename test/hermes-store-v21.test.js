@@ -5,17 +5,20 @@
 // are rows in the same `state.db` this reader walks. And 0.20.4 landed SessionDB contention fixes, which
 // says the CLI and a second reader really do contend on that file.
 //
-// The answers, from the installed 0.21.0's own source and a real store at schema_version 23:
+// The answers, from the installed 0.21.0's own source:
 //
-//   - The `source` values it can write are `cli`, `bot_room`, `discord`, `telegram`, `peer` and
-//     `recovered`. (`holder`, `seed`, `user` are Hermes' own test fixtures.) The `cli` filter holds the
-//     bots and rooms out without knowing they exist.
-//   - `recovered` is held out too, and that one is a real gap rather than noise — a session Hermes
-//     repaired from orphaned messages.
-//   - The new columns arrive through `SELECT *` and the change marker touches none of them, so nothing
-//     needs a parser change.
+//   - `source` is an OPEN set — `hermes --source <anything>` writes a free value and every gateway
+//     platform contributes its own name. That is the argument for the `cli` allow-list: it holds bot rooms
+//     and gateway chats out without needing to know they exist.
+//   - Two excluded values are not noise: `recovered` (a stub rebuilt from orphaned messages, no cwd) and
+//     `claude-code` / `codex-cli` (imported coding sessions, which DO carry a cwd).
+//   - The columns arrive through `SELECT *` and the change marker touches none of them.
 //
-// These pin the behaviour those measurements describe, so a filter edit has to answer for each one.
+// **What these do NOT do is measure a real Bot Mode store.** No such store exists on the machine this was
+// written on — a CLI at 0.21.0 does not mean a store at 0.21.0, because Hermes migrates on open, and the
+// one here was still at schema 23 while 0.21.0's own SCHEMA_VERSION is 30. So the rows below are built to
+// the shapes Hermes' source says it writes, and the assertions are about OUR filter, not about a store
+// somebody observed. That distinction is why the DDL here is deliberately partial.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -28,8 +31,9 @@ try { ({ DatabaseSync } = require('node:sqlite')); } catch { /* older Node: the 
 
 const reader = require('../src/backends/hermes/reader');
 
-// The columns a 0.21.0 store has that an older one did not. Built here rather than copied from a fixture,
-// because the point is the SHAPE, and a fixture would freeze one machine's schema version.
+// Enough of the table for the reader's own queries, plus the columns a row kind under test needs. NOT a
+// claim about any schema version: 0.21.0's canonical `sessions` has 58 columns and this has a fraction of
+// them. `parseSession` reads with `SELECT *` and coalesces, so an absent column is simply absent.
 const SESSIONS_DDL = `CREATE TABLE sessions (
   id TEXT PRIMARY KEY, source TEXT, started_at REAL, ended_at REAL, message_count INTEGER,
   cwd TEXT, title TEXT, parent_session_id TEXT,
@@ -76,7 +80,8 @@ test('Bot Mode rooms and gateway chats are not offered as sessions (#535)', SKIP
     { id: 'room', source: 'bot_room', started_at: 100, title: 'a group room', message_count: 1 },
     { id: 'tg', source: 'telegram', started_at: 100, chat_type: 'dm', message_count: 1 },
     { id: 'dc', source: 'discord', started_at: 100, chat_type: 'group', message_count: 1 },
-    { id: 'pr', source: 'peer', started_at: 100, message_count: 1 },
+    { id: 'sub', source: 'subagent', started_at: 100, parent_session_id: 'a', message_count: 1 },
+    { id: 'imp', source: 'claude-code', started_at: 100, cwd: '/imported', message_count: 1 },
   ]);
   const ids = withStore(dir, () => reader.discoverSessions({}).map(h => h.sessionId));
   assert.deepEqual(ids, ['a']);
@@ -107,9 +112,9 @@ test('a repaired session is filtered out, and that is a known gap (#535)', SKIP,
   assert.deepEqual(all, ['a', 'rec'], 'and it is there to be found when asked for');
 });
 
-test("the columns 0.21.0 added do not disturb the reader (#535)", SKIP, () => {
+test("a row carrying every column this reader ignores still parses (#535)", SKIP, () => {
   // They arrive through `SELECT *` and the change marker reads only ended_at / the last message / the
-  // message count, so a new column cannot move it. A session carrying every one of them still parses.
+  // message count, so a column the reader does not name cannot move it.
   const dir = makeStore([{
     id: 'a', source: 'cli', started_at: 100, cwd: '/project', message_count: 1,
     session_key: 'agent:main', chat_id: 'C1', chat_type: 'dm', thread_id: 'T1',
@@ -119,11 +124,15 @@ test("the columns 0.21.0 added do not disturb the reader (#535)", SKIP, () => {
   withStore(dir, () => {
     const found = reader.discoverSessions({});
     assert.equal(found.length, 1);
-    const parsed = reader.parseSession(found[0], {});
+    const parsed = reader.parseSession(found[0]);
     assert.ok(parsed, 'a row with every new column still parses');
     assert.equal(parsed.cwd, '/project');
-    // The marker is what lets the scanner skip an unchanged session; a new column must not appear in it.
-    assert.match(String(found[0].marker), /^[\d.:]+$/, 'the marker is still ended_at:last_message:count');
+    // The marker is what lets the scanner skip an unchanged session, and it must stay exactly three
+    // fields. A character-class check does not pin that — a numeric column appended to MARKER_SQL passes
+    // one, which is how this assertion was defeated the first time it was written.
+    assert.equal(String(found[0].marker).split(':').length, 3,
+      'ended_at:last_message:count — three fields, no more');
+    assert.match(String(found[0].marker), /^0:\d/, 'a running session has no ended_at, and a last message');
   });
 });
 
@@ -134,7 +143,7 @@ test('a session with no cwd does not take the scan down (#535)', SKIP, () => {
   withStore(dir, () => {
     const found = reader.discoverSessions({});
     assert.equal(found.length, 1);
-    const parsed = reader.parseSession(found[0], {});
+    const parsed = reader.parseSession(found[0]);
     assert.ok(parsed, 'it parses');
     assert.equal(parsed.cwd, null, 'with no working directory to group it under');
   });

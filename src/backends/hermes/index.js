@@ -218,14 +218,22 @@ module.exports = {
   // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
   newlineKeySequence: '\x1b[13;2u',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
-  // Still false, and #535 is why the wording changed: Hermes DOES have a delegation concept —
-  // `delegate_task` writes rows to an `async_delegations` table with a state, a `task_json` and a
-  // `result_json`. What it does not have is a delegated child that is a SESSION: nothing writes a
-  // `sessions` row for one, so there is no transcript for `listSubagents` to name and nothing for the
-  // core to open. Measured against a real 0.21.0 store (schema_version 23) and its own source.
+  // False because nothing implements the seam yet — NOT because Hermes lacks the concept. An earlier
+  // version of this comment said there is no child session; that was wrong, and the correction is worth
+  // more than the claim was (#535).
   //
-  // `sessions.parent_session_id` IS written, by conversation COMPRESSION — that is lineage, not a
-  // subagent, and this backend already declares `resolveLineage` for it.
+  // Hermes writes a full session row per delegated child: `delegate_tool.py` builds the child with
+  // `platform="subagent"` and a `parent_session_id`, `run_agent.py` creates the row, and it lands in the
+  // SAME `state.db` this backend already reads — Hermes' own comment says it must, or "lineage /
+  // session_search break". So there is a transcript for `listSubagents` to name.
+  //
+  // **The discriminator is `model_config._delegate_from`, not `source`.** A child under a CLI turn gets
+  // `source: 'subagent'`, but one spawned under a gateway turn INHERITS the gateway's source while still
+  // carrying the marker — that is spelled out in Hermes' own test fixture. And `parent_session_id` alone
+  // is not enough either: a conversation-compression continuation has one and no marker, which is lineage
+  // rather than delegation, and this backend already declares `resolveLineage` for that case.
+  //
+  // `async_delegations` is the async queue beside it (state, task_json, result_json), not the register.
   supportsSubagents: false,
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader
   // surfaces as `lineageParentRef`. A hard link.
@@ -285,7 +293,7 @@ module.exports = {
     modelList: 'no',
     endpoint: 'no',
     projectTrust: { state: 'no', note: 'no per-project trust gate' },
-    subagentSessions: 'no',
+    subagentSessions: { state: 'no', note: 'it has delegated child sessions, but the seam is not implemented for it yet' },
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },

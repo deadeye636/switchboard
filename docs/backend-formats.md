@@ -208,27 +208,39 @@ The only backend whose history is **not** in files — the reason the discovery 
   live in a synthetic bucket. There is one — Hermes groups into normal projects like everyone else, and
   the bucket is only a fallback for sessions that genuinely have no directory (gateway/cron chats).
 - Only `source = 'cli'` is ingested by default (a gateway/Telegram chat is not a coding session).
-- **What 0.21.0 can write into `source`**, read out of the CLI's own code rather than out of one store
-  (#535): `cli`, `bot_room`, `discord`, `telegram`, `peer`, `recovered`. (`holder`, `seed` and `user`
-  appear only in Hermes' own test fixtures.) So **Bot Mode and its group chat rooms — default-on since
-  0.21.0 — are held out by the `cli` filter without it needing to know they exist**; an allow-list is why a
-  feature that adds new row kinds needed no change here.
-  **`recovered` is the exception worth knowing about**: Hermes writes it when it rebuilds a session row
-  from orphaned messages (a crash is the ordinary way to get one). The messages are real and the original
-  source is gone by then, so a CLI session Hermes repaired does not come back in Switchboard. Not changed:
-  a recovered stub has no `cwd`, which is what the scan groups by.
-- **The columns 0.21.0 added** — `session_key`, `chat_id`, `chat_type`, `thread_id`, `display_name`,
-  `origin_json`, `archived`, `pinned`, `profile_name`, `git_branch`, `git_repo_root` — arrive through
-  `SELECT *` and the change marker touches none of them, so no parser change was needed (schema_version 23).
+- **`source` is an OPEN set** (#535, corrected — an earlier version of this bullet enumerated it and was
+  wrong twice over). `hermes --source <anything>` writes a free value through `HERMES_SESSION_SOURCE`, and
+  every gateway platform contributes its own name. The ones worth knowing: `cli` is ours; `bot_room` is a
+  group chat room and `discord` / `telegram` / … are gateway chats; `subagent` is a delegated child;
+  `claude-code` and `codex-cli` are sessions imported by `hermes sessions import`; `recovered` is a
+  repaired stub. **Bot Mode and its rooms — default-on since 0.21.0 — are held out without the filter
+  needing to know they exist**, which is the argument for an allow-list rather than a deny-list.
+  Two of the excluded values are not noise: **`recovered`** (rebuilt from orphaned messages after a crash;
+  no `cwd`, #551) and **`claude-code` / `codex-cli`** (imported coding sessions, and those DO carry a cwd,
+  #552).
+- **A CLI at 0.21.0 does not mean a store at 0.21.0.** Hermes migrates on open, so a machine that has
+  updated but not started a session still has the old schema — this was measured on one at version 23 while
+  0.21.0's own `SCHEMA_VERSION` is **30** (58 columns against that store's 48). Whatever a store is at, the
+  columns arrive through `SELECT *` and the change marker reads only `ended_at`, the last message timestamp
+  and the message count, so a new column cannot move it and no parser change was needed. Two of the ten
+  columns version 30 adds are worth knowing: **`last_activity_at`**, a rate-limited heartbeat Hermes' own
+  code says never to trust alone (so the synthesised marker stays), and **`hidden`**, which is how a
+  `bot_room` member row is written — it does not exist below schema 30.
 - **Contention with a live CLI is fine, measured** (#535, after 0.20.4's SessionDB fixes): 301 writes and
   301 discovery+parse reads interleaved on one WAL database produced no exception, no empty answer, no
   short answer and no null parse. The failure mode to watch for is a silent EMPTY result — `openDb`
   degrades quietly by design, and a scan that returns nothing looks exactly like a user with no sessions.
-- **Delegation is not subagents** (#535). `delegate_task` writes rows to `async_delegations`
-  (`state`, `task_json`, `result_json`, `delivery_state`) — a queue, not a session register. Nothing writes
-  a `sessions` row for a delegated child, so there is no transcript for `listSubagents` to name; that is
-  why `supportsSubagents` stays false. `sessions.parent_session_id` IS written, by conversation
-  **compression** — that is lineage, and the descriptor already declares `resolveLineage` for it.
+- **Hermes DOES have delegated child sessions** (#535, corrected — the first pass claimed the opposite).
+  `tools/delegate_tool.py` builds each child with `platform="subagent"` and a `parent_session_id`, and
+  `run_agent.py` writes its `sessions` row into the SAME `state.db` — Hermes' own comment says it must, or
+  "lineage / session_search break". So the transcript a subagent seam would need is there.
+  **The discriminator is `model_config._delegate_from`, not `source`**: a child under a CLI turn gets
+  `source: 'subagent'`, but one spawned under a gateway turn inherits the gateway's source while still
+  carrying the marker. And `parent_session_id` alone does not identify one either — a conversation
+  compression continuation has one and no marker, which is lineage (already declared through
+  `resolveLineage`), as does `/branch`. `async_delegations` (`state`, `task_json`, `result_json`,
+  `delivery_state`) is the async queue beside all this, not the register. `supportsSubagents` stays false
+  because nothing implements the seam yet (#553), not because the concept is missing.
 - **No `updated_at` column** → the change marker is synthesized from `ended_at` + `MAX(messages.timestamp)`
   + the message count.
 - Timestamps are REAL epoch seconds.
