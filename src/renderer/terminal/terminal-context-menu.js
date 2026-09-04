@@ -27,13 +27,25 @@
 // selection and, with nothing selected, did nothing — while switching the menu off, so pasting was left
 // to Ctrl/Cmd+V. `resolveRightClickMode` is where that value lands now; nothing rewrites the database.
 //
-// Depends on globals: openFileInPanel (file-panel.js), window.api.
+// Depends on globals: openFileInPanel (file-panel.js), terminalSelectionText (selection-text.js),
+// window.api.
 // `pasteIntoTerminal` / `insertResolvedText` live here but are the app's paste path: terminal/variable-palette.js
 // and panels/variables-panel.js call them too, so a variable inserts the same way from every surface.
 // Pure helpers (fileUriToPath / classifyLinkUri / buildTerminalMenuItems) are
 // unit-tested; showTerminalContextMenu does the DOM rendering.
 
 let terminalRightClickMode = 'menu';
+
+// The selection as COPY TEXT (#467). `getSelection()` welds a row painted out to the last column onto
+// whatever the CLI painted next, so the text is rebuilt from the buffer — selection-text.js carries the
+// reasoning. Resolved per call rather than at load: this file is a plain script in the renderer (where
+// the helper is a global) and a CommonJS module under `node --test` (where it is not).
+function terminalCopyText(terminal) {
+  const build = typeof terminalSelectionText === 'function'
+    ? terminalSelectionText
+    : (typeof require === 'function' ? require('./selection-text').terminalSelectionText : null);
+  return build ? build(terminal) : terminal.getSelection();
+}
 
 // The stored value → the mode that runs. A migration in a function, the same shape as
 // `resolveSessionDisplayMode` (grid-layout.js) and for the same reason: nothing rewrites the settings
@@ -239,7 +251,7 @@ async function runTerminalMenuAction(id, ctx) {
       if (link.kind === 'url') window.api.writeClipboard(link.url);
       break;
     case 'copy':
-      if (terminal.hasSelection()) window.api.writeClipboard(terminal.getSelection());
+      if (terminal.hasSelection()) window.api.writeClipboard(terminalCopyText(terminal));
       break;
     case 'paste':
       try {
@@ -523,7 +535,7 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
     // so the selection is still intact here.
     if (terminalRightClickMode === 'copy-paste') {
       if (terminal.hasSelection && terminal.hasSelection()) {
-        window.api.writeClipboard(terminal.getSelection());
+        window.api.writeClipboard(terminalCopyText(terminal));
         if (terminal.clearSelection) terminal.clearSelection();
       } else {
         window.api.readClipboard().then((t) => { if (t) pasteIntoTerminal(terminal, getSessionId(), t); }).catch(() => {});
@@ -569,7 +581,7 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
     if (e.button !== 0 || terminalRightClickMode !== 'copy-on-select') return;
     setTimeout(() => {
       if (!terminal.hasSelection || !terminal.hasSelection()) return;
-      const text = terminal.getSelection();
+      const text = terminalCopyText(terminal);
       // A selection of nothing but whitespace is a stray drag, not a copy — and overwriting the
       // clipboard with it would lose whatever the user was about to paste.
       if (text && text.trim()) window.api.writeClipboard(text);

@@ -7,7 +7,7 @@
 // Depends on: toggleGridView, isSessionNavKey, handleSessionNavKey, focusGridCard,
 // wrapInGridCard, showGridView (grid-view.js)
 // Depends on: shellEscape (utils.js)
-// Depends on: pasteIntoTerminal, fileUriToPath (terminal-context-menu.js)
+// Depends on: pasteIntoTerminal, fileUriToPath, terminalCopyText (terminal-context-menu.js)
 // Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
 // Depends on: handleTerminalNewlineKeyEvent (newline-key-routing.js)
 
@@ -273,7 +273,10 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
     if (!isMac && e.key === 'c' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
       if (terminal.hasSelection()) {
         if (e.type === 'keydown') {
-          window.api.writeClipboard(terminal.getSelection());
+          // Rebuilt from the buffer, not read out of xterm (#467) — see selection-text.js. Through the
+          // same resolver the other copy paths use, so a context that loaded this file without
+          // selection-text.js copies xterm's text rather than throwing inside the key handler.
+          window.api.writeClipboard(terminalCopyText(terminal));
         }
         return false;
       }

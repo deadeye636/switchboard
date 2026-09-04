@@ -63,6 +63,7 @@
     "away-overview-view.js",
     "shortcuts.js",
     "terminal-themes.js",
+    "selection-text.js",
     "terminal-context-menu.js",
     "variable-insert.js",
     "variables-panel.js",

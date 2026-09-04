@@ -260,6 +260,9 @@
        grid-view, app and settings-panel — must load before those consumers. -->
   <script src="shell/shortcuts.js"></script>
   <script src="terminal/terminal-themes.js"></script>
+  <!-- What a terminal selection puts on the clipboard (#467) — terminal-context-menu.js and
+       terminal-manager.js both copy through it, so it loads before either. -->
+  <script src="terminal/selection-text.js"></script>
   <script src="terminal/terminal-context-menu.js"></script>
   <!-- The insert-template core, shared with main (dual-mode module). The template editor's preview composes
        with these exact functions, so it cannot drift from what the insert actually produces. -->

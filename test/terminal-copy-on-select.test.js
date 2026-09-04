@@ -13,6 +13,7 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const SRC = path.join(__dirname, '..', 'src', 'renderer', 'terminal', 'terminal-context-menu.js');
+const SELECTION_SRC = path.join(__dirname, '..', 'src', 'renderer', 'terminal', 'selection-text.js');
 
 /**
  * Load the module into a jsdom window and wire one container to a fake terminal.
@@ -41,6 +42,9 @@ function setup({ mode, selection = '' }) {
     openFileInPanel: () => {},
   });
   const ctx = dom.getInternalVMContext();
+  // The copy path builds its text through selection-text.js (#467); in the renderer that is a global
+  // loaded ahead of this file, so the harness loads it in the same order.
+  vm.runInContext(fs.readFileSync(SELECTION_SRC, 'utf8'), ctx, { filename: 'selection-text.js' });
   vm.runInContext(fs.readFileSync(SRC, 'utf8'), ctx, { filename: 'terminal-context-menu.js' });
   // The mode is a top-level `let` in that file — in the renderer app.js rebinds it through
   // window._applyTerminalRightClick, and here the shared lexical scope is reached the same way.

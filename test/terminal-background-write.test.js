@@ -137,6 +137,8 @@ function setupDom({ fitDims = null } = {}) {
                      // (clampRowsToContentBox / bottomRowClipped, and clearSelectionAfterReflow
                      // since #459) — reachable once a fit is "measured".
                      'renderer/terminal/terminal-fit.js',
+                     // selection-text.js holds the copy text both of the next two build (#467)
+                     'renderer/terminal/selection-text.js',
                      'renderer/terminal/terminal-context-menu.js', 'renderer/terminal/terminal-manager.js',
                      'renderer/views/grid-view.js']) {
     const src = fs.readFileSync(path.join(SRC_DIR, rel), 'utf8');
