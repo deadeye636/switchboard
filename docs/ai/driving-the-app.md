@@ -46,6 +46,55 @@ configuration measured 592, 748 and 879 ms — a spread of nearly 50 %, because 
 prints how many animations, busy dots and rows were live while it ran; if those differ, the durations do not mean
 what a comparison would make them mean. A whole issue's worth of conclusions was drawn from that mistake first.
 
+When a counter that should not grow does grow, the counter says nothing about WHAT is growing.
+`scripts/heap-snapshot.js` takes a V8 heap snapshot over the same port — the snapshot forces a full GC
+first, so everything in it survived collection, which is the only interesting question once a floor
+climbs. Take one now and one an hour later; `heap-summary.js` aggregates and diffs them, and
+`heap-retainers.js` walks the edges backwards to name the container.
+
+```
+node scripts/heap-snapshot.js --out=heap-a.heapsnapshot        # …and again later for heap-b
+node --max-old-space-size=8192 scripts/heap-summary.js heap-a.heapsnapshot heap-b.heapsnapshot
+node --max-old-space-size=8192 scripts/heap-summary.js heap-b.heapsnapshot --field=_glyphs
+node --max-old-space-size=8192 scripts/heap-retainers.js heap-b.heapsnapshot Object 200 5
+```
+
+**The kind of object is not the answer; the retainer is.** "+297 820 plain Objects" names no code. The
+retainer walk answered `_glyphs in g <- [0] in Array <- _pages in f <- atlas` in one run, and #525 was
+found. Two costs to plan for: a 50 MB heap writes ~130 MB of JSON (hence `--max-old-space-size`), and the
+snapshot pauses the renderer for a second or two — on a live instance that is a visible freeze.
+
+`scripts/io-sample.js` answers the same question for the disk, from Windows' per-process counters. The
+useful one is neither read nor write: metadata calls land in the OTHER bucket, so a directory walk is
+visible there and nowhere else.
+
+```
+node scripts/io-sample.js --minutes=15
+node scripts/io-sample.js report <file.jsonl>
+```
+
+**Two traps in that number, both cost this project a wrong conclusion.** A `statSync` on NTFS is measured
+at **4.1 kernel operations** — CreateFile, query, CloseHandle — so a syscall count converted straight into
+expected I/O lands five times too low. And metadata operations are not proof of filesystem work: a
+terminal relaying PTY output through a conpty pipe produces them at the same rate a store walk does. An
+instance sitting at 1383 ops/s looked like a scan storm and was terminal traffic. Read the BYTES beside the
+ops — high ops with low bytes is cache-served metadata, not disk load — and compare against an instance
+with no terminals before blaming the filesystem.
+
+**Reading a library's internals live is often faster than either.** `drive-app.js eval` runs in the
+renderer's global scope, where a classic script's top-level `const` is reachable by name — so
+`openSessions`, `activeSessionId` and the addon objects hanging off them can be inspected and counted
+between two clicks, with no snapshot and no rebuild:
+
+```
+node scripts/drive-app.js eval "openSessions.size"
+node scripts/drive-app.js eval "(()=>{const e=[...openSessions.values()].find(x=>x.webglAddon);const r=e.webglAddon._renderer;const at=(r&&r.value?r.value:r)._charAtlas;return at._pages.reduce((s,p)=>s+p.glyphs.length,0)})()"
+```
+
+**Ask whether the thing you are counting is SHARED before you sum it.** Every WebGL terminal points at one
+glyph atlas, so summing "per terminal" reported eight times the real number and made a first reading of
+#525 look four times worse than it was.
+
 **An instance that is already running cannot be given a debugging port.** The flag is read at launch, so
 the full page-level measurement costs a restart — on a live instance, every session in it. `--os-only`
 is the reading that costs nothing: it answers whether something grows, not which renderer grows it. Take
@@ -410,7 +459,7 @@ What to watch, and the gotchas that cost time here:
   **anything else read out of agy's home**: its resource list comes back empty in the demo and full
   against the real stores, so a reading taken there describes the sandbox — `docs/demo-env.md`
   ("Known gaps") has the derivation.
-- **Paths through `drive-app.js eval` lose their backslashes** (`D:\Projekte\x` → `D:Projektex`). Never
+- **Paths through `drive-app.js eval` lose their backslashes** (`one\two\three` → `onetwothree`). Never
   hand-build a Windows `projectPath` in the eval string — read the real object from
   `await window.api.getProjects(false)` and pass `proj.projectPath`.
 - **A live-but-idle Axis-B session still reads "Running", not "Idle"**, in the sidebar: `cli-busy-state
