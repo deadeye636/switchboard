@@ -83,6 +83,9 @@ const supportsSubagents = true;
 const configFields = [
   // The full set the CLI accepts (as offered by the old Sessions & CLI form), plus the skip flag as a
   // mutually-exclusive choice. 'default' = send no --permission-mode at all.
+  // `bypassPermissions` and `restricted` below cannot both be on — the CLI refuses the combination and the
+  // session dies at spawn (#537). Named at both ends, because whichever one a user turns on second is the
+  // one they will look at.
   { id: 'permissionMode', label: 'Permission mode', type: 'select',
     choices: ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions', 'dangerously-skip'],
     choiceLabels: {
@@ -103,6 +106,24 @@ const configFields = [
   { id: 'worktreeName', label: 'Worktree branch name', type: 'text', default: '', requires: 'worktree' },
   { id: 'chrome', label: 'Chrome', type: 'toggle', default: false },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '' },
+  // #537. Both of these change what an INTERACTIVE session does, which is the test every flag in this list
+  // has to pass — the ones that only mean something under `--print` are audited and excluded instead.
+  //
+  // `restricted` is the opposite direction from `--dangerously-skip-permissions`, which this backend
+  // deliberately does not offer: it REMOVES the tools that run commands, so offering it is consistent with
+  // that stance rather than against it.
+  //
+  // The description is long because the flag is: read from the CLI's own help rather than from its name,
+  // it also drops WebFetch, IGNORES the user/project/local settings files, and confines the file tools to
+  // the working directories. Two of those matter here and would surprise anyone who read only the label:
+  // it refuses `permissionMode: bypassPermissions` and the session dies at spawn with
+  // "bypassPermissions not supported in restricted mode" (measured), and ignoring `~/.claude/settings.json`
+  // takes Switchboard's own attention hook with it, so busy/ready falls back to the terminal heuristic.
+  // The per-spawn `--settings` binding still applies — restricted honours that one.
+  { id: 'restricted', label: 'Restricted mode', type: 'toggle', default: false,
+    description: "Removes the tools that run commands or code, and WebFetch. Also ignores your settings files — which turns off Switchboard's attention hook — and refuses the Bypass permission mode: that combination fails to start." },
+  { id: 'autocompact', label: 'Auto-compact window', type: 'text', default: '',
+    description: 'When the CLI compacts by itself: `auto`, or a size from 100k to 1M (`500k`, `200000`, or `200` as shorthand). An unparseable value stops the session from starting. Empty = the CLI decides.' },
   // `appliesAt: 'spawn'`: NOT part of the argv this function builds. main.js applies these at the spawn
   // site — mcpEmulation starts the MCP bridge and appends `--ide`, and afkTimeoutSec becomes an env var.
   // They are still this backend's options and still cascade like any other; they just do not land in
@@ -160,6 +181,12 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   }
   if (opts.appendSystemPrompt) {
     args.push('--append-system-prompt', String(opts.appendSystemPrompt));
+  }
+  if (opts.restricted) {
+    args.push('--restricted');
+  }
+  if (opts.autocompact) {
+    args.push('--autocompact', String(opts.autocompact));
   }
 
   return { command: 'claude', args, env: {}, cwd, spawnMode: 'shell' };

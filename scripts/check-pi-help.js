@@ -20,6 +20,7 @@ const MANAGED = new Set([
   '--exclude-tools',
   '--thinking',
   '--no-context-files',
+  '--use-theme',
   '--list-models',
   '--approve',
   '--no-approve',
@@ -43,6 +44,10 @@ const AUDITED_EXCLUDED = new Set([
   '--no-prompt-templates',
   '--theme',
   '--no-themes',
+  // #537. `--tui-mode fullscreen` changes how the TUI drives the PTY it is given, and Switchboard's
+  // terminal owns that surface — scrollback, resize, the selection layer. Unmeasured in an embedded
+  // terminal, so it is not offered: a control whose effect nobody has watched is worse than none.
+  '--tui-mode',
   '--export',
   '--verbose',
   '--help',

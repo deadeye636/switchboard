@@ -6,6 +6,9 @@ const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 
 const MANAGED = new Set([
+  // #537: two flags that change an interactive session, so they are offered rather than audited away.
+  '--restricted',
+  '--autocompact',
   '--add-dir',
   '--append-system-prompt',
   '--chrome',
@@ -21,6 +24,26 @@ const MANAGED = new Set([
 ]);
 
 const AUDITED_EXCLUDED = new Set([
+  // #537, one decision each. The test every flag has to pass is whether it changes what an INTERACTIVE
+  // session does — that is the only kind Switchboard spawns.
+  //
+  // Only meaningful with `--print`, which this app never runs. (`--permission-prompt-tool` is not a flag
+  // of its own here — it appears inside `--permission-prompts`' description text and the extractor below
+  // scrapes every `--word` it sees. It is listed so the audit passes; the entry describes the extractor,
+  // not the CLI.)
+  '--permission-prompts',
+  '--permission-prompt-tool',
+  // #537. A cloud session is not a session this app can follow: there is no local transcript for the scan
+  // to find, adopt or resume, so offering it would produce a tab that goes nowhere.
+  '--cloud',
+  '--environment',
+  '--teleport',
+  // #537. This one DOES change an interactive session, so it passes the test the others fail — it is
+  // excluded for the other reason: nobody here has watched what it does. And its default is not simply the
+  // CLI's recommendation, which is what an earlier version of this comment claimed: the help recommends
+  // `on` and says `--append-system-prompt` turns it off, which this backend sends whenever that option is
+  // set. Measure the interaction before offering a switch for it.
+  '--system-prompt-snapshot',
   '--agent',
   '--agents',
   '--allow-dangerously-skip-permissions',

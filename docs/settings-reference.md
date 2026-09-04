@@ -353,16 +353,38 @@ own `config.toml`.)
 | Backend | Options (default in brackets when not empty/off) |
 |---|---|
 | *(every backend)* | `preLaunchCmd` — applied at spawn, not argv |
-| `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
+| `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
-| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
-| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `noContextFiles` |
+| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules`, `reasoning` |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources and knowledge directories. Switchboard does not install or execute resources from there.
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
+
+### What a CLI offers and this app deliberately does not (#537)
+
+A flag becomes an option here only if it changes what an **interactive** session does — that is the only
+kind Switchboard spawns. Everything else is recorded in the backend's `scripts/check-*-help.js` audit list
+with the reason, so a new flag shows up as a failing check rather than as silence. The four kinds of no:
+
+- **Print-mode only.** `claude --permission-prompts` / `--permission-prompt-tool` and `agy --input-format`
+  do nothing in a TUI. (The first is the one #537 opened with, and reading its help is what settled it.)
+- **A session this app cannot follow.** `claude --cloud`, `--environment`, `--teleport` produce no local
+  transcript, so the scan cannot find, adopt or resume what they start.
+- **"Stop asking me" in one click.** `codex --approve-for-me` answers the approval prompts for the user.
+  Milder than `--dangerously-bypass-approvals-and-sandbox`, which is excluded for the same reason, but the
+  button says the same thing.
+- **Unmeasured.** `pi --tui-mode fullscreen` changes how the TUI drives the terminal Switchboard owns, and
+  `claude --system-prompt-snapshot` changes a caching behaviour nobody here has watched. A control whose
+  effect has not been seen is worse than no control.
+
+Two more that are not flags at all, and so cannot become options: Pi's `defaultTools` setting picks the
+initial built-in tools when no `--tools` is given — which means Pi's **`tools` option here overrides it**,
+and its description says so. Hermes' `agent.reasoning_effort` in `config.yaml` is what the empty
+`reasoning` default falls back to.
 
 ## What a project can override
 

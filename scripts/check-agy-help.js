@@ -15,6 +15,9 @@ const MANAGED = new Set([
   '--sandbox',
 ]);
 const AUDITED_EXCLUDED = new Set([
+  // #537. Print mode only — its own help says so, and it requires `--output-format stream-json`.
+  // Switchboard runs the TUI.
+  '--input-format',
   '--agent',
   '--continue',
   '--dangerously-skip-permissions',

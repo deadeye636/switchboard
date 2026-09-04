@@ -94,7 +94,7 @@ const configFields = [
   { id: 'models', label: 'Model cycle list', type: 'text', default: '',
     description: 'Comma-separated model patterns for Pi\'s Ctrl+P cycling (`--models`).' },
   { id: 'tools', label: 'Tools (allowlist)', type: 'text', default: '',
-    description: 'Comma-separated tool names to enable. Empty = all of them.' },
+    description: 'Comma-separated tool names to enable. Empty = whatever Pi picks, which since 0.84.4 is its `defaultTools` setting when one is configured.' },
   { id: 'excludeTools', label: 'Tools (denylist)', type: 'text', default: '',
     description: 'Comma-separated tool names to disable. Applies to built-in, extension and custom tools.' },
   { id: 'noTools', label: 'Disable tools', type: 'toggle', default: false,
@@ -110,6 +110,11 @@ const configFields = [
     description: 'Disable Pi startup network operations (`--offline`).' },
   { id: 'appendSystemPrompt', label: 'Append to system prompt', type: 'text', default: '',
     description: 'Text (or a file path) appended to Pi\'s system prompt.' },
+  // The slash form pairs a LIGHT theme with a DARK one (`solarized-light/solarized-dark`) — Pi reserves the
+  // separator for exactly that and refuses a theme name containing it. `light/dark` reads like a keyword
+  // and is not one; it happens to work because those are the names of two built-ins.
+  { id: 'useTheme', label: 'Interactive theme', type: 'text', default: '',
+    description: 'Pi theme for this run. One name, or `light-name/dark-name` to pair one of each. Empty = the theme Pi is configured with.' },
   { id: 'noContextFiles', label: 'Ignore AGENTS.md / CLAUDE.md', type: 'toggle', default: false,
     description: 'Do not load the project\'s context files for this session.' },
 ];
@@ -289,6 +294,7 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   if (opts.approval === 'no-approve') args.push('--no-approve');
   if (opts.offline) args.push('--offline');
   if (opts.appendSystemPrompt) args.push('--append-system-prompt', String(opts.appendSystemPrompt));
+  if (opts.useTheme) args.push('--use-theme', String(opts.useTheme));
   if (opts.noContextFiles) args.push('--no-context-files');
 
   // $VAR refs only — resolved at spawn, dropped when unset. We never read Pi's own credential files.

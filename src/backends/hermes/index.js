@@ -60,6 +60,17 @@ const configFields = [
     description: 'Skip AGENTS.md, SOUL.md, memory and preloaded skills for this run.' },
 ];
 
+// NOT an option, and the reason is worth keeping (#537). `--reasoning` looks like the obvious launch
+// control this backend was missing, and it is parsed — but in the modern TUI it is then DROPPED:
+// `_CHAT_PASSTHROUGH` in hermes 0.21.0's own `main.py` lists provider, toolsets, skills, worktree,
+// checkpoints and the rest, and `reasoning` is not among them, so `_launch_tui` never receives it. Only
+// the classic REPL branch below reads it. Switchboard passes neither `--tui` nor `--cli`, so which branch
+// runs is the user's `display.interface` — and for anyone on the TUI the control would do nothing.
+//
+// The tell was in the help text and it reads backwards: `--model`, `--provider` and `--toolsets` all say
+// "Applies to -z/--oneshot and --tui" precisely BECAUSE they are wired through the passthrough.
+// `--reasoning` omits that sentence because it is not. An absent restriction is not universality.
+
 /**
  * Is Hermes actually installed? The recon showed it ships its OWN venv + uv, so probing for a system
  * Python/git would give a false negative — the honest probe is simply "does the executable resolve?".

@@ -21,6 +21,17 @@ const MANAGED = new Set([
 ]);
 
 const AUDITED_EXCLUDED = new Set([
+  // #537. Parsed and then discarded in the modern TUI: `_CHAT_PASSTHROUGH` in hermes' own main.py does not
+  // carry `reasoning`, so `_launch_tui` never receives it and only the classic REPL branch reads it.
+  // Switchboard passes neither --tui nor --cli, so which branch runs is the user's `display.interface`.
+  // An option that does nothing for half the users is the control this issue exists to keep out.
+  '--reasoning',
+  // #537. Not offered, but the reason is narrower than it first looks and worth writing down: on a NEW
+  // session the working directory is already the one Switchboard spawns in, so a second way to say it
+  // could only disagree. On a RESUME hermes restores the session's own recorded cwd unless `--in` or
+  // `--no-restore-cwd` says otherwise — so the CLI can leave the directory this app launched in, and
+  // whether that deserves a control is a question nobody has measured the consequences of yet.
+  '--in',
   '--help',
   '--version',
   '--oneshot',

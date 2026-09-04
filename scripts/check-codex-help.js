@@ -18,6 +18,12 @@ const MANAGED = new Set([
   '--search',
 ]);
 const AUDITED_EXCLUDED = new Set([
+  // #537. Unmeasured: "route approval requests through automatic review using the workspace-write sandbox"
+  // describes a reviewer nobody here has watched decide anything, and an option is a promise about what it
+  // does. Deliberately NOT excluded on a "we do not offer stop-asking-me" stance — this backend already
+  // offers `approvalMode: never` and `sandbox: danger-full-access`, so that argument would be one this
+  // file does not itself follow. Revisit with a measurement, not with a principle.
+  '--approve-for-me',
   '--enable',
   '--disable',
   '--remote',
