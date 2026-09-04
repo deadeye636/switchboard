@@ -125,6 +125,11 @@ test('a template borrows its base\'s store, parser and watcher', () => {
     assert.equal(t.watchTargets, codex.watchTargets);
     assert.equal(t.PARSER_SCHEMA_VERSION, codex.PARSER_SCHEMA_VERSION,
       'and it is versioned by the parser that actually reads its sessions (#152)');
+    // WHEN that store's record appears is the store's property, not the descriptor's (#512, #527). Left
+    // off, a template's sessions were dated from their spawn while the base's were dated from their
+    // first turn — two different clocks in the one place they compete for the same records.
+    assert.equal(t.recordAppearsAt, codex.recordAppearsAt);
+    assert.equal(t.recordAppearsAt, 'first-turn', 'and it is the base\'s real answer, not undefined');
   });
 });
 

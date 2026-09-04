@@ -154,6 +154,45 @@ never had.
   would then adopt the *next new session's* record, collapsing two tabs onto one identity.
 - `liveState(ref, ctx)` — `'busy' | 'idle' | null`. `null` means *no evidence*; never guess idle.
 
+**A directory and a window are not an identity** (#527). `matchLiveSession` knows where a session runs and
+roughly when it started, and nothing in a record says which process wrote it. With two unpaired sessions
+of one backend in one project that is not enough: the core asks them in the order they were opened, so the
+older one is offered the record the younger one's turn just produced — and takes it. Busy/idle then lands
+on the other card, `realSessionId` names a conversation that session is not in, and the session that owns
+the record is locked out of it, because it is held by someone else from then on.
+
+So the match carries `bornMs`, and `src/watch/record-claim.js` asks the question the correlation never
+did: could this session have written that record? Its window starts at its spawn, or at its first turn
+where the backend says its record appears then — a session that has been asked nothing has written
+nothing, which is what resolves the ordinary case. Among the sessions that could have written it, **the
+oldest one takes it**, matching the order the store offers records in: `matchLiveSession` hands back the
+oldest unclaimed record, so walking both lists in the same direction puts each session on its own. A
+record the asking session may not have is set aside and the store asked again, so one record it will
+never be allowed to take cannot hide the one behind it. A backend that cannot date its record omits
+`bornMs` and keeps the behaviour it had.
+
+The rule is deliberately **subtractive**: it can make a session decline a record it could not have
+written, and it never re-orders who gets what. An exact tie goes to whoever asked first, which is what
+happened before this existed — a window is a fact that never changes, so refusing both would refuse them
+for the life of the sessions. And a session with no window at all — a first-turn backend whose turn was
+submitted through a path the app does not see — is not held back either. The honest limit is that a
+record is protected only while its real writer is live, unpaired, and known to us.
+
+Two things this cost, both worth keeping written down because the tests missed both:
+
+- **The grace window belongs to the ASKING session alone.** A first version let every candidate reach ten
+  seconds further back, which made a younger session a possible writer of the older one's record; two
+  possible writers meant nobody paired, and permanently. Two sessions started within ten seconds of each
+  other lost busy/idle for their whole life, the unclaimed record was then offered to every later session
+  in that project, and when one of the two exited the other adopted its id after all.
+- **The oldest eligible session wins, not the newest.** A second version awarded the record to the newest,
+  reasoning that a session able to write since earlier would already have paired. That is circular — a
+  session that HAS paired is not a candidate — and it swapped two sessions' records outright whenever
+  both records were born after both sessions started.
+
+Both were invisible to the suite because the fake `matchLiveSession` returned a constant instead of
+walking a store. It walks one now.
+
 ### Busy/idle: what each backend actually tells us
 
 | Backend | Signal | Failure mode to respect |

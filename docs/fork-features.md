@@ -348,7 +348,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   never inferred from PTY output: output is liveness, never work. Each backend also says WHEN its record
   appears (#512) — Codex writes its rollout and agy its conversation database with the first turn rather
   than at the spawn, so a session of theirs sitting at its prompt with nothing asked of it yet is never
-  reported as one the backend cannot see.
+  reported as one the backend cannot see. That same answer narrows who a record can belong to when two
+  sessions of one backend run in one project (#527): a session that has been asked nothing has written
+  nothing, so it no longer walks off with the record the session next door produced — as long as that
+  neighbour is still live and unpaired, which is the honest limit of what a directory and two timestamps
+  can settle.
 - **Cost analytics** — where a backend prices its own turns (Hermes, Pi), Stats shows it per backend.
   An estimate is labelled as an estimate, a zero estimate reads as "no cost reported" rather than
   `$0.00`, and a token-only backend shows an em dash.

@@ -135,7 +135,8 @@ function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
     if (sinceMs != null && c.startedMs < sinceMs) continue;
     // A cwd-less session, or one in a different cwd, is not the one we just launched in this project.
     if (cwd && (!c.cwd || path.resolve(c.cwd) !== path.resolve(cwd))) continue;
-    if (c.startedMs < bestStart) { best = { sessionId: c.sessionId, ref: c.sessionId }; bestStart = c.startedMs; }
+    // `bornMs` — see file-store.js: the core needs it to tell two unpaired sessions apart (#527).
+    if (c.startedMs < bestStart) { best = { sessionId: c.sessionId, ref: c.sessionId, bornMs: c.startedMs }; bestStart = c.startedMs; }
   }
   return best;
 }

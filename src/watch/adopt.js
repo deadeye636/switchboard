@@ -11,10 +11,15 @@
 //     instead — and the backend watcher already fires whenever those stores change.
 //
 // Both are solved once, generically, via two optional descriptor hooks:
-//     matchLiveSession({cwd, sinceMs, claimed}) -> {sessionId, ref} | null
+//     matchLiveSession({cwd, sinceMs, claimed}) -> {sessionId, ref, bornMs?} | null
 //     liveState(ref)                            -> 'busy' | 'idle' | null
 // A backend that names its own sessions implements them; anything else is simply skipped. Adding a
 // third such backend needs no change here.
+//
+// `bornMs` — when the record was written — is optional and is what lets this file tell two unpaired
+// sessions of one backend in one project apart (#527). The correlation itself knows only a directory
+// and a time window, so without it the older session takes the record the younger one produced.
+// A backend that cannot date its record simply omits it and keeps the behaviour it had.
 //
 // `liveStoreRef` and `liveBusy` live here because this is what maintains them — but main.js's PTY exit
 // handler DELETES from them when a session dies. They are exported as the Maps themselves, not copies:
@@ -22,7 +27,19 @@
 // is what makes this block have to land before spawn does.)
 'use strict';
 
+const path = require('path');
+
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('../app/terminal/live-record-notice');
+const { recordWindowStart, claimVerdict } = require('./record-claim');
+
+// How much earlier than a session's own start a record may be born and still be that session's. The
+// store writes it just after we spawn the process, and the two clocks are not the same one.
+const CLAIM_GRACE_MS = 10000;
+
+// How many records this session may set aside on one flush before giving up (#527). Each pass excludes
+// one more, so this bounds a walk that is not free — and a session behind more than a handful of records
+// it may not have is not a case any correlation is going to resolve on this tick.
+const MAX_CLAIM_ATTEMPTS = 5;
 
 let ctx = null;
 
@@ -40,6 +57,44 @@ const liveBusy = new Map();       // our sessionId -> last busy state pushed to 
  */
 function init(context) {
   ctx = context;
+}
+
+/**
+ * Which STORE a backend reads. A template runs its base backend's binary and writes into that store, so
+ * a template session and a base session compete for the same records — while carrying different
+ * descriptor ids. Grouping by id instead would make them invisible to each other and leave #527's
+ * mis-pairing standing for exactly that pair.
+ */
+const recordPoolId = (b) => (b && (b.baseId || b.id)) || null;
+
+/**
+ * Every live session reading the same store, in this project, that is not paired with a record yet —
+ * the one asking included. `from` is the earliest moment each of them could have written one (#527).
+ *
+ * An empty answer is not a refusal: the caller then keeps the behaviour it had. A session with no
+ * project path is the one way that happens, and it is the same session the correlation already asks
+ * about with no `cwd` at all.
+ */
+function unpairedCandidates(asking, backend) {
+  const here = asking.projectPath ? path.resolve(asking.projectPath) : null;
+  if (!here) return [];
+  const pool = recordPoolId(backend);
+  const out = [];
+  for (const [id, s] of ctx.activeSessions) {
+    if (!s || s.exited || s.isPlainTerminal) continue;
+    if (!s.projectPath || path.resolve(s.projectPath) !== here) continue;
+    const mapped = ctx.sessionBackends.get(s.realSessionId || id);
+    if (!mapped) continue;
+    const theirs = ctx.backends.get(mapped.backendId);
+    if (!theirs || recordPoolId(theirs) !== pool) continue;
+    if (liveStoreRef.has(id) || (s.realSessionId && liveStoreRef.has(s.realSessionId))) continue;
+    // One `recordAppearsAt` for the whole pool, taken from the backend that is asking. It is a property
+    // of the STORE, and everything in this list writes into the same one — a template forwards its
+    // base's answer (`src/backends/index.js`), so asking any member gives the same value. Reading it per
+    // candidate instead would put two sessions competing for one record on two different clocks.
+    out.push({ sessionId: id, from: recordWindowStart(s, backend.recordAppearsAt) });
+  }
+  return out;
 }
 
 function claimLiveRecord(sessionId, session, backend) {
@@ -72,16 +127,44 @@ function claimLiveRecord(sessionId, session, backend) {
 
   const claimed = new Set(liveStoreRef.values());
   // Small grace window: the store record appears just AFTER we spawn the process.
-  const sinceMs = (session._openedAt || 0) - 10000;
+  const sinceMs = (session._openedAt || 0) - CLAIM_GRACE_MS;
 
+  // Could this session have written that record (#527)? The correlation knows a directory and a window,
+  // and with two unpaired sessions of one backend in one project that is not enough — the older one is
+  // asked first and takes the record the younger one's turn produced. A backend that does not date its
+  // record answers 'unknown' and nothing changes.
+  //
+  // A record this session may NOT take must not hide the one it may. `matchLiveSession` offers the oldest
+  // unclaimed record, so a single deferral would otherwise stop the walk there for every later flush —
+  // the session's own record sits behind one it will never be allowed to have. So the deferred record is
+  // set aside and the store is asked again. Bounded, because each pass sets one more aside.
+  const candidates = unpairedCandidates(session, backend);
   let match = null;
-  try {
-    match = backend.matchLiveSession({ cwd: session.projectPath, sinceMs, claimed });
-  } catch (err) {
-    ctx.log.warn(`[${backend.id}] live match failed: ${err?.message || err}`);
-    return null;
+  for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
+    let offer = null;
+    try {
+      offer = backend.matchLiveSession({ cwd: session.projectPath, sinceMs, claimed });
+    } catch (err) {
+      ctx.log.warn(`[${backend.id}] live match failed: ${err?.message || err}`);
+      return null;
+    }
+    if (!offer || !offer.sessionId) return null;
+
+    const verdict = claimVerdict({
+      candidates,
+      bornMs: offer.bornMs,
+      askingId: sessionId,
+      graceMs: CLAIM_GRACE_MS,
+    });
+    if (verdict !== 'defer') { match = offer; break; }
+
+    // At `debug`, not `info`: this runs on every watcher flush for as long as it holds, and the state it
+    // leaves behind — a session with no busy/idle — is already reported to the user by #151.
+    ctx.log.debug(`[${backend.id}] session=${sessionId} leaves ${offer.sessionId} to an older live session`);
+    if (!offer.ref || claimed.has(offer.ref)) return null;   // nothing new to set aside — stop, don't spin
+    claimed.add(offer.ref);
   }
-  if (!match || !match.sessionId) return null;
+  if (!match) return null;
 
   // Adopt the backend's id. This is exactly Claude's temp->real transition, so it reuses that
   // plumbing: re-key the live session, move the backend overlay across, and tell the renderer to fold

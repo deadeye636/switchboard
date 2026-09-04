@@ -215,7 +215,9 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
       const row = parseSession(handle);
       if (!row || !row.sessionId || !row.cwd) continue;
       if (cwd && path.resolve(row.cwd) !== path.resolve(cwd)) continue;
-      if (birth < bestBirth) { best = { sessionId: row.sessionId, ref: handle.path }; bestBirth = birth; }
+      // `bornMs` is what lets the core ask whether the ASKING session could have written this record
+      // (#527) — the correlation itself only knows a directory and a window.
+      if (birth < bestBirth) { best = { sessionId: row.sessionId, ref: handle.path, bornMs: birth }; bestBirth = birth; }
     }
     return best;
   }

@@ -135,7 +135,11 @@ test('matchLiveSession pairs a freshly spawned session with its transcript', () 
   try {
     const file = writeSession(bucket, 'live-1', 'D:\\Projekte\\demo');
     const match = storeFor(root).matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
-    assert.deepEqual(match, { sessionId: 'live-1', ref: file });
+    assert.equal(match.sessionId, 'live-1');
+    assert.equal(match.ref, file);
+    // #527: the core cannot tell two unpaired sessions of one backend in one project apart without
+    // knowing WHEN the record was written — the correlation itself only knows a directory and a window.
+    assert.ok(Number.isFinite(match.bornMs), 'the match dates the record');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

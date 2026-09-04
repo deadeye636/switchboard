@@ -26,7 +26,8 @@ function fakeBackend(over = {}) {
   };
 }
 
-function setup({ sessions = [], backend = fakeBackend(), echo = null, noticeHooks = true } = {}) {
+function setup({ sessions = [], backend = fakeBackend(), echo = null, noticeHooks = true,
+                 backendOf = null, registry = null } = {}) {
   const sent = [];
   const activeSessions = new Map(sessions);
   const rekeyed = [];
@@ -39,12 +40,14 @@ function setup({ sessions = [], backend = fakeBackend(), echo = null, noticeHook
   adopt.init({
     activeSessions,
     getMainWindow: () => ({ isDestroyed: () => false, webContents: { send: (...a) => sent.push(a) } }),
-    backends: { get: () => backend },
+    // `backends` / `sessionBackends` answer for ONE backend unless a test needs more — a base and a
+    // template share a store while carrying different ids (#527), and that only shows with two.
+    backends: { get: (id) => (registry ? registry(id) : backend) },
     sessionBackends: {
-      get: () => ({ backendId: 'codex' }),
+      get: (id) => ({ backendId: backendOf ? backendOf(id) : 'codex' }),
       rekeySession: (from, to) => rekeyed.push([from, to]),
     },
-    log: { info() {}, warn() {}, error() {} },
+    log: { info() {}, debug() {}, warn() {}, error() {} },
     // The record-only echo to a window of its own (#395). Absent in the older cases on purpose: a ctx
     // without it must not throw.
     sendTimelineSignal: echo ? (id, signal) => echo.push([id, signal]) : undefined,
@@ -225,6 +228,197 @@ test('Claude and plain terminals are skipped — they own their id and report th
   adopt.updateBackendLiveStates();
 
   assert.equal(asked, 0);
+});
+
+// #527: two unpaired sessions of one backend in one project. The correlation knows a directory and a
+// time window, so the session opened FIRST is offered every record — including the one the second
+// session's own turn produced. Everything downstream then follows the wrong identity: busy/idle on the
+// other card, `realSessionId` naming a conversation that session is not in, and the session that owns
+// the record locked out of it for good.
+//
+// These drive a `matchLiveSession` that behaves like the real one (src/backends/file-store.js): the
+// OLDEST unclaimed record in the asked-for directory that is not older than the asking session's window.
+// A stub returning a constant is what hid the first version's regression — it deadlocked two sessions
+// started seconds apart and every assertion still passed.
+function recordStore(records) {
+  return ({ cwd, sinceMs, claimed } = {}) => {
+    const free = records
+      .filter(r => !claimed.has(r.ref))
+      .filter(r => !cwd || (r.cwd || '/p') === cwd)
+      .filter(r => sinceMs == null || r.bornMs >= sinceMs)
+      .sort((a, b) => a.bornMs - b.bornMs);
+    return free[0] ? { ...free[0] } : null;
+  };
+}
+
+test('a record goes to the session that could have written it, not to the one asked first', () => {
+  const now = Date.now();
+  const { activeSessions, rekeyed } = setup({
+    sessions: [
+      ['idle-1', live({ _openedAt: now - 120_000 })],                                    // asked nothing
+      ['busy-1', live({ _openedAt: now - 60_000, _firstTurnAt: now - 30_000 })],
+    ],
+    backend: fakeBackend({
+      recordAppearsAt: 'first-turn',
+      matchLiveSession: recordStore([{ sessionId: 'codex-real', ref: '/r/1', bornMs: now - 29_000 }]),
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.equal(activeSessions.has('idle-1'), true, 'the session with no turn keeps its launch id');
+  assert.equal(adopt.liveStoreRef.get('idle-1'), undefined, 'and claims nothing');
+  assert.deepEqual(rekeyed, [['busy-1', 'codex-real']], 'the record went to the session that produced it');
+});
+
+// The regression the first version of this fix shipped, and the reason the fake above walks a store: it
+// gave the grace window to EVERY candidate, which made the younger session a possible writer of the
+// older one's record. Two owners meant nobody paired — for the life of both sessions, with the unclaimed
+// record then offered to every later session in the project.
+test('two sessions started seconds apart each pair with their own record', () => {
+  const now = Date.now();
+  const { rekeyed } = setup({
+    sessions: [
+      ['a', live({ _openedAt: now - 68_000 })],
+      ['b', live({ _openedAt: now - 60_000 })],   // eight seconds later — inside the grace window
+    ],
+    backend: fakeBackend({
+      matchLiveSession: recordStore([
+        { sessionId: 'real-a', ref: '/r/a', bornMs: now - 67_000 },
+        { sessionId: 'real-b', ref: '/r/b', bornMs: now - 59_000 },
+      ]),
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['a', 'real-a'], ['b', 'real-b']], 'each session keeps its own record');
+  assert.equal(adopt.liveStoreRef.get('real-a'), '/r/a');
+  assert.equal(adopt.liveStoreRef.get('real-b'), '/r/b');
+});
+
+test('the same holds for a first-turn backend prompted twice in quick succession', () => {
+  const now = Date.now();
+  const { rekeyed } = setup({
+    sessions: [
+      ['a', live({ _openedAt: now - 90_000, _firstTurnAt: now - 63_000 })],
+      ['b', live({ _openedAt: now - 80_000, _firstTurnAt: now - 60_000 })],
+    ],
+    backend: fakeBackend({
+      recordAppearsAt: 'first-turn',
+      matchLiveSession: recordStore([
+        { sessionId: 'real-a', ref: '/r/a', bornMs: now - 62_000 },
+        { sessionId: 'real-b', ref: '/r/b', bornMs: now - 59_000 },
+      ]),
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['a', 'real-a'], ['b', 'real-b']]);
+});
+
+test('a record two sessions became able to write in the same moment goes to the one asked first', () => {
+  // An exact tie is the one case nothing can decide, and a window never changes — so refusing both would
+  // refuse them for the life of the sessions. This keeps the behaviour that predates the module, on
+  // purpose, and it is the only place that happens.
+  const now = Date.now();
+  const at = now - 40_000;
+  const { rekeyed } = setup({
+    sessions: [
+      ['a', live({ _openedAt: now - 60_000, _firstTurnAt: at })],
+      ['b', live({ _openedAt: now - 50_000, _firstTurnAt: at })],
+    ],
+    backend: fakeBackend({
+      recordAppearsAt: 'first-turn',
+      matchLiveSession: recordStore([{ sessionId: 'codex-real', ref: '/r/1', bornMs: now - 20_000 }]),
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['a', 'codex-real']], 'the first asker takes it rather than nobody');
+});
+
+test('the record a session may NOT take does not hide the one it may', () => {
+  // `matchLiveSession` offers the OLDEST unclaimed record. Without setting the deferred one aside, the
+  // younger session would be handed the older session's record on every flush and never reach its own —
+  // its record sits behind one it will never be allowed to have.
+  const now = Date.now();
+  const { rekeyed } = setup({
+    sessions: [
+      ['old', live({ _openedAt: now - 90_000, _firstTurnAt: now - 80_000 })],
+      ['new', live({ _openedAt: now - 70_000, _firstTurnAt: now - 60_000 })],
+    ],
+    backend: fakeBackend({
+      recordAppearsAt: 'first-turn',
+      matchLiveSession: recordStore([
+        { sessionId: 'real-old', ref: '/r/old', bornMs: now - 79_000 },
+        { sessionId: 'real-new', ref: '/r/new', bornMs: now - 59_000 },
+      ]),
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['old', 'real-old'], ['new', 'real-new']]);
+});
+
+test('a template session and a base session share one store, so they see each other', () => {
+  // A template runs its base's binary and writes into its base's store, while carrying its own
+  // descriptor id. Grouping candidates by id would make the two invisible to each other and leave
+  // #527's mis-pairing standing for exactly that pair.
+  const now = Date.now();
+  const base = fakeBackend({
+    recordAppearsAt: 'first-turn',
+    matchLiveSession: recordStore([{ sessionId: 'codex-real', ref: '/r/1', bornMs: now - 29_000 }]),
+  });
+  const template = { ...base, id: 'tpl-1', baseId: 'codex', isProfile: true };
+  const { rekeyed } = setup({
+    sessions: [
+      ['on-template', live({ _openedAt: now - 120_000 })],                                  // asked nothing
+      ['on-base', live({ _openedAt: now - 60_000, _firstTurnAt: now - 30_000 })],
+    ],
+    backend: base,
+    backendOf: (id) => (id === 'on-template' ? 'tpl-1' : 'codex'),
+    registry: (id) => (id === 'tpl-1' ? template : base),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['on-base', 'codex-real']], 'the record went to the session that produced it');
+});
+
+test(`a session in another project is not a candidate for this one's record`, () => {
+  // `elsewhere` is OLDER, so if the project filter were missing it would out-rank `here` and `here`
+  // would defer. That is what makes this guard something rather than nothing.
+  const now = Date.now();
+  const { rekeyed } = setup({
+    sessions: [
+      ['elsewhere', live({ _openedAt: now - 120_000, _firstTurnAt: now - 40_000, projectPath: '/other' })],
+      ['here', live({ _openedAt: now - 60_000, _firstTurnAt: now - 29_000 })],
+    ],
+    backend: fakeBackend({
+      recordAppearsAt: 'first-turn',
+      matchLiveSession: recordStore([{ sessionId: 'codex-real', ref: '/r/1', bornMs: now - 28_000, cwd: '/p' }]),
+    }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['here', 'codex-real']], 'each project is its own question');
+});
+
+test('a backend that does not date its record adopts exactly as it did before', () => {
+  const now = Date.now();
+  const { rekeyed } = setup({
+    sessions: [['first', live({ _openedAt: now - 120_000 })], ['second', live({ _openedAt: now - 60_000 })]],
+    backend: fakeBackend({ matchLiveSession: () => ({ sessionId: 'codex-real', ref: '/store/rec.jsonl' }) }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(rekeyed, [['first', 'codex-real']], 'no bornMs, no new opinion');
 });
 
 // #151: a live session with no store record shows no state at all, forever. Hermes' degraded mode puts it

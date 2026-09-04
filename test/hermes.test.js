@@ -234,6 +234,10 @@ test('matchLiveSession: finds the DB row for a session we just launched in this 
   const match = hermes.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
   assert.ok(match, 'found the session row');
   assert.strictEqual(match.sessionId, 'sess-cli-1', 'the EARLIEST matching session (launch order)');
+  // #527: the core cannot tell two unpaired sessions of one backend in one project apart without
+  // knowing WHEN the record was written. A backend that stops answering this degrades silently to the
+  // mis-pairing that issue is about, so it is asserted here rather than assumed.
+  assert.ok(Number.isFinite(match.bornMs), 'the match dates the record');
 });
 
 test('matchLiveSession: never hands the same session to two tabs', () => {

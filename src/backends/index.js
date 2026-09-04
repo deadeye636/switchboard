@@ -200,6 +200,11 @@ function profileToDescriptor(p) {
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
     matchLiveSession: base ? base.matchLiveSession : undefined,
+    // WHEN the record appears is a property of the STORE, and a template writes into its base's store —
+    // so it answers what the base answers (#512, #527). Left off, a template's sessions were dated from
+    // their spawn while the base's were dated from their first turn, which put the two back on different
+    // clocks in the one place they compete for the same records.
+    recordAppearsAt: base ? base.recordAppearsAt : undefined,
     sessionBucketPath: base ? base.sessionBucketPath : undefined,
   };
 }
