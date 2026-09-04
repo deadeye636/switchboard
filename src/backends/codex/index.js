@@ -289,6 +289,11 @@ description:
   matchLiveSession: store.matchLiveSession,
   liveRefFor: store.liveRefFor,
   liveState,
+  // The rollout file appears WITH the first turn, not with the spawn (#512): of 29 rollouts on one
+  // machine, none carries a `session_meta` header without a `task_started` beside it. A session left
+  // sitting at its prompt therefore has nothing to pair with, and the app must not report that as a
+  // backend that cannot see it.
+  recordAppearsAt: 'first-turn',
 
   // Codex has its OWN trust gate — "Do you trust this directory?" on a fresh cwd — and it remembers the
   // answer in its config.toml, not in Claude's config (#171). Ticking "Trusted" in the project manager

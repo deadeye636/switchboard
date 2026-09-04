@@ -58,6 +58,7 @@ function makeCtx(sessionId, isBusyFn = () => false, opts = {}) {
     },
   };
 
+  const turnsSubmitted = [];
   // Support dynamic session removal for W5 test
   let sessionPresent = true;
   // Support dynamic liveness flip for W7 tests
@@ -73,6 +74,10 @@ function makeCtx(sessionId, isBusyFn = () => false, opts = {}) {
       return id === sessionId ? isBusyFn() : false;
     },
     isPtyAlive() { return alive; },
+    // #512: a trigger writes its command and its Enter straight to the PTY, so `terminal-input` never
+    // sees the turn. The watcher says so itself, and the app latches it on the session.
+    noteTurnSubmitted(id) { turnsSubmitted.push(id); },
+    _turnsSubmitted: turnsSubmitted,
     _written: written,
     _ptyProcess: ptyProcess,
     _removeSession() { sessionPresent = false; },
@@ -142,6 +147,9 @@ test('happy path: trigger → pty.write called, result ok:true, trigger deleted'
 
     // pty.write: command text, discrete Enter, then the verify-retry Enter.
     assert.deepEqual(ctx._written, ['/compact', '\r', '\r'], 'pty.write: command text, Enter, then retry Enter');
+    // #512: the same submit says a turn was asked for, so a session driven only by triggers still starts
+    // the clock the "no store record" notice runs on. Once, not once per Enter.
+    assert.deepEqual(ctx._turnsSubmitted, [SESSION_ID], 'the submit announced the turn');
 
     // Trigger file deleted
     assert.equal(fs.existsSync(triggerPath), false, 'trigger file should be deleted');

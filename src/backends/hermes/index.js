@@ -314,6 +314,10 @@ description:
   matchLiveSession,
   liveRefFor,
   liveState,
+  // The default, kept rather than measured (#512): nothing here has watched WHEN the session row is
+  // written, only that it is there by the time a turn runs. Honest gap — the pre-#512 behaviour, which
+  // has not been observed to misfire for hermes.
+  recordAppearsAt: 'spawn',
   PARSER_SCHEMA_VERSION: reader.PARSER_SCHEMA_VERSION,
 
   // No `projectTrust` (its config.yaml has no per-project trust gate — `trust_recent_files` is about

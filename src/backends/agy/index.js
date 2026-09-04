@@ -275,6 +275,10 @@ module.exports = {
   matchLiveSession: store.matchLiveSession,
   liveRefFor: store.liveRefFor,
   liveState,
+  // The conversation database appears with the FIRST PROMPT, not at launch — agy behaves like
+  // `agy --print` here, measured while working on adoption (docs/ai/driving-the-app.md). Until it
+  // exists there is nothing to correlate, so a session sitting at its prompt must not be reported (#512).
+  recordAppearsAt: 'first-turn',
 
   // agy's transcripts are files, so "Delete this project's sessions" can hand them over; the guard keeps
   // a delete inside the store it belongs to. No `rewriteProjectPath`: the cwd is embedded in a protobuf

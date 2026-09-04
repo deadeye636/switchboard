@@ -178,6 +178,10 @@ function pollForBusyRise(sessionId, ctx, windowMs, deadlineMs) {
  * that the verification could not confirm a turn started.
  */
 async function submitWithVerify(ptyProcess, sessionId, command, ctx, deadlineMs) {
+  // A turn was asked for — the same fact `terminal-input` records for a keystroke (#512). These bytes
+  // never pass through it, so without this a session driven entirely by triggers would never start its
+  // clock, and one whose backend genuinely cannot see it could never be reported.
+  if (ctx.noteTurnSubmitted) ctx.noteTurnSubmitted(sessionId);
   await submitToPty(ptyProcess, command);
 
   const windowMs = getSubmitVerifyMs();
@@ -827,6 +831,9 @@ async function processTriggerFile(name, ctx, triggersDir, processedDir) {
  * @param {object} ctx
  * @param {function} ctx.getPtyForSession  (sessionId: string) => { ptyProcess } | null
  * @param {function} ctx.isSessionBusy     (sessionId: string) => boolean
+ * @param {function} [ctx.noteTurnSubmitted] (sessionId: string) => void — a turn was asked for (#512).
+ *   Optional: without it the turn clock simply never starts from a trigger, which is the behaviour
+ *   before it existed.
  * @param {function} [ctx.isPtyAlive]      (ptyProcess) => boolean (default: signal 0 probe)
  * @param {object}   ctx.log               electron-log compatible logger
  * @returns {{ close(): void }}

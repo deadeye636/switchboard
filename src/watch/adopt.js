@@ -146,7 +146,15 @@ function updateBackendLiveStates() {
       // state at all, forever. Hermes' degraded mode (it writes JSON when it cannot open its own DB) puts
       // it here. Say so once, rather than leaving a blank indicator the user cannot explain (#151). We do
       // NOT fabricate a state from PTY output: output is liveness, never busy (D21).
-      if (shouldNoticeMissingRecord({ openedAt: session._openedAt, alreadyNoticed: session._noRecordNoticed })) {
+      // `recordAppearsAt` is the backend's own answer to WHEN its record shows up (#512). Codex writes
+      // its rollout with the first turn, so a session left sitting at its prompt has nothing to pair
+      // with and must not be reported — the clock starts at the turn, not at the spawn.
+      if (shouldNoticeMissingRecord({
+        openedAt: session._openedAt,
+        alreadyNoticed: session._noRecordNoticed,
+        recordAppearsAt: backend.recordAppearsAt,
+        firstTurnAt: session._firstTurnAt,
+      })) {
         session._noRecordNoticed = true;
         const message = missingRecordMessage(backend.label || backend.id);
         ctx.log.warn(`[${backend.id}] session=${liveId} has no store record — reporting no busy/idle state`);

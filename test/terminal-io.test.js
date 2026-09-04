@@ -92,6 +92,55 @@ test('a keystroke reaches the PTY, and an exited session swallows it', () => {
   assert.deepEqual(dead.pty.calls.write, []);
 });
 
+const CR = String.fromCharCode(13);
+const ESC = String.fromCharCode(27);
+
+// #512: the same handler records WHEN the user first asked for a turn, because a backend that writes its
+// store record with the first turn has nothing to pair with until then. The field is read in
+// src/watch/adopt.js, so a rename on either side is silent — that is what these are here for.
+test('the first submitted turn is recorded on the session', () => {
+  const s = session();
+  const { ipc } = setup([['s', s]]);
+  const before = Date.now();
+
+  ipc.send('terminal-input', 's', 'fix the tests');
+  assert.equal(s._firstTurnAt, undefined, 'typing is not asking');
+  ipc.send('terminal-input', 's', CR);
+
+  assert.ok(s._firstTurnAt >= before, 'the Enter after the text is the turn');
+});
+
+test('Enter with nothing typed is a dialog answer, not a turn', () => {
+  // A trust gate ("Do you trust this directory?") is answered with Enter and writes no record. Counting
+  // it would start the clock on a session nobody has asked anything — #512, one dialog downstream.
+  const s = session();
+  const { ipc } = setup([['s', s]]);
+
+  ipc.send('terminal-input', 's', ESC + '[B');   // move the selection
+  ipc.send('terminal-input', 's', CR);
+
+  assert.equal(s._firstTurnAt, undefined);
+});
+
+test('the newline chord is not a turn', () => {
+  const s = session();
+  const { ipc } = setup([['s', s]]);
+
+  ipc.send('terminal-input', 's', 'half a prompt');
+  ipc.send('terminal-input', 's', ESC + CR);   // Codex' "newline, not submit" (#493)
+
+  assert.equal(s._firstTurnAt, undefined);
+});
+
+test('an exited session records nothing', () => {
+  const s = session({ exited: true });
+  const { ipc } = setup([['s', s]]);
+
+  ipc.send('terminal-input', 's', 'ls' + CR);
+
+  assert.equal(s._firstTurnAt, undefined);
+});
+
 test('a PTY that dies mid-write does not take the main process with it', () => {
   const s = session({ pty: fakePty({ write: () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); } }) });
   const { ipc, warnings } = setup([['s', s]]);

@@ -174,6 +174,30 @@ database — so a session running in front of the user may have no record we can
 state, forever, with nothing to explain it. A session left unpaired past a grace window (60 s; Hermes alone
 needs ~12 s just to paint) is marked as one the backend cannot see.
 
+**When the grace window STARTS is the backend's own answer** (`recordAppearsAt`, #512). The rule used to be
+"a record appears within seconds of the spawn" for everyone, and for Codex that is measurably wrong: across
+29 rollouts on one machine, not one carries a `session_meta` header without a `task_started` beside it, and
+the file appears with the first turn rather than with the process. A Codex session launched and left sitting
+at its prompt therefore had nothing to pair with, and picked up the muted dot a minute later while it was
+alive and usable. **agy is the same** — its conversation database appears with the first prompt, not at
+launch. Both answer `'first-turn'`, and such a session, asked nothing, is never reported at all. Hermes and
+Pi keep the default `'spawn'`, which is the behaviour that shipped — and it is a DEFAULT, not a
+measurement: nothing has watched when either writes its record, and their descriptors say so rather than
+claiming otherwise. That direction is the same one this whole area argues for: no notice beats a wrong one.
+
+The turn is read from the INPUT side, never from output — a TUI repaints at rest, and rule 4 below is
+exactly about not reading a turn out of activity. Three things that costs:
+
+- **`ESC CR` is not a submit** — it is Codex' "newline, not submit" sequence (#493).
+- **Enter alone is not a turn.** A trust gate, an empty composer and a menu all answer to Enter and write
+  no record, so something has to have been typed first. Otherwise the clock starts on the "Do you trust
+  this directory?" of a fresh project and the muted dot is back a minute later, one dialog downstream of
+  the bug this removed.
+- **The keyboard is not the only writer.** `src/watch/trigger-watcher.js` writes its command and its Enter
+  straight to the PTY, so it says so itself. A session driven only by triggers would otherwise never start
+  its clock — and one whose backend genuinely cannot see it could then never be reported, which is the
+  opposite failure and the worse one.
+
 **The mark lasts as long as the condition does** (#460). It was a toast at first, and a toast is the wrong
 shape for this: it faded after eight seconds while the thing it explained stayed for good, so looking away
 left the user with exactly the unexplained blank indicator #151 set out to remove. The fact is held in

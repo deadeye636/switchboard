@@ -174,6 +174,31 @@ test('buildLiveBinding declines rather than throwing when it cannot bind', () =>
 // just merges the answer into the PTY env. Two halves matter equally: an isolated run must hand the CLI a home
 // INSIDE the isolated tree, and a normal run must hand it nothing at all (an unasked-for CLAUDE_CONFIG_DIR
 // would silently redirect a real session). A backend whose CLI has no such variable declines (agy).
+// #512: WHEN a backend's store record appears is the backend's answer, not an assumption in the core.
+// The old assumption ("within seconds of the spawn") was measurably wrong for Codex — its rollout is
+// written with the first turn — and a healthy session picked up the "this backend cannot see you" dot a
+// minute after launch because of it. Only the store-derived backends are asked: Claude owns its session
+// id and reports state through the terminal, so it is never unpaired in this sense.
+test('every store-derived backend declares when its record appears (#512)', () => {
+  const { RECORD_APPEARS_AT } = require('../src/app/terminal/live-record-notice');
+  const derived = READY.filter(b => typeof b.matchLiveSession === 'function' && typeof b.liveState === 'function');
+  assert.ok(derived.length >= 4, 'expected the store-derived backends to be registered');
+
+  for (const b of derived) {
+    assert.ok(
+      RECORD_APPEARS_AT.includes(b.recordAppearsAt),
+      `${b.id}: recordAppearsAt must be one of ${RECORD_APPEARS_AT.join(' / ')}, got ${b.recordAppearsAt}`,
+    );
+  }
+
+  // Pinned by name, the same shape as the maps above and for the same reason: changing an answer changes
+  // WHEN a user is warned, so it has to fail here and say so out loud rather than drift. codex and agy
+  // are measured (the rollout, the conversation database); hermes and pi hold the default, which their
+  // descriptors label as a default rather than as a measurement.
+  const byId = Object.fromEntries(derived.map(b => [b.id, b.recordAppearsAt]));
+  assert.deepEqual(byId, { codex: 'first-turn', agy: 'first-turn', hermes: 'spawn', pi: 'spawn' });
+});
+
 test('every backend declares cliHomeEnv — an isolated CLI home or an honest null (#241)', () => {
   const STORE_VAR = {
     claude: 'SWITCHBOARD_STORE_CLAUDE',

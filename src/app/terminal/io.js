@@ -9,6 +9,8 @@
 // Needs no electron (registerIpc takes the ipc object) and no DB.
 'use strict';
 
+const { noteInputForTurnClock } = require('./live-record-notice');
+
 let ctx = null;
 
 /**
@@ -39,6 +41,11 @@ function registerIpc(ipc) {
   ipc.on('terminal-input', (_event, sessionId, data) => {
     const session = ctx.activeSessions.get(sessionId);
     if (session && !session.exited) {
+      // When the user first asked for something (#512). A backend that writes its store record with the
+      // first turn rather than at the spawn has nothing to pair with until this moment, and the grace
+      // period for the "no store record" notice runs from here instead of from `_openedAt`. Recorded for
+      // every session because the input path must not know which backends care.
+      noteInputForTurnClock(session, data);
       // Covers the synchronous failure path (e.g. the pty was disposed between the
       // guard and the write). An async EAGAIN completes later and is caught by the
       // process-level guard in main.js. Either way the same bytes are delivered, so tabs

@@ -457,6 +457,9 @@ description:
   matchLiveSession: store.matchLiveSession,
   liveRefFor: store.liveRefFor,
   liveState,
+  // The default, kept rather than measured (#512): nothing here has watched WHEN the transcript header
+  // is written. Honest gap — the pre-#512 behaviour, which has not been observed to misfire for pi.
+  recordAppearsAt: 'spawn',
 
   // Pi writes its cwd ONCE, on the header line — so a remap has to touch that one line, and Pi's
   // transcripts move with the project like everyone else's (#171).

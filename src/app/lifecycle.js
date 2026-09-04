@@ -14,6 +14,7 @@
 
 const path = require('path');
 const sessionShutdown = require('./session-shutdown');
+const { markTurnSubmitted } = require('./terminal/live-record-notice');
 
 /**
  * Does this build take the single-instance lock? Everything does now, unless it opts out (#220).
@@ -156,6 +157,11 @@ function start(ctx) {
         isSessionBusy(sessionId) {
           const session = ctx.activeSessions.get(sessionId);
           return session ? !!session._cliBusy : false;
+        },
+        // A trigger writes its command and its Enter straight to the PTY, so `terminal-input` never
+        // sees the turn (#512). The watcher owns no session objects, so the latch is applied here.
+        noteTurnSubmitted(sessionId) {
+          markTurnSubmitted(ctx.activeSessions.get(sessionId));
         },
       });
     } catch (err) {

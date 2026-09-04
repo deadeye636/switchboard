@@ -345,7 +345,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   never pairs with a store record — Hermes writes plain JSON when it cannot open its own database, and
   the database is what we read — no state can be reported for as long as it runs. The session then
   carries a **hollow dot and the reason on hover** (#151, #460) instead of a blank indicator. It is
-  never inferred from PTY output: output is liveness, never work.
+  never inferred from PTY output: output is liveness, never work. Each backend also says WHEN its record
+  appears (#512) — Codex writes its rollout and agy its conversation database with the first turn rather
+  than at the spawn, so a session of theirs sitting at its prompt with nothing asked of it yet is never
+  reported as one the backend cannot see.
 - **Cost analytics** — where a backend prices its own turns (Hermes, Pi), Stats shows it per backend.
   An estimate is labelled as an estimate, a zero estimate reads as "no cost reported" rather than
   `$0.00`, and a token-only backend shows an em dash.

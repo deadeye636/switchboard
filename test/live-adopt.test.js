@@ -286,6 +286,47 @@ test('a session noticed before adoption has the explanation taken back under BOT
   assert.deepEqual(cleared.sort(), ['codex-real', 'temp-1']);
 });
 
+// #512: a backend that writes its record with the FIRST TURN, not at the spawn (Codex' rollout, agy's
+// conversation database). The wiring these pin is the one nothing else covers: `adopt` reads
+// `backend.recordAppearsAt` and `session._firstTurnAt`, and both are written somewhere else entirely —
+// rename either side and the pure decision keeps passing while the app is back to the bug.
+test('a first-turn backend is never noticed while nothing has been asked of it', () => {
+  const session = live({ _openedAt: Date.now() - 60 * 60_000 });   // an hour, and still nothing to say
+  const { noticed } = setup({
+    sessions: [['temp-1', session]],
+    backend: fakeBackend({ matchLiveSession: () => null, recordAppearsAt: 'first-turn' }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(noticed, [], 'no turn behind it, so there is nothing to explain yet');
+});
+
+test('a first-turn backend is noticed once the turn is old enough', () => {
+  const session = live({ _openedAt: Date.now() - 60 * 60_000, _firstTurnAt: Date.now() - 60_000 });
+  const { noticed } = setup({
+    sessions: [['temp-1', session]],
+    backend: fakeBackend({ matchLiveSession: () => null, recordAppearsAt: 'first-turn' }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.equal(noticed.length, 1, 'asked a minute ago and still no record — that is worth saying');
+  assert.equal(noticed[0][0], 'temp-1');
+});
+
+test('a first-turn backend whose turn is still young says nothing yet', () => {
+  const session = live({ _openedAt: Date.now() - 60 * 60_000, _firstTurnAt: Date.now() - 5_000 });
+  const { noticed } = setup({
+    sessions: [['temp-1', session]],
+    backend: fakeBackend({ matchLiveSession: () => null, recordAppearsAt: 'first-turn' }),
+  });
+
+  adopt.updateBackendLiveStates();
+
+  assert.deepEqual(noticed, []);
+});
+
 test('a ctx without the notice hooks does not throw', () => {
   const session = live({ _openedAt: Date.now() - 60_000 });
   setup({

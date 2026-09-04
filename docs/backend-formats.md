@@ -86,6 +86,11 @@ a hook alone cannot say whether a prompt is still waiting.
   still completes, and `shutdown_complete` is never written to a rollout at all. Read the tail, but with a
   **growing** window: a busy turn writes reasoning and tool output, so `task_started` scrolls out of a
   fixed 64 KB tail long before the turn ends.
+- **The rollout appears with the FIRST TURN, not with the spawn** (#512). Measured over 29 rollouts on one
+  machine: none has a `session_meta` header without a `task_started` beside it (median 0 s between them),
+  and none exists for a session that was opened and then abandoned — the file is laid down with its header
+  already written, not created empty and filled later. So a Codex session sitting at its prompt cannot be
+  paired with anything, and the descriptor says so through `recordAppearsAt: 'first-turn'`.
 - **Trap:** not every rollout is a session. Since cli 0.151.0 Codex spawns internal review subagents of
   its own — the guardian that judges a planned action — and each one writes a rollout of the same name
   shape into the same day folder. The header is the only thing that says so: `thread_source` names the
@@ -307,7 +312,7 @@ existing `~/.gemini` config on first run — which is why its data lives **under
 retired CLI and are a decoy. agy's own store is elsewhere.
 
 ```
-~/.gemini/antigravity-cli/conversations/<conversation-id>.db     one SQLite DB per conversation
+~/.gemini/antigravity-cli/conversations/<conversation-id>.db     one SQLite DB per conversation (written on the FIRST PROMPT)
 ~/.gemini/antigravity-cli/cache/last_conversations.json          { "<cwd>": "<conversation-id>" }  (latest per cwd)
 ~/.gemini/antigravity-cli/history.jsonl                          one line per prompt: {display, timestamp(ms), workspace}
 ~/.gemini/antigravity-cli/conversation_summaries.db              a separate summaries store (WAL)
