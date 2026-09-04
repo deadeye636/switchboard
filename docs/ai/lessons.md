@@ -826,3 +826,86 @@ Five of those files had moved in the previous 90 seconds with no agy process run
   and obvious in a minimum. `perf-sample.js` reports the distribution for that reason.
 - **The log line stays.** It is per-decision detail at `debug`, where the logging rules put it, and the
   next flush storm will name its store in a minute instead of a night.
+
+## The measurement was right and the cause was wrong (#524)
+
+A day after #521 the reconciles were still there — a median of 12 a minute, peaking at 34, each one a
+walk over 963 `.jsonl` files. The first hypothesis was written up, filed as an issue, and was wrong: it
+blamed the projects watcher, because a recursive `fs.watch` on Windows does report the containing folder
+when a file inside it is appended to, and `src/watch/projects.js` reads any top-level event as "a folder
+appeared or vanished".
+
+What settled it was a distribution, not an argument. Over 46 minutes every one of 822 reconcile posts
+landed a median of 651 ms after the previous file-lane post, and **none** in the 0-2 ms bucket. A reconcile
+posted from the watcher's own flush runs in the same synchronous tick as that flush's `postFile` calls, so
+it would show up at 0 ms. It never did. A read-only watcher on the real store confirmed it from the other
+side: three minutes, 45 `.jsonl` events, one single top-level event — against ~44 reconciles in the log.
+
+The real path was a loop through the renderer: a file reply is applied, main pushes `projects-changed`, the
+sidebar refetches with `get-projects`, and `get-projects` queues a full unscoped sweep. The watcher branch
+accounted for about 2 % of the traffic.
+
+- **A plausible mechanism that reproduces in a probe is not the mechanism.** The `fs.watch` behaviour was
+  real, reproducible, and almost irrelevant — it fires once every few minutes, not once per append.
+- **Timing distributions identify callers.** "Which code posted this?" is answerable without instrumenting
+  the code, if two callers would produce different latencies and one of them is zero.
+- **The issue was rewritten rather than deleted, with the correction as a comment.** The measurements were
+  sound; only the attribution was wrong, and the next person deserves to see which was which.
+
+Then it was closed anyway. The whole loop costs ~76 ms per sweep — 58-75 ms of gate walk in the index
+worker plus 11.2 ms of DB work on the main thread — which at 15 sweeps a minute is 1.9 % of one core, or
+0.1 % of a 20-core machine. Two follow-ups were measured before that decision: the UI-thread half is the
+*smaller* half (a suspicion said otherwise), and the I/O argument does not hold either — 4.9M metadata
+operations an hour sounds alarming and moves 569 KB/s, because NTFS answers them from cache.
+
+## Counting the objects is not finding the leak (#525)
+
+The renderer's heap floor — the minimum after GC, sampled once a minute over four hours — climbed from
+9 MB to 43 MB while node counts stayed flat and RSS ended 11 MB above where it started. Listeners grew
+too. None of that says what is growing.
+
+Two heap snapshots 36 minutes apart said `+297 820 plain Objects, +191 281 heap numbers`, which still
+names no code. The retainer walk did, in one run and identically for every sample:
+
+```
+size in Object  <-  [35448] in Array  <-  _glyphs in g  <-  [0] in Array  <-  _pages in f  <-  atlas
+```
+
+xterm's WebGL glyph atlas. Counted directly: 140 388 entries in the first snapshot, 189 399 in the second.
+Six objects and four numbers per entry accounted for essentially all of the growth.
+
+- **A snapshot answers "what", a retainer walk answers "who".** The kind of object is almost never
+  actionable on its own; the container is.
+- **Check whether the thing you count is shared.** Every WebGL terminal points at ONE atlas. Summing per
+  terminal reported eight times the real number, and the first reading of this was four times too bad.
+- **A string that looks like a smoking gun usually is not.** 553 strings named `unstaged` looked like one
+  retained VCS payload per poll; the retainer walk showed all of them hanging off a single file list in the
+  sidebar's cache. Current state, not a leak.
+- **Half of it was self-inflicted, and that half was ours to fix.** Every reveal called
+  `clearTextureAtlas()`, and a clear empties the atlas cache maps but never a page's `glyphs` array, so
+  each re-rasterised glyph was appended while the old entry stayed. One clear plus repaint of a 58-row
+  terminal added 1403 entries with the screen unchanged.
+
+## The heal that could not simply be deleted (#525, #118)
+
+Finding that our own clears drove the growth made the fix look obvious: stop clearing. It was wrong twice
+over, and both were caught before shipping — the first by a rule file, the second by a reviewer.
+
+`.claude/rules/renderer.md` records #320 as the previous attempt to relax exactly this protection after a
+bench measurement, disproved by daily use within hours. That is why the clear became conditional rather
+than absent: a merge rewrites texture coordinates under every other terminal, and only then does the
+shared atlas have to be wiped.
+
+The second error survived that. A gate that skipped the clear and repainted instead heals nothing:
+xterm's WebGL renderer skips every cell whose code, fg, bg and ext are unchanged, so refreshing a screen
+that did not change looks nothing up again. The healing was never the repaint — it was `_clearModel(true)`,
+which `clearTextureAtlas()` happens to do as a side effect. The fix is to call the renderer's own `clear()`
+on the branch that does not wipe.
+
+- **When you remove a call, list everything it did.** The clear was reached for its shared effect and was
+  relied upon for a local one.
+- **A green suite and a driven measurement both missed it.** 3377 tests passed, and glyph counting showed
+  the growth gone; neither can see a stale texture coordinate. Reading the library's source did.
+- **The demo environment is a control group, not a stage.** Its terminals hold no content, so a visual
+  check there proves nothing — the corruption test had to write synthetic coloured output first, then
+  simulate a sibling's wipe by calling `clearTexture()` on the shared atlas directly.
