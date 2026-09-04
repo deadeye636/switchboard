@@ -33,8 +33,17 @@ CRLF file would rewrite every line of it and a BOM'd `settings.json` would lose 
 
 Every writer uses it: `saveMemory`, `savePlan`, `save-file-for-panel` — the last of which every preview
 tab uses and which had none of the three, not even a baseline argument — plus the resource writer this
-spec adds and, since #468, the one that saves a handoff packet into its project. `writeTextFile` is the
-grep that stays true.
+spec adds, the one that saves a handoff packet into its project (#468), Claude's own `~/.claude.json`
+(#533), the attention hook's writes into `~/.claude/settings.json`, the plan convention pointing a
+project's CLIs at its plans directory (#450), and the two per-project trust writers — Codex' `config.toml`
+and Pi's `trust.json` (#542).
+
+**That last one is worth a sentence,** because it is the file this spec opens with and it was the last
+holdout: it kept a raw `fs.writeFileSync` long after this paragraph claimed otherwise. Two failures came
+with it — a CLI editing its own settings between our read and our write lost that edit, and a settings
+file this app could not PARSE came back as `{}`, which turned one syntax error into an empty file and took
+every hook the user had with it. `writeTextFile` is the grep that stays true — and the way to keep that
+sentence honest is to run the grep rather than to read it.
 
 ## Validation
 

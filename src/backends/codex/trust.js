@@ -17,6 +17,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { writeTextFile } = require('../../app/safe-write');
 
 // Codex' home, following the isolated store first (#241). SWITCHBOARD_STORE_CODEX names the sessions dir;
 // the home is its parent. CODEX_HOME is the CLI's own variable and stays the next-best answer.
@@ -161,38 +162,69 @@ function get(projectPath) {
   return null;
 }
 
+// How many times the read-modify-write is re-derived before giving up (#542). Same shape and same reason
+// as `claude/config.js`: a refusal means the file moved, and the answer to that is to look again, not to
+// write what we already know is out of date.
+const WRITE_ATTEMPTS = 3;
+
+/** A short pause, so three attempts are three tries rather than three collisions with one write burst. */
+function pauseBeforeRetry(random = Math.random) {
+  const until = Date.now() + 5 + Math.floor(random() * 15);
+  while (Date.now() < until) { /* wait */ }
+}
+
 /**
- * Write the trust level. Atomic (temp + rename) with a .bak, exactly like claude-config: this is
- * somebody else's config file, and half a write would take their settings with it.
+ * Write the trust level, through `safe-write.js` like every other write into a file a CLI owns (#542).
+ *
+ * The atomicity was here from the start; the BASELINE was not. This is a read-modify-write over a file
+ * Codex rewrites whenever it is asked to remember something, and the whole document goes back — so
+ * anything it stored between our read and our write was not overwritten by a conflicting value, it was
+ * simply absent from the text we handed back. The gap is a user's reaction time in a dialog, not
+ * milliseconds. `writeTextFile` refuses when the file no longer holds what we parsed, and the mutation is
+ * re-derived against what is actually there. It also keeps the file's own line endings, which a
+ * `config.toml` with CRLF lines otherwise loses in full on the first trust click.
  */
 function set(projectPath, trusted) {
   if (!projectPath) return { ok: false, error: 'No project path' };
   const file = configPath();
-  let toml = '';
-  try { toml = fs.readFileSync(file, 'utf8'); } catch {
-    // No config yet — Codex writes one on first run. Creating it just for a trust entry is honest
-    // enough (the table is all it would contain), but only if the directory is there.
-    if (!fs.existsSync(codexHome())) return { ok: false, error: 'Codex is not installed here' };
-  }
+  let backedUp = false;
+  for (let attempt = 1; attempt <= WRITE_ATTEMPTS; attempt++) {
+    if (attempt > 1) pauseBeforeRetry();
+    let toml = '';
+    try { toml = fs.readFileSync(file, 'utf8'); } catch {
+      // No config yet — Codex writes one on first run. Creating it just for a trust entry is honest
+      // enough (the table is all it would contain), but only if the directory is there.
+      if (!fs.existsSync(codexHome())) return { ok: false, error: 'Codex is not installed here' };
+    }
 
-  // Update EVERY spelling of the path the file already carries (a real config holds `d:\x` and `D:\X`
-  // as separate tables), so trusting a project does not leave a stale untrusted twin behind.
-  let next = toml;
-  const existing = [...parseTrust(toml).keys()].filter(p => norm(p) === norm(projectPath));
-  for (const spelling of existing) next = setTrust(next, spelling, trusted);
-  if (!existing.length) next = setTrust(next, projectPath, trusted);
+    // Update EVERY spelling of the path the file already carries (a real config holds `d:\x` and `D:\X`
+    // as separate tables), so trusting a project does not leave a stale untrusted twin behind.
+    let next = toml;
+    const existing = [...parseTrust(toml).keys()].filter(p => norm(p) === norm(projectPath));
+    for (const spelling of existing) next = setTrust(next, spelling, trusted);
+    if (!existing.length) next = setTrust(next, projectPath, trusted);
 
-  try {
-    if (toml) fs.writeFileSync(file + '.bak', toml);
-    const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, next);
-    fs.renameSync(tmp, file);
-    return { ok: true };
-  } catch (err) {
-    // The message names `config.toml` under the user's Codex home, and this answer is shown in a
-    // dialog (#457). A backend words its own refusal rather than reaching into `src/app/`.
-    return { ok: false, error: `Codex' trust file could not be written (${err && err.code ? err.code : 'unknown error'}).` };
+    if (toml && !backedUp) {
+      // Once per call, not once per attempt: a retry's copy would overwrite the backup with the other
+      // writer's newer version, and a `.bak` that tracks the file it is a fallback FOR is not one.
+      try { fs.copyFileSync(file, file + '.bak'); backedUp = true; } catch (err) { return failure(err); }
+    }
+
+    // `toml` is '' when there was no file. Passing it as the baseline is what we want either way: with
+    // nothing on disk the compare is skipped and the file is created, and if Codex created one in the
+    // meantime the compare refuses and the next attempt reads what it wrote.
+    const res = writeTextFile(file, next, { expectPrevious: toml, mustExist: false });
+    if (res.ok) return { ok: true };
+    if (res.code === 'stale') continue;
+    return failure(res.cause);
   }
+  return { ok: false, error: "Codex' trust file could not be written: another program kept changing it. Try again." };
+}
+
+// The message names `config.toml` under the user's Codex home, and this answer is shown in a dialog
+// (#457). A backend words its own refusal rather than reaching into `src/app/`.
+function failure(err) {
+  return { ok: false, error: `Codex' trust file could not be written (${err && err.code ? err.code : 'unknown error'}).` };
 }
 
 function norm(p) {
@@ -200,4 +232,4 @@ function norm(p) {
   return process.platform === 'win32' ? t.toLowerCase() : t;
 }
 
-module.exports = { get, getMany, set, parseTrust, setTrust, configPath };
+module.exports = { get, getMany, set, parseTrust, setTrust, configPath, _WRITE_ATTEMPTS: WRITE_ATTEMPTS };

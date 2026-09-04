@@ -9,9 +9,10 @@ paths:
 # Backends
 
 The app runs **several coding CLIs** (Claude, Codex, Hermes, Pi, agy — all five ready), not just Claude.
-One folder per backend — `index.js` (registry) + `claude/` (a **thin adapter**: the core still
-imports Claude's readers directly instead of going through the descriptor, which is why they are not
-in that folder) + a folder per Axis-B binary.
+One folder per backend — `index.js` (registry) + `claude/` (a **thin adapter**, and the one backend whose
+readers the core still imports directly instead of going through the descriptor) + a folder per Axis-B
+binary + the shared modules beside them (`file-store.js`, `resource-expand.js`, `capabilities.js`,
+`cli-probe.js`, … — list the directory rather than trusting an enumeration here).
 
 **Read first:** `docs/specs/09-multi-llm.md` (the contract + why each decision is what it is) and
 `docs/backend-formats.md` (what each backend actually writes — taken from real installs, because the
@@ -42,7 +43,8 @@ of its plan files is **referred to** in its sessions and what it would take to *
 plans directory** (`planRef` / `planDirSetup`, #449/#450), where it keeps **handoff packets inside a
 project** (`handoffDirs({ projectPath })`, #468 — Claude's handoff skills write into `.claude/handoffs`,
 and a core that spelled that would have learned one backend's layout), whether it has
-**subagents** (`supportsSubagents`, #230 — only Claude does), where its CLI **publishes what changed**
+**subagents** (`supportsSubagents`, #230 — only Claude implements the seam; Hermes writes delegated child
+sessions its descriptor could describe and does not yet, #553), where its CLI **publishes what changed**
 (`changelogSource`, #528 — `npm run backends:changelog-check` asks every backend rather than holding a
 list of pages, and a CLI without a public changelog declares `null`), whether it still **owes a turn** it has
 not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
@@ -109,6 +111,13 @@ Three rules around them that are not the backend's:
   refuses to overwrite a change the editor has not seen, the atomic rename, and the file's own line
   endings and BOM. `src/app/format-validate.js` decides whether the text still parses — by extension,
   because TOML is TOML for every backend.
+
+  **This is not only about the resource editor.** A backend that writes a CLI's config for a feature of
+  its own is under the same rule, and both places that did it kept their own temp-file-and-rename for
+  months (#542): `claude/config.js` (`~/.claude.json`), `codex/trust.js` (`config.toml`) and
+  `pi/trust.js` (`trust.json`) are the writers, and each one is a read-modify-write of the WHOLE file —
+  which is what makes the baseline the property that matters. A refusal there is not a failure: re-derive
+  against the text that IS on disk and write again, bounded (three attempts is what all three take).
 - **Deleting is narrower than writing.** The path must be one the EXPANSION named, of a kind with a
   lifecycle. A settings file is a listed FILE and never an expansion entry, so it is unreachable by
   construction rather than by a deny-list. Which kinds those are is the core's vocabulary, and the
@@ -150,10 +159,13 @@ Three things that were paid for once each:
 ## Don't hardcode a backend id outside its own folder
 
 `src/main.js` / `src/app/**` / `src/watch/**` / `src/index/session-cache.js` / `src/renderer/**`
-contain none and must not gain one. The core reads no backend's format and hardcodes no `~/.claude`
+contain no backend id **in a branch or a composed path**, and must not gain one. They do `require` Claude's
+readers directly (`session-cache.js`, `main.js`, both workers) — the documented exception named above, not
+a violation. The core reads no backend's format and hardcodes no `~/.claude`
 path; `test/backend-path-neutrality.test.js` is the guard for the last one (a hardcoded store PATH is
 a backend id the id-hunt cannot see). `test/backend-integrations.test.js` guards the renderer.
-**#211** is the same migration in `src/projects/projects.js` and is still open.
+The same migration ran through `src/projects/projects.js` under #211, which is CLOSED — what is left
+there is the absence of a GUARD, not open work. Treat an id you find there as a defect to remove.
 
 **Reaching for a backend id nobody named? There are exactly two honest answers** (#212/#225), and
 the code must say which:
@@ -184,7 +196,11 @@ caller whose question cannot be answered from a fragment has to notice and read 
 
 Running a CLI just to read what it prints — `agy models`, `pi --list-models`, `claude agents --json`,
 `tasklist` — must close the child's stdin, or a CLI that reads standard input before answering waits
-for an EOF that never comes and the probe burns its whole timeout. **The two call shapes need different
+for an EOF that never comes and the probe burns its whole timeout.
+**And what it says when it fails goes through `cliComplaint`** (#540): a spawn errno names the executable
+it failed on, and a CLI's own stderr can be a stack trace full of absolute paths — both used to reach the
+message a user reads. It hands back the CLI's first line, capped, or `null` when that line looks like a
+path, and the caller words its own sentence. **The two call shapes need different
 fixes and that is the trap**: `spawnSync`/`execFileSync` honour a `stdio` option and take `PROBE_STDIO`,
 while `execFile` silently IGNORES one (Node passes `spawn` an allow-list without it) and has to be
 wrapped — `closeStdin(execFile(...))`. `test/cli-probe.test.js` sweeps this directory for both forms, so
@@ -215,10 +231,10 @@ an honest `supportsFork`; all three identity hooks if it names its own sessions;
 incremental parser). It exists because the same defect got fixed in one backend four separate times
 while its siblings quietly kept it — **fix a backend, check its siblings**.
 
-## `src/projects/**` — the migration that is still open (#211)
+## `src/projects/**` — migrated (#211), but unguarded
 
 `src/projects/projects.js` and `project-registry.js` are the **last** place the id-neutrality rule
-above is not yet enforced by a guard. Treat every backend id you find there as a defect to remove,
+above is not enforced by a guard — the migration itself is done (#211 is closed). Treat every backend id you find there as a defect to remove,
 not as precedent to copy: the same two honest answers apply (a `LEGACY_*` binding for a pre-#161
 record, or `firstLaunchableBackendId()`), and per-project config/meta belongs behind the descriptor's
 `projectMeta` hook (#211), never behind a `~/.claude.json` literal.

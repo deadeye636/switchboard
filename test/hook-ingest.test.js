@@ -592,3 +592,111 @@ test('a binding with no hold available behaves exactly as before (#530)', async 
   await post(BIND_URL, { session_id: 'sess-9', kind: 'idle', pending: true }, TOKEN);
   assert.equal(ctx.sent.filter(s => s.channel === 'cli-busy-state').length, 1);
 });
+
+// --- the settings write itself ------------------------------------------------------------------------
+//
+// `~/.claude/settings.json` is the file `docs/specs/24-resource-editing.md` names as its motivating case,
+// and these writes were the last place still touching it with a raw `writeFileSync`. Two failures came
+// with that, and both are ordinary rather than exotic.
+//
+// The write is reached the way the app reaches it: starting the server with hooks enabled.
+
+// The write happens in the server's `listen` callback, so this waits for the socket to be up before it
+// looks at the file — a synchronous check runs before anything has been written.
+function withHookWrite(file, fn) {
+  const warnings = [];
+  makeCtx({
+    isPackaged: true,
+    getSetting: () => ({ attentionHooks: true }),
+    claudeSettingsPath: file,
+    log: { info() {}, warn: (m) => warnings.push(m), error() {}, debug() {} },
+  });
+  const server = hooks.startAttentionHookServer();
+  return new Promise((resolve) => {
+    const done = () => setTimeout(() => {
+      try { fn(warnings); } finally { if (server) server.close(); resolve(warnings); }
+    }, 0);
+    if (!server) return done();
+    if (server.listening) return done();
+    server.once('listening', done);
+  });
+}
+
+test('a settings file this app cannot parse is left alone, not emptied', async () => {
+  // `readClaudeSettings` answers `{}` for a file it cannot parse — right for reading, catastrophic for
+  // writing. The round trip turned one syntax error into an empty settings file, taking every hook the
+  // user had with it.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-'));
+  const file = path.join(dir, 'settings.json');
+  const broken = '{ "hooks": { "Stop": [ }';
+  fs.writeFileSync(file, broken);
+
+  const warnings = await withHookWrite(file, () => {
+    assert.equal(fs.readFileSync(file, 'utf8'), broken, 'the file is byte-for-byte what it was');
+  });
+  assert.ok(warnings.length >= 1, 'and the refusal is logged rather than silent');
+});
+
+test('a settings file keeps what this app did not touch', async () => {
+  // The other half of a raw write: without a baseline, anything a CLI session stored between our read and
+  // our write is simply absent from the document we hand back.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, JSON.stringify({ hooks: {}, theirs: 'before' }, null, 2));
+
+  await withHookWrite(file, () => {
+    const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(after.theirs, 'before', 'everything else survived');
+    assert.ok(after.hooks && after.hooks.Stop, 'and our own hooks landed');
+  });
+});
+
+test('the settings write leaves no half-written file behind', async () => {
+  // Atomic rename, not truncate-then-write: a CLI reading its own config mid-write used to get a
+  // half-written file it would refuse to start on. The observable half is that no temp file is left and
+  // the result parses.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-'));
+  const file = path.join(dir, 'settings.json');
+
+  await withHookWrite(file, () => {
+    hooks.removeClaudeAttentionHook();
+    assert.deepEqual(fs.readdirSync(dir), ['settings.json'], 'no stray temp file');
+    assert.doesNotThrow(() => JSON.parse(fs.readFileSync(file, 'utf8')));
+  });
+});
+
+test('a settings file that spells its lines CRLF keeps them', async () => {
+  // The third property of a safe write, and the one that is visible without a race: the file's own line
+  // endings survive. A raw `writeFileSync` of `JSON.stringify` hands back LF, so turning the toggle on
+  // rewrote every line of somebody's settings file to add two hooks.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-'));
+  const file = path.join(dir, 'settings.json');
+  fs.writeFileSync(file, '{\r\n  "theirs": "before"\r\n}\r\n', 'utf8');
+
+  await withHookWrite(file, () => {
+    const after = fs.readFileSync(file, 'utf8');
+    assert.ok(!/(?<!\r)\n/.test(after), 'a CRLF settings file must not come back with LF lines');
+    assert.equal(JSON.parse(after).theirs, 'before');
+  });
+});
+
+test('a settings write that was refused is reported as refused, not as ok', async () => {
+  // The write used to THROW on a failure, and the IPC handler turned that into an answer. Once it refuses
+  // by RETURNING instead, a handler that ignores the return tells the user their hooks are wired while
+  // nothing was written — and attention detection is silently dead with nothing on screen to say why.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-settings-'));
+  const file = path.join(dir, 'settings.json');
+  const broken = '{ "hooks": { "Stop": [ }';
+  fs.writeFileSync(file, broken);
+
+  // Inside `withHookWrite`, so the server this handler needs is already listening and is closed for us.
+  await withHookWrite(file, () => {
+    const handlers = new Map();
+    hooks.registerIpc({ handle: (channel, fn) => handlers.set(channel, fn) });
+    const res = handlers.get('configure-attention-hook')({}, true);
+
+    assert.equal(res.ok, false, 'a refused write is not a successful toggle');
+    assert.match(res.error, /not valid JSON/, res.error);
+    assert.equal(fs.readFileSync(file, 'utf8'), broken, 'and the file is untouched');
+  });
+});

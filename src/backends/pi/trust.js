@@ -13,6 +13,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { writeTextFile } = require('../../app/safe-write');
 
 function expandTilde(p) {
   const s = String(p || '');
@@ -70,35 +71,84 @@ function trustPath() {
   return path.join(agentDir(), 'trust.json');
 }
 
-function readTrustFile(file = trustPath()) {
-  let parsed;
-  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); }
+/**
+ * The file's text and what it parses to, in one read.
+ *
+ * `set` needs both: the object to change, and the exact bytes it changed — that text is the baseline the
+ * write is refused against (#542), and re-reading the file to get it would be a second answer that can
+ * disagree with the first.
+ */
+function readTrustSource(file = trustPath()) {
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); }
   catch (err) {
-    if (err && err.code === 'ENOENT') return {};
+    if (err && err.code === 'ENOENT') return { raw: null, data: {} };
     // This escapes to callers and can reach a dialog; the errno names the file (#457).
-    throw new Error(`Failed to read Pi trust store (${err && err.code ? err.code : 'unknown error'}).`);
+    throw authored(`Failed to read Pi trust store (${err && err.code ? err.code : 'unknown error'}).`);
+  }
+  return { raw, data: parseTrustText(raw) };
+}
+
+/**
+ * An error whose text this module WROTE, and which may therefore be shown.
+ *
+ * The marker is the point: `set` catches everything, and a thrown filesystem or parser message names the
+ * file under the user's home (#457). Only a sentence written here travels; anything else is answered with
+ * one that says what happened and nothing about where.
+ */
+function authored(message) {
+  const err = new Error(message);
+  err.trustReason = message;
+  return err;
+}
+
+function readTrustFile(file = trustPath()) {
+  return readTrustSource(file).data;
+}
+
+function parseTrustText(raw) {
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch (err) {
+    throw authored('Invalid Pi trust store: it is not valid JSON.');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Invalid Pi trust store: expected an object');
+    throw authored('Invalid Pi trust store: expected an object');
   }
   const out = {};
   for (const [key, value] of Object.entries(parsed)) {
     if (value === true || value === false || value === null) out[key] = value;
-    else throw new Error(`Invalid Pi trust store: value for ${JSON.stringify(key)} must be true, false, or null`);
+    else throw authored(`Invalid Pi trust store: value for ${JSON.stringify(key)} must be true, false, or null`);
   }
   return out;
 }
 
-function writeTrustFile(data, file = trustPath()) {
+/** The text this store is written as: its keys sorted, one value per line, a trailing newline. */
+function trustText(data) {
   const sorted = {};
   for (const key of Object.keys(data || {}).sort()) {
     const value = data[key];
     if (value === true || value === false || value === null) sorted[key] = value;
   }
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(sorted, null, 2) + '\n', 'utf8');
-  fs.renameSync(tmp, file);
+  return JSON.stringify(sorted, null, 2) + '\n';
+}
+
+/**
+ * Write the store, through `safe-write.js` like every other write into a file a CLI owns (#542).
+ *
+ * `expectPrevious` is the text the caller changed — `null` when there was no file. Pi rewrites this file
+ * itself whenever it is asked to trust something, and the whole object goes back here, so without the
+ * compare an answer Pi recorded between our read and our write is not overwritten by a conflicting value:
+ * it is absent from what we hand back.
+ */
+function writeTrustFile(data, file = trustPath(), { expectPrevious = null } = {}) {
+  const res = writeTextFile(file, trustText(data), { expectPrevious, mustExist: false });
+  if (!res.ok) {
+    if (res.code === 'stale') return { ok: false, stale: true };
+    // The cause names a file under the user's home, so only its errno travels (#457).
+    throw authored(`Failed to write Pi trust store (${res.cause && res.cause.code ? res.cause.code : 'unknown error'}).`);
+  }
+  return { ok: true };
 }
 
 function nearest(data, projectPath) {
@@ -124,18 +174,31 @@ function getMany(projectPaths) {
   return out;
 }
 
+// How many times the read-modify-write is re-derived before giving up (#542), the same three the Claude
+// and Codex writers take: a refused write means the file moved, and the answer is to look again.
+const WRITE_ATTEMPTS = 3;
+
 function set(projectPath, trusted) {
   if (!projectPath) return { ok: false, error: 'No project path' };
   try {
-    const data = readTrustFile();
-    const key = canonicalize(projectPath);
-    if (trusted === null) delete data[key];
-    else data[key] = trusted === true;
-    writeTrustFile(data);
-    return { ok: true };
+    for (let attempt = 1; attempt <= WRITE_ATTEMPTS; attempt++) {
+      if (attempt > 1) {
+        // A short pause, so three attempts are three tries rather than three collisions with one burst.
+        const until = Date.now() + 5 + Math.floor(Math.random() * 15);
+        while (Date.now() < until) { /* wait */ }
+      }
+      const { raw, data } = readTrustSource();
+      const key = canonicalize(projectPath);
+      if (trusted === null) delete data[key];
+      else data[key] = trusted === true;
+      const res = writeTrustFile(data, trustPath(), { expectPrevious: raw });
+      if (res.ok) return { ok: true };
+    }
+    return { ok: false, error: "Pi's trust file could not be written: another program kept changing it. Try again." };
   } catch (err) {
-    // Same reasoning as Codex': the raw message names a file under the user's home (#457).
-    return { ok: false, error: `Pi's trust file could not be written (${err && err.code ? err.code : 'unknown error'}).` };
+    // Same reasoning as Codex': a raw message names a file under the user's home (#457). A reason this
+    // module wrote is marked as such and travels; anything else is answered without it.
+    return { ok: false, error: (err && err.trustReason) || "Pi's trust file could not be written." };
   }
 }
 
@@ -149,6 +212,7 @@ module.exports = {
   getMany,
   set,
   readTrustFile,
+  readTrustSource,
   writeTrustFile,
   trustPath,
   agentDir,

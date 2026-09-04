@@ -10,7 +10,7 @@ paths:
 
 ## `src/main.js` is a composition root
 
-~2000 lines, down from 5011 — the split is done (#213), #227 moved nine more handlers out. What is
+a couple of thousand lines, down from 5011 — the split is done (#213), #227 moved nine more handlers out. What is
 left: the requires, `DATA_DIR` (before anything requires db.js), the module wiring (count the `.init(`
 calls rather than trusting a number written here — this one said "thirteen" through at least one
 module being added), and the **small IPC handlers** that stayed on purpose (thin, no shared state;
@@ -55,8 +55,8 @@ shell family and the secret flag live in `variables.js`, which is where those de
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
 `safe-write.js` + `format-validate.js` (how this app overwrites a file a CLI also owns — #441, below) and
-`terminal/` (`spawn.js` = open-terminal,
-`io.js` = input/resize/redraw/flow control, plus the PTY pure-logic).
+and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY
+pure-logic and half a dozen more — list it).
 **The directory is the truth** — this enumeration silently missed two modules for as long as they
 existed, so list `src/app/` before assuming an area has no home yet.
 
@@ -111,9 +111,12 @@ had already happened somewhere:
 `format-validate.js` decides whether the text still parses, by EXTENSION rather than by backend. Syntax
 only, never schema: the CLIs change their own schemas whenever they like.
 
-Every writer goes through it — `saveMemory`, `savePlan`, `saveHandoff` (#468), `save-file-for-panel` and
-the resource writer in `backend-resources.js`. Grep for `writeTextFile` rather than trusting this list. A
-new writer that does not use it is a second set of guarantees for the same files.
+Every writer goes through it — `saveMemory`, `savePlan`, `saveHandoff` (#468), `save-file-for-panel`, the
+resource writer in `backend-resources.js`, the attention hook's settings writes, `planConventionApply`, and
+the three backend config writers (`claude/config.js`, `codex/trust.js`, `pi/trust.js`).
+Grep for `writeTextFile` rather than trusting this list. A new writer that does not use it is a second set
+of guarantees for the same files — and the two that landed last were both a settings blob written by a
+feature whose subject was something else, which is where this rule gets forgotten.
 
 ## What routes per session, and what stays in main (#2, #393, #395)
 

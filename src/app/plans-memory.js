@@ -1159,13 +1159,20 @@ function planConventionPreview(projectPath, options) {
   }
 
   const writes = [];
+  // Kept apart from `notes`, because a backend that TRIED and refused is a different answer from one that
+  // never offered (#556). Both end up with nothing to write, and telling the user "no installed CLI can be
+  // pointed at a plans directory" when the truth is a stray comma in their settings file sends them
+  // looking for a missing feature instead of at the file.
+  const refusals = [];
   for (const b of memoryBackends()) {
     if (typeof b.planDirSetup !== 'function') continue;
     let setup = null;
     try { setup = b.planDirSetup({ projectPath, planDir, shared }); } catch { setup = null; }
     if (!setup) continue;
     if (setup.ok === false) {
-      notes.push((b.label || b.id) + ': ' + (setup.error || 'cannot be set up here'));
+      const why = (b.label || b.id) + ': ' + (setup.error || 'cannot be set up here');
+      notes.push(why);
+      refusals.push(why);
       continue;
     }
     writes.push({
@@ -1180,6 +1187,10 @@ function planConventionPreview(projectPath, options) {
   }
 
   if (!writes.length) {
+    // The reasons go into the ERROR, not into a `notes` field beside it: a failed preview is rendered by
+    // its `error` alone (`settings-panel.js`), so a second field carrying the same thing is a field
+    // nobody reads.
+    if (refusals.length) return { ok: false, error: 'Nothing was changed. ' + refusals.join(' ') };
     return { ok: false, error: 'No installed CLI can be pointed at a plans directory. The convention still applies — the plans simply have to be written there by a skill or by the model.' };
   }
 
@@ -1207,8 +1218,20 @@ function planConventionApply(projectPath, options) {
   const written = [];
   try {
     for (const w of preview.writes) {
-      fs.mkdirSync(path.dirname(w.file), { recursive: true });
-      fs.writeFileSync(w.file, w.after, 'utf8');
+      // Every one of these is a settings file a CLI reads and may rewrite itself, so it goes through
+      // `safe-write.js` like every other such write (rule 11): the baseline the preview just read keeps
+      // us from overwriting a change made since, the rename keeps a half-written config impossible, and
+      // the file's own line endings and BOM survive a write that touches one key.
+      const res = writeTextFile(w.file, w.after, { expectPrevious: w.before, mustExist: false });
+      if (!res.ok) {
+        // No conflict view to raise: this is a dialog rather than an open editor, so a file that moved
+        // under the preview is reported as that and the user re-opens it against what is there now.
+        const failure = writeFailure(res, 'Could not write ' + path.basename(w.file) + '.');
+        const error = res.code === 'stale'
+          ? path.basename(w.file) + ' changed while this was being prepared, so it was left alone.'
+          : failure.error;
+        return { ok: false, error, written };
+      }
       written.push(w.file);
     }
     // The directory too, so the CLI has somewhere to write and the user has something to look at.

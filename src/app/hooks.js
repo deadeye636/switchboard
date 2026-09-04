@@ -26,6 +26,9 @@ const attentionSource = require('../shared/attention-source');
 const clearClaims = require('../session/clear-claims');
 // The CLI's own settings file lives under the user's home, so a failure to write it must not say where.
 const { readableError } = require('./readable-error');
+// The one writer for a file a CLI also owns (CLAUDE.md rule 11). This file is the one spec 24 names as its
+// motivating case, and it was the last place still writing it with a raw `writeFileSync` (#drift-audit).
+const { writeTextFile } = require('./safe-write');
 
 // Claude's shared settings file — in the ISOLATED home when there is one (#241). A demo/sandbox run is
 // normally a no-op here anyway (the whole write path is dev-gated, #219), but the sanctioned way to work
@@ -366,6 +369,70 @@ function readClaudeSettings() {
   }
 }
 
+// How many times a write may be re-derived on a file that moved under it — the same shape, and the same
+// reasoning, as `backends/claude/config.js` (#533).
+const SETTINGS_WRITE_ATTEMPTS = 3;
+
+/**
+ * Read Claude's shared settings, let `mutate` change them, and write the result back — atomically, and
+ * without overwriting a change this app has not seen.
+ *
+ * **Two things this replaces, and both were real.** The writes here used to be `fs.writeFileSync`, on the
+ * very file `docs/specs/24-resource-editing.md` names as its motivating case: no baseline, so a CLI
+ * session editing its own settings between our read and our write lost that edit; and no atomic rename,
+ * so a CLI reading mid-write got a truncated file it would refuse to start on.
+ *
+ * **And a parse failure is now a refusal, not an empty object.** `readClaudeSettings` answers `{}` for a
+ * file it cannot parse, which is right for reading and catastrophic for writing: the round trip turned a
+ * settings file with one syntax error into an empty one, taking every hook the user had with it.
+ *
+ * `mutate` returns the object to write, or `null` to write nothing. It runs once per attempt, so it must
+ * read what it needs off the settings it is handed.
+ *
+ * Answers `{ ok }` and, when it refused, a `reason` written for a reader. That is not decoration: the
+ * write used to THROW on a filesystem failure and the IPC handler turned that into `{ ok: false }`, so a
+ * refusal that merely returns is a toggle the user is told succeeded while nothing was written.
+ */
+function mutateClaudeSettings(mutate) {
+  for (let attempt = 1; attempt <= SETTINGS_WRITE_ATTEMPTS; attempt++) {
+    let raw = null;
+    try { raw = fs.readFileSync(settingsPath(), 'utf8'); } catch { raw = null; }
+
+    let settings;
+    if (raw === null) {
+      settings = {};
+    } else {
+      try {
+        settings = JSON.parse(raw);
+      } catch (err) {
+        ctx.log.warn(`[attention-hook] ${path.basename(settingsPath())} is not valid JSON — left untouched: ${err.message}`);
+        return refused(`${path.basename(settingsPath())} is not valid JSON, so it was left untouched. Fix the file and try again.`);
+      }
+    }
+
+    const next = mutate(settings);
+    if (next === null) return { ok: true };
+
+    try { fs.mkdirSync(path.dirname(settingsPath()), { recursive: true }); } catch { /* the write reports it */ }
+    const res = writeTextFile(settingsPath(), `${JSON.stringify(next, null, 2)}
+`, {
+      expectPrevious: raw,
+      mustExist: false,
+    });
+    if (res.ok) return { ok: true };
+    if (res.code === 'stale') continue;      // the CLI wrote first: re-derive against what it left
+    ctx.log.warn(`[attention-hook] could not write ${path.basename(settingsPath())}: ${readableError(res.cause, 'the file could not be saved')}`);
+    return refused(readableError(res.cause, "Could not update the CLI's settings file.", ctx.log));
+  }
+  ctx.log.warn(`[attention-hook] ${path.basename(settingsPath())} kept changing while it was being written`);
+  return refused(`${path.basename(settingsPath())} kept changing while it was being written. Try again.`);
+}
+
+/** A refusal with a sentence a reader can act on — never the errno's own text, which names the path. */
+function refused(reason) {
+  return { ok: false, reason };
+}
+
 // Remove only Switchboard-owned HTTP handlers (identified by the sentinel URL),
 // pruning now-empty matcher groups and hook events. Leaves all other user hooks
 // untouched — this is what makes the change reversible.
@@ -392,42 +459,45 @@ function stripSwitchboardHooks(settings) {
   return settings;
 }
 
+/** Writes the hooks. Returns what `mutateClaudeSettings` answered, so a caller can say what happened. */
 function writeClaudeAttentionHook(port) {
-  if (!port) return;
-  if (!hookWritingAllowed()) return; // dev build: never touch the shared ~/.claude/settings.json (#219)
+  if (!port) return { ok: true };
+  if (!hookWritingAllowed()) return { ok: true }; // dev build: never touch the shared ~/.claude/settings.json (#219)
   const url = `http://127.0.0.1:${port}${ATTENTION_HOOK_MARK}?t=${attentionHookToken}`;
-  const settings = stripSwitchboardHooks(readClaudeSettings());
-  if (!settings.hooks) settings.hooks = {};
-  // Claude Code blocks on the hook response. The server is on 127.0.0.1 and answers
-  // in milliseconds, so a long timeout only ever buys latency once nothing is
-  // listening — which is exactly the case a crash leaves behind (#125).
-  const HOOK_TIMEOUT_SEC = 1;
-  const addHook = (event, matcher) => {
-    if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
-    settings.hooks[event].push({ matcher: matcher || '', hooks: [{ type: 'http', url, timeout: HOOK_TIMEOUT_SEC }] });
-  };
-  addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
-  addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
-  addHook('UserPromptSubmit', ''); // turn start → "Working" (TUI sessions emit no OSC-0 spinner)
-  // Subagent lifecycle → the two-color overlay + the nested running indicator (#119).
-  // Both events carry the parent session_id and the subagent's agent_id, and
-  // SubagentStop fires at the subagent's real end. An empty matcher (which these
-  // events match against the agent *type*) catches every agent type.
-  addHook('SubagentStart', '');
-  addHook('SubagentStop', '');
-  fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
-  fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2) + '\n');
-  ctx.log.info(`[attention-hook] wrote hooks to ${settingsPath()} (${url})`);
+  const outcome = mutateClaudeSettings((current) => {
+    const settings = stripSwitchboardHooks(current);
+    if (!settings.hooks) settings.hooks = {};
+    // Claude Code blocks on the hook response. The server is on 127.0.0.1 and answers
+    // in milliseconds, so a long timeout only ever buys latency once nothing is
+    // listening — which is exactly the case a crash leaves behind (#125).
+    const HOOK_TIMEOUT_SEC = 1;
+    const addHook = (event, matcher) => {
+      if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
+      settings.hooks[event].push({ matcher: matcher || '', hooks: [{ type: 'http', url, timeout: HOOK_TIMEOUT_SEC }] });
+    };
+    addHook('Notification', ''); // permission_prompt / idle_prompt / elicitation / …
+    addHook('Stop', ''); // agent finished responding (matcher ignored for Stop)
+    addHook('UserPromptSubmit', ''); // turn start → "Working" (TUI sessions emit no OSC-0 spinner)
+    // Subagent lifecycle → the two-color overlay + the nested running indicator (#119).
+    // Both events carry the parent session_id and the subagent's agent_id, and
+    // SubagentStop fires at the subagent's real end. An empty matcher (which these
+    // events match against the agent *type*) catches every agent type.
+    addHook('SubagentStart', '');
+    addHook('SubagentStop', '');
+    return settings;
+  });
+  if (outcome.ok) ctx.log.info(`[attention-hook] wrote hooks to ${settingsPath()} (${url})`);
+  return outcome;
 }
 
 function removeClaudeAttentionHook() {
   // A dev build never wrote (see hookWritingAllowed), so it must not strip either — stripSwitchboardHooks
   // removes EVERY sentinel entry, so a dev quit would otherwise clobber the installed app's live hook (#219).
-  if (!hookWritingAllowed()) return;
-  if (!fs.existsSync(settingsPath())) return;
-  const settings = stripSwitchboardHooks(readClaudeSettings());
-  fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2) + '\n');
-  ctx.log.info(`[attention-hook] removed Switchboard hooks from ${settingsPath()}`);
+  if (!hookWritingAllowed()) return { ok: true };
+  if (!fs.existsSync(settingsPath())) return { ok: true };
+  const outcome = mutateClaudeSettings((current) => stripSwitchboardHooks(current));
+  if (outcome.ok) ctx.log.info(`[attention-hook] removed Switchboard hooks from ${settingsPath()}`);
+  return outcome;
 }
 
 /**
@@ -438,16 +508,21 @@ function registerIpc(ipc) {
   // Renderer toggles the setting then calls this to write/remove the ~/.claude hook.
   ipc.handle('configure-attention-hook', (_event, enabled) => {
     try {
+      // A refused write is reported as one. The old `fs.writeFileSync` THREW on a filesystem failure and
+      // the catch below turned that into an answer; once the write refuses by returning instead, a handler
+      // that ignores it tells the user their hooks are wired when nothing was written.
+      let outcome = { ok: true };
       if (enabled) {
         // Dev builds don't write to the user's shared ~/.claude/settings.json unless opted in (#219) — tell
         // the renderer so it can note why the toggle didn't take effect.
         if (!hookWritingAllowed()) return { ok: true, devBlocked: true };
         if (!attentionHookServer) startAttentionHookServer();
         // If the server is still binding, the listen callback will stamp the port.
-        if (attentionHookPort) writeClaudeAttentionHook(attentionHookPort);
+        if (attentionHookPort) outcome = writeClaudeAttentionHook(attentionHookPort);
       } else {
-        removeClaudeAttentionHook();
+        outcome = removeClaudeAttentionHook();
       }
+      if (!outcome.ok) return { ok: false, error: outcome.reason };
       return { ok: true };
     } catch (err) {
       ctx.log.error(`[attention-hook] configure failed: ${err.message}`);
