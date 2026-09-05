@@ -180,11 +180,16 @@ half rather than its own copy. The three:
 A test fake that stands in for a spelling-folding read has to fold too, or the test passes for the wrong
 reason: `test/projects.test.js`'s `getCachedByProjectPath` did not, while `session-store.js` does.
 
-## Deleting a project's history refuses while we are running a session in it (#574)
+## Both project acts refuse while we are running a session in it (#574, #578)
 
 `deleteProjectSessions` is the one project action that takes files off disk — `removeProject` touches
-none and says so. So it is the one that must not race: a CLI **this app started** is appending to the very
-transcripts the delete removes, and there is nothing to undo afterwards.
+none and says so. So it was the first that must not race: a CLI **this app started** is appending to the
+very transcripts the delete removes, and there is nothing to undo afterwards.
+
+**`removeProject` refuses too, since #578.** Its cost is a row rather than a file, which is why it came
+second, but it is not the annoyance it was filed as: only a session that STARTED after the tombstone
+brings a project back (#575), so the session that is running never does, and the removal quietly takes
+the project the user is working in off the list for as long as that terminal is open.
 
 - **Live means `ctx.activeSessions` holds a non-exited session for that path.** Not "wrote recently", not
   "has rows in the cache". A transcript on disk says a session existed; only the map says one is alive with
@@ -197,10 +202,14 @@ transcripts the delete removes, and there is nothing to undo afterwards.
 - **Asked canonically and about the path alone** — the same `samePathKey`, so a terminal opened under the
   other spelling of the directory still counts (#245), and never a question about which backend the session
   belongs to.
-- **A refused delete stops the WHOLE action**, in the renderer. `projects-admin.js` used to carry on to
-  `removeProject` and the config deletes after a failed delete — its comment said `// always` — which left
-  the history in place and the project gone. That is neither of the two things the dialog offers, and it
-  also clears the cached rows the delete reads to find the transcripts, so the user cannot even ask again.
+- **A refused act stops the WHOLE action**, in the renderer, and that is the larger half of both fixes.
+  `projects-admin.js` runs the delete, the removal and the per-backend config deletes as one sequence, and
+  each step used to fall through to the next — the removal's comment said `// always`. A failed delete left
+  the history in place and the project gone; a refused removal would drop config entries out of the
+  backends' own files for a project that is still listed. Neither is one of the two things the dialog
+  offers, and the removal also clears the cached rows the delete reads to find the transcripts, so the user
+  cannot even ask again. The on-the-list toggle is the third: it threw the answer away entirely.
+  `test/project-refusal-stops-action.test.js` pins all three shapes.
 - **And a delete that removed NOTHING is that same failure through the success path (#580).** A
   `deleteSessions` that threw was logged and skipped; one answering `{removed: 0}` was skipped in silence.
   Either way `deleted` and `refused` came back empty together, so the renderer fired no toast at all and
@@ -209,9 +218,12 @@ transcripts the delete removes, and there is nothing to undo afterwards.
   the delete not doing what it was asked and do. A backend with no rows in the project is neither — there
   was nothing to keep, and calling that a refusal would block the removal of a project it was never in.
 
-The neighbouring question is HALF settled now, and the half that is settled is the one below. Whether a
-removal should be REFUSED while a session is live there is still open in
-`docs/specs/10-project-registry.md` under *Known gaps*; what the tombstone admits afterwards is decided.
+**Hiding is the way out, and both refusals name it.** `hideProject` writes a flag, takes nothing off the
+list and touches no file, so a running session is no reason to refuse it — it has **no** live-session
+guard and must not grow one, or the refusals point at a door that is also shut. A refusal that leaves the
+user with no move is a bug report waiting to be filed. And neither offers to do it anyway: two acts that
+answer the same question the same way is the point of #578, and an "anyway" on one of them is how they
+start to differ again.
 
 ## A store sighting reports a START, not only a recency (#575)
 

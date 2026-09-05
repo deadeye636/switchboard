@@ -459,8 +459,13 @@
       } else if (action === 'allowlist') {
         // On the list, or not. This is what "add a project" finally means — a project with no sessions
         // can be on it, and adding one used to do nothing at all unless discovery had already found it.
-        if (row && row.registered) await window.api.removeProject(path);
-        else await window.api.addProject(path);
+        if (row && row.registered) {
+          // The removal can be refused now — a session of ours is running in the project (#578). This
+          // toggle used to throw the answer away, so a refusal here looked like a checkbox that would
+          // not stay unticked.
+          const r = await window.api.removeProject(path);
+          if (r && r.error) { toast('Remove: ' + r.error); return; }
+        } else await window.api.addProject(path);
       } else if (action === 'remove') {
         const choice = await confirmRemove(path);
         if (!choice) return;
@@ -491,7 +496,14 @@
             if (refusals.some(x => x.kind && x.kind !== 'unsupported')) return;
           }
         }
-        await window.api.removeProject(path); // always: off the list + clear Switchboard's cache
+        // Off the list + clear Switchboard's cache. NOT "always" any more (#578): this refuses while a
+        // session of ours is running in the project, the way the delete above does, and a refused
+        // removal has to change nothing else. The config deletes below drop entries out of the
+        // backends' own files — running them after a project that is still on the list reads as
+        // "project kept, its Codex entry gone", which is neither of the two things the dialog offered.
+        // That is the same shape #574 fixed one step up; it does not get to come back here.
+        const rem = await window.api.removeProject(path);
+        if (rem && rem.error) { toast('Remove: ' + rem.error); return; }
         for (const bid of (choice.deleteConfigBackends || [])) {
           const r = await window.api.removeProjectConfig(path, bid);
           if (r && r.error) { toast('Delete config: ' + r.error); }

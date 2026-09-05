@@ -361,23 +361,60 @@ any removal. A recency is never consulted as a substitute in any of these.
 Both are pinned in `test/project-registry.test.js`; the reporting half is in
 `test/store-project-start.test.js`, which also covers the agy-shaped reader and the header-only transcript.
 
+## A live session refuses BOTH acts, and hiding is the way out (#574, #578)
+
+Two acts can take a project away from the user while a CLI this app started is running in it, and they
+now answer the same question the same way.
+
+**Deleting its history refuses (#574)** because it removes transcripts from the backends' own stores
+while a process of ours appends to them. Nothing comes back afterwards.
+
+**Removing it from the list refuses too (#578).** This was Option C in #566's discussion and stayed open
+through #575, on the reading that a row which reappears is an annoyance and a file that does not is a
+bug. The reading was right about the cost and wrong about what happens: since #575 only a session that
+*started* after the tombstone brings the project back, so the one that is running never will. The
+removal therefore takes the project the user is working in off the list and leaves it there, silently,
+for as long as that terminal is open. That is not the cheap half of anything, and the symmetry matters
+on its own — a delete that refuses beside a removal that does not is a pair of buttons the user has to
+learn separately.
+
+Neither offers to do it anyway. An "anyway" on one of them is how the two start to differ again.
+
+What the user does instead is **hide** the project, and both refusals say so. Hiding writes a flag,
+takes nothing off the list, touches no file and is reversible, so a running session is no reason to
+refuse it — `hideProject` has no guard and must not grow one, or the refusals would point at a door
+that is also shut.
+
+**Live has one definition and both acts ask it**: `liveSessionsIn` counts the non-exited entries in
+`ctx.activeSessions` for that path. Not "wrote recently" and not "has rows in the cache" — a transcript
+on disk says a session existed; only the map says one is alive with a process behind it. Asked
+canonically through the same `samePathKey` `applyAutoHide` folds, so a terminal opened under the other
+spelling of the directory — a junction, a `subst` drive, another case — still counts (#245, #563), and
+about the path alone, never about which backend the session is. Each act phrases its own sentence,
+because they offer different ways out; neither decides for itself what running means.
+
+**A refused act changes nothing else, and that half lives in the renderer.** `projects-admin.js` runs
+the delete, the removal and the per-backend config deletes as one sequence, and each step used to fall
+through to the next — the removal's comment said `// always`. A refusal that carries on reads as
+"history kept, project gone" or "project kept, its Codex entry gone", neither of which the dialog
+offered, and the removal clears the cached rows the delete reads to find the transcripts, so the user
+cannot even ask again. Both steps stop the whole action now, and so does the on-the-list toggle, which
+used to throw the answer away entirely.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was
   removed from Switchboard — but it is a behaviour change worth knowing.
 - The sweep's "no session anywhere" check sees a backend store only once that backend has been scanned in
   the current run. It errs on the safe side: an unscanned store means the tombstone is **kept**.
-- **Removing a project a session is live in no longer brings it back — but it does not stop the session
-  either.** #575 settled which sessions the tombstone admits; it did not decide whether the removal should
-  be refused while a CLI this app started is running there (Option C in #566's discussion). Today the
-  removal succeeds, the session keeps running, and the project stays off the list. Its transcripts are
-  safe: DELETING a project's history is the act that destroys data, and that one refuses outright while a
-  session is live (#574). Live there means **this app is running it** — not "wrote recently" and not "has
-  rows in the cache" — asked canonically through the same `samePathKey` `applyAutoHide` uses, so a terminal
-  opened under the other spelling of the directory still counts (#245), and about the path alone, never
-  about which backend the session is.
-- **A backend with no start time cannot be brought back by discovery at all** — the deliberate half of the
-  decision above, and the honest name for what agy's users will see. The way back is an explicit act. If a
+- ~~Whether removing a project should be refused while a CLI this app started is running in it~~ —
+  **decided (#578): it is refused**, the way deleting its history already was (#574). Both acts and the
+  one definition of "live" they share are described above, under *A live session refuses BOTH acts*. What
+  is left is not a gap but a consequence worth stating: the refusal does not stop the session either, and
+  nothing here does. Ending a session is the user's act, in the terminal that owns it; a project action
+  that killed a process to get its way would be a much larger promise than any of these buttons make.
+- **A backend with no start time cannot be brought back by discovery at all** — the deliberate half of
+  #575's start-time rule, and the honest name for what agy's users will see. The way back is an explicit act. If a
   future agy release stamps its store, or the file's own creation time is judged trustworthy enough to
   stand in, that is the change to make; a recency fallback is not.
 - The register keys on the path as written. What the lookups COMPARE is no longer a string (#563), and

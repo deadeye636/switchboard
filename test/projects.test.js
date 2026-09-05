@@ -1066,6 +1066,98 @@ test('a session running elsewhere does not block the delete', () => {
   } finally { t.cleanup(); }
 });
 
+// #578: the other project act a live session refuses. Removing takes no file off disk, which is why it
+// was the cheaper half — but since #575 only a session that STARTED after the tombstone brings a project
+// back, so the one that is running never does, and the project the user is working in is the one that
+// stays off the list.
+test('removing a project is refused while this app runs a session in it', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    projects.ensureProjectAdded(projectPath);
+    t.ctx.db.setSetting('project:' + projectPath, { displayName: 'kept' });
+    t.setCachedRows([{ sessionId: 'a', projectPath, folder: encodeProjectPath(projectPath), backendId: 'claude' }]);
+    const notifiedBefore = t.calls.notified;
+
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath });
+
+    const res = projects.removeProject(projectPath);
+    assert.ok(res.error, 'it answers a reason, not ok');
+    assert.match(res.error, /session is running in this project/, 'and names the running session as the reason');
+    assert.match(res.error, /hide it instead/, 'and points at the act that still works');
+
+    // A refused removal changes NOTHING else — the failure mode #574's renderer half had, one act over.
+    assert.strictEqual(t.state(projectPath).registered, 1, 'the project is still on the list');
+    assert.ok(!t.state(projectPath).removedAt, 'no tombstone was written');
+    assert.deepStrictEqual(t.calls.deletedSessions, [], 'no cached row was dropped');
+    assert.deepStrictEqual(t.ctx.db.getSetting('project:' + projectPath), { displayName: 'kept' },
+      'and the per-project settings blob is untouched');
+    assert.strictEqual(t.calls.notified, notifiedBefore, 'nothing was announced to the renderer either');
+  } finally { t.cleanup(); }
+});
+
+// The refusal names the number, because "a session" reads wrong for three of them — the same reason
+// `liveSessionsIn` counts instead of answering yes/no.
+test('the removal refusal counts the sessions it is refusing for', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    projects.ensureProjectAdded(projectPath);
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath });
+    t.ctx.activeSessions.set('s2', { exited: false, projectPath });
+
+    assert.match(projects.removeProject(projectPath).error, /^2 sessions are running/);
+  } finally { t.cleanup(); }
+});
+
+// The other half of the rule, both ways round: an ENDED session is not a reason to refuse, and a session
+// in another project is not this project's. Without either, the removal would be unreachable for any
+// project that was ever worked in during this run — `activeSessions` keeps the entry.
+test('an exited session, and a session elsewhere, do not block the removal', () => {
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\p');
+    t.ctx.activeSessions.set('s1', { exited: true, projectPath: 'D:\\p' });
+    t.ctx.activeSessions.set('s2', { exited: false, projectPath: 'D:\\somewhere-else' });
+
+    assert.strictEqual(projects.removeProject('D:\\p').ok, true);
+    assert.strictEqual(t.state('D:\\p').registered, 0);
+    assert.ok(t.state('D:\\p').removedAt, 'the tombstone is there');
+  } finally { t.cleanup(); }
+});
+
+// The question is about the DIRECTORY, not about the string a terminal was opened with. A session started
+// under the other spelling — a junction, a `subst` drive, another case, or the trailing separator this
+// fixture uses because it folds on every platform — is a session in the project (#245, #563).
+test('#578 a session opened under another spelling of the directory still blocks the removal', () => {
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath: alias });
+
+    const res = projects.removeProject(real);
+    assert.ok(res.error, 'the other spelling is the same directory');
+    assert.strictEqual(t.state(real).registered, 1, 'and the project stayed on the list');
+  } finally { t.cleanup(); drop(); }
+});
+
+// What the refusal points AT has to keep working, or the user is left with a "no" and no move. Hiding
+// writes a flag and takes nothing off the list, so a running session is no reason to refuse it — and this
+// pins that nobody adds a guard there by symmetry with the other two acts.
+test('#578 hiding a project still works while a session is live in it', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    projects.ensureProjectAdded(projectPath);
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath });
+
+    const res = projects.hideProject(projectPath);
+    assert.strictEqual(res.ok, true, 'the act the refusal names is not refused itself');
+    assert.strictEqual(t.state(projectPath).hidden, 1);
+  } finally { t.cleanup(); }
+});
+
 test('a session that MOVED into another project is not destroyed with this one', () => {
   // The one that hurt. Claude's store folder is keyed on the cwd a session STARTED from, and since #157 a
   // session belongs to the tree it WORKS in — so one folder can hold sessions of two projects. Deleting

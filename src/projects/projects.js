@@ -245,19 +245,24 @@ function refreshProjectFolders(projectPath) {
 const samePathKey = pathKey;
 
 /**
- * How many sessions THIS APP is running in a project (#574).
+ * How many sessions THIS APP is running in a project (#574, #578).
  *
  * Not "wrote recently" and not "has rows": a transcript on disk says a session existed, `activeSessions`
  * says one is alive right now with a process behind it. Only the second is a reason to refuse to delete
  * the file it is writing into.
  *
  * Counted rather than answered yes/no, because the refusal names the number and "a session" reads wrong
- * for three of them. The count is free for a caller that only wants the yes/no.
+ * for three of them. The count is free for a caller that only wants the yes/no. The key is the canonical
+ * one (#245), so a terminal opened under the other spelling of the directory is still a session in it.
  *
- * **This is the ONE asker.** `applyAutoHide` folded the same map itself, with the same canonical key
- * (#245) and the same rule, and the two agreed — which is the state two readings of one question are in
- * right up until they do not. It asks here now, and a third reading is a bug however carefully it is
- * written.
+ * **This is the ONE asker, and the ONLY definition of "live" the project acts have.** `applyAutoHide`
+ * folded the same map itself, with the same key and the same rule, and the two agreed — which is the
+ * state two readings of one question are in right up until they do not. It asks here now, and so do both
+ * refusals: the delete (#574) and, since #578, the removal. Two acts answering the same question about
+ * the same map are how they start answering it differently — one grows a `session.pid` check, the other
+ * stays on `exited`, and a user is told a session is running by one button and not by the other. Each act
+ * phrases its own sentence, because they offer different ways out; none of them decides for itself what
+ * running means, and a third reading is a bug however carefully it is written.
  */
 function liveSessionsIn(projectPath) {
   const key = samePathKey(projectPath);
@@ -395,6 +400,10 @@ function addProject(projectPath) {
 /**
  * HIDE: on the list, not shown. Reversible, and new sessions do NOT bring it back — that is the whole
  * point of saying "hide". Its sessions keep being indexed, so unhiding shows them at once.
+ *
+ * **It has no live-session guard on purpose, and must not grow one (#578).** Hiding writes a flag, takes
+ * nothing off the list and touches no file, so a running session is no reason to refuse it — and it is
+ * what both refusals point the user at. A guard here would close the last door out of them.
  */
 function hideProject(projectPath) {
   try {
@@ -427,10 +436,35 @@ function hideProject(projectPath) {
  * the very next scan would find them and register it straight back, so removing would be a no-op in auto
  * mode — which is exactly why the old code turned "remove" into a permanent hide instead. Only a session
  * NEWER than the tombstone brings the project back.
+ *
+ * It refuses while this app is running a session in the project (#578) — see the guard below.
  */
 function removeProject(projectPath) {
   try {
     if (!projectPath) return { error: 'No project path' };
+
+    // Taking a project off the list while a terminal of ours is running in it is refused, the way
+    // deleting its history is (#574, #578). The two acts sat on opposite answers for a while: the delete
+    // destroys files and refused, the removal only rearranges a list, so a project that came back was
+    // called an annoyance rather than a bug. It is still a project the user removed while looking at a
+    // CLI running in it, and the sequel is worse than the annoyance — the row stays gone until a session
+    // STARTED after the tombstone brings it back (#575), so the one that is running never does, and the
+    // project the user is working in is the one that stays off the list.
+    //
+    // Live is `liveSessionsIn`'s answer and nothing else, asked canonically, about the path alone and
+    // never about which backend the session belongs to. The refusal names hiding, because that is the
+    // act the user actually wants here: it costs nothing while a session runs, keeps the sessions
+    // indexed, and is reversible. Leaving them with a "no" and no move is how a refusal becomes a bug
+    // report.
+    const live = liveSessionsIn(projectPath);
+    if (live) {
+      return {
+        error: live === 1
+          ? 'A session is running in this project. Stop it before removing the project, or hide it instead — hiding works while a session runs.'
+          : `${live} sessions are running in this project. Stop them before removing the project, or hide it instead — hiding works while a session runs.`,
+      };
+    }
+
     // The tombstone goes onto the row that IS on the list (#566). Written at the caller's spelling it
     // created a second row instead, and the project stayed in the sidebar with nothing to report.
     const registeredPath = registeredPathFor(projectPath);
