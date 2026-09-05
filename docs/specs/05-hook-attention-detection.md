@@ -184,3 +184,30 @@ the numbers are written down in `docs/backend-formats.md` rather than recalled:
   with it. `isMeta` is the flag that tells them apart.
 
 `test/turn-hold.test.js` carries the measured order above as a fixture, including the 72 ms.
+
+---
+
+## Two latches, and a turn that ends in only one of them (#549)
+
+An end-of-turn signal is written as `response-ready` only when something saw the turn begin. That guard
+is right — an idle report about a session that was already idle is not the end of a turn, and recording
+one puts an event in the recap that never happened. What was wrong is that the two halves of the app
+answered "did it begin" separately.
+
+`src/app/timeline.js` keeps the record's own latch. `src/renderer/shell/attention-engine.js` keeps
+`sessionBusyState`, and the row the user sees is drawn from that one. The producers of a busy edge do not
+all reach both, so a turn start that lands in one of them and not the other makes a finished turn turn the
+row blue while the recap has nothing behind it. The table of who reaches which is in the record's own
+header comment, beside the latch it describes.
+
+Two things closed the gap, and neither of them weakens the guard:
+
+- **An edge a signal CARRIES is applied whatever its kind says.** A terminal binding's `waiting` report is
+  needs-attention and the end of being busy at once (#529); only that producer knows the second half. The
+  renderer had honoured it from the day it shipped and the record had not, so a session blocked on its own
+  prompt showed a blue row and left the record latched on a turn that was over.
+- **When the record's latch has no view, main's own busy facts are asked** — the same two the row is drawn
+  from. The answer is used once per turn: those facts are latches somebody else owns, and one of them can
+  be stale (#120), so reading it per report would write a "ready for review" per notification.
+
+A session nothing ever saw working still records nothing. That is the half worth keeping.

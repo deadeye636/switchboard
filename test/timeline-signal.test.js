@@ -259,6 +259,132 @@ test('init clears the latches left by a previous wiring', () => {
   assert.deepStrictEqual(kinds(second), [], 'a fresh wiring has seen no turn start');
 });
 
+// --- #549: the record and the row must not hold separate opinions ---------------
+//
+// The row the user sees is drawn from the renderer's own busy latch. This module keeps a second one, and
+// a turn start that reaches only one of them makes a finished turn turn the row blue with nothing in the
+// recap behind it. Two halves: an edge a producer STATES, and main's own busy facts as the fallback when
+// the latch never saw the start.
+
+/** A harness whose ctx answers the question main.js answers from `activeSessions._cliBusy` / `liveBusy`. */
+function harnessWithBusyFacts(working) {
+  const written = [];
+  timeline.init({
+    recordTimelineEvent: (event) => { written.push(event); return event; },
+    wasWorking: (sessionId) => working.has(sessionId),
+    log: { debug() {} },
+  });
+  return written;
+}
+
+test('#549: an edge a signal CARRIES ends the turn, whatever its kind says', () => {
+  const written = harness();
+  timeline.recordSignal('s1', { kind: 'busy' });
+  // What a terminal binding posts when the CLI blocks on its own prompt (#529): attention AND the end of
+  // being busy at once. The renderer honours the second half and turns the row blue.
+  timeline.recordSignal('s1', { kind: 'needs-attention', reason: 'Waiting for you to confirm', busy: false });
+
+  assert.deepStrictEqual(kinds(written), ['busy', 'needs-attention', 'idle', 'response-ready'],
+    'reading only `kind` left the latch standing and wrote no end for a turn the user was shown had ended');
+  assert.strictEqual(timeline._busyBySession.has('s1'), false, 'and the latch is no longer stale');
+});
+
+test('#549: a carried edge can start a turn too, so its end is not swallowed', () => {
+  const written = harness();
+  timeline.recordSignal('s1', { kind: 'needs-attention', reason: 'the agent is asking', busy: true });
+  timeline.recordSignal('s1', { kind: 'ready' });
+
+  assert.deepStrictEqual(kinds(written), ['needs-attention', 'busy', 'idle', 'response-ready']);
+});
+
+test('#549: a turn start only the rest of main saw still ends in the record', () => {
+  const written = harnessWithBusyFacts(new Set(['s1']));
+  // No busy signal ever reached this module — the renderer got the start from a channel that does not
+  // record (a window taking a busy session), or the latch moved out from under a producer mid-turn.
+  timeline.recordSignal('s1', { kind: 'ready' });
+
+  assert.deepStrictEqual(kinds(written), ['idle', 'response-ready'],
+    'the row goes blue off the same fact; the recap has to agree with it');
+});
+
+test('#549: main\'s own busy fact answers ONCE, not once per notification', () => {
+  const written = harnessWithBusyFacts(new Set(['s1']));
+  timeline.recordSignal('s1', { kind: 'ready' });
+  timeline.recordSignal('s1', { kind: 'idle' });
+  timeline.recordSignal('s1', { kind: 'ready' });
+
+  assert.deepStrictEqual(kinds(written), ['idle', 'response-ready'],
+    'that fact is a latch someone else owns and can be stale — a turn ends once');
+});
+
+test('#549: the fallback still refuses to invent a turn nothing saw', () => {
+  const working = new Set();
+  const written = harnessWithBusyFacts(working);
+  timeline.recordSignal('s1', { kind: 'ready' });
+  assert.deepStrictEqual(kinds(written), [], 'an idle session did not just stop working');
+
+  working.add('s1');
+  timeline.recordSignal('s1', { kind: 'ready' });
+  assert.deepStrictEqual(kinds(written), ['idle', 'response-ready'],
+    'and the same report about a session that WAS working is the end of a turn');
+});
+
+test('#549: the latch outranks the fallback and its end is written once', () => {
+  // A regression pin rather than a new behaviour: with a busy fact still standing, the second report must
+  // not write a second turn end off it.
+  const written = harnessWithBusyFacts(new Set(['s1']));
+  timeline.recordSignal('s1', { kind: 'busy' });
+  timeline.recordSignal('s1', { kind: 'ready' });
+  timeline.recordSignal('s1', { kind: 'ready' });
+
+  assert.deepStrictEqual(kinds(written), ['busy', 'idle', 'response-ready']);
+});
+
+test('#549: a new turn re-arms the fallback', () => {
+  const written = harnessWithBusyFacts(new Set(['s1']));
+  timeline.recordSignal('s1', { kind: 'ready' });
+  timeline.recordSignal('s1', { kind: 'busy' });
+  timeline.recordSignal('s1', { kind: 'ready' });
+
+  assert.deepStrictEqual(kinds(written), ['idle', 'response-ready', 'busy', 'idle', 'response-ready']);
+});
+
+test('#549: a session that goes away takes the marker with it', () => {
+  const written = harnessWithBusyFacts(new Set(['s1']));
+  timeline.recordSignal('s1', { kind: 'ready' });
+  timeline.recordSignal('s1', { kind: 'ready' });
+  assert.deepStrictEqual(kinds(written), ['idle', 'response-ready']);
+
+  timeline.forgetSession('s1');
+  timeline.recordSignal('s1', { kind: 'ready' });
+  assert.deepStrictEqual(kinds(written), ['idle', 'response-ready', 'idle', 'response-ready'],
+    'the marker cannot outlive the process it is about, or a relaunch is never reported again');
+});
+
+test('#549: the marker moves with a session id change', () => {
+  const written = harnessWithBusyFacts(new Set(['launch-id', 'real-id']));
+  timeline.recordSignal('launch-id', { kind: 'ready' });
+  timeline.rekeySession('launch-id', 'real-id');
+  timeline.recordSignal('real-id', { kind: 'ready' });
+
+  assert.deepStrictEqual(
+    written.map((e) => `${e.sessionId}/${e.kind}`),
+    ['launch-id/idle', 'launch-id/response-ready'],
+    'left behind, the new id writes the same turn end a second time',
+  );
+});
+
+test('#549: a busy fact that cannot be read is an absence, not a crash', () => {
+  const written = [];
+  timeline.init({
+    recordTimelineEvent: (event) => { written.push(event); return event; },
+    wasWorking: () => { throw new Error('activeSessions is gone'); },
+    log: { debug() {} },
+  });
+  assert.doesNotThrow(() => timeline.recordSignal('s1', { kind: 'ready' }));
+  assert.deepStrictEqual(kinds(written), []);
+});
+
 // --- The read side for the recap overview (#402) ---------------------------------
 
 /** A minimal ipcMain: registerIpc hands its handlers here, and the test calls them directly. */

@@ -333,6 +333,20 @@ timeline.init({
   // Every window keeps its own read-through copy of the histories it draws, so every window hears about
   // a new event — which window draws which session changes while the app runs.
   getDetachedWindows: () => [...detach.detachedWindows.values()],
+  // Was this session working, as far as the REST of main is concerned (#549)?
+  //
+  // The record keeps a busy latch of its own so it can write `response-ready` on an edge rather than per
+  // report. That latch was also its only view of whether a turn had started, and a start it missed
+  // swallowed the end that followed — while the renderer, whose own latch had seen the start, turned the
+  // row blue. These are the two facts that row is drawn from, so consulting them is what stops the record
+  // and the row from holding separate opinions. Asked only when the latch has none.
+  //
+  // Read at CALL time — liveBusy is declared far below, exactly as detach's isSessionBusy above.
+  wasWorking: (sessionId) => {
+    const session = activeSessions.get(sessionId);
+    if (session && session._cliBusy) return true;
+    return liveBusy.get(sessionId) === true;
+  },
   log,
 });
 timeline.registerIpc(ipcMain);

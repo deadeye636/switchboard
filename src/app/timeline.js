@@ -29,7 +29,33 @@ let ctx = null;
 // paths hold `session._cliBusy` and only fire on a change, the store-derived one reports what it sees),
 // and `response-ready` must be written on a busy→idle EDGE. Without an edge of its own this module would
 // write one per report, which on a spinner is one per frame.
+//
+// IT IS NOT THE ONLY LATCH IN THE APP, and that is what #549 is about. The renderer keeps a second one
+// (`sessionBusyState` in `renderer/shell/attention-engine.js`) and the row the user sees is drawn from
+// it. Whichever of the two misses a turn START, the other still reports its END — and a turn that ends
+// only in the renderer turns the row blue with nothing in the recap behind it. Who reaches which:
+//
+//   producer of the edge                                 this latch   the renderer's
+//   OSC-0 title / OSC-9;4 (app/terminal/spawn.js)         yes          yes  (cli-busy-state)
+//   OSC-9 message         (app/terminal/spawn.js)         yes          yes  (terminal-notification)
+//   the attention hook    (app/hooks.js)                  yes          yes  (attention-signal)
+//   the store watcher     (watch/adopt.js)                yes          yes  (cli-busy-state)
+//   a binding's `waiting` (app/hooks.js, #529)            USED TO MISS yes  (the signal's own `busy`)
+//   a window taking a busy session (#395)                 no           yes  (session-reattached)
+//
+// The last two rows are the divergence. The `busy` a signal CARRIES is honoured below, exactly as the
+// renderer's twin honours it; the rest is what `ctx.wasWorking` answers, so the record falls back to the
+// same two facts the row is drawn from rather than to an opinion only this file holds.
 const busyBySession = new Map();
+
+// Sessions whose turn END has already been written and that nothing has since reported working again.
+//
+// It exists because the fallback below reads latches this module does not own, and one of them can be
+// stale (#120 is how). Without a marker of its own, every further report about such a session would write
+// another `response-ready` — one per notification, for a turn that ended once. The next turn start clears
+// it, so it holds what has recently FINISHED rather than growing with every session ever seen; a process
+// that goes away drops its entry with its latch.
+const endedBySession = new Set();
 
 const LABELS = {
   busy: ['busy', 'Agent working', 'Claude activity started.'],
@@ -41,6 +67,7 @@ const LABELS = {
 function init(context) {
   ctx = context;
   busyBySession.clear();
+  endedBySession.clear();
   warnedAboutWrites = false;
 }
 
@@ -107,6 +134,54 @@ function write(sessionId, [kind, label, defaultDetail], detail, detailIsSubject 
   }
 }
 
+/** Does the rest of main believe this session was working? Only ever asked when the latch has no view. */
+function wasWorking(sessionId) {
+  if (!ctx || typeof ctx.wasWorking !== 'function') return false;
+  try {
+    return ctx.wasWorking(sessionId) === true;
+  } catch (err) {
+    if (ctx.log) ctx.log.debug(`[timeline] session=${sessionId} busy state unavailable: ${err.message}`);
+    return false;
+  }
+}
+
+/** A turn started. One event per turn, not one per report — a spinner reports per frame. */
+function startTurn(sessionId) {
+  endedBySession.delete(sessionId);
+  if (busyBySession.has(sessionId)) return;
+  busyBySession.set(sessionId, true);
+  write(sessionId, LABELS.busy);
+}
+
+/**
+ * A turn ended — the one fact the recap exists to report.
+ *
+ * Only a session something SAW working can stop working, and that guard stays: an idle report about a
+ * session that was already idle is not the end of a turn, and writing one would put an event in the recap
+ * that never happened. What changed in #549 is WHOSE view of "was working" counts. The latch alone was a
+ * second opinion, held by this file and by nothing else, and a turn start it missed silently swallowed the
+ * end that followed — while the renderer, whose own latch had seen the start, turned the row blue.
+ *
+ * So when the latch has no view, main's own busy facts are asked (`ctx.wasWorking`) — the same two the row
+ * is drawn from. `endedBySession` keeps that answer from being used twice: those facts are latches of
+ * their own and one of them can be stale (#120), which would otherwise write a `response-ready` per
+ * notification for a session that never started a turn at all.
+ *
+ * Deleting rather than storing `false` is still what keeps the map the size of the sessions currently
+ * WORKING: idle is the absence of an entry, and the delete's own return value is the edge.
+ */
+function endTurn(sessionId) {
+  // The latch's own view first, and it is the authoritative one. Only when it has none is anyone else
+  // asked — and then once, because the fact being read stays true until a producer this module does not
+  // control changes it.
+  if (!busyBySession.delete(sessionId)) {
+    if (endedBySession.has(sessionId) || !wasWorking(sessionId)) return;
+  }
+  endedBySession.add(sessionId);
+  write(sessionId, LABELS.idle);
+  write(sessionId, LABELS.ready);
+}
+
 /**
  * Record what a status signal means, on the same normalized vocabulary the renderer's record-only twin
  * reads (`recordAttentionSignal`): busy / idle / ready / needs-attention, plus the subagent kinds this
@@ -118,29 +193,34 @@ function recordSignal(sessionId, signal) {
   if (!sessionId || !signal || !signal.kind) return;
   const { kind, reason } = signal;
 
-  if (kind === 'needs-attention') {
-    write(sessionId, LABELS.attention, reason || '');
-    return;
-  }
-
   if (kind === 'busy') {
-    if (busyBySession.has(sessionId)) return;
-    busyBySession.set(sessionId, true);
-    write(sessionId, LABELS.busy);
+    startTurn(sessionId);
     return;
   }
 
   if (kind === 'ready' || kind === 'idle') {
-    // Only a session this module has SEEN working can stop working. After a restart the latch is empty,
-    // and an idle report about a session that was already idle is not the end of a turn — writing
-    // "ready for review" for it would put an event in the recap that never happened.
-    //
-    // Deleting rather than storing `false` is what keeps the map the size of the sessions currently
-    // WORKING rather than of every session ever reported on: idle is the absence of an entry, and the
-    // delete's own return value is the edge.
-    if (!busyBySession.delete(sessionId)) return;
-    write(sessionId, LABELS.idle);
-    write(sessionId, LABELS.ready);
+    endTurn(sessionId);
+    return;
+  }
+
+  if (kind === 'needs-attention') {
+    write(sessionId, LABELS.attention, reason || '');
+    // …and fall through to the edge below. Attention is not an edge of its own — it does not disturb the
+    // latch — but a producer may state one alongside it.
+  } else if (typeof signal.busy !== 'boolean') {
+    // Subagent lifecycle and anything else this record has no surface for.
+    return;
+  }
+
+  // The edge a producer STATED, whatever its kind said (#529, #549). A terminal binding's `waiting` is
+  // needs-attention AND the end of being busy at once, and only that producer knows the second half —
+  // "the agent asked something" says nothing about whether it is still working. The renderer honours it
+  // (`recordAttentionSignal`, and `setExactActivity` in the main window) and turns the row blue; a record
+  // that read only `kind` left the latch standing and wrote no turn end for a turn the user was shown had
+  // ended.
+  if (typeof signal.busy === 'boolean') {
+    if (signal.busy) startTurn(sessionId);
+    else endTurn(sessionId);
   }
 }
 
@@ -164,6 +244,7 @@ function recordLifecycle(sessionId, kind, label, detail, detailIsSubject = false
 /** A session's process is gone — its busy latch is meaningless, and keeping it leaks one entry per session. */
 function forgetSession(sessionId) {
   busyBySession.delete(sessionId);
+  endedBySession.delete(sessionId);
 }
 
 /**
@@ -181,6 +262,9 @@ function forgetSession(sessionId) {
 function rekeySession(fromId, toId) {
   if (!fromId || !toId || fromId === toId) return;
   if (busyBySession.delete(fromId)) busyBySession.set(toId, true);
+  // …and the marker that says this session's turn end has already been written, or the id it moved onto
+  // would be free to write a second one off the same stale busy fact.
+  if (endedBySession.delete(fromId)) endedBySession.add(toId);
   // The events already written move too, or the history splits in two at every /clear: everything before
   // the move would sit under an id nothing asks about again, and the session would look newly born.
   if (ctx && typeof ctx.rekeyTimeline === 'function') {
@@ -256,6 +340,7 @@ module.exports = {
   recordLifecycle,
   forgetSession,
   rekeySession,
-  // For tests: the latch is the whole of this module's state.
+  // For tests: the two latches are the whole of this module's state.
   _busyBySession: busyBySession,
+  _endedBySession: endedBySession,
 };
