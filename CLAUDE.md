@@ -75,10 +75,19 @@ table is the fallback and it is binding.
    the conversation's language; what you write **into a file or an issue** is English regardless.
    One logical change per commit, Conventional Commits.
 
-   Both rules are cheap to audit and nothing enforces them yet:
-   `grep -rP '\b(nicht|wird|dass|keine|damit|beim)\b'` over the tracked tree finds German prose,
-   `grep -riP '(C:\\Users\\[A-Za-z]|[A-Z]:[\\/]\w+[\\/])'` finds real paths. Run them on what you are
-   about to commit rather than trusting that someone else did.
+   **The path half is enforced now** — `test/no-local-paths.test.js` fails on any tracked file naming an
+   identifier of the machine it was written on: the account name, the home directory, and the directory
+   the checkout sits in. All three are read at run time, so the test never spells the strings it exists to
+   keep out. Its limit is stated in its own header: on a CI clone the third has nothing to compare
+   against, so the run that counts is the one before the push.
+   The **language** half still has nothing behind it, and `grep -rP '\b(nicht|wird|dass|keine|damit|
+   beim)\b'` over the tracked tree is the whole of it — it finds German and nothing else, so French
+   (`docs/customizing-colors.md`) walks past it.
+   The path grep this line used to recommend was **broken from the day it was written**: it exits 2 with
+   `PCRE does not support \L`, because the doubled backslash in the pattern collapses to one before PCRE
+   sees it, and the user-directory alternative then begins with an escape PCRE rejects. It reported a
+   clean tree while sixty fixtures named a real folder. A recommended command nobody runs is a guess; one
+   that errors out is worse, because its silence reads as a pass.
 8. **A new control in the renderer inherits NO styling** — reuse an existing class, never ship a bare
    `<button>`.
 9. **A setting added/renamed/re-scoped/re-defaulted → `docs/settings-reference.md`.** Same for a new
