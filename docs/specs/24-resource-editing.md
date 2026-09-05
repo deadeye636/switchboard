@@ -90,6 +90,28 @@ core's vocabulary: the payload stamps each row, and the renderer offers the butt
   something can be created in it, and that is where the "New" sits — the kind, the backend and the target
   are the group's own, so only the name is asked for.
 
+## A created path is answered in the namespace it was ASKED about (#544)
+
+Creating a file asks the filesystem a question the listing cannot: the guards resolve a path to what it
+really is, and on a project reached through a junction, a symlink or a `subst` drive that is a different
+string from the one the project was opened under. `createResource` used to validate against the real
+spelling and answer with it — so the renderer opened the file it had just created and was told the path
+is not a discovered resource, because the listing is the allow-list and the listing is spelled the other
+way.
+
+So one RELATIVE pair of names is joined twice: onto the real spelling to validate and write, and onto the
+directory the listing named to answer. The validated spelling travels beside it as `realPath`, for a
+caller that wants the file rather than the listing's name for it. `expandResource` already worked this
+way — it joins onto the listed directory — which is why nothing else in the chain had this defect.
+
+**And the two spellings must come from the SAME resolution.** The first cut resolved with
+`fs.realpathSync` while `app/path-containment.js` — the guard that had just approved the path — resolves
+with `fs.realpathSync.native`, and the two disagree: on Windows one answers with a name's short 8.3
+spelling and the other with the long one, and only `.native` follows a `subst` mapping. Nothing was
+written to the wrong place, but the field claiming to be "what was validated" was only true in a fixture
+that had canonicalised its temp directory first. Two resolutions of one question is the defect this whole
+section exists to remove.
+
 ## What is left
 
 A directory that has never existed cannot receive its first file: the listing only names directories that
