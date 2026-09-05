@@ -133,8 +133,8 @@ test('watchTargets watches the root recursively, and its match accepts transcrip
 test('matchLiveSession pairs a freshly spawned session with its transcript', () => {
   const { root, bucket } = makeStore();
   try {
-    const file = writeSession(bucket, 'live-1', 'D:\\Projekte\\demo');
-    const match = storeFor(root).matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
+    const file = writeSession(bucket, 'live-1', 'D:\\Example\\demo');
+    const match = storeFor(root).matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set() });
     assert.equal(match.sessionId, 'live-1');
     assert.equal(match.ref, file);
     // #527: the core cannot tell two unpaired sessions of one backend in one project apart without
@@ -146,14 +146,14 @@ test('matchLiveSession pairs a freshly spawned session with its transcript', () 
 test('matchLiveSession ignores another project, a claimed record, and anything older than the spawn', () => {
   const { root, bucket } = makeStore();
   try {
-    const file = writeSession(bucket, 'live-1', 'D:\\Projekte\\demo');
+    const file = writeSession(bucket, 'live-1', 'D:\\Example\\demo');
     const store = storeFor(root);
 
-    assert.equal(store.matchLiveSession({ cwd: 'D:\\Projekte\\elsewhere', sinceMs: 0, claimed: new Set() }), null,
+    assert.equal(store.matchLiveSession({ cwd: 'D:\\Example\\elsewhere', sinceMs: 0, claimed: new Set() }), null,
       'a transcript from another cwd is not the session we just launched');
-    assert.equal(store.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set([file]) }), null,
+    assert.equal(store.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set([file]) }), null,
       'a record another session already claimed must never be handed out twice');
-    assert.equal(store.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() }), null,
+    assert.equal(store.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() }), null,
       'a record that predates the spawn belongs to an older session');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

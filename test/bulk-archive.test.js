@@ -90,7 +90,7 @@ function setup() {
 }
 
 function project(sessions) {
-  return { projectPath: 'D:/Projekte/switchboard', sessions };
+  return { projectPath: 'D:/Example/switchboard', sessions };
 }
 
 // --- #251: what the action covers ---
@@ -104,7 +104,7 @@ test('by default the running session is left alone — archiving is for what is 
 
     assert.equal(t.confirmBtn().textContent, 'Archive 2 Sessions',
       'the button names what it will archive, not how many sessions exist');
-    assert.deepEqual(t.details(), { Project: 'Projekte/switchboard', Sessions: '2', Running: '1' });
+    assert.deepEqual(t.details(), { Project: 'Example/switchboard', Sessions: '2', Running: '1' });
     t.confirmBtn().click();
     await done;
 
@@ -202,7 +202,7 @@ test('the counts are sessions, not rows — subagents are never counted or named
     await t.tick();
 
     // Six rows in the project, but the decision is about two idle sessions and one running one.
-    assert.deepEqual(t.details(), { Project: 'Projekte/switchboard', Sessions: '2', Running: '1' });
+    assert.deepEqual(t.details(), { Project: 'Example/switchboard', Sessions: '2', Running: '1' });
     assert.equal(t.confirmBtn().textContent, 'Archive 2 Sessions',
       'the button counts the sidebar rows it will archive, not the rows it touches');
 
@@ -284,7 +284,7 @@ test('undo restores exactly the set that was archived — not the ones left runn
     t.confirmBtn().click();
     await done;
 
-    assert.match(t.toastText(), /Archived 2 sessions from Projekte\/switchboard\./);
+    assert.match(t.toastText(), /Archived 2 sessions from Example\/switchboard\./);
     t.window.document.querySelector('.control-toast button').click();
     await t.tick();
 

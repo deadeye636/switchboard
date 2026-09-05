@@ -36,8 +36,8 @@ test('fileUriToPath returns null for non-file URIs', () => {
 });
 
 test('fileUriToPath strips the leading slash before a Windows drive letter (#69)', () => {
-  // Without the strip this returned "/D:/Projekte/a.js" → shell.openPath fails.
-  assert.strictEqual(fileUriToPath('file:///D:/Projekte/a.js'), 'D:/Projekte/a.js');
+  // Without the strip this returned "/D:/Example/a.js" → shell.openPath fails.
+  assert.strictEqual(fileUriToPath('file:///D:/Example/a.js'), 'D:/Example/a.js');
   assert.strictEqual(fileUriToPath('file:///C:/Users/x/My%20Repo/b.ts'), 'C:/Users/x/My Repo/b.ts');
 });
 

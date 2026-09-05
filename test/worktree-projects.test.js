@@ -51,13 +51,13 @@ test('the FOLDER still identifies itself by the head cwd — that is what keeps 
   const jsonl = path.join(dir, 's.jsonl');
   const line = (cwd) => JSON.stringify({ type: 'user', cwd }) + '\n';
   // started in the parent repo, then moved into the worktree
-  fs.writeFileSync(jsonl, line('D:\\Projekte\\repo') + line('D:\\Projekte\\repo') + line('D:\\Projekte\\repo-feature'));
+  fs.writeFileSync(jsonl, line('D:\\Example\\repo') + line('D:\\Example\\repo') + line('D:\\Example\\repo-feature'));
 
   // #147 added a windowed TAIL read to answer "where does this session work now". It was never wired to
   // anything, and it is gone: the parser walks every line anyway, so it just remembers the last cwd it saw
   // (read-session-file.js, `st.lastCwd`). What survives here is the folder's identity, and it is the HEAD
   // cwd on purpose — a folder is keyed on the directory it was created from.
-  assert.strictEqual(extractCwdFromJsonl(jsonl), 'D:\\Projekte\\repo', 'head cwd = where it started');
+  assert.strictEqual(extractCwdFromJsonl(jsonl), 'D:\\Example\\repo', 'head cwd = where it started');
 });
 
 // --- #157: a session belongs to the PROJECT ROOT of the cwd it works in, not to the cwd -------------
@@ -149,7 +149,7 @@ test('sessionProjectPath never guesses: no cwd, or a cwd in no repo at all, keep
 });
 
 test('sessionProjectPath keeps the folder\'s exact spelling for the same directory', () => {
-  // A real store carries both `d:\Projekte\x` and `D:\Projekte\x`. Compared naively they become two projects
+  // A real store carries both `d:\Example\x` and `D:\Example\x`. Compared naively they become two projects
   // — the grouping key is the projectPath STRING.
   _resetRootCache();
   const root = tmpDir('sp5-');

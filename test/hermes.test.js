@@ -88,7 +88,7 @@ test('parseSession maps a row to the normalised shape (id taken verbatim, never 
 
   assert.strictEqual(row.sessionId, 'sess-cli-1');
   assert.strictEqual(row.backendId, 'hermes');
-  assert.strictEqual(row.cwd, 'D:\\Projekte\\demo', 'a real cwd column EXISTS (the plan assumed it did not)');
+  assert.strictEqual(row.cwd, 'D:\\Example\\demo', 'a real cwd column EXISTS (the plan assumed it did not)');
   assert.strictEqual(row.model, 'claude-opus-4.6');
   assert.strictEqual(row.summary, 'Refactor the auth middleware');
   assert.strictEqual(row.messageCount, 4);
@@ -231,7 +231,7 @@ test('buildLaunch exposes current Hermes runtime toggles without moving the watc
 
 test('matchLiveSession: finds the DB row for a session we just launched in this cwd', () => {
   useFixture();
-  const match = hermes.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
+  const match = hermes.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set() });
   assert.ok(match, 'found the session row');
   assert.strictEqual(match.sessionId, 'sess-cli-1', 'the EARLIEST matching session (launch order)');
   // #527: the core cannot tell two unpaired sessions of one backend in one project apart without
@@ -243,7 +243,7 @@ test('matchLiveSession: finds the DB row for a session we just launched in this 
 test('matchLiveSession: never hands the same session to two tabs', () => {
   useFixture();
   const match = hermes.matchLiveSession({
-    cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set(['sess-cli-1']),
+    cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set(['sess-cli-1']),
   });
   assert.ok(match, 'a second live tab gets the NEXT session, not the claimed one');
   assert.notStrictEqual(match.sessionId, 'sess-cli-1');
@@ -251,14 +251,14 @@ test('matchLiveSession: never hands the same session to two tabs', () => {
 
 test('matchLiveSession: ignores a session from another project', () => {
   useFixture();
-  const match = hermes.matchLiveSession({ cwd: 'D:\\Projekte\\elsewhere', sinceMs: 0, claimed: new Set() });
+  const match = hermes.matchLiveSession({ cwd: 'D:\\Example\\elsewhere', sinceMs: 0, claimed: new Set() });
   assert.strictEqual(match, null);
 });
 
 test('matchLiveSession: ignores sessions that predate the launch', () => {
   useFixture();
   const match = hermes.matchLiveSession({
-    cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set(),
+    cwd: 'D:\\Example\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set(),
   });
   assert.strictEqual(match, null, 'an older session belongs to a previous run');
 });
@@ -272,14 +272,14 @@ test('liveRefFor: a resumed session claims its OWN row, however old it is', () =
   assert.strictEqual(hermes.liveRefFor('sess-cli-1'), 'sess-cli-1');
   // The same id via matchLiveSession is impossible once the launch is newer than the row:
   const viaMatch = hermes.matchLiveSession({
-    cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set(),
+    cwd: 'D:\\Example\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set(),
   });
   assert.strictEqual(viaMatch, null, 'correlation cannot find it — which is exactly why liveRefFor exists');
 });
 
 test('liveRefFor: an id the store does not know claims nothing', () => {
   useFixture();
-  // A NEW session runs under an id we invented; it must fall through to correlation, not claim a row.
+  // A NEW session runs under an id we example; it must fall through to correlation, not claim a row.
   assert.strictEqual(hermes.liveRefFor('7eecde0f-472e-4d37-a901-71a2fbc4bdb5'), null);
   assert.strictEqual(hermes.liveRefFor(null), null);
 });

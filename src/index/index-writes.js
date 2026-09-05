@@ -47,7 +47,7 @@ function init(ctx) {
 //
 // The cache is no longer Claude-only, but the FOLDER key is still shared: a session groups into a
 // project by its cwd (§5.9), and the folder key is encodeProjectPath(cwd) whatever produced it. So a
-// Codex rollout in D:\Projekte\demo lands in the SAME folder bucket as the Claude session there.
+// Codex rollout in a folder lands in the SAME folder bucket as the Claude session there.
 //
 // Consequence: every folder-wide read/delete must be scoped to the store being refreshed, or the
 // Claude sweep would delete the Codex rows in "its" folder (they have no file under ~/.claude/projects,

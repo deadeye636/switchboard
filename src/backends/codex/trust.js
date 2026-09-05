@@ -3,7 +3,7 @@
 // Codex asks "Do you trust this directory?" the first time it runs somewhere, and remembers the answer
 // in (CODEX_HOME|~/.codex)/config.toml:
 //
-//   [projects.'d:\projekte\example']
+//   [projects.'d:\example\example']
 //   trust_level = "trusted"
 //
 // Ticking "Trusted" in the project manager used to write Claude's config and nothing else — so the
@@ -68,7 +68,7 @@ function headerPath(line) {
  * Every project's trust level, as written in the file: Map<projectPath, 'trusted' | string>.
  *
  * Paths are returned VERBATIM. A real config carries the same directory twice, in different case
- * (`d:\projekte\x` and `D:\Projekte\x`) — Codex writes whatever cwd it was started with, so the caller
+ * (`d:\example\x` and `D:\Example\x`) — Codex writes whatever cwd it was started with, so the caller
  * has to compare case-insensitively on Windows.
  */
 function parseTrust(toml) {

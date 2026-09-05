@@ -37,7 +37,7 @@ function withCodexHome(entries, body) {
 function writeRollout(dir, id, prompt) {
   const file = path.join(dir, `rollout-2026-07-13T12-00-00-${id}.jsonl`);
   fs.writeFileSync(file,
-    JSON.stringify({ timestamp: '2026-07-13T12:00:00.000Z', type: 'session_meta', payload: { id, cwd: 'D:\\Projekte\\x' } }) + '\n'
+    JSON.stringify({ timestamp: '2026-07-13T12:00:00.000Z', type: 'session_meta', payload: { id, cwd: 'D:\\Example\\x' } }) + '\n'
     + JSON.stringify({ timestamp: '2026-07-13T12:00:01.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] } }) + '\n');
   return file;
 }

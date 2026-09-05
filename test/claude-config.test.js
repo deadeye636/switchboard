@@ -121,24 +121,24 @@ test('setProjectTrust: flips only the one field, preserves secrets, writes .bak'
 
 test('setProjectTrust: creates a minimal entry when the project is absent', () => {
   const file = makeTempConfig({ projects: {} });
-  const res = setProjectTrust('D:\\Projekte\\new', true, file);
+  const res = setProjectTrust('D:\\Example\\new', true, file);
   assert.equal(res.ok, true);
   const after = JSON.parse(fs.readFileSync(file, 'utf8'));
   // Stored under forward-slash form.
-  assert.equal(after.projects['D:/Projekte/new'].hasTrustDialogAccepted, true);
+  assert.equal(after.projects['D:/Example/new'].hasTrustDialogAccepted, true);
 });
 
 test('setProjectTrust: matches an existing key regardless of slash/case', () => {
   const file = makeTempConfig({
-    projects: { 'D:/Projekte/switchboard': { hasTrustDialogAccepted: true, foo: 1 } },
+    projects: { 'D:/Example/switchboard': { hasTrustDialogAccepted: true, foo: 1 } },
   });
   // Pass Windows-style backslash path; must update the existing forward-slash key.
-  const res = setProjectTrust('D:\\Projekte\\switchboard', false, file);
+  const res = setProjectTrust('D:\\Example\\switchboard', false, file);
   assert.equal(res.ok, true);
   const after = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(Object.keys(after.projects).length, 1, 'no duplicate key created');
-  assert.equal(after.projects['D:/Projekte/switchboard'].hasTrustDialogAccepted, false);
-  assert.equal(after.projects['D:/Projekte/switchboard'].foo, 1);
+  assert.equal(after.projects['D:/Example/switchboard'].hasTrustDialogAccepted, false);
+  assert.equal(after.projects['D:/Example/switchboard'].foo, 1);
 });
 
 test('setProjectTrust: errors gracefully on missing config file', () => {
@@ -165,8 +165,8 @@ test('removeProjectEntry: deletes the entry, preserves others + secrets, writes 
 });
 
 test('removeProjectEntry: matches slash/case variants, removed=0 when absent', () => {
-  const file = makeTempConfig({ projects: { 'D:/Projekte/x': { hasTrustDialogAccepted: true } } });
-  const res = removeProjectEntry('D:\\Projekte\\x', file);
+  const file = makeTempConfig({ projects: { 'D:/Example/x': { hasTrustDialogAccepted: true } } });
+  const res = removeProjectEntry('D:\\Example\\x', file);
   assert.equal(res.ok, true);
   assert.equal(res.removed, 1);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).projects, {});

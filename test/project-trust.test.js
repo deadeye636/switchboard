@@ -22,7 +22,7 @@ const backends = require('../src/backends');
 const REAL = `model = "gpt-5.5-codex"
 sandbox = "unelevated"
 
-[projects.'d:\\projekte\\example']
+[projects.'d:\\example\\example']
 trust_level = "trusted"
 
 [projects.'Z:\\temp']
@@ -36,7 +36,7 @@ source_type = "local"
 test('parseTrust reads every project table, verbatim', () => {
   const map = trust.parseTrust(REAL);
   assert.strictEqual(map.size, 2);
-  assert.strictEqual(map.get('d:\\projekte\\example'), 'trusted');
+  assert.strictEqual(map.get('d:\\example\\example'), 'trusted');
   assert.strictEqual(map.get('Z:\\temp'), 'trusted');
 });
 
@@ -68,7 +68,7 @@ test('setTrust flips an existing table instead of adding a second one', () => {
   // reads as "ask me", and inventing a value it may not know is worse than saying nothing.
   assert.ok(!/trust_level\s*=\s*"untrusted"/.test(next));
   // The other project is untouched.
-  assert.strictEqual(trust.parseTrust(next).get('d:\\projekte\\example'), 'trusted');
+  assert.strictEqual(trust.parseTrust(next).get('d:\\example\\example'), 'trusted');
 });
 
 test('setTrust on a project that is not there, with trusted=false, changes nothing', () => {
@@ -95,11 +95,11 @@ test('a directory whose name contains an apostrophe does not corrupt somebody el
   assert.strictEqual((off.match(/\[projects\."D:/g) || []).length, 1, 'no duplicate table');
 
   // Everything that was already in the file is still there.
-  assert.strictEqual(trust.parseTrust(next).get('d:\\projekte\\example'), 'trusted');
+  assert.strictEqual(trust.parseTrust(next).get('d:\\example\\example'), 'trusted');
 });
 
 test('the same directory in two spellings is one project', () => {
-  // A real config carries BOTH `d:\projekte\x` and `D:\Projekte\x` — Codex writes whatever cwd it was
+  // A real config carries BOTH `d:\example\x` and `D:\Example\x` — Codex writes whatever cwd it was
   // started with. Reading has to be case-insensitive on Windows, or a trusted project reads as untrusted
   // just because it was launched from a different shell.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-trust-'));
@@ -108,9 +108,9 @@ test('the same directory in two spellings is one project', () => {
   try {
     fs.writeFileSync(path.join(home, 'config.toml'), REAL);
     if (process.platform === 'win32') {
-      assert.strictEqual(trust.get('D:\\Projekte\\Example'), true, 'same directory, other spelling');
+      assert.strictEqual(trust.get('D:\\Example\\Example'), true, 'same directory, other spelling');
     }
-    assert.strictEqual(trust.get('d:\\projekte\\example'), true);
+    assert.strictEqual(trust.get('d:\\example\\example'), true);
     assert.strictEqual(trust.get('D:\\not-in-there'), null, 'never asked is not the same as untrusted');
   } finally {
     if (prev === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = prev;
@@ -140,7 +140,7 @@ test('set() writes atomically, keeps a .bak, and leaves the rest of the config a
 });
 
 test('set() updates EVERY spelling of the path — on the platform where they are one directory', () => {
-  // A real Windows config carries the same directory twice (`d:\projekte\x` and `D:\Projekte\x`) — Codex
+  // A real Windows config carries the same directory twice (`d:\example\x` and `D:\Example\x`) — Codex
   // writes whatever cwd it was started with. Untrusting only the spelling the user happened to click
   // would leave the project trusted through the other one.
   //

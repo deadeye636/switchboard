@@ -393,16 +393,16 @@ test('a tombstone is not missed because Windows spells the path differently', ()
   if (process.platform !== 'win32') return;
   const t = makeCtx();
   try {
-    projects.ensureProjectAdded('D:\\Projekte\\Thing');
-    projects.removeProject('D:\\Projekte\\Thing');
-    const removedAt = t.state('D:\\Projekte\\Thing').removedAt;
+    projects.ensureProjectAdded('D:\\Example\\Thing');
+    projects.removeProject('D:\\Example\\Thing');
+    const removedAt = t.state('D:\\Example\\Thing').removedAt;
 
     const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
-    t.setStorePaths([['d:\\projekte\\thing', older]]);     // the same directory, as Codex spelled it
+    t.setStorePaths([['d:\\example\\thing', older]]);     // the same directory, as Codex spelled it
     projects.syncRegistry();
 
-    assert.strictEqual(t.state('d:\\projekte\\thing'), null, 'the other spelling is not registered behind its back');
-    assert.strictEqual(t.state('D:\\Projekte\\Thing').registered, 0, 'and the removal holds');
+    assert.strictEqual(t.state('d:\\example\\thing'), null, 'the other spelling is not registered behind its back');
+    assert.strictEqual(t.state('D:\\Example\\Thing').registered, 0, 'and the removal holds');
   } finally { t.cleanup(); }
 });
 

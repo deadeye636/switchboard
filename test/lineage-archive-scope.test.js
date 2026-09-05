@@ -70,7 +70,7 @@ function setup() {
   const tick = () => new Promise(r => window.setTimeout(r, 0));
 
   function session(id, { parent = null, running = false, archived = 0 } = {}) {
-    const s = { sessionId: id, archived, projectPath: 'D:/Projekte/switchboard', name: id };
+    const s = { sessionId: id, archived, projectPath: 'D:/Example/switchboard', name: id };
     if (parent) s.lineageParentId = parent;
     if (running) window.activePtyIds.add(id);
     window.sessionMap.set(id, s);

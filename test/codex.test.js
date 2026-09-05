@@ -18,7 +18,7 @@ test('parses the recon sample into the normalised row', () => {
   assert.ok(row, 'row produced');
   assert.strictEqual(row.sessionId, '019f081a-8834-7342-8741-30624c553c1c', 'id from session_meta');
   assert.strictEqual(row.backendId, 'codex');
-  assert.strictEqual(row.cwd, 'D:\\Projekte\\demo', 'cwd from session_meta (project grouping key)');
+  assert.strictEqual(row.cwd, 'D:\\Example\\demo', 'cwd from session_meta (project grouping key)');
   assert.strictEqual(row.startedAt, '2026-06-27T10:03:04.019Z');
 });
 
@@ -345,7 +345,7 @@ test('liveRefFor: a resumed session finds its own rollout by id, whatever its ag
   codex.setHome(home);
 
   assert.match(codex.liveRefFor(id), /rollout-2026-06-27T10-00-00-.*\.jsonl$/);
-  // A brand-new session runs under an id we invented — it must claim nothing and fall through to
+  // A brand-new session runs under an id we example — it must claim nothing and fall through to
   // correlation, or it would adopt a stranger's rollout.
   assert.strictEqual(codex.liveRefFor('11111111-2222-4333-8444-555555555555'), null);
   assert.strictEqual(codex.liveRefFor(null), null);
@@ -358,7 +358,7 @@ test('matchLiveSession: finds the rollout for a session we just launched in this
   fs.copyFileSync(FIXTURE, path.join(day, 'rollout-a.jsonl'));
   codex.setHome(home);
 
-  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set() });
+  const match = codex.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set() });
   assert.ok(match, 'found the rollout');
   assert.strictEqual(match.sessionId, '019f081a-8834-7342-8741-30624c553c1c', 'the id CODEX chose, not ours');
   assert.match(match.ref, /rollout-a\.jsonl$/);
@@ -377,14 +377,14 @@ test('matchLiveSession: an old rollout is rejected by its NAME, without a stat (
   codex.setHome(home);
 
   assert.strictEqual(
-    codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now(), claimed: new Set() }), null,
+    codex.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: Date.now(), claimed: new Set() }), null,
     'a rollout the name dates to 2024 is not the session we just spawned');
 
   // Control: the same fixture under a name dated NOW is still found — the hint rejects the old, not everything.
   const today = new Date();
   const stamp = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-${String(today.getUTCDate()).padStart(2, '0')}T${String(today.getUTCHours()).padStart(2, '0')}-00-00`;
   fs.copyFileSync(FIXTURE, path.join(day, `rollout-${stamp}-019f081a-8834-7342-8741-30624c553c1c.jsonl`));
-  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() - 60_000, claimed: new Set() });
+  const match = codex.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: Date.now() - 60_000, claimed: new Set() });
   assert.ok(match, 'a rollout named for today is still correlated (control)');
 });
 
@@ -397,7 +397,7 @@ test('matchLiveSession: never hands the same rollout to two sessions', () => {
   codex.setHome(home);
 
   // Session A claimed it; session B must not be given the same file.
-  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: 0, claimed: new Set([first]) });
+  const match = codex.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set([first]) });
   assert.strictEqual(match, null, 'a claimed rollout is never re-handed out');
 });
 
@@ -405,10 +405,10 @@ test('matchLiveSession: ignores a rollout from a different project', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-live3-'));
   const day = path.join(home, 'sessions', '2026', '06', '27');
   fs.mkdirSync(day, { recursive: true });
-  fs.copyFileSync(FIXTURE, path.join(day, 'rollout-a.jsonl'));   // its cwd is D:\Projekte\demo
+  fs.copyFileSync(FIXTURE, path.join(day, 'rollout-a.jsonl'));   // its cwd is D:\Example\demo
   codex.setHome(home);
 
-  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\somewhere-else', sinceMs: 0, claimed: new Set() });
+  const match = codex.matchLiveSession({ cwd: 'D:\\Example\\somewhere-else', sinceMs: 0, claimed: new Set() });
   assert.strictEqual(match, null, 'a rollout from another project is not ours');
 });
 
@@ -420,7 +420,7 @@ test('matchLiveSession: ignores a rollout that predates the launch', () => {
   codex.setHome(home);
 
   // sinceMs far in the future -> nothing can belong to this launch.
-  const match = codex.matchLiveSession({ cwd: 'D:\\Projekte\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() });
+  const match = codex.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: Date.now() + 3600_000, claimed: new Set() });
   assert.strictEqual(match, null, 'an older rollout belongs to a previous session, not this one');
 });
 
@@ -466,7 +466,7 @@ function guardianHeader(overrides = {}) {
       id: 'GUARDIAN-1',
       parent_thread_id: 'PARENT-1',
       timestamp: '2026-08-31T10:28:56.946Z',
-      cwd: 'D:\\Projekte\\demo',
+      cwd: 'D:\\Example\\demo',
       originator: 'codex-tui',
       cli_version: '0.151.0',
       source: { subagent: { other: 'guardian' } },
@@ -503,7 +503,7 @@ test('#492 a rollout with no subagent marker is still a session', () => {
   const p = writeRollout('rollout-user.jsonl', {
     timestamp: '2026-08-31T10:29:39.614Z',
     type: 'session_meta',
-    payload: { id: 'USER-1', cwd: 'D:\\Projekte\\demo', timestamp: '2026-08-31T10:28:56.946Z' },
+    payload: { id: 'USER-1', cwd: 'D:\\Example\\demo', timestamp: '2026-08-31T10:28:56.946Z' },
   });
   const row = parser.parseSession({ kind: 'file', path: p });
   assert.ok(row, 'the guard must not swallow ordinary rollouts');

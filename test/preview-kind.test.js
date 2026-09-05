@@ -64,8 +64,8 @@ test('extOf extracts lowercased extension', () => {
 
 test('fileDirUrl builds a trailing-slash file URL (POSIX + Windows)', () => {
   assert.equal(fileDirUrl('/home/u/site/index.html'), 'file:///home/u/site/');
-  assert.equal(fileDirUrl('D:/Projekte/site/index.html'), 'file:///D:/Projekte/site/');
-  assert.equal(fileDirUrl('D:\\Projekte\\site\\index.html'), 'file:///D:/Projekte/site/');
+  assert.equal(fileDirUrl('D:/Example/site/x.html'), 'file:///D:/Example/site/');
+  assert.equal(fileDirUrl('D:\\Example\\site\\x.html'), 'file:///D:/Example/site/');
   assert.equal(fileDirUrl('C:/a b/x.html'), 'file:///C:/a%20b/');
   assert.equal(fileDirUrl(''), '');
 });

@@ -6,7 +6,7 @@ const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 test('replaces non-alphanumerics with dashes (mirrors the Claude CLI naming)', () => {
   assert.equal(encodeProjectPath('/Users/x/My Project'), '-Users-x-My-Project');
-  assert.equal(encodeProjectPath('D:\\Projekte\\switchboard'), 'D--Projekte-switchboard');
+  assert.equal(encodeProjectPath('D:\\Example\\switchboard'), 'D--Example-switchboard');
   assert.equal(encodeProjectPath('/a/b/c'), '-a-b-c');
 });
 
