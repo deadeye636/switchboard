@@ -675,7 +675,14 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   const session = {
     pty: ptyProcess, rendererAttached: true, exited: false,
     outputBuffer: [], outputBufferSize: 0, altScreen: false,
-    projectPath, firstResize: true,
+    // NOT armed on a fresh spawn (#560). The nudge in io.js exists to force a TUI that is ALREADY
+    // drawing to repaint after a reattach; a CLI that started three milliseconds ago has drawn
+    // nothing to repaint. What it does instead is hand that CLI two more geometry changes inside its
+    // first 150 ms — the PTY spawns at 120x30, `syncPtySize` pushes the real size, and the nudge then
+    // adds cols+1 and cols back. Claude Code counts a fullscreen session as started only once it has
+    // drawn a frame and survived, so resizing underneath its first frame is the opposite of free.
+    // The reattach path arms it (see the `existingSession` branch above), which is what it was for.
+    projectPath, firstResize: false,
     projectFolder, knownJsonlFiles, sessionSlug,
     isPlainTerminal, forkFrom: sessionOptions?.forkFrom || null,
     // The shell family THIS session resolved to. Recorded here because this is the only place that knows
