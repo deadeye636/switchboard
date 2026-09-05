@@ -85,6 +85,92 @@ const sendTerminalData = (sessionId, data) => {
   if (w && !w.isDestroyed()) w.webContents.send('terminal-data', sessionId, data);
 };
 
+// --- Alternate screen tracking (#561) ---
+//
+// Which screen buffer the CLI is on. The app ACTS on this on reattach (see `openTerminal`), so a wrong
+// answer is not a wrong diagnostic — it puts a freshly mounted xterm into a buffer the CLI never asked
+// for, and the scrollback the CLI is writing into goes out of view.
+//
+// The four sequences that move a terminal between the normal and the alternate buffer. `1049` is the
+// modern pair (save cursor + switch + clear), `47` the older one; both are in use.
+const ALT_SCREEN_SEQS = [
+  { seq: '\x1b[?1049h', on: true },
+  { seq: '\x1b[?1049l', on: false },
+  { seq: '\x1b[?47h', on: true },
+  { seq: '\x1b[?47l', on: false },
+];
+
+// How many bytes of the previous chunk ride along into the next scan: one less than the longest
+// sequence. With seven carried, every way of cutting an eight-byte sequence in two still leaves the
+// whole of it inside `carry + chunk`. Derived rather than typed, so a sequence added above is covered.
+const ALT_SCREEN_CARRY = Math.max(...ALT_SCREEN_SEQS.map((s) => s.seq.length)) - 1;
+
+/**
+ * What one PTY chunk says about the alternate screen, given the tail of the chunk before it.
+ *
+ * ConPTY hands a TUI's output over in small reads — 5-56 bytes measured — and cuts them wherever it
+ * likes. A substring search over the chunk ALONE therefore matches neither half of a sequence that was
+ * split across the boundary, and the transition is simply not seen: the flag then keeps whatever it last
+ * said for the life of the session (#561). Carrying the previous chunk's tail fixes exactly that, and
+ * the carry rolls forward, so a sequence cut into three or more pieces is matched too.
+ *
+ * WHAT THIS STILL CANNOT SEE, so nobody reads more into it than it does: this is a substring search, not
+ * a parser, and the carry only closes the split-across-a-read case. A private-mode set spelled some
+ * other way still matches nothing — most concretely a COMBINED one, `ESC [ ? 1049 ; 1000 h`, which the
+ * renderer's `stripMouseReporting` already parses with a regex precisely because that form turns up.
+ * Same for a transition whose bytes reach us interleaved with output in an order this search does not
+ * expect. Only a real parser closes that class, and xterm already runs one; #561's second option (have
+ * the renderer report the buffer type it actually has) is the shape that would use it.
+ *
+ * Two smaller things it fixes on the way:
+ *  - The LAST transition in the scan wins. The predecessor applied "on" and then "off" unconditionally,
+ *    so a chunk carrying leave-then-enter came out as `false`.
+ *  - A sequence whose last byte sits inside the carry was already answered when that chunk arrived, so
+ *    it is skipped. Without that, the same transition would be re-applied a second time and could
+ *    overrule a later one.
+ *
+ * @param {string} carry  what the previous call returned as `carry` ('' for the first chunk)
+ * @param {string} chunk  the raw PTY chunk
+ * @returns {{ altScreen: boolean|null, carry: string }} `altScreen` is null when this chunk completed no
+ *   transition; `carry` is what the next call must be handed.
+ */
+function scanAltScreen(carry, chunk) {
+  // A session that predates this field hands us `undefined` — treat it as "no carry" rather than
+  // throwing on the first chunk it ever receives.
+  const head = carry || '';
+  const scan = head ? head + chunk : chunk;
+  let last = -1;
+  let altScreen = null;
+  for (const { seq, on } of ALT_SCREEN_SEQS) {
+    const at = scan.lastIndexOf(seq);
+    if (at < 0) continue;
+    const end = at + seq.length - 1;
+    // Wholly inside the carry: its last byte arrived with the previous chunk and was answered then.
+    if (end < head.length) continue;
+    if (end > last) { last = end; altScreen = on; }
+  }
+  return { altScreen, carry: scan.slice(-ALT_SCREEN_CARRY) };
+}
+
+/**
+ * Where the buffered output ABOUT TO BE REPLAYED will leave xterm's screen buffer, or null when the
+ * buffer carries no transition at all.
+ *
+ * The replay is handed to xterm verbatim and xterm parses it, so a transition still inside the ring
+ * buffer happens on reattach whether or not this app injects anything. That makes the buffer the better
+ * evidence of the two whenever it has any: it is what the terminal is actually about to be told.
+ */
+function altScreenFromReplay(chunks) {
+  let state = null;
+  let carry = '';
+  for (const chunk of chunks || []) {
+    const r = scanAltScreen(carry, chunk);
+    if (r.altScreen !== null) state = r.altScreen;
+    carry = r.carry;
+  }
+  return state;
+}
+
 /**
  * What the user is told about a session that is already running somewhere else (#172).
  *
@@ -136,8 +222,30 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.rendererAttached = true;
     session.firstResize = !session.isPlainTerminal;
 
-    // If TUI is in alternate screen mode, send escape to switch into it
-    if (session.altScreen && !session.isPlainTerminal) {
+    // Put a freshly mounted xterm into the alternate screen before the buffered output is replayed
+    // into it — but only where nothing better contradicts the flag (#561).
+    //
+    // WHY THE INJECTION IS STILL HERE. The replay below is the ring buffer, and xterm parses what it is
+    // handed, so whenever the buffer still contains the sequence that ENTERED the alternate screen the
+    // replay puts xterm there by itself and this line changes nothing. What the buffer cannot do is
+    // carry a transition that has scrolled out of it: a CLI that entered the alternate screen and then
+    // wrote more than MAX_BUFFER_SIZE while inside it leaves a replay with no enter sequence in it at
+    // all, and `output-buffer.js` trims only from the FRONT, so that is the oldest thing to go. That
+    // case is what this line is for. **It has not been measured** — deciding it needs a running app: a
+    // long-lived fullscreen session, reattached, with the replay inspected for whether it still carries
+    // the enter. Until somebody does that, removing this would be a guess, so it stays.
+    //
+    // IT FAILS TOWARD NOT INJECTING. `altScreenFromReplay` is the second opinion, and it is the better
+    // one where it has one, because it reads the bytes xterm is about to be given. Where it says the
+    // replay ends in the NORMAL buffer, the flag is disbelieved and nothing is sent: forcing the
+    // alternate screen on a session that has left it is the worse failure of the two — the terminal ends
+    // up in a buffer the application never asked for and the scrollback the CLI is writing goes out of
+    // view, with nothing to recover it. Where the buffer is silent (null), the tracked flag is all there
+    // is and it decides, as before.
+    if (session.altScreen && !session.isPlainTerminal
+        // Asked last, and only here: it reads up to MAX_BUFFER_SIZE, which is not worth doing for the
+        // sessions the two cheap conditions have already answered.
+        && altScreenFromReplay(session.outputBuffer) !== false) {
       sendTerminalData(sessionId, '\x1b[?1049h');
     }
 
@@ -674,7 +782,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
   const session = {
     pty: ptyProcess, rendererAttached: true, exited: false,
-    outputBuffer: [], outputBufferSize: 0, altScreen: false,
+    // `_altScreenCarry` is the tail of the last PTY chunk, kept so a screen-buffer sequence cut across a
+    // ConPTY read boundary is still matched (#561).
+    outputBuffer: [], outputBufferSize: 0, altScreen: false, _altScreenCarry: '',
     // NOT armed on a fresh spawn (#560). The nudge in io.js exists to force a TUI that is ALREADY
     // drawing to repaint after a reattach; a CLI that started three milliseconds ago has drawn
     // nothing to repaint. What it does instead is hand that CLI two more geometry changes inside its
@@ -855,16 +965,15 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       ctx.log.info(`[BEL] session=${currentId}`);
     }
 
-    // Track alternate screen mode (only if data contains the marker)
-    if (data.includes('\x1b[?')) {
-      if (data.includes('\x1b[?1049h') || data.includes('\x1b[?47h')) {
-        session.altScreen = true;
-        ctx.log.info(`[altscreen] session=${currentId} ON`);
-      }
-      if (data.includes('\x1b[?1049l') || data.includes('\x1b[?47l')) {
-        session.altScreen = false;
-        ctx.log.info(`[altscreen] session=${currentId} OFF`);
-      }
+    // Track the alternate screen buffer. The chunk on its own is not enough — ConPTY cuts its reads
+    // wherever it likes, so the tail of the previous one rides along (#561, `scanAltScreen`).
+    const alt = scanAltScreen(session._altScreenCarry, data);
+    session._altScreenCarry = alt.carry;
+    if (alt.altScreen !== null && alt.altScreen !== session.altScreen) {
+      // The state CHANGE, at info. The raw chunk that carried it is a per-frame event and is not logged
+      // here at all: a TUI re-asserts private modes far too often for that to be readable.
+      session.altScreen = alt.altScreen;
+      ctx.log.info(`[altscreen] session=${currentId} ${alt.altScreen ? 'ON' : 'OFF'}`);
     }
 
     // Buffer output (skip resize-triggered redraws for plain terminals)
@@ -1012,4 +1121,7 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, openTerminal };
+// `scanAltScreen` / `altScreenFromReplay` are exported for `test/alt-screen-tracking.test.js`: the PTY
+// itself has no seam a test can reach (node-pty is required at module load), so the chunk-boundary cases
+// are exercised on the pure function the onData handler calls.
+module.exports = { init, registerIpc, openTerminal, scanAltScreen, altScreenFromReplay };

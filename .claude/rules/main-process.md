@@ -203,6 +203,28 @@ happen: someone restores the symmetry between the two branches because it looks 
 The other half of #560 — four CLIs plus a cold scan starving the first frame, measured at 10-13 s to the
 alternate screen — is open as **#567**. Do not re-derive it here.
 
+## The alternate-screen flag CARRIES a tail, and the reattach fails toward not injecting (#561)
+
+`spawn.js` decides which screen buffer a CLI is on by searching the raw PTY chunks. ConPTY cuts its
+reads wherever it likes, so an eight-byte sequence split across two of them matched neither half and the
+transition was never seen — the flag then kept whatever it last said for the life of the session.
+`scanAltScreen` therefore takes the previous chunk's tail (`session._altScreenCarry`, one byte less than
+the longest sequence) and scans `carry + chunk`. Two properties are load-bearing and easy to undo: the
+LAST match in the scan wins (the predecessor applied "on" then "off" unconditionally), and a match whose
+final byte lies inside the carry is skipped, because it was already answered when that chunk arrived.
+
+**It is still a substring search, not a parser.** A private-mode set spelled some other way, or bytes
+arriving in an order this search does not expect, stays invisible. xterm runs the only real parser, and
+#561's second option — have the renderer report the buffer type it has — is what would use it.
+
+**The reattach injection stays, and it is now second-guessed.** It exists for the transition that has
+scrolled out of the replay buffer, which trims from the front; where the buffer still carries a
+transition, `altScreenFromReplay` reads it and a replay that ends in the NORMAL buffer suppresses the
+injection. Forcing the alternate screen on a session that has left it is the worse failure of the two.
+**Not measured**: whether the scrolled-out case actually occurs for the CLIs this app launches. That
+needs a running app — a long-lived fullscreen session, reattached, with the replay inspected — so the
+line is not removed on a guess.
+
 ## What routes per session, and what stays in main (#2, #393, #395)
 
 A session can live in a window of its own. `app/detach.js` owns the map and answers
