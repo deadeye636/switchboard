@@ -16,8 +16,13 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 
 // Where a stale path costs the most: the files an agent is told to trust.
+//
+// CONTRIBUTING.md is here because it was outside EVERY mechanism — not scanned, and matched by no
+// path-scoped rule's frontmatter either — while naming repo paths a contributor is expected to follow.
+// It is a single file rather than a directory, which `listMarkdown` already handles.
 const SCANNED = [
   'CLAUDE.md',
+  'CONTRIBUTING.md',
   'README.md',
   '.claude/rules',
   'docs',
@@ -40,6 +45,8 @@ const NOT_ON_DISK = [
   '.claude/worktrees',
   'build/Release',
   'src/renderer/codemirror-bundle.js',  // esbuild writes it on every start; gitignored
+  'src/renderer/pdf-bundle.js',         // ditto — `bundle:pdf` runs beside `bundle:codemirror`
+  'src/renderer/pdf-worker.js',         // ditto, the second output of the same script
   '.claude/settings.local.json',        // a checkout's own harness settings, never committed
 ];
 

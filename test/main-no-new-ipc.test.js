@@ -60,17 +60,31 @@ const GRANDFATHERED = [
 // prose — a rule with no mechanism gets skipped, a mechanism with no rule just gets an entry added to its
 // list. Change one, change the other. The test below checks that every module named here still exists, so
 // at least the advice cannot rot into a dead path.
+//
+// "Change one, change the other" was written and then not done: for six modules this list said nothing
+// while the rule's table named them, and this list is the half an agent actually reads — it is the
+// failure message. A handler with no home here becomes a GRANDFATHERED entry, which is the outcome the
+// whole file exists to prevent. Nothing checks that the two agree; the test below only checks that the
+// paths named here exist, so a module missing from BOTH stays missing quietly.
 const WHERE_IT_GOES = `
 A NEW IPC handler does not go in src/main.js. Pick the module that owns the area:
 
-  src/app/windows.js          windows, the settings window, zoom, the close guard
-  src/app/settings.js         the settings blob, the cascade, export/import
-  src/app/notifications.js    notifications, the badge, the tray
-  src/app/variables.js        saved variables and secret materialization
-  src/app/hooks.js            the Claude Code hook server
-  src/app/terminal/spawn.js   opening a terminal
-  src/app/terminal/io.js      terminal input/resize/redraw/flow control
-  src/app/plans-memory.js     the Plans, Memory and Work-Files tabs
+  src/app/windows.js             windows, the settings window, zoom, the close guard
+  src/app/settings.js            the settings blob, the cascade, export/import
+  src/app/notifications.js       notifications, the badge, the tray
+  src/app/variables.js           saved variables and secret materialization
+  src/app/hooks.js               the Claude Code hook server
+  src/app/terminal/spawn.js      opening a terminal
+  src/app/terminal/io.js         terminal input/resize/redraw/flow control
+  src/app/plans-memory.js        the Plans, Memory and Work-Files tabs
+  src/app/handoffs.js            handoff packets — listing, saving, deleting
+  src/app/vcs.js                 version-control status, the changes/diff windows
+  src/app/detach.js              detached session windows, which window renders a session, moving one
+  src/app/presence.js            whether the user is at the machine (focus + input, across every window)
+  src/app/timeline.js            what happened to a session, and reading its history back
+  src/app/store-record-notice.js live sessions their backend has no record of (no busy/idle to show)
+
+None of the above? A NEW src/app/<area>.js — not main.js.
 
 Wire it the way those do:
 

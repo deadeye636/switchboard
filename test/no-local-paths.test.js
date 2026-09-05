@@ -24,8 +24,10 @@
 //     directory does.
 //
 // It follows that a clean run here proves less on a fresh CI clone than on a developer's machine — the
-// checkout is somewhere generic there, so the third check has nothing to compare against. That is stated
-// rather than hidden: the run that matters is the one before the push, on the machine that owns the name.
+// checkout is somewhere generic there, so the third check has nothing to compare against. The same is
+// true in an agent's git worktree under `.claude/worktrees/`, whose parent directory is a word this repo
+// uses about itself. That is stated rather than hidden: the run that matters is the one before the push,
+// on the machine that owns the name.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const os = require('node:os');
@@ -61,7 +63,13 @@ function localTerms() {
   // is skipped rather than reported.
   const parent = path.basename(path.dirname(path.resolve(REPO)));
   const repoName = path.basename(path.resolve(REPO));
-  const tooGeneric = new Set(['src', 'repo', 'repos', 'code', 'work', 'projects', 'git', 'home', 'users', 'tmp', 'temp', '']);
+  // `worktrees` is here for a different reason from the rest, and it is not optional: an agent session
+  // runs from `<repo>/.claude/worktrees/<name>`, which makes the parent literally `worktrees` — a word
+  // this repo writes about ITSELF (`.claude/worktrees`, `git worktree`, and the CLI's own on-disk
+  // worktree layout that two renderer files parse). Left in, the check reported sixteen files naming
+  // "the directory this checkout sits in" and every one of them was the repo's own vocabulary. A term
+  // that matches the subject matter cannot discriminate, which is what this whole set is for.
+  const tooGeneric = new Set(['src', 'repo', 'repos', 'code', 'work', 'projects', 'git', 'home', 'users', 'tmp', 'temp', 'worktrees', '']);
   if (parent.length >= 4 && parent.toLowerCase() !== repoName.toLowerCase() && !tooGeneric.has(parent.toLowerCase())) {
     terms.push({ term: parent, why: 'the directory this checkout sits in' });
   }
