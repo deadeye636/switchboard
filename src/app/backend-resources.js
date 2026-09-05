@@ -304,8 +304,13 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
   // The REAL directory, not the one that was named: everything else in this file checks containment
   // against what the filesystem says a path is, and a create that only checked the spelling would be
   // the one guard here that a link could walk past.
+  //
+  // `.native`, because that is what `path-containment.js` resolves with, and two resolutions of one
+  // question is the defect this function exists to remove rather than to repeat. They really do
+  // disagree, measured on Windows: `fs.realpathSync` hands back the short 8.3 spelling of a name where
+  // `.native` hands back the long one, and it leaves a `subst` mapping alone where `.native` follows it.
   let realParent;
-  try { realParent = fs.realpathSync(parentDir); } catch { return { ok: false, reason: 'That directory is no longer there.' }; }
+  try { realParent = fs.realpathSync.native(parentDir); } catch { return { ok: false, reason: 'That directory is no longer there.' }; }
 
   // Where the new file goes, RELATIVE to the directory that holds it — so one pair of names is joined
   // onto the real spelling to write it and onto the listed one to hand it back.
@@ -338,11 +343,13 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
   // from `realpathSync` is spelled the way the disk holds it. On a project reached through a junction or
   // a symlink those are two strings for one file, and answering with the second one created the file and
   // had the app refuse to show it in the same breath. `realPath` is the spelling that was validated and
-  // written, for a caller that wants the file rather than the listing's name for it.
+  // written, for a caller that wants the file rather than the listing's name for it — and it is the
+  // SAME resolution the containment check ran, so the two cannot drift into two answers.
   //
-  // (A `subst` drive got away with this by accident, measured: `fs.realpathSync` leaves a DOS device
-  // mapping alone, so both spellings came back the same. `realpathSync.native` — what the containment
-  // check resolves with — does follow it, which is why the answer must not depend on which one ran.)
+  // A `subst` drive is the case that makes this concrete rather than theoretical: the listing names the
+  // file on its substituted drive, the real spelling is on the drive it maps to, and both address one
+  // file. A caller that wants the listing's name gets `path`; one that wants the disk's gets `realPath`;
+  // neither has to know which kind of link produced the difference.
   return { ok: true, path: path.join(parentDir, relative), realPath: target };
 }
 
