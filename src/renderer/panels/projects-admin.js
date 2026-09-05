@@ -468,8 +468,13 @@
         // reads the project's cached rows to find them — and removing the project clears those rows.
         if (choice.deleteBackends && choice.deleteBackends.length) {
           const r = await window.api.deleteProjectSessions(path, choice.deleteBackends);
-          if (r && r.error) { toast('Delete sessions: ' + r.error); }
-          else if (r) {
+          // A refused delete STOPS the whole action (#574). The steps below take the project off the
+          // list and clear its cached rows — which is where the delete finds the transcripts — so
+          // carrying on after a failure both ignores what the user asked for and removes the way to
+          // ask again. It reads as "history kept, project gone", which is neither of the two things
+          // the dialog offered.
+          if (r && r.error) { toast('Delete sessions: ' + r.error); return; }
+          if (r) {
             const what = Object.entries(r.deleted || {}).map(([id, n]) => `${labelOf(id)}: ${n}`).join(', ');
             // What did NOT go has to be said too. A backend that cannot hand over its history was dropped
             // in silence, and the toast then read as "all of it is gone" when some of it was still there.

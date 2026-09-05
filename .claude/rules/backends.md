@@ -147,6 +147,28 @@ place: the tombstone sweep iterates `getProjectTombstones()`, and `remapProject`
 `renameProjectRefs` has just filed the row under. **A new caller that hands `setProjectState` a path from
 anywhere else is the same bug again**, and it fails the way this one did: silently, reporting success.
 
+## Deleting a project's history refuses while we are running a session in it (#574)
+
+`deleteProjectSessions` is the one project action that takes files off disk — `removeProject` touches
+none and says so. So it is the one that must not race: a CLI **this app started** is appending to the very
+transcripts the delete removes, and there is nothing to undo afterwards.
+
+- **Live means `ctx.activeSessions` holds a non-exited session for that path.** Not "wrote recently", not
+  "has rows in the cache". A transcript on disk says a session existed; only the map says one is alive with
+  a process behind it. `liveSessionsIn(projectPath)` counts them, because the refusal names the number and
+  "a session" reads wrong for three.
+- **Asked canonically and about the path alone** — the same `samePathKey` `applyAutoHide` folds, so a
+  terminal opened under the other spelling of the directory still counts (#245), and never a question about
+  which backend the session belongs to.
+- **A refused delete stops the WHOLE action**, in the renderer. `projects-admin.js` used to carry on to
+  `removeProject` and the config deletes after a failed delete — its comment said `// always` — which left
+  the history in place and the project gone. That is neither of the two things the dialog offers, and it
+  also clears the cached rows the delete reads to find the transcripts, so the user cannot even ask again.
+
+The neighbouring question is NOT settled by this and is a different size: whether taking a project off the
+LIST should win over a running session, or wait, is still open in `docs/specs/10-project-registry.md` under
+*Known gaps*. Its cost is a row that comes back; this one's was a file that does not.
+
 ## Writing one back is a SECOND declaration (#441)
 
 Reading a resource asks whether the path is reachable. WRITING one asks two more questions, and both

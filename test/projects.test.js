@@ -939,6 +939,72 @@ test('deleting one backend\'s history leaves the others\' alone — files AND ro
   }
 });
 
+// #574: every other project action rearranges a list and can be undone. This one takes files off disk,
+// and the process writing into them is one this app started — so it refuses rather than racing it.
+test('deleting a project\'s history is refused while this app runs a session in it', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const folderPath = path.join(t.store, folder);
+    fs.mkdirSync(folderPath, { recursive: true });
+    const claudeFile = path.join(folderPath, 'a.jsonl');
+    fs.writeFileSync(claudeFile, JSON.stringify({ type: 'user', cwd: projectPath, message: { role: 'user', content: 'x' } }) + '\n');
+    t.setCachedRows([{ sessionId: 'a', folder, projectPath, filePath: null, backendId: 'claude' }]);
+
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath });
+
+    const res = projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.ok(res.error, 'it answers a reason, not ok');
+    assert.match(res.error, /running in this project/);
+    assert.strictEqual(fs.existsSync(claudeFile), true, 'and the transcript is still there');
+    assert.deepStrictEqual(t.calls.deletedSessions, [], 'no row was dropped either');
+  } finally { t.cleanup(); }
+});
+
+// The other half of the same rule: a session that has ENDED is not a reason to refuse. Without this the
+// guard would make the delete unreachable for any project that was ever worked in during this run —
+// `activeSessions` keeps the entry, `exited` is what tells the two apart.
+test('a session that has exited does not block the delete', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const folderPath = path.join(t.store, folder);
+    fs.mkdirSync(folderPath, { recursive: true });
+    const claudeFile = path.join(folderPath, 'a.jsonl');
+    fs.writeFileSync(claudeFile, JSON.stringify({ type: 'user', cwd: projectPath, message: { role: 'user', content: 'x' } }) + '\n');
+    t.setCachedRows([{ sessionId: 'a', folder, projectPath, filePath: null, backendId: 'claude' }]);
+
+    t.ctx.activeSessions.set('s1', { exited: true, projectPath });
+
+    const res = projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(fs.existsSync(claudeFile), false);
+  } finally { t.cleanup(); }
+});
+
+// A live session in ANOTHER project must not protect this one — the guard asks about the path, and a
+// blanket "is anything running" would make the delete unreachable whenever any session is open.
+test('a session running elsewhere does not block the delete', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    const folder = encodeProjectPath(projectPath);
+    const folderPath = path.join(t.store, folder);
+    fs.mkdirSync(folderPath, { recursive: true });
+    const claudeFile = path.join(folderPath, 'a.jsonl');
+    fs.writeFileSync(claudeFile, JSON.stringify({ type: 'user', cwd: projectPath, message: { role: 'user', content: 'x' } }) + '\n');
+    t.setCachedRows([{ sessionId: 'a', folder, projectPath, filePath: null, backendId: 'claude' }]);
+
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath: 'D:\\somewhere-else' });
+
+    const res = projects.deleteProjectSessions(projectPath, ['claude']);
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(fs.existsSync(claudeFile), false);
+  } finally { t.cleanup(); }
+});
+
 test('a session that MOVED into another project is not destroyed with this one', () => {
   // The one that hurt. Claude's store folder is keyed on the cwd a session STARTED from, and since #157 a
   // session belongs to the tree it WORKS in — so one folder can hold sessions of two projects. Deleting

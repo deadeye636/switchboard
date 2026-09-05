@@ -246,6 +246,27 @@ function refreshProjectFolders(projectPath) {
 const samePathKey = pathKey;
 
 /**
+ * How many sessions THIS APP is running in a project (#574).
+ *
+ * Not "wrote recently" and not "has rows": a transcript on disk says a session existed, `activeSessions`
+ * says one is alive right now with a process behind it. Only the second is a reason to refuse to delete
+ * the file it is writing into.
+ *
+ * Counted rather than answered yes/no, because the refusal names the number and "a session" reads wrong
+ * for three of them. `applyAutoHide` folds the same map for the same reason and with the same canonical
+ * key — a terminal opened under the other spelling of the directory is still a session in it (#245).
+ */
+function liveSessionsIn(projectPath) {
+  const key = samePathKey(projectPath);
+  let n = 0;
+  for (const [, session] of ctx.activeSessions) {
+    if (!session || session.exited || !session.projectPath) continue;
+    if (samePathKey(session.projectPath) === key) n++;
+  }
+  return n;
+}
+
+/**
  * WHICH ROW of the register is this project's? (#566)
  *
  * `project_meta` is keyed on the projectPath STRING, and `setProjectState` is an upsert on that string —
@@ -1009,6 +1030,20 @@ function deletableBackends(projectPath) {
 function deleteProjectSessions(projectPath, backendIds) {
   try {
     if (!projectPath) return { error: 'No project path' };
+
+    // A session THIS APP is running in that project is writing into the very transcripts this would
+    // remove (#574). Refuse rather than race it: every other project action rearranges a list and can be
+    // undone, this one takes files off disk. Asked the way `applyAutoHide` asks it — canonically, so a
+    // terminal opened under the other spelling of the directory still counts (#245) — and about the path
+    // alone, never about which backend the session belongs to.
+    const live = liveSessionsIn(projectPath);
+    if (live) {
+      return {
+        error: live === 1
+          ? 'A session is running in this project. Stop it before deleting its history.'
+          : `${live} sessions are running in this project. Stop them before deleting their history.`,
+      };
+    }
 
     let rows = [];
     try { rows = ctx.db.getCachedByProjectPath(projectPath) || []; } catch { rows = []; }

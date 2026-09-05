@@ -275,8 +275,22 @@ Two things it deliberately does not do:
   (`newestAt: row.lastEntryAt || row.modified` in `src/backends/parse.js`), which cannot tell a session
   that STARTED after the removal from one that was already running and wrote one more line. Telling them
   apart means reporting a start time through the worker reply as well — a change to the scan protocol, not
-  to the register — and it only settles the mechanics; whether a removal should win over a running session
-  or be refused while one is open is the part that needs deciding first.
+  to the register — and it only settles the mechanics.
+
+  **Half of that question is now decided, and the half that was decided is the one that destroys data
+  (#574).** The two acts were being weighed as one and they are not alike. Taking a project off the LIST
+  touches no file, so a project that comes back is an annoyance; DELETING its history removes transcripts
+  from the backends' own stores while a CLI this app started is writing into them, and there is nothing to
+  come back. So `deleteProjectSessions` refuses while `ctx.activeSessions` holds a live session for that
+  path, names how many, and the renderer stops the whole action rather than carrying on to the steps below
+  it. The list half is unchanged and stays open: nobody has decided whether a removal should win over a
+  running session there, and its cost is a row, not a file.
+
+  Live means **this app is running it** — not "wrote recently" and not "has rows in the cache". A
+  transcript on disk says a session existed; `activeSessions` says one is alive with a process behind it,
+  and only the second is a reason to refuse to delete the file it is writing into. Asked canonically
+  through the same `samePathKey` `applyAutoHide` uses, so a terminal opened under the other spelling of the
+  directory still counts (#245), and about the path alone — never about which backend the session is.
 - The register keys on the path as written. What the lookups COMPARE is no longer a string (#563), and
   since #566 neither is what a WRITE addresses (the section above). The tombstone, the state
   lookups, the "does this project still have sessions on disk" check and the store-folder refresh all key
