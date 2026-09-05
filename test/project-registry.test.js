@@ -21,42 +21,64 @@ test('an explicit act registers in BOTH modes — manual mode is about discovery
 });
 
 test('discovery registers a project it found a session in — and only in auto mode', () => {
-  const found = { source: 'scan', sessionAt: iso(NOW) };
+  const found = { source: 'scan', sessionStartedAt: iso(NOW) };
   assert.strictEqual(registry.shouldRegister(null, { ...found, autoAdd: true }), true);
   assert.strictEqual(registry.shouldRegister(null, { ...found, autoAdd: false }), false);
 });
 
 test('discovery does not re-register what is already on the list', () => {
   const state = { registered: 1 };
-  assert.strictEqual(registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionAt: iso(NOW) }), false);
+  assert.strictEqual(registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionStartedAt: iso(NOW) }), false);
 });
 
 // --- the tombstone -----------------------------------------------------------------------------------
 
-test('the sessions a removal left behind do not bring the project back; a NEW one does', () => {
+test('the sessions a removal left behind do not bring the project back; one that STARTED after it does', () => {
   // The reason "remove" was never implemented: the transcripts stay on disk, so without a memory of WHEN
   // it was removed, the very next scan finds them and registers the project straight back.
   const removed = { registered: 0, removedAt: iso(NOW) };
 
   assert.strictEqual(
-    registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionAt: iso(NOW - 60_000) }),
+    registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionStartedAt: iso(NOW - 60_000) }),
     false, 'an older session is exactly what the tombstone exists to ignore');
 
   assert.strictEqual(
-    registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionAt: iso(NOW) }),
-    false, 'and one from the same instant is not NEWER than the removal');
+    registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionStartedAt: iso(NOW) }),
+    false, 'and one from the same instant did not begin AFTER the removal — the removal is the later act');
 
   assert.strictEqual(
-    registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionAt: iso(NOW + 60_000) }),
-    true, 'a session that happened after it means the project is in use again');
+    registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionStartedAt: iso(NOW + 60_000) }),
+    true, 'a session that began after it means the project is in use again');
 });
 
-test('a session with no timestamp never resurrects a removed project', () => {
-  // A row with no `modified` is not evidence of anything recent. Treating "unknown" as "now" would make
-  // every removal undone by the first badly-formed row in the store.
+test('a session that was already RUNNING does not bring a removed project back, however recently it wrote', () => {
+  // #575, and the reason the comparison moved off the recency. A CLI live in the project at the moment of
+  // removal appends within seconds, so `lastEntryAt` is past the tombstone while the session itself began
+  // well before it — which made "remove" a no-op for exactly the project the user was working in. The
+  // recency is passed here as the scan used to report it, and it must change nothing.
   const removed = { registered: 0, removedAt: iso(NOW) };
-  assert.strictEqual(registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionAt: null }), false);
-  assert.strictEqual(registry.shouldRegister(removed, { source: 'scan', autoAdd: true, sessionAt: 'nonsense' }), false);
+  assert.strictEqual(registry.shouldRegister(removed, {
+    source: 'scan', autoAdd: true, sessionAt: iso(NOW + 60_000), sessionStartedAt: iso(NOW - 60_000),
+  }), false);
+});
+
+test('no start time is a REFUSAL, not a fall back to the recency', () => {
+  // The decision for a backend whose store carries no timestamps (agy reports `startedAt: null` on
+  // purpose), and for a Claude transcript whose head holds no entry yet. Falling back to the recency
+  // would restore the bug above for precisely those cases; refusing costs a project the user can put
+  // back at any time, because an explicit act registers in both modes and buries the tombstone.
+  const removed = { registered: 0, removedAt: iso(NOW) };
+
+  assert.strictEqual(registry.shouldRegister(removed, {
+    source: 'scan', autoAdd: true, sessionAt: iso(NOW + 60_000), sessionStartedAt: null,
+  }), false, 'a recency is not a start, and it may not answer for one');
+
+  assert.strictEqual(registry.shouldRegister(removed, {
+    source: 'scan', autoAdd: true, sessionAt: iso(NOW + 60_000), sessionStartedAt: 'nonsense',
+  }), false, 'and a start that does not parse is not evidence of anything either');
+
+  assert.strictEqual(registry.shouldRegister(removed, { source: 'user', autoAdd: false }), true,
+    'the way back is the user, in both modes — that is what makes the refusal affordable');
 });
 
 test('adding a removed project back by hand always works', () => {

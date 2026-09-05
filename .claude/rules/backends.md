@@ -174,9 +174,42 @@ transcripts the delete removes, and there is nothing to undo afterwards.
   the history in place and the project gone. That is neither of the two things the dialog offers, and it
   also clears the cached rows the delete reads to find the transcripts, so the user cannot even ask again.
 
-The neighbouring question is NOT settled by this and is a different size: whether taking a project off the
-LIST should win over a running session, or wait, is still open in `docs/specs/10-project-registry.md` under
-*Known gaps*. Its cost is a row that comes back; this one's was a file that does not.
+The neighbouring question is HALF settled now, and the half that is settled is the one below. Whether a
+removal should be REFUSED while a session is live there is still open in
+`docs/specs/10-project-registry.md` under *Known gaps*; what the tombstone admits afterwards is decided.
+
+## A store sighting reports a START, not only a recency (#575)
+
+The scan tells the register what it found in a backend's store, and that report is what the tombstone is
+compared against. It used to be one time — the newest recency, `newestAt: row.lastEntryAt || row.modified`
+— and a CLI live in the project at the moment of removal appends within seconds, so the recency moved past
+the tombstone and the project came back on the next flush. "Remove" was a no-op for exactly the project
+the user was working in.
+
+A `storeProjects` entry is `{ projectPath, newestAt, startedAt }` now, `noteStoreProject` keeps the two
+maxima **apart** (the newest start and the newest write need not be the same session), and
+`shouldRegister` takes `sessionStartedAt`. The recency is still reported and still means what it meant —
+it just decides nothing.
+
+Three things to keep in mind when you touch a reporter:
+
+- **The START is the reader's, and a reader that cannot say answers `null`.** That is the descriptor rule
+  in this file applied to a timestamp: agy's `.db` carries none, so its parser sets `startedAt: null` on
+  purpose. **Never substitute the recency**, in the loop, in the replay, or in the register. For agy it
+  would be the worst possible substitution — its `lastEntryAt` IS the file mtime — and the register refuses
+  the bring-back instead, which the user can always undo by adding the project or launching a session in
+  it (`source: 'user'` registers in both modes). The reasoning lives in `project-registry.js` and in
+  spec 10; do not re-decide it in a new reporter.
+- **Claude's REMOVED-folder branch reads HEADS, and still parses nothing.** It never parsed — a removed
+  project's rows were purged and re-reading them would put them back — so it had only the folder index
+  mtime, a recency it was reporting as a start. `sessionReader.readSessionStartedAt` reads the first chunk
+  of each transcript and stops at the first timestamped entry, memoised per file because a start never
+  changes. A **failed** read is deliberately not memoised: a header-only file is a session about to exist,
+  and remembering "no start" for it would make that permanent.
+- **A new reporter must feed both.** Grep for `noteStoreProject` rather than trusting an enumeration —
+  there are reply replays in `src/backends/scan.js` and `src/backends/claude/store-indexer.js`, plus the
+  cold-scan branch in the latter, and a caller that passes only a recency silently makes removal permanent
+  for its backend.
 
 ## Writing one back is a SECOND declaration (#441)
 

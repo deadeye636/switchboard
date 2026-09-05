@@ -529,22 +529,32 @@ function syncRegistry() {
     const autoAdd = global.projectAutoAdd !== false;
     const states = ctx.db.getProjectStates();
 
-    // The newest session per project, across every backend. The tombstone is compared against it, so it
-    // has to include the projects the CACHE cannot speak for: a removed project is not indexed, and if
-    // discovery only looked at cached rows, a brand-new session in it would never be noticed and
+    // The newest session per project, across every backend — its START and its recency, kept apart. The
+    // tombstone is compared against the START (#575): a session that was already running when the project
+    // was removed writes again within seconds, so its recency says "newer than the removal" while its
+    // start says what is true. The recency is carried for the log line below, not for the decision.
+    //
+    // This has to include the projects the CACHE cannot speak for: a removed project is not indexed, and
+    // if discovery only looked at cached rows, a session that just began in it would never be noticed and
     // "removed" would quietly mean "banned for good". The scan reports what it saw in the stores.
     //
     // ONE pass over the cached rows, not `buildProjectsAdmin()` — that also readdirs the store and stats
     // every project path, and this runs on every sidebar render.
+    const later = (a, b) => (a && (!b || a > b) ? a : (b || null));
     const newest = new Map();
-    for (const [projectPath, at] of ctx.cache.getStoreProjectPaths()) newest.set(projectPath, at || null);
+    for (const [projectPath, seen] of ctx.cache.getStoreProjectPaths()) {
+      newest.set(projectPath, {
+        at: (seen && seen.newestAt) || null,
+        startedAt: (seen && seen.startedAt) || null,
+      });
+    }
     for (const row of ctx.db.getAllCached()) {
       if (!row.projectPath) continue;
-      const at = row.modified || null;
-      const known = newest.get(row.projectPath);
-      if (!newest.has(row.projectPath) || (at && (!known || at > known))) {
-        newest.set(row.projectPath, at || known || null);
-      }
+      const known = newest.get(row.projectPath) || { at: null, startedAt: null };
+      newest.set(row.projectPath, {
+        at: later(row.modified || null, known.at),
+        startedAt: later(row.startedAt || null, known.startedAt),
+      });
     }
 
     // The same directory can be spelled two ways on Windows, and a state looked up under the wrong
@@ -564,19 +574,30 @@ function syncRegistry() {
     const now = new Date().toISOString();
     let changed = false;
 
-    for (const [projectPath, sessionAt] of newest) {
+    for (const [projectPath, times] of newest) {
       const row = rowByKey.get(samePathKey(projectPath));
-      if (!registry.shouldRegister(row && row.state, { source: 'scan', autoAdd, sessionAt })) continue;
+      const wasRemovedAt = row && row.state && row.state.removedAt;
+      if (!registry.shouldRegister(row && row.state, {
+        source: 'scan', autoAdd, sessionStartedAt: times.startedAt,
+      })) continue;
       // Registering does NOT unhide: `registrationState` is for an explicit act by the user. Discovery
       // only puts it on the list, and a project the user hid stays hidden while its sessions pile up.
       ctx.db.setProjectState((row && row.path) || projectPath, { registered: 1, registeredAt: now, removedAt: null });
       changed = true;
 
+      // A bring-back past a tombstone is a lifecycle transition, and the two times are what makes it one:
+      // the START is why it was allowed, the recency is how live the project is. Logged together so a
+      // "why did my removed project come back" reads as an answer rather than an accusation (#575).
+      if (wasRemovedAt) {
+        ctx.log.info(`[registry] removed project brought back — a session started at ${times.startedAt}`
+          + ` (after the removal at ${wasRemovedAt}; newest activity ${times.at || 'unknown'}): ${projectPath}`);
+      }
+
       // Index it NOW — every folder of it. While it was removed the scan skipped those folders, and
       // stamped each one's mtime memo as up to date on the way past, so the next reconcile would skip
       // them too: the project would sit in the sidebar empty, its sessions on disk, nothing to bring
       // them in.
-      if (row && row.state && row.state.removedAt) refreshProjectFolders(projectPath);
+      if (wasRemovedAt) refreshProjectFolders(projectPath);
     }
 
     // The sweep. A tombstone whose sessions are all gone guards nothing — a genuinely new session at that
@@ -820,8 +841,8 @@ function projectKnownToAnyBackend(projectPath) {
  * notice counts, and what the project manager can filter down to.
  *
  * The list is exactly what AUTO-ADD would have taken, tombstone included: a project the user REMOVED is
- * not offered back until a session newer than the removal turns up — the same rule, asked of the same
- * function, so the offer can never contradict what the register would do.
+ * not offered back until a session that STARTED after the removal turns up (#575) — the same rule, asked
+ * of the same function with the same time, so the offer can never contradict what the register would do.
  */
 function unlistedProjects() {
   try {
@@ -831,7 +852,9 @@ function unlistedProjects() {
       if (row.registered) continue;
       if (!row.sessionCount) continue;                 // nothing to miss
       const state = states.get(row.projectPath) || null;
-      if (!registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionAt: row.lastActivity })) continue;
+      // The START, not the recency (#575) — the same time the register decides on, so this offer cannot
+      // say "you could add this" about a project auto-add would refuse.
+      if (!registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionStartedAt: row.lastStartedAt })) continue;
       out.push({
         projectPath: row.projectPath,
         sessionCount: row.sessionCount,

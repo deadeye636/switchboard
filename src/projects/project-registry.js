@@ -51,12 +51,14 @@ const ms = (iso) => {
  *   @param {'scan'|'user'} event.source  who is asking. `user` = an explicit act (added by hand, or a
  *                                        session launched there). `scan` = discovery found a session.
  *   @param {boolean} event.autoAdd       the "add projects automatically" setting.
- *   @param {string}  [event.sessionAt]   ISO timestamp of the session that discovery found.
+ *   @param {string}  [event.sessionStartedAt]  ISO timestamp of when the newest session discovery found
+ *                                        BEGAN — the only time the tombstone is judged on (#575). Null
+ *                                        when the store cannot say; never a recency standing in for one.
  * @returns {boolean}
  */
 function shouldRegister(meta, event) {
   const m = { ...UNKNOWN, ...(meta || {}) };
-  const { source, autoAdd, sessionAt } = event || {};
+  const { source, autoAdd, sessionStartedAt } = event || {};
 
   // An explicit act always registers, in BOTH modes — and it buries the tombstone. Manual mode means
   // "nobody but me writes to the list", not "I cannot start a session anywhere".
@@ -66,10 +68,29 @@ function shouldRegister(meta, event) {
   if (!autoAdd) return false;
   if (m.registered) return false;              // already on it — nothing to do
 
-  // The tombstone. Only a session NEWER than the removal brings the project back; the ones that were
-  // already on disk when it was removed are exactly what the tombstone exists to ignore. Without this,
-  // "remove" would be undone by the very next scan — which is why it was never implemented.
-  if (m.removedAt && ms(sessionAt) <= ms(m.removedAt)) return false;
+  // The tombstone. Only a session that STARTED after the removal brings the project back; the ones that
+  // were already on disk when it was removed are exactly what the tombstone exists to ignore. Without
+  // this, "remove" would be undone by the very next scan — which is why it was never implemented.
+  //
+  // A session that was already RUNNING is one of those, however recently it wrote (#575). This used to
+  // compare against the newest RECENCY the scan reported, and a CLI live in the project at the moment of
+  // removal appends within seconds — so its recency moved past the tombstone and "remove" was a no-op for
+  // exactly the project the user was working in. The recency is deliberately not consulted here at all.
+  //
+  // NO START TIME IS A REFUSAL, NOT A FALLBACK. A store with no timestamps (agy) reports null, and so
+  // does a Claude folder whose transcripts are still header-only. Falling back to the recency would
+  // restore the bug above for precisely those cases, and the two failure modes are not symmetrical: a
+  // refusal costs a project the user can put back at any time — adding it by hand or launching a session
+  // in it is `source: 'user'`, which registers in both modes and buries the tombstone — while a fallback
+  // costs a removal that silently never happens and that the user has no way to make stick.
+  //
+  // Equal timestamps do NOT bring it back: a start that is not NEWER than the removal is not a session
+  // that began after it, and at the same instant the removal is the later act. A start that does not
+  // parse is the same answer by the same route — `ms()` reads it as 0, older than any removal.
+  if (m.removedAt) {
+    if (!sessionStartedAt) return false;
+    if (ms(sessionStartedAt) <= ms(m.removedAt)) return false;
+  }
 
   return true;
 }

@@ -262,10 +262,10 @@ function buildProjectsAdmin() {
   // the spelling the user acted on, which need not be the one this entry ended up displaying.
   const favoritedKeysAdmin = new Set([...favorited].map(normPath));
   const displayNameByKeyAdmin = new Map([...displayNames].map(([k, v]) => [normPath(k), v]));
-  const map = new Map(); // canonical key -> { projectPath, sessionCount, lastActivity }
+  const map = new Map(); // canonical key -> { projectPath, sessionCount, lastActivity, lastStartedAt }
   const ensure = (projectPath, registered) => {
     const key = normPath(projectPath);
-    if (!map.has(key)) map.set(key, { projectPath, sessionCount: 0, lastActivity: null });
+    if (!map.has(key)) map.set(key, { projectPath, sessionCount: 0, lastActivity: null, lastStartedAt: null });
     const entry = map.get(key);
     if (registered) entry.projectPath = projectPath;
     return entry;
@@ -277,6 +277,11 @@ function buildProjectsAdmin() {
     e.sessionCount++;
     const mod = row.modified || null;
     if (mod && (!e.lastActivity || new Date(mod) > new Date(e.lastActivity))) e.lastActivity = mod;
+    // The newest session START, kept apart from the recency (#575). `unlistedProjects` asks the register
+    // the same question the register asks itself, and the register judges a tombstone on the start — so
+    // an admin row that carried only a recency would make the offer contradict the list.
+    const st = row.startedAt || null;
+    if (st && (!e.lastStartedAt || new Date(st) > new Date(e.lastStartedAt))) e.lastStartedAt = st;
   }
 
   // Include empty project directories (no sessions yet), like buildProjectsFromCache.
@@ -310,6 +315,7 @@ function buildProjectsAdmin() {
       displayName: displayNames.get(projectPath) || displayNameByKeyAdmin.get(key) || '',
       sessionCount: e.sessionCount,
       lastActivity: e.lastActivity,
+      lastStartedAt: e.lastStartedAt,
       missing: !fs.existsSync(projectPath),
       // On the list at all — what tells "hidden" (on it, unseen) apart from "not added" (not on it).
       registered: !!state.registered,

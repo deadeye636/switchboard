@@ -122,12 +122,14 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
     setAdminRows: (rows) => { adminRows = rows; },
     setCachedRows: (rows) => { cachedRows = rows; },
     setFolderMeta: (folder, projectPath) => { folderMeta.set(folder, { folder, projectPath }); },
-    // `[path, newestSessionIso]` pairs, or a bare path when the time does not matter to the test.
+    // `[path, newestSessionIso, sessionStartedIso]` triples — the shape the real scan-state map holds
+    // since #575 — or a bare path when neither time matters to the test. The START is what the tombstone
+    // is judged on; the recency is only the sighting, so a pair leaves the start null on purpose.
     setStorePaths: (paths) => {
       storePaths.clear();
       for (const p of paths) {
-        if (Array.isArray(p)) storePaths.set(p[0], p[1]);
-        else storePaths.set(p, null);
+        if (Array.isArray(p)) storePaths.set(p[0], { newestAt: p[1] || null, startedAt: p[2] || null });
+        else storePaths.set(p, { newestAt: null, startedAt: null });
       }
     },
     state: (p) => states.get(p) || null,
@@ -297,7 +299,8 @@ test('discovery registers a project it finds a session in — in auto mode only'
 
 test('discovery does NOT resurrect a removed project from the sessions it left behind', () => {
   // The whole reason "remove" was never implemented: the transcripts stay on disk, so the very next scan
-  // would find them and put the project straight back. Only a session NEWER than the removal counts.
+  // would find them and put the project straight back. Only a session that STARTED after the removal
+  // counts (#575) — a row's `modified` is a recency and says nothing about when its session began.
   const t = makeCtx();
   try {
     projects.ensureProjectAdded('D:\\gone');
@@ -305,14 +308,19 @@ test('discovery does NOT resurrect a removed project from the sessions it left b
     const removedAt = t.state('D:\\gone').removedAt;
 
     const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
-    t.setCachedRows([{ sessionId: 'o1', projectPath: 'D:\\gone', modified: older }]);
+    t.setCachedRows([{ sessionId: 'o1', projectPath: 'D:\\gone', modified: older, startedAt: older }]);
     projects.syncRegistry();
     assert.strictEqual(t.state('D:\\gone').registered, 0, 'the old sessions do not bring it back');
 
     const newer = new Date(new Date(removedAt).getTime() + 60_000).toISOString();
-    t.setCachedRows([{ sessionId: 'n1', projectPath: 'D:\\gone', modified: newer }]);
+    t.setCachedRows([{ sessionId: 'o1', projectPath: 'D:\\gone', modified: newer, startedAt: older }]);
     projects.syncRegistry();
-    assert.strictEqual(t.state('D:\\gone').registered, 1, 'a session that happened AFTER it does');
+    assert.strictEqual(t.state('D:\\gone').registered, 0,
+      'and one of them writing another line is still one of them — the recency moved, the start did not');
+
+    t.setCachedRows([{ sessionId: 'n1', projectPath: 'D:\\gone', modified: newer, startedAt: newer }]);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\gone').registered, 1, 'a session that BEGAN after it does');
     assert.strictEqual(t.state('D:\\gone').removedAt, null, 'and the tombstone is buried');
   } finally { t.cleanup(); }
 });
@@ -332,14 +340,22 @@ test('a NEW session in a removed project brings it back — the scan sees it, th
     t.setCachedRows([]);
 
     const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
-    t.setStorePaths([['D:\\p', older]]);
+    t.setStorePaths([['D:\\p', older, older]]);
     projects.syncRegistry();
     assert.strictEqual(t.state('D:\\p').registered, 0, 'the transcripts it left behind do not bring it back');
 
+    // The session that was LIVE when the project was removed (#575). It appends within seconds, so the
+    // store's recency is past the tombstone while the session itself began before it. This is the case
+    // that made "remove" a no-op for exactly the project the user was working in.
     const newer = new Date(new Date(removedAt).getTime() + 60_000).toISOString();
-    t.setStorePaths([['D:\\p', newer]]);
+    t.setStorePaths([['D:\\p', newer, older]]);
     projects.syncRegistry();
-    assert.strictEqual(t.state('D:\\p').registered, 1, 'but a session that happened AFTER the removal does');
+    assert.strictEqual(t.state('D:\\p').registered, 0,
+      'a session that was already running does not bring it back, however recently it wrote');
+
+    t.setStorePaths([['D:\\p', newer, newer]]);
+    projects.syncRegistry();
+    assert.strictEqual(t.state('D:\\p').registered, 1, 'but a session that BEGAN after the removal does');
     assert.strictEqual(t.state('D:\\p').removedAt, null);
 
     // ...and it comes back with its sessions. While it was removed the scan skipped its folder and
@@ -398,7 +414,7 @@ test('a tombstone is not missed because Windows spells the path differently', ()
     const removedAt = t.state('D:\\Example\\Thing').removedAt;
 
     const older = new Date(new Date(removedAt).getTime() - 60_000).toISOString();
-    t.setStorePaths([['d:\\example\\thing', older]]);     // the same directory, as Codex spelled it
+    t.setStorePaths([['d:\\example\\thing', older, older]]);   // the same directory, as Codex spelled it
     projects.syncRegistry();
 
     assert.strictEqual(t.state('d:\\example\\thing'), null, 'the other spelling is not registered behind its back');
@@ -492,7 +508,7 @@ test('#566 discovery registers onto the row the tombstone is on', () => {
     const removedAt = t.state(real).removedAt;
 
     const newer = new Date(new Date(removedAt).getTime() + 60_000).toISOString();
-    t.setStorePaths([[alias, newer]]);
+    t.setStorePaths([[alias, newer, newer]]);
     projects.syncRegistry();
 
     assert.strictEqual(t.state(real).registered, 1, 'the registered row is the one that comes back');
@@ -1310,20 +1326,30 @@ test('#183: unlistedProjects lists the projects that have sessions and are not o
   } finally { t.cleanup(); }
 });
 
-test('#183: a project the user REMOVED is not offered back — until a session newer than the removal', () => {
+test('#183: a project the user REMOVED is not offered back — until a session STARTED after the removal', () => {
   const t = makeCtx({ global: { projectAutoAdd: false } });
   try {
     const removedAt = '2026-07-01T00:00:00.000Z';
     t.ctx.db.setProjectState('D:\\removed', { registered: 0, removedAt });
     t.setAdminRows([
-      { projectPath: 'D:\\removed', registered: false, sessionCount: 5, lastActivity: '2026-06-01T00:00:00.000Z' },
+      { projectPath: 'D:\\removed', registered: false, sessionCount: 5, lastActivity: '2026-06-01T00:00:00.000Z',
+        lastStartedAt: '2026-06-01T00:00:00.000Z' },
     ]);
     assert.deepStrictEqual(projects.unlistedProjects().projects, [],
       'the sessions that were already there when it was removed are exactly what the tombstone ignores');
 
-    // Work happens there again, after the removal.
+    // One of those sessions writes again after the removal. The recency moves; the start does not (#575).
     t.setAdminRows([
-      { projectPath: 'D:\\removed', registered: false, sessionCount: 6, lastActivity: '2026-07-05T00:00:00.000Z' },
+      { projectPath: 'D:\\removed', registered: false, sessionCount: 5, lastActivity: '2026-07-05T00:00:00.000Z',
+        lastStartedAt: '2026-06-01T00:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects, [],
+      'a session that was already running is not an offer — the offer follows the same rule auto-add does');
+
+    // Work BEGINS there again, after the removal.
+    t.setAdminRows([
+      { projectPath: 'D:\\removed', registered: false, sessionCount: 6, lastActivity: '2026-07-05T00:00:00.000Z',
+        lastStartedAt: '2026-07-05T00:00:00.000Z' },
     ]);
     assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), ['D:\\removed'],
       'a NEW session is a reason to offer it again — the same rule auto-add follows');

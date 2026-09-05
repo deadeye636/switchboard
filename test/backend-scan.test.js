@@ -192,8 +192,13 @@ test('refreshBackendSessions notes EVERY parsed session in the store scan-state 
 
     const stats = runBackendScan('codex');
     assert.equal(stats.upserted, 1, 'the (non-removed) session is indexed normally');
-    assert.ok(sessionCache.getStoreProjectPaths().has(w.projectCwd),
+    const seen = sessionCache.getStoreProjectPaths().get(w.projectCwd);
+    assert.ok(seen,
       'and its project is recorded in the store scan-state UNCONDITIONALLY (#167) — not only for removed projects');
+    // The two times reach the scan-state apart (#575): the tombstone is judged on the START, and a
+    // sighting that carried only a recency would judge it on when the session last WROTE.
+    assert.equal(seen.startedAt, '2026-07-01T10:00:00.000Z', 'with the session start the reader knows');
+    assert.equal(seen.newestAt, '2026-07-01T10:00:05.000Z', 'and its recency beside it, not instead of it');
   } finally { cleanup(w); }
 });
 

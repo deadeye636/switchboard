@@ -98,32 +98,58 @@ function buildSearchEntry(s) {
 }
 
 /**
- * What the STORES hold, for projects the cache cannot speak for: projectPath -> the newest session seen.
+ * What the STORES hold, for projects the cache cannot speak for:
+ * projectPath -> { newestAt, startedAt } — the newest session seen, and the newest session START seen.
  *
  * A REMOVED project is deliberately not indexed, so its rows are gone while its transcripts are not. Two
  * things then depend on this map, and both would be wrong without it (#167):
  *
  *   - The tombstone sweep may only forget a removal once no session for that path is left ANYWHERE. Ask
  *     the cache and it says "none" by construction — the sweep would drop the tombstone, and the next
- *     scan would resurrect the project off the very transcripts the removal was meant to forget.
- *   - A NEW session in a removed project has to bring it back. That is the entire difference between
- *     "removed" and "banned". Ask the cache and it never even hears about it.
+ *     scan would resurrect the project off the very transcripts the removal was meant to forget. This is
+ *     about the KEY: a path in this map is a path the stores still hold something for.
+ *   - A session that STARTED after the removal has to bring the project back. That is the entire
+ *     difference between "removed" and "banned". Ask the cache and it never even hears about it.
+ *
+ * The two times are kept apart on purpose (#575). `startedAt` is what the tombstone is judged on; a
+ * session that was already running when the project was removed writes again within seconds, so its
+ * recency is past the tombstone while its start is not. `newestAt` stays the sighting's recency — it is
+ * what the bring-back is REPORTED with, not what decides it. Each takes its own maximum: the newest start
+ * and the newest write need not come from the same session.
  */
 const storeProjectPaths = new Map();
-function noteStoreProject(projectPath, at) {
+const laterOf = (a, b) => (a && (!b || a > b) ? a : (b || null));
+function noteStoreProject(projectPath, at, startedAt) {
   if (!projectPath) return;
   const prev = storeProjectPaths.get(projectPath) || null;
-  storeProjectPaths.set(projectPath, at && (!prev || at > prev) ? at : prev);
+  storeProjectPaths.set(projectPath, {
+    newestAt: laterOf(at, prev && prev.newestAt),
+    startedAt: laterOf(startedAt, prev && prev.startedAt),
+  });
 }
 function getStoreProjectPaths() {
   return storeProjectPaths;
 }
 
-/** The newest `modified` in a batch of parsed sessions — what a removed project is judged by. */
+/** The newest `modified` in a batch of parsed sessions — the recency a store sighting is reported with. */
 function newestSessionAt(sessions) {
   let newest = null;
   for (const s of sessions || []) {
     const at = s.lastEntryAt || s.modified || null;
+    if (at && (!newest || at > newest)) newest = at;
+  }
+  return newest;
+}
+
+/**
+ * The newest session START in a batch of parsed sessions — what a removed project is judged by (#575).
+ * Null when not one of them can say, which the register reads as "no evidence a session began after the
+ * removal", never as "now".
+ */
+function newestStartedAt(sessions) {
+  let newest = null;
+  for (const s of sessions || []) {
+    const at = s.startedAt || null;
     if (at && (!newest || at > newest)) newest = at;
   }
   return newest;
@@ -282,6 +308,7 @@ module.exports = {
   noteStoreProject,
   getStoreProjectPaths,
   newestSessionAt,
+  newestStartedAt,
   isRemovedProject,
   notifyRendererProjectsChanged,
   sendStatus,

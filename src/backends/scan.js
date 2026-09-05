@@ -63,8 +63,10 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
   stats.skipped = reply.skipped;
 
   // UNCONDITIONAL store sighting per parsed session (#167 tombstone/bring-back) — Axis-B notes EVERY
-  // session, not just removed ones (unlike Claude's loop).
-  for (const sp of reply.storeProjects) noteStoreProject(sp.projectPath, sp.newestAt);
+  // session, not just removed ones (unlike Claude's loop). The START rides along and is what the tombstone
+  // is judged on (#575); a backend whose store has no timestamps reports null and is refused a bring-back
+  // rather than being handed the recency as a stand-in.
+  for (const sp of reply.storeProjects) noteStoreProject(sp.projectPath, sp.newestAt, sp.startedAt);
 
   // #155 markPersisted on the SKIP path (both the file-mtime and db-marker skip branches). A skipped
   // session never reaches the sink, so this is the only place its overlay entry becomes evictable.

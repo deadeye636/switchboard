@@ -53,11 +53,12 @@ const FILE_READ_STATE_MAX = 512;
 //                   minus the ones a backend declared internal (#492) — see the `internal` note below.
 //   skippedIds    — the #155 skip-path markPersisted ids (BOTH the file-mtime and db-marker skip branches);
 //                   main replays markPersisted — a skipped session never reaches the sink.
-//   storeProjects — [{projectPath, newestAt}] for EVERY parsed session, UNCONDITIONALLY (Axis-B's biggest
-//                   #167 difference from Claude, which only notes the removed branch); main replays
-//                   noteStoreProject — drop it and storeProjectPaths empties → syncRegistry breaks the
-//                   tombstone/bring-back. `newestAt` is the RAW row's recency, captured before shaping
-//                   overwrites row.modified.
+//   storeProjects — [{projectPath, newestAt, startedAt}] for EVERY parsed session, UNCONDITIONALLY
+//                   (Axis-B's biggest #167 difference from Claude, which only notes the removed branch);
+//                   main replays noteStoreProject — drop it and storeProjectPaths empties → syncRegistry
+//                   breaks the tombstone/bring-back. `newestAt` is the RAW row's recency, captured before
+//                   shaping overwrites row.modified; `startedAt` is the reader's own start time, which is
+//                   what the TOMBSTONE is judged on (#575) and is `null` for a store that has none.
 //   incomplete    — `handles.incomplete` (#197): a partial read; main skips the reconcile delete-diff.
 //   scanned/skipped — the stat counters (pure to compute; main copies them onto its return stats).
 // (storeMissing is NOT computed here — storeExists is a main-side check; main handles it as an early return
@@ -150,10 +151,19 @@ function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = fa
     if (!projectPath) continue;
 
     // UNCONDITIONAL store sighting — the only place a removed project's sessions are ever seen, and both
-    // the sweep and "a new session brings it back" hang off it (#167). Captured with the RAW row's recency
-    // BEFORE the shaping below overwrites row.modified. Main replays noteStoreProject. Reported for EVERY
-    // parsed session, removed or not — the removal check is main's, at apply time.
-    reply.storeProjects.push({ projectPath, newestAt: row.lastEntryAt || row.modified || null });
+    // the sweep and "a session that started after the removal brings it back" hang off it (#167/#575).
+    // Captured with the RAW row's recency BEFORE the shaping below overwrites row.modified. Main replays
+    // noteStoreProject. Reported for EVERY parsed session, removed or not — the removal check is main's,
+    // at apply time.
+    //
+    // The two times are NOT interchangeable. `startedAt` is the reader's own, and a backend whose store
+    // carries no timestamp (agy) reports null for it — an honest absence, never the recency standing in
+    // for a start, which is exactly the substitution #575 exists to undo.
+    reply.storeProjects.push({
+      projectPath,
+      newestAt: row.lastEntryAt || row.modified || null,
+      startedAt: row.startedAt || null,
+    });
 
     // Row-shaping (fs/pure, worker-safe — NOT a DB read, and NOT the reader's job, so it stays HERE and
     // rides in `sessions`). The REMOVED gate that used to `continue` here is gone: it is a DB read

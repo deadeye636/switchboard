@@ -37,6 +37,7 @@ const {
   markPersisted,
   noteStoreProject,
   newestSessionAt,
+  newestStartedAt,
   notifyRendererProjectsChanged,
   sendStatus,
 } = require('../../index/index-writes');
@@ -219,8 +220,9 @@ function applyClaudeFolderReply(folder, reply, { scope, cachedMap, stats, dropId
   // Vanished-folder scoped wipe: the cached-folder delete WITHOUT the matching search delete (A-4).
   for (const f of reply.vanishedFolders) deleteCachedFolder(f, scope);
 
-  // Store scan-state for removed projects (#167 tombstone/bring-back).
-  for (const sp of reply.storeProjects) noteStoreProject(sp.projectPath, sp.newestAt);
+  // Store scan-state for removed projects (#167 tombstone/bring-back). The START rides along and is what
+  // the tombstone is judged on (#575); the recency is only the sighting.
+  for (const sp of reply.storeProjects) noteStoreProject(sp.projectPath, sp.newestAt, sp.startedAt);
 
   // Cancel the pending debounced refreshFile for each file this sweep re-read (#199 — the double-read).
   for (const fp of reply.reReadFiles) cancelReindex(fp);
@@ -414,7 +416,9 @@ function populateCacheViaWorker() {
       // "Rebuild session cache" (or any cold start that takes the worker path) would put a removed
       // project's sessions back into the cache, the search index and the stats as an invisible zombie.
       if (projectPath && isRemovedProject(projectPath)) {
-        noteStoreProject(projectPath, newestSessionAt(sessions));
+        // The cold scan parsed these rows in full, so it can report a real START (#575) — unlike the
+        // incremental removed branch, which reads only the heads of the folder's transcripts.
+        noteStoreProject(projectPath, newestSessionAt(sessions), newestStartedAt(sessions));
         setFolderMeta(folder, projectPath, indexMtimeMs);
         continue;
       }

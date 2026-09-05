@@ -41,6 +41,37 @@ function rememberFileReadState(filePath, next) {
   }
 }
 
+// Per-file session START memo (#575): filePath -> the ISO timestamp of the first entry in that transcript.
+// A session's start never changes, so one head read per file is all this ever costs; steady state in a
+// REMOVED project's folder — the only place it is asked — is zero reads, and a file that appears there
+// after the removal is read exactly once. A start that could NOT be determined is deliberately not
+// remembered: a header-only file has no first entry YET, and caching "none" would make it permanent.
+const _sessionStartAt = new Map();
+const SESSION_START_MAX = 2048;
+
+function sessionStartedAt(filePath) {
+  const hit = _sessionStartAt.get(filePath);
+  if (hit) return hit;
+  const at = sessionReader.readSessionStartedAt(filePath);
+  if (!at) return null;
+  _sessionStartAt.set(filePath, at);
+  if (_sessionStartAt.size > SESSION_START_MAX) {
+    _sessionStartAt.delete(_sessionStartAt.keys().next().value);
+  }
+  return at;
+}
+
+/** The newest session START among the transcripts in a folder, or null when none of them can say. */
+function newestSessionStart(folderPath) {
+  let newest = null;
+  for (const { filePath } of sessionReader.enumerateSessionFiles(folderPath)) {
+    const at = sessionStartedAt(filePath);
+    // Both sides are `toISOString()` output, so a string compare IS the chronological one.
+    if (at && (!newest || at > newest)) newest = at;
+  }
+  return newest;
+}
+
 // The Claude parse-loop as a PURE function (#199 step 5.1a). Snapshot-in, reply-out: it COMPUTES and
 // RETURNS everything main must PERSIST, and persists NONE of it — no DB read, no sink call, no
 // noteStoreProject / cancelReindex / setFolderMeta. Its return IS the reply shape the step-5 worker will
@@ -69,8 +100,9 @@ function rememberFileReadState(filePath, next) {
 //                     no-projectPath / vanished-with-projectPath, or the sweep gate re-trips every tick
 //   vanishedFolders — folder gone at walk time; main does the scoped cached-folder delete WITHOUT the
 //                     matching search-folder delete (the A-4 asymmetry)
-//   storeProjects   — [{projectPath, newestAt}] for a REMOVED folder; main replays noteStoreProject
-//                     (drop it and storeProjectPaths empties → syncRegistry breaks the #167 bring-back)
+//   storeProjects   — [{projectPath, newestAt, startedAt}] for a REMOVED folder; main replays
+//                     noteStoreProject (drop it and storeProjectPaths empties → syncRegistry breaks the
+//                     #167 bring-back). `startedAt` is what the TOMBSTONE is judged on (#575)
 //   stats           — {filesFull, filesIncremental, bytes} the perf counters, RETURNED (F3) so main folds
 //                     them into the sweep accumulator; a by-reference mutation can't cross a thread
 //   changed         — whether any file was (re-)read (main ORs in the delete count it computes)
@@ -101,12 +133,21 @@ function parseClaudeFolder({ folder, folderPath, exists, projectPath, removed, c
 
   // REMOVED project: don't index its folder back into the cache (a hidden one still is — #167). What the
   // folder holds, and how recent it is, still has to be REPORTED so the sweep does not forget a removal
-  // while its transcripts are there, and a session NEWER than the removal brings the project back. The
-  // `newestAt` is the folder index mtime (matching the pre-extraction `newestMs = getFolderIndexMtimeMs`),
-  // NOT a session parse — so this branch reads no session file, exactly as before.
+  // while its transcripts are there, and a session that STARTED after the removal brings the project back.
+  //
+  // Two different times, and the difference is the whole of #575. `newestAt` is the folder index mtime
+  // (matching the pre-extraction `newestMs = getFolderIndexMtimeMs`) — a RECENCY, which a session that was
+  // already running when the project was removed moves within seconds, so it may not be passed off as a
+  // start. `startedAt` is the newest first-entry timestamp among the folder's transcripts, read from their
+  // HEADS and memoised per file: no session is parsed here, exactly as before, and the reads are bounded by
+  // the folders whose index mtime moved (this branch runs only when the reconcile gate trips).
   if (removed) {
     const newestMs = getFolderIndexMtimeMs(folderPath);
-    reply.storeProjects.push({ projectPath, newestAt: newestMs ? new Date(newestMs).toISOString() : null });
+    reply.storeProjects.push({
+      projectPath,
+      newestAt: newestMs ? new Date(newestMs).toISOString() : null,
+      startedAt: newestSessionStart(folderPath),
+    });
     reply.folderStamps.push({ folder, projectPath, indexMtimeMs: stampMtimeMs() });
     return reply;
   }
@@ -189,6 +230,7 @@ function parseClaudeFile(filePath, folder, projectPath, { parentSessionId } = {}
 module.exports = {
   parseClaudeFolder,
   parseClaudeFile,
+  _sessionStartAt,
   _fileReadState,
   rememberFileReadState,
   FILE_READ_STATE_MAX,

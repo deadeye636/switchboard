@@ -58,7 +58,8 @@ would re-register it on the very next scan, so a removal would be a no-op — wh
 code turned remove into a hide.
 
 So a removal records **when**: `removedAt`. Auto-registration then re-registers the project only on a
-session **newer** than that.
+session that **started** after that — see *A session that was already running is not a new one* below for
+why the word is "started" and not "newer".
 
 ### The sweep, and the trap in it
 
@@ -171,6 +172,7 @@ removed is not offered back until a session newer than the removal turns up.
 | The decisions (register / skip / resurrect / sweep / visible) — pure, no db, no fs | `src/projects/project-registry.js` |
 | The columns + the seeding migration | `src/db/schema.js` (columns) + `src/db/migrations.js` (the seed) |
 | The sidebar reads the register; the scan reports what the stores hold | `src/index/session-cache.js` |
+| The store sighting itself — the newest write AND the newest session start, kept apart (#575) | `src/index/index-writes.js` (`noteStoreProject`), fed by `src/backends/parse.js` + `src/backends/claude/folder-parse.js` |
 | add / hide / unhide / remove / discovery + sweep (it releases too, #184) | `src/projects/projects.js` |
 | What is indexed but not listed (`unlistedProjects`, #183) | `src/projects/projects.js` |
 | `syncRegistry()` before the list is built; one visibility rule for every view | `src/main.js` |
@@ -262,35 +264,84 @@ Two things it deliberately does not do:
   already had them) still render as one project — the sidebar buckets on the canonical key — and an act on
   either now reaches the registered one. Collapsing them is a migration, not a lookup.
 
+## A session that was already running is not a new one (#575)
+
+The register's rule always read "only a session **newer** than the removal brings the project back", and
+the code could not tell what that meant. The scan handed it one time per project — the newest **recency**
+(`newestAt: row.lastEntryAt || row.modified`) — so a CLI that was live in the project at the moment of
+removal moved that time past the tombstone with its next line, seconds later. "Remove" was therefore a
+no-op for exactly the project the user was working in, which is the one they are most likely to remove.
+
+The scan reports a **start** now, alongside the recency, and the tombstone is compared against the start.
+A session that began after the removal registers the project; one that was merely still running does not,
+however recently it wrote. The recency stays in the reply and in the scan-state — it is what a sighting
+means, and the bring-back log line names both — but nothing decides on it any more.
+
+This was Option B in #566's closing discussion. It changes the **scan protocol**, not the register's
+model: `storeProjects` entries carry `{ projectPath, newestAt, startedAt }`, `noteStoreProject` keeps the
+two maxima apart (the newest start and the newest write need not come from the same session), and
+`shouldRegister` takes `sessionStartedAt` instead of `sessionAt`.
+
+Where each reporter gets a start, because they differ and the difference is the interesting part:
+
+| Reporter | Start from |
+|---|---|
+| The generic Axis-B loop (`src/backends/parse.js`) | the reader's own `startedAt` — the row already carried it |
+| Claude's cold scan (`src/backends/claude/store-indexer.js`) | the newest `startedAt` across the batch it fully parsed |
+| Claude's REMOVED-folder branch (`src/backends/claude/folder-parse.js`) | the newest first-entry timestamp across the folder's transcripts, read from their **heads** |
+
+The last one is the one that needed deciding, because that branch deliberately parses nothing — a removed
+project's rows were purged and re-reading them would put them back — and all it used to have was the
+folder index mtime, a recency it reported as if it were a start. It reads the head of each transcript
+instead (`readSessionStartedAt`), memoised per file: a session's start never changes, so steady state is
+zero reads and a file that appears after the removal is read once. The reads are bounded anyway by the
+reconcile gate, which trips this branch only when the folder's index mtime moved.
+
+### The two decisions inside it
+
+**A backend that cannot report a start is refused the bring-back, not given the recency.** agy's store
+carries no timestamp at all, so its parser sets `startedAt: null` on purpose; a Claude transcript whose
+head holds no entry yet says the same thing. Falling back to the recency there would restore the whole
+bug for precisely the cases that cannot argue with it — and for agy it would be maximally wrong, because
+its `lastEntryAt` **is** the file mtime. The two failure modes are not symmetrical:
+
+- Refusing costs a project that discovery will not offer back. The user can still put it back at any
+  time: adding it by hand, or launching a session in it, is `source: 'user'`, which registers in both
+  modes and buries the tombstone. The 30-day sweep also still applies once nothing is left at that path.
+- Falling back costs a removal that silently never happens, and there is nothing the user can do to make
+  it stick.
+
+So the refusal is the affordable mistake, and it is stated where the fallback would have gone —
+in `shouldRegister`, in `parse.js`, and in the reply-replay comments in `scan.js` and `store-indexer.js`.
+
+**Equal timestamps do not bring the project back, and a missing start beside a present recency does not
+either.** A start that is not *newer* than the removal is not a session that began after it, and at the
+same instant the removal is the later act — the same answer the recency comparison gave, kept deliberately
+rather than inherited. A start that does not parse takes the same route: `ms()` reads it as 0, older than
+any removal. A recency is never consulted as a substitute in any of these.
+
+Both are pinned in `test/project-registry.test.js`; the reporting half is in
+`test/store-project-start.test.js`, which also covers the agy-shaped reader and the header-only transcript.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was
   removed from Switchboard — but it is a behaviour change worth knowing.
 - The sweep's "no session anywhere" check sees a backend store only once that backend has been scanned in
   the current run. It errs on the safe side: an unscanned store means the tombstone is **kept**.
-- A session that is **live** at the moment of removal keeps writing, so its file is newer than the
-  tombstone and the project comes back on the next flush. Defensible as "fresh activity", but it is not
-  what "remove" looks like from the outside. Still open after #566, and still a design question rather
-  than a defect: the criterion the scan reports is the newest session's **last entry**
-  (`newestAt: row.lastEntryAt || row.modified` in `src/backends/parse.js`), which cannot tell a session
-  that STARTED after the removal from one that was already running and wrote one more line. Telling them
-  apart means reporting a start time through the worker reply as well — a change to the scan protocol, not
-  to the register — and it only settles the mechanics.
-
-  **Half of that question is now decided, and the half that was decided is the one that destroys data
-  (#574).** The two acts were being weighed as one and they are not alike. Taking a project off the LIST
-  touches no file, so a project that comes back is an annoyance; DELETING its history removes transcripts
-  from the backends' own stores while a CLI this app started is writing into them, and there is nothing to
-  come back. So `deleteProjectSessions` refuses while `ctx.activeSessions` holds a live session for that
-  path, names how many, and the renderer stops the whole action rather than carrying on to the steps below
-  it. The list half is unchanged and stays open: nobody has decided whether a removal should win over a
-  running session there, and its cost is a row, not a file.
-
-  Live means **this app is running it** — not "wrote recently" and not "has rows in the cache". A
-  transcript on disk says a session existed; `activeSessions` says one is alive with a process behind it,
-  and only the second is a reason to refuse to delete the file it is writing into. Asked canonically
-  through the same `samePathKey` `applyAutoHide` uses, so a terminal opened under the other spelling of the
-  directory still counts (#245), and about the path alone — never about which backend the session is.
+- **Removing a project a session is live in no longer brings it back — but it does not stop the session
+  either.** #575 settled which sessions the tombstone admits; it did not decide whether the removal should
+  be refused while a CLI this app started is running there (Option C in #566's discussion). Today the
+  removal succeeds, the session keeps running, and the project stays off the list. Its transcripts are
+  safe: DELETING a project's history is the act that destroys data, and that one refuses outright while a
+  session is live (#574). Live there means **this app is running it** — not "wrote recently" and not "has
+  rows in the cache" — asked canonically through the same `samePathKey` `applyAutoHide` uses, so a terminal
+  opened under the other spelling of the directory still counts (#245), and about the path alone, never
+  about which backend the session is.
+- **A backend with no start time cannot be brought back by discovery at all** — the deliberate half of the
+  decision above, and the honest name for what agy's users will see. The way back is an explicit act. If a
+  future agy release stamps its store, or the file's own creation time is judged trustworthy enough to
+  stand in, that is the change to make; a recency fallback is not.
 - The register keys on the path as written. What the lookups COMPARE is no longer a string (#563), and
   since #566 neither is what a WRITE addresses (the section above). The tombstone, the state
   lookups, the "does this project still have sessions on disk" check and the store-folder refresh all key

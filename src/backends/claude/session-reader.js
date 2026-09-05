@@ -328,6 +328,45 @@ function readSessionFile(filePath, folder, projectPath, opts = {}) {
   }
 }
 
+// ── When a session STARTED, without parsing it (#575) ────────────────────────
+// The project register judges a tombstone by when a session BEGAN, not by when it last wrote: a CLI that
+// was already running when its project was removed appends within seconds, and a recency would bring the
+// project straight back. A removed project's folder is deliberately never parsed — its rows were purged
+// and re-reading them would put them back — so that branch needs the start time WITHOUT a parse.
+//
+// A Claude transcript is appended in order, so the first line carrying a timestamp is when the session
+// began. Only the HEAD is read, a fixed chunk rather than the whole file, because this runs against
+// transcripts that reach hundreds of megabytes. Returns null when the head holds no timestamped entry —
+// a header-only file is a session about to exist, not one that started at an unknown time.
+const START_PROBE_BYTES = 64 * 1024;
+
+function readSessionStartedAt(filePath) {
+  let fd = null;
+  try {
+    fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(START_PROBE_BYTES);
+    const n = fs.readSync(fd, buf, 0, START_PROBE_BYTES, 0);
+    if (!n) return null;
+    const lines = buf.subarray(0, n).toString('utf8').split('\n');
+    // A head read of a file being written can land mid-line, and half a JSON object is not an entry. Only
+    // a chunk that FILLED the buffer can have a truncated tail; a short read saw the file to its end.
+    if (n === START_PROBE_BYTES) lines.pop();
+    for (const line of lines) {
+      if (!line) continue;
+      let entry;
+      try { entry = JSON.parse(line); } catch { continue; }
+      if (!entry || !entry.timestamp) continue;
+      const t = new Date(entry.timestamp);
+      if (!Number.isNaN(t.getTime())) return t.toISOString();
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch {} }
+  }
+}
+
 // ── Incremental read (perf #74) ──────────────────────────────────────────────
 // Cost is NULL when the backend reports no money — an ABSENCE, not a zero (Claude never reports any).
 // null+null must stay null, or a summed bucket draws a free day in the cost chart; a real number on
@@ -522,4 +561,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly };
+module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly };
