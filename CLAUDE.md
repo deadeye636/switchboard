@@ -150,6 +150,18 @@ table is the fallback and it is binding.
     looked before a change, use **`git show <ref>:<path>`** — `HEAD:`, `HEAD~1:`, a branch, a SHA — into
     stdout or a copy under `.claude/scratchpad/`. That is strictly better anyway: it needs no restore
     step, so an interrupted session cannot leave the tree in a state nobody expects.
+
+    **And do not switch the branch either — `git checkout <branch>` / `git switch`.** It reads as
+    harmless because it destroys nothing, and that is the trap: it rewrites every tracked file at once,
+    so another session mid-edit is suddenly reading and writing a different revision of the code it was
+    working on, with no error anywhere. It happened here while verifying a Dependabot PR
+    (`git checkout pr-538`), and the tree sat on a two-week-old `main` until it was switched back.
+    To work with another revision **without moving this tree**: `git show <ref>:<path>` for a file,
+    `git worktree add` for a whole checkout, and `git fetch origin pull/<n>/head:<branch>` to have the
+    branch locally without standing on it. A PR is the second lesson from that hour anyway — what has to
+    be verified is the MERGE result, not the PR branch, because a branch that predates other merges
+    silently undoes them (that one reverted two security bumps and `npm audit` was the only thing that
+    said so).
     **And commit with explicit pathspecs** — `git commit <path> <path>`, never `git add -A` / `git add .`
     / `git commit -a`. The index is shared too, so a blanket add sweeps up whatever a parallel session
     happens to have staged and puts it in your commit under your message.
