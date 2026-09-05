@@ -162,8 +162,9 @@ and opens the project manager filtered to exactly those projects, where the **Li
 adds nothing by itself: the register stays the single source of truth, and manual mode stays manual.
 
 What it offers is exactly what auto-add **would** have taken — it asks `registry.shouldRegister` itself, so
-the offer can never contradict what the register would do. The tombstone therefore holds: a project you
-removed is not offered back until a session newer than the removal turns up.
+the offer can never contradict what the register would do — with the same time, which is why the admin row
+carries `lastStartedAt` beside its recency. The tombstone therefore holds: a project you removed is not
+offered back until a session that **started** after the removal turns up (#575).
 
 ## As built — where the pieces are
 
