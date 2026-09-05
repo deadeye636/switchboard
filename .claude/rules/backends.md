@@ -131,6 +131,22 @@ Two things about doing it, both of which the issue said to check rather than ass
   remembered answer there is a weaker guard, while a remembered answer about which BUCKET a row belongs in
   costs a regrouping at worst. Do not "unify" the two by giving the guards the memo.
 
+**And a WRITE to the register asks it too (#566).** Answering the compare correctly is only half of it:
+`project_meta` is keyed on the path STRING and `setProjectState` upserts on it, so an act written at the
+caller's spelling opens a SECOND row rather than changing the one the sidebar reads. The caller rarely
+holds the registered spelling — `buildProjectsFromCache` hands out the one that HAS SESSIONS, the settings
+window carries that through its URL, and Remove Project sends it back. Removal therefore reported success,
+tombstoned a project that was not on the list, and left the listed one alone. `registeredPathFor` in
+`projects/projects.js` is the one way to address a register row: the registered spelling first, then the
+exact one, then any row for the same directory, and the caller's own path when there is no row at all —
+because a removal of a config-only project still has to leave its tombstone somewhere. Every act that
+takes a path from OUTSIDE the register goes through it — `ensureProjectAdded`, `hideProject`,
+`removeProject`, `unhideProject`, and `syncRegistry`'s bring-back, which picks its row out of the keying
+pass it already makes. The two that do not are the two whose path came out of the register in the first
+place: the tombstone sweep iterates `getProjectTombstones()`, and `remapProject` writes at the path
+`renameProjectRefs` has just filed the row under. **A new caller that hands `setProjectState` a path from
+anywhere else is the same bug again**, and it fails the way this one did: silently, reporting success.
+
 ## Writing one back is a SECOND declaration (#441)
 
 Reading a resource asks whether the path is reachable. WRITING one asks two more questions, and both

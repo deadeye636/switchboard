@@ -406,6 +406,131 @@ test('a tombstone is not missed because Windows spells the path differently', ()
   } finally { t.cleanup(); }
 });
 
+// --- #566: an act on a project reaches the row that project is FILED under ------------------------
+//
+// `project_meta` is keyed on the path string and `setProjectState` upserts on it, so an act written at
+// the caller's spelling opens a SECOND row instead of changing the one the sidebar reads. The caller
+// rarely holds the registered spelling: the sidebar hands out the one that has sessions, and the project
+// settings screen sends that string straight back to `removeProject`.
+//
+// The second spelling here is a trailing separator, because it folds on EVERY platform — a fixture that
+// spells one directory two ways by case or by separator is a Windows fixture (#563).
+function twoSpellings() {
+  const real = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-spell-'));
+  return { real, alias: real + path.sep, drop: () => fs.rmSync(real, { recursive: true, force: true }) };
+}
+
+test('#566 remove takes the project off the list when the caller spells the path another way', () => {
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+    // The per-project settings blob is keyed on the path as well, and either surface may have written it.
+    t.ctx.db.setSetting('project:' + real, { displayName: 'as registered' });
+    t.ctx.db.setSetting('project:' + alias, { displayName: 'as the sidebar spells it' });
+
+    const res = projects.removeProject(alias);
+    assert.strictEqual(res.ok, true, 'it reports success');
+    assert.strictEqual(t.state(real).registered, 0, '...and the project it reported about is off the list');
+    assert.ok(t.state(real).removedAt, 'the tombstone is on the row that was registered');
+    assert.strictEqual(t.state(alias), null, 'no second row is opened for the same directory');
+    assert.strictEqual(t.states.size, 1, 'one directory, one row');
+    assert.strictEqual(t.ctx.db.getSetting('project:' + real), undefined, 'and neither settings blob is left behind');
+    assert.strictEqual(t.ctx.db.getSetting('project:' + alias), undefined);
+  } finally { t.cleanup(); drop(); }
+});
+
+test('#566 hide reaches the same row instead of refusing a spelling it does not recognise', () => {
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+
+    const res = projects.hideProject(alias);
+    assert.strictEqual(res.ok, true, 'it is not refused as "not on the list"');
+    assert.strictEqual(t.state(real).hidden, 1, 'the registered row is the one that got hidden');
+    assert.strictEqual(t.states.size, 1);
+  } finally { t.cleanup(); drop(); }
+});
+
+test('#566 unhide clears the flag on the project\'s own row, not on a new one beside it', () => {
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+    projects.hideProject(real);
+
+    projects.unhideProject(alias);
+    assert.strictEqual(t.state(real).hidden, 0, 'the hidden project is shown again');
+    assert.strictEqual(t.states.size, 1, 'and no phantom row is registered beside it');
+  } finally { t.cleanup(); drop(); }
+});
+
+test('#566 an explicit re-add buries the tombstone rather than opening a row beside it', () => {
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+    projects.removeProject(real);
+
+    projects.ensureProjectAdded(alias);          // a session launched in it, spelled the other way
+    assert.strictEqual(t.state(real).registered, 1, 'the project is back');
+    assert.strictEqual(t.state(real).removedAt, null, 'and its tombstone is buried');
+    assert.strictEqual(t.states.size, 1);
+  } finally { t.cleanup(); drop(); }
+});
+
+test('#566 discovery registers onto the row the tombstone is on', () => {
+  // The bring-back reads the tombstone THROUGH the canonical key and then wrote at the store's spelling,
+  // so the project came back on a second row while the first one kept the removal. Whichever row the next
+  // act found decided what happened, and half of them found the wrong one.
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+    projects.removeProject(real);
+    const removedAt = t.state(real).removedAt;
+
+    const newer = new Date(new Date(removedAt).getTime() + 60_000).toISOString();
+    t.setStorePaths([[alias, newer]]);
+    projects.syncRegistry();
+
+    assert.strictEqual(t.state(real).registered, 1, 'the registered row is the one that comes back');
+    assert.strictEqual(t.state(real).removedAt, null, 'and its tombstone goes with it');
+    assert.strictEqual(t.states.size, 1, 'not a second row for the same directory');
+  } finally { t.cleanup(); drop(); }
+});
+
+test('#566 a database that already carries the phantom row is repaired by pressing Remove again', () => {
+  // What an upgraded database looks like: the old removal left a tombstoned row at the sidebar's spelling
+  // and the registered row untouched. Pressing Remove again has to reach the registered one — the phantom
+  // is not collapsed (that would be a migration), but it must not capture the act either.
+  const t = makeCtx();
+  const { real, alias, drop } = twoSpellings();
+  try {
+    projects.ensureProjectAdded(real);
+    t.ctx.db.setProjectState(alias, { registered: 0, removedAt: new Date(Date.now() - 60_000).toISOString() });
+    assert.strictEqual(t.states.size, 2, 'the phantom row is there to begin with');
+
+    projects.removeProject(alias);
+    assert.strictEqual(t.state(real).registered, 0, 'the registered row is the one that comes off the list');
+    assert.ok(t.state(real).removedAt, 'and it is the one that carries the tombstone now');
+  } finally { t.cleanup(); drop(); }
+});
+
+test('#566 removing a project that is on no list still leaves its tombstone somewhere', () => {
+  // A PIN, not a regression guard — this passed before the fix and has to keep passing. The Projects
+  // admin's hard delete calls removeProject unconditionally, including for a project that only exists in
+  // a backend's own config, and the tombstone is what stops auto-add offering it back.
+  const t = makeCtx();
+  try {
+    const unlisted = path.join(os.tmpdir(), 'proj-never-listed-566');
+    const res = projects.removeProject(unlisted);
+    assert.strictEqual(res.ok, true);
+    assert.ok(t.state(unlisted).removedAt, 'the tombstone lands at the spelling it was given');
+  } finally { t.cleanup(); }
+});
+
 test('the tombstone sweep is blind to nothing: a transcript on disk keeps the removal alive', () => {
   // The trap. A removed project is deliberately NOT indexed, so the CACHE is empty for it by
   // construction. Believe the cache and the sweep drops the tombstone on the next pass — and the scan

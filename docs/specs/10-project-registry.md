@@ -222,6 +222,46 @@ register. Miss that one and a "Rebuild session cache" puts a removed project's s
 cache and the search index as an invisible, searchable zombie that nothing ever purges again (the register
 hides the sidebar row; the tombstone stops it from ever being listed and swept).
 
+## An act on a project has to FIND its row (#566)
+
+Remove Project on a project's settings screen reported success and left the project in the sidebar. There
+was no error to report and nothing to catch, because from the register's point of view nothing had gone
+wrong: it had removed a project that was not on the list, and left alone the one that was.
+
+`project_meta` is keyed on the projectPath string and `setProjectState` upserts on it, so a write lands on
+whatever spelling the caller happens to hold — and the caller rarely holds the registered one. The sidebar
+hands out the spelling that HAS SESSIONS (`buildProjectsFromCache`: the session loop runs first, so the
+spelling that has sessions wins), the settings window carries that string through its URL, and the button
+sends it straight back. A cwd a CLI wrote with a different drive-letter case, a project opened through a
+junction, a symlink or a `subst` drive — any of those, and the removal opened a *second* row with the
+tombstone on it while the first row kept `registered = 1`.
+
+So the rule is the one #563 established, applied one layer up: **#563 made the COMPARE answer about the
+real path; #566 makes the WRITE address the row that identity names.** `registeredPathFor` in
+`src/projects/projects.js` resolves a caller's spelling to the row the project is filed under — a
+registered row first (that is the row the act is about, and the caller's own spelling wins among those),
+then the exact spelling, then any row for the same
+directory — and `ensureProjectAdded`, `hideProject`, `removeProject`, `unhideProject` and discovery's own
+bring-back all write through it. The two register writes that do not are the two whose path came out of
+the register to begin with: the tombstone sweep iterates the tombstones themselves, and a remap writes at
+the path `renameProjectRefs` has just filed the row under.
+
+The Projects admin was never affected, and the reason is worth knowing: `buildProjectsAdmin` already
+overwrites its display path with the REGISTERED spelling when it meets one ("that is the one the user's
+actions are stored against"). `buildProjectsFromCache` deliberately does not — the sidebar shows the
+spelling its sessions carry — so the same button reached the right row from one surface and the wrong one
+from the other. Fixing it at the write covers both, and covers a path that arrives from neither.
+
+Two things it deliberately does not do:
+
+- **A path with no row at all comes back unchanged.** A removal of a project that exists only in a
+  backend's own config still has to leave its tombstone somewhere, and the Projects admin's hard delete
+  calls `removeProject` unconditionally. "Nothing to remove" is not an error here, unlike `hideProject`,
+  where `hidden` qualifies a listed project and there is genuinely nothing to set.
+- **It resolves the row; it does not merge rows.** Two registered rows for one directory (a database that
+  already had them) still render as one project — the sidebar buckets on the canonical key — and an act on
+  either now reaches the registered one. Collapsing them is a migration, not a lookup.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was
@@ -230,15 +270,21 @@ hides the sidebar row; the tombstone stops it from ever being listed and swept).
   the current run. It errs on the safe side: an unscanned store means the tombstone is **kept**.
 - A session that is **live** at the moment of removal keeps writing, so its file is newer than the
   tombstone and the project comes back on the next flush. Defensible as "fresh activity", but it is not
-  what "remove" looks like from the outside.
-- The register keys on the path as written, so two spellings can still end up as two *registered* rows for
-  one directory. What the lookups COMPARE is no longer a string, though (#563): the tombstone, the state
+  what "remove" looks like from the outside. Still open after #566, and still a design question rather
+  than a defect: the criterion the scan reports is the newest session's **last entry**
+  (`newestAt: row.lastEntryAt || row.modified` in `src/backends/parse.js`), which cannot tell a session
+  that STARTED after the removal from one that was already running and wrote one more line. Telling them
+  apart means reporting a start time through the worker reply as well — a change to the scan protocol, not
+  to the register — and it only settles the mechanics; whether a removal should win over a running session
+  or be refused while one is open is the part that needs deciding first.
+- The register keys on the path as written. What the lookups COMPARE is no longer a string (#563), and
+  since #566 neither is what a WRITE addresses (the section above). The tombstone, the state
   lookups, the "does this project still have sessions on disk" check and the store-folder refresh all key
   on `app/path-containment.js`'s `pathKey` — the real path of the directory, with case ignored only where
   the filesystem ignores it. That closes the half of this gap that a user could not see coming: a project
   reached through a junction, a symlink or a `subst` drive used to answer "different directory" about its
-  own store folders, so it grouped as two projects and a remap moved half of them. What is left is the
-  *register row* itself, which is still filed under the string the user added.
+  own store folders, so it grouped as two projects and a remap moved half of them. A register row is
+  still FILED under the string the user added — that has not changed, and does not need to.
 
   Two decisions inside that change are worth keeping, because both look like details and are not:
 

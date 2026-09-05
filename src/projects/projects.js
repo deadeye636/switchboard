@@ -63,7 +63,9 @@ function init(context) {
 function ensureProjectAdded(projectPath) {
   if (!projectPath) return;
   try {
-    ctx.db.setProjectState(projectPath, registry.registrationState(new Date().toISOString()));
+    // Onto the row this project already HAS, whatever spelling it is filed under (#566) — a second row
+    // for one directory is a tombstone this registration would not bury and a hide it would not clear.
+    ctx.db.setProjectState(registeredPathFor(projectPath), registry.registrationState(new Date().toISOString()));
   } catch (err) {
     ctx.log.warn('[registry] register failed: ' + err.message);
   }
@@ -244,6 +246,56 @@ function refreshProjectFolders(projectPath) {
 const samePathKey = pathKey;
 
 /**
+ * WHICH ROW of the register is this project's? (#566)
+ *
+ * `project_meta` is keyed on the projectPath STRING, and `setProjectState` is an upsert on that string —
+ * so every write to the register lands on whatever spelling the caller happened to be holding. The caller
+ * rarely holds the registered one: the sidebar hands out the spelling that HAS SESSIONS (see
+ * `projects-view.buildProjectsFromCache` — "the session loop runs first, so the spelling that has
+ * sessions wins"), and that string is what the project settings screen sends back to `removeProject`.
+ * A cwd out of a transcript, a project reached through a junction, a symlink or a `subst` drive, a
+ * different drive-letter case — any of those and the removal wrote a SECOND row, tombstone and all, while
+ * the registered row kept `registered = 1`. The project stayed in the sidebar and nothing reported a
+ * failure, because from the register's point of view nothing had failed: it had removed a project that
+ * was never on the list, and left the one that was.
+ *
+ * #563 made the COMPARE answer about the real path. This is the other half of the same question, one
+ * layer up: an act ON a project has to find its row by that identity rather than trust the string.
+ *
+ * A registered row wins, because that is the row the act is about — the sidebar shows it, and it is what
+ * "take it off the list" has to reach; the caller's own spelling wins among those, so a database that
+ * already carries two registered rows for one directory still answers about the row it was asked about.
+ * Failing a registered row: the exact spelling (there IS a row for it), and failing that any row for the
+ * same directory. A path with no row at all comes back unchanged — a removal of a project that only
+ * exists in a backend's own config still has to leave its tombstone somewhere, and the Projects admin's
+ * hard delete calls `removeProject` for exactly that case.
+ *
+ * It reads the whole register and keys every row, which is why it belongs at an ACT and not on a scan:
+ * `ensureProjectAdded` runs it once per spawn and the rest once per click. `pathKey` is memoised, and the
+ * sidebar rebuild warms that memo every scan, so the rows are keyed at ~1 µs each in practice. Discovery
+ * does NOT call this — `syncRegistry` keys the register once per pass anyway and picks its row out of that.
+ */
+function registeredPathFor(projectPath) {
+  if (!projectPath) return projectPath;
+  let states;
+  try { states = ctx.db.getProjectStates(); } catch { return projectPath; }
+  if (!states || !states.size) return projectPath;
+
+  // Its own row, and it is the one on the list: the normal case, and the loop below has nothing to add.
+  const exact = states.get(projectPath);
+  if (exact && exact.registered) return projectPath;
+
+  const key = samePathKey(projectPath);
+  let sameDirectory = exact ? projectPath : null;
+  for (const [p, state] of states) {
+    if (p === projectPath || samePathKey(p) !== key) continue;
+    if (state && state.registered) return p;
+    if (sameDirectory === null) sameDirectory = p;
+  }
+  return sameDirectory === null ? projectPath : sameDirectory;
+}
+
+/**
  * Is there ANY session left in this project — from any backend?
  *
  * `projectHasSessionsOnDisk` only ever looked in Claude's store, and the prune below is what wipes a
@@ -326,10 +378,15 @@ function hideProject(projectPath) {
     // nothing shows and nothing can clear — and the day discovery registers that project, it arrives
     // already hidden, for a reason nobody can see. That is the silent swallow this whole issue exists to
     // kill, so refuse instead: there is nothing to hide.
-    const state = ctx.db.getProjectMeta(projectPath);
+    //
+    // Both questions are asked of the row this project IS filed under, not of the spelling the caller was
+    // handed (#566): refusing a hide because a junction spells the directory differently is the same
+    // defect as removing it into a row nobody reads, and here it at least says so out loud.
+    const registeredPath = registeredPathFor(projectPath);
+    const state = ctx.db.getProjectMeta(registeredPath);
     if (!state || !state.registered) return { error: 'This project is not on the list, so there is nothing to hide' };
 
-    ctx.db.setProjectState(projectPath, { hidden: 1 });
+    ctx.db.setProjectState(registeredPath, { hidden: 1 });
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true };
   } catch (err) {
@@ -348,7 +405,10 @@ function hideProject(projectPath) {
 function removeProject(projectPath) {
   try {
     if (!projectPath) return { error: 'No project path' };
-    ctx.db.setProjectState(projectPath, registry.removalState(new Date().toISOString()));
+    // The tombstone goes onto the row that IS on the list (#566). Written at the caller's spelling it
+    // created a second row instead, and the project stayed in the sidebar with nothing to report.
+    const registeredPath = registeredPathFor(projectPath);
+    ctx.db.setProjectState(registeredPath, registry.removalState(new Date().toISOString()));
 
     // Purge the cached rows — THIS PROJECT'S, from EVERY backend, row by row.
     //
@@ -365,7 +425,11 @@ function removeProject(projectPath) {
       try { ctx.db.deleteCachedSession(r.sessionId); } catch { /* best effort */ }
       try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
     }
+    // The per-project settings blob is keyed on the path too, and it was written by whichever surface the
+    // user typed into — so both spellings, or a removal at the registered one leaves the sidebar's blob
+    // (its display name, its overrides) behind for the project to come back wearing (#566).
     ctx.db.deleteSetting('project:' + projectPath);
+    if (registeredPath !== projectPath) ctx.db.deleteSetting('project:' + registeredPath);
 
     ctx.cache.notifyRendererProjectsChanged();
     return { ok: true, cleared: rows.length };
@@ -393,8 +457,10 @@ function unhideProject(projectPath) {
   try {
     if (!projectPath) return { error: 'No project path' };
     // An unhide of a project that is somehow not on the list puts it on it: the user is asking to see it.
-    ctx.db.setProjectState(projectPath, { hidden: 0, registered: 1 });
-    try { ctx.db.resetProjectAutoHide(projectPath); } catch { /* best effort */ }
+    // Onto its own row (#566) — clearing the flag on a second spelling leaves the hidden one hidden.
+    const registeredPath = registeredPathFor(projectPath);
+    ctx.db.setProjectState(registeredPath, { hidden: 0, registered: 1 });
+    try { ctx.db.resetProjectAutoHide(registeredPath); } catch { /* best effort */ }
 
     refreshProjectFolders(projectPath);
     ctx.cache.notifyRendererProjectsChanged();
@@ -462,25 +528,34 @@ function syncRegistry() {
 
     // The same directory can be spelled two ways on Windows, and a state looked up under the wrong
     // spelling is a state that is not there — which for a tombstone means the project resurrects itself.
-    const byKey = new Map();
-    for (const [p, s] of states) byKey.set(samePathKey(p), s);
+    //
+    // The ROW, not just the state (#566): the write below has to land on the spelling that row is filed
+    // under, or the tombstone stays standing on one row while a second row carries the registration. A
+    // registered row wins the choice — if any spelling of this directory is on the list, so is the project.
+    const rowByKey = new Map();
+    for (const [p, s] of states) {
+      const k = samePathKey(p);
+      const held = rowByKey.get(k);
+      if (held && !(s && s.registered && !(held.state && held.state.registered))) continue;
+      rowByKey.set(k, { path: p, state: s });
+    }
 
     const now = new Date().toISOString();
     let changed = false;
 
     for (const [projectPath, sessionAt] of newest) {
-      const state = states.get(projectPath) || byKey.get(samePathKey(projectPath));
-      if (!registry.shouldRegister(state, { source: 'scan', autoAdd, sessionAt })) continue;
+      const row = rowByKey.get(samePathKey(projectPath));
+      if (!registry.shouldRegister(row && row.state, { source: 'scan', autoAdd, sessionAt })) continue;
       // Registering does NOT unhide: `registrationState` is for an explicit act by the user. Discovery
       // only puts it on the list, and a project the user hid stays hidden while its sessions pile up.
-      ctx.db.setProjectState(projectPath, { registered: 1, registeredAt: now, removedAt: null });
+      ctx.db.setProjectState((row && row.path) || projectPath, { registered: 1, registeredAt: now, removedAt: null });
       changed = true;
 
       // Index it NOW — every folder of it. While it was removed the scan skipped those folders, and
       // stamped each one's mtime memo as up to date on the way past, so the next reconcile would skip
       // them too: the project would sit in the sidebar empty, its sessions on disk, nothing to bring
       // them in.
-      if (state && state.removedAt) refreshProjectFolders(projectPath);
+      if (row && row.state && row.state.removedAt) refreshProjectFolders(projectPath);
     }
 
     // The sweep. A tombstone whose sessions are all gone guards nothing — a genuinely new session at that
