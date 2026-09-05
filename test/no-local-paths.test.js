@@ -129,12 +129,29 @@ test('no tracked file names an identifier of the machine it was written on', () 
  * turns off.
  *
  * What leaks is a term standing where a path segment stands — after a separator, and ended by one, by a
- * quote, or by the end of the line. `<drive>:\<parent>\demo` matches; "the Linux runner" does not. The
- * one non-path shape worth keeping is an address, so a term immediately followed by `@` counts too.
+ * quote, by punctuation or by the end of the line. `<drive>:\<parent>\demo` matches; "the Linux runner"
+ * does not. The one non-path shape worth keeping is an address, so a term followed by `@` counts too.
+ *
+ * **Sentence punctuation is in the terminator class on purpose.** Prose ends a path with a full stop far
+ * more often than with a separator — "the file sits under <path>." — and leaving `.`, `!`, `?`, `<` and
+ * `|` out meant exactly the shape docs and comments are written in went undetected. Measured before
+ * widening it: no term this test actually uses gains a single match, so the coverage is free here.
+ *
+ * **What it still does not catch, so nobody reads more into a green run than it offers.** Every one of
+ * these needs the term to appear with no path around it at all:
+ *
+ *   - the identifier alone on a line, or as a bare value (`"owner": "<name>"`, a lone table cell),
+ *   - a relative path whose FIRST segment is the term, with only a quote in front of it
+ *     (`"<name>/project/file.txt"`) — nothing marks it as a segment there,
+ *   - the term glued into a longer token (`schedule-<name>.js`). That one is deliberate: it is the
+ *     false positive that turned CI red, and excluding it is the whole point.
+ *
+ * A bare name with no path context is a real leak this cannot see. It is the price of a guard that does
+ * not cry wolf, and the reason rule 6 still says the check happens before you write.
  */
 function segmentPattern(term) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(?:[\\\\/]${escaped}(?=[\\\\/'"\`\\s,;:)\\]}]|$)|\\b${escaped}@)`, 'i');
+  return new RegExp(`(?:[\\\\/]${escaped}(?=[\\\\/'"\`\\s,;:)\\]}.!?<>|]|$)|\\b${escaped}@)`, 'i');
 }
 
 /** Says out loud that a check did not run, rather than letting an empty pass stand for a clean tree. */
