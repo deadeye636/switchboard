@@ -122,6 +122,29 @@ Grep for `writeTextFile` rather than trusting this list. A new writer that does 
 of guarantees for the same files — and the two that landed last were both a settings blob written by a
 feature whose subject was something else, which is where this rule gets forgotten.
 
+## A probe here closes its OWN stdin (#541)
+
+Running a CLI just to read what it prints — shell discovery's `wsl.exe --list --quiet` — must end the
+child's stdin. A probe never writes to the child, so the pipe Node hands it by default is only a way to
+hang: a CLI that reads standard input before answering waits for an EOF that never comes, and the probe
+burns its whole timeout instead of failing. **`execFile` silently IGNORES a `stdio` option** (Node hands
+`spawn` an allow-list of options and `stdio` is not on it), so the pipe is ended by hand and the call is
+**wrapped** — `closeProbeStdin(execFile(...))`, never a separate call on the next line, because only the
+wrapper form is greppable. `spawnSync`/`execFileSync` honour a `stdio` option and take one instead.
+
+**`src/backends/cli-probe.js` holds the same fix and does NOT move.** Its header says its scope is
+`src/backends/**`, and importing it from here would be an `src/app/` module reaching into a backend
+folder — the direction `.claude/rules/backends.md` forbids. So the app side keeps its own few lines
+(`closeProbeStdin` in `src/app/terminal/shell-profiles.js`, which names the sibling in its comment), and
+the duplication is the deliberate price of the import direction; spec 9's decision 11 is the record.
+`test/shell-profiles-probe.test.js` sweeps `src/app/terminal/**` for both call shapes the way
+`test/cli-probe.test.js` sweeps the backends. `pty.spawn` is exempt: a terminal with no standard input is
+not a terminal.
+
+Not swept, and deliberately: `src/app/vcs.js` and `src/main.js` run `git` with the same open pipe. `git
+status`, `diff` and `worktree remove` do not read standard input, and nobody has watched one hang — a
+sweep on suspicion would have touched half the file for nothing.
+
 ## What routes per session, and what stays in main (#2, #393, #395)
 
 A session can live in a window of its own. `app/detach.js` owns the map and answers

@@ -387,6 +387,19 @@ The ones that will look wrong to someone tidying up later:
    it — their data is still on disk.
 10. **Real git worktrees are their own project**, detected by the `.git` *file*; grouping stays on the
     stable head cwd (deriving it per session let one moved session drag its siblings).
+11. **`backends/cli-probe.js` stays in the backends folder, and an app-side probe closes its own stdin
+    (#541).** Shell discovery runs `wsl.exe --list --quiet` to read what it prints and had the same open
+    stdin pipe #532 swept out of every backend, which raised the obvious question: move the module
+    somewhere both sides may import it. It is not moved. Its header says its scope is `src/backends/**`,
+    a promise the sibling sweep in `test/cli-probe.test.js` is built on, and the alternative is an
+    `src/app/` module importing from a backend folder — the direction `.claude/rules/backends.md` spends
+    a section forbidding, for the same reason the core reads no backend's format. So
+    `src/app/terminal/shell-profiles.js` carries a `closeProbeStdin` of its own, with a comment naming
+    the module beside it, and `test/shell-profiles-probe.test.js` sweeps `src/app/terminal/**` the way
+    the backends are swept. A few duplicated lines is the price of the import direction, paid on purpose;
+    a shared home is worth revisiting only when a third caller needs one, and the two halves it would
+    carry (`PROBE_STDIO` for the synchronous shapes, `closeStdin` for `execFile`) are what any such home
+    has to keep apart.
 
 ## The provider badge (#187)
 

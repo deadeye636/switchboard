@@ -4,6 +4,28 @@ const fs = require('fs');
 // --- Cross-platform shell resolution ---
 const isWindows = process.platform === 'win32';
 
+// End the stdin of a child started with `execFile`, and hand the child back (#541).
+//
+// A probe asks a question and reads stdout — it never writes to the child — so the stdin PIPE Node
+// hands it by default is only a way to hang: a CLI that reads standard input before deciding what to
+// do waits for an end-of-file that is never coming, and the probe burns its whole timeout instead of
+// failing. `execFile` silently IGNORES a `stdio` option (Node hands `spawn` an allow-list of options
+// and `stdio` is not on it), so the pipe has to be ended by hand.
+//
+// `src/backends/cli-probe.js` is the sibling of these few lines and holds the same fix, plus the
+// `PROBE_STDIO` half the synchronous call shapes need. It is deliberately NOT imported here: its
+// scope is `src/backends/**`, and an `src/app/` module reaching into a backend folder is the wrong
+// direction. So an app-side probe closes its own stdin locally, and the two live side by side on
+// purpose. Exported so a test can drive it against a child that really blocks on standard input.
+function closeProbeStdin(child) {
+  try {
+    if (child && child.stdin) child.stdin.end();
+  } catch {
+    // The child may have exited between spawn and here; a stdin that cannot be closed is already closed.
+  }
+  return child;
+}
+
 // WSL distro discovery must never block: `wsl.exe --list --quiet` can take
 // seconds (VM cold start) and used to stall the first discoverShellProfiles()
 // call for up to its 5 s timeout. Instead, an async warm-up probe (execFile)
@@ -15,14 +37,14 @@ function startWslProbe() {
   if (_wslProbeStarted || !isWindows) return;
   _wslProbeStarted = true;
   const { execFile } = require('child_process');
-  execFile('wsl.exe', ['--list', '--quiet'], { timeout: 5000, encoding: 'utf8', windowsHide: true }, (err, stdout) => {
+  closeProbeStdin(execFile('wsl.exe', ['--list', '--quiet'], { timeout: 5000, encoding: 'utf8', windowsHide: true }, (err, stdout) => {
     _wslDistros = err
       ? []
       : String(stdout || '').replace(/\0/g, '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     // Drop the memoized profile list so the next getShellProfiles() re-discovers
     // and picks up the WSL entries.
     if (_wslDistros.length > 0) _shellProfiles = null;
-  });
+  }));
 }
 
 // Discover available shell profiles on this system.
@@ -282,4 +304,4 @@ function ptyShellArgs(shellPath, cmd, extraArgs) {
   return args;
 }
 
-module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgForShell, quoteArgvForShell };
+module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin };

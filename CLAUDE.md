@@ -86,8 +86,10 @@ table is the fallback and it is binding.
 10. **Prefer `execFile`** over shell string interpolation for any external process — and a probe that
     only READS a CLI's output must close the child's stdin, or a CLI that reads standard input hangs until
     the timeout. `spawnSync`/`execFileSync` take a `stdio` option for that; **`execFile` silently ignores
-    one** and needs `closeStdin(execFile(...))`. `src/backends/cli-probe.js` is the one way, and its scope
-    is `src/backends/**` — the probes elsewhere are not covered yet (#541).
+    one** and needs `closeStdin(execFile(...))`. `src/backends/cli-probe.js` is the one way there, and it
+    does **not** move: its scope stays `src/backends/**`, so a probe outside that folder closes its own
+    stdin locally — `src/app/terminal/shell-profiles.js` does (#541); the `git` calls in `src/app/vcs.js`
+    and `src/main.js` still do not, and `.claude/rules/main-process.md` says why they were left.
 11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
     compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
     is impossible, and the file's own line endings and BOM kept.

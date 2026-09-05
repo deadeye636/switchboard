@@ -220,6 +220,12 @@ while `execFile` silently IGNORES one (Node passes `spawn` an allow-list without
 wrapped — `closeStdin(execFile(...))`. `test/cli-probe.test.js` sweeps this directory for both forms, so
 a new probe that skips them fails there rather than in a user's model picker.
 
+**The module stays here (#541).** Shell discovery had the same open stdin pipe, and moving `cli-probe.js`
+somewhere `src/app/**` could import it was the obvious answer. It was refused: the header's scope
+sentence is what the sibling sweep rests on, and an app module importing from a backend folder is the
+direction this file spends a section forbidding. `src/app/terminal/shell-profiles.js` closes its own
+stdin instead, with a comment naming this module — spec 9's decision 11 is the record.
+
 **And a probe that FAILED has not measured anything** (#546). Pi collapsed every failure of
 `node --version` into `null` and read that as "no node on your PATH at all", so a call that ran out of
 its 3 seconds under load — 12 of 60 while the suite ran — told a user with Node 22 installed to go and
