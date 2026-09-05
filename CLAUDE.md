@@ -178,9 +178,13 @@ table is the fallback and it is binding.
     does the fix take away** — that gets said even when the fix is right.
 
     And watch the SUM. Where several fixes land on one area, each was small and each was justified, and
-    the flow at the end is not the one anyone signed off: the project remove/delete path took #574, #566,
-    #575 and #578 in two days. Nobody sees that total, because it is in none of the issues. Whoever builds
-    the fourth fix in one place states where the whole flow now stands, not only their share of it.
+    the flow at the end is not the one anyone signed off: the project remove/delete path took #563, #565,
+    #566, #574 and #575 in **two hours and twenty-five minutes** of one afternoon, with #578 written on top
+    the same evening. Nobody sees that total, because it is in none of the issues — a review of the whole
+    chain then found a measured defect (#579), a silent success on a destructive act (#580) and a user-
+    visible consequence nobody had stated (#581), none of which any single issue could have shown.
+    Whoever builds the fourth fix in one place states where the whole flow now stands, not only their
+    share of it.
 
     Not a licence to stall. The default stays "name the concern in a sentence or two and keep building".
     Stop only where a new flow appears, where the premise is demonstrably wrong, or where the call is
