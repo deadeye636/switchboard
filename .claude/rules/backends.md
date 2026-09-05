@@ -4,6 +4,7 @@ paths:
   - "src/session/**"
   - "src/servers/**"
   - "src/projects/**"
+  - "src/vcs/**"
 ---
 
 # Backends
@@ -252,9 +253,14 @@ contain no backend id **in a branch or a composed path**, and must not gain one.
 readers directly (`session-cache.js`, `main.js`, both workers) — the documented exception named above, not
 a violation. The core reads no backend's format and hardcodes no `~/.claude`
 path; `test/backend-path-neutrality.test.js` is the guard for the last one (a hardcoded store PATH is
-a backend id the id-hunt cannot see). `test/backend-integrations.test.js` guards the renderer.
+a backend id the id-hunt cannot see). `test/backend-integrations.test.js` guards the renderer — **only**
+the renderer, from a hand-listed file map; nothing hunts ids in the main process, so there the rule is
+prose and the reviewer is you.
 The same migration ran through `src/projects/projects.js` under #211, which is CLOSED — what is left
 there is the absence of a GUARD, not open work. Treat an id you find there as a defect to remove.
+
+The one place this paragraph is knowingly not true today is the pre-#161 legacy default — see the
+exception under the two honest answers below before you "fix" a `|| 'claude'` in main-process code.
 
 **Reaching for a backend id nobody named? There are exactly two honest answers** (#212/#225), and
 the code must say which:
@@ -262,10 +268,35 @@ the code must say which:
 1. it is **reading a record from before the multi-LLM era** — a template with no `backendId`
    predates #161, when a template was always Claude. Bind it to a named `LEGACY_TEMPLATE_BASE` /
    `LEGACY_SESSION_BACKEND`.
-2. it resolves to the **first LAUNCHABLE backend** — `firstLaunchableBackendId()` in
-   `backend-registry.js`; `''` when nothing is launchable, and `''` must not be turned back into an id.
+2. it resolves to a backend that **can actually launch** — and the two processes answer that with
+   different functions, so name the one that exists where you are standing.
+   In the **renderer**: `firstLaunchableBackendId()`, a window global defined in
+   `src/renderer/backends/backend-registry.js`. It answers `''` when nothing is launchable, and `''`
+   must not be turned back into an id.
+   In the **main process**: `backends.getDefaultLaunchTarget()` (`src/backends/index.js`) — the stored
+   choice, then Claude if it is launchable, then whatever else is; `null` when nothing is, and `null`
+   must not be turned back into an id either. `firstLaunchableBackendId` is **not** reachable here
+   (`grep -rn firstLaunchable src/ --exclude-dir=renderer` finds nothing), so a rule or a comment that
+   sends main-process code to it is sending it nowhere.
 
-`|| 'claude'` is neither: Claude is disablable (#162), so it hands back a backend that cannot spawn.
+`|| 'claude'` as a **live launch target** is neither: Claude is disablable (#162), so it hands back a
+backend that cannot spawn.
+
+**The one exception, written down so nobody has to either break this rule or "fix" correct code to
+obey it.** Answer 1 — a NULL `backendId` on a row written before #161 was a Claude session — is spelled
+as the bare literal `|| 'claude'` in main-process code today: `src/main.js`, `src/app/terminal/spawn.js`,
+`src/index/index-worker-client.js`, `src/index/projects-view.js` (`grep -rn "|| 'claude'" src/` is the
+list; a count written here would be stale by the next split). Every one of them is answer 1 and is
+correct — what they are missing is the NAMED constant that `src/renderer/**` and
+`src/index/index-writes.js` bind it to (`LEGACY_SESSION_BACKEND` / `LEGACY_TEMPLATE_BASE`). Two things
+follow, and they pull in opposite directions on purpose:
+
+- **Do not go replacing them as a drive-by.** Renaming them is a decision of its own; it is not a side
+  effect of touching the line above one, and a diff that does it while doing something else is the shape
+  this repo has already paid for.
+- **Do not read their existence as permission.** A NEW one binds the named constant and says in a
+  comment which of the two answers it is — because nothing in the main process will tell you if you get
+  it wrong.
 
 ## A file-mode backend composes `src/backends/file-store.js`
 
@@ -373,10 +404,15 @@ while its siblings quietly kept it — **fix a backend, check its siblings**.
 
 ## `src/projects/**` — migrated (#211), but unguarded
 
-`src/projects/projects.js` and `project-registry.js` are the **last** place the id-neutrality rule
-above is not enforced by a guard — the migration itself is done (#211 is closed). Treat every backend id you find there as a defect to remove,
+`src/projects/projects.js` and `project-registry.js` carry no guard for the id-neutrality rule above —
+the migration itself is done (#211 is closed). They are not special in that: **no main-process
+directory is guarded for ids.** `test/backend-integrations.test.js` iterates a map of renderer files
+and nothing else, and `test/backend-path-neutrality.test.js` walks all of `src/` but guards store
+PATHS, not ids. So the id-hunt covers `src/renderer/**`; everywhere else the rule is prose.
+Treat every backend id you find here as a defect to remove,
 not as precedent to copy: the same two honest answers apply (a `LEGACY_*` binding for a pre-#161
-record, or `firstLaunchableBackendId()`), and per-project config/meta belongs behind the descriptor's
+record, or `backends.getDefaultLaunchTarget()` — **not** the renderer's `firstLaunchableBackendId()`,
+which does not exist in this process), and per-project config/meta belongs behind the descriptor's
 `projectMeta` hook (#211), never behind a `~/.claude.json` literal.
 
 Its Claude-home reader **and writer** was one of the four modules that composed a path from
@@ -406,6 +442,27 @@ Three things about the bridge that cost something to learn:
 Anything moved here takes `ctx`, not a top-level `require('electron')`, or it cannot be tested — see
 `.claude/rules/main-process.md`. The scheduler used to live here and was removed in #246; spec 14
 records how it worked, and `docs/ai/lessons.md` records what it cost.
+
+## `src/vcs/**` — the same seam, for version control (#277)
+
+`index.js` is a REGISTRY that mirrors `src/backends/index.js`: `detect(cwd)` finds the provider that
+owns a working directory, and the core drives that provider's hooks. `git.js` is the only shipped
+provider; `parse-git-status.js` is a pure porcelain-v2/diff parser with no process and no DOM.
+**The core is VCS-blind** — `src/app/vcs.js` names no VCS, exactly as the core names no backend, and a
+Mercurial or Subversion provider would be a sibling file registered here with no core change.
+So the id rule above applies unchanged with "backend" read as "provider": no `'git'` in a branch or a
+composed path outside `git.js`, and a capability that varies by provider is a hook on the descriptor.
+
+This directory had no path-scoped rule at all until it was added to this file's frontmatter — it was
+the only subtree under `src/` that auto-loaded nothing, while `CLAUDE.md`'s router had been promising
+this file for it. The poller, the IPC and the standalone changes/diff windows are **not** here: they
+are `src/app/vcs.js`, under `.claude/rules/main-process.md`.
+
+Two things git costs that the parser must not be "cleaned up" into forgetting:
+`--no-optional-locks` is a GLOBAL flag and has to precede `status`, or git rejects it and the
+background poll starts fighting the session's own agent over `index.lock`; and the in-progress state
+(merging / rebasing / cherry-picking) is not in porcelain output at all — it is read from `.git/`
+markers, filesystem-only, so it costs no second spawn.
 
 ## Session data sources
 

@@ -19,6 +19,27 @@ moving them buys churn).
 
 `src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
+`skills.js` (what a running session can be asked to run — #462; a BACKEND skill is asked for through
+the descriptor's `listResources`/`expandResource`, a SWITCHBOARD skill belongs to nobody's CLI and is
+always handed over as text),
+`convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
+CLAUDE.md reflex 12; the handoff prompts, the plan prompt and a saved variable's insert template all
+ask it, and a second reading of `eff.handoffDir` is how two of them start naming different directories.
+It also settles escaping, so a `../packets` setting falls back to the default instead of sending an
+agent outside the tree. Electron-free and DB-free: `conventionDirs(projectPath, effectiveSettings)` is
+callable from `node --test` with a plain object),
+`file-access.js` (can this file be WRITTEN — #281; one handler rather than a flag on each of the four
+readers that feed the viewer, three of which return a bare string. A missing file counts as writable
+and so does anything the check cannot answer: a false read-only locks an editable file out of its
+editor, which is the worse failure),
+`live-owners.js` (is something OUTSIDE Switchboard running this session — #172; the two-hook split and
+the three things it cost are in `.claude/rules/backends.md`),
+`live-sessions.js` (what main knows about a running session that the INDEX has never seen — #461;
+Hermes in its degraded mode writes no record, and reloading the window used to leave a live PTY with
+nothing on screen. Deliberately NOT folded into the projects payload — synthesised rows would reach
+search, stats and every counter that expects an indexed one),
+`store-record-notice.js` (which live sessions their backend has no record of, so no busy/idle can be
+shown — decided in `src/watch/adopt.js`),
 `settings-transfer.js`, `backend-models.js` + `backend-resources.js` (backend-owned model and
 resource discovery — the core asks the descriptor, each backend owns how it shells out and fails),
 `plans-memory.js` (the Plans and Agent Files tabs — #227; work files lost their own tab in #448 and
@@ -67,10 +88,14 @@ shell family and the secret flag live in `variables.js`, which is where those de
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
 `safe-write.js` + `format-validate.js` (how this app overwrites a file a CLI also owns — #441, below) and
-and `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY
+`terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY
 pure-logic and half a dozen more — list it).
-**The directory is the truth** — this enumeration silently missed two modules for as long as they
-existed, so list `src/app/` before assuming an area has no home yet.
+**The directory is the truth** — this enumeration has now silently missed modules twice, most recently
+five at once including `convention-dirs.js`, which CLAUDE.md reflex 12 sends you here to find. It is
+kept complete rather than cut down to the pointer, because the alternative was tried and the pointer is
+what people skip: a reader who does not already know a module exists has no reason to list a directory.
+So the price of the list is that **whoever adds a module to `src/app/` adds its line here** — and until
+that has a guard, list `src/app/` yourself before assuming an area has no home yet.
 
 ## Quitting WAITS, and both kill sites go through one module (#424)
 
@@ -153,6 +178,31 @@ Not swept, and deliberately: `src/app/vcs.js` and `src/main.js` run `git` with t
 status`, `diff` and `worktree remove` do not read standard input, and nobody has watched one hang — a
 sweep on suspicion would have touched half the file for nothing.
 
+## A FRESH spawn does not arm the redraw nudge (#560)
+
+`src/app/terminal/io.js` follows a resize with a `cols+1` / `cols` wiggle when the session carries
+`firstResize: true`. `src/app/terminal/spawn.js` sets that flag on the **reattach** path and NOT on a
+fresh spawn, and the asymmetry is the point rather than an oversight somebody forgot to tidy.
+
+The nudge exists to make a TUI that has been drawing all along repaint into a terminal that was just
+re-mounted. A CLI that started three milliseconds ago has drawn nothing to repaint. What the nudge does
+there is hand it two more geometry changes inside its first 150 ms — the PTY spawns at 120x30,
+`syncPtySize` pushes the real size, then the wiggle adds two more. Three geometry changes while the CLI
+is drawing its first frame.
+
+That is not free, because **Claude Code counts a fullscreen session as started only once it has drawn a
+frame and survived** — and after two failed starts it moves that machine to its classic renderer,
+silently, until the CLI is updated or the user runs `/tui fullscreen`. `.claude/rules/renderer.md` has
+the consequence from the other end: the conversation leaves the alternate screen, and PageUp/PageDown
+change meaning under the user (#558). This app was one of the things causing those failed starts.
+
+`test/spawn-first-resize.test.js` pins it, as a SOURCE check — `node-pty` is required at module load, so
+there is no seam a test can reach a fresh spawn through. It exists for the regression that will actually
+happen: someone restores the symmetry between the two branches because it looks like a bug.
+
+The other half of #560 — four CLIs plus a cold scan starving the first frame, measured at 10-13 s to the
+alternate screen — is open as **#567**. Do not re-derive it here.
+
 ## What routes per session, and what stays in main (#2, #393, #395)
 
 A session can live in a window of its own. `app/detach.js` owns the map and answers
@@ -217,6 +267,11 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
 
 **No NEW handler in `main.js`** — the invariant is "no new ones", not "none".
 `test/main-no-new-ipc.test.js` (#222) fails on one and names the module to use instead.
+
+**This table and that test's `WHERE_IT_GOES` string are the same list, and the test's copy is the one an
+agent reads** — it is the failure message. They had drifted by six rows, so a handler in one of those
+areas met a red test that offered it no home and became a `GRANDFATHERED` entry instead. Nothing checks
+that they agree. Add a row here, add the line there, in the same commit.
 
 | The handler is about | Home |
 |---|---|

@@ -174,6 +174,14 @@ after two fullscreen sessions fail to start it switches that machine to classic 
 or told otherwise. Measured on one machine on one afternoon: four long-running sessions on `normal` with
 226-2470 lines of scrollback, a fresh one on `alternate` with `baseY: 0`.
 
+**And this app was causing some of those failed starts** (#560). A fullscreen session counts as started
+only once it has drawn a frame and survived; a fresh spawn used to arm the reattach path's redraw nudge
+too, so the CLI met three geometry changes inside its first 150 ms while drawing that frame. It no longer
+does — `.claude/rules/main-process.md` carries the rule and `test/spawn-first-resize.test.js` the guard,
+and the remaining half (four CLIs plus a cold scan starving the first frame) is **#567**. It belongs in
+this file because the symptom lands in this file's territory: nothing in the renderer is wrong when a
+user's conversation suddenly appears in xterm's scrollback and the page keys change meaning.
+
 So a `viewport` declaration alone is wrong for whichever half is on the alternate screen, and wrong in
 the expensive direction: `scrollPages()` moves nothing there, and the key that IS that user's only way
 to page their conversation never reaches the CLI. That is #410's mistake in a new disguise. The routing

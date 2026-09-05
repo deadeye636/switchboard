@@ -2,6 +2,7 @@
 paths:
   - "docs/**"
   - "README.md"
+  - "CONTRIBUTING.md"
 ---
 
 # Where a document goes
@@ -13,6 +14,7 @@ paths:
 | **Reference** (formats, build gotchas, colors) | `docs/<topic>.md` (e.g. `backend-formats.md`, `build-windows.md`, `settings-reference.md`) |
 | **How a human builds, runs, tests or packages it** | `docs/development.md`. The README links there and keeps only the build-from-source block the security section needs. |
 | **Agent-facing procedure** (release, porting, running, driving) | `docs/ai/<topic>.md` + a row in the CLAUDE.md router |
+| **What an outside contributor's change has to satisfy** (the PR bar, the review rules, how to file) | `CONTRIBUTING.md`. It is the only doc whose reader is not already inside this repo's conventions, so it repeats what it needs rather than linking — and it must not contradict `CLAUDE.md` or a rule, because nobody who reads it will read those. Not a second home for anything: a decision goes in its spec or its rule, and this file points at it. |
 | **Fork feature list** | `README.md` **"What it does"** (the reader-facing paragraph) **and** `docs/fork-features.md` (the per-feature record) — a new fork feature goes in **both**. The section was called "What this fork adds" when this rule was written; naming a heading that no longer exists is how a rule quietly stops being followed |
 | **Backlog** | GitHub Issues. `docs/BACKLOG.md` / `.jsonl` are **generated** (`node scripts/build-backlog.js`) and **gitignored** — never hand-edit, never commit, and never link to them from a doc (they do not exist in the public repo) |
 | **Planning scaffolding** (task lists, state trackers, agent prompts, mockups) | `docs/plans/<issue-nr>-<slug>/` — `PLAN.md` for the working plan, `mockups/` for HTML/image mockups. This tree is **gitignored** (local only), so it never reaches the public repo. Once the work lands, its lasting parts belong in a spec; the rest is noise, and stale plan text next to a correct spec is worse than no plan text. **Do not** drop plans in `.claude/scratchpad/` or a system temp dir — `docs/plans/<slug>/` is the one home. |
@@ -37,7 +39,8 @@ sentence had kept the old name anyway.)
 
 ## A path you write in a doc is checked; a count you write is not
 
-`test/doc-refs.test.js` fails when a backticked repo path in `CLAUDE.md`, `README.md`,
+`test/doc-refs.test.js` fails when a backticked repo path in `CLAUDE.md`, `CONTRIBUTING.md`,
+`README.md`,
 `.claude/rules/**` or `docs/**` does not exist. Naming a dead path on purpose (a removal record, a
 plan option not taken) means an entry in `DELIBERATE` in `scripts/check-doc-refs.js` **with the
 reason** — and the guard reports an exemption whose path came back, so the list cannot rot.
