@@ -415,8 +415,21 @@ used to throw the answer away entirely.
   that killed a process to get its way would be a much larger promise than any of these buttons make.
 - **A backend with no start time cannot be brought back by discovery at all** — the deliberate half of
   #575's start-time rule, and the honest name for what agy's users will see. The way back is an explicit act. If a
-  future agy release stamps its store, or the file's own creation time is judged trustworthy enough to
-  stand in, that is the change to make; a recency fallback is not.
+  future agy release stamps its store, that is the change to make; a recency fallback is not.
+
+  **The file's own creation time was the other candidate, and it was measured and declined (#576).** Over
+  1 070 transcripts in a real Claude store, `readSessionStartedAt` found a start in 1 068 — it fails on
+  **0.19 %**. Both failures were classified by reading the whole file: one a 250-byte header-only
+  transcript with no timestamp anywhere, which is a session about to exist and for which `birthtime` would
+  answer "now" — precisely the wrong-clock bring-back the tombstone exists to prevent; the other a 3.37 MB
+  transcript whose first timestamped entry sits at byte 81 939, where the start IS stated and the 64 KB
+  head simply ends 18 KB short. Neither argues for a different clock. Trading a safe failure (a refusal
+  the user undoes by adding the project back) for an unsafe one (a removal that silently never happens)
+  does not pay at that rate.
+
+  The second case leaves a smaller question behind, and it is a bounded-read one rather than a clock one:
+  whether the head should grow, or read on until a timestamp is found with a cap. One file in 1 070, and
+  it fails safe when it misses.
 - The register keys on the path as written. What the lookups COMPARE is no longer a string (#563), and
   since #566 neither is what a WRITE addresses (the section above). The tombstone, the state
   lookups, the "does this project still have sessions on disk" check and the store-folder refresh all key

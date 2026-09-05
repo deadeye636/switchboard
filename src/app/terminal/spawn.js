@@ -231,9 +231,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // carry a transition that has scrolled out of it: a CLI that entered the alternate screen and then
     // wrote more than MAX_BUFFER_SIZE while inside it leaves a replay with no enter sequence in it at
     // all, and `output-buffer.js` trims only from the FRONT, so that is the oldest thing to go. That
-    // case is what this line is for. **It has not been measured** — deciding it needs a running app: a
-    // long-lived fullscreen session, reattached, with the replay inspected for whether it still carries
-    // the enter. Until somebody does that, removing this would be a guess, so it stays.
+    // case is what this line is for, and it is MEASURED (#561): a live Claude session on the alternate
+    // screen, reattached repeatedly while its output grew, with the replay captured each time. The enter
+    // sat at byte 1862 and stayed there — 5 296 bytes, 77 671, 149 715, 221 759 — and at 261 984 it was
+    // gone, against a MAX_BUFFER_SIZE of 262 144. So the buffer does run out while a CLI is inside the
+    // alternate screen, it does not take long, and past that point this line is the only thing putting
+    // xterm where the CLI is. Do not remove it.
     //
     // IT FAILS TOWARD NOT INJECTING. `altScreenFromReplay` is the second opinion, and it is the better
     // one where it has one, because it reads the bytes xterm is about to be given. Where it says the

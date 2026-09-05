@@ -232,9 +232,14 @@ arriving in an order this search does not expect, stays invisible. xterm runs th
 scrolled out of the replay buffer, which trims from the front; where the buffer still carries a
 transition, `altScreenFromReplay` reads it and a replay that ends in the NORMAL buffer suppresses the
 injection. Forcing the alternate screen on a session that has left it is the worse failure of the two.
-**Not measured**: whether the scrolled-out case actually occurs for the CLIs this app launches. That
-needs a running app — a long-lived fullscreen session, reattached, with the replay inspected — so the
-line is not removed on a guess.
+**And the scrolled-out case is MEASURED, so the line stays on evidence rather than on caution.** A live
+Claude session on the alternate screen, reattached repeatedly while its output grew, replay captured each
+time: the enter sequence sat at byte 1862 through 5 296 bytes, 77 671, 149 715 and 221 759 — then at
+261 984, against a `MAX_BUFFER_SIZE` of 262 144, it was gone. The offset never moved until it vanished,
+which is the front-trim doing exactly what `output-buffer.js` describes. Past that point the injection is
+the only thing putting xterm where the CLI is. The first reading of this said the injection was
+redundant, and it was taken on a 12 KB replay — a sample far too young to say anything about a 256 KB
+buffer.
 
 ## What routes per session, and what stays in main (#2, #393, #395)
 
