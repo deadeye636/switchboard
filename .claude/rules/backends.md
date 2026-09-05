@@ -88,6 +88,20 @@ lexical pre-check that catches `..` before the filesystem is touched, and the ru
 EXIST to be handed over. The shared check answers about the nearest existing ancestor instead, because its
 other callers name files that are not there yet — do not "simplify" that difference away.
 
+**A path this app HANDS BACK is spelled in the namespace it was ASKED about (#544).** The listing is the
+allow-list, and it is spelled the way the project was opened; a path derived from `realpathSync` is spelled
+the way the disk holds it. On a project reached through a junction or a symlink those are two strings for
+one file, and `createResource` used to validate against the real one and answer with it — so the renderer
+opened what it had just created and was told the path is not a discovered resource. Validate against the
+real path, write through it, and answer under the directory that was named. `expandResource` already works
+this way: it joins onto the listed directory, which is why nothing else in the chain had this bug.
+
+**And a compare that reaches a SCOPE is a containment question too (#545).** `claude/plugins.js` decides
+whether a locally installed plugin belongs to the project in front of the user; that answer becomes the
+listing entry's `scope`, and it went through a resolved-string compare that was blind to links and
+lowercased unconditionally. It asks `app/path-containment.js` (`samePath`) now — the same import direction
+`codex/plugins.js` already takes, and the same one CLAUDE.md rule 11 makes mandatory for `safe-write.js`.
+
 ## Writing one back is a SECOND declaration (#441)
 
 Reading a resource asks whether the path is reachable. WRITING one asks two more questions, and both

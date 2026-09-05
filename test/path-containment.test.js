@@ -20,7 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { isInside, isAtOrInside, realPathish } = require('../src/app/path-containment');
+const { isInside, isAtOrInside, realPathish, samePath } = require('../src/app/path-containment');
 
 const WIN = process.platform === 'win32';
 const LINK_TYPE = WIN ? 'junction' : 'dir';
@@ -123,4 +123,43 @@ test('on Windows, case does not change the answer', { skip: !WIN }, () => {
 
 test('on Windows, a forward slash is the same separator', { skip: !WIN }, () => {
   assert.equal(isInside(PROJECT.split('\\').join('/') + '/docs', PROJECT), true);
+});
+
+// --- samePath: the equality half of the same question (#545) ---
+
+// Whether two names that differ only in case are two directories HERE. Asked of the filesystem rather
+// than of the platform, because a macOS volume can be either and the answer decides what may be asserted.
+const CASE_SENSITIVE_FS = (() => {
+  fs.mkdirSync(path.join(ROOT, 'CaseProbe'));
+  return !fs.existsSync(path.join(ROOT, 'caseprobe'));
+})();
+
+test('samePath answers about the real path, not about the spelling', () => {
+  const viaLink = path.join(ROOT, 'same-path-link');
+  if (!link(viaLink, PROJECT)) assert.fail('could not create a link');
+  assert.equal(samePath(viaLink, PROJECT), true, 'a project reached through a link is that project');
+  assert.equal(samePath(PROJECT, viaLink), true, 'and the question is symmetric');
+  assert.equal(samePath(PROJECT, PROJECT + path.sep), true, 'a trailing separator is noise');
+  assert.equal(samePath(PROJECT, path.join(PROJECT, 'docs')), false, 'a child is not the same path');
+  assert.equal(samePath(PROJECT, OUTSIDE), false);
+});
+
+test('samePath refuses an empty side rather than resolving it to the working directory', () => {
+  assert.equal(samePath('', PROJECT), false);
+  assert.equal(samePath(PROJECT, null), false);
+  assert.equal(samePath('   ', ''), false);
+});
+
+test('samePath keeps two directories apart where only the case differs',
+  { skip: !CASE_SENSITIVE_FS && 'this filesystem calls both spellings one directory' }, () => {
+    const lower = path.join(ROOT, 'twin');
+    const upper = path.join(ROOT, 'TWIN');
+    fs.mkdirSync(lower);
+    fs.mkdirSync(upper);
+    assert.equal(samePath(lower, upper), false, 'lowercasing a Linux path answers about a different directory');
+    assert.equal(samePath(lower, lower), true);
+  });
+
+test('on Windows, samePath ignores case the way the filesystem does', { skip: !WIN }, () => {
+  assert.equal(samePath(PROJECT.toUpperCase(), PROJECT.toLowerCase()), true);
 });

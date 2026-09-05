@@ -32,6 +32,41 @@ function writeSkill(dir, name) {
 }
 
 /**
+ * A temp directory, as its REAL path. macOS hands out `/var/...` for a directory that lives under
+ * `/private/var/...`, so a test that skipped this would be measuring the normalisation rather than the
+ * question it means to ask.
+ */
+function realTmp(prefix) {
+  return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
+
+// A junction on Windows, a directory symlink elsewhere: the same mechanism under two names, and the one
+// of #545's three spellings a test can make without taking a drive letter off the machine it runs on.
+function linkDir(target, link) {
+  fs.symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+}
+
+// A machine or a policy that refuses to make one says so out loud rather than passing quietly.
+const LINK_REFUSED = (() => {
+  const probe = realTmp('sb-plugin-linkprobe-');
+  try {
+    fs.mkdirSync(path.join(probe, 'target'));
+    linkDir(path.join(probe, 'target'), path.join(probe, 'link'));
+    return false;
+  } catch (err) {
+    return `this machine would not create a directory link (${err && err.code})`;
+  }
+})();
+
+// Whether two names differing only in case are two directories here — asked of the filesystem, because a
+// macOS volume can be either and the answer decides which of the two assertions below is the true one.
+const CASE_SENSITIVE_FS = (() => {
+  const probe = realTmp('sb-plugin-caseprobe-');
+  fs.mkdirSync(path.join(probe, 'CaseProbe'));
+  return !fs.existsSync(path.join(probe, 'caseprobe'));
+})();
+
+/**
  * A Claude home with one cached plugin checkout.
  * `manifestName` is what the plugin calls itself; leave it out to test the fallback.
  */
@@ -96,12 +131,55 @@ test('a locally installed plugin follows its own project and no other', () => {
   assert.deepEqual(plugins.installedPluginSkillDirs(home, null), [], 'and it is not a global plugin');
 });
 
-test('a local plugin path spelled with the other separator and case is still the same project', () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-plugin-proj-'));
+test('a local plugin path spelled with the other separator is still the same project', () => {
+  const base = realTmp('sb-plugin-proj-');
   const { home } = makeHome({ scope: 'local', projectPath: base });
-  const spelledDifferently = base.replace(/\\/g, '/').toUpperCase();
-  assert.equal(plugins.installedPluginSkillDirs(home, spelledDifferently).length, 1);
+  assert.equal(plugins.installedPluginSkillDirs(home, base.replace(/\\/g, '/')).length, 1);
 });
+
+test('...and spelled in another case, where the filesystem itself ignores case',
+  { skip: CASE_SENSITIVE_FS && 'this filesystem tells the two spellings apart' }, () => {
+    const base = realTmp('sb-plugin-case-ok-');
+    const { home } = makeHome({ scope: 'local', projectPath: base });
+    assert.equal(plugins.installedPluginSkillDirs(home, base.toUpperCase()).length, 1);
+  });
+
+// #545 — the two things a resolved-string compare answered wrongly. Both decide a listing entry's SCOPE,
+// so both failed as a plugin's skills quietly missing rather than as anything anyone could read.
+
+test('two projects that differ only in case are two projects, where the filesystem says so (#545)',
+  { skip: !CASE_SENSITIVE_FS && 'this filesystem calls both spellings one directory' }, () => {
+    const base = realTmp('sb-plugin-twin-');
+    const mine = path.join(base, 'proj');
+    const theirs = path.join(base, 'PROJ');
+    fs.mkdirSync(mine);
+    fs.mkdirSync(theirs);
+    const { home } = makeHome({ scope: 'local', projectPath: mine });
+    assert.equal(plugins.installedPluginSkillDirs(home, mine).length, 1, 'its own project still gets it');
+    assert.deepEqual(plugins.installedPluginSkillDirs(home, theirs), [],
+      'lowercasing hands one project the plugin that was installed for the other');
+  });
+
+test('a project reached through a link is the project its plugin was installed for (#545)',
+  { skip: LINK_REFUSED }, () => {
+    const base = realTmp('sb-plugin-link-');
+    const project = path.join(base, 'proj');
+    const other = path.join(base, 'other');
+    fs.mkdirSync(project);
+    fs.mkdirSync(other);
+    const viaLink = path.join(base, 'link');
+    const toOther = path.join(base, 'other-link');
+    linkDir(project, viaLink);
+    linkDir(other, toOther);
+    const { home } = makeHome({ scope: 'local', projectPath: project });
+
+    // The install record holds the real directory; the app opened the project through the link. One
+    // project, two spellings — and deciding it by the string drops the plugin's skills from the listing.
+    assert.deepEqual(plugins.installedPluginSkillDirs(home, viaLink).map(p => p.scope), ['project'],
+      'a project reached through a link keeps its plugins');
+    // …and a link to somewhere else is still refused, which is the half a "resolve both" fix must keep.
+    assert.deepEqual(plugins.installedPluginSkillDirs(home, toOther), []);
+  });
 
 test('a project may enable a plugin the user settings say nothing about', () => {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-plugin-enable-'));

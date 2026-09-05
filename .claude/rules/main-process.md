@@ -46,7 +46,11 @@ in `vcs.js` (#476). What each caller keeps of its own is the CHEAP half: a lexic
 DIRECTORY, before the stat**: `lstat` sees only the final component — every directory above it was
 already followed — and that reader answers a missing file with an empty side, so a check placed after the
 stat never sees a path that escaped and had nothing at the end of it. The LEAF keeps its own sentence: a
-link the user can see and fix must not be reported as "outside"), 
+link the user can see and fix must not be reported as "outside". **It answers EQUALITY too — `samePath`,
+#545** — the same two rules for a caller whose question is "this one" rather than "inside it": Claude's
+plugin records name the project an install belongs to, and that answer sets a listing entry's scope, so a
+resolved-string compare dropped a linked project's plugins and called two Linux directories that differ
+only in case one project. A path compare that reaches a scope is still a path compare), 
 `clipboard-insert.js` (what the system clipboard hands a `{clipboard}` insert — #491; the paste/drop
 ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
 bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the

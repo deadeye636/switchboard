@@ -221,6 +221,86 @@ test('a skill is created from the backend\'s scaffold, in a directory the listin
   assert.match(read(res.path), /name: new-one/);
 });
 
+// --- #544: the path that comes back has to be one the read that follows can find ---
+//
+// A project reached through a junction or a symlink is spelled the way it was opened, and so is
+// everything the backend lists. A path derived from `realpathSync` is spelled the way the disk holds it.
+// Both name the same file, and the renderer opens the new one the moment it has it — so the two spellings
+// meeting is not a corner case, it is the click after **New skill**.
+
+// A junction on Windows, a directory symlink elsewhere. A `subst` drive is deliberately NOT made here: it
+// takes a drive letter off the machine running the suite, and it was checked by hand instead — it escapes
+// this particular failure by accident, because `fs.realpathSync` does not follow a DOS device mapping
+// while `realpathSync.native`, which the containment check uses, does.
+function linkDir(target, link) {
+  fs.symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir');
+}
+
+const LINK_REFUSED = (() => {
+  const probe = fs.realpathSync.native(tmpdir());
+  try {
+    fs.mkdirSync(path.join(probe, 'target'));
+    linkDir(path.join(probe, 'target'), path.join(probe, 'link'));
+    return false;
+  } catch (err) {
+    return `this machine would not create a directory link (${err && err.code})`;
+  }
+})();
+
+/** The lifecycle backend, listing a skills directory that is reached through a link. */
+function setupLinkedLifecycle() {
+  // The real path of the temp root first: macOS spells its temp directory two ways on its own, and the
+  // only link this test wants to measure is the one it makes itself.
+  const home = fs.realpathSync.native(tmpdir());
+  const realSkills = path.join(home, 'real', 'skills');
+  fs.mkdirSync(realSkills, { recursive: true });
+  linkDir(path.join(home, 'real'), path.join(home, 'link'));
+  const skillsDir = path.join(home, 'link', 'skills');      // what the listing carries
+
+  const backend = {
+    id: 'stub',
+    resourceEditing: { extensions: ['.md'] },
+    resourceScaffolds: [
+      { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'], template: (n) => `---\nname: ${n}\n---\n` },
+    ],
+    listResources: async () => ({
+      ok: true,
+      resources: [{ kind: 'skill', scope: 'global', name: 'skills', path: skillsDir, source: 'skills-directory' }],
+    }),
+    expandResource: Object.assign(
+      async () => ({ ok: true, entries: [] }),
+      { knowsSource: (source) => source === 'skills-directory' },
+    ),
+  };
+  backendResources.init({
+    backends: { get: (id) => (id === 'stub' ? backend : null) },
+    log: { warn() {}, error() {}, info() {} },
+  });
+  return { home, realSkills, skillsDir };
+}
+
+test('a skill created under a linked directory comes back in the listing\'s spelling (#544)', { skip: LINK_REFUSED }, async () => {
+  const box = setupLinkedLifecycle();
+  const res = await backendResources.createResource('stub', { kind: 'skill', name: 'new-one', parentDir: box.skillsDir });
+  assert.equal(res.ok, true, res.reason);
+  assert.equal(res.path, path.join(box.skillsDir, 'new-one', 'SKILL.md'),
+    'the directory that was asked about is the directory the answer is spelled under');
+  assert.equal(read(res.path), read(path.join(box.realSkills, 'new-one', 'SKILL.md')),
+    'and it is one file, written once, through the link');
+  assert.equal(res.realPath, fs.realpathSync.native(res.path),
+    'the spelling it was validated and written under travels alongside it');
+});
+
+test('...and reading it back through that path is not refused (#544)', { skip: LINK_REFUSED }, async () => {
+  const box = setupLinkedLifecycle();
+  const created = await backendResources.createResource('stub', { kind: 'skill', name: 'new-one', parentDir: box.skillsDir });
+  assert.equal(created.ok, true, created.reason);
+  // What the renderer does next, with nothing in between: create, then open what came back.
+  const back = await backendResources.readResource('stub', created.path);
+  assert.equal(back.ok, true, back.reason);
+  assert.match(back.content, /name: new-one/);
+});
+
 test('a create is refused in a directory that holds a different kind', async () => {
   const box = setupLifecycle();
   const res = await backendResources.createResource('stub', { kind: 'skill', name: 'nope', parentDir: box.commandsDir });

@@ -93,4 +93,18 @@ function isInside(child, parent) {
   return a.startsWith(b.endsWith(path.sep) ? b : b + path.sep);
 }
 
-module.exports = { realPathish, isAtOrInside, isInside };
+/**
+ * Are `a` and `b` two names for the same real path?
+ *
+ * The equality half of the same question, for a caller whose answer is not "inside" but "this one" — a
+ * plugin's install record naming the project it belongs to (#545). Same two rules as the checks above:
+ * the REAL path of both sides, so a project reached through a junction is still that project, and case
+ * ignored only where the filesystem ignores it. An unconditional `toLowerCase()` answers "yes" about two
+ * different directories on Linux and macOS.
+ */
+function samePath(a, b) {
+  if (blank(a) || blank(b)) return false;
+  return comparable(realPathish(a)) === comparable(realPathish(b));
+}
+
+module.exports = { realPathish, isAtOrInside, isInside, samePath };

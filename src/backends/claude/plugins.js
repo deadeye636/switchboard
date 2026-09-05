@@ -22,19 +22,19 @@
 const fs = require('fs');
 const path = require('path');
 
+// "Is this path that path" has exactly one answer in this app (CLAUDE.md rule 13), and it is about the
+// REAL path of both sides. This one decides a listing entry's SCOPE, which makes the two ways it used to
+// be wrong both silent (#545): a project reached through a junction, a symlink or a `subst` drive is
+// spelled differently from where its plugin was installed, so its skills simply vanished from the
+// listing; and lowercasing unconditionally called two different Linux directories one project.
+const { samePath } = require('../../app/path-containment');
+
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
 
 function isDir(p) {
   try { return fs.statSync(p).isDirectory(); } catch { return false; }
-}
-
-/** Same path, whatever the separators and the case say. Windows paths reach us spelled both ways. */
-function samePath(a, b) {
-  if (!a || !b) return false;
-  const norm = (p) => path.resolve(String(p)).replace(/[\\/]+$/, '').toLowerCase();
-  try { return norm(a) === norm(b); } catch { return false; }
 }
 
 /**

@@ -307,9 +307,12 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
   let realParent;
   try { realParent = fs.realpathSync(parentDir); } catch { return { ok: false, reason: 'That directory is no longer there.' }; }
 
-  const target = scaffold.layout === 'dir'
-    ? path.join(realParent, name, scaffold.entryFile || 'SKILL.md')
-    : path.join(realParent, name + (scaffold.ext || '.md'));
+  // Where the new file goes, RELATIVE to the directory that holds it — so one pair of names is joined
+  // onto the real spelling to write it and onto the listed one to hand it back.
+  const relative = scaffold.layout === 'dir'
+    ? path.join(name, scaffold.entryFile || 'SKILL.md')
+    : name + (scaffold.ext || '.md');
+  const target = path.join(realParent, relative);
   // Belt and braces over the name check: whatever the name did, the result has to be inside the
   // directory that was approved. The holder is what is about to be created, which is exactly the case the
   // shared check answers about its nearest existing ancestor — so it is asked here rather than repeated.
@@ -330,7 +333,17 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
     return { ok: false, reason: readableError(err, 'That file could not be created.') };
   }
   if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
-  return { ok: true, path: target };
+  // Handed back in the namespace it was ASKED about, not the one it was written in (#544). The listing is
+  // the allow-list every read consults, and it is spelled the way the project was opened; a path derived
+  // from `realpathSync` is spelled the way the disk holds it. On a project reached through a junction or
+  // a symlink those are two strings for one file, and answering with the second one created the file and
+  // had the app refuse to show it in the same breath. `realPath` is the spelling that was validated and
+  // written, for a caller that wants the file rather than the listing's name for it.
+  //
+  // (A `subst` drive got away with this by accident, measured: `fs.realpathSync` leaves a DOS device
+  // mapping alone, so both spellings came back the same. `realpathSync.native` — what the containment
+  // check resolves with — does follow it, which is why the answer must not depend on which one ran.)
+  return { ok: true, path: path.join(parentDir, relative), realPath: target };
 }
 
 // What may be DELETED, which is narrower than what may be written (#441).
