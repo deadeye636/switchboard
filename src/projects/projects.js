@@ -116,15 +116,6 @@ function applyAutoHide(force) {
     if (!force && now - lastAutoHideAt < AUTO_HIDE_THROTTLE_MS) return;
     lastAutoHideAt = now;
 
-    // A project with a live (non-exited) session is active — never auto-hide it.
-    const runningPaths = new Set();
-    for (const [, session] of ctx.activeSessions) {
-      if (session.exited) continue;
-      // Canonical (#245): a terminal opened under the other spelling of this directory is still a live
-      // session in it, and must still protect the project from being auto-hidden.
-      if (session.projectPath) runningPaths.add(samePathKey(session.projectPath));
-    }
-
     let changed = false;
     // buildProjectsAdmin returns every project (hidden included) with lastActivity.
     for (const row of ctx.cache.buildProjectsAdmin()) {
@@ -135,7 +126,12 @@ function applyAutoHide(force) {
       const resetMs = meta && meta.autoHideResetAt ? new Date(meta.autoHideResetAt).getTime() : 0;
       const eff = Math.max(activityMs, resetMs);
       // A project with a live (non-exited) session is active by definition, whatever its timestamps say.
-      const stale = !runningPaths.has(samePathKey(row.projectPath)) && ctx.cache.shouldAutoHide(eff, now, days);
+      // Asked through `liveSessionsIn`, which is the ONE reading of "is a session live in this project"
+      // — this loop used to fold `ctx.activeSessions` into a Set of its own, and two readings of one
+      // question is how they start disagreeing. It costs a walk of `activeSessions` per row instead of
+      // one per pass; the map holds the terminals this app has open, the pass is throttled to ten
+      // seconds, and the key is the memoised one.
+      const stale = !liveSessionsIn(row.projectPath) && ctx.cache.shouldAutoHide(eff, now, days);
 
       if (stale && !row.autoHidden) {
         // ONLY the flag. It used to also push the path onto `hiddenProjects` — the same list a manual
@@ -253,8 +249,12 @@ const samePathKey = pathKey;
  * the file it is writing into.
  *
  * Counted rather than answered yes/no, because the refusal names the number and "a session" reads wrong
- * for three of them. `applyAutoHide` folds the same map for the same reason and with the same canonical
- * key — a terminal opened under the other spelling of the directory is still a session in it (#245).
+ * for three of them. The count is free for a caller that only wants the yes/no.
+ *
+ * **This is the ONE asker.** `applyAutoHide` folded the same map itself, with the same canonical key
+ * (#245) and the same rule, and the two agreed — which is the state two readings of one question are in
+ * right up until they do not. It asks here now, and a third reading is a bug however carefully it is
+ * written.
  */
 function liveSessionsIn(projectPath) {
   const key = samePathKey(projectPath);

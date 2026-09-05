@@ -11,6 +11,8 @@ const path = require('node:path');
 
 const projects = require('../src/projects/projects');
 const backends = require('../src/backends');
+// The one comment stripper (CLAUDE.md reflex 14), for the two source checks at the end of this file.
+const { stripComments } = require('./helpers/strip-comments');
 const { encodeProjectPath } = require('../src/session/encode-project-path');
 
 // A context in the shape main.js hands over. Everything is observable: what was written, what was
@@ -1299,6 +1301,48 @@ test('#184: a live session brings an auto-hidden project back, whatever its time
     projects.applyAutoHide(true);
     assert.strictEqual(t.autoHidden.has('D:\live'), false, 'somebody is working in it right now');
   } finally { t.cleanup(); }
+});
+
+// The auto-hide pass asks `liveSessionsIn` now instead of folding `ctx.activeSessions` into a Set of its
+// own. The two agreed, which is the state two readings of one question are in right up until they do not
+// — and #578's acceptance wants exactly one asker. These two pin the behaviour across the fold: the
+// canonical key (#245) and the exited flag both still apply where the auto-hide reads them.
+test('a live session under ANOTHER spelling of the directory still protects the project', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    const projectPath = 'D:\\live-linked';
+    t.setAdminRows([{ projectPath, registered: true, lastActivity: '2020-01-01T00:00:00.000Z' }]);
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath: projectPath + path.sep });
+
+    projects.applyAutoHide(true);
+    assert.strictEqual(t.autoHidden.has(projectPath), false,
+      'a terminal opened under the other spelling of the directory is still a session in it');
+  } finally { t.cleanup(); }
+});
+
+test('a session that has EXITED does not hold a stale project open', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    const projectPath = 'D:\\dead-session';
+    t.setAdminRows([{ projectPath, registered: true, lastActivity: '2020-01-01T00:00:00.000Z' }]);
+    t.ctx.activeSessions.set('s1', { exited: true, projectPath });
+
+    projects.applyAutoHide(true);
+    assert.strictEqual(t.autoHidden.has(projectPath), true,
+      'the map holds sessions this app STARTED, not sessions still running');
+  } finally { t.cleanup(); }
+});
+
+// The #578 precondition, as a source check. There is no behavioural way to ask "how many times does this
+// module read the live-session map" — the two readings agreed, so any behavioural test passes against
+// both. What it pins is the regression that will actually happen: somebody inlining the fold back into
+// `applyAutoHide` because a walk per row looks wasteful next to a Set built once.
+test('#578 precondition: "is a session live in this project" is asked in exactly ONE place', () => {
+  const src = stripComments(fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'projects', 'projects.js'), 'utf8'));
+  const readers = (src.match(/ctx\.activeSessions/g) || []).length;
+  assert.strictEqual(readers, 1,
+    'projects.js must read ctx.activeSessions only in liveSessionsIn — every other caller asks that');
 });
 
 test('#184: a hide the USER made is not undone by activity', () => {

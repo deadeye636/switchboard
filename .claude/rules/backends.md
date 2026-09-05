@@ -166,9 +166,13 @@ transcripts the delete removes, and there is nothing to undo afterwards.
   "has rows in the cache". A transcript on disk says a session existed; only the map says one is alive with
   a process behind it. `liveSessionsIn(projectPath)` counts them, because the refusal names the number and
   "a session" reads wrong for three.
-- **Asked canonically and about the path alone** — the same `samePathKey` `applyAutoHide` folds, so a
-  terminal opened under the other spelling of the directory still counts (#245), and never a question about
-  which backend the session belongs to.
+- **`liveSessionsIn` is the ONE asker.** `applyAutoHide` folded the same map itself, with the same rule and
+  the same key, and the two agreed — which is where two readings of one question sit until they do not. It
+  asks through the function now, and a third reading is a bug however carefully it is written;
+  `test/projects.test.js` counts `ctx.activeSessions` in `projects.js` and expects one.
+- **Asked canonically and about the path alone** — the same `samePathKey`, so a terminal opened under the
+  other spelling of the directory still counts (#245), and never a question about which backend the session
+  belongs to.
 - **A refused delete stops the WHOLE action**, in the renderer. `projects-admin.js` used to carry on to
   `removeProject` and the config deletes after a failed delete — its comment said `// always` — which left
   the history in place and the project gone. That is neither of the two things the dialog offers, and it
