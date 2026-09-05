@@ -1396,6 +1396,9 @@ test('#579: the prune drops the row the register HOLDS, not only the spelling it
 
     assert.ok(t.calls.prunedProjects.includes(registered),
       'the destructive act addresses the register row the way a write to the register does');
+    assert.ok(t.calls.prunedProjects.includes(asCalled),
+      'and the caller\'s own spelling too — the tags and the project:<path> settings blob are keyed on '
+      + 'that string, so resolving to the register row alone would leave half the footprint behind');
     assert.strictEqual(t.states.has(registered), false, 'so the row is really gone');
     assert.strictEqual(t.states.has('D:\\other'), true, 'without taking the neighbours');
   } finally { t.cleanup(); }
