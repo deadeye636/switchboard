@@ -47,12 +47,19 @@ by review where it is not.
 
 ### Tests
 
-- **`npm test` passes.** It is `node --test` over `test/*.test.js` and needs no Electron. It takes about
-  30 seconds.
+- **`npm test` passes.** It is `node --test`, discovered from the repo root, and needs no Electron. It
+  takes about half a minute — time your own run rather than trusting that number.
 - **A new test must fail against the code as it was.** This is the one that gets skipped, and it is the
   most important line on this page. A test written after a fix tends to describe the fix rather than the
-  defect, and then it passes against the broken code too. Check yours: stash the source change (not the
-  test), run it, and see it fail. If it does not, it pins nothing — rewrite it or drop it and say so.
+  defect, and then it passes against the broken code too. Check yours: run it against the OLD source and
+  watch it fail. The way to get the old source is `git show HEAD:<path>` (or `HEAD~1:`, or the SHA you
+  branched from) into a scratch copy, and to point the test at that — **not** `git stash`, and not
+  `git checkout --`. Both of those rewrite the working tree, and this repo is worked on by parallel
+  agent sessions and git worktrees that share it; a stash quietly takes somebody else's uncommitted work
+  with it. If the test passes against the old source, it pins nothing — rewrite it or drop it and say so.
+- **Commit with explicit paths.** `git commit <path> <path>`, not `git add -A` or `git commit -a`, for
+  the same reason: the index is shared, and a blanket add puts whatever a parallel session had staged
+  into your commit under your message.
 - **Green tests are not a green light for anything the renderer does.** The suite has almost no opinion
   about `src/renderer/**`; a change there has to be clicked. Say in the PR what you clicked and what you
   saw.

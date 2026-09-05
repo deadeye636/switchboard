@@ -29,7 +29,8 @@ table is the fallback and it is binding.
 | `src/renderer/**`, `src/shared/**` | `.claude/rules/renderer.md` |
 | `src/db/**`, `src/index/**`, `src/workers/**` | `.claude/rules/db.md` |
 | `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
-| `docs/**`, `README.md` | `.claude/rules/docs.md` |
+| `test/**`, `scripts/**` | `.claude/rules/guards-and-scripts.md` |
+| `docs/**`, `README.md`, `CONTRIBUTING.md` | `.claude/rules/docs.md` |
 | handoffs — where a packet lives, the picker, leaving the database | `docs/specs/25-handoffs.md` (why) + `docs/handoffs-convention.md` (what) |
 | plans — the list, the picker, the convention, the viewer's liveness | `docs/specs/20-plans.md` (why) + `docs/plans-convention.md` (what) |
 | writing a file a CLI reads — a skill, a rule, a settings blob | `docs/specs/24-resource-editing.md` (why) + `.claude/rules/main-process.md` (the rule) |
@@ -58,7 +59,12 @@ table is the fallback and it is binding.
 4. **No new IPC handler in `src/main.js`** — it goes in an `src/app/` module.
    `test/main-no-new-ipc.test.js` will say so.
 5. **No backend id outside its own folder.** A capability that varies per backend is a descriptor
-   hook, never a `switch (backendId)` in the core, and never `|| 'claude'`.
+   hook, never a `switch (backendId)` in the core, and never `|| 'claude'` as a live launch target.
+   **One exception, and it is live code today**: a NULL `backendId` on a row written before #161 WAS a
+   Claude session, and main-process readers still spell that legacy default as a bare `|| 'claude'`.
+   Those are correct; do not "fix" them in passing, and do not copy the spelling — a new one binds the
+   named constant. Only `src/renderer/**` is guarded for ids at all
+   (`test/backend-integrations.test.js`); `.claude/rules/backends.md` has both halves.
 6. **No personal or local identifiers. Anywhere that leaves this machine.** No personal name, email,
    machine or account name, and **no real path** — that includes a bare drive letter and folder
    (`<drive>:\<your-folder>\…`), not only a home directory. Use `~`, `<project>`, `<user>`, or an
@@ -68,12 +74,24 @@ table is the fallback and it is binding.
    git history and issue **edit history** are world-readable and effectively permanent, so a deletion
    afterwards un-publishes nothing. **The check happens before you write, because there is no
    afterwards** — a rewrite of public history is not on the table for a stray path.
-7. **English. Every artifact in the previous rule, same list, no exceptions.** Not "commits and UI
-   text" — docs, specs, rules, test names, handoffs and issue comments too. `docs/build-windows.md`
+7. **English. Every artifact in the previous rule, same list — one recorded exception, below.** Not
+   "commits and UI text" — docs, specs, rules, test names, handoffs and issue comments too.
+   `docs/build-windows.md`
    sat in the public repo in German for months because the rule used to name three artifact kinds and
    a reader could conclude a doc was not one of them. What you write **to** a person in chat follows
    the conversation's language; what you write **into a file or an issue** is English regardless.
    One logical change per commit, Conventional Commits.
+
+   **The exception, and it is the only one: `docs/customizing-colors.md` stays in French.** It is a
+   third-party guide reproduced as its author wrote it, and its steps were verified by running them —
+   translating it would produce a step-by-step nobody has run, which is a worse artifact than a
+   foreign-language one. This was already the de facto state and was never written down, so the rule
+   said "no exceptions" while an exception sat in `docs/`. It is written down now; it does **not**
+   generalise. A new document is English, and a third-party document is either kept verbatim under this
+   line or not taken at all.
+   **Rule 6 has no such exception, and a personal name is exemptable by nothing.** That file carried a
+   byline; the name is gone and the attribution now reads as "third-party guide", which is the fact that
+   was worth keeping. Verbatim stops at the point where the text names a person.
 
    **The path half is enforced now** — `test/no-local-paths.test.js` fails on any tracked file naming an
    identifier of the machine it was written on: the account name, the home directory, and the directory
@@ -117,6 +135,16 @@ table is the fallback and it is binding.
     BOTH orders, and these are guards where over-stripping HIDES a violation, so they report success about
     text they never read. `test/strip-comments-shape.test.js` refuses a hand-rolled one anywhere under
     `test/` and has no exemption list — keep it that way (#554, `docs/ai/lessons.md`).
+15. **This working tree is shared. Never `git stash`, `git reset`, or `git checkout --`.** Several agent
+    sessions and the worktrees under `.claude/worktrees/` run against this checkout at once, and they
+    share the object store and the index. A stash takes another session's uncommitted work with it and
+    gives no sign of having done so; a reset or a checkout destroys it outright. To read how a file
+    looked before a change, use **`git show <ref>:<path>`** — `HEAD:`, `HEAD~1:`, a branch, a SHA — into
+    stdout or a copy under `.claude/scratchpad/`. That is strictly better anyway: it needs no restore
+    step, so an interrupted session cannot leave the tree in a state nobody expects.
+    **And commit with explicit pathspecs** — `git commit <path> <path>`, never `git add -A` / `git add .`
+    / `git commit -a`. The index is shared too, so a blanket add sweeps up whatever a parallel session
+    happens to have staged and puts it in your commit under your message.
 
 ## Backlog & workflow
 
@@ -168,10 +196,15 @@ absent from the installer.
 
 ## Commands
 
-- `npm test` — `node --test` over `test/*.test.js`. No Electron needed. Keep it green (run it for the
-  current pass count — don't trust a number written down here). Takes ~20 s:
-  `trigger-watcher.test.js` uses real `fs.watch`/timers and is the slowest file at ~19 s, which sets
-  the wall clock since files run in parallel. That same file has **hung outright** more than once under
+- `npm test` — `node --test --test-timeout=60000`, with **no path argument**: Node's default discovery
+  from the repo root, so a new test file is picked up wherever under `test/` it lands (the old
+  `test/*.test.js` glob written here was not what the script runs). No Electron needed. Keep it green
+  (run it for the current pass count — don't trust a number written down here). Wall clock is **half a
+  minute and rising** — 32-36 s measured across two runs — and it is the sum of the whole suite now, not
+  one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest single file
+  (~19.6 s alone), but it stopped setting the wall clock some time ago. Time it rather than believing
+  this line; the point of the number is only that a run of several minutes is wrong.
+  That same file has **hung outright** more than once under
   load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
   the script carries `--test-timeout=60000`: a test that stops making progress fails loudly instead. The
   cap is per TEST, so it does not catch a file that hangs between them; a run past a minute or two is
