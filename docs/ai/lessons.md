@@ -994,3 +994,30 @@ Two more of the same family, both from #535:
 - **A grep hit is not an enumeration.** Searching for `INSERT INTO sessions` missed the path through
   `create_session` and produced a confident, committed, wrong claim that Hermes writes no child session
   rows. Its own test fixture said otherwise in three lines.
+
+## The rare bug that was three mechanisms, and the last one is not ours (#100)
+
+The Claude working-status line sometimes renders stacked: two spinner rows at once, the upper one
+holding an older elapsed time. The marker to recognise it by is a turn with several background agents —
+every time `✻ Waiting for N background agents to finish` changes its N, the previous frame is orphaned
+as a permanent row.
+
+Three mechanisms were proposed and only the first two were ours:
+
+- **Not a paint.** `terminal.refresh(0, rows-1)` clears nothing, and neither does a `safeFit` that
+  no-ops on an unchanged grid. Only a real window resize heals it, because a resize sends SIGWINCH and
+  the CLI repaints its whole screen over the stale rows. So they are real buffer content that arrived in
+  the bytes — which is what ruled out xterm.js#5801, the suspect the issue named for two weeks.
+- **The in-box Windows ConPTY mishandled rapid cursor-up plus erase-line.** Fixed by running PTYs on
+  node-pty's bundled `conpty.dll` (#114). Frequency dropped; it did not reach zero.
+- **The remainder is the CLI's own redraw.** It clusters where the TUI inserts finished work *above* its
+  pinned status area, so the next in-place redraw anchors its cursor-up against a scroll position that
+  has since shifted. `anthropics/claude-code#13113` reports the same symptom in Windows Terminal, which
+  runs the same conpty code as our bundled DLL. That issue is closed as NOT_PLANNED by an inactivity
+  bot, not fixed.
+
+**If this turns up again it is not a regression here.** Two app-side workarounds were weighed and left
+unbuilt: a user-triggered repaint that nudges the PTY by one column (cheap — the settle-repaint machinery
+from #27 already exists), and an automatic nudge on every busy→idle edge (rejected: visible flicker after
+every turn, and mid-output resizes have their own history in #27). Re-check against a new Claude CLI
+release before building either.
