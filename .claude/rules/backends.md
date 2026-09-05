@@ -206,6 +206,26 @@ while `execFile` silently IGNORES one (Node passes `spawn` an allow-list without
 wrapped — `closeStdin(execFile(...))`. `test/cli-probe.test.js` sweeps this directory for both forms, so
 a new probe that skips them fails there rather than in a user's model picker.
 
+**And a probe that FAILED has not measured anything** (#546). Pi collapsed every failure of
+`node --version` into `null` and read that as "no node on your PATH at all", so a call that ran out of
+its 3 seconds under load — 12 of 60 while the suite ran — told a user with Node 22 installed to go and
+install Node, and held that for five minutes. Two rules come out of it:
+
+- **Absence is the claim that needs the evidence.** Only a spawn that could not find the binary
+  (`ENOENT`) proves there is none; a timeout, a kill, a permission error, a non-zero exit, output that
+  does not parse — all of those are "could not be answered", and the caller keeps today's behaviour
+  rather than asserting a fact. Do NOT invert this into a match on `ETIMEDOUT`: that names the one
+  failure someone happened to observe and asserts absence for every other one. `null` means no
+  information here, the way it does in `claude/live-agents.js` and `readTurnQueue` (#530).
+- **A cache is for an answer.** An unanswered probe is held for seconds, not minutes — long enough that
+  the 15-second scan does not shell out on every pass (#155), short enough that one unlucky exec does
+  not decide the next five minutes. Pi keeps both numbers side by side with the reason for each.
+
+The siblings were swept: agy, Codex and Hermes `probe()` only resolve a path (no child, nothing to
+collapse), and the two model probes got the same fix under #540. `src/vcs/git.js`'s provider probe still
+has the shape — any failure of `git --version` becomes "git was not found on PATH", cached for the life
+of the process — and it is outside this rule's directory.
+
 ## `configFields`: a default describes what the CLI does anyway — it is NEVER sent
 
 It is what a control shows when nobody has said otherwise, not a value to put on the command line.

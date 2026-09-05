@@ -498,6 +498,97 @@ test('probe caches the toolchain — it does not shell out to `node --version` o
   }
 });
 
+// --- a probe that could not be answered is not an absence (#546) ---------------------------------
+//
+// `systemNodeVersion()` collapsed every failure into null and `probe()` read that as "no node on your
+// PATH at all", so a `node --version` that ran out of its 3 s under load told a user with Node 22
+// installed to go and install Node — and the answer was then held for five minutes. Measured on this
+// machine while the suite ran: 12 of 60 calls timed out, min 125 ms / median 1864 ms / max 6150 ms.
+
+test('only a spawn that could not find node proves node is absent', () => {
+  assert.strictEqual(pi._provesNodeIsAbsent(Object.assign(new Error('spawn node ENOENT'), { code: 'ENOENT' })), true);
+
+  // Every other failure is an unanswered question. ETIMEDOUT is the one that was measured, but matching
+  // on it alone would still assert absence for all the rest — so the absence case is the narrow one.
+  for (const err of [
+    Object.assign(new Error('timed out'), { code: 'ETIMEDOUT', killed: true }),
+    Object.assign(new Error('killed'), { killed: true, signal: 'SIGTERM' }),
+    Object.assign(new Error('permission denied'), { code: 'EACCES' }),
+    Object.assign(new Error('bad image'), { code: 'ENOEXEC' }),
+    Object.assign(new Error('exited 1'), { status: 1 }),
+    undefined,
+  ]) {
+    assert.strictEqual(pi._provesNodeIsAbsent(err), false, `${err && (err.code || err.signal || err.status)} is not evidence of an empty PATH`);
+  }
+});
+
+test('a node that cannot be run is not reported as a node that is not installed', () => {
+  // A `node` that IS on PATH and cannot be executed: a plain file with no execute bit on POSIX, a file
+  // that is not a valid image on Windows. What the OS calls that differs (EACCES / ENOEXEC / bad image);
+  // what matters is that it is not ENOENT, so it is exactly the shape a timeout has — a failure that
+  // says nothing about whether Node is installed.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-probe-unanswered-'));
+  const oldPath = process.env.PATH;
+  const oldExt = process.env.PATHEXT;
+  try {
+    const ext = process.platform === 'win32' ? '.CMD' : '';
+    fs.writeFileSync(path.join(dir, 'pi' + ext), '');
+    fs.writeFileSync(path.join(dir, process.platform === 'win32' ? 'node.exe' : 'node'), 'not an executable\n', { mode: 0o644 });
+    process.env.PATHEXT = '.EXE;.CMD;.BAT';
+    process.env.PATH = dir;
+    pi._resetToolchainCache();
+
+    const res = pi.probe();
+    assert.ok(!/no node was found/.test(res.reason || ''),
+      `an unanswered node probe must not claim Node is missing — got: ${res.reason || '(ok)'}`);
+    assert.ok(!/Node 22\.19 or newer; the node on your PATH/.test(res.reason || ''),
+      'and it must not invent a version it never read');
+
+    // Not held for five minutes: a cache is for an answer. Seconds, so the next ask can recover — but not
+    // zero, or the synchronous exec is back on every 15-second scan (#155), on exactly the loaded machine
+    // that made the probe fail in the first place.
+    const state = pi._toolchainCacheState();
+    assert.strictEqual(state.answered, false, 'the toolchain is marked unanswered');
+    assert.strictEqual(state.nodeAbsent, false, 'and it claims nothing about node being absent');
+    assert.ok(state.ttlMs > 0 && state.ttlMs <= 60 * 1000,
+      `an unanswered probe is held for seconds, not minutes — got ${state.ttlMs} ms`);
+  } finally {
+    process.env.PATH = oldPath;
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+    pi._resetToolchainCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a node that is really absent still is reported, and that answer IS cached', () => {
+  // The control for the test above: the fix must not turn the real absence into a shrug. This is the
+  // ENOENT path — a PATH with pi on it and nothing else.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-probe-absent-'));
+  const oldPath = process.env.PATH;
+  const oldExt = process.env.PATHEXT;
+  try {
+    const ext = process.platform === 'win32' ? '.CMD' : '';
+    fs.writeFileSync(path.join(dir, 'pi' + ext), '');
+    process.env.PATHEXT = '.EXE;.CMD;.BAT';
+    process.env.PATH = dir;
+    pi._resetToolchainCache();
+
+    const res = pi.probe();
+    assert.strictEqual(res.ok, false);
+    assert.match(res.reason, /no node was found/, 'a measured absence is still stated');
+
+    const state = pi._toolchainCacheState();
+    assert.strictEqual(state.answered, true, 'an absence is an answer');
+    assert.strictEqual(state.nodeAbsent, true);
+    assert.ok(state.ttlMs >= 5 * 60 * 1000, 'and an answer keeps the five-minute cache (#155)');
+  } finally {
+    process.env.PATH = oldPath;
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+    pi._resetToolchainCache();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- lineage: a fork names its parent (#193) -----------------------------------------------------
 //
 // Pi's session header carries `parentSession` — the full PATH of the parent transcript — but ONLY on a

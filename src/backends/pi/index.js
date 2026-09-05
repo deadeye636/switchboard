@@ -190,14 +190,39 @@ function listModels({ search } = {}) {
   });
 }
 
-/** The version of the node ON PATH (`v22.22.0`), or null when there is none. */
+/**
+ * What a failed `node --version` PROVES (#546).
+ *
+ * Only a spawn that could not find the binary is evidence that there is no node on PATH. A timeout, a
+ * kill, a permission error, a non-zero exit — those say the question could not be answered, and the two
+ * send a user to completely different places: one to install software they already have. Under load this
+ * was measured at 12 of 60 calls timing out on a machine with Node 22 installed.
+ *
+ * Deliberately NOT a match on `ETIMEDOUT`: that names the one failure we happened to observe and asserts
+ * absence for every other one, which is the same defect in a smaller shape. Absence is the claim that
+ * needs the evidence, so absence is the case that has to be recognised.
+ */
+function provesNodeIsAbsent(err) {
+  return !!(err && err.code === 'ENOENT');
+}
+
+/**
+ * The version of the node ON PATH (`v22.22.0`), `NODE_ABSENT` when there is provably none, or `null`
+ * when the question could not be answered.
+ *
+ * `null` means "no information" here, the way it does in `claude/live-agents.js` and `readTurnQueue`
+ * (#530) — a caller must not turn it into a fact. Output that does not look like a version is the same
+ * kind of non-answer: something ran and said something we cannot read, which is not an empty PATH.
+ */
+const NODE_ABSENT = Symbol('node-absent');
+
 function systemNodeVersion() {
   try {
     const out = execFileSync('node', ['--version'], { encoding: 'utf8', timeout: 3000, windowsHide: true, stdio: PROBE_STDIO });
     const v = String(out).trim();
     return /^v?\d+\./.test(v) ? v : null;
-  } catch {
-    return null;
+  } catch (err) {
+    return provesNodeIsAbsent(err) ? NODE_ABSENT : null;
   }
 }
 
@@ -226,18 +251,41 @@ function findBash() {
 // (#155). A toolchain does not change under a running app; when it does (someone installs Node while
 // Switchboard is open), five minutes is soon enough — and a restart is instant.
 const TOOLCHAIN_TTL_MS = 5 * 60 * 1000;
-let _toolchain = null;   // { at, nodeVersion, bash }
+// ...but a cache is for an ANSWER (#546). A probe that could not be answered held Pi's toolchain for the
+// full five minutes, so one unlucky exec decided the next three hundred seconds. It is still held
+// briefly, because dropping it entirely puts the synchronous exec back on every 15-second scan — which
+// is the #155 above, and it costs the most on exactly the loaded machine that made the probe fail. So:
+// seconds rather than minutes, and longer than the registry's own 15-second availability cache so a scan
+// does not shell out on every pass.
+const TOOLCHAIN_UNANSWERED_TTL_MS = 30 * 1000;
+let _toolchain = null;   // { at, ttlMs, answered, nodeVersion, nodeAbsent, bash }
 
 function toolchain() {
   const now = Date.now();
-  if (_toolchain && now - _toolchain.at < TOOLCHAIN_TTL_MS) return _toolchain;
-  _toolchain = { at: now, nodeVersion: systemNodeVersion(), bash: findBash() };
+  if (_toolchain && now - _toolchain.at < _toolchain.ttlMs) return _toolchain;
+  const node = systemNodeVersion();
+  const answered = node !== null;
+  _toolchain = {
+    at: now,
+    ttlMs: answered ? TOOLCHAIN_TTL_MS : TOOLCHAIN_UNANSWERED_TTL_MS,
+    answered,
+    nodeVersion: node === NODE_ABSENT ? null : node,
+    nodeAbsent: node === NODE_ABSENT,
+    bash: findBash(),
+  };
   return _toolchain;
 }
 
 /** Test hook: forget the cached toolchain, so a test can change PATH and probe again. */
 function _resetToolchainCache() {
   _toolchain = null;
+}
+
+/** Test hook: what the cache is holding, so a test can assert an unanswered probe is not held for minutes. */
+function _toolchainCacheState() {
+  if (!_toolchain) return null;
+  const { answered, ttlMs, nodeAbsent } = _toolchain;
+  return { answered, ttlMs, nodeAbsent };
 }
 
 /**
@@ -258,7 +306,7 @@ function probe() {
   // `process.versions.node`: inside Electron that is the app's own embedded Node (22.x), so a machine
   // whose real node is 18 would sail through the check and then die raw in the terminal, and a machine
   // that IS too old would be told a version number it cannot find anywhere.
-  const { nodeVersion, bash } = toolchain();
+  const { nodeVersion, nodeAbsent, bash } = toolchain();
   if (nodeVersion) {
     const [maj, min] = nodeVersion.replace(/^v/, '').split('.').map(Number);
     if (maj < 22 || (maj === 22 && min < 19)) {
@@ -267,7 +315,11 @@ function probe() {
   }
   // No node on PATH at all: pi's npm shim cannot run. (A future non-npm distribution would make this
   // wrong — revisit then; today the shim is how it ships.)
-  if (!nodeVersion) {
+  //
+  // Only when we MEASURED that (#546). A question that could not be answered falls open and keeps
+  // today's behaviour: the availability probe is a heuristic, and a false negative must never make a
+  // working backend unusable — the rule `backends/index.js` states over its own cache.
+  if (nodeAbsent) {
     return { ok: false, reason: 'Pi runs on Node, and no node was found on your PATH. Install Node 22.19 or newer.' };
   }
 
@@ -507,4 +559,6 @@ description:
   sessionsRoot,
   setRoot,
   _resetToolchainCache,
+  _toolchainCacheState,
+  _provesNodeIsAbsent: provesNodeIsAbsent,
 };
