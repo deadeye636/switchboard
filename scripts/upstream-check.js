@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Erkennt neue Upstream-Aktivität (haydng + jbr): neue/aktualisierte Branches und
-// neue Commits seit dem letzten Review. Merker in .git/upstream-seen.json (nicht versioniert).
+// What the upstreams (haydng + jbr) have done since anyone last looked: branches that are new or
+// have moved, and the commits behind them. The marker lives in .git/upstream-seen.json, which is
+// not versioned — it records what THIS checkout has reviewed, not what the project has.
 //
-//   npm run upstream:check   -> fetchen + Report (was ist neu seit letztem "seen")
-//   npm run upstream:seen    -> aktuellen Stand als "gesehen" markieren (nach Review)
+//   npm run upstream:check   -> fetch, then report what is new since the last "seen"
+//   npm run upstream:seen    -> mark the current state as seen, once a review is done
 //
-// Upstreams sind oeffentliche HTTPS-Remotes -> kein SSH/Agent noetig.
+// The upstreams are public HTTPS remotes, so this needs no SSH key and no agent.
 
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -35,7 +36,7 @@ function remoteHeads(remote) {
   return map;
 }
 
-// Commit-Zeilen in oldSha..newSha (leer wenn old fehlt/identisch).
+// The commit lines in oldSha..newSha — empty when old is missing or the two are the same.
 function commitsBetween(oldSha, newSha) {
   if (!oldSha || oldSha === newSha) return [];
   try {
@@ -61,7 +62,7 @@ if (!seen) {
   for (const r of REMOTES) {
     console.log(`\n[${r}] ${Object.keys(current[r]).length} Branch(es): ${Object.keys(current[r]).join(', ')}`);
     const ahead = commitsBetween(OURS, `${r}/main`);
-    console.log(`  ${r}/main vs ${OURS}: ${ahead.length} Commit(s) nicht in ${OURS}` + (ahead.length ? ` (z.B. ${ahead[0]})` : ''));
+    console.log(`  ${r}/main vs ${OURS}: ${ahead.length} commit(s) not in ${OURS}` + (ahead.length ? ` (e.g. ${ahead[0]})` : ''));
   }
   console.log('\nKuenftige `npm run upstream:check` zeigen nur Neues seit jetzt.');
   process.exit(0);
