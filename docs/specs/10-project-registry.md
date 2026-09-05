@@ -231,6 +231,34 @@ hides the sidebar row; the tombstone stops it from ever being listed and swept).
 - A session that is **live** at the moment of removal keeps writing, so its file is newer than the
   tombstone and the project comes back on the next flush. Defensible as "fresh activity", but it is not
   what "remove" looks like from the outside.
-- The register keys on the path as written. Windows spells the same directory two ways, so the tombstone
-  and the state lookups compare case-insensitively there — but two spellings can still end up as two
-  *registered* rows for one directory.
+- The register keys on the path as written, so two spellings can still end up as two *registered* rows for
+  one directory. What the lookups COMPARE is no longer a string, though (#563): the tombstone, the state
+  lookups, the "does this project still have sessions on disk" check and the store-folder refresh all key
+  on `app/path-containment.js`'s `pathKey` — the real path of the directory, with case ignored only where
+  the filesystem ignores it. That closes the half of this gap that a user could not see coming: a project
+  reached through a junction, a symlink or a `subst` drive used to answer "different directory" about its
+  own store folders, so it grouped as two projects and a remap moved half of them. What is left is the
+  *register row* itself, which is still filed under the string the user added.
+
+  Two decisions inside that change are worth keeping, because both look like details and are not:
+
+  - **Grouping needs the canonical form itself, not a predicate.** `samePath` answers about two paths;
+    a sidebar bucket needs a key. So `path-containment.js` answers both, and there is no second canonical
+    form beside it — two copies of it is how #245 started.
+  - **That key is memoised and the containment GUARDS are not.** Asking the filesystem costs ~92 µs
+    against ~0.7 µs for the string compare it replaced; one sidebar rebuild over 2 000 session rows in 200
+    real directories measures 16 ms as it stands and 311 ms with the memo taken out, and a rebuild that
+    begins with nothing remembered costs ~28 ms — the number a 15-second scan pays. The guards keep asking
+    the disk every time, because a remembered answer about where the app may WRITE is a weaker guard,
+    while a remembered answer about which bucket a row belongs in costs a regrouping.
+
+  And one thing the change deliberately took AWAY, which is easy to read as a regression and is not.
+  The old key rewrote every `\` into `/` on **every** platform, so the two separators folded even on
+  Linux and macOS. The real path folds them only where the host's own `path` module does — Windows.
+  That is the correct answer rather than a narrower one: on POSIX a backslash is an ordinary character
+  in a filename, so `/x/a\b` is one directory named `a\b` and folding it into `/x/a/b` merged two
+  genuinely different paths. What it costs is a store written on Windows and then read on a POSIX
+  install, where the backslash spellings no longer group with the forward-slash ones — a case the old
+  behaviour got right by accident while getting native POSIX paths wrong on purpose. It is also why the
+  `\`-vs-`/` fixture in `test/projects-view-path-spelling.test.js` is Windows-only now, and why the
+  POSIX half of that fixture uses a trailing separator, which folds everywhere.

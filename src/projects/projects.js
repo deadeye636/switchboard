@@ -18,7 +18,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const { encodeProjectPath } = require('../session/encode-project-path');
-const { deriveProjectPath, normPath } = require('../session/derive-project-path');
+const { deriveProjectPath } = require('../session/derive-project-path');
+// "Is this the same directory" has one answer, and it is about the REAL path (#563).
+const { pathKey } = require('../app/path-containment');
 const registry = require('./project-registry');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
@@ -232,7 +234,14 @@ function refreshProjectFolders(projectPath) {
 // form". Two copies of the canonical form is the wrong starting point for a bug that is entirely about
 // paths being compared in different forms (#245) — so it is now that function, keeping the local name
 // because at its seven call sites "same path key" is what the code means.
-const samePathKey = normPath;
+//
+// And that canonical form is now the REAL path (#563). It was lexical, so a project reached through a
+// junction, a symlink or a `subst` drive answered "different directory" about itself: its tombstone
+// missed the folders recorded under the other spelling, `refreshProjectFolders` skipped them, and a
+// project split into two rows for one directory — the failure this key was introduced to prevent, in the
+// one form a string compare cannot see. `pathKey` is memoised, which is what keeps the per-scan grouping
+// affordable; the reasoning and the measurement are in `app/path-containment.js`.
+const samePathKey = pathKey;
 
 /**
  * Is there ANY session left in this project — from any backend?

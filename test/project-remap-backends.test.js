@@ -114,3 +114,39 @@ test('the rules do not fire on each other\'s files', () => {
   const codexEntry = { type: 'session_meta', payload: { cwd: OLD } };
   assert.strictEqual(claudeLine({ ...codexEntry }, OLD, NEW), false, 'Claude reads a top-level cwd only');
 });
+
+// --- the compare is about the REAL path, not the spelling (#563) ---
+//
+// A remap that decides by string leaves behind exactly the lines it was called to move: a project reached
+// through a junction, a symlink or a `subst` drive is spelled two ways, so the transcript keeps the old
+// path and the phantom project this whole file exists to prevent comes back. Exercised with a link that
+// really exists — a fixture that only looks like one passes the string compare too.
+const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
+
+test('a cwd recorded under a linked spelling is the same project, and moves with it', () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'remap-link-')));
+  try {
+    const realProject = path.join(root, 'project');
+    fs.mkdirSync(realProject);
+    const viaLink = path.join(root, 'project-link');
+    try { fs.symlinkSync(realProject, viaLink, LINK_TYPE); } catch {
+      assert.fail('could not create a link on this platform — that IS the case under test, so it is not skipped silently');
+    }
+    const moved = path.join(root, 'project-moved');
+
+    // The transcript recorded the linked spelling; the remap is asked about the real one.
+    assert.strictEqual(samePath(viaLink, realProject), true, 'one directory, however it was reached');
+
+    const file = path.join(root, 's.jsonl');
+    fs.writeFileSync(file, [
+      JSON.stringify({ type: 'user', cwd: viaLink, message: { role: 'user', content: 'mine' } }),
+      JSON.stringify({ type: 'user', cwd: path.join(root, 'somewhere-else'), message: { role: 'user', content: 'not mine' } }),
+    ].join('\n') + '\n');
+
+    assert.strictEqual(rewriteTranscript(file, realProject, moved, claudeLine), true,
+      'the line belongs to this project and must be rewritten');
+    const rows = fs.readFileSync(file, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.strictEqual(rows[0].cwd, moved);
+    assert.strictEqual(rows[1].cwd, path.join(root, 'somewhere-else'), 'and a genuinely other directory is left alone');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

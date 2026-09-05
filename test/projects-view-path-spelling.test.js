@@ -20,15 +20,28 @@ const { normPath } = require('../src/session/derive-project-path');
 const REGISTERED = 'C:/temp/demo/alpha';       // how the project is on the register
 const OTHER_SPELLING = 'C:\\temp\\demo\\alpha'; // how a live CLI wrote it into the transcript
 const CASE_SPELLING = 'c:/TEMP/demo/alpha';    // and how a third record spelled it
+const TRAILING_SPELLING = REGISTERED + '/';    // and how a fourth left the separator on
 
-// Separators fold everywhere; CASE folds only on Windows, and that is not a shortcut — on a
-// case-sensitive filesystem `/x/A` and `/x/a` ARE two directories, so merging them would be the bug.
-// The fixture therefore carries the case spelling only where it denotes the same directory, which is
-// also what stops these tests from asserting Windows behaviour on the Linux CI (they did, and it went red).
-const CASE_FOLDS = process.platform === 'win32';
-const SPELLINGS = CASE_FOLDS
+// A spelling belongs in the fixture only where it denotes the SAME directory on the platform running
+// the test, and neither exception is a shortcut:
+//
+//   - CASE folds only on Windows. On a case-sensitive filesystem `/x/A` and `/x/a` ARE two directories,
+//     so merging them would be the bug.
+//   - The SEPARATOR folds only on Windows too, since #563. The key used to be a string transform that
+//     rewrote every `\` into `/` on every platform; it is the real path now, and on POSIX a backslash is
+//     an ordinary character in a filename — `/x/a\b` is one directory named `a\b` there, and it is not
+//     `/x/a/b`. So the backslash spelling is a WINDOWS fixture; asserting that it folds anywhere else
+//     was asserting Windows behaviour on the Linux CI, the same mistake the case rule already records.
+//
+// A trailing separator folds everywhere, so it is what keeps "one directory, two spellings" a real test
+// on POSIX rather than a fixture with nothing left to merge.
+const WIN = process.platform === 'win32';
+const SPELLINGS = WIN
   ? [['a', REGISTERED], ['b', OTHER_SPELLING], ['c', CASE_SPELLING]]
-  : [['a', REGISTERED], ['b', OTHER_SPELLING]];
+  : [['a', REGISTERED], ['b', TRAILING_SPELLING]];
+
+// The second spelling to use where a test names one directly rather than walking `SPELLINGS`.
+const SECOND_SPELLING = WIN ? OTHER_SPELLING : TRAILING_SPELLING;
 
 const REGISTERED_STATE = { registered: true, registeredAt: '2026-01-01T00:00:00Z' };
 
@@ -63,7 +76,7 @@ test('a session whose cwd is spelled differently still lands in its registered p
 });
 
 test('the newest activity counts even when it arrived under another spelling (#245)', () => {
-  setup([row('a', REGISTERED, '2026-01-02T00:00:00Z'), row('b', OTHER_SPELLING, '2026-06-01T00:00:00Z')]);
+  setup([row('a', REGISTERED, '2026-01-02T00:00:00Z'), row('b', SECOND_SPELLING, '2026-06-01T00:00:00Z')]);
   const [project] = view.buildProjectsFromCache(false);
   // Sorting by recency reads lastActivity; keyed rawly, the newer session's timestamp was invisible.
   const newest = project.sessions.map(s => s.modified).sort().pop();
@@ -72,7 +85,7 @@ test('the newest activity counts even when it arrived under another spelling (#2
 
 test('a star and a display name survive a differently-spelled bucket (#245)', () => {
   // The user starred/renamed the REGISTERED spelling; the bucket takes its display path from the row.
-  setup([row('b', OTHER_SPELLING, '2026-01-03T00:00:00Z')], {
+  setup([row('b', SECOND_SPELLING, '2026-01-03T00:00:00Z')], {
     favorited: [REGISTERED],
     displayNames: [[REGISTERED, 'Alpha']],
   });
@@ -105,7 +118,9 @@ test('the admin list shows one row per directory, however its sessions are spell
 
   // buildProjectsAdmin returns the rows themselves; the `{ ok, projects }` envelope is the IPC handler's.
   const projects = view.buildProjectsAdmin();
-  const mine = projects.filter(p => normPath(p.projectPath).includes('/temp/demo/alpha'));
+  // Compared as a KEY, never as a substring of one: the canonical form is the real path now (#563), so
+  // its separator is the platform's and a literal `/temp/demo/alpha` would only match on POSIX.
+  const mine = projects.filter(p => normPath(p.projectPath) === normPath(REGISTERED));
   assert.equal(mine.length, 1, `one directory, one admin row — got: ${mine.map(p => p.projectPath).join(' | ')}`);
 
   const [entry] = mine;

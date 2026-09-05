@@ -163,3 +163,48 @@ test('samePath keeps two directories apart where only the case differs',
 test('on Windows, samePath ignores case the way the filesystem does', { skip: !WIN }, () => {
   assert.equal(samePath(PROJECT.toUpperCase(), PROJECT.toLowerCase()), true);
 });
+
+// --- pathKey: the same answer, as a bucket KEY (#563) ---
+//
+// Project grouping cannot use a predicate: it files thousands of rows into buckets and needs the canonical
+// form itself. So `pathKey` has to agree with `samePath` exactly — two names for one directory must be one
+// key — and it has to keep the guard against a blank path becoming a bucket of its own.
+
+const { pathKey, _resetPathKeyMemo } = require('../src/app/path-containment');
+
+test('pathKey is the key form of samePath — the same answer, memoised', () => {
+  const viaLink = path.join(ROOT, 'key-link');
+  if (!link(viaLink, PROJECT)) assert.fail('could not create a link — this is the case the whole issue is about');
+  // The memo is dropped because the link was created after this process started asking about paths; the
+  // app never needs this, which is why nothing but a test calls it.
+  _resetPathKeyMemo();
+
+  assert.equal(pathKey(viaLink), pathKey(PROJECT), 'a project reached through a link is one bucket, not two');
+  assert.equal(pathKey(PROJECT + path.sep), pathKey(PROJECT), 'a trailing separator is noise');
+  assert.notEqual(pathKey(PROJECT), pathKey(OUTSIDE));
+  assert.notEqual(pathKey(PROJECT), pathKey(path.join(PROJECT, 'docs')), 'a child is its own bucket');
+
+  // The property that matters: nothing may be able to tell the two apart.
+  for (const [a, b] of [[viaLink, PROJECT], [PROJECT, OUTSIDE], [PROJECT, path.join(PROJECT, 'docs')]]) {
+    assert.equal(pathKey(a) === pathKey(b), samePath(a, b), `pathKey and samePath disagree about ${a} / ${b}`);
+  }
+});
+
+test('pathKey answers a blank path with an empty key, not with a bucket', () => {
+  // `path.resolve('')` is the working directory and `String(null)` is the four-character word "null".
+  // Either one becomes a project bucket that no directory owns.
+  for (const blankish of ['', null, undefined, '   ']) {
+    assert.equal(pathKey(blankish), '', `a blank path must key to nothing, got ${JSON.stringify(pathKey(blankish))}`);
+  }
+  assert.notEqual(pathKey(PROJECT), '', 'and a real path still keys to something');
+});
+
+test('pathKey keeps two directories apart where only the case differs',
+  { skip: !CASE_SENSITIVE_FS && 'this filesystem calls both spellings one directory' }, () => {
+    const lower = path.join(ROOT, 'keytwin');
+    const upper = path.join(ROOT, 'KEYTWIN');
+    fs.mkdirSync(lower);
+    fs.mkdirSync(upper);
+    assert.notEqual(pathKey(lower), pathKey(upper),
+      'an unconditional toLowerCase would file two directories in one bucket');
+  });

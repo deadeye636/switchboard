@@ -102,6 +102,35 @@ listing entry's `scope`, and it went through a resolved-string compare that was 
 lowercased unconditionally. It asks `app/path-containment.js` (`samePath`) now — the same import direction
 `codex/plugins.js` already takes, and the same one CLAUDE.md rule 11 makes mandatory for `safe-write.js`.
 
+**A project's IDENTITY is the same question, and three more compares were answering it by string (#563).**
+`session/derive-project-path.js` (`normPath` / `samePath` / `isDescendant`), `projects/projects.js`
+(`samePathKey`) and `backends/rewrite-cwd.js` (`samePath`) all go through `app/path-containment.js` now.
+They are the same failure as #545 in the place it costs most: a project reached through a junction, a
+symlink or a `subst` drive is spelled two ways, so it grouped as two projects, and `rewrite-cwd` skipped
+exactly the transcript lines the remap was called to move — leaving the phantom project at the old path
+that #171 built that file to prevent.
+
+Two things about doing it, both of which the issue said to check rather than assume:
+
+- **Grouping needs a KEY, not a predicate**, so `path-containment.js` answers that too: `pathKey(p)` is the
+  canonical real path, `''` for a blank one. Do not write a second canonical form beside it — two copies of
+  the canonical form is how #245 started.
+- **`\` and `/` fold only where the HOST folds them now**, and a test fixture that assumed otherwise is how
+  this nearly shipped red. The old key rewrote every `\` into `/` on every platform; the real path leaves
+  that to `path`, which folds them on Windows and not on POSIX — correctly, because a backslash is an
+  ordinary character in a POSIX filename. So a fixture that spells one directory both ways is a **Windows**
+  fixture. On POSIX use a trailing separator, which folds everywhere. The suite runs on Linux CI and this
+  repo develops on Windows, so a green local run proves nothing about the separator.
+- **`pathKey` is MEMOISED and the guards are not, deliberately.** Resolving a path through the filesystem
+  costs ~92 µs against ~0.7 µs for the string compare it replaces. Measured on one sidebar rebuild
+  (`projects-view.buildProjectsFromCache`, 2 000 session rows over 200 real directories): 16 ms as it
+  stands, 311 ms with the memo taken out, and ~28 ms for a rebuild that starts with nothing remembered —
+  which is what a 15-second scan actually pays. `claudeLine` asks the same question on every line of a
+  transcript that can reach hundreds of megabytes. `isInside` / `isAtOrInside` / `samePath`
+  keep asking the disk every time: they decide whether the app may read, write or delete somewhere, and a
+  remembered answer there is a weaker guard, while a remembered answer about which BUCKET a row belongs in
+  costs a regrouping at worst. Do not "unify" the two by giving the guards the memo.
+
 ## Writing one back is a SECOND declaration (#441)
 
 Reading a resource asks whether the path is reachable. WRITING one asks two more questions, and both

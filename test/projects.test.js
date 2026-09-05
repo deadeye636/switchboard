@@ -1138,3 +1138,37 @@ test('#183: a project the user REMOVED is not offered back — until a session n
       'a NEW session is a reason to offer it again — the same rule auto-add follows');
   } finally { t.cleanup(); }
 });
+
+// --- the same-path key is about the REAL path (#563) ---
+//
+// `samePathKey` decides which store folders belong to a project: whether a tombstone may be laid, which
+// folders a refresh reindexes, whether a remap has anything left to move. It compared strings, so a
+// project reached through a junction, a symlink or a `subst` drive answered "different directory" about
+// its own folders — the sessions on disk went unseen and the project was pruned out from under them.
+//
+// The link is a real one. A fixture that only looks like a link passes the string compare too, which is
+// how this survived four fixes of the same shape elsewhere.
+test('a store folder recorded under a linked spelling still belongs to the project (#563)', () => {
+  const t = makeCtx();
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'proj-link-')));
+  try {
+    const realProject = path.join(root, 'work');
+    fs.mkdirSync(realProject);
+    const viaLink = path.join(root, 'work-link');
+    try { fs.symlinkSync(realProject, viaLink, process.platform === 'win32' ? 'junction' : 'dir'); } catch {
+      assert.fail('could not create a link on this platform — that IS the case under test, so it is not skipped silently');
+    }
+
+    // A folder from an older encoding, whose recorded cwd is the LINKED spelling. It really is on disk,
+    // which is the other half of the check.
+    const folder = 'a-legacy-folder-name';
+    fs.mkdirSync(path.join(t.store, folder));
+    t.setFolderMeta(folder, viaLink);
+
+    assert.strictEqual(projects.projectHasSessionsOnDisk(realProject), true,
+      'one directory: the folder recorded under the other spelling is still this project\'s');
+
+    // The guard against over-merging: a genuinely different directory must not claim it.
+    assert.strictEqual(projects.projectHasSessionsOnDisk(path.join(root, 'unrelated')), false);
+  } finally { t.cleanup(); fs.rmSync(root, { recursive: true, force: true }); }
+});

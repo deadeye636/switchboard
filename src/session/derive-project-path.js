@@ -1,5 +1,9 @@
 const fs = require('fs');
 const path = require('path');
+// The one answer to "is this the same path" / "is this path inside that one" (#474/#545/#563). fs + path
+// only, so this module stays the Electron-free leaf the index worker requires
+// (test/worker-leaf-electron-free.test.js).
+const { pathKey, isInside } = require('../app/path-containment');
 
 // Only the head of the file is scanned: every session/subagent transcript
 // carries `cwd` on its first JSONL line. Reading the whole file here froze
@@ -74,16 +78,20 @@ function resolveWorktreePath(cwd) {
 // keyed on the directory it was created from, and deriving that from one session's current cwd would let
 // a moved session drag every sibling in the folder with it, depending on readdir order.
 
-// Windows says D:\x and d:\X are the same directory. A real store carries both spellings of the same
-// path, and compared naively they become two projects.
-function normPath(p) {
-  // `p || ''`, not `String(p)`: this answer is used as a MAP KEY for project buckets, and `String(null)`
-  // is the four-character string "null" — a bucket named after a bug. The register's own copy of this
-  // function guarded it; when the two were merged into one (#245) the guard had to come along, or a row
-  // with no projectPath would have started grouping under "null" instead of being ignored.
-  const trimmed = String(p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/');
-  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed;
-}
+// The canonical identity of a project path — the MAP KEY every project bucket is filed under.
+//
+// This used to be a string transform: strip a trailing separator, turn `\` into `/`, and lowercase the
+// whole thing on Windows. That answers whether two paths are SPELLED the same, which is a different
+// question from whether they are the same directory (#563). A project reached through a junction, a
+// symlink or a `subst` drive is spelled two ways and silently becomes two projects — two sidebar rows,
+// two registrations, a remap that moves half of them. `pathKey` asks the filesystem instead, and it
+// lowercases only where the filesystem itself ignores case, so two Linux directories that differ only in
+// case stay two directories.
+//
+// It keeps the guard the string version carried: a blank path comes back as `''`, not as the
+// four-character string "null" and not as the process's working directory. A row with no projectPath has
+// to land in no bucket rather than in a bucket named after a bug (#245).
+const normPath = pathKey;
 
 function samePath(a, b) {
   if (!a || !b) return false;
@@ -97,12 +105,20 @@ function projectShortName(projectPath) {
   return String(projectPath || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
 }
 
-/** Is `child` a directory INSIDE `parent`? (Not the same directory — strictly below it.) */
+/**
+ * Is `child` a directory INSIDE `parent`? (Not the same directory — strictly below it.)
+ *
+ * The shared containment check, not a `startsWith` of its own (#563): a worktree directory that is a
+ * junction is spelled below a project it does not live in, and the answer here decides whether a session
+ * keeps its folder's project or is re-attributed to another one.
+ *
+ * Uncached on purpose. `sessionProjectPath` reaches this only after `samePath` has already said the two
+ * differ — the minority of sessions, the ones that genuinely moved — so the disk round trip is paid per
+ * moved session rather than per session.
+ */
 function isDescendant(child, parent) {
   if (!child || !parent) return false;
-  const c = normPath(child);
-  const p = normPath(parent);
-  return c !== p && c.startsWith(p + '/');
+  return isInside(child, parent);
 }
 
 // dir -> its project root (or null). A scan asks this for every session, and the answer for a given
@@ -211,6 +227,6 @@ function deriveProjectPath(folderPath) {
 module.exports = {
   deriveProjectPath, resolveWorktreePath,
   extractCwdFromJsonl, isRealGitWorktree,
-  projectRootOf, sessionProjectPath, samePath, normPath, projectShortName,
+  projectRootOf, sessionProjectPath, samePath, normPath, isDescendant, projectShortName,
   _resetRootCache: () => _rootCache.clear(),
 };

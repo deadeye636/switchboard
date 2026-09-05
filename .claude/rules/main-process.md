@@ -50,7 +50,15 @@ link the user can see and fix must not be reported as "outside". **It answers EQ
 #545** — the same two rules for a caller whose question is "this one" rather than "inside it": Claude's
 plugin records name the project an install belongs to, and that answer sets a listing entry's scope, so a
 resolved-string compare dropped a linked project's plugins and called two Linux directories that differ
-only in case one project. A path compare that reaches a scope is still a path compare), 
+only in case one project. A path compare that reaches a scope is still a path compare. **And it answers as
+a KEY — `pathKey`, #563** — because project grouping files thousands of rows into buckets and a predicate
+cannot be a bucket: the three compares that decided a project's identity by string
+(`session/derive-project-path.js`, `projects/projects.js`, `backends/rewrite-cwd.js`) needed the canonical
+form itself. `pathKey` is the only memoised thing in the file, and the split is deliberate: the guards
+above cost ~92 µs a call against ~0.7 µs for the string compare they replaced, which is affordable for a
+decision about writing somewhere and is not affordable per session row — a sidebar rebuild measured 16 ms
+with the memo and 311 ms without it. A stale key costs a regrouping; a stale guard costs an escape, so the
+guards keep asking the disk), 
 `clipboard-insert.js` (what the system clipboard hands a `{clipboard}` insert — #491; the paste/drop
 ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
 bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the

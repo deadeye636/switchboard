@@ -13,15 +13,32 @@
 'use strict';
 
 const fs = require('fs');
+// "Is this the same directory" has one answer, and it is about the REAL path of both sides (#563).
+const { pathKey } = require('../app/path-containment');
 
-/** Same directory? Windows spells it both ways in the same store (`d:\x` and `D:\X`). */
+/**
+ * Same directory? Windows spells it both ways in the same store (`d:\x` and `D:\X`).
+ *
+ * This was a string compare of its own, and it got the Windows half it was written for wrong as well
+ * (#563). It trimmed a trailing separator and lowercased on `win32` — but it never folded `\` against
+ * `/`, which its sibling key in `session/derive-project-path.js` did, so `d:/x` and `d:\x` were two
+ * directories to the remap and one to everything else. Being lexical at all is the larger half: a project
+ * reached through a junction, a symlink or a `subst` drive is spelled two ways, the compare said
+ * "different", and the remap skipped exactly the lines it was called to rewrite — leaving a phantom
+ * project at the old path, which is the bug #171 built this file to fix.
+ *
+ * (The issue that sent us here called the lowercase unconditional. It was not — it was already behind a
+ * `process.platform === 'win32'` check, so the Linux direction, where two directories differing only in
+ * case would have been merged and one transcript rewritten with the other's path, was never live here.)
+ *
+ * `pathKey` is the memoised form, and here that is not an optimisation but the difference between a
+ * usable remap and an unusable one: `claudeLine` asks this on EVERY line of a transcript that can reach
+ * hundreds of megabytes, and a filesystem round trip per line would be minutes. The paths asked about are
+ * two — the old path and whatever the line names — so the memo answers all but the first few.
+ */
 function samePath(a, b) {
   if (!a || !b) return false;
-  const norm = (p) => {
-    const t = String(p).replace(/[\\/]+$/, '');
-    return process.platform === 'win32' ? t.toLowerCase() : t;
-  };
-  return norm(a) === norm(b);
+  return pathKey(a) === pathKey(b);
 }
 
 /**

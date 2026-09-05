@@ -4,16 +4,29 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { deriveProjectPath, resolveWorktreePath, normPath, samePath } = require('../src/session/derive-project-path');
+const {
+  deriveProjectPath, resolveWorktreePath, normPath, samePath,
+  isDescendant, sessionProjectPath, _resetRootCache,
+} = require('../src/session/derive-project-path');
 
-// #8: the same directory spelled with \ vs / (and different case on Windows) must normalise to one key —
-// otherwise the register keeps both and the sidebar shows the project twice.
-test('normPath collapses backslash/forward-slash and trailing separators to one canonical key', () => {
-  assert.equal(normPath('one\\two\\three'), normPath('one/two/three'));
-  assert.equal(normPath('one/two/three/'), normPath('one/two/three'));
-  assert.equal(samePath('one\\two\\three', 'one/two/three'), true);
+// #8: the same directory spelled two ways must normalise to one key — otherwise the register keeps both
+// and the sidebar shows the project twice.
+//
+// The separators are built with `path.join` rather than written out (#563). The canonical form is the
+// REAL path now, and on POSIX a backslash is an ordinary character in a filename: `one\two\three` is one
+// directory there, not three, so asserting that it folds would be asserting Windows behaviour on the
+// Linux runner.
+test('normPath collapses a trailing separator to one canonical key, and keeps different directories apart', () => {
+  const dir = path.join('one', 'two', 'three');
+  assert.equal(normPath(dir + path.sep), normPath(dir));
+  assert.equal(samePath(dir + path.sep, dir), true);
   // A genuinely different string (separators stripped entirely) is NOT the same directory — it stays distinct.
-  assert.notEqual(normPath('onetwothree'), normPath('one/two/three'));
+  assert.notEqual(normPath('onetwothree'), normPath(dir));
+});
+
+test('on Windows both separators spell the same directory', { skip: process.platform !== 'win32' }, () => {
+  assert.equal(normPath('one\\two\\three'), normPath('one/two/three'));
+  assert.equal(samePath('one\\two\\three', 'one/two/three'), true);
 });
 
 function mkTmp() {
@@ -114,4 +127,64 @@ test('deriveProjectPath end-to-end: jsonl with worktree cwd resolves to parent r
   } finally {
     cleanup(tmp);
   }
+});
+
+// --- the canonical key is the REAL path, not the spelling (#563) ---
+//
+// `normPath` was a string transform, so a project reached through a junction, a symlink or a `subst`
+// drive was two keys for one directory: two registrations, two sidebar rows, a remap that moves half of
+// them. The escape is exercised with a link that really exists on disk — a string that merely looks like
+// one passes every version of this code, which is exactly why the bug lasted.
+const LINK_TYPE = process.platform === 'win32' ? 'junction' : 'dir';
+function makeLink(from, to) {
+  try { fs.symlinkSync(to, from, LINK_TYPE); return true; } catch { return false; }
+}
+
+test('normPath gives a project one key however it is reached — through a link or directly', () => {
+  const tmp = fs.realpathSync.native(mkTmp());
+  try {
+    const repo = path.join(tmp, 'repo');
+    fs.mkdirSync(repo);
+    const viaLink = path.join(tmp, 'repo-link');
+    if (!makeLink(viaLink, repo)) {
+      assert.fail('could not create a link on this platform — that IS the case under test, so it is not skipped silently');
+    }
+
+    assert.equal(normPath(viaLink), normPath(repo), 'one directory, one bucket');
+    assert.equal(samePath(viaLink, repo), true);
+    assert.notEqual(normPath(path.join(tmp, 'other')), normPath(repo), 'and a different directory is still different');
+  } finally { cleanup(tmp); }
+});
+
+test('sessionProjectPath keeps the folder\'s spelling when the session is in the same directory by another name', () => {
+  const tmp = fs.realpathSync.native(mkTmp());
+  try {
+    const repo = path.join(tmp, 'repo');
+    fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+    const viaLink = path.join(tmp, 'repo-link');
+    if (!makeLink(viaLink, repo)) assert.fail('could not create a link — that IS the case under test');
+    _resetRootCache();
+
+    // The folder stands for the linked spelling; the transcript recorded the real one. That is one
+    // project, so the folder's string wins — it is the grouping key the sidebar already renders.
+    assert.equal(sessionProjectPath(repo, viaLink), viaLink,
+      'a session must not be re-attributed to a second project that is the same directory');
+  } finally { cleanup(tmp); }
+});
+
+test('isDescendant answers about the real path: a link out of a project is not inside it', () => {
+  const tmp = fs.realpathSync.native(mkTmp());
+  try {
+    const repo = path.join(tmp, 'repo');
+    const outside = path.join(tmp, 'elsewhere');
+    fs.mkdirSync(repo);
+    fs.mkdirSync(outside);
+    const escape = path.join(repo, 'linked');
+    if (!makeLink(escape, outside)) assert.fail('could not create a link — that IS the case under test');
+
+    assert.equal(escape.startsWith(repo + path.sep), true, 'it IS spelled inside — that was the bug');
+    assert.equal(isDescendant(escape, repo), false, 'and it is not actually inside');
+    assert.equal(isDescendant(path.join(repo, 'sub'), repo), true, 'an ordinary subdirectory still is');
+    assert.equal(isDescendant(repo, repo), false, 'a directory is not a descendant of itself');
+  } finally { cleanup(tmp); }
 });

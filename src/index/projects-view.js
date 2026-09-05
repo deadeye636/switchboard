@@ -143,8 +143,9 @@ function buildProjectsFromCache(showArchived) {
     // the child out with it. A parent the store has never heard of is a genuine orphan and still shows.
     if (!showArchived && s.parentSessionId
         && knownIds.has(s.parentSessionId) && !shownIds.has(s.parentSessionId)) continue;
-    // Bucketed by that canonical key (normPath collapses \ vs / and case), so the same directory spelled
-    // two ways by different backends does not render as two projects (#8). The value keeps the raw spelling
+    // Bucketed by that canonical key (`normPath` is the REAL path of the directory since #563, with case
+    // ignored where the filesystem ignores it), so the same directory spelled two ways by different
+    // backends does not render as two projects (#8). The value keeps the raw spelling
     // as the display projectPath; the session loop runs first, so the spelling that has sessions wins.
     if (!projectMap.has(key)) {
       projectMap.set(key, {
