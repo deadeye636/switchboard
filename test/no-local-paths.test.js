@@ -56,7 +56,7 @@ function localTerms() {
   if (user.length >= 4) terms.push({ term: user, why: 'the account name on this machine' });
 
   const home = os.homedir() || '';
-  if (home.length >= 4) terms.push({ term: home, why: 'this machine\'s home directory' });
+  if (home.length >= 4) terms.push({ term: home, why: 'this machine\'s home directory', whole: true });
 
   // The directory the checkout sits IN. Not the checkout itself: the repository's own name is public and
   // appears everywhere by design. On CI the parent is usually the repo name again, which is why that case
@@ -84,6 +84,16 @@ test('no tracked file names an identifier of the machine it was written on', () 
     return;
   }
 
+  // The home directory is a whole path already, so a plain substring is specific enough; the other two
+  // are single segments and are matched as such (see segmentPattern).
+  const probes = terms.map(({ term, why, whole }) => ({
+    why,
+    test: whole ? (line) => line.toLowerCase().includes(term.toLowerCase()) : (() => {
+      const re = segmentPattern(term);
+      return (line) => re.test(line);
+    })(),
+  }));
+
   const hits = [];
   for (const rel of trackedFiles()) {
     const abs = path.join(REPO, rel);
@@ -91,10 +101,9 @@ test('no tracked file names an identifier of the machine it was written on', () 
     try { text = fs.readFileSync(abs, 'utf8'); } catch { continue; }
     // A binary read as UTF-8 turns into replacement characters, never into an account name.
     const lines = text.split('\n');
-    for (const { term, why } of terms) {
-      const needle = term.toLowerCase();
+    for (const { why, test: matches } of probes) {
       for (let i = 0; i < lines.length; i++) {
-        if (lines[i].toLowerCase().includes(needle)) {
+        if (matches(lines[i])) {
           hits.push(`${rel}:${i + 1} — names ${why}`);
           break; // one line per file per term is enough to act on
         }
@@ -108,6 +117,25 @@ test('no tracked file names an identifier of the machine it was written on', () 
     + 'invented path. Rewriting published history is not on the table, so this has to be caught here:\n'
     + hits.join('\n'));
 });
+
+/**
+ * A term matched as a PATH SEGMENT, not as a word.
+ *
+ * The first version searched for the bare string and went red on CI, where the account is called
+ * `runner` — an ordinary English word this repo writes nineteen times about its own test runner, the
+ * Linux CI runner and `src/servers/schedule-runner.js`. That is the same mistake the `worktrees` entry
+ * above was made for, in a place a developer's machine cannot show you: **a term that is also the
+ * subject matter cannot discriminate**, and a guard that cries wolf on every CI run is one somebody
+ * turns off.
+ *
+ * What leaks is a term standing where a path segment stands — after a separator, and ended by one, by a
+ * quote, or by the end of the line. `<drive>:\<parent>\demo` matches; "the Linux runner" does not. The
+ * one non-path shape worth keeping is an address, so a term immediately followed by `@` counts too.
+ */
+function segmentPattern(term) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:[\\\\/]${escaped}(?=[\\\\/'"\`\\s,;:)\\]}]|$)|\\b${escaped}@)`, 'i');
+}
 
 /** Says out loud that a check did not run, rather than letting an empty pass stand for a clean tree. */
 function t_skipNote(reason) {
