@@ -201,6 +201,13 @@ transcripts the delete removes, and there is nothing to undo afterwards.
   `removeProject` and the config deletes after a failed delete — its comment said `// always` — which left
   the history in place and the project gone. That is neither of the two things the dialog offers, and it
   also clears the cached rows the delete reads to find the transcripts, so the user cannot even ask again.
+- **And a delete that removed NOTHING is that same failure through the success path (#580).** A
+  `deleteSessions` that threw was logged and skipped; one answering `{removed: 0}` was skipped in silence.
+  Either way `deleted` and `refused` came back empty together, so the renderer fired no toast at all and
+  went on to `removeProject`. `refused` carries `{backendId, label, kind, reason}` now: `unsupported` is
+  the answer that was known before the dialog opened and does NOT stop the act, `failed` and `empty` are
+  the delete not doing what it was asked and do. A backend with no rows in the project is neither — there
+  was nothing to keep, and calling that a refusal would block the removal of a project it was never in.
 
 The neighbouring question is HALF settled now, and the half that is settled is the one below. Whether a
 removal should be REFUSED while a session is live there is still open in

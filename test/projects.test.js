@@ -1192,8 +1192,134 @@ test('a backend that cannot delete is refused by name, not silently skipped', ()
     const res = projects.deleteProjectSessions('D:\\p', ['hermes']);
     assert.strictEqual(res.ok, true);
     assert.deepStrictEqual(res.deleted, {}, 'nothing was deleted');
-    assert.deepStrictEqual(res.refused, ['Hermes'], 'and the user is told which, by name');
+    assert.strictEqual(res.refused.length, 1, 'and the user is told which, by name');
+    assert.strictEqual(res.refused[0].label, 'Hermes');
+    assert.strictEqual(res.refused[0].kind, 'unsupported',
+      'known before the dialog opened, so it does not stop the removal the dialog offered');
+    assert.ok(res.refused[0].reason, 'the backend words the reason itself');
   } finally { t.cleanup(); }
+});
+
+// --- a delete that removed nothing must not report success (#580) -------------------------------------
+//
+// `deleteProjectSessions` used to answer `{ok: true}` on a partial failure: a `deleteSessions` that threw
+// was logged and skipped, and one answering `{removed: 0}` was skipped in silence. Either way `deleted`
+// and `refused` came back empty together, the renderer fired NO toast at all, and it carried on to
+// `removeProject`. History on disk, project gone, cached rows cleared — the shape #574 was filed for,
+// reached through the SUCCESS path rather than the error path.
+
+// Stand-in backends for the two failures that can only happen DURING the delete — a real descriptor
+// cannot be made to throw or to remove nothing without lying about its store. The registry is the real
+// one everywhere else in this file, so only `get` is intercepted.
+function withFakeBackends(t, byId) {
+  const real = t.ctx.backends;
+  t.ctx.backends = {
+    get: (bid) => (Object.prototype.hasOwnProperty.call(byId, bid) ? byId[bid] : real.get(bid)),
+    launchable: () => real.launchable(),
+  };
+}
+
+const fakeBackend = (id, label, deleteSessions) => ({
+  id, label, deleteSessions, transcriptPathFor: (r) => r.filePath,
+});
+
+test('#580: a backend whose delete THREW reaches the caller as a refusal, not as silence', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    t.setCachedRows([{ sessionId: 'x', folder: 'f', projectPath, filePath: 'D:\\p\\x.jsonl', backendId: 'demo' }]);
+    withFakeBackends(t, {
+      demo: fakeBackend('demo', 'Demo', () => {
+        const err = new Error('EACCES: permission denied, unlink \'D:\\p\\x.jsonl\'');
+        err.code = 'EACCES';
+        throw err;
+      }),
+    });
+
+    const res = projects.deleteProjectSessions(projectPath, ['demo']);
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.deleted, {}, 'nothing was deleted');
+    assert.strictEqual(res.refused.length, 1, 'and the backend that kept its history says so');
+    assert.strictEqual(res.refused[0].backendId, 'demo');
+    assert.strictEqual(res.refused[0].kind, 'failed', 'the kind the renderer stops the whole action on');
+    assert.ok(res.refused[0].reason, 'with a sentence for the user');
+    assert.ok(!/unlink|D:\\\\p/.test(res.refused[0].reason),
+      'and the raw filesystem message stays in the log, where the path belongs (#457)');
+    assert.deepStrictEqual(t.calls.deletedSessions, [],
+      'the row stays where its transcript is — clearing it removes the way to ask again');
+  } finally { t.cleanup(); }
+});
+
+test('#580: a backend that removed NOTHING is a refusal too', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    t.setCachedRows([{ sessionId: 'x', folder: 'f', projectPath, filePath: 'D:\\p\\x.jsonl', backendId: 'demo' }]);
+    withFakeBackends(t, { demo: fakeBackend('demo', 'Demo', () => ({ removed: 0 })) });
+
+    const res = projects.deleteProjectSessions(projectPath, ['demo']);
+    assert.strictEqual(res.refused.length, 1, 'silence is what let "delete the history" delete nothing');
+    assert.strictEqual(res.refused[0].kind, 'empty');
+    assert.match(res.refused[0].reason, /still on disk/, 'and the user is told what that means');
+    assert.deepStrictEqual(t.calls.prunedProjects, [], 'nothing was forgotten on the strength of it');
+  } finally { t.cleanup(); }
+});
+
+test('#580: a backend with no sessions HERE is not a refusal — there was nothing to keep', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    t.setCachedRows([]);
+    withFakeBackends(t, {
+      demo: fakeBackend('demo', 'Demo', () => { throw new Error('should never be asked'); }),
+    });
+
+    const res = projects.deleteProjectSessions(projectPath, ['demo']);
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(res.refused, [],
+      'or a backend that was never in the project would block the removal for good');
+  } finally { t.cleanup(); }
+});
+
+test('#580: one backend deleting does not cover for another one keeping', () => {
+  const t = makeCtx();
+  try {
+    const projectPath = 'D:\\p';
+    t.setCachedRows([
+      { sessionId: 'x', folder: 'f', projectPath, filePath: 'D:\\p\\x.jsonl', backendId: 'went' },
+      { sessionId: 'y', folder: 'f', projectPath, filePath: 'D:\\p\\y.jsonl', backendId: 'kept' },
+    ]);
+    withFakeBackends(t, {
+      went: fakeBackend('went', 'Went', () => ({ removed: 1 })),
+      kept: fakeBackend('kept', 'Kept', () => ({ removed: 0 })),
+    });
+
+    const res = projects.deleteProjectSessions(projectPath, ['went', 'kept']);
+    assert.strictEqual(res.deleted.went, 1, 'what went, went');
+    assert.deepStrictEqual(t.calls.deletedSessions, ['x'], 'and only its rows went with it');
+    assert.strictEqual(res.refused.length, 1, 'while what stayed is still reported');
+    assert.strictEqual(res.refused[0].backendId, 'kept');
+  } finally { t.cleanup(); }
+});
+
+// The renderer's half of #580, read as SOURCE. `projects-admin.js` is a classic renderer script with no
+// seam a `node --test` process can reach — this pins the regression that will actually happen: somebody
+// tidying the two `return`s in the remove branch into one, or dropping the refusal one as redundant
+// because the toast above it already says something. It cannot tell you the branch behaves; only a click
+// can (CLAUDE.md reflex 2).
+test('#580: the renderer stops before removeProject when a delete kept a history', () => {
+  const src = stripComments(fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'panels', 'projects-admin.js'), 'utf8'));
+  const start = src.indexOf("action === 'remove'");
+  assert.ok(start !== -1, 'the remove branch should still be in projects-admin.js');
+  const end = src.indexOf('removeProject(path)', start);
+  assert.ok(end !== -1, 'and it should still end at the removeProject call this guard is about');
+  const branch = src.slice(start, end);
+
+  assert.match(branch, /r\.error[\s\S]*?return;/,
+    'an errored delete still stops the whole action (#574)');
+  assert.match(branch, /refus[\s\S]*?kind[\s\S]*?unsupported[\s\S]*?return;/,
+    'and so does a delete that TRIED and kept the history — anything but an "unsupported" refusal (#580)');
 });
 
 test('a delete never leaves the store it belongs to', () => {

@@ -478,10 +478,17 @@
             const what = Object.entries(r.deleted || {}).map(([id, n]) => `${labelOf(id)}: ${n}`).join(', ');
             // What did NOT go has to be said too. A backend that cannot hand over its history was dropped
             // in silence, and the toast then read as "all of it is gone" when some of it was still there.
-            const kept = (r.refused || []).join(', ');
-            if (what && kept) toast(`Deleted — ${what}. Kept: ${kept} (its history cannot be deleted).`);
+            // Each refusal carries its own reason since #580 — "cannot" and "tried and failed" are not the
+            // same sentence, and a delete that removed nothing used to produce no toast at all.
+            const refusals = r.refused || [];
+            const kept = refusals.map(x => `${x.label || labelOf(x.backendId)} — ${x.reason}`).join('; ');
+            if (what && kept) toast(`Deleted — ${what}. Kept: ${kept}`);
             else if (what) toast('Deleted — ' + what);
-            else if (kept) toast(`Nothing deleted — ${kept} cannot be deleted.`);
+            else if (kept) toast(`Nothing deleted. Kept: ${kept}`);
+            // A delete that TRIED and did not remove the history stops the action, exactly the way an
+            // error does and for the same reason (#580). A backend that never could is not that: the
+            // dialog said so before the user pressed anything, and it must not block the removal.
+            if (refusals.some(x => x.kind && x.kind !== 'unsupported')) return;
           }
         }
         await window.api.removeProject(path); // always: off the list + clear Switchboard's cache

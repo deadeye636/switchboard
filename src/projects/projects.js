@@ -1085,6 +1085,10 @@ function deletableBackends(projectPath) {
  * @param {string} projectPath
  * @param {string[]} [backendIds]  which backends to clear. Omitted = every backend that has rows in this
  *                                 project (the renderer always sends the picked set).
+ * @returns {{error: string}|{ok: true, removed: number, deleted: object, refused: Array<{
+ *            backendId: string, label: string, kind: 'unsupported'|'failed'|'empty', reason: string}>}}
+ *          `refused` is every backend that KEPT its history and why (#580) — `ok: true` with entries in
+ *          it is a partial delete, not a success, and the renderer stops on a `failed` or `empty` one.
  */
 function deleteProjectSessions(projectPath, backendIds) {
   try {
@@ -1114,17 +1118,38 @@ function deleteProjectSessions(projectPath, backendIds) {
       : [...new Set(rows.map(r => r.backendId))];
 
     const deleted = {};
+    // What was NOT deleted, and WHY (#580). It used to be a bare list of labels for the one case that
+    // was known before the act — a backend that cannot hand over its history at all — while the two
+    // cases that only appear DURING it were dropped: a `deleteSessions` that threw was logged and
+    // skipped, and one that answered `{removed: 0}` was skipped in silence. Both then left `deleted`
+    // and `refused` empty together, which the renderer paints as no toast at all, and it carried on to
+    // `removeProject`. History on disk, project gone, and the cached rows that would let the user ask
+    // again cleared — the shape #574 was filed for, reached through the SUCCESS path.
+    //
+    // `kind` is what the renderer branches on, because the three are not the same answer. `unsupported`
+    // was decided before the dialog opened and the dialog already said so, so it does not stop the act;
+    // `failed` and `empty` are the delete not doing what it was asked, and those do.
     const refused = [];
+    const keep = (backend, backendId, kind, reason) => {
+      refused.push({ backendId, label: backend ? (backend.label || backendId) : backendId, kind, reason });
+    };
     let removed = 0;
 
     for (const backendId of wanted) {
       const backend = ctx.backends.get(backendId);
       if (!backend || typeof backend.deleteSessions !== 'function') {
-        refused.push(backend ? (backend.label || backendId) : backendId);
+        // The backend words this itself — the reason belongs to it, the way deletableBackends already
+        // has it, not to a sentence here that happened to describe Hermes.
+        keep(backend, backendId, 'unsupported',
+          (backend && backend.deleteBlockedReason) || 'Switchboard cannot delete its history');
         continue;
       }
 
       const mine = rows.filter(r => r.backendId === backendId);
+      // Nothing of this backend's is in the project. Not a refusal — there was nothing to keep, and
+      // calling that one would block the removal of a project over a backend that was never in it.
+      if (!mine.length) continue;
+
       const files = mine
         .map(r => backend.transcriptPathFor(r))
         .filter(Boolean);
@@ -1134,9 +1159,15 @@ function deleteProjectSessions(projectPath, backendIds) {
         res = backend.deleteSessions(files, { projectPath, projectsDir: ctx.PROJECTS_DIR });
       } catch (err) {
         ctx.log.warn(`[delete] ${backendId}: ${err.message}`);
+        // The raw message names the path it failed on and goes to the log, not to the renderer (#457).
+        keep(backend, backendId, 'failed',
+          readableError(err, 'its history could not be deleted.', ctx.log));
         continue;
       }
-      if (!res || !res.removed) continue;
+      if (!res || !res.removed) {
+        keep(backend, backendId, 'empty', 'nothing was removed — its history is still on disk.');
+        continue;
+      }
 
       deleted[backendId] = res.removed;
       removed += res.removed;
