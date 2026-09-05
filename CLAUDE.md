@@ -124,7 +124,10 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
   **comments**. Done → an "Umsetzung" comment (with `git log main` commit refs) + close the issue.
   Open items carry no completion comment.
 - **Labels:** prio `P1`/`P2`/`P3` (open only), type `bug`/`feature`/`port`/`chore`, `source:*`
-  (`jbr`/`brianstanley`/`supacode`/`kreaddis`), `wontfix`.
+  (`jbr`/`brianstanley`/`supacode`/`kreaddis`), `wontfix`. An effort that spans several issues also
+  carries an **effort label** so its issues stay findable together — `pi-native` is the first, and
+  it sits on the runtime-driven Pi backend plus the work it depends on. List the labels rather than
+  trusting this line: `gh label list`.
 - `gh` default repo is pinned to `deadeye636/switchboard` (`gh repo set-default`) — always our fork,
   never `doctly`. Decisions still land in commit messages + memory. **A hook refuses** a `gh` command
   naming `doctly`, and a `git push` to any of the read-only fork remotes
