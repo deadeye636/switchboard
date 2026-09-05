@@ -88,6 +88,11 @@ them again:
   path and have Claude run with attacker-chosen tools and permissions.
 - Control characters (`\x00-\x08\x0B\x0C\x0E-\x1F\x7F`) were rejected in every frontmatter scalar that
   reached the argv — `append-system-prompt` excepted for `\n`, `\r`, `\t` only.
+  **A rebuild has to put that flag back itself** (#562). The Claude descriptor's `buildLaunch` kept
+  honouring an `appendSystemPrompt` option after this feature left, with no `configFields` entry declaring
+  it and no caller left to set it; it was removed, and `--append-system-prompt` is on Claude's
+  `AUDITED_EXCLUDED` list now — the reason beside it is about offering the flag as a *user control*, not
+  about a scheduler sending one it composed.
 - `max-budget-usd` had to match `^\d+(\.\d+)?$`; everything else threw rather than being passed on.
 - The argv was built as an **array**, never as a shell string, and the caller did the quoting
   (`quoteArgvForShell`, #76). Those quoting tests survive the removal — they were never scheduler-specific.
