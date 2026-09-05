@@ -252,6 +252,19 @@ noticing.
   a resources disclosure only when `dataset.loaded === '1'` — one already read has nothing left to pay, one
   nobody has opened stays closed and is not searched. Any future "open everything" over the settings DOM has
   to answer this same question.
+- **An action that takes the screen's SUBJECT away closes the screen (#565).** Hide Project and Remove
+  Project are the two; `closeAfterProjectAction` flashes the pressed button and calls
+  `closeSettingsViewer`. Neither staying nor going "back to the project list" is on the table: every field
+  writes to `project:<path>` and every BACKENDS entry describes a project that has just left the list, and
+  the scope is settled once from the URL while the window loads (`settings-window.js`), so this window
+  holds no list to land on.
+- **This panel runs in `settings.html` and nowhere else.** `#placeholder`, `#terminal-area` and the
+  viewers belong to index.html, and the panel stopped being an overlay in that page at #365 — which is why
+  `openSettingsViewer`'s hide loop is null-safe. The close path was not, so Remove Project hid the viewer
+  and then threw on the null: an empty window, no confirmation, no error, and the reason #566 looked like
+  nothing at all had happened. **`toast` is not here either** — it lives in app.js, so
+  `typeof toast === 'function'` is quietly false and anything reported through it reaches nobody. Say it
+  with `showControlMessage`, which both windows load.
 
 ## Panes mode hosts the app's own view elements (#310, #342, #311)
 

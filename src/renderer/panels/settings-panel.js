@@ -1434,9 +1434,12 @@
       }
     }
 
-    // The green "✓ Saved" both buttons show.
-    const flashSaved = (btn) => {
-      btn.textContent = '✓ Saved';
+    // The green flash a pressed button shows before the panel does whatever comes next. Save and
+    // Apply say "✓ Saved"; Hide and Remove say what THEY did (#565), which is why the wording is a
+    // parameter rather than baked in. `.is-saved` is styled for every button in `.settings-btn-row`,
+    // so the two project buttons wear it without a class of their own.
+    const flashSaved = (btn, label = '✓ Saved') => {
+      btn.textContent = label;
       btn.classList.add('is-saved');
     };
 
@@ -1482,9 +1485,32 @@
     // button that said "Hide" and called removeProject — back when they were the same act.
     // No reload here either (#433): hide and remove both push projects-changed from projects.js, and
     // `loadProjects` would resolve to nothing in this window anyway.
-    const closeAfterProjectAction = () => {
-      settingsViewer.style.display = 'none';
-      document.getElementById('placeholder').style.display = 'flex';
+    // WHERE THE VIEW GOES once the project this screen is about leaves the list (#565): the screen
+    // closes, and the button that was pressed says what happened on the way out.
+    //
+    // Closing rather than going "back to the project list", for two reasons that are not preference:
+    //   - The screen has exactly one subject. Every field writes to `project:<path>` and every entry
+    //     under BACKENDS describes that project, so after the action there is nothing left to show.
+    //   - There is no project list in this window to go back to. The scope is settled once, from the
+    //     URL, while the window loads (`settings-window.js`); the list of projects lives in the main
+    //     window. Landing on one here would mean building a surface that does not exist — and closing
+    //     puts the user in front of that list anyway, with the row already gone.
+    //
+    // What stood here hid the viewer and showed `#placeholder`. That element is index.html's, and the
+    // panel has not been an overlay in that page since #365 — so in the only window that runs this
+    // code the first line blanked the window and the second threw on a null. The user was left with an
+    // empty window and no word either way, which is also what made the failure in #566 invisible.
+    const closeAfterProjectAction = (btn, label) => {
+      flashSaved(btn, label);
+      setTimeout(() => closeSettingsViewer(), 600);
+    };
+
+    // The same gap on the failure side: `toast` is app.js's, this window never loads it, and
+    // `typeof toast === 'function'` is quietly false here — so a refused Hide or Remove reported
+    // itself to nobody at all. `showControlMessage` is how the rest of this panel says something
+    // went wrong, and it is loaded in both windows.
+    const reportProjectActionError = (title, error) => {
+      showControlMessage({ title, message: String(error || 'unknown error'), tone: 'danger' });
     };
 
     const hideBtn = svBtn('#sv-remove-btn');
@@ -1499,8 +1525,8 @@
         });
         if (!confirmed) return;
         const res = await window.api.hideProject(projectPath);
-        if (res && res.error) { if (typeof toast === 'function') toast('Hide: ' + res.error); return; }
-        closeAfterProjectAction();
+        if (res && res.error) { reportProjectActionError('Could not hide the project', res.error); return; }
+        closeAfterProjectAction(hideBtn, '✓ Hidden');
       });
     }
 
@@ -1516,8 +1542,8 @@
         });
         if (!confirmed) return;
         const res = await window.api.removeProject(projectPath);
-        if (res && res.error) { if (typeof toast === 'function') toast('Remove: ' + res.error); return; }
-        closeAfterProjectAction();
+        if (res && res.error) { reportProjectActionError('Could not remove the project', res.error); return; }
+        closeAfterProjectAction(removeProjectBtn, '✓ Removed');
       });
     }
   }

@@ -110,11 +110,39 @@ The suite stayed green through the whole change, including through that defect: 
 reading verifier and confirmed in a running app, which is the same shape as every other entry in
 `docs/ai/lessons.md` that starts with "all tests passed".
 
+## An action that takes the subject away closes the screen (#565)
+
+Hide Project and Remove Project sit on the project page's button row, and both take the project the page
+is about off the list. What happened next had been written for the in-app overlay: hide the viewer, show
+`#placeholder`. There has been no overlay since #365 — `settings-panel.js` is loaded by `settings.html`
+alone, and that page carries no `#placeholder` at all. So the first line blanked the window and the second
+threw on a null. Pressing a destructive button produced an empty window that said nothing either way,
+which is also what kept the failure in #566 out of sight.
+
+The screen closes instead, and the alternative was weighed rather than skipped. Going back to a project
+list is not something this window can do: the scope is settled once, from the URL, while the window loads
+(`settings-window.js`), and the list of projects lives in the main window. Landing on one here would mean
+building a surface that does not exist. Staying is worse than closing, not better — every field writes to
+`project:<path>` and every entry under BACKENDS describes a project that has just left the list. Closing
+also lands the user in front of the only project list there is: the main window's sidebar, where the row
+is now gone, so the result of the action is visible rather than asserted.
+
+What replaces the blank window is the button that was pressed: the green flash the Save button already
+uses, worded for the action, and then the close. The failure side had the same hole from the same cause —
+the error branch called `toast`, which belongs to app.js and is not loaded here, so a refused Hide or
+Remove reported itself to nobody. It says so through `showControlMessage` now, the way the rest of the
+panel does.
+
+`test/settings-project-action-close.test.js` loads the panel the way `settings.html` does — every script
+that page names, in order, into one jsdom vm context — and clicks both buttons. It is the first harness
+that reaches this file's click-time surface; `settings-modules-smoke.test.js` is a load-time guard and
+says so.
+
 ## Known gaps
 
-- **No test covers the search.** The fix is a one-line condition in `settings-panel.js`, a file with no
-  jsdom harness; the guard against a regression is the rule and this document. A harness for that file
-  would be worth more than the rule.
+- **No test covers the search.** The fix is a one-line condition in `settings-panel.js`. The harness that
+  arrived with #565 clicks the two project buttons and could be pointed at the search box, but nothing
+  does that yet; until then the guard against a regression is the rule and this document.
 - **The nav is built in `settings-panel.js` for the project scope** and in `settings-global-html.js` for
   the global one. Two markup sources, one wiring. Splitting the project markup out the way #218 split the
   global one is the obvious follow-up, and was left alone here because the change was already large.
