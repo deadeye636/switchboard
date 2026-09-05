@@ -8,13 +8,17 @@
   // null = not a bare page key, so the rest of the terminal key handler still gets a say.
   // true = xterm may forward it to the PTY. false = Switchboard consumed it for the viewport.
   //
-  // `canPage` answers whether there is a viewport to page RIGHT NOW — the terminal is on the normal
-  // buffer, where xterm holds the scrollback. On the alternate screen `baseY` is 0 and `scrollPages()`
-  // cannot move anything, so consuming the key there swallows it for nothing: no scroll, and the TUI
-  // that owns the screen never sees it either (#558). A backend declaring 'viewport' declares what it
-  // does with the key, not what its CLI's renderer is doing this minute — Claude switches buffers on a
-  // setting of its own, so the same descriptor is right in both states only if this is asked live.
-  // Omitted (undefined) means "assume there is", which keeps the four backends that never leave the
+  // `canPage` answers whether the conversation is in OUR scrollback right now — the terminal is on the
+  // normal buffer. On the alternate screen `baseY` is 0, so `scrollPages()` cannot move anything, and
+  // the CLI drawing there is the one holding the history: for Claude's fullscreen renderer PageUp and
+  // PageDown are its own documented scroll keys. Consuming them would be the worse half of both
+  // outcomes — nothing scrolls here, and the only way that user pages their conversation is gone (#558,
+  // which is #410's mistake wearing a new disguise).
+  //
+  // A backend declares what it does with the key, not which renderer its CLI happens to be running:
+  // Claude has two, and it switches to the classic one BY ITSELF after two fullscreen sessions fail to
+  // start. So the same descriptor is right in both states only if this is asked at the press.
+  // Omitted (undefined) means "assume it is ours", which keeps the four backends that never leave the
   // normal buffer exactly as they were.
   function handleTerminalPageKeyEvent(event, target, scrollPages, canPage) {
     if (!event || (event.key !== 'PageUp' && event.key !== 'PageDown')

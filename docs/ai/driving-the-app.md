@@ -265,11 +265,12 @@ That distinction is what #410 got wrong twice in opposite directions. Two more t
 - **A full-screen TUI MAY run on the ALTERNATE screen**, where `baseY` is 0 and there is no scrollback
   at all — `scrollPages()` there cannot move anything, however correct the call looks. This used to say
   it always does, and #558 measured otherwise: Claude 2.1.261 answered `alternate` with `baseY: 0` in a
-  fresh session and `normal` with 226-2470 lines of scrollback in four long-running ones, on one machine,
-  with `tui: "fullscreen"` set in both homes. So it is not a property you can look up per CLI. Read
-  `buffer.active.type` on the session in front of you before concluding anything about scrolling, and
-  read it *after* the CLI has finished starting: the buffer can switch partway through, and a measurement
-  taken too early describes the startup screen.
+  fresh session and `normal` with 226-2470 lines of scrollback in four long-running ones, on one machine
+  on one afternoon. It has two renderers and had switched itself to the inline one after two fullscreen
+  starts failed. So this is not a property you can look up per CLI, nor one that holds for a whole
+  session: read `buffer.active.type` on the session in front of you before concluding anything about
+  scrolling, and read it *after* the CLI has finished starting, because a measurement taken too early
+  describes the startup screen.
 
 **Timers are throttled in a background window.** A `setInterval` sampler at 20 ms fires about once a
 second while the window is not in front, so a sampling loop reports two data points and looks like

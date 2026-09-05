@@ -37,12 +37,14 @@ function pageEvent(key, overrides = {}) {
 // xterm (which took the key away from Claude, the one that already worked), then every backend was given
 // to the PTY (which left Pi and Codex with a key that does nothing).
 //
-//   claude  re-measured against 2.1.261 (#558): ESC[5~/ESC[6~ reach the CLI and move to the start and
-//           end of the CURRENT line — Home and End, not paging — so the "pages its own history" half of
-//           the old row is gone. Its BUFFER is not a constant: four long-running sessions were on
-//           `normal` with 226-2470 lines of scrollback and a fresh one on `alternate` with baseY 0, one
-//           machine, one version, tui: "fullscreen" in both homes. That is why the target declares what
-//           we do when there is a viewport, and the routing asks the live buffer whether there is one.
+//   claude  re-measured against 2.1.261 (#558). It has TWO renderers: classic draws inline on the
+//           normal buffer, so the conversation is xterm's scrollback and ESC[5~/ESC[6~ land on the input
+//           line (start/end of the CURRENT line); fullscreen draws on the alternate screen, where the
+//           conversation is the CLI's and those keys are its own half-screen scroll. It moves between
+//           them by itself after two fullscreen starts fail. Measured on one machine on one afternoon:
+//           four long-running sessions on `normal` with 226-2470 lines of scrollback, a fresh one on
+//           `alternate` with baseY 0. Hence: the target says what we do when the conversation is OURS,
+//           and the routing asks the live buffer which renderer is up.
 //   codex   ignores ESC[5~ at its prompt, and runs on the NORMAL buffer, so xterm holds the history
 //   pi      ignores ESC[5~ at its prompt, and runs on the NORMAL buffer, so xterm holds the history
 //   hermes  measured: the bare keys do nothing, and the history pages only under Shift — which is

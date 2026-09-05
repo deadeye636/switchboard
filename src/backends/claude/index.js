@@ -688,13 +688,26 @@ description:
   // end of the CURRENT line — Home and End, not navigation — so there is no history paging here to
   // protect. In a three-line composer they go to the start of the current line, not of the prompt.
   //
-  // The other half is not a property of the CLI at all. Sessions of this version were measured on BOTH
-  // buffers on one machine: four long-running ones on `normal` with 226-2470 lines of scrollback, a
-  // fresh one on `alternate` with `baseY: 0` — and `tui: "fullscreen"` was set in both homes, so that
-  // setting is not the switch. Why it differs is Claude's business; what follows for us is that a
-  // STATIC declaration cannot answer it. So this says what we do with the key when there is a viewport,
-  // and `renderer/terminal/page-key-routing.js` asks the live buffer whether there is one — on the
-  // alternate screen the key goes back to the TUI, which is where it has to go.
+  // The other half is not a property of the CLI at all — it has TWO renderers, and which one is running
+  // is not ours to predict:
+  //
+  //   fullscreen  draws on the ALTERNATE screen like vim. The conversation is not in xterm's scrollback,
+  //               and PageUp/PageDown are the CLI's OWN documented scroll keys there (half a screen).
+  //   classic     draws inline on the NORMAL buffer, so the conversation IS xterm's scrollback and the
+  //               bare keys land on the input line instead.
+  //
+  // Which one starts is decided by the `tui` setting, two env vars, and — this is the part that moves
+  // under a running app — an automatic fallback: after two fullscreen sessions fail to start, the CLI
+  // switches that machine to classic until it is updated or told `/tui fullscreen`. It records that in
+  // its own config and `/tui` reports it. Measured here on one machine, one version, one afternoon:
+  // four long-running sessions on `normal` with 226-2470 lines of scrollback and a fresh one on
+  // `alternate` with `baseY: 0`, the fallback having been recorded a few minutes earlier.
+  //
+  // So a STATIC declaration cannot answer it, and getting it wrong is not a small miss in either
+  // direction: on the alternate screen these keys are the CLI's own scrolling, and swallowing them
+  // would take away the only way a fullscreen user pages their conversation — the #410 mistake again,
+  // in a new disguise. This declares what we do when the conversation is in OUR scrollback;
+  // `renderer/terminal/page-key-routing.js` asks the live buffer which of the two is true right now.
   //
   // What #410 got wrong was intercepting the key for EVERY session on the assumption that Claude was
   // the odd one out. The seam it built is right and stays; only this answer changed, and it changed
