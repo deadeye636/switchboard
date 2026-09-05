@@ -651,7 +651,10 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
       // tombstone exists to stop old sessions from re-registering a project the user removed; this
       // directory is simply not there any more, and if it ever comes back it should come back.
       try {
-        setProjectState(normalizedPath, { registered: 0, hidden: 0, autoHidden: 0, removedAt: null });
+        // Through the register's own resolver (#566): the path came from the renderer, not from the
+        // register, so writing it raw would file the un-registration under a second spelling and leave
+        // the listed row untouched.
+        setProjectState(projects.registeredPathFor(normalizedPath), { registered: 0, hidden: 0, autoHidden: 0, removedAt: null });
       } catch {}
 
       // Also clean up folder meta. Scoped to Claude's store — the worktree removal above only took
@@ -1274,7 +1277,15 @@ ipcMain.handle('search', (_event, type, query, titleOnly) => {
 // `new Function`, because main.js needs Electron.
 const settings = require('./app/settings');
 settings.init({
-  db: { getSetting, setSetting, deleteSetting, listSettings, getProjectStates, setProjectState },
+  // `setProjectState` resolves the register row FIRST (#566, #574). A settings import writes project rows
+  // at whatever spelling the imported file carries, and `project_meta` upserts on the path string — so a
+  // raw write opens a SECOND row beside the one the sidebar reads and reports success, which is the exact
+  // failure #566 fixed inside projects.js. It is wrapped here rather than required over there because
+  // `projects.js` already requires `app/settings`, so the direct import would be a cycle.
+  db: {
+    getSetting, setSetting, deleteSetting, listSettings, getProjectStates,
+    setProjectState: (p, state) => setProjectState(projects.registeredPathFor(p), state),
+  },
   dialog,
   getParentWindow: (sender) => BrowserWindow.fromWebContents(sender) || mainWindow,
   broadcastSettingsChanged: () => broadcastSettingsChanged(),

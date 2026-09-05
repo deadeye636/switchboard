@@ -40,7 +40,12 @@ let ctx = null;
 
 /**
  * @param {object} context
- * @param {object} context.db  getSetting/setSetting/deleteSetting/listSettings + getProjectStates/setProjectState
+ * @param {object} context.db  getSetting/setSetting/deleteSetting/listSettings + getProjectStates/setProjectState.
+ *   `setProjectState` is NOT the raw store call: main.js wraps it so the register row is resolved first
+ *   (#566). An import carries whatever spelling its file was written with, and `project_meta` upserts on
+ *   the path string, so a raw write would open a second row beside the listed one and report success.
+ *   Wrapped there rather than resolved here because `projects.js` requires this module — the direct
+ *   import would be a cycle.
  * @param {object} context.dialog  Electron's, injected so this module needs no electron require
  * @param {(sender: any) => any} context.getParentWindow  the window that ASKED — the export/import
  *   buttons also render in the standalone settings pop-out, so the dialog must not always parent to main

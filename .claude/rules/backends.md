@@ -147,6 +147,14 @@ place: the tombstone sweep iterates `getProjectTombstones()`, and `remapProject`
 `renameProjectRefs` has just filed the row under. **A new caller that hands `setProjectState` a path from
 anywhere else is the same bug again**, and it fails the way this one did: silently, reporting success.
 
+**And two of them live outside this file**, which is how they were missed when #566 was written — an
+enumeration that only looked where the fix was. The settings **import** writes a register row per project
+in the imported file, and the **worktree removal** un-registers a directory the renderer named. Neither
+path had ever seen the register. `registeredPathFor` is exported for them, and main.js wraps the
+`setProjectState` it hands `app/settings.js` rather than that module requiring this one — `projects.js`
+already requires `app/settings`, so the direct import would be a cycle. Grep for `setProjectState` across
+`src/` rather than trusting this list; that is the check that would have found these two.
+
 ## Deleting a project's history refuses while we are running a session in it (#574)
 
 `deleteProjectSessions` is the one project action that takes files off disk — `removeProject` touches

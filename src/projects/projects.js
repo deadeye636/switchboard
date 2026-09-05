@@ -1154,6 +1154,9 @@ module.exports = {
   removeProjectConfig, toggleFavorite,
   // helpers main.js still calls on other paths (a spawn adds the project; the app start hides stale ones)
   ensureProjectAdded, applyAutoHide, syncRegistry,
+  // The one way to address a register row (#566). Exported because two writers live outside this file —
+  // the settings import and the worktree removal — and both take their path from outside the register.
+  registeredPathFor,
   projectHasSessionsOnDisk, pruneProjectIfGone,
   AUTO_HIDE_THROTTLE_MS,
   _resetAutoHideThrottle: () => { lastAutoHideAt = 0; },
