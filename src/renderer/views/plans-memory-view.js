@@ -776,7 +776,7 @@ async function createResourceInGroup(rg, projectPath) {
   }
   await loadMemories();
   await openMemory({
-    filename: result.path.split(/[\/]/).filter(Boolean).pop(),
+    filename: pathBasename(result.path),
     filePath: result.path,
     backendId: rg.backendId,
     projectPath: projectPath || null,

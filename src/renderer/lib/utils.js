@@ -76,3 +76,12 @@ function readLsJson(key, fallbackJson) {
 function shellEscape(path) {
   return "'" + path.replace(/'/g, "'\\''") + "'";
 }
+
+// The last segment of a path, whichever separator built it (#564). The renderer has no `path` module,
+// and splitting on '/' alone keeps the whole string on Windows, where `path.join` produces backslashes —
+// which is how a freshly created resource opened a tab labelled with its entire path. Returns '' when
+// there is no segment at all, so each caller picks its own fallback.
+function pathBasename(filePath) {
+  const parts = String(filePath ?? '').split(/[\\/]+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '';
+}

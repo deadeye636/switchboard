@@ -1009,8 +1009,8 @@ function refitActiveTerminal() {
 
 // ── Utility ─────────────────────────────────────────────────────────
 
+// The panel's own fallback around the shared answer (lib/utils.js) — the second copy of that split
+// lived here until #564 needed a third.
 function basename(filePath) {
-  if (!filePath) return 'untitled';
-  const parts = filePath.replace(/\\/g, '/').split('/');
-  return parts[parts.length - 1] || 'untitled';
+  return pathBasename(filePath) || 'untitled';
 }
