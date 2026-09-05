@@ -3,7 +3,7 @@
 //
 // `src/app/terminal/spawn.js` used to decide which screen buffer a CLI was on by running `includes()`
 // over each raw PTY chunk. ConPTY hands a TUI's output over in small reads and cuts them wherever it
-// likes, so a seven- or eight-byte escape sequence split across two reads matched neither half and the
+// likes, so a six- or eight-byte escape sequence split across two reads matched neither half and the
 // transition was simply never seen. Nothing recovered it: the flag then kept whatever it last said for
 // the life of the session, and on reattach the app ACTS on that flag — a stale `true` forces a freshly
 // mounted xterm into the alternate screen for a CLI that has left it.
