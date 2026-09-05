@@ -12,9 +12,10 @@
 > `markAllReadySeen`, `stopAllRunning`. Behaviour is unchanged; the file references below are the ground
 > this spec was written against. The STATE they read (`gridStatusFilter`, `getGridRuntimeState`,
 > `getGridOpenSessions`, `getGridAllowedSessionIds`) deliberately stayed in `grid-view.js`: the
-> composition point owns the state, the modules render it. Note `gridStatusFilter` has three writers
-> across three files (here, `showGridView`, and `terminal-manager.js`), each writing localStorage in its
-> own line — a fourth that forgets loses the setting on reload, and nothing would say so.
+> composition point owns the state, the modules render it. `gridStatusFilter` used to have three writers
+> across three files, each repeating the localStorage line, and this passage recorded that as a bug
+> waiting. It has **one** writer now — `window._setGridStatusFilter` in `grid-view.js`, which assigns
+> and persists in the same place — and the three callers go through it.
 
 ## Problem & goal
 

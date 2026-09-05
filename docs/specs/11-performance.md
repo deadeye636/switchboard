@@ -66,10 +66,11 @@ swapping `fs.watch` for chokidar.
   repair work moved into `queueIndexSweep()`, a coalesced `setImmediate` that runs after the response and
   pushes `projects-changed` when it moves the cache (the cold-start `needsPopulate → await` path is kept).
 
-**Measured:** `get-projects` dropped from 2–5 s stalls to ~50 ms (pure cache read); `refreshFile` stays
-incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
+**Measured at the time:** `get-projects` dropped from 2–5 s stalls to ~50 ms (pure cache read);
+`refreshFile` stayed incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`). That log line no
+longer prints — see "Observability" below for what does.
 
-- **Step 4 (done — extraction + neutral write sink).** `src/index/session-cache.js` (1381 lines) split into a 74-line
+- **Step 4 (done — extraction + neutral write sink).** `src/index/session-cache.js` (1381 lines) split into a thin
   **façade** re-exporting the same names, over four modules: `src/backends/claude/store-indexer.js` (Claude's
   folder-shaped walk + `_fileReadState` + the Claude `prepare` = `stampClaudeProvenance`), `src/backends/scan.js`
   (generic Axis-B walk + `_axisBReadState`), `src/index/projects-view.js` (buildProjectsFromCache/Admin), and
@@ -197,10 +198,58 @@ incremental (`[perf] refreshFile … read=64 upsert=2 fts=10`).
 ## Observability — the central perf surface
 
 There is no separate perf file. `src/perf.js` (`startTimer` / `timed` / `timedAsync`) times a labelled span
-and the call sites log a `[perf] <label> <ms>ms: …` line at **debug** only. The log level is a live global
+and a call site logs a `[perf] <label> <ms>ms: …` line at **debug** only. The log level is a live global
 setting (Sessions & CLI → Log level), so a running session can be profiled without a dev build. Query the
 electron-log stream (installed: `%APPDATA%/switchboard/logs/main.log`; dev:
-`~/.switchboard-dev/userData/logs/main.log` since #216) for `[perf]`. Instrumented today: `refreshFile`
-(read / upsert / metrics / FTS) and the reconcile (`folders` / `full` / `incr` / `bytes`) — `full=0` in
-steady state is the signal that step 2 is holding. Use it to verify each further step before/after in a
-live high-output session; do not scatter raw `Date.now()` deltas.
+`~/.switchboard-dev/userData/logs/main.log` since #216).
+
+**What is actually instrumented today is not what this section used to quote.** The `[perf] refreshFile …`
+and `[perf] reconcile …` lines above were real once and are gone: `timed` and `timedAsync` have no call
+site left in `src/` at all (`startTimer` does — `src/backends/claude/store-indexer.js`), the file-lane
+entry point is `refreshFilePrepare` and logs nothing, and the reconcile moved into
+`src/workers/index-worker.js` with the rest of the scan. Grep for the label before you go looking for it
+in a log: quoting a line that no longer prints costs a reader an afternoon deciding whether the feature
+or their logging is broken.
+
+The signal that IS live for the index lanes is the worker post, from `src/index/index-worker-client.js`:
+
+```
+[index-worker] post reconcile reqId=… clone~12f/840rows postMs=3.1
+```
+
+`postMs` is the main-thread cost of handing the job over — which is the number step 4 exists to keep
+small, since everything after it happens off-thread. Use it to verify a change before/after in a live
+high-output session; do not scatter raw `Date.now()` deltas, and if you need a span that is not there,
+add it through `src/perf.js` rather than beside it.
+
+## A spawned CLI's first frame is a performance surface this app can break (#560, #567)
+
+Every measurement above is about the app staying responsive. This one is about what the app costs the
+CLI it just started, which had no section here until a session restore was found degrading Claude Code
+behind the user's back.
+
+Claude Code counts a fullscreen session as started only once it has **drawn a frame and then survived**
+— roughly ten seconds, or a deliberate exit. Two failures and it puts that machine on the classic
+renderer and leaves it there until the CLI is updated or the user runs `/tui fullscreen`. There is no
+dialog. The user finds out because their conversation is suddenly in xterm's scrollback and PageUp means
+something else, which is how #558 came to be reported.
+
+Two things on our side of that fence, one fixed and one open:
+
+- **The redraw nudge on a fresh spawn (#560, fixed).** `src/app/terminal/io.js` follows a resize with a
+  `cols+1` / `cols` wiggle for sessions flagged `firstResize`. That flag exists for **reattach**, where a
+  TUI that has been drawing all along has to repaint into a terminal that was just re-mounted. A fresh
+  spawn was arming it too, and there it repaints nothing — it only adds two more geometry changes to the
+  PTY's first 150 ms, on top of the spawn at 120x30 and `syncPtySize` pushing the real size. Three
+  geometry changes under a first frame. `src/app/terminal/spawn.js` no longer arms it on that path;
+  `test/spawn-first-resize.test.js` pins which branch may, as a source check, because `node-pty` is
+  required at module load and there is no seam to reach a fresh spawn through. The regression it guards
+  against is somebody restoring the symmetry between the branches because it reads as an oversight.
+- **The restore itself (#567, open).** Four Claude sessions spawned within three seconds while a cold
+  project scan ran, measured at 10-13 s to the alternate screen. Filed separately and not re-derived
+  here — the issue carries the evidence and the open questions, including whether a restore re-keys or
+  replaces a terminal inside the CLI's ten-second window.
+
+The general shape is worth keeping even after both are closed: **a cost this app pays on the main thread
+is not the only cost it imposes.** A CLI drawing its first frame is a real-time consumer of the PTY, and
+work the app does in that window is charged to it, not to us.

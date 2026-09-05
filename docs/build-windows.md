@@ -114,7 +114,11 @@ by hand is the more robust answer.)
    the About screen. Gitignored.
 2. `npm run bundle:codemirror` — esbuild bundles `src/renderer/jsonl/codemirror-setup.js` into
    `src/renderer/codemirror-bundle.js`. Gitignored.
-3. `electron-builder --win` — rebuilds the native modules against the Electron ABI (node-gyp 13 plus
+3. `npm run bundle:pdf` — esbuild bundles `src/renderer/views/pdf-setup.js` into
+   `src/renderer/pdf-bundle.js`, **and** pdfjs-dist's worker into `src/renderer/pdf-worker.js`. Two
+   outputs, both gitignored. Missing from this list for as long as it existed, which reads as a build
+   with one bundling step when it has two.
+4. `electron-builder --win` — rebuilds the native modules against the Electron ABI (node-gyp 13 plus
    the patched node-pty gyp), then packs the NSIS installer. The `beforePack` hook
    `scripts/ensure-conpty-dll.js` copies node-pty's bundled `conpty.dll` next to the local node-pty
    build: the rebuild during packing wipes `build/Release`, so the postinstall run alone is not

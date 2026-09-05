@@ -563,12 +563,17 @@ notice, because those were explicit configuration choices.
 | — | …and `scripts/demo-content.js`, which seeds the demo's **DB-only** content: project display names, project + session tags, tasks, and a synthetic activity history for the Stats page. Same guard, and idempotent **per block**. |
 | `npm run demo:seed` | Seed the demo layout without launching |
 | `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
-| `npm test` | `node --test` over the suite — no Electron needed |
+| `npm test` | `node --test --test-timeout=60000`, discovered from the repo root — no path argument, no Electron needed |
+| `npm run electron` | `electron .` and nothing else — skips the build-info stamp and both bundles. Faster iteration once one of the start scripts has produced them; wrong as a first run, because the bundles it needs will not exist |
 | `npm run stop:dev` | Stop **this checkout's** dev Electron processes (never the installed app) |
-| `npm run bundle:codemirror` | esbuild the CodeMirror bundle |
+| `npm run bundle:codemirror` | esbuild the CodeMirror bundle into `src/renderer/codemirror-bundle.js` |
+| `npm run bundle:pdf` | esbuild the PDF viewer bundle **and** pdfjs-dist's worker into `src/renderer/pdf-bundle.js` + `src/renderer/pdf-worker.js`. Every start and build script runs it beside `bundle:codemirror` |
+| `npm run generate-icons` | Regenerate the app icons and the macOS DMG background from the sources in `build/` |
 | `npm run upstream:check` / `:seen` | Report new upstream activity / mark the current state as seen |
-| `npm run build:win` \| `:mac` \| `:linux` | Installer for that platform into `dist/` |
+| `npm run build` \| `build:win` \| `:mac` \| `:linux` | Stamp build info → bundle CodeMirror + PDF.js → electron-builder for that platform (or the host's) into `dist/` |
+| `npm run build:mac:arm64` | `electron-builder --mac --arm64` **alone** — no stamp, no bundles. A re-pack of an already-built tree, not a build from clean |
 | `npm run release` | Build with `electron-builder --publish always` |
+| `postinstall` | Runs itself after `npm install`: `patch-package`, then `scripts/postinstall.js`, then `scripts/ensure-conpty-dll.js`. Not something you invoke — listed because a failed install leaves the native modules half-set-up and the error scrolls past |
 
 ## Scripts and their arguments
 

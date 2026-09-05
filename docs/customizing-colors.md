@@ -2,7 +2,7 @@
 
 > Guide pratique pour installer Switchboard, changer la couleur de fond, et appliquer un thème clair façon Claude / Cowork (fond crème, texte foncé, accent corail).
 >
-> Auteur : Jean-Luc PIETRI — 23/05/2026 — testé sur Switchboard v0.0.30 (Windows).
+> Guide tiers, 23/05/2026 — testé sur Switchboard v0.0.30 (Windows).
 
 > **Fork note (2026-07):** This third-party guide was written against upstream
 > `doctly/switchboard` v0.0.30. It still applies to this fork: the stylesheet is
@@ -10,6 +10,12 @@
 > get releases from this fork's GitHub releases page instead of doctly's, and this
 > fork has **no auto-update** — your CSS edits survive until you manually install
 > a new version (re-apply them after updating).
+>
+> **Why this file is in French and every other one is not:** it is kept as the author wrote it, because
+> a translation of a step-by-step someone verified by running it is a document nobody has run. That
+> makes it the one recorded exception to CLAUDE.md rule 7 — see the rule itself. Rule 6 has **no**
+> exception here: the author's name has been removed from both bylines, and corrections made to this
+> file since (§5's stylesheet path, §9's update behaviour) are marked where they were made.
 
 ---
 
@@ -73,7 +79,7 @@ Ouvrez **PowerShell en administrateur**, puis adaptez le chemin d'installation :
 cd "D:\Program Files\Switchboard\resources"      # adaptez ce chemin
 Copy-Item app.asar app.asar.bak                   # sauvegarde (1re fois seulement)
 npx @electron/asar extract app.asar app_src
-(Get-Content app_src\public\style.css -Raw) -replace '#111118','#1e1e2e' | Set-Content app_src\public\style.css
+(Get-Content app_src\src\renderer\style.css -Raw) -replace '#111118','#1e1e2e' | Set-Content app_src\src\renderer\style.css
 npx @electron/asar pack app_src app.asar --unpack-dir "node_modules/{better-sqlite3,node-pty}"
 ```
 
@@ -159,7 +165,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## 9. Réserves et limites
 
-- **Mise à jour automatique** : Switchboard se met à jour seul (au lancement et toutes les 4 h) ; chaque nouvelle version réécrit `app.asar` et **annule** la personnalisation. Relancez alors le script.
+- **Mise à jour** : ce fork **n'a pas de mise à jour automatique** — l'intégration `electron-updater` de l'amont a été retirée volontairement. Rien ne réécrit `app.asar` dans votre dos : vos modifications tiennent jusqu'à ce que vous installiez vous-même une nouvelle version, et c'est à ce moment-là qu'il faut relancer le script. (Le texte d'origine annonçait une mise à jour automatique toutes les 4 h ; c'était vrai de l'amont, pas d'ici. Si votre CSS a disparu, cherchez une installation que vous avez lancée, pas une mise à jour silencieuse.)
 - **Application non signée** : l'avertissement Windows à l'installation est normal.
 - **Terminal** : la zone terminal (xterm) a son propre thème, réglable directement dans **Réglages → Terminal Theme** (Switchboard, Ghostty, Tokyo Night, Catppuccin Mocha, Dracula, Nord, Solarized Dark).
 - **Thème clair = premier jet** : la conversion sombre → clair est volontairement « best-effort ». Si une zone vous paraît peu lisible, ajustez le bloc de correctifs en fin de `style.css` (section « correctifs zone conversation » du script).
@@ -167,4 +173,5 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ---
 
-*Document rédigé par Jean-Luc PIETRI — 23/05/2026.*
+*Guide tiers, 23/05/2026, repris tel quel. La signature d'origine a été retirée : ce dépôt est public et
+n'y écrit aucun nom de personne.*

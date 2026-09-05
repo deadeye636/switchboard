@@ -26,7 +26,7 @@ npm install          # runs postinstall automatically
 | Command | What it does |
 |---|---|
 | `npm run demo:start` | **The default for development.** A fully isolated instance against seeded demo stores — never touches your real sessions. See [`demo-env.md`](demo-env.md). |
-| `npm start` | Bundles CodeMirror, then launches Electron against your **real** stores. |
+| `npm start` | Bundles CodeMirror **and PDF.js**, then launches Electron against your **real** stores. |
 | `npm run start:debug` | The same with DevTools on port 9222, so the app can be driven from the command line. |
 | `npm run electron` | Skips the bundle step — faster iteration once you have run one of the above. |
 | `npm run stop:dev` | Stops **this checkout's** dev run (never a different one, never an installed build). |
@@ -48,11 +48,13 @@ A fix confirmed under `npm start` is confirmed in the **dev** database only.
 ## Tests
 
 ```bash
-npm test             # node --test over test/*.test.js — no Electron needed
+npm test             # node --test, discovered from the repo root — no Electron needed
 ```
 
-Takes around twenty seconds; `trigger-watcher.test.js` uses real `fs.watch` and timers and sets the
-wall clock on its own.
+Takes around half a minute, and that is the whole suite rather than one slow file.
+`trigger-watcher.test.js` uses real `fs.watch` and timers and is the slowest single file at roughly
+twenty seconds, but the rest of the suite now outlasts it. Time your own run instead of trusting the
+number here — it is only meant to tell you that several minutes means something is stuck.
 
 Green tests are not the same as a working app. On any renderer change, drive the running app and
 look at what the browser console says:
@@ -89,7 +91,9 @@ photographed without photographing someone's real projects.
 
 ## Building
 
-All build commands bundle CodeMirror first, then invoke electron-builder. Output goes to `dist/`.
+All build commands stamp `build-info.json`, then bundle **CodeMirror and PDF.js**, then invoke
+electron-builder. Output goes to `dist/`. (`npm run bundle:pdf` is a separate step from
+`bundle:codemirror` and produces two files — the viewer bundle and the PDF.js worker.)
 
 ```bash
 npm run build         # current platform

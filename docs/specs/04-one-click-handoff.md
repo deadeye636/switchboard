@@ -4,7 +4,9 @@
 
 **Status:** Implemented · **Roadmap:** Opportunity #4 (Phase 3) · **Independent:** Yes
 
-> **As built:** the flow lives in `src/renderer/handoff/handoff.js` (`runHandoff`) plus
+> **As built:** the flow lives in `src/renderer/handoff/handoff.js` — entry point
+> `startHandoffForSession` (exported as `window.startHandoffForSession`; the stopped-session path is
+> `runHandoffOnStoppedSession`). There is no `runHandoff`, which is what this line used to name. Plus
 > `src/renderer/handoff/handoff-actions.js` and `src/renderer/handoff/handoff-extract.js` — not in
 > `dialogs.js`, and the `handoff-flow.js` state machine proposed below was built and later replaced by
 > this split. Its tests went with it: `test/handoff-{actions,extract,prompt,submit}.test.js`, not the

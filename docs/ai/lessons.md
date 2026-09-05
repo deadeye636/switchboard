@@ -910,7 +910,7 @@ on the branch that does not wipe.
   check there proves nothing — the corruption test had to write synthetic coloured output first, then
   simulate a sibling's wipe by calling `clearTexture()` on the shared atlas directly.
 
-## A comment can blind a guard, and the guard says nothing (#drift-audit)
+## A comment can blind a guard, and the guard says nothing (#554)
 
 Two source-scanning guards — `test/backend-path-neutrality.test.js` and `test/store-isolation.test.js` —
 removed comments before reading the code, and did it in the order that breaks:

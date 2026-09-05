@@ -38,7 +38,10 @@ a schema the migrations never touched (`no such column: parserVersion` is what t
 | the installed app (packaged) | `~/.switchboard` | `~/.switchboard/switchboard.db` |
 | a test sandbox / agent run | `$SWITCHBOARD_DATA_DIR` | there |
 
-Set in `src/main.js` (~L82): unpackaged **and** no explicit `SWITCHBOARD_DATA_DIR` →
+Set in `src/main.js`, in the `SWITCHBOARD_DATA_DIR` block near the top — before the first `require` of
+anything that reaches `db.js`, which is the whole point of its position; grep the name rather than a
+line number, which is what this sentence used to give you. Unpackaged **and** no explicit
+`SWITCHBOARD_DATA_DIR` →
 `~/.switchboard-dev`, so a dev instance never races the installed app on `session_cache`.
 `src/db/connection.js` resolves `DATA_DIR` at module load (db.js requires it on its first line), which
 is why the env var must be set **before** anything requires db.js. `test/main-modules-no-db.test.js`

@@ -10,14 +10,18 @@ comments to distinguish our fork's behaviour from haydng/jbr). It lives in a sin
 our own `origin` plus the upstream forks we port from.
 
 - Branch **`main`** = our main line (was `deadeye` before the GitHub move; the codename stays).
-- **`origin`** = the SSH remote for `deadeye636/switchboard` — our repo, `main` is the default
-  branch. Pushed via SSH; `core.sshCommand` points at native Windows OpenSSH so the Bitwarden SSH
-  agent is used (Git-bundled MSYS ssh can't reach the agent pipe).
-- **Reference branches on origin** (read-only snapshots of the porting sources, recognizable by
-  name, not generic): `haydng` (= `haydng/main`, the base) and `jbr` (= `jbr/main`, feature source).
-- **Upstream remotes** (fetch sources for porting): `haydng` (base), `jbr` (JeanBaptisteRenard —
-  feature source), `upstream` (doctly — original). Plus extra read-only forks.
-- `../switchboard-jbr` = a read-only **git worktree** on `jbr/main` for reference.
+- **`origin`** = `https://github.com/deadeye636/switchboard.git` — our repo, **HTTPS for both fetch and
+  push**, and `main` is its only branch. `git push origin main` goes straight out; no SSH agent is
+  involved. (It was an SSH remote pushed through a Bitwarden agent once. `git remote -v` is the answer,
+  not this line.)
+- **The porting sources are separate remotes, not branches on origin** (fetch-only in practice):
+  `haydng` (HaydnG — the base), `jbr` (JeanBaptisteRenard — feature source), `upstream` (doctly — the
+  original), plus extra read-only forks. Their branches are visible as `haydng/main`, `jbr/main` and so
+  on; `git branch -r` lists them. A `git push` to any of them is refused by
+  `.claude/hooks/guard-commands.js`.
+- A read-only **git worktree** on `jbr/main` beside the checkout used to be kept for reference. There is
+  none today (`git worktree list`), so read that source with `git show jbr/main:<path>` — which is what
+  you want anyway, since a checkout of a fetch-only branch is one more tree to keep in sync.
 - All forks diverged from merge-base `b98c2f8`. Version numbers between forks are not comparable.
 
 Feature-adoption catalogue: closed issue

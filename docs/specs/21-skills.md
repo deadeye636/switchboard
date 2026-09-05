@@ -61,11 +61,18 @@ Hermes is the case that shows why documentation would have got this wrong: it ta
 flag, which says nothing about a session already at its prompt — and the session turned out to accept
 slash commands anyway.
 
-**Claude's plugin skills are offered too (#463), and the picker did not have to change.** A plugin's
+**Plugin skills are offered too, and the picker did not have to change.** A plugin's
 skills sit in its cached checkout, which `listResources` used to report only as a plugin directory, so
-nothing ever saw one. Claude now lists each installed plugin's `skills/` folder as a skill source of its
-own, and everything above applies unaltered — the shared expander walks it, the row says where it came
-from, and the descriptor builds the invocation.
+nothing ever saw one. A backend now lists each installed plugin's `skills/` folder as a skill source of
+its own, and everything above applies unaltered — the shared expander walks it, the row says where it
+came from, and the descriptor builds the invocation.
+
+**Claude first (#463), Codex since #536** — both spell it as the same `PLUGIN_SKILLS_RULE`
+(`{ mode: 'skillTree', kind: 'skill' }`) selected by a `pluginFromSource` predicate, in
+`src/backends/claude/resources.js` and `src/backends/codex/resources.js`. This section said "Claude's"
+for as long as that was true and kept saying it afterwards; the shape is the backend-neutral one, so
+read it as "a backend that has plugins", and check the descriptors rather than this sentence for who
+does today.
 
 Two questions the layout cannot answer, and both are why this is not a directory walk:
 
