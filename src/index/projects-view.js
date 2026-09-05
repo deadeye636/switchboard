@@ -133,6 +133,11 @@ function buildProjectsFromCache(showArchived) {
       // How that parent link was established (#193): 'fork'/'parent'/'compaction' are hard (the backend
       // recorded it), 'clear' is the soft mtime-freeze guess — the sidebar labels a guess as a guess.
       lineageKind: row.lineageKind || null,
+      // Which tool this session was imported from, as a label (#552). Null for everything nobody
+      // imported, which is nearly every row. It rides to the sidebar because the same work can be in the
+      // list twice — once from the tool's own store, once from the store it was imported into — and this
+      // is what makes the second copy legible instead of confusing.
+      importedFrom: row.importedFrom || null,
       name: meta?.name || null,
       starred: meta?.starred || 0,
       archived: meta?.archived || 0,

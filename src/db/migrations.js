@@ -476,6 +476,18 @@ const migrations = [
       db.prepare("UPDATE settings SET value = ? WHERE key = 'global'").run(JSON.stringify(global));
     } catch { /* an unreadable blob is not worth failing a migration over */ }
   },
+
+  // Where a session was imported FROM (#552). `hermes sessions import` copies a Claude Code or Codex CLI
+  // transcript into Hermes' own store, and Switchboard reads those two stores directly as well — so the
+  // same work can legitimately appear twice, once under each backend. This column is what lets the row
+  // say so; without it the second copy is a duplicate with no explanation.
+  //
+  // The value is a LABEL a person reads ('Claude Code'), produced inside the backend's own folder. Not a
+  // backend id: nothing outside `src/backends/hermes/` should have to know how Hermes spells its import
+  // sources. NULL = not imported, which is every session of every other kind.
+  (db) => {
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN importedFrom TEXT'); } catch {}
+  },
 ];
 
 /**

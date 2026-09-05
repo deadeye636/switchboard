@@ -98,13 +98,15 @@ const SOURCE_DECISIONS = [
       + 'real and the work is real; the stub has no cwd, so it lands in the backend bucket.',
   },
   {
-    source: 'claude-code', ingested: false, row: { cwd: '/imported/claude' },
-    why: 'a transcript brought in by `hermes sessions import` (#552). Held out: Switchboard reads the '
-      + 'Claude store directly, so ingesting it would show the same work twice under two backends.',
+    source: 'claude-code', ingested: true, row: { cwd: '/imported/claude' }, importedFrom: 'Claude Code',
+    why: 'a Claude Code transcript brought in by `hermes sessions import` (#552). Real coding work, and '
+      + 'it carries the cwd the foreign transcript recorded. Switchboard reads the Claude store directly '
+      + 'too, so the same work can be listed twice — the row is marked as imported, which is what makes '
+      + 'the second copy provenance instead of a duplicate nobody can explain.',
   },
   {
-    source: 'codex-cli', ingested: false, row: { cwd: '/imported/codex' },
-    why: 'the Codex half of the same import (#552), held out for the same reason.',
+    source: 'codex-cli', ingested: true, row: { cwd: '/imported/codex' }, importedFrom: 'Codex CLI',
+    why: 'the Codex half of the same import (#552), ingested and marked for the same reason.',
   },
   {
     source: 'bot_room', ingested: false, row: { title: 'a group room' },
@@ -151,10 +153,19 @@ test('every source value this reader decides about is pinned with its reason (#5
     assert.ok(d.why && d.why.length > 30, `${d.source} needs a reason, not a category`);
   }
   const dir = makeDecisionStore();
-  const ids = withStore(dir, () => reader.discoverSessions({}).map(h => h.sessionId).sort());
-  const expected = SOURCE_DECISIONS.filter(d => d.ingested).map(d => d.source).sort();
-  assert.deepEqual(ids, expected,
-    'the ingested set must equal exactly the entries marked ingested — both directions');
+  withStore(dir, () => {
+    const found = reader.discoverSessions({});
+    const expected = SOURCE_DECISIONS.filter(d => d.ingested).map(d => d.source).sort();
+    assert.deepEqual(found.map(h => h.sessionId).sort(), expected,
+      'the ingested set must equal exactly the entries marked ingested — both directions');
+    // And the provenance mark is pinned per entry too, so a source that starts (or stops) being marked
+    // as imported fails by name rather than by a badge quietly appearing on rows (#552).
+    for (const h of found) {
+      const d = SOURCE_DECISIONS.find(x => x.source === h.sessionId);
+      assert.equal(reader.parseSession(h).importedFrom, d.importedFrom || null,
+        `${d.source}: importedFrom must be exactly what this table says`);
+    }
+  });
 });
 
 test('every session is still offered when the caller asks for all of them (#535)', SKIP, () => {
@@ -184,13 +195,70 @@ test('a repaired session is offered, and lands in the bucket for a session with 
   });
 });
 
+test('an imported session is offered, keeps its project, and says where it came from (#552)', SKIP, () => {
+  // `hermes sessions import` copies a Claude Code / Codex CLI transcript into Hermes' store and stamps
+  // the tool it read (`_SOURCE_DB_NAMES` in hermes_cli/foreign_sessions.py). Unlike a recovered stub these
+  // carry the foreign transcript's cwd, so they group under a project like any other session — the only
+  // open question was the duplicate, and the answer is to mark it rather than hide it.
+  const dir = makeStore([
+    { id: 'own', source: 'cli', started_at: 100, cwd: '/project', message_count: 1 },
+    { id: 'imp-claude', source: 'claude-code', started_at: 100, cwd: '/imported/claude', message_count: 2 },
+    { id: 'imp-codex', source: 'codex-cli', started_at: 100, cwd: '/imported/codex', message_count: 2 },
+  ]);
+  withStore(dir, () => {
+    const found = reader.discoverSessions({});
+    assert.deepEqual(found.map(h => h.sessionId).sort(), ['imp-claude', 'imp-codex', 'own']);
+    const byId = new Map(found.map(h => [h.sessionId, reader.parseSession(h)]));
+    assert.equal(byId.get('imp-claude').cwd, '/imported/claude', 'it keeps the project it was worked in');
+    assert.equal(byId.get('imp-claude').importedFrom, 'Claude Code');
+    assert.equal(byId.get('imp-codex').importedFrom, 'Codex CLI');
+    assert.equal(byId.get('own').importedFrom, null,
+      'and a session nobody imported carries no mark — null is a fact here, not an absence');
+  });
+});
+
+test('the imported mark is a label, so no Hermes source value leaves this backend (#552)', SKIP, () => {
+  // The mark has to survive being read by a core that must not know a backend id, so what leaves the
+  // reader is a sentence a person reads. If this ever returned the raw `claude-code`, the cache would be
+  // storing another backend's id and the sidebar would be printing it.
+  const dir = makeStore([
+    { id: 'imp', source: 'claude-code', started_at: 100, cwd: '/imported/claude', message_count: 1 },
+  ]);
+  withStore(dir, () => {
+    const parsed = reader.parseSession(reader.discoverSessions({})[0]);
+    assert.equal(parsed.importedFrom, 'Claude Code');
+    assert.notEqual(parsed.importedFrom, 'claude-code', 'the raw source value must not leak out');
+    assert.equal(parsed.backendId, 'hermes', 'the row is still a Hermes row — the import did not move it');
+  });
+});
+
+test('a source that names an Object property is not a label (#552)', SKIP, () => {
+  // `source` is a free string — `hermes --source constructor` writes exactly this. Looked up in a plain
+  // object it would answer with something off Object.prototype, and a truthy non-string would then be
+  // handed to the cache as the tool a session was imported from.
+  const dir = makeStore([
+    { id: 'ctor', source: 'constructor', started_at: 100, cwd: '/project', message_count: 1 },
+    { id: 'proto', source: '__proto__', started_at: 100, cwd: '/project', message_count: 1 },
+  ]);
+  withStore(dir, () => {
+    assert.deepEqual(reader.discoverSessions({}).map(h => h.sessionId), [],
+      'and neither is ingested in the first place — the allow-list holds out what it has not heard of');
+    for (const h of reader.discoverSessions({ includeAll: true })) {
+      assert.equal(reader.parseSession(h).importedFrom, null,
+        `${h.sessionId}: an unlisted source is not imported`);
+    }
+  });
+});
+
 test('a repaired session is NOT a candidate for the session we just launched (#551)', SKIP, () => {
   // Ingest and live pairing ask different questions, and widening the first must not widen the second.
-  // A `recovered` row is a rebuild of a session that already ended, so it can never be the row a spawn
-  // just wrote — offering it to matchLiveSession would let a launch adopt somebody else's identity.
+  // A `recovered` row is a rebuild of a session that already ended and an imported one was written by
+  // another tool on another day, so neither can be the row a spawn just wrote — offering them to
+  // matchLiveSession would let a launch adopt somebody else's identity (#551, #552).
   const dir = makeStore([
     { id: 'a', source: 'cli', started_at: 100, cwd: '/project', message_count: 1 },
     { id: 'rec', source: 'recovered', started_at: 100, message_count: 1 },
+    { id: 'imp', source: 'claude-code', started_at: 100, cwd: '/project', message_count: 1 },
   ]);
   const ids = withStore(dir, () => reader.listLiveCandidates().map(c => c.sessionId));
   assert.deepEqual(ids, ['a'], 'only the CLI writes the row a launch just created');

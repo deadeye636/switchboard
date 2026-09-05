@@ -33,7 +33,8 @@ const { dbSignature } = require('../livestate-cache');
 // charts by itself instead of waiting for a manual Rebuild.
 //   v2: per-(date, HOUR, model) metrics in LOCAL time, with cost per bucket (#159)
 //   v3: `recovered` sessions are ingested — a session Hermes repaired after a crash (#551)
-const PARSER_SCHEMA_VERSION = 3;
+//   v4: imported sessions are ingested, and the row records what they were imported from (#552)
+const PARSER_SCHEMA_VERSION = 4;
 
 let _home = null;
 
@@ -121,11 +122,15 @@ const LAST_MESSAGE_JOIN = `
 //   problem: a cwd-less session lands in the backend-scoped bucket the gateway/cron chats already use
 //   (`sessionBucketPath` in ../hermes/index.js, §5.9) instead of being forced under a project (#551).
 //
-// HELD OUT, and these reasons were the ones missing before:
+//   `claude-code` / `codex-cli` — a Claude Code or Codex CLI transcript brought into Hermes' own store
+//   by `hermes sessions import` (`hermes_cli/foreign_sessions.py`, `_SOURCE_DB_NAMES`). Real coding
+//   work, and the import copies the cwd the foreign transcript recorded, so these group under a project
+//   like any other session. **The duplicate is real and accepted**: Switchboard also reads the Claude and
+//   Codex stores directly, so the same work can appear twice, once under each backend. The row says
+//   where it came from (`importedFrom`, below) so the second copy reads as provenance rather than as a
+//   bug — hiding it would surprise the user who ran the import on purpose (#552).
 //
-//   `claude-code` / `codex-cli` — sessions imported by `hermes sessions import`
-//   (`hermes_cli/foreign_sessions.py`). Those DO carry a cwd, so they are the cleaner candidate of the
-//   two (#552).
+// HELD OUT, and these reasons were the ones missing before:
 //
 //   `bot_room` — one row per Group Chat room (`gateway/platforms/api_server_room_dispatch.py`), not a
 //   session anybody coded in.
@@ -142,7 +147,26 @@ const LAST_MESSAGE_JOIN = `
 //
 //   anything else — an unknown value is held out by not being in the list, and that is the whole
 //   argument for an allow-list here.
-const INGEST_SOURCES = ['cli', 'recovered'];
+const INGEST_SOURCES = ['cli', 'recovered', 'claude-code', 'codex-cli'];
+
+// Which tool a session was imported FROM, as a label a person reads — null when it was not imported.
+//
+// The mapping stays HERE, inside the backend's own folder, and what leaves is a plain string. That is
+// what keeps `claude-code` out of the core and out of the renderer: the cache stores the label, the
+// sidebar prints it, and neither has to know that Hermes spells its import sources this way. An
+// unrecognised value is not translated — a source we have no sentence for is not "imported", it is
+// simply not in this table (#552).
+// A Map, not an object literal: `source` is a free string a user can set (`hermes --source constructor`),
+// and a plain object would answer that lookup with something off Object.prototype — a truthy non-string
+// this would then hand to the cache as a label.
+const IMPORT_ORIGINS = new Map([
+  ['claude-code', 'Claude Code'],
+  ['codex-cli', 'Codex CLI'],
+]);
+
+function importOrigin(source) {
+  return IMPORT_ORIGINS.get(String(source || '')) || null;
+}
 
 function sourceFilter(includeAll) {
   if (includeAll) return '';
@@ -150,9 +174,11 @@ function sourceFilter(includeAll) {
 }
 
 // Live PAIRING asks a narrower question than ingest: which row did the session we JUST spawned write?
-// Only the CLI writes one of those. A `recovered` stub is a rebuild of a session that already ended, so
-// it can never be the row a launch just created — it stays out of the candidate pool it was never in,
-// and widening the ingest list above does not quietly widen this one (#551).
+// Only the CLI writes one of those. A `recovered` stub is a rebuild of a session that already ended, and
+// an imported transcript was written by another tool on another day — neither can be the row a launch
+// just created, so both stay out of the candidate pool they were never in, and widening the ingest list
+// above does not quietly widen this one (#551, #552). Resuming an imported session is unaffected:
+// `liveRefFor` already holds the id and asks `sessionExists`, which filters on nothing.
 function liveCandidateFilter(includeAll) {
   return includeAll ? '' : " WHERE s.source = 'cli'";
 }
@@ -327,6 +353,11 @@ function parseSession(handle) {
       // none, and neither does a `recovered` stub (#551) — those fall into the backend bucket, they are
       // not forced under a project (§5.9).
       cwd: s.cwd || null,
+      // Provenance for a session `hermes sessions import` brought in (#552) — the label of the tool it
+      // came from, null for everything else. The sidebar marks the row with it, because Switchboard also
+      // reads that tool's own store: without the mark the second copy looks like a duplicate nobody can
+      // explain.
+      importedFrom: importOrigin(s.source),
       summary,
       firstPrompt: firstPrompt || summary,
       textContent,

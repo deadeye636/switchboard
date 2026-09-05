@@ -153,6 +153,21 @@ function buildSessionItem(session, opts = {}) {
       : `Running in another terminal${liveOwner.pid ? ` (pid ${liveOwner.pid})` : ''}, so it cannot be resumed here.`;
     detailEl.appendChild(chip);
   }
+  // Provenance for a session that was imported into its backend's store rather than written there
+  // (#552). Worth a mark because the app may hold the SAME work twice — once from the tool that wrote
+  // it, once from the store somebody imported it into — and two identical rows under two backends read
+  // as a bug until one of them says where it came from. Deliberately the plain `.session-detail-pill`
+  // and nothing else: it is a hint on a row, not a state, so it must not compete with the chips beside
+  // it that say what a session is DOING. The label comes off the row (the backend produced it), so
+  // nothing here knows how any backend spells its import sources.
+  if (session.importedFrom) {
+    const importedChip = document.createElement('span');
+    importedChip.className = 'session-detail-pill';
+    importedChip.textContent = 'Imported';
+    importedChip.title = `Imported from ${session.importedFrom}. The original may also be listed under `
+      + 'its own backend.';
+    detailEl.appendChild(importedChip);
+  }
   if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(session.sessionId)) {
     const ideChip = document.createElement('span');
     ideChip.className = 'session-detail-pill session-ide-chip';

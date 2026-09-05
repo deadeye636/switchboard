@@ -207,9 +207,9 @@ The only backend whose history is **not** in files — the reason the discovery 
   **Corrects the plan:** we had assumed there was *no* `cwd` column and that Hermes sessions would have to
   live in a synthetic bucket. There is one — Hermes groups into normal projects like everyone else, and
   the bucket is only a fallback for sessions that genuinely have no directory (gateway/cron chats).
-- `source IN ('cli', 'recovered')` is ingested by default (a gateway/Telegram chat is not a coding
-  session). Live PAIRING stays narrower — only `cli`, because only the CLI writes the row a launch just
-  created.
+- `source IN ('cli', 'recovered', 'claude-code', 'codex-cli')` is ingested by default (a gateway/Telegram
+  chat is not a coding session). Live PAIRING stays narrower — only `cli`, because only the CLI writes the
+  row a launch just created.
 - **`source` is an OPEN set** (#535, corrected — an earlier version of this bullet enumerated it and was
   wrong twice over). `hermes --source <anything>` writes a free value through `HERMES_SESSION_SOURCE`, and
   every gateway platform contributes its own name. Hermes' own two enumerations disagree with each other,
@@ -222,7 +222,13 @@ The only backend whose history is **not** in files — the reason the discovery 
   the filter needing to know they exist**, which is the argument for an allow-list rather than a deny-list.
   **`recovered` is ingested since #551**: it is rebuilt from orphaned messages after a crash, so the work
   is real, and its stub has no `cwd` — it falls into the backend bucket like a gateway chat does.
-  **`claude-code` / `codex-cli`** are still held out (#552); those DO carry a cwd.
+  **`claude-code` / `codex-cli` are ingested since #552**: `hermes sessions import` copies a Claude Code or
+  Codex CLI transcript into Hermes' store along with the cwd the transcript recorded, so they group under a
+  project like any other session. Switchboard reads those two stores directly as well, so the same work can
+  be listed twice, once under each backend — the row carries `importedFrom` ('Claude Code' / 'Codex CLI')
+  and the sidebar marks it `Imported`, which is what makes the second copy provenance rather than a
+  duplicate nobody can explain. The value is a LABEL, produced inside `src/backends/hermes/`, so no Hermes
+  source value reaches the core or the renderer.
   `test/hermes-store-v21.test.js` (`SOURCE_DECISIONS`) pins every one of these with its reason.
 - **A CLI at 0.21.0 does not mean a store at 0.21.0.** Hermes migrates on open, so a machine that has
   updated but not started a session still has the old schema — this was measured on one at version 23 while

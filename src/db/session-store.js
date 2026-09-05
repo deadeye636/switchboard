@@ -39,9 +39,10 @@ const stmts = {
       parentSessionId, agentId, subagentType, description,
       backendId, filePath,
       changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId, lineageKind,
+      importedFrom,
       parserVersion
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -70,6 +71,10 @@ const stmts = {
       costStatus = COALESCE(excluded.costStatus, session_cache.costStatus),
       lineageParentId = COALESCE(excluded.lineageParentId, session_cache.lineageParentId),
       lineageKind = COALESCE(excluded.lineageKind, session_cache.lineageKind),
+      -- NOT coalesced, unlike the columns above it: a NULL here is a FACT ("this session was not
+      -- imported"), not the "the scanner could not tell" that makes a NULL backendId or costStatus
+      -- dangerous. Coalescing would make the mark unremovable if a store were ever re-read (#552).
+      importedFrom = excluded.importedFrom,
       parserVersion = excluded.parserVersion
   `),
   // Record a /clear child's lineage the moment the live re-key resolves it (#193). Inserts a sparse row if
@@ -233,6 +238,8 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.costStatus || null,
       s.lineageParentId || null,
       s.lineageKind || null,
+      // #552 — the tool a session was imported from, as a label. Null for every session nobody imported.
+      s.importedFrom || null,
       // v14 (#152) — which parser wrote this row. The scan compares it to the parser that would read
       // it now, so a bumped parser re-reads its own sessions instead of leaving stale metrics behind.
       s.parserVersion == null ? null : Number(s.parserVersion)
