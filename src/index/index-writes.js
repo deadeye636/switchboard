@@ -8,11 +8,16 @@
 //   - the cross-sweep scan-state (`storeProjectPaths` + `isRemovedProject`), and
 //   - the two renderer-push helpers (`notifyRendererProjectsChanged`, `sendStatus`).
 //
-// It requires only `backends` (registry, for the scope) and `sessionBackends` (for markPersisted); it
+// It requires only `backends` (registry, for the scope), `sessionBackends` (for markPersisted) and two
+// pure leaves — `app/path-containment` and `projects/register-lookup`, which requires only the first; it
 // requires NONE of the other split modules, so nothing cycles back into it.
 
 const backends = require('../backends');
 const sessionBackends = require('../session/session-backends');
+// WHICH ROW of the register a path is about (#579). A pure leaf — it requires `app/path-containment` and
+// nothing else — so this file stays the leaf its header describes.
+const { pathKey } = require('../app/path-containment');
+const { resolveRegisterRow } = require('../projects/register-lookup');
 
 // A session_cache row with no explicit backendId predates the multi-LLM era and is Claude by definition —
 // the same named default the renderer uses (backend-registry.js). Only used to route a row to its
@@ -22,7 +27,7 @@ const LEGACY_SESSION_BACKEND = 'claude';
 let getMainWindow, log, notifyViewWindows;
 let upsertCachedSessions, deleteCachedSession, replaceSessionMetrics;
 let deleteSearchFolder, deleteSearchSession, upsertSearchEntries, deleteCachedFolder, getFolderLineage;
-let getMeta, setName, getProjectMeta;
+let getMeta, setName, getProjectMeta, getProjectStates, getProjectTombstones;
 
 function init(ctx) {
   getMainWindow = ctx.getMainWindow;
@@ -41,6 +46,9 @@ function init(ctx) {
   getMeta = ctx.db.getMeta;
   setName = ctx.db.setName;
   getProjectMeta = ctx.db.getProjectMeta;
+  // The register, for the removed-check's spelling-proof half (#579) — see isRemovedProject.
+  getProjectStates = ctx.db.getProjectStates;
+  getProjectTombstones = ctx.db.getProjectTombstones;
 }
 
 // --- backend provenance + scoping (multi-LLM T-4.2) ---
@@ -160,11 +168,48 @@ function newestStartedAt(sessions) {
  *
  * A hidden project is still ON the list and only unseen, so its sessions go on being indexed; a REMOVED
  * project is off the list and its rows were purged — re-indexing them would put it back into search and
- * undo half the removal. A single-row lookup by primary key, called per session in the scan loop.
+ * undo half the removal.
+ *
+ * It was a single-row lookup BY PRIMARY KEY, and `project_meta` is keyed on the path string (#579). The
+ * session row carries the cwd its CLI wrote and the register carries the spelling the user's act carried;
+ * miss the row and a removed project's sessions go straight back into the cache and the search index
+ * while the register still says removed. So it resolves the row the way a WRITE to the register does.
+ *
+ * **The cost is the point of the three tiers**, because this runs per session in the scan loop while
+ * `registeredPathFor` runs once per click:
+ *
+ *   1. the primary-key lookup it always was. A row for this very spelling that is REGISTERED settles it —
+ *      nothing can outrank a registered row for the caller's own path, so there is nothing to resolve.
+ *      That is the overwhelming majority of session rows, at exactly the old cost.
+ *   2. the tombstones — a short list, two columns, and usually empty. No tombstone anywhere for this
+ *      DIRECTORY and no row that could resolve can carry a `removedAt`, whatever it is spelled like.
+ *      Keyed through the memoised `pathKey`, never through a fresh `samePath` per row.
+ *   3. only then the whole register, keyed — for the handful of directories that really are tombstoned.
+ *
+ * Nothing here is remembered between calls: the reconcile re-asks this on main precisely because the
+ * worker's snapshot may be stale (see index-worker-client.js), and a memo would hand it back that snapshot.
  */
 function isRemovedProject(projectPath) {
   try {
-    const m = getProjectMeta(projectPath);
+    if (!projectPath) return false;
+
+    const exact = getProjectMeta(projectPath);
+    if (exact && exact.registered) return false;                    // tier 1
+
+    const key = pathKey(projectPath);
+    if (!key) return false;
+    const tombstones = typeof getProjectTombstones === 'function' ? getProjectTombstones() : null;
+    if (!tombstones || !tombstones.size) return !!(exact && exact.removedAt);
+    let tombstoned = false;
+    for (const p of tombstones.keys()) {
+      if (pathKey(p) === key) { tombstoned = true; break; }         // tier 2
+    }
+    if (!tombstoned) return false;
+
+    const states = typeof getProjectStates === 'function' ? getProjectStates() : null;
+    if (!states) return !!(exact && exact.removedAt);
+    const hit = resolveRegisterRow(states, projectPath);            // tier 3
+    const m = hit && hit.state;
     return !!(m && m.removedAt && !m.registered);
   } catch {
     return false;

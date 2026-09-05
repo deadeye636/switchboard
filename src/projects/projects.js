@@ -22,6 +22,9 @@ const { deriveProjectPath } = require('../session/derive-project-path');
 // "Is this the same directory" has one answer, and it is about the REAL path (#563).
 const { pathKey } = require('../app/path-containment');
 const registry = require('./project-registry');
+// WHICH ROW of the register a path is about (#566, enumerated for the READ side in #579). Shared with
+// `index/index-writes.js`, so the scan's removed-check resolves the row the way a write to it does.
+const { registerLookup, resolveRegisterRow } = require('./register-lookup');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
 const { GLOBAL_ONLY_DEFAULTS } = require('../app/settings');
@@ -295,25 +298,17 @@ function liveSessionsIn(projectPath) {
  * `ensureProjectAdded` runs it once per spawn and the rest once per click. `pathKey` is memoised, and the
  * sidebar rebuild warms that memo every scan, so the rows are keyed at ~1 µs each in practice. Discovery
  * does NOT call this — `syncRegistry` keys the register once per pass anyway and picks its row out of that.
+ *
+ * The precedence itself now lives in `register-lookup.js` (#579), because the READ side has to apply the
+ * same one and two of its three sites are not in this file. This is the path half of that answer.
  */
 function registeredPathFor(projectPath) {
   if (!projectPath) return projectPath;
   let states;
   try { states = ctx.db.getProjectStates(); } catch { return projectPath; }
   if (!states || !states.size) return projectPath;
-
-  // Its own row, and it is the one on the list: the normal case, and the loop below has nothing to add.
-  const exact = states.get(projectPath);
-  if (exact && exact.registered) return projectPath;
-
-  const key = samePathKey(projectPath);
-  let sameDirectory = exact ? projectPath : null;
-  for (const [p, state] of states) {
-    if (p === projectPath || samePathKey(p) !== key) continue;
-    if (state && state.registered) return p;
-    if (sameDirectory === null) sameDirectory = p;
-  }
-  return sameDirectory === null ? projectPath : sameDirectory;
+  const hit = resolveRegisterRow(states, projectPath);
+  return hit ? hit.path : projectPath;
 }
 
 /**
@@ -339,6 +334,12 @@ function projectHasSessionsLeft(projectPath) {
  *
  * Called at the end of the two hard-delete handlers rather than from the renderer: the "Remove" dialog
  * runs them in sequence, so whichever finishes last finds the project truly gone and does the pruning.
+ *
+ * It is the ONE act here that destroys data, and it was the one register write #566 never reached (#579):
+ * `deleteProjectRefs` is an exact-match delete and this is not a `setProjectState`, which is what that
+ * follow-up grepped for. So it addresses the row the register HOLDS as well as the spelling it was called
+ * with — both, because the footprint this drops is wider than the register: the tags and the
+ * `project:<path>` settings blob are keyed on the caller's string, and the register row on its own.
  */
 function pruneProjectIfGone(projectPath) {
   if (!projectPath) return false;
@@ -346,8 +347,12 @@ function pruneProjectIfGone(projectPath) {
 
   // The project_meta row goes, and the register row IS that row (#167) — so the entry, the hide flags and
   // the tombstone go with it. There is nothing left to guard: no sessions anywhere, no config entry.
-  try { ctx.db.deleteProjectRefs(projectPath); } catch (err) {
-    ctx.log.warn('[prune] project refs delete failed: ' + err.message);
+  const registeredPath = registeredPathFor(projectPath);
+  const targets = registeredPath && registeredPath !== projectPath ? [projectPath, registeredPath] : [projectPath];
+  for (const target of targets) {
+    try { ctx.db.deleteProjectRefs(target); } catch (err) {
+      ctx.log.warn('[prune] project refs delete failed: ' + err.message);
+    }
   }
   ctx.log.info('[prune] forgot project (no sessions, no config entry): ' + projectPath);
   return true;
@@ -865,15 +870,24 @@ function projectKnownToAnyBackend(projectPath) {
  * The list is exactly what AUTO-ADD would have taken, tombstone included: a project the user REMOVED is
  * not offered back until a session that STARTED after the removal turns up (#575) — the same rule, asked
  * of the same function with the same time, so the offer can never contradict what the register would do.
+ *
+ * "Cannot contradict" was a claim, not a fact, for as long as the row was fetched by the raw string
+ * (#579). An admin row is spelled the way `deriveProjectPath` read it out of a transcript — the CLI's
+ * spelling — and the register holds whatever spelling the user's act carried, so the two diverge without
+ * anything exotic happening. Measured: a tombstone under one spelling, an admin row under another, and
+ * this offered the removed project straight back. It resolves the row the way a WRITE to the register
+ * does now, keyed once for the whole walk rather than per row.
  */
 function unlistedProjects() {
   try {
     const states = ctx.db.getProjectStates();
+    const lookup = registerLookup(states);
     const out = [];
     for (const row of ctx.cache.buildProjectsAdmin()) {
       if (row.registered) continue;
       if (!row.sessionCount) continue;                 // nothing to miss
-      const state = states.get(row.projectPath) || null;
+      const hit = lookup(row.projectPath);
+      const state = hit ? hit.state : null;
       // The START, not the recency (#575) — the same time the register decides on, so this offer cannot
       // say "you could add this" about a project auto-add would refuse.
       if (!registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionStartedAt: row.lastStartedAt })) continue;

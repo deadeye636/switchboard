@@ -435,8 +435,9 @@ sessionCache.init({
     setFolderMeta, getFolderMeta, getAllFolderMeta, getAllMeta, getAllCached, getSetting, getMeta, setName,
     getFavoritedProjects, getProjectDisplayNames, getAutoHiddenProjects,
     // The register (#167): what the sidebar is built FROM, and the one predicate the scan needs — is
-    // this project removed, and therefore not to be indexed back in.
-    getProjectMeta, getProjectStates,
+    // this project removed, and therefore not to be indexed back in. That predicate resolves the row the
+    // way a WRITE to the register does since #579, so it reads the tombstones and the register too.
+    getProjectMeta, getProjectStates, getProjectTombstones,
   },
 });
 const { readSessionFile, readFolderFromFilesystem, refreshFolder,

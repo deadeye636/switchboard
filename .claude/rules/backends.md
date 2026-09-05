@@ -156,6 +156,30 @@ path had ever seen the register. `registeredPathFor` is exported for them, and m
 already requires `app/settings`, so the direct import would be a cycle. Grep for `setProjectState` across
 `src/` rather than trusting this list; that is the check that would have found these two.
 
+**And the READ side asks the same question, which #566 never enumerated (#579).** A read that resolves a
+row differently from the write is the same bug facing the other way, and three readers still decided by the
+raw string. The precedence therefore lives in `projects/register-lookup.js` — a pure leaf over
+`app/path-containment`, so `index/index-writes.js` can hold it too — and `registeredPathFor` is its path
+half rather than its own copy. The three:
+
+- **`unlistedProjects`**, and this one was MEASURED wrong: a tombstone under one spelling, an admin row
+  under another, and it offered the removed project straight back, while its own docstring claimed it could
+  not contradict the register. The admin row's spelling comes out of `deriveProjectPath` — the CLI's raw
+  cwd — so the divergence needs nothing exotic. It keys the register ONCE and looks each row up.
+- **`isRemovedProject`**, which runs per session in the scan loop and therefore may not do what
+  `registeredPathFor` does. Three tiers, and the ordering IS the fix: the primary-key lookup it always was
+  (a registered row for the caller's own path settles it, at the old cost), then `getProjectTombstones` —
+  short, two columns, usually empty — keyed through the memoised `pathKey`, and only then the whole
+  register, for the handful of directories that really carry a tombstone. **Nothing is memoised across
+  calls**: `index-worker-client.js` re-asks on main precisely because the worker's snapshot may be stale.
+- **`pruneProjectIfGone`**, the one act here that destroys data, and the one #566 could not have found:
+  `deleteProjectRefs` is an exact-match DELETE and this writer never goes through `setProjectState`. It
+  addresses the register's row AND the caller's own, because the footprint it drops is wider than the
+  register — the tags and the `project:<path>` settings blob are keyed on the string it was called with.
+
+A test fake that stands in for a spelling-folding read has to fold too, or the test passes for the wrong
+reason: `test/projects.test.js`'s `getCachedByProjectPath` did not, while `session-store.js` does.
+
 ## Deleting a project's history refuses while we are running a session in it (#574)
 
 `deleteProjectSessions` is the one project action that takes files off disk — `removeProject` touches

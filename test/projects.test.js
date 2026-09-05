@@ -11,6 +11,9 @@ const path = require('node:path');
 
 const projects = require('../src/projects/projects');
 const backends = require('../src/backends');
+// The same canonical key production uses, so a fake that stands in for a spelling-folding read folds
+// the spellings it folds (#579) — see getCachedByProjectPath below.
+const { pathKey } = require('../src/app/path-containment');
 // The one comment stripper (CLAUDE.md reflex 14), for the two source checks at the end of this file.
 const { stripComments } = require('./helpers/strip-comments');
 const { encodeProjectPath } = require('../src/session/encode-project-path');
@@ -46,7 +49,11 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
     // that the fake works.
     backends,
     db: {
-      getCachedByProjectPath: (p) => cachedRows.filter(r => r.projectPath === p),
+      // EVERY spelling of the directory, the way session-store.js does it (#245) — a row records the cwd
+      // its CLI wrote, so an exact match is only ever part of a project. An exact-match fake here makes
+      // any cache-purge test pass for the wrong reason: the production read folds and the fake does not,
+      // so a test about a mismatched spelling would be asserting about a project with no rows at all.
+      getCachedByProjectPath: (p) => cachedRows.filter(r => pathKey(r.projectPath) === pathKey(p)),
       getBackendsByProjectPath: () => new Map(),
       // Discovery reads the rows straight (one pass), not through buildProjectsAdmin — that one also
       // readdirs the store and stats every project, on every sidebar render.
@@ -88,6 +95,9 @@ function makeCtx({ autoHideDays = 0, global: initialGlobal = {} } = {}) {
       },
       renameProjectRefs: () => {},
       // This is what the prune calls — it takes the project's tags, handoffs and favourites with it.
+      // EXACT-match on purpose: `db/project-refs.js` is a `DELETE ... WHERE projectPath = ?` and a fake
+      // that folded spellings would answer for the caller instead of showing what the caller asked for.
+      // That is what makes a mismatched-spelling prune test able to see anything (#579).
       deleteProjectRefs: (p) => { calls.prunedProjects.push(p); states.delete(p); autoHidden.delete(p); },
       // Records like the real cache_meta store so production writes (remap re-point, admin derive) are
       // observable — folder -> { folder, projectPath }, matching getAllFolderMeta's shape.
@@ -1242,6 +1252,29 @@ test('pruneProjectIfGone forgets a project with nothing left to restore', () => 
   } finally { t.cleanup(); }
 });
 
+// #579: the prune is the ONE act here that destroys data, and it is the one register write #566 never
+// reached — `deleteProjectRefs` is an exact-match DELETE and this writer does not go through
+// `setProjectState`, which is what that follow-up grepped for. Called with a spelling the register does
+// not hold, it dropped the tags and the settings blob and left the register row — entry, hide flags and
+// tombstone — standing.
+test('#579: the prune drops the row the register HOLDS, not only the spelling it was called with', () => {
+  const t = makeCtx();
+  try {
+    const registered = 'D:\\gone';
+    const asCalled = registered + path.sep;      // the same directory, spelled the way the caller had it
+    projects.ensureProjectAdded(registered);
+    projects.ensureProjectAdded('D:\\other');
+    assert.strictEqual(t.states.has(registered), true, 'the register holds one row, under one spelling');
+
+    assert.strictEqual(projects.pruneProjectIfGone(asCalled), true);
+
+    assert.ok(t.calls.prunedProjects.includes(registered),
+      'the destructive act addresses the register row the way a write to the register does');
+    assert.strictEqual(t.states.has(registered), false, 'so the row is really gone');
+    assert.strictEqual(t.states.has('D:\\other'), true, 'without taking the neighbours');
+  } finally { t.cleanup(); }
+});
+
 // --- misc -----------------------------------------------------------------------------------------
 
 test('toggleFavorite reports the state it just set', () => {
@@ -1430,6 +1463,41 @@ test('#183: a project the user REMOVED is not offered back — until a session S
     ]);
     assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), ['D:\\removed'],
       'a NEW session is a reason to offer it again — the same rule auto-add follows');
+  } finally { t.cleanup(); }
+});
+
+// #579, and this one was MEASURED before it was fixed. The test above uses one string for the register
+// and for the admin row, so it cannot see the defect: the admin row's spelling comes out of
+// `deriveProjectPath` — the raw cwd the CLI wrote — while the register holds the spelling the user's act
+// carried, and the two diverge without anything exotic happening. Driven against the real module, the
+// offer handed the removed project straight back, while `registeredPathFor` resolved the very same path
+// to the tombstoned row. The docstring four lines above `unlistedProjects` claimed the opposite.
+//
+// The mismatch is a trailing separator, which folds on every platform — `\` against `/` folds only on
+// Windows, and this suite runs on Linux CI too.
+test('#579: a tombstone under ANOTHER spelling still keeps the project out of the offer', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const registered = 'D:\\removed';
+    const asScanned = registered + path.sep;
+    t.ctx.db.setProjectState(registered, { registered: 0, removedAt: '2026-07-01T00:00:00.000Z' });
+
+    t.setAdminRows([
+      { projectPath: asScanned, registered: false, sessionCount: 5, lastActivity: '2026-06-01T00:00:00.000Z',
+        lastStartedAt: '2026-06-01T00:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects, [],
+      'the offer resolves the register row the way a WRITE to the register does');
+    assert.strictEqual(projects.registeredPathFor(asScanned), registered,
+      'and that is the row the write side was already reaching — the two agree now');
+
+    // The #575 rule still holds through the mismatch: a session that BEGAN after the removal is an offer.
+    t.setAdminRows([
+      { projectPath: asScanned, registered: false, sessionCount: 6, lastActivity: '2026-07-05T00:00:00.000Z',
+        lastStartedAt: '2026-07-05T00:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), [asScanned],
+      'resolving the row correctly is not the same as ignoring what the row says');
   } finally { t.cleanup(); }
 });
 
