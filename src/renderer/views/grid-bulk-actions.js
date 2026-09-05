@@ -14,12 +14,12 @@
 // getGridAllowedSessionIds): the composition point owns the state, the modules render it. That is the
 // same line #213 drew through main.js.
 //
-// Worth knowing about `gridStatusFilter`, since this file is where you will look for it: it has THREE
-// writers across THREE files — renderGridStatusFilters here, showGridView in grid-view.js (it resets a
+// Worth knowing about `gridStatusFilter`, since this file is where you will look for it: it has ONE
+// writer, `window._setGridStatusFilter` in grid-view.js, which assigns and persists in the same place.
+// Three callers go through it — renderGridStatusFilters here, showGridView in grid-view.js (it resets a
 // filter that admits nothing), and terminal-manager.js, which resets it when a session it wants to show
-// would be filtered away. Each writer also writes localStorage itself. Not this pass's to fix — this is
-// motion, not design — but it is the shape of a bug waiting: a fourth writer that forgets the
-// localStorage line loses the setting on reload, and nothing would say so.
+// would be filtered away. It used to be three writers each repeating the localStorage line, which is
+// the shape a fourth one would have silently got wrong. Add a caller, not a writer.
 //
 // A classic <script>, like the file it came from: same shared global lexical scope.
 

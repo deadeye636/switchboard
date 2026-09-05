@@ -274,7 +274,7 @@ let subagentWatcherSeq = 0;
 
 // --- Windows: main + settings window, the menu, the close guard, UI zoom (#34) -> app/windows.js ---
 // getSetting/setSetting go in through ctx because windows.js must not top-level-require db.js — that
-// would resolve DATA_DIR before main.js has set it (see :81-85).
+// would resolve DATA_DIR before main.js has set it (see the SWITCHBOARD_DATA_DIR block at the top of this file).
 const windows = require('./app/windows');
 windows.init({
   getMainWindow: () => mainWindow,
@@ -1327,7 +1327,8 @@ conventionDirs.registerIpc(ipcMain);
 // The secret paths are the trust boundary and they live in the module: plaintext never reaches the
 // terminal input, the shell family comes from the SESSION, and every failure unlinks what it wrote.
 // safeStorage, userData and the DB go in through ctx so the module needs no electron and no db.js
-// require of its own (db.js resolves DATA_DIR at module load — see :81-85).
+// require of its own (db.js resolves DATA_DIR at module load — see the SWITCHBOARD_DATA_DIR block at
+// the top of this file).
 const variables = require('./app/variables');
 variables.init({
   activeSessions,
@@ -1405,7 +1406,7 @@ function resolveTerminalShellProfileId(projectPath) {
 // --- Claude Code hook → attention ingest (spec 05) -> app/hooks.js ---
 // The loopback server's token check (#77) is the trust boundary; it lives in the module, which stays
 // Electron-free so `node --test` can drive it. getSetting comes in through ctx, not a require: db.js
-// resolves DATA_DIR at module load (see :81-85).
+// resolves DATA_DIR at module load (see the SWITCHBOARD_DATA_DIR block at the top of this file).
 const hooks = require('./app/hooks');
 // #223: which terminal cleared which session. State only — the hook ingest fills it, the transition
 // detector reads it, and neither owns it.

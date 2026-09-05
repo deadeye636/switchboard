@@ -27,7 +27,7 @@ const clearClaims = require('../session/clear-claims');
 // The CLI's own settings file lives under the user's home, so a failure to write it must not say where.
 const { readableError } = require('./readable-error');
 // The one writer for a file a CLI also owns (CLAUDE.md rule 11). This file is the one spec 24 names as its
-// motivating case, and it was the last place still writing it with a raw `writeFileSync` (#drift-audit).
+// motivating case, and it was the last place still writing it with a raw `writeFileSync` (#542).
 const { writeTextFile } = require('./safe-write');
 
 // Claude's shared settings file — in the ISOLATED home when there is one (#241). A demo/sandbox run is

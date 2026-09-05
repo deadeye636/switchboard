@@ -138,7 +138,7 @@ function isSubsequence(a, b) {
   return k === a.length;
 }
 
-test('the stripper never removes more than the shape it replaced, measured on the tree (#drift-audit)', () => {
+test('the stripper never removes more than the shape it replaced, measured on the tree (#554)', () => {
   // The safety property, and the reason replacing the two-pass version could not quietly blind a guard:
   // everything the old shape left standing is still standing. A mistake in the scanner can therefore only
   // leave MORE text for a guard to judge — a loud false failure — never less.
