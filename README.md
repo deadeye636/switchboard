@@ -288,6 +288,20 @@ Other documents worth knowing about:
 The task board is **GitHub Issues**. `node scripts/build-backlog.js` writes a local, untracked mirror
 (`docs/BACKLOG.md`) for grepping.
 
+## Contributing
+
+Issues and pull requests are both welcome — see **[`CONTRIBUTING.md`](CONTRIBUTING.md)** for what a change
+has to satisfy before it can be merged.
+
+Worth knowing up front, because it explains why that page is as specific as it is: this project is built
+largely by AI agents working against a written rulebook, which lives in `CLAUDE.md` and `.claude/rules/`.
+Two of its rules apply to anything anyone sends: a new test has to fail against the code as it was, and
+nothing that lands here carries a real path or a personal name. For a change of any size, open an issue
+first — several things are half-planned in issue comments that the code does not show.
+
+Found a security problem? Please report it privately through GitHub's Security tab rather than as an
+issue.
+
 ## Lineage & credits
 
 Switchboard is a fork of a fork. The foundation is upstream work, and the credit for it belongs to
