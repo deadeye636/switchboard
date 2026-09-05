@@ -356,7 +356,7 @@ own `config.toml`.)
 | `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
-| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `checkpoints`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
+| `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources and knowledge directories. Switchboard does not install or execute resources from there.
@@ -370,8 +370,8 @@ A flag becomes an option here only if it changes what an **interactive** session
 kind Switchboard spawns. Everything else is recorded in the backend's `scripts/check-*-help.js` audit list
 with the reason, so a new flag shows up as a failing check rather than as silence. The four kinds of no:
 
-- **Print-mode only.** `claude --permission-prompts` / `--permission-prompt-tool` and `agy --input-format`
-  do nothing in a TUI. (The first is the one #537 opened with, and reading its help is what settled it.)
+- **Print-mode only.** `claude --permission-prompts` and `agy --input-format` do nothing in a TUI. (The
+  first is the one #537 opened with, and reading its help is what settled it.)
 - **A session this app cannot follow.** `claude --cloud`, `--environment`, `--teleport` produce no local
   transcript, so the scan cannot find, adopt or resume what they start.
 - **"Stop asking me" in one click.** `codex --approve-for-me` answers the approval prompts for the user.
@@ -380,6 +380,12 @@ with the reason, so a new flag shows up as a failing check rather than as silenc
 - **Unmeasured.** `pi --tui-mode fullscreen` changes how the TUI drives the terminal Switchboard owns, and
   `claude --system-prompt-snapshot` changes a caching behaviour nobody here has watched. A control whose
   effect has not been seen is worse than no control.
+
+And one that used to be an option and should never have been: Hermes' `checkpoints` toggle emitted
+`--checkpoints`, which bare `hermes` does not take — the flag belongs to its `chat` subcommand, and at the
+top level `checkpoints` is a subcommand of its own. Every session launched with the toggle on died at
+spawn. It is gone (#548); a stored value is ignored, and reaching the flag would mean spawning
+`hermes chat` instead of `hermes`, which changes resume, the session id and the TUI for one toggle.
 
 One more that is not a flag at all, and so cannot become an option: Pi's `defaultTools` setting picks the
 initial built-in tools when no `--tools` is given — which means Pi's **`tools` option here overrides it**,
@@ -576,11 +582,11 @@ notice, because those were explicit configuration choices.
 | `node scripts/seed-demo.js` | Parses no arguments; driven entirely by `SWITCHBOARD_DEMO_DIR`. Idempotent. Also `git init`s two of the demo projects and leaves a dirty working tree in each. |
 | `ELECTRON_RUN_AS_NODE=1 electron scripts/demo-content.js` | Seeds the demo's DB-only content. Driven by `SWITCHBOARD_DATA_DIR` + `SWITCHBOARD_DEMO_DIR`; refuses a data dir outside the demo tree. |
 | `node scripts/upstream-check.js [--seen]` | Without the flag it only reports. |
-| `npm run hermes:help-check` | Runs `hermes --help` and fails when top-level options drift outside the audited Hermes descriptor list. |
-| `npm run claude:help-check` | Runs `claude --help` and fails when top-level options drift outside the audited Claude descriptor list. |
-| `npm run codex:help-check` | Runs `codex --help` and fails when top-level options or required resume/fork commands drift outside the audited Codex descriptor list. |
-| `npm run pi:help-check` | Runs `pi --help` and fails when top-level options or resource commands drift outside the audited Pi descriptor list. |
-| `npm run agy:help-check` | Runs `agy --help` and fails when top-level options or required model/plugin commands drift outside the audited agy descriptor list. |
+| `npm run hermes:help-check` | Runs `hermes --help` and asks it two questions: does the CLI advertise a top-level option nobody has decided about, and does it still take everything this app sends? The second half reads the flags off the descriptor (`scripts/managed-flags.js` — `buildLaunch` at every launch shape and option, plus the live-binding hook), so a list can no longer be wrong in the same direction as the CLI (#548). |
+| `npm run claude:help-check` | The same for `claude --help`. Its `SENT_ELSEWHERE` names the flags the core adds outside the descriptor. |
+| `npm run codex:help-check` | The same for `codex --help`, and it also requires the `resume`/`fork` commands. Codex is sent short flags, each answered through the long spelling on its own help line. |
+| `npm run pi:help-check` | The same for `pi --help`, and it also requires the resource commands. `SENT_ELSEWHERE` covers the model probe's flag. |
+| `npm run agy:help-check` | The same for `agy --help`, and it also requires the model/plugin commands. |
 | `npm run backends:help-check` | Runs all backend CLI help drift checks. |
 | `npm run backends:changelog-check` | Fetches each backend's changelog and prints only what appeared since the last accepted run. Sources come from the descriptors (`changelogSource`), the review position from `.git/backend-changelog-seen.json` — untracked, like `upstream:check`'s. Flags: `--seen`, `--all`, `--full`, `--backend <id>` (repeatable), `--limit <n>` (default 10, `0` = all), `--topics <a,b>` for a source that filters by product. It reports; it does not judge relevance and files no issues. |
 | `npm run backends:changelog-seen` | Accepts everything the report currently lists as reviewed. |

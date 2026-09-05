@@ -4,28 +4,20 @@
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
+const pi = require('../src/backends/pi');
+const { definitionFlags, auditFlags } = require('./managed-flags');
+
+// What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
+// The derivation found one Pi flag the hand-written list had on the wrong side: `--extension`, which
+// `buildLiveBinding` puts on every Pi launch, sat in the EXCLUDED set below.
 
 const REQUIRED_COMMANDS = new Set(['install', 'remove', 'uninstall', 'update', 'list', 'config', 'auth']);
-const MANAGED = new Set([
-  '--provider',
-  '--model',
-  '--append-system-prompt',
-  '--session',
-  '--fork',
-  '--name',
-  '--models',
-  '--no-tools',
-  '--no-builtin-tools',
-  '--tools',
-  '--exclude-tools',
-  '--thinking',
-  '--no-context-files',
-  '--use-theme',
-  '--list-models',
-  '--approve',
-  '--no-approve',
-  '--offline',
-]);
+
+// Not a launch flag: `listModels()` runs `pi --list-models` as a PROBE to fill the model picker
+// (backends/pi/index.js). It is still a flag this app sends, so it is audited — it just cannot come from
+// a launch the descriptor builds.
+const SENT_ELSEWHERE = new Set(['--list-models']);
+
 const AUDITED_EXCLUDED = new Set([
   '--api-key',
   '--system-prompt',
@@ -36,7 +28,6 @@ const AUDITED_EXCLUDED = new Set([
   '--session-id',
   '--session-dir',
   '--no-session',
-  '--extension',
   '--no-extensions',
   '--skill',
   '--no-skills',
@@ -54,17 +45,19 @@ const AUDITED_EXCLUDED = new Set([
   '--version',
 ]);
 
+/** The option DEFINITIONS in Pi's `Options:` block — one group per definition line, prose ignored. */
 function extractOptions(help) {
-  const found = new Set();
+  const groups = [];
   let inOptions = false;
   for (const raw of String(help || '').split(/\r?\n/)) {
     const line = raw.replace(/\x1b\[[0-9;]*m/g, '');
     if (/^Options:\s*$/i.test(line.trim())) { inOptions = true; continue; }
     if (inOptions && /^(Extensions can register|Extensions|Examples|Environment Variables|Built-in Tool Names)[:\s]/i.test(line.trim())) break;
     if (!inOptions) continue;
-    for (const match of line.matchAll(/--[a-z0-9][a-z0-9-]*/gi)) found.add(match[0]);
+    const flags = definitionFlags(line);
+    if (flags.length) groups.push(flags);
   }
-  return [...found].sort();
+  return groups;
 }
 
 function extractCommands(help) {
@@ -104,23 +97,26 @@ function main() {
     process.exit(1);
   }
 
-  const options = extractOptions(help);
-  const unknown = options.filter(opt => !MANAGED.has(opt) && !AUDITED_EXCLUDED.has(opt));
+  const groups = extractOptions(help);
+  const { advertised, unknown, missing } = auditFlags({
+    backend: pi, groups, excluded: AUDITED_EXCLUDED, alsoSent: SENT_ELSEWHERE,
+  });
+
   if (unknown.length) {
     console.error('Pi exposes unaudited top-level options:');
     for (const opt of unknown) console.error('  ' + opt);
-    console.error('Update src/backends/pi/index.js and this audit list, or document why the option stays excluded.');
+    console.error('Offer it in src/backends/pi/index.js, or add it to this audit list with the reason.');
     process.exit(1);
   }
 
-  const missing = [...MANAGED].filter(opt => !options.includes(opt));
   if (missing.length) {
-    console.error('Pi no longer advertises managed options:');
+    console.error('Pi no longer takes options this app sends:');
     for (const opt of missing) console.error('  ' + opt);
+    console.error('Fix src/backends/pi/index.js (buildLaunch / configFields), docs and tests for the installed Pi CLI.');
     process.exit(1);
   }
 
-  console.log(`Pi help audit passed (${path.basename(exe)}; ${commands.size} commands, ${options.length} top-level options).`);
+  console.log(`Pi help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options).`);
 }
 
 main();

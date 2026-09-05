@@ -44,8 +44,6 @@ const configFields = [
     description: 'Preload one or more skills, comma-separated.' },
   { id: 'worktree', label: 'Git worktree', type: 'toggle', default: false,
     description: 'Run in an isolated git worktree — for several agents on the same repo at once.' },
-  { id: 'checkpoints', label: 'Checkpoints', type: 'toggle', default: false,
-    description: 'Snapshot files before destructive operations, so /rollback can undo them.' },
   { id: 'safeMode', label: 'Safe mode', type: 'toggle', default: false,
     description: 'Hermes\' own restricted mode.' },
   { id: 'acceptHooks', label: 'Auto-accept hooks', type: 'toggle', default: false,
@@ -59,6 +57,15 @@ const configFields = [
   { id: 'ignoreRules', label: 'Ignore rules and memory', type: 'toggle', default: false,
     description: 'Skip AGENTS.md, SOUL.md, memory and preloaded skills for this run.' },
 ];
+
+// NOT an option either, and this one shipped as one (#548). `checkpoints` was declared here and emitted
+// `--checkpoints`, which bare `hermes` does not take: in hermes 0.21.0 the flag belongs to the `chat`
+// SUBCOMMAND, and `checkpoints` at the top level is a subcommand of its own (inspect/prune the snapshot
+// store). Switchboard spawns bare `hermes`, so the toggle produced `hermes --checkpoints …` and argparse
+// killed the session before the TUI started — measured: `hermes --checkpoints --version` answers
+// "unrecognized arguments: --checkpoints". It is removed rather than re-routed, because reaching the flag
+// means spawning `hermes chat` instead of `hermes`, and which of the two this app launches decides how
+// resume, the session id and the TUI behave — a spawn-path change nobody has measured, for one toggle.
 
 // NOT an option, and the reason is worth keeping (#537). `--reasoning` looks like the obvious launch
 // control this backend was missing, and it is parsed — but in the modern TUI it is then DROPPED:
@@ -109,7 +116,6 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   if (opts.toolsets) args.push('--toolsets', String(opts.toolsets));
   if (opts.skills) args.push('--skills', String(opts.skills));
   if (opts.worktree) args.push('--worktree');
-  if (opts.checkpoints) args.push('--checkpoints');
   if (opts.safeMode) args.push('--safe-mode');
   if (opts.acceptHooks) args.push('--accept-hooks');
   if (opts.yolo) args.push('--yolo');

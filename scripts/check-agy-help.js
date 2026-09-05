@@ -4,16 +4,12 @@
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
+const agy = require('../src/backends/agy');
+const { definitionFlags, auditFlags } = require('./managed-flags');
+
+// What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 
 const REQUIRED_COMMANDS = new Set(['models', 'plugin']);
-const MANAGED = new Set([
-  '--add-dir',
-  '--conversation',
-  '--effort',
-  '--mode',
-  '--model',
-  '--sandbox',
-]);
 const AUDITED_EXCLUDED = new Set([
   // #537. Print mode only — its own help says so, and it requires `--output-format stream-json`.
   // Switchboard runs the TUI.
@@ -33,13 +29,17 @@ const AUDITED_EXCLUDED = new Set([
   '--prompt-interactive',
 ]);
 
+/** The option DEFINITIONS agy prints before its subcommand list — one group per definition line.
+ *  agy puts the description on the SAME line, so the signature cut is what keeps "Short alias for
+ *  --continue" from advertising a flag that line does not define. */
 function extractOptions(help) {
-  const found = new Set();
+  const groups = [];
   for (const line of String(help || '').split(/\r?\n/)) {
     if (/^Available subcommands:/i.test(line)) break;
-    for (const match of line.matchAll(/--[a-z0-9][a-z0-9-]*/gi)) found.add(match[0]);
+    const flags = definitionFlags(line);
+    if (flags.length) groups.push(flags);
   }
-  return [...found].sort();
+  return groups;
 }
 
 function extractCommands(help) {
@@ -69,23 +69,24 @@ function main() {
     process.exit(1);
   }
 
-  const options = extractOptions(help);
-  const unknown = options.filter(opt => !MANAGED.has(opt) && !AUDITED_EXCLUDED.has(opt));
+  const groups = extractOptions(help);
+  const { advertised, unknown, missing } = auditFlags({ backend: agy, groups, excluded: AUDITED_EXCLUDED });
+
   if (unknown.length) {
     console.error('agy exposes unaudited top-level options:');
     for (const opt of unknown) console.error('  ' + opt);
-    console.error('Update src/backends/agy/index.js and this audit list, or document why the option stays excluded.');
+    console.error('Offer it in src/backends/agy/index.js, or add it to this audit list with the reason.');
     process.exit(1);
   }
 
-  const missing = [...MANAGED].filter(opt => !options.includes(opt));
   if (missing.length) {
-    console.error('agy no longer advertises managed options:');
+    console.error('agy no longer takes options this app sends:');
     for (const opt of missing) console.error('  ' + opt);
+    console.error('Fix src/backends/agy/index.js (buildLaunch / configFields), docs and tests for the installed agy CLI.');
     process.exit(1);
   }
 
-  console.log(`agy help audit passed (${path.basename(exe)}; ${commands.size} commands, ${options.length} top-level options).`);
+  console.log(`agy help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options).`);
 }
 
 main();

@@ -4,19 +4,15 @@
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
+const codex = require('../src/backends/codex');
+const { definitionFlags, auditFlags } = require('./managed-flags');
+
+// What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
+// Codex is the backend that shows why the derivation reads the help's own spellings: buildLaunch sends the
+// SHORT forms (`-m`, `-a`, `-s`, `-c`), and each is answered through the long one its definition line
+// carries. A CLI that drops `-m` while keeping `--model` fails this check, which is the point.
 
 const REQUIRED_COMMANDS = new Set(['resume', 'fork']);
-const MANAGED = new Set([
-  '--config',
-  '--model',
-  '--oss',
-  '--local-provider',
-  '--profile',
-  '--sandbox',
-  '--add-dir',
-  '--ask-for-approval',
-  '--search',
-]);
 const AUDITED_EXCLUDED = new Set([
   // #537. Unmeasured: "route approval requests through automatic review using the workspace-write sandbox"
   // describes a reviewer nobody here has watched decide anything, and an option is a promise about what it
@@ -38,15 +34,17 @@ const AUDITED_EXCLUDED = new Set([
   '--version',
 ]);
 
+/** The option DEFINITIONS in Codex' `Options:` block — one group per definition line, prose ignored. */
 function extractOptions(help) {
-  const found = new Set();
+  const groups = [];
   let inOptions = false;
   for (const line of String(help || '').split(/\r?\n/)) {
     if (/^Options:\s*$/i.test(line)) { inOptions = true; continue; }
     if (!inOptions) continue;
-    for (const match of line.matchAll(/--[a-z0-9][a-z0-9-]*/gi)) found.add(match[0]);
+    const flags = definitionFlags(line);
+    if (flags.length) groups.push(flags);
   }
-  return [...found].sort();
+  return groups;
 }
 
 function extractCommands(help) {
@@ -85,23 +83,24 @@ function main() {
     process.exit(1);
   }
 
-  const options = extractOptions(help);
-  const unknown = options.filter(opt => !MANAGED.has(opt) && !AUDITED_EXCLUDED.has(opt));
+  const groups = extractOptions(help);
+  const { advertised, unknown, missing } = auditFlags({ backend: codex, groups, excluded: AUDITED_EXCLUDED });
+
   if (unknown.length) {
     console.error('Codex exposes unaudited top-level options:');
     for (const opt of unknown) console.error('  ' + opt);
-    console.error('Update src/backends/codex/index.js and this audit list, or document why the option stays excluded.');
+    console.error('Offer it in src/backends/codex/index.js, or add it to this audit list with the reason.');
     process.exit(1);
   }
 
-  const missing = [...MANAGED].filter(opt => !options.includes(opt));
   if (missing.length) {
-    console.error('Codex no longer advertises managed options:');
+    console.error('Codex no longer takes options this app sends:');
     for (const opt of missing) console.error('  ' + opt);
+    console.error('Fix src/backends/codex/index.js (buildLaunch / configFields), docs and tests for the installed Codex CLI.');
     process.exit(1);
   }
 
-  console.log(`Codex help audit passed (${path.basename(exe)}; ${commands.size} commands, ${options.length} top-level options).`);
+  console.log(`Codex help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options).`);
 }
 
 main();

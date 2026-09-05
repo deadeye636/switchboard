@@ -252,6 +252,20 @@ that CLI already does** — it is a description of the CLI, not a wish.
 that lies), unless it says why: `appliesAt: 'spawn'` (`app/terminal/spawn.js` applies it, not the
 argv) or `requires: '<other>'` (meaningless on its own).
 
+**And the flag has to EXIST — nobody's list can answer that** (#548). Hermes shipped a `checkpoints`
+toggle emitting `--checkpoints`, which bare `hermes` does not take (it is a flag of its `chat`
+subcommand), so every session launched with it on died at spawn. Nothing caught it because
+`scripts/check-*-help.js` compared the CLI's help against a hand-typed `MANAGED` set: a flag can be
+missing from the CLI **and** missing from that list at once, and the audit stays green. The set is
+derived from the descriptor now — `scripts/managed-flags.js` runs `buildLaunch` at every launch shape,
+with every option at a value that reaches the argv (and an options object that answers everything, so a
+branch no `configFields` entry declares is still seen), plus `buildLiveBinding`. **Write the flag, and
+the audit covers it; write a list, and it does not.** The one hand-written door left is a script's
+`SENT_ELSEWHERE`, for a flag the CORE adds outside the descriptor (Claude's `--ide` after the MCP
+bridge, Pi's `--list-models` probe) — each entry names where it is sent, and a test checks that file
+really sends it. A flag a help line only MENTIONS is not advertised: the extraction reads definition
+lines, because scraping every `--word` made four Claude flags "advertised" by other flags' prose.
+
 **Options cascade PER OPTION**, and every level stores only what it marked as set:
 `backend default → global → project → template`. Without that marker, "not set" cannot be told from
 "deliberately empty / off", and an option whose default is ON could never be switched off. The
