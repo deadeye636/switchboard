@@ -219,6 +219,17 @@ not a project.
 
 **No session file is touched.** Deleting the history is a separate act (*Delete this project's sessions*).
 
+**And when the Remove dialog runs both, a delete that kept a history stops the removal (#580).** The two
+are ordered — the delete reads the project's cached rows to find the transcripts, and the removal clears
+those rows — so carrying on past a delete that did not happen leaves the history on disk, the project
+gone, and no way to ask again. #574 established that for a delete that *errored*; the same shape was
+reachable through the success path, because a backend whose `deleteSessions` threw was logged and skipped
+and one answering `{removed: 0}` was skipped in silence, leaving nothing for the renderer to report and
+nothing to stop it. `deleteProjectSessions` names every backend that kept its history and why, and the
+renderer stops on any of them except the one that was known before the dialog opened — a backend that
+cannot hand over its history at all, which the dialog has already said and which must not block a removal
+the user asked for.
+
 Every write path is gated on the removal, or the removal would not stick: `refreshFolder`, `refreshFile`,
 the backend scan — **and the worker rebuild**, which walks the whole store and knows nothing about the
 register. Miss that one and a "Rebuild session cache" puts a removed project's sessions back into the
@@ -264,6 +275,32 @@ Two things it deliberately does not do:
 - **It resolves the row; it does not merge rows.** Two registered rows for one directory (a database that
   already had them) still render as one project — the sidebar buckets on the canonical key — and an act on
   either now reaches the registered one. Collapsing them is a migration, not a lookup.
+
+### And the READ side asks it too (#579)
+
+#566 fixed the writes and left "which row is this" as a rule that only writers followed. A read that
+resolves differently from the write is the same bug facing the other way, and three readers still decided
+by the raw string. The precedence moved out of `registeredPathFor` into `src/projects/register-lookup.js`
+— a pure module over `src/app/path-containment.js` — so `src/index/index-writes.js` can apply it without
+importing the projects module; `registeredPathFor` is now its path half rather than a second copy of it.
+
+- **`unlistedProjects`**, and this one was measured before it was fixed: a tombstone filed under one
+  spelling, an admin row under another whose sessions all began before the removal, and the offer handed
+  the removed project straight back. The admin row's spelling is `deriveProjectPath`'s — the raw cwd the
+  CLI wrote — which is the same divergence #245, #563 and #566 are all about, so nothing exotic is needed
+  to reach it. Its own docstring claimed the offer could not contradict the register.
+- **`isRemovedProject`**, which runs per session in the scan loop and therefore may not read and key the
+  whole register the way an act does. Three tiers, and the ordering is what makes it affordable: the
+  primary-key lookup it always was (a registered row for the caller's own spelling settles it, at the old
+  cost), then the tombstones — a short, two-column read, usually empty — keyed through the memoised
+  `pathKey`, and only then the whole register, for a directory that really carries one. Nothing is
+  remembered between calls, because the reconcile re-asks this on main precisely to get past the worker's
+  snapshot.
+- **`pruneProjectIfGone`**, the only act here that destroys data, and the one #566 could not have found:
+  `deleteProjectRefs` is an exact-match `DELETE` and this writer never passes through `setProjectState`,
+  which is what that follow-up grepped for. It addresses the register's row **and** the caller's own,
+  because what it drops is wider than the register — the tags and the `project:<path>` settings blob are
+  keyed on the string it was called with.
 
 ## A session that was already running is not a new one (#575)
 
