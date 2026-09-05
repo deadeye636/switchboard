@@ -145,6 +145,39 @@ table is the fallback and it is binding.
     **And commit with explicit pathspecs** — `git commit <path> <path>`, never `git add -A` / `git add .`
     / `git commit -a`. The index is shared too, so a blanket add sweeps up whatever a parallel session
     happens to have staged and puts it in your commit under your message.
+16. **An issue is not law — check it against the concept before you build it.** An issue records what
+    someone wanted, and believed was the cause, on the day it was written; the tree has moved since and
+    the issue has not. Three things to settle first, and none of them is optional because the issue is
+    detailed:
+    - **Does the requirement still fit?** Does the route exist already under another name, does it
+      contradict a decision that is written down, does it add a second way to do one thing?
+    - **Is the stated cause real?** **An issue body is a hypothesis, not a measurement** — including where
+      it says "proven". #549 named two causes and called both proven; the first was false, and the fix
+      would have gone hunting a producer that had been wired for several commits. #566 named two, and both
+      were wrong. Re-establish the cause yourself before fixing it.
+    - **Does building it create a NEW FLOW?** A new visible step for the user, a new concept in the UI, a
+      new module boundary, a new contract between two parts. If it does, say so BEFORE building: what is
+      new in one sentence, the advantages, the **disadvantages**, and at least two routes with a
+      recommendation — then ask. That the issue already names a route is not evidence the route was
+      weighed. The same goes for an issue carrying its own "worth deciding" list: an agent does not close
+      those silently.
+
+    **A bug report gets MORE scrutiny than a feature request, not less.** A feature builds something new,
+    and nothing beside it can break. A bug fix changes a flow that already exists and that somebody has
+    arranged themselves around. The report names the symptom; it almost never names what today's behaviour
+    was FOR. So also settle: what does the current behaviour do for someone, was there a reason it was
+    built that way (`git log`/`git blame` on the line, the spec chapter, the original issue), and **what
+    does the fix take away** — that gets said even when the fix is right.
+
+    And watch the SUM. Where several fixes land on one area, each was small and each was justified, and
+    the flow at the end is not the one anyone signed off: the project remove/delete path took #574, #566,
+    #575 and #578 in two days. Nobody sees that total, because it is in none of the issues. Whoever builds
+    the fourth fix in one place states where the whole flow now stands, not only their share of it.
+
+    Not a licence to stall. The default stays "name the concern in a sentence or two and keep building".
+    Stop only where a new flow appears, where the premise is demonstrably wrong, or where the call is
+    plainly the owner's — and closing an issue as "does not fit" is a legitimate result, with the reason
+    in a comment.
 
 ## Backlog & workflow
 
