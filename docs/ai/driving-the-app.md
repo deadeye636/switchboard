@@ -262,11 +262,14 @@ That distinction is what #410 got wrong twice in opposite directions. Two more t
 
 - **`window.api` is frozen** (contextBridge), so `window.api.sendInput = spy` fails silently and your
   recorder records nothing. Hook `terminal.onData` instead.
-- **A full-screen TUI runs on the ALTERNATE screen**, where `baseY` is 0 and there is no scrollback at
-  all — `scrollPages()` there cannot move anything, however correct the call looks. Read
-  `buffer.active.type` before concluding anything about scrolling, and read it *after* the CLI has
-  finished starting: the buffer switches from `normal` to `alternate` partway through, and a
-  measurement taken too early describes the startup screen.
+- **A full-screen TUI MAY run on the ALTERNATE screen**, where `baseY` is 0 and there is no scrollback
+  at all — `scrollPages()` there cannot move anything, however correct the call looks. This used to say
+  it always does, and #558 measured otherwise: Claude 2.1.261 answered `alternate` with `baseY: 0` in a
+  fresh session and `normal` with 226-2470 lines of scrollback in four long-running ones, on one machine,
+  with `tui: "fullscreen"` set in both homes. So it is not a property you can look up per CLI. Read
+  `buffer.active.type` on the session in front of you before concluding anything about scrolling, and
+  read it *after* the CLI has finished starting: the buffer can switch partway through, and a measurement
+  taken too early describes the startup screen.
 
 **Timers are throttled in a background window.** A `setInterval` sampler at 20 ms fires about once a
 second while the window is not in front, so a sampling loop reports two data points and looks like

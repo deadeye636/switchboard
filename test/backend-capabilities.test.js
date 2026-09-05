@@ -23,7 +23,7 @@ const PINNED = {
     subagentSessions: 'yes', liveOwners: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
-    viewportPaging: 'no',
+    viewportPaging: 'limited',
   },
   codex: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'no',
@@ -118,10 +118,19 @@ test('a "yes" is backed by the hook it claims', () => {
 test('the page-key row agrees with the descriptor it describes', () => {
   // The one row whose descriptor field is a value rather than a presence, so the generic check above
   // cannot see a mismatch: 'viewport' means the app pages, 'pty' means the CLI's TUI does.
+  //
+  // `limited` is the third honest answer and it needs its note (#558): a CLI that is not always on the
+  // buffer that HAS a scrollback pages only half the time, and a bare yes would assert what the
+  // descriptor's own comment says it cannot predict. What is refused either way is a 'pty' backend
+  // claiming it pages, and a 'viewport' one answering no.
   for (const backend of BACKENDS) {
     const answer = answersFor(backend).viewportPaging;
-    assert.equal(answer.state === 'yes', backend.pageKeyTarget === 'viewport',
+    const claimsPaging = answer.state === 'yes' || answer.state === 'limited';
+    assert.equal(claimsPaging, backend.pageKeyTarget === 'viewport',
       `${backend.id}: viewportPaging says "${answer.state}" but pageKeyTarget is "${backend.pageKeyTarget}"`);
+    if (answer.state === 'limited') {
+      assert.ok(answer.note, `${backend.id}: a limited answer has to say which half is missing`);
+    }
   }
 });
 

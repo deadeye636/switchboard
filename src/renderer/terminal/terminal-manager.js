@@ -251,8 +251,12 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
       return false;
     }
 
-    // A backend owns whether bare PageUp/PageDown belong to its TUI or Switchboard's xterm viewport.
-    const pageKeyResult = handleTerminalPageKeyEvent(e, getPageKeyTarget?.(), pages => terminal.scrollPages(pages));
+    // A backend owns whether bare PageUp/PageDown belong to its TUI or Switchboard's xterm viewport —
+    // and the buffer says whether there is a viewport to page at all. Claude switches between the two on
+    // a setting of ITS own (`tui`), so a static declaration alone is right for one half of its users and
+    // hands the other half a dead key (#558).
+    const pageKeyResult = handleTerminalPageKeyEvent(e, getPageKeyTarget?.(), pages => terminal.scrollPages(pages),
+      terminal.buffer?.active?.type !== 'alternate');
     if (pageKeyResult !== null) return pageKeyResult;
 
     // Shift+Enter (and Ctrl+Enter off macOS) → newline instead of submit. Which bytes mean that is the

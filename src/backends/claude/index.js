@@ -682,10 +682,26 @@ description:
   status: 'ready',
   monogram: 'C',
   colour: 'claude',
-  // Claude's full-screen TUI owns its history and its overlays, and it runs on the ALTERNATE screen —
-  // where xterm has no scrollback at all, so there is nothing here to page even if we wanted to. The bare
-  // keys must reach the PTY. This one was working before #410 touched it; do not change it again.
-  pageKeyTarget: 'pty',
+  // RE-MEASURED against 2.1.261 (#558), which is the only way this line is allowed to change. The old
+  // justification was "its TUI pages its own history, and it runs on the ALTERNATE screen where xterm
+  // has no scrollback". Half of that is simply not true any more: the bare keys move to the start and
+  // end of the CURRENT line — Home and End, not navigation — so there is no history paging here to
+  // protect. In a three-line composer they go to the start of the current line, not of the prompt.
+  //
+  // The other half is not a property of the CLI at all. Sessions of this version were measured on BOTH
+  // buffers on one machine: four long-running ones on `normal` with 226-2470 lines of scrollback, a
+  // fresh one on `alternate` with `baseY: 0` — and `tui: "fullscreen"` was set in both homes, so that
+  // setting is not the switch. Why it differs is Claude's business; what follows for us is that a
+  // STATIC declaration cannot answer it. So this says what we do with the key when there is a viewport,
+  // and `renderer/terminal/page-key-routing.js` asks the live buffer whether there is one — on the
+  // alternate screen the key goes back to the TUI, which is where it has to go.
+  //
+  // What #410 got wrong was intercepting the key for EVERY session on the assumption that Claude was
+  // the odd one out. The seam it built is right and stays; only this answer changed, and it changed
+  // from a measurement. The cost is named in #558: the CLI ignores `ESC[H`, so on the normal buffer
+  // PageUp was the only key reaching the start of a line — an alias that looks accidental (`ESC[1~` is
+  // Home, `ESC[5~` is PageUp) and appears nowhere in its changelog.
+  pageKeyTarget: 'viewport',
   // What Shift+Enter has to send for Claude's composer to insert a newline instead of submitting (#493).
   // MEASURED in a live session: it reads the kitty keyboard protocol, so CSI 13;2u is a Shift+Enter to it.
   // This is the sequence the app sent to every backend before #493, and the one backend it was right for.
@@ -727,7 +743,10 @@ description:
     planDirSetting: 'yes',
     plans: 'yes',
     projectConfig: 'yes',
-    viewportPaging: { state: 'no', note: 'its full-screen TUI owns the bare page keys' },
+    // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
+    // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
+    // cannot predict — which is what the third state is for.
+    viewportPaging: { state: 'limited', note: 'only while the CLI is on the normal buffer; on the alternate screen there is no scrollback to page and the keys go to its TUI' },
   },
   configFields,
   buildLaunch,

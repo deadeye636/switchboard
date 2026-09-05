@@ -166,6 +166,17 @@ reading a keymap; every correct one came from pressing the key in a live session
 directions. Where a backend was not measured, leave it on the value it already had and say so — an
 unmeasured backend is out of scope, not a default to guess at.
 
+**A descriptor declares what its CLI does with the key; it cannot declare what the TERMINAL is doing**
+(#558). Claude was measured on both buffers on one machine on one CLI version — four long-running
+sessions on `normal` with 226-2470 lines of scrollback, a fresh one on `alternate` with `baseY: 0`, and
+`tui: "fullscreen"` set in both homes, so that setting is not the switch. On the alternate screen
+`scrollPages()` moves nothing, so a `viewport` declaration alone gives that half of the users a key that
+is swallowed AND does nothing — worse than either outcome it chooses between. So the routing asks
+`buffer.active.type` at the press, and a key with nothing to page falls back to the application, which
+is the same default an unknown declaration gets and for the same reason. **Read it live**: the buffer
+switches partway through a CLI's start, so a value captured when the session mounted describes the
+startup screen.
+
 ## A new control inherits NO styling
 
 A button with only a behaviour class renders as the browser's native control — a white box with

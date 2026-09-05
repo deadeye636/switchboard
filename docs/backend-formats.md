@@ -495,9 +495,14 @@ the renderer dispatches a per-backend answer instead of one branch for everyone.
 Do not fill this table from a CLI's keymap documentation: that was done twice and was wrong both times,
 in opposite directions.
 
+**A row says what the CLI does with the key, never which buffer it is on.** That second question is
+answered live at the key press (`buffer.active.type`), because Claude turned out to answer it both ways
+on one machine on one version — see its row. A `viewport` row therefore means "page, when there is
+something to page"; on the alternate screen the key goes to the application whatever the row says.
+
 | Backend | Target | What the measurement showed |
 |---|---|---|
-| Claude | `pty` | Its TUI pages its own history. It runs on the **alternate screen**, where xterm keeps no scrollback (`baseY: 0`) — so Switchboard could not page anything here even if it wanted to. Worked before #410; must stay untouched. |
+| Claude | `viewport` | Re-measured against 2.1.261 (#558). `ESC[5~`/`ESC[6~` reach the CLI and move to the start and end of the **current line** — Home and End, not paging — so there is no history navigation here to protect. It runs on **either buffer**: four long-running sessions on `normal` with 226-2470 lines of scrollback, a fresh one on `alternate` with `baseY: 0`, same machine, same version, `tui: "fullscreen"` set in both homes. So the target says what we do when there IS a viewport and the routing asks the live buffer whether there is one. Cost: the CLI ignores `ESC[H`, so on the normal buffer PageUp was the only key reaching the start of a line. |
 | Codex | `viewport` | Sends `ESC[5~` and nothing happens: the prompt ignores it. Runs on the normal buffer, so xterm holds the history and pages it. |
 | Pi | `viewport` | Same: `ESC[5~` reaches it and is ignored, normal buffer, xterm holds the history. |
 | Hermes | `viewport` | The bare keys do nothing; the transcript pages only under **Shift**, which is xterm's own scrollback. So the TUI is not using them and xterm holds the history. |
