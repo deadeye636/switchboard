@@ -68,8 +68,17 @@ The migration is written and unreviewed. …
 
 `created` is when the packet was written; `backend` is the CLI that wrote it, which is what the resume
 picker preselects. Both are optional. A packet a skill wrote knowing nothing about this is still a
-handoff — then the file's own timestamp answers the date, and nothing answers the backend, which is the
-honest result rather than a guess.
+handoff, and then neither line has an answer — which is the honest result rather than a guess.
+
+`created` does not order anything and is not shown on a row. **Every list of handoffs — the resume picker,
+the handoff picker on the hotkey, and the handoff groups in Agent Files — is newest first by the file's own
+last-modified time, and shows that same date.** A handoff is a running log in practice: an update appended
+per session, with the header left as it was written. Ordered by the header, the packet you worked in this
+morning sinks below one started last week and never opened since. The file's timestamp answers "which of
+these did I touch last", which is the question a picker is open to answer.
+
+It is also the only answer that can be given for every row. `created` is optional, so ordering by it meant
+files with a header were sorted by one clock and files without a header by another, in the same list.
 
 Packets Switchboard writes are named `<date>-<slug>.md`. Nothing depends on that name: rename a file and
 it is the same handoff, because everything worth knowing about it is in the content.

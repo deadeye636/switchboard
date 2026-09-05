@@ -120,6 +120,28 @@ was not saying so, and the picker is where "which of these five" is decided with
 beside it. The wording comes from the same helper the Plans list uses, so the two read alike; a date that
 cannot be read is left off rather than replaced by a placeholder.
 
+## One date, and it is the file's (#577)
+
+That paragraph claimed an agreement the code did not have. The list was ordered by the `created:` header
+and the row showed the mtime, so the packet worked on most recently was not the one on top — and the date
+beside it said today, which is what made it read as a broken sort rather than a second sort key.
+
+The argument for ordering by the header was that editing a packet does not make it a newer handoff. That
+is true of a packet written once, and a handoff is not written once. It is a running log: an update
+appended per session, with the header untouched since the first write. Ordered by the header, the file
+somebody worked in this morning sinks below one started last week and never opened again.
+
+**Every handoff surface now orders by, and shows, the file's mtime** — the resume picker, the palette and
+the Agent Files group. The old sort had a second defect that alone would settle it: `created:` is optional
+by design, so a file with a header sorted by when the work was handed over and a file without one by when
+it was last written, in the same list. Measured in one project's directory, 7 of 31 files carried a header.
+One clock now, for every row.
+
+`created:` is still written into a new packet and still read back — `createdAt` is null for a file that
+does not carry one, rather than the mtime wearing the creation date's name. It decides nothing about the
+order, and it is not on the row: the row is one line, and for a running log the header names the day the
+log was started, which is the one date that does not help anyone pick between five packets.
+
 ## Writing one from the keyboard (#473)
 
 Both ways into the flow were chips on a row you have to leave the terminal to reach — the health chip in

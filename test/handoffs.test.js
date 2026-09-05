@@ -217,3 +217,76 @@ test('a row whose project is gone keeps the table alive', () => {
   assert.ok(!fs.existsSync(missing), 'a missing project directory is not created to hold a packet');
   fs.rmSync(project, { recursive: true, force: true });
 });
+
+// --- #577: one clock, and it is the file's ---------------------------------------------------------
+
+/** Write a packet and give it the mtime it is supposed to have — the whole point of the set below. */
+function packet(dir, name, body, mtimeIso) {
+  const filePath = path.join(dir, name);
+  fs.writeFileSync(filePath, body);
+  const when = new Date(mtimeIso);
+  fs.utimesSync(filePath, when, when);
+  return filePath;
+}
+
+/**
+ * A MIXED set, because the defect only shows in one: a header newer than the mtime, a mtime newer than
+ * the header, and a file with no header at all. Ordered by the header the first two come back the other
+ * way round, and the third one is sorted against them by a different clock entirely.
+ */
+function mixedProject() {
+  const project = tempProject('sb-handoff-order-');
+  const dir = path.join(project, '.handoffs');
+  fs.mkdirSync(dir, { recursive: true });
+  packet(dir, 'header-ahead.md',
+    '# Header ahead\n\n> created: 2026-03-01T09:00:00Z\n\nbody\n', '2026-01-10T09:00:00Z');
+  packet(dir, 'file-ahead.md',
+    '# File ahead\n\n> created: 2026-01-05T09:00:00Z\n\nbody\n', '2026-03-10T09:00:00Z');
+  packet(dir, 'no-header.md', '# No header\n\nbody\n', '2026-02-10T09:00:00Z');
+  return project;
+}
+
+test('the handoff list is ordered by the date its rows show, whatever the header says', () => {
+  const project = mixedProject();
+  const { ctx } = contextFor(project);
+  handoffs.init(ctx);
+
+  const rows = handoffs.getHandoffs(project);
+  assert.deepEqual(rows.map(r => r.title), ['File ahead', 'No header', 'Header ahead'],
+    'newest first by mtime — by the header this order is reversed');
+  // …and the key it was sorted on is the field every surface renders.
+  const shown = rows.map(r => r.modified);
+  assert.deepEqual([...shown].sort().reverse(), shown, 'the date on the row descends down the list');
+  fs.rmSync(project, { recursive: true, force: true });
+});
+
+test('a packet with no header sorts against one with a header by the same clock', () => {
+  // The mixed-clock defect: `createdAt` used to fall back to the mtime, so a file without a header was
+  // ordered by when it was last written while its neighbour was ordered by when the work was handed over.
+  const project = mixedProject();
+  const { ctx } = contextFor(project);
+  handoffs.init(ctx);
+
+  const rows = handoffs.getHandoffs(project);
+  const bare = rows.find(r => r.title === 'No header');
+  assert.equal(bare.createdAt, null, 'no header means no creation date, not the mtime wearing its name');
+  assert.equal(bare.modified, '2026-02-10T09:00:00.000Z');
+  // The header is still parsed and still returned for the packets that carry one.
+  assert.equal(rows.find(r => r.title === 'Header ahead').createdAt, '2026-03-01T09:00:00.000Z');
+  fs.rmSync(project, { recursive: true, force: true });
+});
+
+test('the Agent Files group and the picker agree about the order of one directory', () => {
+  const project = mixedProject();
+  const { ctx } = contextFor(project);
+  handoffs.init(ctx);
+
+  const groups = handoffs.handoffGroups(project);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(
+    groups[0].files.map(f => f.filename),
+    handoffs.getHandoffs(project).map(h => h.filename),
+    'one directory read through two surfaces comes back in one order',
+  );
+  fs.rmSync(project, { recursive: true, force: true });
+});

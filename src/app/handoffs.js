@@ -224,9 +224,14 @@ function readHandoffFile(filePath, source, displayNames) {
   const title = firstLine.startsWith('# ') ? firstLine.slice(2).trim() : filename.replace(/\.md$/i, '');
   const header = parseHeader(firstIndex >= 0 ? lines.slice(firstIndex + 1) : []);
 
+  // NULL when the file does not say, and deliberately NOT the mtime (#577). This used to fall back to
+  // `stat.mtime`, which made one field carry two different clocks — and while the list was ordered by it,
+  // a packet with a header sorted by when the work was handed over and one without it by when the file was
+  // last written, in the same list. The order is `modified` now, so this field means only what the header
+  // said and answers null when there was none, the same way `backendId` does.
   const created = header.created && !Number.isNaN(Date.parse(header.created))
     ? new Date(header.created).toISOString()
-    : stat.mtime.toISOString();
+    : null;
 
   return {
     filePath,
@@ -252,8 +257,14 @@ function readHandoffFile(filePath, source, displayNames) {
 /**
  * The handoffs of one project, or of every visible project when none is named.
  *
- * Newest first, by the date in the header rather than by mtime: editing a packet does not make it a newer
- * handoff, and the list a user picks from is ordered by when the work was handed over.
+ * Newest first BY MTIME — the same value every surface puts on the row, and the same one `handoffGroups`
+ * orders the Agent Files rows by (#577).
+ *
+ * It used to be the `created:` header, on the argument that editing a packet does not make it a newer
+ * handoff. That holds for a packet written once and a handoff is not written once: it is a running log
+ * appended to per session, with the header untouched since the first write. So the packet worked on today
+ * sank below one created last week and never opened again, under a row showing today's date. The header
+ * is still written, still parsed and still returned; it just does not decide the order.
  */
 function getHandoffs(projectPath = null) {
   let displayNames = new Map();
@@ -273,7 +284,7 @@ function getHandoffs(projectPath = null) {
       if (row) handoffs.push(row);
     }
   }
-  handoffs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  handoffs.sort((a, b) => new Date(b.modified) - new Date(a.modified));
   return handoffs;
 }
 
@@ -418,6 +429,9 @@ const HANDOFF_KIND = 'handoff';
  *
  * `backendId` is null because no CLI owns a handoff directory — the project does. Naming one here would
  * be the `|| 'claude'` the rules forbid, and a packet can be written by any backend anyway (#148).
+ *
+ * Newest first by mtime, which is what `getHandoffs` orders by as well since #577 — one directory read
+ * through two surfaces must not come back in two orders.
  */
 function handoffGroups(projectPath) {
   const groups = [];

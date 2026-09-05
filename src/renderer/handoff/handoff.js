@@ -539,7 +539,11 @@ async function showHandoffResumePicker(project) {
         row.className = 'handoff-row';
         row.innerHTML = '<button type="button" class="handoff-pick"><span class="handoff-row-label"></span><span class="handoff-row-date"></span></button><select class="handoff-backend settings-select" title="Which backend runs this handoff"></select><button type="button" class="handoff-del" title="Delete handoff">✕</button>';
         row.querySelector('.handoff-row-label').textContent = h.label || h.filename || 'Handoff';
-        row.querySelector('.handoff-row-date').textContent = fmt(h.createdAt);
+        // The date the list is ORDERED by, which is `modified` (#577) — the palette row shows the same
+        // value from the same expression. The row is one line and the creation date is not on it: for a
+        // packet appended to over several sessions the header says the day the log was started, which is
+        // the one date that does not help anyone choose between five of them.
+        row.querySelector('.handoff-row-date').textContent = fmt(h.modified || h.createdAt);
         // Which directory it came from: a packet this app wrote and one a handoff skill left in
         // `docs/handoffs` are both here, and that is worth seeing rather than flattening away (#468).
         row.querySelector('.handoff-pick').title = h.sourceDir ? `${h.sourceDir}/${h.filename}` : h.filename;
