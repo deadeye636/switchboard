@@ -5,9 +5,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+// The backend-vocabulary check below is one an over-strip would HIDE: drop too much and the words it
+// refuses simply are not in what it reads. So the prose comes off through the shared stripper, never a
+// pair of hand-rolled regexes — `test/helpers/strip-comments.js` says what that costs (#554).
+const { stripComments } = require('./helpers/strip-comments');
+
 const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
 const VIEWER = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'jsonl', 'jsonl-viewer.js'), 'utf8');
-const VIEWER_CODE = VIEWER.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+const VIEWER_CODE = stripComments(VIEWER);
 
 test('read-session-jsonl applies an optional backend transcript normalizer', () => {
   assert.match(MAIN, /function normalizeTranscriptResult\(backend, result\)/,

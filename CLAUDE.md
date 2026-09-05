@@ -102,6 +102,12 @@ table is the fallback and it is binding.
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
     about the DIRECTORY where the file may not exist yet, and **before** the `stat` — a guard placed after
     one never sees a path that escaped and had nothing at the end of it (#474, #476).
+14. **Never strip comments with a pair of regexes** — a test that answers a question about code by reading
+    it as text calls `test/helpers/strip-comments.js`, which scans once and knows whether it stands in
+    code, a string, a template, a regex or a comment. A line pass plus a block pass loses real code in
+    BOTH orders, and these are guards where over-stripping HIDES a violation, so they report success about
+    text they never read. `test/strip-comments-shape.test.js` refuses a hand-rolled one anywhere under
+    `test/` and has no exemption list — keep it that way (#554, `docs/ai/lessons.md`).
 
 ## Backlog & workflow
 

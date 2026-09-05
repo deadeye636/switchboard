@@ -69,9 +69,11 @@ test('execFile ignores a stdio option, which is why closeStdin exists', () => {
 
 // --- the sibling sweep -------------------------------------------------------------------------------
 //
-// Comments are NOT stripped before scanning. A stripper that deletes from `//` to end-of-line also deletes
-// a call that shares its line with a regex literal or a URL, and a sweep whose blind spot is invisible is
-// worse than one that occasionally objects to prose. What keeps the prose out instead is that a CALL never
+// Comments are NOT stripped before scanning, and this sweep is the one place that stays true after #554.
+// `test/helpers/strip-comments.js` no longer cuts a line short at a URL, so the original reason is gone —
+// but the preference behind it is not. A sweep whose blind spot is invisible is worse than one that
+// occasionally objects to prose, and reading the raw text is the only version with no blind spot at all.
+// What keeps the prose out instead is that a CALL never
 // puts a space before its parenthesis and prose usually does — these files are full of "spawn (#512)" and
 // "execFileSync (no shell)", and every one of those is a mention, not a call.
 

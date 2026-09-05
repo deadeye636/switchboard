@@ -937,9 +937,37 @@ Three things worth keeping from it:
   were re-derived before anything was changed, and one of them turned out to be about a file the fix had
   already touched. Fixing the ORDER, not the four comments, is what makes the next `/**` harmless.
 
-`test/helpers/strip-comments.js` is the one stripper now, with the old order kept inside
-`test/strip-comments.test.js` as the control. What it still cannot do is a `//` inside a string or a regex
-literal — a guard that cannot tolerate that scans the raw source instead, as `test/cli-probe.test.js` does.
+`test/helpers/strip-comments.js` is the one stripper now. Swapping the order was only half an answer, and
+the second half is the more interesting one (#554).
+
+**Neither order works, because the order was never the problem.** Line comments first stops a `/**` in
+prose from opening a block, but a `//` inside a string is still read as a comment and a `/*` inside one —
+a glob like `'~/.claude/projects/**'` — still opens a block. Measured over `src/**` when the fix landed:
+the surviving shape hid 5269 bytes of live code in 27 files from the guards. The blunter reading is that
+feeding the tree through it produced source that no longer parses in 88 of 542 files; that is how much
+real code two regexes were cutting out. The fault is structural — a comment can be opened from inside
+something that is not code — so the helper now walks the text once, knowing whether it stands in code, a
+string, a template (including the code inside `${…}`), a regex or a comment.
+
+Three things that made the replacement safe to make, and are worth copying:
+
+- **A property, not a diff.** `test/strip-comments.test.js` asserts over the whole tree that everything
+  the old shape left standing is still standing. A mistake in the scanner can then only leave a guard MORE
+  text to judge — a loud false failure — never less. That is the direction a guard's errors have to point.
+- **Both wrong shapes stay runnable as controls**, built at run time rather than written as literals. Each
+  new case asserts what the scanner keeps AND that the old shape dropped it, so the file measures rather
+  than describes.
+- **The reflex is now refused, not documented.** `test/strip-comments-shape.test.js` fails when anything
+  under `test/` hands `.replace()` a regex that opens on a comment. It has **no exemption list** — the two
+  places that legitimately need the wrong shape assemble it at run time, because a list is the thing that
+  grows one plausible entry at a time. It immediately found two more hand-rolled strippers
+  (`test/main-ctx-db-wiring.test.js`, `test/projects-wiring.test.js`) that a grep for the obvious pattern
+  had missed, both spelling it `[^\n]*` instead of `.*`. A guard finds what a search for the shape you
+  imagined does not.
+
+Chosen over a lint rule for a dull reason: `eslint` is a devDependency, but there is no config, no `lint`
+script, and CI runs `npm test` and nothing else. The gate that already exists is the one to put the check
+in.
 
 ## A vendor changelog entry is a lead, not evidence (#531, #535)
 

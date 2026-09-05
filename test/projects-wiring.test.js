@@ -15,6 +15,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { stripComments } = require('./helpers/strip-comments');
+
 const root = path.join(__dirname, '..');
 const read = (f) => fs.readFileSync(path.join(root, f), 'utf8');
 
@@ -45,11 +47,12 @@ function keysPassedIn(namespace) {
   }
   assert.ok(end !== -1, `the ${namespace}: { ... } literal must be balanced`);
 
+  // Comments first: the literal is allowed to explain itself, and a `// …, …` line would otherwise be
+  // split at its own commas and swallow the key that follows it. Prose left standing is the mirror
+  // mistake — it becomes keys, and a name that is only DISCUSSED reads as wired. Through the shared
+  // stripper, which drops block comments as well (#554).
   return new Set(
-    src.slice(open + 1, end)
-      // Comments first: the literal is allowed to explain itself, and a `// …, …` line would otherwise
-      // be split at its own commas and swallow the key that follows it.
-      .replace(/\/\/[^\n]*/g, '')
+    stripComments(src.slice(open + 1, end))
       .split(',')
       .map(s => s.trim().split(':')[0].trim())
       .filter(Boolean)

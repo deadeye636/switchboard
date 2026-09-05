@@ -15,6 +15,8 @@ const path = require('path');
 // green. This static check closes that gap.
 // (Note: JBR's touchCachedModified is dropped in deadeye — unused dead code.)
 
+const { stripComments } = require('./helpers/strip-comments');
+
 const root = path.join(__dirname, '..');
 
 function read(f) {
@@ -35,8 +37,10 @@ function mainCtxDbKeys() {
   }
   assert.ok(end !== -1, 'db: { ... } literal should be balanced');
   // Comments first: the literal is allowed to explain itself, and a `// …, …` line would otherwise be
-  // split at its own commas — swallowing the key that follows it, and reporting it as never wired.
-  const body = src.slice(open + 1, end).replace(/\/\/[^\n]*/g, '');
+  // split at its own commas — swallowing the key that follows it, and reporting it as never wired. It
+  // cuts the other way too: prose left in place turns into keys, and a name that is only DISCUSSED reads
+  // as wired. Through the shared stripper, which drops block comments as well (#554).
+  const body = stripComments(src.slice(open + 1, end));
   // Shorthand keys: bare identifiers separated by commas/newlines (ignore any value parts).
   return new Set(
     body
