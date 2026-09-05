@@ -175,6 +175,19 @@ function postJson(port, requestPath, payload, { timeoutMs = 1200, requestImpl = 
   return new Promise((resolve, reject) => {
     const req = requestImpl({
       hostname: '127.0.0.1', port, path: requestPath, method: 'POST',
+      // AGY's quota service is HTTPS on loopback with a certificate no public CA signed, so verification
+      // would fail every request and the feature would simply not work. It is turned off deliberately,
+      // and the reason is here rather than only in a dismissed scanner alert.
+      //
+      // WHAT THAT COSTS, stated rather than waved away: another process on this machine could bind the
+      // port first and answer instead of AGY. What it would get is this request, and this request carries
+      // no credential — AGY keeps its OAuth token in the OS keyring and Switchboard never reads it (see
+      // the file header). So the exposure is a wrong quota reading, not a leaked secret, from an attacker
+      // who already runs code as this user.
+      //
+      // Pinning the certificate is the real alternative and is not available: it is generated per install
+      // and this app has no channel to learn it. Do not "fix" this by turning verification back on
+      // without one — that is not a hardening, it is removing the feature.
       rejectUnauthorized: false,
       headers: {
         'Content-Type': 'application/json',
