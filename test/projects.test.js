@@ -850,6 +850,39 @@ test('remapProject says which backend it could NOT move', () => {
   } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
 });
 
+test('remapProject says which SESSION it could not write, not just which backend (#557)', () => {
+  // The other half of the same promise. A live session's transcript is held open by its CLI, so the
+  // rename over it can still fail after the retries — and that used to come back as a bare `false`,
+  // indistinguishable from "there was nothing of ours in that file". The remap counted it as a success
+  // and the user found the session at the old path later, with nothing having said so.
+  const t = makeCtx();
+  const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-busy-'));
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-store-busy-'));
+  try {
+    const oldPath = 'D:\\held-open';
+    const file = path.join(store, 'rollout-x.jsonl');
+    const before = JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd: oldPath } }) + '\n';
+    fs.writeFileSync(file, before);
+    t.setCachedRows([{ sessionId: 'x', projectPath: oldPath, filePath: file, backendId: 'codex' }]);
+
+    // Windows refusing a rename-over-target while a handle is open, for longer than the retries last.
+    const realRename = fs.renameSync;
+    fs.renameSync = () => { const err = new Error('EBUSY: simulated'); err.code = 'EBUSY'; throw err; };
+    let res;
+    try { res = projects.remapProject(oldPath, newDir); } finally { fs.renameSync = realRename; }
+
+    assert.strictEqual(res.ok, true, 'the rest of the remap still ran');
+    assert.deepStrictEqual(res.moved, {}, 'but nothing was rewritten');
+    assert.deepStrictEqual(res.notMoved, [{ backendId: 'codex', sessionId: 'x', reason: 'busy' }],
+      'and the session that stayed behind is named, with why');
+    assert.strictEqual(fs.readFileSync(file, 'utf8'), before, 'its transcript is untouched');
+  } finally {
+    t.cleanup();
+    fs.rmSync(newDir, { recursive: true, force: true });
+    fs.rmSync(store, { recursive: true, force: true });
+  }
+});
+
 test('a remapped project is not auto-hidden out from under the rename', () => {
   // Found in the running app, not in a test: between the rewrite and the next scan the project at the
   // NEW path is momentarily EMPTY — its sessions have not been re-attributed yet. Auto-hide reads "no

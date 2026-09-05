@@ -120,6 +120,12 @@ table is the fallback and it is binding.
 11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
     compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
     is impossible, and the file's own line endings and BOM kept.
+    **One writer is exempt and its header argues the case: `src/backends/rewrite-cwd.js` (#557).** A
+    session's transcript is not a settings blob — the other party appends a line per turn, so a refusal is
+    not an answer and a document-wide EOL would rewrite every line nobody touched. That write is
+    append-aware and per-line instead, and it still imports `renameWithRetry` from `safe-write.js` rather
+    than growing a second copy of the Windows retry. It does not generalise: a new writer goes through
+    `writeTextFile`.
 12. **Never ask the settings blob where a project keeps its documents** — `src/app/convention-dirs.js` is
     the one answer for handoffs AND plans, relative and absolute, with the escape guard applied. Three
     surfaces name those directories (the handoff prompts, the plan prompt, a saved variable's insert

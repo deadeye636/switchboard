@@ -36,7 +36,7 @@ test('Claude writes cwd on every line — so every line moves', () => {
     { type: 'user', cwd: 'D:\\elsewhere', message: { role: 'user', content: 'not mine' } },
   ]);
   try {
-    assert.strictEqual(backends.get('claude').rewriteProjectPath(t.file, OLD, NEW), true);
+    assert.deepStrictEqual(backends.get('claude').rewriteProjectPath(t.file, OLD, NEW), { ok: true, changed: true });
     const rows = t.read();
     assert.deepStrictEqual(rows.map(r => r.cwd), [NEW, NEW, 'D:\\elsewhere'],
       'a line belonging to another cwd is left alone');
@@ -49,7 +49,7 @@ test('Codex writes cwd ONCE, in the session_meta header', () => {
     { timestamp: 't', type: 'event_msg', payload: { type: 'user_message', message: 'hi' } },
   ]);
   try {
-    assert.strictEqual(backends.get('codex').rewriteProjectPath(t.file, OLD, NEW), true);
+    assert.deepStrictEqual(backends.get('codex').rewriteProjectPath(t.file, OLD, NEW), { ok: true, changed: true });
     const rows = t.read();
     assert.strictEqual(rows[0].payload.cwd, NEW, 'the header follows the project');
     assert.strictEqual(rows[1].payload.type, 'user_message', 'and nothing else is touched');
@@ -62,7 +62,7 @@ test('Pi writes cwd ONCE, on its header line', () => {
     { type: 'message', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } },
   ]);
   try {
-    assert.strictEqual(backends.get('pi').rewriteProjectPath(t.file, OLD, NEW), true);
+    assert.deepStrictEqual(backends.get('pi').rewriteProjectPath(t.file, OLD, NEW), { ok: true, changed: true });
     assert.strictEqual(t.read()[0].cwd, NEW);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -71,8 +71,8 @@ test('a transcript that is not this project\'s is not rewritten, and not touched
   const t = tmpFile([{ type: 'user', cwd: 'D:\\other', message: { role: 'user', content: 'x' } }]);
   try {
     const before = fs.statSync(t.file).mtimeMs;
-    assert.strictEqual(backends.get('claude').rewriteProjectPath(t.file, OLD, NEW), false,
-      'nothing to do');
+    assert.deepStrictEqual(backends.get('claude').rewriteProjectPath(t.file, OLD, NEW), { ok: true, changed: false },
+      'nothing to do — and since #557 that no longer reads the same as a write that failed');
     assert.strictEqual(fs.statSync(t.file).mtimeMs, before, 'and the file is not rewritten for nothing');
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -84,7 +84,7 @@ test('the same directory in another spelling still moves', () => {
   const t = tmpFile([{ type: 'user', cwd: 'd:\\TEMP\\Project', message: { role: 'user', content: 'x' } }]);
   try {
     assert.strictEqual(samePath('d:\\TEMP\\Project', OLD), true);
-    assert.strictEqual(backends.get('claude').rewriteProjectPath(t.file, OLD, NEW), true);
+    assert.deepStrictEqual(backends.get('claude').rewriteProjectPath(t.file, OLD, NEW), { ok: true, changed: true });
     assert.strictEqual(t.read()[0].cwd, NEW);
   } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
@@ -97,7 +97,7 @@ test('a truncated last line (a live session, mid-write) does not lose the file',
       JSON.stringify({ type: 'user', cwd: OLD, message: { role: 'user', content: 'x' } }) + '\n'
       + '{"type":"assistant","cw');   // being appended right now
 
-    assert.strictEqual(rewriteTranscript(file, OLD, NEW, claudeLine), true);
+    assert.deepStrictEqual(rewriteTranscript(file, OLD, NEW, claudeLine), { ok: true, changed: true });
     const text = fs.readFileSync(file, 'utf8');
     assert.ok(text.includes('"cwd":"' + NEW.replace(/\\/g, '\\\\') + '"'), 'the good line moved');
     assert.ok(text.includes('{"type":"assistant","cw'), 'and the half-written one survived untouched');
@@ -143,7 +143,7 @@ test('a cwd recorded under a linked spelling is the same project, and moves with
       JSON.stringify({ type: 'user', cwd: path.join(root, 'somewhere-else'), message: { role: 'user', content: 'not mine' } }),
     ].join('\n') + '\n');
 
-    assert.strictEqual(rewriteTranscript(file, realProject, moved, claudeLine), true,
+    assert.deepStrictEqual(rewriteTranscript(file, realProject, moved, claudeLine), { ok: true, changed: true },
       'the line belongs to this project and must be rewritten');
     const rows = fs.readFileSync(file, 'utf8').trim().split('\n').map(JSON.parse);
     assert.strictEqual(rows[0].cwd, moved);

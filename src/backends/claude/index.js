@@ -330,7 +330,13 @@ const projectMeta = {
   removeLabel: 'Delete entry in ~/.claude.json (trust, MCP, cost)',
 };
 
-/** Rewrite this session's transcript so it belongs to `newPath`. Returns whether it changed anything. */
+/**
+ * Rewrite this session's transcript so it belongs to `newPath`.
+ *
+ * Answers `{ ok, changed }` / `{ ok: false, reason }` since #557 — a bare `false` could not tell "there
+ * was nothing of ours in this file" from "the CLI has it open and we could not write it", so the remap
+ * counted both as success.
+ */
 function rewriteProjectPath(filePath, oldPath, newPath) {
   return rewriteTranscript(filePath, oldPath, newPath, claudeLine);
 }

@@ -155,6 +155,17 @@ Grep for `writeTextFile` rather than trusting this list. A new writer that does 
 of guarantees for the same files — and the two that landed last were both a settings blob written by a
 feature whose subject was something else, which is where this rule gets forgotten.
 
+**One writer deliberately does not, and its header says why: `src/backends/rewrite-cwd.js` (#557).** Every
+file above is a small settings blob a human edits in a dialog, and `writeTextFile`'s two answers fit that
+shape — refuse a racing write and hand the conflict back, and re-apply the file's majority EOL to the whole
+document. Neither fits a session's transcript. Refusing is not an answer when the other party appends a
+line per assistant turn and the file can go stale again on every attempt, so that write is **append-aware**
+instead: only the bytes present at read time are rewritten, and everything appended past that offset is
+copied over as bytes. And the EOL is kept **per line**, because normalising an append-only log written by
+several versions of a CLI rewrites every line nobody touched. What it does NOT re-implement is the rename:
+`renameWithRetry` is exported from `safe-write.js` under its own name for it, so the Windows
+EPERM/EBUSY retry has one implementation rather than two that drift.
+
 ## A probe here closes its OWN stdin (#541)
 
 Running a CLI just to read what it prints — shell discovery's `wsl.exe --list --quiet` — must end the

@@ -634,12 +634,20 @@ function syncRegistry() {
  * Each backend declares how to rewrite its own transcript (`rewriteProjectPath`). One that cannot —
  * Hermes keeps its cwd in a database we may only read (#2914) — is reported, not silently skipped.
  *
- * @returns {{moved: object, cannotMove: string[]}} sessions rewritten per backend, and the backends
- *          whose sessions had to stay behind.
+ * And a single transcript that could not be written is reported the same way (#557). A live session's
+ * file is held open by the CLI, so a rename-over-target on Windows can fail for real after the retries;
+ * it used to come back as a bare `false`, indistinguishable from "there was nothing of ours in there",
+ * and the remap said it had succeeded. There is no liveness skip: a running session is rewritten like
+ * any other, and the append-aware write in `backends/rewrite-cwd.js` is what makes that safe.
+ *
+ * @returns {{moved: object, cannotMove: string[], notMoved: Array<{backendId: string, sessionId: string, reason: string}>}}
+ *          sessions rewritten per backend, the backends whose sessions ALL had to stay behind, and the
+ *          individual sessions that could not be written.
  */
 function rewriteSessionPaths(oldPath, newPath) {
   const moved = {};
   const cannotMove = [];
+  const notMoved = [];
 
   // The rows are the map of where a project's sessions actually live — every backend, every file.
   let rows = [];
@@ -675,14 +683,24 @@ function rewriteSessionPaths(oldPath, newPath) {
       // core no longer knows how any one backend spells a path.
       const file = backend.transcriptPathFor(row);
       if (!file) continue;
-      try { if (rewrite(file, oldPath, newPath)) count++; } catch (err) {
+      try {
+        const res = rewrite(file, oldPath, newPath);
+        // A backend that still answers a bare boolean is read as the old contract rather than as a
+        // failure — the shape changed in #557 and a wrong reading here would invent left-behind sessions.
+        if (res === true || (res && res.changed === true)) { count++; continue; }
+        if (res && res.ok === false) {
+          notMoved.push({ backendId, sessionId: row.sessionId, reason: res.reason || 'failed' });
+          ctx.log.warn(`[remap] ${backendId}: ${file}: not rewritten (${res.reason || 'failed'})`);
+        }
+      } catch (err) {
+        notMoved.push({ backendId, sessionId: row.sessionId, reason: 'failed' });
         ctx.log.warn(`[remap] ${backendId}: ${file}: ${err.message}`);
       }
     }
     if (count) moved[backendId] = count;
   }
 
-  return { moved, cannotMove };
+  return { moved, cannotMove, notMoved };
 }
 
 function remapProject(oldPath, newPath) {
@@ -692,13 +710,16 @@ function remapProject(oldPath, newPath) {
 
     // Every backend's sessions, not only Claude's. A project with no Claude sessions at all is a normal
     // project and must be remappable — it used to be refused outright.
-    const { moved, cannotMove } = rewriteSessionPaths(oldPath, newPath);
+    const { moved, cannotMove, notMoved } = rewriteSessionPaths(oldPath, newPath);
     const folder = encodeProjectPath(oldPath);
 
     // Nothing to move AND nothing that had to stay behind AND no session on disk = there is no project
     // here. projectHasSessionsOnDisk is the honest store-side check (it already owns the PROJECTS_DIR
     // scan); the core does not re-derive a Claude store path inline for this.
-    if (!Object.keys(moved).length && !cannotMove.length && !projectHasSessionsOnDisk(oldPath)) {
+    //
+    // A transcript we FAILED to write counts as session data (#557): the project is plainly there, and
+    // answering "no session data found" for a locked file would send the user looking for the wrong thing.
+    if (!Object.keys(moved).length && !cannotMove.length && !notMoved.length && !projectHasSessionsOnDisk(oldPath)) {
       return { error: 'No session data found for this project' };
     }
 
@@ -792,8 +813,9 @@ function remapProject(oldPath, newPath) {
 
     ctx.cache.notifyRendererProjectsChanged();
     // The renderer tells the user what actually moved — and what could not (Hermes' store is read-only
-    // to us, so its sessions keep the old path and would re-form a project there).
-    return { ok: true, moved, cannotMove };
+    // to us, so its sessions keep the old path and would re-form a project there), and since #557 also
+    // the individual transcripts the write could not reach.
+    return { ok: true, moved, cannotMove, notMoved };
   } catch (err) {
     return { error: readableError(err, 'That project could not be moved.', ctx && ctx.log) };
   }

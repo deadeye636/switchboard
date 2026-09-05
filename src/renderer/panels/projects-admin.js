@@ -496,10 +496,17 @@
         if (res && res.error) { toast('Remap: ' + res.error); return; }
         // A backend whose store Switchboard may only read keeps its sessions at the OLD path. The handler
         // has always reported that; nobody showed it, so the project simply looked half-moved afterwards.
+        // Since #557 an individual transcript can stay behind too — a live session's file is held open by
+        // its CLI, and a rename over it can still fail after the retries. Same sentence, same place: a
+        // second surface for the same fact is how one of them stops being read.
         const stuck = (res && res.cannotMove) || [];
-        if (stuck.length) {
+        const left = (res && res.notMoved) || [];
+        if (stuck.length || left.length) {
           const n = Object.values((res && res.moved) || {}).reduce((a, b) => a + b, 0);
-          toast(`Remapped ${n} session(s). ${stuck.join(', ')} could not be moved — those sessions stay at the old path.`);
+          const parts = [`Remapped ${n} session(s).`];
+          if (stuck.length) parts.push(`${stuck.join(', ')} could not be moved — those sessions stay at the old path.`);
+          if (left.length) parts.push(`${left.length} session(s) could not be rewritten (${left.map(s => s.reason).join(', ')}) and stay at the old path.`);
+          toast(parts.join(' '));
         }
       } else if (action === 'rename') {
         startRename(path, tr);

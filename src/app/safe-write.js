@@ -181,4 +181,12 @@ function writeTextFile(file, content, { expectPrevious = null, mustExist = true,
   return { ok: true, content: text, mtimeMs };
 }
 
-module.exports = { writeTextFile, encodingOf, applyEncoding, stripBom, _renameWithRetry: renameWithRetry };
+// `renameWithRetry` is exported under its own name because a second caller earned it: the transcript
+// rewrite in `backends/rewrite-cwd.js` cannot use `writeTextFile` (it is append-aware and keeps each
+// line's own EOL — #557) but hits the SAME Windows rename-over-target failure, and a copy of these
+// delays living in the backends folder is how two answers to one question start drifting. The
+// underscore alias stays for `test/safe-write.test.js`.
+module.exports = {
+  writeTextFile, encodingOf, applyEncoding, stripBom,
+  renameWithRetry, _renameWithRetry: renameWithRetry,
+};
