@@ -134,7 +134,9 @@ table is the fallback and it is binding.
     code, a string, a template, a regex or a comment. A line pass plus a block pass loses real code in
     BOTH orders, and these are guards where over-stripping HIDES a violation, so they report success about
     text they never read. `test/strip-comments-shape.test.js` refuses a hand-rolled one anywhere under
-    `test/` and has no exemption list — keep it that way (#554, `docs/ai/lessons.md`).
+    `test/` or `scripts/` and has no exemption list — keep it that way (#554, `docs/ai/lessons.md`). It is
+    `scripts/**` a guard reads as often as `src/**`, and a help check read raw counted a flag named in a
+    comment as audited (#570).
 15. **This working tree is shared. Never `git stash`, `git reset`, or `git checkout --`.** Several agent
     sessions and the worktrees under `.claude/worktrees/` run against this checkout at once, and they
     share the object store and the index. A stash takes another session's uncommitted work with it and

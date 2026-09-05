@@ -69,8 +69,15 @@ If you write a file map, write down that a new file is NOT covered until it is l
 
 `test/helpers/strip-comments.js`. Never a pair of regexes — CLAUDE.md reflex 14 and
 `docs/ai/lessons.md` have what that cost. `test/strip-comments-shape.test.js` refuses a hand-rolled one
-anywhere under `test/` and has no exemption list. Note the failure mode: over-stripping HIDES violations,
-so a blinded guard reports success about text it never read.
+anywhere under `test/` or `scripts/` and has no exemption list. Note the failure mode: over-stripping
+HIDES violations, so a blinded guard reports success about text it never read.
+
+**And it is `scripts/**` as much as `src/**`.** A help check and an asset script are read as text by
+`test/backend-launch-flags.test.js` and `test/asset-font.test.js`, and both went unstripped until #570 —
+a flag named only in a comment counted as audited, so it would have been excused from the audit it was
+supposed to face. When a file is read BOTH ways on purpose, say which half each question wants, in the
+code: the flags come from the stripped source, the exclusion reasons from the prose, because the reason
+genuinely IS a comment and a sibling test asserts it exists.
 
 ## A source check is a legitimate answer when there is no seam
 

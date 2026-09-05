@@ -22,13 +22,21 @@
 // this guard needs no exemption list: a list is the thing that grows one plausible entry at a time, and
 // the two places that legitimately hold the wrong shape (the control in `test/strip-comments.test.js` and
 // the sample below) both assemble it at run time instead of asking to be excused.
+//
+// **Where it looks**, and #570 is why it is two trees. It began at `test/`, because that is where the
+// guards live and the guards were the ones being blinded. But `scripts/` is read as text by those same
+// guards and holds tools that read source themselves, and a stripper hand-rolled there is the same defect
+// with the same silence. Walking the tree rather than listing files is the point (see
+// `.claude/rules/guards-and-scripts.md`): a violation can hide in a file nobody has written yet, and a new
+// one under either tree is covered the day it lands.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const TEST_DIR = __dirname;
+const ROOT = path.join(__dirname, '..');
+const TREES = [__dirname, path.join(ROOT, 'scripts')];
 const HELPER = ['test', 'helpers', 'strip-comments.js'].join('/');
 
 // A `.replace(` whose regex literal opens on `\/\*` or `\/\/` — the two halves of the hand-rolled
@@ -93,12 +101,14 @@ test('the guard leaves ordinary code alone', () => {
   assert.equal(handRolledStripper(innocent), null);
 });
 
-test('no test hand-rolls a comment stripper — they all go through the helper', () => {
+test('nothing under test/ or scripts/ hand-rolls a comment stripper — they all go through the helper', () => {
   const offenders = [];
-  for (const file of walk(TEST_DIR)) {
+  const files = TREES.flatMap(dir => walk(dir));
+  assert.ok(files.length > 100, `only ${files.length} files walked — a tree went missing`);
+  for (const file of files) {
     const found = handRolledStripper(fs.readFileSync(file, 'utf8'));
     if (found) {
-      const rel = path.relative(path.join(TEST_DIR, '..'), file).split(path.sep).join('/');
+      const rel = path.relative(ROOT, file).split(path.sep).join('/');
       offenders.push(`${rel}: ${found.what} — ${found.snippet}`);
     }
   }

@@ -958,12 +958,12 @@ Three things that made the replacement safe to make, and are worth copying:
   new case asserts what the scanner keeps AND that the old shape dropped it, so the file measures rather
   than describes.
 - **The reflex is now refused, not documented.** `test/strip-comments-shape.test.js` fails when anything
-  under `test/` hands `.replace()` a regex that opens on a comment. It has **no exemption list** — the two
-  places that legitimately need the wrong shape assemble it at run time, because a list is the thing that
-  grows one plausible entry at a time. It immediately found two more hand-rolled strippers
-  (`test/main-ctx-db-wiring.test.js`, `test/projects-wiring.test.js`) that a grep for the obvious pattern
-  had missed, both spelling it `[^\n]*` instead of `.*`. A guard finds what a search for the shape you
-  imagined does not.
+  under `test/` or `scripts/` (#570) hands `.replace()` a regex that opens on a comment. It has **no
+  exemption list** — the two places that legitimately need the wrong shape assemble it at run time,
+  because a list is the thing that grows one plausible entry at a time. It immediately found two more
+  hand-rolled strippers (`test/main-ctx-db-wiring.test.js`, `test/projects-wiring.test.js`) that a grep
+  for the obvious pattern had missed, both spelling it `[^\n]*` instead of `.*`. A guard finds what a
+  search for the shape you imagined does not.
 
 Chosen over a lint rule for a dull reason: `eslint` is a devDependency, but there is no config, no `lint`
 script, and CI runs `npm test` and nothing else. The gate that already exists is the one to put the check

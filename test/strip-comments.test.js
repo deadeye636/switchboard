@@ -1,11 +1,11 @@
 'use strict';
 // The comment stripper the source-scanning guards depend on, and the mistakes that blind them.
 //
-// `test/backend-path-neutrality.test.js`, `test/store-isolation.test.js`, `test/backend-integrations.test.js`,
-// `test/trust-safe-write.test.js` and `test/transcript-viewer-seam.test.js` answer questions about code by
-// reading it as text, so they drop the prose first. Every one is a guard whose over-stripping HIDES
-// violations rather than inventing them — a guard that silently reads less than it thinks reports success
-// about code it never saw, which is the worst failure a guard has.
+// A dozen tests answer questions about code by reading it as text, so they drop the prose first.
+// `grep -l strip-comments test/*.js` is the current list; it is deliberately not written out here, because
+// an enumeration in a comment goes stale the moment one is added, and #570 added two. Every one is a guard
+// whose over-stripping HIDES violations rather than inventing them — a guard that silently reads less than
+// it thinks reports success about code it never saw, which is the worst failure a guard has.
 //
 // What is pinned here is not a style preference. It is that the stripper removes comments and only
 // comments, whatever the surrounding prose, strings and regular expressions look like. The two-pass shape
@@ -20,10 +20,13 @@ const path = require('node:path');
 
 const { stripComments } = require('./helpers/strip-comments');
 
-const SRC = path.join(__dirname, '..', 'src');
+// The trees a guard reads as text. `scripts/**` joined `src/**` with #570, when the two guards over the
+// help checks and the asset scripts started stripping: the safety property at the bottom of this file is
+// only worth something over the files it is actually applied to.
+const TREES = [path.join(__dirname, '..', 'src'), path.join(__dirname, '..', 'scripts')];
 
 // The two-pass strippers this file exists to rule out, built at run time rather than written as regex
-// literals. `test/strip-comments-shape.test.js` refuses a hand-rolled stripper anywhere under `test/`,
+// literals. `test/strip-comments-shape.test.js` refuses a hand-rolled stripper under `test/` or `scripts/`,
 // and assembling these keeps that guard's exemption list empty — which is the only size at which such a
 // list stays honest.
 const BLOCK_RE = new RegExp('\\/\\*[\\s\\S]*?\\*\\/', 'g');
@@ -148,7 +151,7 @@ test('the stripper never removes more than the shape it replaced, measured on th
   // passing on nothing.
   let recovered = 0;
   let files = 0;
-  for (const file of walk(SRC)) {
+  for (const file of TREES.flatMap(tree => walk(tree))) {
     const src = fs.readFileSync(file, 'utf8');
     const now = stripComments(src);
     const before = blockFirst(src);

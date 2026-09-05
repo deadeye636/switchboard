@@ -10,11 +10,17 @@
 // reaches no argv; these assert the other direction — that the exclusions stay excluded, and stay
 // explained. An audit entry with no reason beside it is how a decision turns into a list nobody can
 // re-derive.
+//
+// #570 — a help check is read here in TWO ways, and which one a question wants is not incidental. See
+// `auditCode` / `auditProse` below: the flags are matched against the source with its prose removed, the
+// reasons against the prose itself.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+
+const { stripComments } = require('./helpers/strip-comments');
 
 const claude = require('../src/backends/claude');
 const hermes = require('../src/backends/hermes');
@@ -27,11 +33,24 @@ const { managedFlags, declaredFlags, definitionFlags } = require('../scripts/man
 const BACKENDS = { claude, codex, hermes, pi, agy };
 
 const SCRIPTS = path.join(__dirname, '..', 'scripts');
-const auditSource = (backend) => fs.readFileSync(path.join(SCRIPTS, `check-${backend}-help.js`), 'utf8');
+const helpCheck = (backend) => path.join(SCRIPTS, `check-${backend}-help.js`);
 
-/** The flags named in one `const <NAME> = new Set([...])` of a backend's help check. */
+// The two readings of a help check, and #570 is the difference between them.
+//
+// `auditCode` is the script with its prose dropped (`test/helpers/strip-comments.js`, CLAUDE.md reflex
+// 14). Every question about what the script DECLARES asks it: is this flag on the audit list, does this
+// file reach the shared deriver. A flag named only in a comment is not on any list, and letting one count
+// would excuse it from the audit it exists to face — which is the whole direction of this guard's error.
+//
+// `auditProse` is the file as written, comments included, and exactly one question wants it: whether each
+// exclusion carries the sentence saying why. There the comment IS the subject, so stripping would delete
+// the thing being asserted. Anything else reaching for it is reading the wrong half.
+const auditCode = (backend) => stripComments(fs.readFileSync(helpCheck(backend), 'utf8'));
+const auditProse = (backend) => fs.readFileSync(helpCheck(backend), 'utf8');
+
+/** The flags named in one `const <NAME> = new Set([...])` of a backend's help check — code, not prose. */
 function flagSet(backend, name, { required = true } = {}) {
-  const src = auditSource(backend);
+  const src = auditCode(backend);
   const start = src.indexOf(`const ${name}`);
   if (start < 0) {
     assert.ok(!required, `${backend} declares ${name}`);
@@ -144,6 +163,11 @@ test('an unmeasured flag stays out until somebody watches it (#537)', () => {
 test('every exclusion added for this issue carries its reason (#537)', () => {
   // An audit list is a record of decisions. Without the reason beside the entry it is a list nobody can
   // re-derive, and the next person either re-litigates it or adds the flag by accident.
+  //
+  // The one test here that reads the PROSE, and #570 is why it says so out loud: the reason genuinely is a
+  // comment, so this is the half of the file that has to survive. The flag's own presence is still a
+  // question about code, and is asked of the stripped source through `excludedFlags` — otherwise a flag
+  // written only in a comment would satisfy both halves of this check at once.
   const NEEDS_REASON = {
     claude: ['--permission-prompts', '--cloud', '--system-prompt-snapshot'],
     codex: ['--approve-for-me'],
@@ -152,8 +176,11 @@ test('every exclusion added for this issue carries its reason (#537)', () => {
     hermes: ['--in', '--reasoning'],
   };
   for (const [backend, flags] of Object.entries(NEEDS_REASON)) {
-    const src = auditSource(backend);
+    const src = auditProse(backend);
+    const listed = excludedFlags(backend);
     for (const flag of flags) {
+      assert.ok(listed.includes(flag),
+        `${backend}: ${flag} is on the audit list as code, not merely named in a comment`);
       const at = src.indexOf(`'${flag}'`);
       assert.ok(at > 0, `${backend}: ${flag} is listed`);
       // Back to the PREVIOUS entry, not a byte count. A fixed window reaches over a neighbour's comment,
@@ -199,7 +226,7 @@ test('no help check writes down the flags this app sends (#548)', () => {
   // the audit compares two things that agree with each other — which is exactly how `--checkpoints` stayed
   // green through every run of `npm run backends:help-check`.
   for (const name of Object.keys(BACKENDS)) {
-    const src = auditSource(name);
+    const src = auditCode(name);
     assert.equal(/const\s+MANAGED\s*=/.test(src), false,
       `${name}: the managed set is derived from the descriptor, not listed in the script`);
     assert.match(src, /require\('\.\/managed-flags'\)/, `${name}: it asks the shared deriver`);
@@ -244,7 +271,9 @@ test('a flag a help line only MENTIONS is not a flag the CLI advertises (#548)',
 
 test('a flag the CORE sends outside the descriptor is named where it is sent (#548)', () => {
   // `alsoSent` is the one hand-written door left, so it stays narrow: each entry must be a flag some file
-  // in this repo really puts on that CLI's command line.
+  // in this repo really puts on that CLI's command line. "Really puts" is a question about code, so the
+  // named files are read with their prose dropped too (#570) — a flag a comment merely mentions would
+  // otherwise stand in for the line that sends it, and that is the exact claim this entry is making.
   const WHERE = {
     claude: ['src/app/terminal/spawn.js'],
     pi: ['src/backends/pi/index.js'],
@@ -252,7 +281,9 @@ test('a flag the CORE sends outside the descriptor is named where it is sent (#5
   for (const [backend, files] of Object.entries(WHERE)) {
     const flags = sentElsewhereFlags(backend);
     assert.ok(flags.length, `${backend} declares what the core adds`);
-    const sources = files.map(f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
+    const sources = files
+      .map(f => stripComments(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')))
+      .join('\n');
     for (const flag of flags) {
       assert.ok(sources.includes(flag), `${backend}: ${flag} is declared as sent, but ${files.join(', ')} never sends it`);
     }

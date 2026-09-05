@@ -12,25 +12,34 @@
 //
 // So two guards: the picker must return something the process actually has, and neither script may
 // go back to naming a family that is not one.
+//
+// Both read a script as text, so both drop its prose first (#570), and the error each was open to points
+// a different way. The `require('./pick-font')` assertion is satisfied by that same sentence written as a
+// comment — a false PASS, which is the one this issue is about. The generic-family check reads a trailing
+// comment as part of the assignment it sits on, and these scripts' own header names `-apple-system` and
+// `sans-serif` while explaining the trap — a false failure, loud but still an answer about prose.
 
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { stripComments } = require('./helpers/strip-comments');
+
 const SCRIPTS = ['generate-icons.js', 'generate-dmg-background.js'];
 const scriptPath = (name) => path.join(__dirname, '..', 'scripts', name);
+/** One asset script's CODE — comments removed, because every question here is about what it does. */
+const scriptCode = (name) => stripComments(fs.readFileSync(scriptPath(name), 'utf8'));
 
 // CSS generic families and keywords: legal in a browser, not font names canvas can resolve.
 const NOT_A_FAMILY = /-apple-system|BlinkMacSystemFont|\bsans-serif\b|\bserif\b|\bmonospace\b|system-ui/;
 
 test('the asset scripts do not name CSS generic families', () => {
   for (const name of SCRIPTS) {
-    const src = fs.readFileSync(scriptPath(name), 'utf8');
-    // Only the lines that actually set a font matter; the comments explain the trap on purpose.
-    const fontLines = src.split('\n')
-      .filter(l => /\.font\s*=/.test(l))
-      .filter(l => !l.trim().startsWith('//'));
+    // Only the lines that actually set a font matter; the comments explain the trap on purpose. That used
+    // to be a `startsWith('//')` filter, which saw a whole-line comment and nothing else — a trailing one
+    // on a real assignment walked straight past it. The shared stripper is the one way to drop prose.
+    const fontLines = scriptCode(name).split('\n').filter(l => /\.font\s*=/.test(l));
     assert.ok(fontLines.length > 0, `${name} sets no font at all — did the assignment move?`);
     for (const line of fontLines) {
       assert.ok(!NOT_A_FAMILY.test(line),
@@ -41,8 +50,7 @@ test('the asset scripts do not name CSS generic families', () => {
 
 test('the asset scripts resolve their font through pick-font', () => {
   for (const name of SCRIPTS) {
-    const src = fs.readFileSync(scriptPath(name), 'utf8');
-    assert.match(src, /require\('\.\/pick-font'\)/,
+    assert.match(scriptCode(name), /require\('\.\/pick-font'\)/,
       `${name} must take its font from pick-font.js, not from a literal`);
   }
 });
