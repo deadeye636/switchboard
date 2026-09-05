@@ -252,6 +252,17 @@ that CLI already does** — it is a description of the CLI, not a wish.
 that lies), unless it says why: `appliesAt: 'spawn'` (`app/terminal/spawn.js` applies it, not the
 argv) or `requires: '<other>'` (meaningless on its own).
 
+**And the mirror of that: an option `buildLaunch` READS must be declared** (#562). Claude honoured
+`appendSystemPrompt` for months with no field naming it — no settings page offered it, no scope stored
+it, the Configure dialog could not set it, and its one caller (the schedule creator) left with #246. An
+argv path nobody can reach states a capability the app does not have, so it goes, unless a caller that
+is not the settings screen sets it — and then that caller is the declaration and is named where the
+option is read. The guard is a subtraction, not a list: `declaredFlags` (the launch shapes, the
+live-binding hook and the declared fields) taken off `managedFlags` (the same, plus an options object
+that answers everything), with the core's `SENT_ELSEWHERE` as the one door. What is left is a flag
+gated on a key `configFields` never named — `test/backend-launch-flags.test.js`, pinned against a stub
+so the check can still fail now that no real backend trips it.
+
 **And the flag has to EXIST — nobody's list can answer that** (#548). Hermes shipped a `checkpoints`
 toggle emitting `--checkpoints`, which bare `hermes` does not take (it is a flag of its `chat`
 subcommand), so every session launched with it on died at spawn. Nothing caught it because

@@ -179,9 +179,12 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
     const dirs = String(opts.addDirs).split(',').map(d => d.trim()).filter(Boolean);
     for (const dir of dirs) args.push('--add-dir', dir);
   }
-  if (opts.appendSystemPrompt) {
-    args.push('--append-system-prompt', String(opts.appendSystemPrompt));
-  }
+  // `appendSystemPrompt` used to be read here and is not any more (#562). It was never a control anyone
+  // could reach: its one caller was the schedule creator, which put the generated system prompt on the
+  // resume, and #246 removed the scheduled-tasks feature without taking the branch with it. No
+  // `configFields` entry declared it, so no settings page offered it, no scope stored it and the Configure
+  // dialog could not set it — an argv path that stated a capability the app did not have. Why it was not
+  // declared instead of removed is recorded with the exclusion, in `scripts/check-claude-help.js`.
   if (opts.restricted) {
     args.push('--restricted');
   }

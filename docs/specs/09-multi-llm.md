@@ -317,6 +317,23 @@ The ones that will look wrong to someone tidying up later:
    `buildLaunch` throws away (`permissionMode: 'default'`) — Codex and Hermes have none, so for them a
    default became a real flag. **Nothing anybody chose, nothing on the argv.**
 
+   The mirror of that rule is **nothing on the argv that no control declares** (#562). Claude's
+   `buildLaunch` read an `appendSystemPrompt` option no `configFields` entry named, so no settings page
+   offered it, no scope in the cascade stored it and the Configure dialog could not set it: the only way
+   to reach the flag was to construct the options object by hand, which the schedule creator did until
+   #246 removed the scheduled-tasks feature and left the branch behind. An argv path nobody can reach
+   states a capability the app does not have. Such an option is either **declared**, so it cascades and
+   appears on the settings screen like every other; or **removed**; or, if some caller other than the
+   settings screen really sets it, that caller is named where the option is read — and then it is the
+   declaration. Which way Claude's went is recorded with its exclusion in `scripts/check-claude-help.js`:
+   the flag turns the CLI's system-prompt snapshot off, and that behaviour is on the audited-out list
+   because nobody here has watched what it does.
+
+   The check is the #548 derivation used twice rather than a second list. The flags the launch shapes,
+   the live-binding hook and the **declared** fields can produce, subtracted from the flags an options
+   object that answers everything can produce, leaves exactly the options nothing declares — with the
+   core's `SENT_ELSEWHERE` (a flag added outside the descriptor) as the one door.
+
    The **Configure dialog** is the fifth place with the same marker, and it means something slightly
    different there: it is a **per-session override that layers ON TOP of the cascade**, not a replacement
    for it.

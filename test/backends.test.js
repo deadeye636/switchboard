@@ -48,7 +48,8 @@ test('buildLaunch: full option set in the exact inline order', () => {
       worktree: true, worktreeName: 'feature-x',
       chrome: true,
       addDirs: ' a , b ,, c ',
-      appendSystemPrompt: 'be terse',
+      restricted: true,
+      autocompact: '200k',
     },
   });
   assert.deepStrictEqual(args, [
@@ -57,8 +58,20 @@ test('buildLaunch: full option set in the exact inline order', () => {
     '--worktree', 'feature-x',
     '--chrome',
     '--add-dir', 'a', '--add-dir', 'b', '--add-dir', 'c',
-    '--append-system-prompt', 'be terse',
+    '--restricted',
+    '--autocompact', '200k',
   ]);
+});
+
+test('buildLaunch: an option no configFields entry declares reaches no argv (#562)', () => {
+  // `appendSystemPrompt` was read here with nothing declaring it — the schedule creator set it by hand and
+  // #246 took that caller away. A stored value from before this fix must not resurrect the flag either:
+  // the cascade copies whatever keys a scope holds, so "nobody writes it any more" is not the guard.
+  assert.equal(claude.configFields.some(f => f.id === 'appendSystemPrompt'), false, 'not declared');
+  const { args } = claude.buildLaunch({
+    resume: false, sessionId: 'S1', options: { appendSystemPrompt: 'be terse' },
+  });
+  assert.deepStrictEqual(args, ['--session-id', 'S1']);
 });
 
 test('buildLaunch: worktree without a name omits the name arg', () => {

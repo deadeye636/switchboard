@@ -21,7 +21,7 @@ const hermes = require('../src/backends/hermes');
 const pi = require('../src/backends/pi');
 const codex = require('../src/backends/codex');
 const agy = require('../src/backends/agy');
-const { managedFlags, definitionFlags } = require('../scripts/managed-flags');
+const { managedFlags, declaredFlags, definitionFlags } = require('../scripts/managed-flags');
 
 /** The backends that have a help check of their own — the audit lists live per backend. */
 const BACKENDS = { claude, codex, hermes, pi, agy };
@@ -29,14 +29,40 @@ const BACKENDS = { claude, codex, hermes, pi, agy };
 const SCRIPTS = path.join(__dirname, '..', 'scripts');
 const auditSource = (backend) => fs.readFileSync(path.join(SCRIPTS, `check-${backend}-help.js`), 'utf8');
 
-/** The `AUDITED_EXCLUDED` set of one backend's help check, as a list of flags. */
-function excludedFlags(backend) {
+/** The flags named in one `const <NAME> = new Set([...])` of a backend's help check. */
+function flagSet(backend, name, { required = true } = {}) {
   const src = auditSource(backend);
-  const start = src.indexOf('const AUDITED_EXCLUDED');
-  assert.ok(start > 0, `${backend} has an audit list`);
+  const start = src.indexOf(`const ${name}`);
+  if (start < 0) {
+    assert.ok(!required, `${backend} declares ${name}`);
+    return [];
+  }
   const block = src.slice(start, src.indexOf(']);', start));
   return [...block.matchAll(/'(--[a-z0-9-]+)'/g)].map(m => m[1]);
 }
+
+/** The `AUDITED_EXCLUDED` set of one backend's help check, as a list of flags. */
+const excludedFlags = (backend) => flagSet(backend, 'AUDITED_EXCLUDED');
+
+/** The one hand-written door: flags the CORE puts on that CLI's command line, outside the descriptor. */
+const sentElsewhereFlags = (backend) => flagSet(backend, 'SENT_ELSEWHERE', { required: false });
+
+/**
+ * A descriptor whose `buildLaunch` honours an option no `configFields` entry declares — the defect #562
+ * names, in the smallest shape that has it. Both the #548 derivation and the #562 guard are pinned against
+ * it, because after the fix no real backend carries one and a check nothing can fail is not a check.
+ */
+const UNDECLARED_OPTION_BACKEND = {
+  id: 'stub',
+  configFields: [{ id: 'declared', label: 'Declared', type: 'toggle', default: false }],
+  buildLaunch({ options } = {}) {
+    const opts = options || {};
+    const args = [];
+    if (opts.declared) args.push('--declared');
+    if (opts.undeclared) args.push('--undeclared', String(opts.undeclared));
+    return { command: 'stub', args, env: {}, spawnMode: 'shell' };
+  },
+};
 
 const launchArgs = (backend, options) => backend.buildLaunch({ cwd: '/project', options }).args;
 
@@ -188,10 +214,14 @@ test('the derivation sees every flag a launch can carry, not only the declared o
   assert.equal(hermesFlags.includes('--checkpoints'), false, 'and nothing it no longer sends');
 
   const claudeFlags = managedFlags(claude);
-  // Two that a set built from `configFields` alone would have called unmanaged: `--settings` comes from the
-  // live-binding hook, and `--append-system-prompt` from an option `buildLaunch` reads but nothing declares.
+  // One a set built from `configFields` alone would have called unmanaged: `--settings` comes from the
+  // live-binding hook, not from any declared option.
   assert.ok(claudeFlags.includes('--settings'), 'the per-spawn binding file');
-  assert.ok(claudeFlags.includes('--append-system-prompt'), 'an undeclared option buildLaunch still honours');
+  // The other kind was `--append-system-prompt` — an option `buildLaunch` read and nothing declared — until
+  // #562 removed it. No real backend has one now, so the probe that finds them is pinned against a stub
+  // instead: without it this derivation would go quiet the next time a branch like that appears.
+  assert.ok(managedFlags(UNDECLARED_OPTION_BACKEND).includes('--undeclared'),
+    'an option no field declares is still seen');
   // Both sides of a select, not whichever probe value came first.
   assert.ok(claudeFlags.includes('--permission-mode') && claudeFlags.includes('--dangerously-skip-permissions'));
 
@@ -215,22 +245,65 @@ test('a flag a help line only MENTIONS is not a flag the CLI advertises (#548)',
 test('a flag the CORE sends outside the descriptor is named where it is sent (#548)', () => {
   // `alsoSent` is the one hand-written door left, so it stays narrow: each entry must be a flag some file
   // in this repo really puts on that CLI's command line.
-  const sentElsewhere = (backend) => {
-    const src = auditSource(backend);
-    const at = src.indexOf('const SENT_ELSEWHERE');
-    if (at < 0) return [];
-    return [...src.slice(at, src.indexOf(']);', at)).matchAll(/'(--[a-z0-9-]+)'/g)].map(m => m[1]);
-  };
   const WHERE = {
     claude: ['src/app/terminal/spawn.js'],
     pi: ['src/backends/pi/index.js'],
   };
   for (const [backend, files] of Object.entries(WHERE)) {
-    const flags = sentElsewhere(backend);
+    const flags = sentElsewhereFlags(backend);
     assert.ok(flags.length, `${backend} declares what the core adds`);
     const sources = files.map(f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8')).join('\n');
     for (const flag of flags) {
       assert.ok(sources.includes(flag), `${backend}: ${flag} is declared as sent, but ${files.join(', ')} never sends it`);
     }
   }
+});
+
+// --- #562: the other direction — a flag on the argv that no field explains -------------------------------
+
+test('every flag a launch can carry is explained by a declared option or a documented door (#562)', () => {
+  // `test/backend-config-fields.test.js` refuses a declared option that reaches no argv — a control that
+  // lies. This is the mirror: an option that reaches the argv and no control declares. Claude honoured
+  // `appendSystemPrompt` that way for months, so no settings page offered it, no scope stored it and the
+  // Configure dialog could not set it — the only way in was to build the options object by hand, which
+  // stopped being possible when #246 removed the schedule creator that did.
+  //
+  // Both sets come from the same derivation (#548), so nothing is written down here: the launch shapes and
+  // the per-spawn binding file are in both and cancel, and what survives the subtraction is exactly a flag
+  // gated on an option key `configFields` never named. The one legitimate door is the core's own
+  // `SENT_ELSEWHERE`, which is read out of the backend's help check rather than repeated here.
+  for (const [name, backend] of Object.entries(BACKENDS)) {
+    const explained = new Set([...declaredFlags(backend), ...sentElsewhereFlags(name)]);
+    assert.deepEqual(
+      managedFlags(backend).filter(flag => !explained.has(flag)),
+      [],
+      `${name}: buildLaunch can emit a flag no configFields entry declares — declare it, or stop sending it`,
+    );
+  }
+});
+
+test('the #562 guard can actually fail — a stub with an undeclared option trips it', () => {
+  // A guard that passes because there is nothing left to catch is indistinguishable from one that is
+  // broken. The stub is the defect in miniature: one declared toggle, one option key nothing declares.
+  const explained = new Set(declaredFlags(UNDECLARED_OPTION_BACKEND));
+  assert.ok(explained.has('--declared'), 'the declared field is accounted for');
+  assert.deepEqual(
+    managedFlags(UNDECLARED_OPTION_BACKEND).filter(flag => !explained.has(flag)),
+    ['--undeclared'],
+    'and the undeclared one is what the guard reports',
+  );
+});
+
+test('Claude no longer honours the launch option nothing declared (#562)', () => {
+  // Removed rather than declared, and the reason lives with the exclusion: passing
+  // `--append-system-prompt` turns `--system-prompt-snapshot` off, and that flag is audited out precisely
+  // because nobody here has watched what it does. A text field for it would ship that interaction sideways.
+  assert.equal(claude.configFields.some(f => f.id === 'appendSystemPrompt'), false, 'not declared');
+  assert.equal(launchArgs(claude, { appendSystemPrompt: 'be terse' }).includes('--append-system-prompt'), false,
+    'and a value stored before this fix cannot reach the argv either');
+  assert.ok(excludedFlags('claude').includes('--append-system-prompt'), 'audited out, with the reason beside it');
+  // Pi's option of the same name is declared and reachable — a different backend, a different CLI, and not
+  // this defect. Left alone on purpose (`fix a backend, check its siblings` cuts both ways).
+  assert.ok(pi.configFields.some(f => f.id === 'appendSystemPrompt'), 'Pi declares its own');
+  assert.ok(launchArgs(pi, { appendSystemPrompt: 'be terse' }).includes('--append-system-prompt'));
 });

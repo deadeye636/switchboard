@@ -44,9 +44,14 @@ function flagsIn(args) {
 
 /**
  * An options object that answers every question with a usable value, so every `if (opts.x)` branch in a
- * `buildLaunch` is taken at once. `configFields` is not the whole story: Claude's `buildLaunch` honours
- * `appendSystemPrompt`, which no field declares, and a set built from the declared fields alone would
- * have called that flag unmanaged. What buildLaunch READS is the question, not what the settings page shows.
+ * `buildLaunch` is taken at once. `configFields` is not the whole story, and the audit must not assume it
+ * is: Claude's `buildLaunch` honoured an undeclared `appendSystemPrompt` for months, and a set built from
+ * the declared fields alone would have called that flag unmanaged. What buildLaunch READS is the question,
+ * not what the settings page shows.
+ *
+ * The gap between the two answers is itself a defect, not just a coverage detail — an option that reaches
+ * the argv and no field declares is a launch option nothing offers (#562). `declaredFlags` below is the
+ * other half, so a test can subtract one set from the other and name what is left.
  */
 const EVERY_OPTION = new Proxy({}, {
   get: (_target, prop) => (typeof prop === 'string' ? 'PROBE-VALUE' : undefined),
@@ -60,14 +65,15 @@ const EVERY_OPTION = new Proxy({}, {
  * probe value would audit whichever branch it happened to land in. The launch SHAPES are separate
  * variants for the same reason: resume, fork and a new session are three mutually exclusive branches.
  */
-function launchVariants(backend) {
+function launchVariants(backend, { undeclaredOptions = true } = {}) {
   const variants = [
     { ...CTX, options: {} },
     { ...CTX, resume: true, options: {} },
     { ...CTX, forkFrom: 'PARENT-SESSION-ID', options: {} },
-    { ...CTX, options: EVERY_OPTION },
-    { ...CTX, resume: true, options: EVERY_OPTION },
   ];
+  if (undeclaredOptions) {
+    variants.push({ ...CTX, options: EVERY_OPTION }, { ...CTX, resume: true, options: EVERY_OPTION });
+  }
   for (const field of backend.configFields || []) {
     // Applied at the spawn site rather than in the argv — it has no flag of its own to audit.
     if (field.appliesAt === 'spawn') continue;
@@ -110,15 +116,26 @@ function bindingFlags(backend) {
 }
 
 /** Every flag this backend can put on its CLI's command line, derived — not written down. */
-function managedFlags(backend) {
+function managedFlags(backend, opts) {
   const flags = new Set(bindingFlags(backend));
-  for (const variant of launchVariants(backend)) {
+  for (const variant of launchVariants(backend, opts)) {
     let launch;
     try { launch = backend.buildLaunch(variant); } catch { continue; }
     for (const flag of flagsIn(launch && launch.args)) flags.add(flag);
   }
   return [...flags].sort();
 }
+
+/**
+ * The same derivation with the undeclared-option probe left out: the flags the launch SHAPES (new, resume,
+ * fork), the live-binding hook and the DECLARED `configFields` entries can produce between them — in other
+ * words, everything a reader of the settings screen and the descriptor could account for.
+ *
+ * `managedFlags(backend)` minus this is a flag `buildLaunch` emits for an option key nothing declares
+ * (#562). The two sets are built the same way on purpose: the launch shapes and the binding file appear in
+ * both, so they cancel and only the undeclared option survives the subtraction.
+ */
+const declaredFlags = (backend) => managedFlags(backend, { undeclaredOptions: false });
 
 /**
  * The flags one help line DEFINES. A definition sits at the left of its line and ends where the
@@ -186,4 +203,4 @@ function auditFlags({ backend, groups, excluded, alsoSent }) {
   return { advertised: [...advertised].sort(), managed: [...managed].sort(), unknown, missing: missing.sort() };
 }
 
-module.exports = { managedFlags, definitionFlags, auditFlags, flagsIn, probeValue };
+module.exports = { managedFlags, declaredFlags, definitionFlags, auditFlags, flagsIn, probeValue };

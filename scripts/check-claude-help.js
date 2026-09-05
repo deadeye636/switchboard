@@ -30,14 +30,22 @@ const AUDITED_EXCLUDED = new Set([
   // #537. This one DOES change an interactive session, so it passes the test the others fail — it is
   // excluded for the other reason: nobody here has watched what it does. And its default is not simply the
   // CLI's recommendation, which is what an earlier version of this comment claimed: the help recommends
-  // `on` and says `--append-system-prompt` turns it off, which this backend sends whenever that option is
-  // set. Measure the interaction before offering a switch for it.
+  // `on` and says `--append-system-prompt` turns it off. Measure the interaction before offering a switch
+  // for it — and see `--append-system-prompt` below, which is excluded because of this one.
   '--system-prompt-snapshot',
   '--agent',
   '--agents',
   '--allow-dangerously-skip-permissions',
   '--allowed-tools',
   '--allowedTools',
+  // #562. `buildLaunch` honoured this one for months with nothing declaring it: the schedule creator set
+  // it by hand, #246 removed that feature, and the branch stayed. Declaring it instead was the other way
+  // out and this is why it was not taken — passing it turns `--system-prompt-snapshot` off, which is the
+  // flag right above, excluded because nobody here has watched what it does. Offering a text field that
+  // silently changes how the CLI records and reuses its system prompt is shipping that unmeasured
+  // interaction through a different door. Pi declares an option of the same name; its CLI has no snapshot
+  // to disturb, so that is not this decision.
+  '--append-system-prompt',
   '--ax-screen-reader',
   '--background',
   '--bare',
