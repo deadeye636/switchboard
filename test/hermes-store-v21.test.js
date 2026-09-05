@@ -8,10 +8,12 @@
 // The answers, from the installed 0.21.0's own source:
 //
 //   - `source` is an OPEN set — `hermes --source <anything>` writes a free value and every gateway
-//     platform contributes its own name. That is the argument for the `cli` allow-list: it holds bot rooms
+//     platform contributes its own name. That is the argument for an allow-list: it holds bot rooms
 //     and gateway chats out without needing to know they exist.
-//   - Two excluded values are not noise: `recovered` (a stub rebuilt from orphaned messages, no cwd) and
-//     `claude-code` / `codex-cli` (imported coding sessions, which DO carry a cwd).
+//   - Two excluded values were not noise: `recovered` (a stub rebuilt from orphaned messages, no cwd,
+//     #551) and `claude-code` / `codex-cli` (imported coding sessions, which DO carry a cwd, #552).
+//     `SOURCE_DECISIONS` below is now the record of what happened to each, WITH the reason — including
+//     for the values that stay out, whose reasons the reader's comment did not carry.
 //   - The columns arrive through `SELECT *` and the change marker touches none of them.
 //
 // **What these do NOT do is measure a real Bot Mode store.** No such store exists on the machine this was
@@ -71,45 +73,141 @@ function withStore(dir, fn) {
 
 const SKIP = { skip: !DatabaseSync && 'node:sqlite is not available in this runtime' };
 
-test('Bot Mode rooms and gateway chats are not offered as sessions (#535)', SKIP, () => {
-  // The question #535 asks. They are held out by the `cli` filter without it naming any of them — the
-  // filter is an allow-list, which is why a default-on feature that adds new row kinds did not need a
-  // change here.
-  const dir = makeStore([
-    { id: 'a', source: 'cli', started_at: 100, cwd: '/project', message_count: 1 },
-    { id: 'room', source: 'bot_room', started_at: 100, title: 'a group room', message_count: 1 },
-    { id: 'tg', source: 'telegram', started_at: 100, chat_type: 'dm', message_count: 1 },
-    { id: 'dc', source: 'discord', started_at: 100, chat_type: 'group', message_count: 1 },
-    { id: 'sub', source: 'subagent', started_at: 100, parent_session_id: 'a', message_count: 1 },
-    { id: 'imp', source: 'claude-code', started_at: 100, cwd: '/imported', message_count: 1 },
-  ]);
-  const ids = withStore(dir, () => reader.discoverSessions({}).map(h => h.sessionId));
-  assert.deepEqual(ids, ['a']);
+// ONE ENTRY PER `source` VALUE THIS READER HAS A DECISION ABOUT, AND EVERY ENTRY CARRIES ITS REASON.
+//
+// This is the second copy of the allow-list in `sourceFilter` (src/backends/hermes/reader.js) — change
+// one and this fails, which is the point. It is checked BOTH ways: the store below is built from this
+// table, and the ingested set has to equal exactly the entries marked `ingested`, so neither a value
+// that quietly starts being read nor one that quietly stops can pass.
+//
+// The reasons matter as much as the booleans. The filter used to be a bare `source = 'cli'` with a
+// comment that named the held-out values and said nothing about WHY two of them were held out — so
+// #551 and #552 read as a deliberate rule for a release, when they were nobody's decision. A held-out
+// entry with no sentence here is the same defect written as a test.
+//
+// `source` is an open set, so this table is not and cannot be exhaustive: an unlisted value is held out
+// by absence, which is what `unknown-source-from-the-future` pins.
+const SOURCE_DECISIONS = [
+  {
+    source: 'cli', ingested: true, row: { cwd: '/project' },
+    why: 'a session the user drove from a terminal. Ours — cli_session_mixin.py writes it.',
+  },
+  {
+    source: 'recovered', ingested: true, row: { title: 'Recovered session 1', message_count: 3 },
+    why: 'a session row Hermes rebuilt from orphaned messages after a crash (#551). The messages are '
+      + 'real and the work is real; the stub has no cwd, so it lands in the backend bucket.',
+  },
+  {
+    source: 'claude-code', ingested: false, row: { cwd: '/imported/claude' },
+    why: 'a transcript brought in by `hermes sessions import` (#552). Held out: Switchboard reads the '
+      + 'Claude store directly, so ingesting it would show the same work twice under two backends.',
+  },
+  {
+    source: 'codex-cli', ingested: false, row: { cwd: '/imported/codex' },
+    why: 'the Codex half of the same import (#552), held out for the same reason.',
+  },
+  {
+    source: 'bot_room', ingested: false, row: { title: 'a group room' },
+    why: 'one row per Group Chat room (api_server_room_dispatch.py), not a session anybody coded in.',
+  },
+  {
+    source: 'telegram', ingested: false, row: { chat_type: 'dm' },
+    why: 'a gateway chat, named by the platform adapter that took the message. A conversation, not '
+      + 'work in a project.',
+  },
+  {
+    source: 'discord', ingested: false, row: { chat_type: 'group' },
+    why: 'the same, from a different adapter — and the set of adapters grows, which is why these are '
+      + 'held out by absence rather than by name.',
+  },
+  {
+    source: 'subagent', ingested: false, row: { parent_session_id: 'cli' },
+    why: 'a delegated child. It belongs to its parent\'s turn; Hermes\' own session search hides it too.',
+  },
+  {
+    source: 'cron', ingested: false, row: {},
+    why: 'a scheduled turn. Nobody is sitting in front of it.',
+  },
+  {
+    source: 'acp', ingested: false, row: { cwd: '/editor' },
+    why: 'an editor driving Hermes over the ACP bridge — machine-driven, like cron and the HTTP API.',
+  },
+  {
+    source: 'unknown-source-from-the-future', ingested: false, row: {},
+    why: 'the allow-list\'s whole reason for being: a value nobody has heard of is held out by not '
+      + 'being listed, so a new gateway adapter cannot add noise to the sidebar on its own.',
+  },
+];
+
+/** A store holding one row per decision above, id = the source value. */
+function makeDecisionStore() {
+  return makeStore(SOURCE_DECISIONS.map(d => ({
+    id: d.source, source: d.source, started_at: 100, message_count: 1, ...d.row,
+  })));
+}
+
+test('every source value this reader decides about is pinned with its reason (#535, #551, #552)', SKIP, () => {
+  for (const d of SOURCE_DECISIONS) {
+    assert.ok(d.why && d.why.length > 30, `${d.source} needs a reason, not a category`);
+  }
+  const dir = makeDecisionStore();
+  const ids = withStore(dir, () => reader.discoverSessions({}).map(h => h.sessionId).sort());
+  const expected = SOURCE_DECISIONS.filter(d => d.ingested).map(d => d.source).sort();
+  assert.deepEqual(ids, expected,
+    'the ingested set must equal exactly the entries marked ingested — both directions');
 });
 
 test('every session is still offered when the caller asks for all of them (#535)', SKIP, () => {
-  const dir = makeStore([
-    { id: 'a', source: 'cli', started_at: 100, cwd: '/project', message_count: 1 },
-    { id: 'room', source: 'bot_room', started_at: 100, title: 'a group room', message_count: 1 },
-  ]);
+  const dir = makeDecisionStore();
   const ids = withStore(dir, () => reader.discoverSessions({ includeAll: true }).map(h => h.sessionId).sort());
-  assert.deepEqual(ids, ['a', 'room']);
+  assert.deepEqual(ids, SOURCE_DECISIONS.map(d => d.source).sort(),
+    'includeAll bypasses the allow-list entirely, so even a held-out kind is there to be found');
 });
 
-test('a repaired session is filtered out, and that is a known gap (#535)', SKIP, () => {
+test('a repaired session is offered, and lands in the bucket for a session with no project (#551)', SKIP, () => {
   // Hermes writes `source: 'recovered'` when it rebuilds a session row from orphaned messages — a crash
-  // is the ordinary way to get one. The messages are real and the original source is gone, so a CLI
-  // session Hermes repaired does not come back here. Pinned as it stands: changing it is a decision about
-  // what a session with no `cwd` should do, not a one-word filter edit.
+  // mid-session is the ordinary way to get one, so these are the sessions a user is most likely to go
+  // looking for. Its INSERT names id/source/started_at/title/message_count, so there is no cwd; the
+  // answer to "which project" is the backend-scoped bucket the gateway/cron chats already use, NOT a cwd
+  // derived from the messages.
   const dir = makeStore([
     { id: 'a', source: 'cli', started_at: 100, cwd: '/project', message_count: 1 },
     { id: 'rec', source: 'recovered', started_at: 100, title: 'Recovered session 1', message_count: 3 },
   ]);
-  const ids = withStore(dir, () => reader.discoverSessions({}).map(h => h.sessionId));
-  assert.deepEqual(ids, ['a'], 'the repaired session is not offered today');
+  withStore(dir, () => {
+    const found = reader.discoverSessions({});
+    assert.deepEqual(found.map(h => h.sessionId).sort(), ['a', 'rec'],
+      'the repaired session is offered like any other');
+    const parsed = reader.parseSession(found.find(h => h.sessionId === 'rec'));
+    assert.ok(parsed, 'and it parses');
+    assert.equal(parsed.cwd, null, 'with no working directory of its own');
+  });
+});
 
-  const all = withStore(dir, () => reader.discoverSessions({ includeAll: true }).map(h => h.sessionId).sort());
-  assert.deepEqual(all, ['a', 'rec'], 'and it is there to be found when asked for');
+test('a repaired session is NOT a candidate for the session we just launched (#551)', SKIP, () => {
+  // Ingest and live pairing ask different questions, and widening the first must not widen the second.
+  // A `recovered` row is a rebuild of a session that already ended, so it can never be the row a spawn
+  // just wrote — offering it to matchLiveSession would let a launch adopt somebody else's identity.
+  const dir = makeStore([
+    { id: 'a', source: 'cli', started_at: 100, cwd: '/project', message_count: 1 },
+    { id: 'rec', source: 'recovered', started_at: 100, message_count: 1 },
+  ]);
+  const ids = withStore(dir, () => reader.listLiveCandidates().map(c => c.sessionId));
+  assert.deepEqual(ids, ['a'], 'only the CLI writes the row a launch just created');
+});
+
+test('a cwd-less Hermes session has a bucket to fall into, and it is not invented here (#551)', SKIP, () => {
+  // The mechanism #551 reuses rather than a third pattern: the descriptor already answers
+  // `sessionBucketPath` for the gateway/cron chats, and src/backends/parse.js falls back to it whenever a
+  // parsed row has no cwd (§5.9). If that hook ever goes away, a recovered session silently stops being
+  // indexed instead of landing somewhere — so this pins the hook, not just the null cwd above.
+  const hermes = require('../src/backends/hermes');
+  assert.equal(typeof hermes.sessionBucketPath, 'function', 'the backend bucket is a descriptor hook');
+  const dir = makeStore([{ id: 'rec', source: 'recovered', started_at: 100, message_count: 1 }]);
+  withStore(dir, () => {
+    assert.equal(hermes.sessionBucketPath(), dir,
+      'and it is the store root, which is a real path the Projects view can handle');
+  });
 });
 
 test("a row carrying every column this reader ignores still parses (#535)", SKIP, () => {

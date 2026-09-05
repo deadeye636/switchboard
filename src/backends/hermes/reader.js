@@ -32,7 +32,8 @@ const { dbSignature } = require('../livestate-cache');
 // (since #152) every Hermes session already in the cache is re-read, so a change like v2 reaches the
 // charts by itself instead of waiting for a manual Rebuild.
 //   v2: per-(date, HOUR, model) metrics in LOCAL time, with cost per bucket (#159)
-const PARSER_SCHEMA_VERSION = 2;
+//   v3: `recovered` sessions are ingested — a session Hermes repaired after a crash (#551)
+const PARSER_SCHEMA_VERSION = 3;
 
 let _home = null;
 
@@ -98,30 +99,61 @@ const LAST_MESSAGE_JOIN = `
     ON m.session_id = s.id
 `;
 
-// Default ingest: only sessions the user actually drove from the CLI. The `source` column is
-// cli | gateway | … — Telegram/cron/gateway chats are not coding sessions and would be noise.
+// What we ingest: the session kinds that are somebody's coding work, named one by one.
 //
 // **`source` is an OPEN set, and that is the point of an allow-list** (#535, corrected). `hermes --source
 // <anything>` sets it through `HERMES_SESSION_SOURCE`, and every gateway platform contributes its own
 // name, so it cannot be enumerated — an earlier version of this comment tried and was wrong twice over.
-// The ones worth knowing: `cli` is ours; `bot_room` is a group chat room and `discord`/`telegram`/… are
-// gateway chats, all held out here without this filter needing to know they exist, which is what #535
-// asked; `subagent` is a delegated child; `claude-code` and `codex-cli` are sessions IMPORTED by
-// `hermes sessions import`.
+// Hermes' own two lists disagree with each other, which is the shortest proof: `KNOWN_SOURCES` in
+// `hermes_cli/session_lost_and_found.py` names `recovered`, `subagent` and `acp` but not `claude-code`,
+// `codex-cli`, `bot_room` or `api_server`, while its desktop app's `session-source.ts` names those last
+// two and not the first three. An allow-list holds out whatever neither list has heard of.
 //
-// Two values are NOT noise and are filtered anyway:
+// INGESTED, with the reason each one is here:
 //
-//   `recovered` — written when Hermes rebuilds a session row from orphaned messages
-//   (`session_recovery.py`, `session_lost_and_found.py`). A crash is the ordinary way to get one and the
-//   messages are real, but the stub has no `cwd`, which is what the scan groups by (#551).
+//   `cli` — a session the user drove from a terminal. Ours (`hermes_cli/cli_session_mixin.py` writes
+//   `HERMES_SESSION_SOURCE` or falls back to this).
+//
+//   `recovered` — a session row Hermes rebuilt from orphaned messages (`session_recovery.py`,
+//   `session_lost_and_found.py`). A crash mid-session is the ordinary way to get one, so these are
+//   exactly the sessions a user goes looking for, and the messages are real. The stub carries NO `cwd`
+//   (its INSERT names id/source/started_at/title/message_count and nothing else) — which is not a new
+//   problem: a cwd-less session lands in the backend-scoped bucket the gateway/cron chats already use
+//   (`sessionBucketPath` in ../hermes/index.js, §5.9) instead of being forced under a project (#551).
+//
+// HELD OUT, and these reasons were the ones missing before:
 //
 //   `claude-code` / `codex-cli` — sessions imported by `hermes sessions import`
 //   (`hermes_cli/foreign_sessions.py`). Those DO carry a cwd, so they are the cleaner candidate of the
 //   two (#552).
 //
-// Both are left out here on purpose rather than by oversight: widening the allow-list is a decision about
-// what those rows should look like in the sidebar, not a one-word edit.
+//   `bot_room` — one row per Group Chat room (`gateway/platforms/api_server_room_dispatch.py`), not a
+//   session anybody coded in.
+//
+//   `telegram`, `discord`, `slack`, … — gateway chats, named by whichever platform adapter took the
+//   message. Conversations, not work in a project, and the set grows with every adapter — which is why
+//   they are held out by ABSENCE rather than by name.
+//
+//   `subagent` — a delegated child. It belongs to its parent's turn; Hermes' own session search hides
+//   these too.
+//
+//   `cron`, `kanban`, `api_server`, `acp`, `tool` — machine-driven turns (a schedule, a board, the HTTP
+//   API, an editor's ACP bridge, an integration). Nobody is sitting in front of one.
+//
+//   anything else — an unknown value is held out by not being in the list, and that is the whole
+//   argument for an allow-list here.
+const INGEST_SOURCES = ['cli', 'recovered'];
+
 function sourceFilter(includeAll) {
+  if (includeAll) return '';
+  return ` WHERE s.source IN (${INGEST_SOURCES.map(s => `'${s}'`).join(', ')})`;
+}
+
+// Live PAIRING asks a narrower question than ingest: which row did the session we JUST spawned write?
+// Only the CLI writes one of those. A `recovered` stub is a rebuild of a session that already ended, so
+// it can never be the row a launch just created — it stays out of the candidate pool it was never in,
+// and widening the ingest list above does not quietly widen this one (#551).
+function liveCandidateFilter(includeAll) {
   return includeAll ? '' : " WHERE s.source = 'cli'";
 }
 
@@ -292,7 +324,8 @@ function parseSession(handle) {
       sessionId: String(s.id),
       backendId: 'hermes',
       // A real cwd column EXISTS (contrary to the original plan). Gateway/cron sessions may still have
-      // none — those fall into the backend bucket, they are not forced under a project (§5.9).
+      // none, and neither does a `recovered` stub (#551) — those fall into the backend bucket, they are
+      // not forced under a project (§5.9).
       cwd: s.cwd || null,
       summary,
       firstPrompt: firstPrompt || summary,
@@ -449,7 +482,7 @@ function listLiveCandidates({ includeAll = false } = {}) {
   const db = openDb();
   if (!db) return [];
   try {
-    const rows = db.all(`SELECT s.id AS id, s.started_at AS startedAt, s.cwd AS cwd FROM sessions s${sourceFilter(includeAll)}`);
+    const rows = db.all(`SELECT s.id AS id, s.started_at AS startedAt, s.cwd AS cwd FROM sessions s${liveCandidateFilter(includeAll)}`);
     return rows.map(r => ({
       sessionId: String(r.id),
       // Hermes stores times as REAL unix epoch seconds; matchLiveSession compares in ms.

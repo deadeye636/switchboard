@@ -207,17 +207,23 @@ The only backend whose history is **not** in files — the reason the discovery 
   **Corrects the plan:** we had assumed there was *no* `cwd` column and that Hermes sessions would have to
   live in a synthetic bucket. There is one — Hermes groups into normal projects like everyone else, and
   the bucket is only a fallback for sessions that genuinely have no directory (gateway/cron chats).
-- Only `source = 'cli'` is ingested by default (a gateway/Telegram chat is not a coding session).
+- `source IN ('cli', 'recovered')` is ingested by default (a gateway/Telegram chat is not a coding
+  session). Live PAIRING stays narrower — only `cli`, because only the CLI writes the row a launch just
+  created.
 - **`source` is an OPEN set** (#535, corrected — an earlier version of this bullet enumerated it and was
   wrong twice over). `hermes --source <anything>` writes a free value through `HERMES_SESSION_SOURCE`, and
-  every gateway platform contributes its own name. The ones worth knowing: `cli` is ours; `bot_room` is a
-  group chat room and `discord` / `telegram` / … are gateway chats; `subagent` is a delegated child;
-  `claude-code` and `codex-cli` are sessions imported by `hermes sessions import`; `recovered` is a
-  repaired stub. **Bot Mode and its rooms — default-on since 0.21.0 — are held out without the filter
-  needing to know they exist**, which is the argument for an allow-list rather than a deny-list.
-  Two of the excluded values are not noise: **`recovered`** (rebuilt from orphaned messages after a crash;
-  no `cwd`, #551) and **`claude-code` / `codex-cli`** (imported coding sessions, and those DO carry a cwd,
-  #552).
+  every gateway platform contributes its own name. Hermes' own two enumerations disagree with each other,
+  which is the shortest proof: `KNOWN_SOURCES` in `hermes_cli/session_lost_and_found.py` names `recovered`,
+  `subagent` and `acp` but neither `claude-code`/`codex-cli` nor `bot_room`/`api_server`, while the desktop
+  app's `session-source.ts` names the latter and none of the former. The ones worth knowing: `cli` is ours;
+  `bot_room` is a group chat room and `discord` / `telegram` / … are gateway chats; `subagent` is a
+  delegated child; `claude-code` and `codex-cli` are sessions imported by `hermes sessions import`;
+  `recovered` is a repaired stub. **Bot Mode and its rooms — default-on since 0.21.0 — are held out without
+  the filter needing to know they exist**, which is the argument for an allow-list rather than a deny-list.
+  **`recovered` is ingested since #551**: it is rebuilt from orphaned messages after a crash, so the work
+  is real, and its stub has no `cwd` — it falls into the backend bucket like a gateway chat does.
+  **`claude-code` / `codex-cli`** are still held out (#552); those DO carry a cwd.
+  `test/hermes-store-v21.test.js` (`SOURCE_DECISIONS`) pins every one of these with its reason.
 - **A CLI at 0.21.0 does not mean a store at 0.21.0.** Hermes migrates on open, so a machine that has
   updated but not started a session still has the old schema — this was measured on one at version 23 while
   0.21.0's own `SCHEMA_VERSION` is **30** (58 columns against that store's 48). Whatever a store is at, the
