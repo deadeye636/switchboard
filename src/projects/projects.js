@@ -459,7 +459,11 @@ function hideProject(projectPath) {
     // and that cell had to stop gating itself on `registered` for this to be true at all — see
     // `hiddenCell` in `src/renderer/panels/projects-admin.js`.
     if (parseWorktreePath(projectPath)) {
-      ctx.db.setProjectState(projectPath, { hidden: 1 });
+      // Through `registeredPathFor` like every other act that takes a path from outside the register.
+      // A worktree has no row of its own to find, so this normally hands the path straight back — but a
+      // database written before discovery stopped registering them has one, possibly under a second
+      // spelling, and writing the flag to the row nobody reads is exactly the #566 shape.
+      ctx.db.setProjectState(registeredPathFor(projectPath), { hidden: 1 });
       ctx.cache.notifyRendererProjectsChanged();
       return { ok: true };
     }
@@ -572,8 +576,10 @@ function unhideProject(projectPath) {
       // BOTH flags, like the general branch below. `isVisiblePath` refuses on `hidden || autoHidden`, and
       // a row written before a worktree stopped being judged on its own can carry the second one — so
       // clearing only the first reported success and left the worktree exactly where it was, for good.
-      ctx.db.setProjectState(projectPath, { hidden: 0 });
-      try { ctx.db.resetProjectAutoHide(projectPath); } catch { /* best effort */ }
+      // And the same row addressing as the hide, for the same reason.
+      const worktreeRow = registeredPathFor(projectPath);
+      ctx.db.setProjectState(worktreeRow, { hidden: 0 });
+      try { ctx.db.resetProjectAutoHide(worktreeRow); } catch { /* best effort */ }
       refreshProjectFolders(projectPath);
       ctx.cache.notifyRendererProjectsChanged();
       return { ok: true };
@@ -1023,9 +1029,14 @@ function unlistedProjects() {
       // here as well would take the last surface that mentions it, which is the outcome the decision on
       // this issue named as the worse of the two. Auto-hide makes that ordinary rather than exotic: a
       // parent whose only work happens inside its worktrees never touches its own recency, so the sweep
-      // takes it while the worktree is busy.
+      // takes it while the worktree is busy. **Both halves of that reasoning have since gone**: the sweep
+      // folds a worktree's activity into its project, so that parent is not swept any more, and hiding a
+      // project now hides its worktrees with it. What is left of the argument is only the plain case — a
+      // parent the user hid by hand draws no header, so a worktree suppressed here would be named nowhere
+      // at all. #591 is the open question about which of the two states this should ask about.
       //
-      // And hiding the parent was never a statement about the worktree. They are two projects (#147/#157);
+      // (Historic, and kept because #591 has to weigh it:) hiding the parent was never a statement about
+      // the worktree. They were two projects (#147/#157);
       // the user hid one of them.
       const worktree = parseWorktreePath(row.projectPath);
       let worktreeOf = null;
