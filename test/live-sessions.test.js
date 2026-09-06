@@ -24,8 +24,22 @@ test('a live session is reported with what the renderer needs to draw it', () =>
   setup([['s1', live()]], { s1: 'hermes' });
 
   assert.deepEqual(liveSessions.snapshot(), [{
-    sessionId: 's1', projectPath: '/p', backendId: 'hermes', isPlainTerminal: false, startedAt: 1000,
+    sessionId: 's1', projectPath: '/p', backendId: 'hermes', isPlainTerminal: false,
+    liveBound: false, startedAt: 1000,
   }]);
+});
+
+test('a session reports whether its live binding actually reached the spawn (#305)', () => {
+  // `supportsLiveRebinding` says a backend CAN report; this says the argument that makes it report was
+  // appended to THIS spawn. Everything that can stop that is swallowed on purpose — no hook URL, a
+  // backend that declines, a throw — and without this a session that will never say a word looks
+  // exactly like one that has nothing to say.
+  setup([['s1', live({ _liveBound: true })]], { s1: 'claude' });
+  assert.equal(liveSessions.snapshot()[0].liveBound, true);
+
+  setup([['s2', live()]], { s2: 'claude' });
+  assert.equal(liveSessions.snapshot()[0].liveBound, false,
+    'a spawn that never got the argument reports false, not undefined');
 });
 
 test('an exited session is not live', () => {

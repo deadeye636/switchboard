@@ -49,6 +49,10 @@ function snapshot() {
       projectPath: session.projectPath || '',
       backendId: (mapped && mapped.backendId) || '',
       isPlainTerminal: !!session.isPlainTerminal,
+      // #305: whether this spawn actually got its live-binding argument. Read it together with the
+      // backend's `supportsLiveRebinding` capability, never on its own — false means "cannot report"
+      // for a backend that never could, and "was supposed to and did not" for one that can.
+      liveBound: !!session._liveBound,
       startedAt: session._openedAt || 0,
     });
   }

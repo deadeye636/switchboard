@@ -399,27 +399,38 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // thing that changes. What the backend built (a temp file, typically) is cleaned up on exit.
   const terminalTag = crypto.randomUUID();
   let liveBindingCleanup = null;
+  // Whether this spawn actually got the live-binding argument appended (#305). Declared here beside the
+  // cleanup because both are decided inside the backend block below and read when the session is built.
+  let liveBound = false;
   try {
     if (isPlainTerminal) {
-      // Plain terminal: interactive login shell, no claude command. Override `claude`
-      // with a helpful hint so users don't try to launch it here. The override MUST
-      // match the shell's syntax — a bash function def written into PowerShell/cmd
-      // shows up as a garbage line (#23) — so branch per shell type.
-      const shellBase = path.basename(shell).toLowerCase();
-      const isPowerShell = shellBase.includes('pwsh') || shellBase.includes('powershell');
-      const isCmd = shellBase === 'cmd.exe' || shellBase === 'cmd';
-      const isBashLike = !isPowerShell && !isCmd; // bash/zsh/sh/fish/wsl
-      const hint = 'To start a Claude session, use the + button in the sidebar.';
-      const bashShim = `claude() { printf '\\033[33m%s\\033[0m\\n' '${hint}'; return 1; }; export -f claude 2>/dev/null;`;
-
+      // Plain terminal: an interactive login shell, and nothing wrapped inside it (#588).
+      //
+      // This used to install a `claude` shim — a shell function, a PowerShell function or a doskey
+      // macro, written into the PTY 300 ms after the spawn — that printed "use the + button" and
+      // refused. It was inherited from the single-backend days and it cost more than it bought:
+      //
+      //   * `export -f` carried the function into every CHILD process, so a script, an `npm run`
+      //     target or a Makefile that shelled out to `claude` got the refusal instead of the CLI;
+      //   * an in-app custom launcher runs through this very branch and its command is typed into the
+      //     shell at 600 ms — after the shim was in place at 300 ms — so a launcher the user saved as
+      //     `claude …` was refused by their own app, with no diagnostic that explained it;
+      //   * `ENV` and `BASH_ENV` were set to the shim TEXT, and both name a FILE TO SOURCE: they never
+      //     defined anything, and leaked two junk values into every child;
+      //   * it had to be written per shell syntax (#23), and "bash-like" meant everything that was not
+      //     pwsh or cmd — so fish and nushell were handed bash syntax;
+      //   * and it spelled a backend's binary name in `src/app/**`, which CLAUDE.md reflex 5 forbids.
+      //
+      // The guidance it carried is kept and moved: a single dim line written into the session's buffer
+      // when the terminal opens (see the notice below `activeSessions.set`), through the same path the
+      // startup hint and the resume notice already use. It reaches the user before they type rather
+      // than after, it survives a detach/reattach because it is in the buffer, it names no backend,
+      // and it wraps nothing.
       const env = {
         ...ctx.cleanPtyEnv,
         TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'iTerm.app', TERM_PROGRAM_VERSION: '3.6.6', FORCE_COLOR: '3', ITERM_SESSION_ID: '1',
         CLAUDECODE: '1',
       };
-      // ENV (sh/dash) + BASH_ENV inject the function for bash-like shells; useless
-      // for PowerShell/cmd, so don't set them there.
-      if (isBashLike) { env.ENV = bashShim; env.BASH_ENV = bashShim; }
 
       // A custom launcher's env: `$VAR` refs resolved at spawn (an unresolved one is dropped — never a
       // literal secret on disk, §5.2 — and SAID, #169). It must be in place BEFORE the shell starts.
@@ -440,25 +451,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         useConptyDll,
       });
 
-      // ENV/BASH_ENV don't apply to zsh/pwsh/cmd — write the shell-appropriate
-      // override after the shell starts, then clear the pasted line.
-      let initCmd;
-      if (isPowerShell) {
-        initCmd = `function claude { Write-Host "${hint}" -ForegroundColor Yellow }; Clear-Host\r`;
-      } else if (isCmd) {
-        initCmd = `doskey claude=echo ${hint} & cls\r`;
-      } else {
-        initCmd = bashShim + ' clear\n';
-      }
-      setTimeout(() => {
-        if (!ptyProcess._isDisposed) {
-          try {
-            ptyProcess.write(initCmd);
-          } catch {}
-        }
-      }, 300);
+      // Nothing is written into this shell any more. The 300 ms init line that installed the shim also
+      // ended in `clear` / `Clear-Host` / `cls`, purely to hide the line it had just pasted — so with
+      // the shim gone the clear goes too, and a plain terminal now opens on its shell's own first
+      // screen instead of a blanked one.
 
-      // Type the launcher's command into the shell, after the init line above has been consumed.
+      // Type the launcher's command into the shell. Nothing precedes it in the PTY now, and the delay
+      // stays as it was: the shell needs its prompt before a typed line lands somewhere useful.
       // Written into the PTY (not passed as `-c`/`/C` argv) so the interactive shell SURVIVES the
       // command: the tab keeps its output and stays usable, exactly as if the user had typed it.
       const launcherCmd = launcher ? ctx.composeLauncherCommand(shell, launcher) : '';
@@ -653,6 +652,14 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
               ? (log) => backend.releaseLiveBinding(binding.cleanup, log)
               : null;
             liveBindingCleanup = release;
+            // The binding ARRIVED (#305). Declaring `supportsLiveRebinding` says a backend CAN report;
+            // it does not say this spawn was given the argument that makes it. Everything that can go
+            // wrong here is swallowed on purpose — a hook server that is not listening returns no URL,
+            // a backend may decline, the whole block is wrapped in a catch — and afterwards a session
+            // that will never say a word is indistinguishable from one that simply has nothing to say.
+            // `liveBindingCleanup` cannot answer it either: it stays null both when the binding failed
+            // and when it succeeded without needing a release.
+            liveBound = true;
             ctx.log.info(`[clear-bind] session=${sessionId} terminal=${terminalTag.slice(0, 8)} bound via ${backend.id}`);
           }
         } catch (err) {
@@ -865,6 +872,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // the new id, and the terminal keeps the same tag through every clear.
     _terminalTag: terminalTag,
     _liveBindingCleanup: liveBindingCleanup,
+    // #305: did the live binding reach this spawn's argv? A backend that CANNOT report is answered by
+    // its `supportsLiveRebinding` capability; this answers the other half — one that can, and did not.
+    _liveBound: liveBound,
   };
   ctx.activeSessions.set(sessionId, session);
 
@@ -887,6 +897,28 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // buffer for the same reason — a detach/reattach must not lose it.
   if (resumeUnknown) {
     const notice = `\x1b[33m── ${resumeUnknownLabel} has no record of this session — started a new one instead ──\x1b[0m\r\n`;
+    session.outputBuffer.push(notice);
+    session.outputBufferSize += notice.length;
+    if (windowLive()) {
+      sendTerminalData(sessionId, notice);
+    }
+  }
+
+  // This terminal is not monitored, and the user has no other way to find that out (#588). A CLI
+  // started in here is a real, running session that the app cannot follow: no busy/ready edge, no
+  // inbox entry, no chime — its transcript is picked up by the scanner afterwards like any other row,
+  // so nothing is lost, but nothing announces itself either.
+  //
+  // This replaces the `claude` shim that used to say it by refusing the command. Three differences,
+  // and each of them is why the shim went: it arrives BEFORE the user types rather than after they
+  // guessed wrong; it names no backend, so it is true for all five rather than for the one the shim
+  // happened to know; and it wraps nothing, so a script's child process and the user's own saved
+  // launcher are untouched.
+  //
+  // Not shown for a LAUNCHER: that terminal was opened to run one specific command the user saved,
+  // and telling them it is unmonitored answers a question they did not ask.
+  if (isPlainTerminal && !launcher) {
+    const notice = `\x1b[2m── this terminal is not monitored — the + button in the sidebar starts a tracked session ──\x1b[0m\r\n`;
     session.outputBuffer.push(notice);
     session.outputBufferSize += notice.length;
     if (windowLive()) {
