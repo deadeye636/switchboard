@@ -89,6 +89,34 @@ special case anywhere outside that provider's own folder.
 | `supportsLiveRebinding` | whether this backend can tell us, **mid-flight**, that a running terminal moved to a new session id (#223). Claude's `/clear` mints a new id while the PTY keeps running; Codex's `/new` is the same shape. Declared, so the core asks instead of assuming — and a backend that declines keeps the conservative single-live-session rule. |
 | `buildLiveBinding({dir, tag, url, sessionUrl, log})` | → `{args, cleanup}` \| `null`. The spawn path hands the terminal's **tag** (stable across every re-key — the session id is not), a clear URL (`url`) and a current-session URL (`sessionUrl`); the backend answers with what its launch needs. Claude writes a per-spawn `--settings` file registering hooks. Pi writes a per-spawn `--extension` file that posts `ctx.sessionManager.getSessionId()` plus optional neutral lifecycle edges — `busy`/`idle`, and `waiting` with a `prompt_kind` when the CLI is blocked on its own prompt (#529) — and whether a prompt is still queued (`pending`, #530). Returning `null` is always allowed and means "no binding" — the launch proceeds and the core falls back. |
 | `releaseLiveBinding(cleanup, log)` | undo whatever `buildLiveBinding` created, when the terminal exits. Must tolerate being called with nothing (`backend-parity` asserts both halves, and that a backend which declines carries neither function). |
+
+**A declared capability is not evidence the binding arrived (#305).** `supportsLiveRebinding` says a
+backend CAN report; it says nothing about a given spawn. Everything that stops one is swallowed on
+purpose — the hook server may not be listening so there is no URL, the backend may answer `null`, the
+whole block is wrapped in a catch — and afterwards a session that will never say a word looked exactly
+like one with nothing to say. `liveBindingCleanup` cannot answer it either: it is `null` both when the
+binding failed and when it succeeded without needing a release. So the spawn records **`liveBound`** and
+`live-sessions.js` publishes it. It is meaningless alone and must be read with the capability: `false`
+means "cannot report" for a backend that never could, and "was supposed to and did not" for one that can.
+
+**What a backend calls a turn is its own vocabulary, and one model round is not one turn (#573).** Pi's
+live binding posted `idle` on `turn_end`, which reads as "the work for this prompt is finished". Measured
+against Pi 0.84.4 over RPC it is one **model round**: a prompt that makes the agent call a single tool
+produces two of them, and only `agent_settled` means the run is over — which is what Pi's own
+documentation says to use for status integrations. A run that called ten tools therefore stated "idle"
+ten times while it was still working, and each of those wrote both an `idle` and a `response-ready`
+record: the away recap filled with one "Ready for review" line per tool the agent used, and the sidebar
+row flipped to Ready and back. `hasPendingMessages()` does not cover the gap either — it reports queued
+steering and follow-up messages, not the space between two model rounds.
+
+Two things about the fix generalise. The wrong statement was made by the **producer**, and that is where
+it was corrected: `shared/attention-source.js` classifies a deliberately neutral vocabulary and must not
+learn that one backend's `idle` means half a turn, and the turn hold answers a different question. And
+the app already had a correct second reading — `backends/pi/state.js` has always treated an assistant
+message with `stopReason: toolUse` as still running — so the binding was the only wrong voice, not the
+only voice. What it costs: `agent_settled` is now the ONLY thing that clears busy from the binding, so a
+run that neither crashes nor writes leaves the row Working until the transcript-staleness fallback
+corrects it (up to ~15 minutes, pre-existing). A PTY exit clears it immediately.
 | `startupHint`, `caveat` | a slow first paint (Hermes ≈ 12 s); a standing gotcha shown in Settings |
 | `endpointEnv` | which env-var family this CLI reads its endpoint from (`'anthropic'`), or nothing. The profile editor offers its Endpoint fields **only** on a base that declares one — on a Codex template they would be two boxes writing variables Codex never reads. Also what an Axis-A preset binds to: a preset IS a bundle of `ANTHROPIC_*` variables, so it needs whichever base declares it reads them (#212). |
 | `integrations` | backend-owned extras that are **not** launch options — they reach no argv and no env, so they are not `configFields`, yet they are not generic app settings either. Claude's attention hook patches Claude's **own** `~/.claude/settings.json` and applies to every Claude session, including ones Switchboard never started. Declared → the gear page renders the section; not declared → nothing there (#212). Details below. |

@@ -51,7 +51,7 @@ test('tokens are summed across providers; the title is the first real prompt', (
   assert.strictEqual(row.inputTokens, 1628 + 111 + 151);
   assert.strictEqual(row.outputTokens, 7 + 29 + 10);
   assert.strictEqual(row.cacheReadTokens, 1536 + 1536);
-  assert.match(row.textContent, /Ich bin von OpenAI/, 'the assistant text is in the FTS body');
+  assert.match(row.textContent, /I am from OpenAI/, 'the assistant text is in the FTS body');
 });
 
 test('cost: usage.cost is an OBJECT (.total), summed into an ESTIMATE — never a settled amount', () => {

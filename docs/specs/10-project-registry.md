@@ -166,6 +166,29 @@ the offer can never contradict what the register would do — with the same time
 carries `lastStartedAt` beside its recency. The tombstone therefore holds: a project you removed is not
 offered back until a session that **started** after the removal turns up (#575).
 
+### The worktree layout is spelled once (#582)
+
+A worktree is paired with its parent by matching its path against a layout — `<parent>/.claude/worktrees/
+<name>`, and the two older spellings beside it. That pattern existed **four** times, and the copies had
+drifted in both directions: the sidebar accepted one layout where the delete handler accepted three, so a
+worktree under `.worktrees/<name>` could be deleted as a worktree and was never displayed as one; and the
+sidebar, the delete handler and the session card's label accepted **forward slashes only**, while the path
+they are handed is the resolved `cwd` out of a transcript — backslash-spelled on Windows. So the nesting
+that had been built and tested never ran on Windows at all, and nobody noticed because the fallback is a
+worktree standing in the list as an unrelated project, which looks like a choice.
+
+`src/shared/worktree-path.js` is the one answer now — both separators, all three layouts — and a guard
+walks `src/` and fails on a fifth copy. Two things that hunt is worth remembering by: the issue said the
+pattern existed twice and it existed four times, and a **fifth** consumer did not hold the pattern at all
+but an INJECTED copy of it (`vcsPoll.init({ worktreePathRe })`), which is why deleting the constant left a
+`ReferenceError` that no test could see — nothing under `test/` loads `main.js`. That injected copy was
+also forward-slash only, so the worktree-delete dialog's dirty check had been refusing every path on
+Windows, and the refusal reads like a legitimate "not a worktree layout".
+
+What the helper does **not** answer: it is one level deep by design, and a worktree nested inside another
+worktree renders nowhere (#586, open) — the sidebar's nesting pass only attaches children to projects that
+are not themselves worktrees.
+
 ### A worktree is not a project to add (#583)
 
 A worktree is a project of its own — that is #147/#157, and it is deliberate — it is not registered, and it
@@ -186,6 +209,12 @@ on `registered` alone would take the last surface that mentions it and produce e
 decision ruled out. Auto-hide makes that ordinary rather than exotic: a parent whose work all happens inside
 its worktrees never touches its own recency, so the sweep takes it while the worktree is busy. And hiding a
 project was never a statement about the worktree — they are two projects, and the user hid one of them.
+
+**This is the one word in the decision that was resolved by the implementer rather than by the owner, and
+it is open as #591.** The decision said "while its parent is **listed**", which in this codebase means
+`registered`; the third state — listed but hidden — was never in the two-reading framing it answered. The
+argument above is why it shipped as `isVisible`, and it is one line either way. If #591 comes back the
+other way, this section is what has to follow it.
 
 What it costs, written down so nobody rediscovers it: the notice has two behaviours where it had one, and a
 worktree offered here is still a worktree — adding it puts a second sidebar row beside the one it would

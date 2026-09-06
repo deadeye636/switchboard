@@ -37,7 +37,11 @@ the three things it cost are in `.claude/rules/backends.md`),
 `live-sessions.js` (what main knows about a running session that the INDEX has never seen — #461;
 Hermes in its degraded mode writes no record, and reloading the window used to leave a live PTY with
 nothing on screen. Deliberately NOT folded into the projects payload — synthesised rows would reach
-search, stats and every counter that expects an indexed one),
+search, stats and every counter that expects an indexed one. Its payload also carries **`liveBound`**
+(#305), and that field is meaningless alone: `supportsLiveRebinding` says a backend CAN report,
+`liveBound` says the argument that makes it report reached THIS spawn. Everything that stops it is
+swallowed on purpose — no hook URL, a backend that declines, a throw — so `false` means "cannot report"
+for one backend and "was supposed to and did not" for another. Read them together),
 `store-record-notice.js` (which live sessions their backend has no record of, so no busy/idle can be
 shown — decided in `src/watch/adopt.js`),
 `settings-transfer.js`, `backend-models.js` + `backend-resources.js` (backend-owned model and
@@ -109,6 +113,25 @@ the log instead. A reason a module wrote itself is not an error and never goes t
 `safe-write.js` + `format-validate.js` (how this app overwrites a file a CLI also owns — #441, below) and
 `terminal/` (`spawn.js` = open-terminal, `io.js` = input/resize/redraw/flow control, plus the PTY
 pure-logic and half a dozen more — list it).
+
+**A plain terminal WRAPS nothing, and says what it is instead (#588).** It used to install a `claude`
+shim 300 ms after the spawn — a shell function, a PowerShell function or a doskey macro — that printed
+"use the + button" and refused. The text was never the problem; the wrapper was. `export -f` carried it
+into every child process, so a script that shelled out to the CLI got the refusal; a custom launcher's
+command is typed into that same shell at 600 ms and was refused by the app that typed it; `ENV` and
+`BASH_ENV` were set to the wrapper TEXT while both name a file to source, so they defined nothing and
+leaked two junk values into every child; and it had to be spelled per shell syntax, where "bash-like"
+meant anything that was not pwsh or cmd — fish and nushell were handed bash. It also named a backend
+binary in `src/app/**`, which is reflex 5.
+
+What replaced it is one dim line in the session's own buffer, through the same path as the startup hint
+and the resume notice, naming no backend. Two things about it are not obvious and are measured, not
+chosen: it **waits for the shell to stop drawing** (a Git Bash login shell under ConPTY sends its
+mode-set at 267 ms and its `ESC[2J` at 268 ms, so a notice written at open and a notice written on the
+first byte were both wiped one millisecond later), and a **launcher terminal does not get it** — that
+terminal was opened to run one command the user saved, and telling them it is unmonitored answers a
+question they did not ask. A shell that prints nothing never shows it either; the silence notice covers
+that case and says something more useful.
 **The directory is the truth** — this enumeration has now silently missed modules twice, most recently
 five at once including `convention-dirs.js`, which CLAUDE.md reflex 12 sends you here to find. It is
 kept complete rather than cut down to the pointer, because the alternative was tried and the pointer is
@@ -149,6 +172,20 @@ not tell a finished teardown from a stuck one. `lifecycle.js`'s `step()` writes 
 last of them comes **after** `closeDb()`: a log that stops before it names the step that hung, and one
 that reaches it says the handle belongs to something this file never opened. Keep that ordering, and do
 not make the good path silent again to save lines — quitting happens once.
+
+**And the other half of quitting: a write that lands AFTER `closeDb()` (#76).** The teardown above is
+about processes; this is about continuations. `will-quit` runs synchronously, closes the database, and
+anything still holding a `.then`, a `setImmediate` or a queued worker reply will run afterwards against
+a connection that is gone. It has been hit twice in one afternoon at two different seams, both new that
+day: the streamed cold-scan apply outlived the worker it belonged to (#567), and a full scan chained
+behind a gated one spawned a fresh Worker as a microtask after the database had closed (#589). Both were
+closed the same way — a flag the cancel path sets SYNCHRONOUSLY, checked by the continuation before it
+does anything.
+
+So when you add an async seam anywhere near the index, the scan or a PTY: ask what happens if `will-quit`
+runs between the two halves. "It cannot, because the worker is terminated first" is exactly the answer
+that was wrong both times — a MessagePort delivers what was posted before `.terminate()`, and a microtask
+queued before the cancel runs after it.
 
 ## Never `fs.writeFileSync` a file a CLI reads (#441)
 
@@ -447,7 +484,12 @@ add an IPC handler.
   sessions. It owns `liveStoreRef`/`liveBusy` and **exports the Maps themselves**: main's PTY-exit
   handler drops a dead session's claim from them, so a copy would leave the claim standing forever
   and a relaunch would inherit a dead ref.
-- `src/watch/trigger-watcher.js`.
+- `src/watch/trigger-watcher.js` — file-based input injection for harness scripts. Its directory follows
+  the DATA directory, not the home directory (#587): a trigger is an instruction to type into a session,
+  so it belongs to the instance that owns those sessions. Composed from `os.homedir()` it made the
+  installed app, a `npm start` run and an isolated demo run share one inbox, and whichever noticed a file
+  first consumed it — the same failure class as the CLI-home paths above, one directory over. Resolved
+  per call, because `main.js` sets `SWITCHBOARD_DATA_DIR` after this module can be required.
 
 ## Never compose a CLI-home path from `os.homedir()`
 
