@@ -913,7 +913,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       if (windowLive()) {
         sendTerminalData(session.realSessionId || sessionId, notice);
       }
-      ctx.log.info(`[terminal] session=${sessionId} shell=${shell} produced no output in ${SILENT_TERMINAL_NOTICE_MS} ms`);
+      // The same id the notice was ADDRESSED to, not the id this terminal opened with. A plain terminal
+      // is never re-keyed today (`src/watch/adopt.js`, `src/session/session-transitions.js`), so the two
+      // are the same string — which is exactly why the difference would go unnoticed if that ever
+      // stopped being true, and why the log must not be the one place that keeps the old id.
+      ctx.log.info(`[terminal] session=${session.realSessionId || sessionId} shell=${shell} produced no output in ${SILENT_TERMINAL_NOTICE_MS} ms`);
     }, SILENT_TERMINAL_NOTICE_MS);
     if (typeof session._silenceTimer.unref === 'function') session._silenceTimer.unref();
   }
