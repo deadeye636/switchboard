@@ -116,8 +116,11 @@ if (!app.isPackaged && !process.env.SWITCHBOARD_USER_DATA) {
 // left there. One stat is enough: Electron caches an asar archive open for the life of the process and
 // offers no way to close it, so `electron-builder` could no longer unlink the file and every build failed
 // while a dev instance of the same checkout ran. `src/app/build-dirs.js` has the measurement.
-// chokidar resolves a relative entry against its `cwd` (the repository root here) and ignores the
-// directory AND everything under it, so the names are enough.
+// What the names reach here, measured rather than assumed: chokidar resolves a relative entry against
+// its `cwd` (the repository root) and drops that directory and everything under it — `dist/` and the rest
+// of the list sit exactly there. A nested one is NOT dropped, and a file-level pattern would not help,
+// because chokidar lstats every entry it enumerates and filters afterwards: only refusing the directory
+// keeps the stat from happening at all. `src/app/build-dirs.js` records both measurements and the residue.
 try {
   require('electron-reloader')(module, { watchRenderer: true, ignore: BUILD_DIR_NAMES });
 } catch {};

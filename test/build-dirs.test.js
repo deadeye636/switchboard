@@ -32,6 +32,14 @@ test('a directory somebody actually writes in is NOT on the list', () => {
   }
 });
 
+test('every entry is lowercase and appears once', () => {
+  // `isBuildDir` lowercases what it is asked about and nothing lowercases the list, so an entry typed
+  // with a capital would match nothing and no other test would notice. The list is also handed to
+  // chokidar verbatim, where a duplicate is a pattern compiled twice.
+  assert.deepEqual(BUILD_DIR_NAMES.filter(n => n !== n.toLowerCase()), []);
+  assert.equal(new Set(BUILD_DIR_NAMES).size, BUILD_DIR_NAMES.length);
+});
+
 test('the name is matched case-insensitively, and only as a whole name', () => {
   assert.equal(isBuildDir('Dist'), true);
   assert.equal(isBuildDir('DIST'), true);
@@ -54,12 +62,14 @@ test('an asar is recognised by name, before anything builds a path to it', () =>
 
 test('main.js hands the list to the dev reloader', () => {
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8'));
-  const call = src.match(/require\('electron-reloader'\)\(module,\s*\{[^}]*\}/);
+  const call = src.match(/require\('electron-reloader'\)\(module,\s*\{[\s\S]*?\}\s*\)/);
   assert.ok(call, 'the dev reloader is still wired here');
   assert.match(
     call[0],
     /ignore:\s*BUILD_DIR_NAMES/,
     'without this the watcher walks dist/ and holds the packaged app.asar open, and no build can run '
-    + 'while a dev instance does — pass `ignore: BUILD_DIR_NAMES` from src/app/build-dirs.js',
+    + 'while a dev instance does — pass `ignore: BUILD_DIR_NAMES` from src/app/build-dirs.js. It has to '
+    + 'be the DIRECTORY names: chokidar lstats every entry it enumerates and filters afterwards, so a '
+    + 'file-level pattern removes the archive from the watch set long after the handle was taken.',
   );
 });

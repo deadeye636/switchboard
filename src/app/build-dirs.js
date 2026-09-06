@@ -35,6 +35,19 @@
 // deliberately keeps under one of these names stops appearing in the lists that walk it. `dist/notes.md`
 // is gone from Agent Files. That is a deliberate trade and it is not configurable — a setting here would
 // be a control nobody could form an opinion about until it had already bitten them.
+//
+// And the limit of the NAME half where a WATCHER is the caller, so nobody reads more into it than it
+// does. A walk asks this per entry and therefore catches a build directory at any depth. chokidar is
+// handed patterns instead, and there a bare name reaches the TOP-LEVEL entry under the watch root and
+// everything below it, and nothing else: with `ignored: ['dist']` a nested `src/dist/` stays watched.
+//
+// Adding `**/*.asar` beside the names does NOT close that, and it was measured rather than assumed: with
+// the glob a loose `src/stray.asar` still came out of the watch LOCKED. chokidar `lstat`s every entry of
+// a directory it enumerates and filters afterwards, so a file-level pattern removes the file from the
+// watch set long after the handle has been taken. Only refusing the DIRECTORY prevents the enumeration,
+// which is why this file offers names to a watcher and a predicate to a walk, and not the other way
+// round. The residue is honest and small: an archive that sits outside a build directory in the
+// checkout is still held for the session, and the answer to that is where the archive is put.
 'use strict';
 
 /**
