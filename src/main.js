@@ -9,6 +9,9 @@ const log = require('electron-log');
 const { readableError, guardIpcHandlers } = require('./app/readable-error');
 // The one write core every save goes through (#441) — a preview tab's Save is not a lesser save.
 const { writeTextFile: writeTextAtomic } = require('./app/safe-write');
+// Generated output and fetched dependencies — what a walk does not enter and a watch does not follow
+// (#483). Used a few lines down by the dev reloader, and by the lists that walk a project.
+const { BUILD_DIR_NAMES } = require('./app/build-dirs');
 
 // FIRST, before a single handler is registered anywhere — in this file or in any `src/app/` module that
 // takes `ipcMain` from here. A handler registered before this line keeps the old behaviour, and the
@@ -107,7 +110,17 @@ if (!app.isPackaged && !process.env.SWITCHBOARD_USER_DATA) {
   app.setPath('userData', process.env.SWITCHBOARD_USER_DATA);
 }
 
-try { require('electron-reloader')(module, { watchRenderer: true }); } catch {};
+// The dev hot-reload watcher, and the `ignore` is not a tidiness pass (#483). `watchRenderer` hands
+// chokidar the WHOLE repository — its only exclusions are dotfiles, `node_modules` and source maps — so
+// it descended into `dist/` and statted the packaged `app.asar` that a previous `npm run build:win` had
+// left there. One stat is enough: Electron caches an asar archive open for the life of the process and
+// offers no way to close it, so `electron-builder` could no longer unlink the file and every build failed
+// while a dev instance of the same checkout ran. `src/app/build-dirs.js` has the measurement.
+// chokidar resolves a relative entry against its `cwd` (the repository root here) and ignores the
+// directory AND everything under it, so the names are enough.
+try {
+  require('electron-reloader')(module, { watchRenderer: true, ignore: BUILD_DIR_NAMES });
+} catch {};
 
 // Clean env for child processes — strip Electron internals that cause nested
 // Electron apps (or node-pty inside them) to malfunction. ELECTRON_NO_ATTACH_CONSOLE is the one
