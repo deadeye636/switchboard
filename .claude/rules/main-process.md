@@ -59,6 +59,18 @@ backend that declines gets the behaviour that shipped before it), `session-shutd
 process and CHECKING that it stopped — #424), `db-upkeep.js` (when the database is compacted and how
 much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here),
 `vcs-ignore.js` (will this directory be committed — the two questions asked before the app suggests writing into one; shared by the plans convention and the handoff writer since #468),
+`build-dirs.js` (generated output, fetched dependencies and the VCS stores, by NAME — what a walk does
+not enter and a watch does not follow, #483. Its second export is the one that is not guessable:
+**anything that stats a path ending in `.asar` holds that file open for the life of the process.**
+`existsSync`, `statSync`, `lstatSync`, `realpathSync` and `openSync` all do it, including the call that
+throws ENOENT; a plain `readdir` of the parent does not. Electron reads such a path as an archive root and
+caches the `Archive` with its descriptor open, and there is no API to close it — so "read it and let go"
+is not available and the only move is not to touch the file. That is what made every `npm run build:win`
+fail while a dev instance of the same checkout ran: `electron-reloader` hands chokidar the whole
+repository, it walked `dist/`, and `electron-builder` could no longer unlink `app.asar`. Its callers are
+`main.js` (the reloader's `ignore`), `plans-memory.js` and `backends/resource-expand.js`. Deliberately NOT
+`backends/file-store.js`: a store walk that quietly returns fewer transcripts feeds a reconcile that
+purges history it only failed to read, #197),
 `path-containment.js` (is this path inside that one — #474; the REAL path of both sides, so a junction
 cannot be spelled inside a project it is not in. One implementation for the plan directories, the handoff
 directories, the folder picked after a refused write, the backend resources and the working-copy readers
