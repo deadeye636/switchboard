@@ -52,6 +52,43 @@ test('effectiveSettings cascades backendDefaults (not just the SETTING_DEFAULTS 
   assert.equal(eff.terminalTheme, 'switchboard', 'and an unset one falls back to its default');
 });
 
+// A worktree is a sub-unit of its project and carries no settings of its own, so the cascade resolves
+// the owner and stays TWO levels. It used to look under the worktree's own path, find nothing and fall
+// back to global — an agent working two directories below the project ran under different rules, and
+// nothing said so.
+test('a worktree reads its project\'s settings, not global', () => {
+  const effectiveSettings = withSettings({
+    global: { planDir: '.plans', handoffDir: '.handoffs' },
+    'project:/x': { planDir: 'docs/plans' },
+  });
+
+  const eff = effectiveSettings('/x/.claude/worktrees/wt1');
+  assert.equal(eff.planDir, 'docs/plans', "the project's override reaches an agent working in its worktree");
+  assert.equal(eff.handoffDir, '.handoffs', 'and what the project does not set still comes from global');
+});
+
+test('a worktree of a worktree resolves to the same project', () => {
+  const effectiveSettings = withSettings({
+    global: { planDir: '.plans' },
+    'project:/x': { planDir: 'docs/plans' },
+  });
+
+  assert.equal(effectiveSettings('/x/.claude/worktrees/a/.claude/worktrees/b').planDir, 'docs/plans',
+    'the walk goes to the project, not one level up to the worktree above it');
+});
+
+test('a blob written against a worktree path is not read', () => {
+  // There is no third level, and this is the assertion that says so: a key under the worktree's own
+  // path is ignored rather than winning. Nothing writes one today — the settings window opens on the
+  // project — and if something ever does, it must not quietly become a scope of its own.
+  const effectiveSettings = withSettings({
+    global: { planDir: '.plans' },
+    'project:/x': { planDir: 'docs/plans' },
+    'project:/x/.claude/worktrees/wt1': { planDir: 'ignored/plans' },
+  });
+
+  assert.equal(effectiveSettings('/x/.claude/worktrees/wt1').planDir, 'docs/plans');
+});
 test('a project value of null means inherit, not "set it to null"', () => {
   const effectiveSettings = withSettings({
     global: { sidebarWidth: 500 },

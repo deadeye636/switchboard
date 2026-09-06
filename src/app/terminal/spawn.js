@@ -28,6 +28,7 @@ const path = require('path');
 const crypto = require('crypto');
 const pty = require('node-pty');
 const { resolveShell, isWindows, isWslShell, windowsToWslPath, ptyShellArgs, quoteArgvForShell } = require('./shell-profiles');
+const { settingsOwnerPath } = require('../../shared/worktree-path');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
 const { classifyAttentionSignal } = require('../../shared/attention-source');
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
@@ -747,8 +748,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // launch options live; the session half still overrides both.
       {
         const g = ((ctx.getSetting('global') || {}).backendDefaults || {}).claude || {};
+        // Through the same owner resolution `effectiveSettings` uses — this reads the project blob by
+        // hand rather than going through the cascade, so it has to ask the same question or a worktree
+        // would get this one option from global while every other option came from its project.
         const p = projectPath
-          ? (((ctx.getSetting('project:' + projectPath) || {}).backendDefaults || {}).claude || {})
+          ? (((ctx.getSetting('project:' + settingsOwnerPath(projectPath)) || {}).backendDefaults || {}).claude || {})
           : {};
         const sec = resolveAfkTimeoutSec(sessionOptions?.afkTimeoutSec, p.afkTimeoutSec, g.afkTimeoutSec);
         const afkMs = afkTimeoutToEnvMs(sec);

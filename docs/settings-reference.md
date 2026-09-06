@@ -13,7 +13,19 @@ Settings are **one JSON blob per scope** in the `settings` table of `switchboard
 |---|---|---|
 | Global | `global` | Settings → any category |
 | Per project | `project:<absolute path>` | Settings opened from a project's gear |
+| Per worktree | *(none — it reads its project's)* | nobody; see below |
 | Per backend | inside `global` under `backendDefaults.<backendId>` | Settings → Backends → a backend's page |
+
+**A worktree has no scope of its own.** It is a sub-unit of its project, so `effectiveSettings` resolves
+the owner first (`settingsOwnerPath`, `src/shared/worktree-path.js`) and then cascades the ordinary two
+levels — a worktree of a worktree resolves to the same project. It used to look under its own path,
+find nothing there and fall back to **global**, so an agent working in `<project>/.claude/worktrees/<name>`
+ran with the shell profile, the handoff and plan directories, the per-backend launch defaults and the
+log level all reset, two directories below a project that had set every one of them.
+
+A blob written against a worktree path is therefore **ignored** rather than winning, and the settings
+window opened for a worktree opens on its project. What does *not* resolve is `displayName`: the same
+blob holds per-project identity, and renaming a worktree must not rename the project it sits in.
 
 **Three things decide what a setting actually is**, and they are not the same thing:
 

@@ -570,6 +570,9 @@
       done = true;
       const val = input.value.trim();
       try {
+        // The row's OWN path, deliberately not resolved to a worktree's project. `project:<path>` holds
+        // identity as well as settings, and a display name is identity: renaming a worktree must not
+        // rename the project it sits in. Only cascading values resolve — see `settingsOwnerPath`.
         const settingsKey = 'project:' + path;
         const existing = (await window.api.getSetting(settingsKey)) || {};
         existing.displayName = val;

@@ -13,6 +13,7 @@
 'use strict';
 
 const { BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require('electron');
+const { settingsOwnerPath } = require('../shared/worktree-path');
 const path = require('path');
 const fs = require('fs');
 const quitGuard = require('./quit-guard');
@@ -64,7 +65,12 @@ function init(context) {
 // settings under the new project's name. A window already showing the same thing is just focused.
 function settingsQuery(scope, projectPath) {
   const query = { scope: scope === 'project' && projectPath ? 'project' : 'global' };
-  if (query.scope === 'project') query.path = projectPath;
+  // Opened for a WORKTREE, this shows the project it belongs to. Its settings are that project's since
+  // the cascade resolves the owner, so a screen keyed on the worktree's own path would show global
+  // values and write a blob nothing reads — a page that lies twice. Resolved here, at the one place the
+  // scope is decided, rather than in the panel: everything else the panel loads for a project (tags, the
+  // per-backend panes) then describes the same thing the fields do.
+  if (query.scope === 'project') query.path = settingsOwnerPath(projectPath);
   return query;
 }
 

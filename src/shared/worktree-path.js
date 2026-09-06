@@ -68,6 +68,26 @@ function worktreeRootOf(p) {
   return root;
 }
 
+/**
+ * Whose settings apply to this directory.
+ *
+ * A worktree is a sub-unit of its project and carries no settings of its own — so the cascade resolves
+ * the OWNER first and then does its ordinary two levels, rather than growing a third. Nobody configures
+ * a worktree: it is created by `git worktree add`, usually by an agent, and it exists for hours. A third
+ * level would also need a per-option "inherit / override / empty" state, which is the cost `#149` already
+ * paid once for the per-backend launch defaults.
+ *
+ * NOT for everything filed under `project:<path>`. That blob holds per-project IDENTITY as well as
+ * settings, and `displayName` is identity: renaming a worktree must not rename the project it sits in.
+ * Use this where a value CASCADES, and the project's own path where it names a row.
+ *
+ * @param {string} p
+ * @returns {string} `p` itself when it is not a worktree
+ */
+function settingsOwnerPath(p) {
+  return worktreeRootOf(p) || String(p || '');
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseWorktreePath, worktreeRootOf };
+  module.exports = { parseWorktreePath, worktreeRootOf, settingsOwnerPath };
 }

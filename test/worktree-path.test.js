@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { parseWorktreePath, worktreeRootOf } = require('../src/shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf, settingsOwnerPath } = require('../src/shared/worktree-path');
 const { stripComments } = require('./helpers/strip-comments');
 
 const ROOT = path.join(__dirname, '..');
@@ -196,4 +196,36 @@ test('worktreeRootOf answers the same for either separator', () => {
   // repository buys nothing (CLAUDE.md reflex 6).
   assert.equal(worktreeRootOf('repo/nested/.claude/worktrees/a'), 'repo/nested');
   assert.equal(worktreeRootOf('repo\\nested\\.worktrees\\a'), 'repo\\nested');
+});
+
+test('settingsOwnerPath is the project for a worktree and the path itself for anything else', () => {
+  const project = 'D:\\repo';
+  const wt1 = project + '\\.claude\\worktrees\\wt1';
+  const wt2 = wt1 + '\\.claude\\worktrees\\wt2';
+
+  assert.equal(settingsOwnerPath(project), project, 'an ordinary project owns its own settings');
+  assert.equal(settingsOwnerPath(wt1), project);
+  assert.equal(settingsOwnerPath(wt2), project, 'and a worktree of a worktree lands on the same one');
+  assert.equal(settingsOwnerPath(''), '', 'no path, no owner — and never the string "null"');
+  assert.equal(settingsOwnerPath(null), '');
+});
+
+test('the two readers that build the settings key by hand resolve the owner (#593)', () => {
+  // A wiring guard, and it says so: these two do not go through `effectiveSettings`, they assemble
+  // `project:<path>` themselves. Nothing else can see them — `spawn.js` requires node-pty at module
+  // load, and the launcher reader is renderer code — so the regression this pins is the realistic one:
+  // somebody tidying the resolution back out of a line that looks redundant. If either grows a seam
+  // that can be called, replace this with a behavioural test rather than adding a third entry.
+  const HAND_ROLLED = [
+    { file: 'src/app/terminal/spawn.js', why: "Claude's AFK timeout, read straight out of backendDefaults" },
+    { file: 'src/renderer/dialogs/dialogs.js', why: 'the custom launchers a project defines' },
+  ];
+
+  for (const entry of HAND_ROLLED) {
+    const code = stripComments(fs.readFileSync(path.join(ROOT, entry.file), 'utf8'));
+    assert.match(code, /'project:' \+/,
+      `${entry.file} no longer builds the key by hand — drop this entry (${entry.why})`);
+    assert.match(code, /settingsOwnerPath\(/,
+      `${entry.file} builds \`project:<path>\` without resolving the owner, so a worktree would take ${entry.why} from global while every other setting came from its project`);
+  }
 });

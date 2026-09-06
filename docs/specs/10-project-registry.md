@@ -214,10 +214,20 @@ asking what it is, so an export made before this can put a worktree back on the 
 it any more — visibility, the sweep and the settings cascade all ignore a worktree's own registration — which is
 why it is a note and not a guard.
 
-- **Settings — still not implemented (#593).** `effectiveSettings` cascades `global` then
-  `project:<projectPath>`, and a worktree's own path is the key it looks under. It finds nothing there
-  and falls back to global, so every override the parent carries — shell profile, handoff and plan
-  directories, per-backend launch defaults, log level — is skipped for an agent running inside it.
+- **Settings are the project's (#593).** `effectiveSettings` resolves the owner through
+  `settingsOwnerPath` and then cascades its ordinary two levels — no third scope, because nobody
+  configures a worktree: it is made by `git worktree add`, usually by an agent, and it lives for hours.
+  A third level would also need a per-option inherit/override/empty state, which #149 already paid for
+  once. It used to read the worktree's own key, find nothing and fall back to **global**, so an agent two
+  directories below a project ran with its shell profile, handoff and plan directories, per-backend
+  launch defaults and log level all reset.
+  Three consequences worth having written down: a blob under a worktree's own path is **ignored** rather
+  than winning; the settings window opened for a worktree opens on its project (resolved in
+  `settingsQuery`, so the tags and the per-backend panes describe the same thing the fields do); and
+  `displayName` deliberately does **not** resolve — that blob holds identity as well as settings, and
+  renaming a worktree must not rename its project.
+  Every hand-rolled reader of `project:<path>` has to ask the same question or it disagrees with the
+  cascade: the AFK timeout at spawn and the custom launchers in the renderer both do now.
 - **Visible without sessions — still not implemented (#594).** A sidebar row comes from a registration or
   from a cached session, and a worktree now has neither: not registered by design, and no session when it
   is fresh. So there is no row and nowhere to click "new session". It needs a third source — the

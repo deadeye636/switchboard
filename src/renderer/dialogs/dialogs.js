@@ -268,8 +268,11 @@ async function effectiveCustomLaunchers(projectPath, globalSettings) {
   if (!global) {
     try { global = (await window.api.getSetting('global')) || {}; } catch { global = {}; }
   }
+  // The owner's blob, like every other cascading value: a launcher a project defines is available in its
+  // worktrees, which is where the agent that would run it is working.
+  const owner = typeof settingsOwnerPath === 'function' ? settingsOwnerPath(projectPath) : projectPath;
   let projectSettings = {};
-  try { projectSettings = (await window.api.getSetting('project:' + projectPath)) || {}; } catch {}
+  try { projectSettings = (await window.api.getSetting('project:' + owner)) || {}; } catch {}
   return window.mergeCustomLaunchers(global.customLaunchers, projectSettings.customLaunchers);
 }
 

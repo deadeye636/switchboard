@@ -35,6 +35,7 @@ const profiles = require('../backends/profiles');
 const settingsTransfer = require('./settings-transfer');
 // A thrown fs error names the file it failed on, and this one is a path the user picked (#457).
 const { readableError } = require('./readable-error');
+const { settingsOwnerPath } = require('../shared/worktree-path');
 
 let ctx = null;
 
@@ -312,7 +313,13 @@ function migrateClaudeLaunchDefaults() {
 // shell-profile resolution and createTerminalSession (#79).
 function effectiveSettings(projectPath) {
   const global = ctx.db.getSetting('global') || {};
-  const project = projectPath ? (ctx.db.getSetting('project:' + projectPath) || {}) : {};
+  // Two levels, not three. A worktree resolves to the project it belongs to and reads THAT blob: it is a
+  // sub-unit, and it has no settings of its own to hold. Before this it looked under its own path, found
+  // nothing and fell back to global — so an agent working in a worktree ran under different rules from
+  // the same project two directories up, with the shell profile, the handoff and plan directories, every
+  // per-backend launch default and the log level all quietly reset.
+  const owner = projectPath ? settingsOwnerPath(projectPath) : '';
+  const project = owner ? (ctx.db.getSetting('project:' + owner) || {}) : {};
   const effective = { ...SETTING_DEFAULTS };
   for (const key of Object.keys(SETTING_DEFAULTS)) {
     if (global[key] !== undefined && global[key] !== null) effective[key] = global[key];
