@@ -352,11 +352,18 @@ The only backend whose history is **not** in files — the reason the discovery 
   by Switchboard, Pi also gets a per-spawn `--extension` file that posts the current `session_id` and
   neutral lifecycle edges to the existing terminal-binding ingest; this is declared by Pi's descriptor,
   not by a core backend-id branch. What it sends, measured on 0.84.4:
-  `busy` (`turn_start`, and `ui_prompt_end` when a turn was open) with `turn_start: true` only on a real
-  turn beginning, `idle` (`turn_end`, `agent_settled`, and `ui_prompt_end` outside a turn), and `waiting`
+  `busy` (`turn_start`, and `ui_prompt_end` when a run was open) with `turn_start: true` only on a real
+  turn beginning, `idle` (`agent_settled`, and `ui_prompt_end` outside a run), and `waiting`
   with a `prompt_kind` on `ui_prompt_start` (#529) — plus `pending` from `ctx.hasPendingMessages()` on
   every post (#530). Note `ui_prompt_start`/`ui_prompt_end` fire only for prompts an EXTENSION raises;
   Pi's own dialogs go through a different path and emit nothing.
+- **A Pi TURN is one model round, not one prompt's work** (#573). `turn_start` / `turn_end` bracket one LLM
+  response plus its tool calls and repeat while the agent keeps calling tools, so `turn_end` states nothing
+  the app can use — this used to post `idle` there, and a run that called ten tools reported the work
+  finished ten times. `agent_settled` is the event Pi's own extension guide names for a status integration,
+  and it is emitted from a `finally`, so an aborted or failed run reaches it too. `ctx.hasPendingMessages()`
+  does not fill the gap: measured in 0.84.4 it is `pendingMessageCount > 0` over the steering and follow-up
+  queues, which are empty between two rounds of one run.
 - Undocumented dependencies: **Node ≥ 22.19** (the one on PATH, not the app's embedded one) and, on
   Windows, a **bash**. Both are probed, because a launch without them dies with nothing to act on.
 - Project trust lives in `(PI_CODING_AGENT_DIR | ~/.pi/agent)/trust.json`: a JSON object mapping canonical

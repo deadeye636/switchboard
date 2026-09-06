@@ -10,12 +10,33 @@
 // a session sat on "Working" while it was actually holding a question nobody had seen — the row said the
 // agent was busy, and the inbox said nothing at all.
 //
+// **A Pi TURN is one model round, not one piece of work** (#573). This posted `idle` on `turn_end`, which
+// reads a turn as everything done for one user prompt. It is not: `turn_start` / `turn_end` bracket ONE
+// LLM response plus its tool calls, and Pi's own lifecycle diagram loops them "while LLM calls tools", so
+// a prompt that makes the agent call ten tools ended ten turns while it was still working. Pi says which
+// event a host is meant to read, in the same document: "Use `agent_settled` for status integrations that
+// need to know Pi will not continue running automatically." So this posts `busy` on `turn_start` and
+// `idle` on `agent_settled` alone — `turn_end` is not an edge anyone outside Pi can use.
+//
+// Verified in Pi 0.84.4's own `dist/core/agent-session.js` rather than assumed, because the whole busy
+// state now hangs off one event: `_emitAgentSettled()` is called from the `finally` of `_runAgentPrompt`,
+// so an aborted run, a failed one and a completed one all reach it, and it is the only thing that clears
+// `_isAgentRunActive` (which is what `ctx.isIdle()` reports). `agent_settled` also long predates the
+// `ui_prompt_*` events this template already requires, so nothing that can load this extension lacks it.
+//
+// What the old `turn_end` idle bought, since a fix has to say what it takes away: it was an accidental
+// second chance at the busy latch. If a post is dropped — the fetch fails, the extension is unloaded
+// mid-run — the row now stays "Working" until something else clears it. Two things still do, so this is
+// not a one-signal state: `pi/state.js` derives busy/idle from the transcript tail on every watcher flush
+// and reports an edge from there, and the PTY exiting drops the session's state outright.
+//
 // **`ui_prompt_end` answers with whichever state the prompt interrupted**, which is why the template
-// carries an `inTurn` flag. Answering a prompt raised INSIDE a turn returns the agent to work, and that
-// turn's own `turn_end` / `agent_settled` still ends it. But an extension may prompt from a slash command
-// or from its own `turn_end` handler, and there `busy` would be the last word anyone says about the
-// session: no turn follows to correct it, and nothing else in the app clears a busy edge that a backend
-// stated exactly. The row would read "Working" until the next real turn.
+// carries an `inRun` flag — and it tracks the RUN, not the round, or a prompt answered between two model
+// rounds would post the `idle` this issue removes. Answering a prompt raised inside a run returns the
+// agent to work, and that run's own `agent_settled` still ends it. But an extension may prompt from a
+// slash command or from its own `turn_end` handler, and there `busy` would be the last word anyone says
+// about the session: no run follows to correct it, and nothing else in the app clears a busy edge that a
+// backend stated exactly. The row would read "Working" until the next real turn.
 //
 // The prompt's TITLE is deliberately not sent. It is arbitrary text from whatever the agent happens to be
 // running, and it would be rendered in the attention inbox; the prompt KIND is a closed set
@@ -77,13 +98,12 @@ function writeBindingExtension({ dir, tag, sessionUrl, log } = {}) {
 `  } catch {}\n` +
 `}\n\n` +
 `export default function(pi: ExtensionAPI) {\n` +
-`  let inTurn = false;\n` +
-`  pi.on(\"session_start\", async (_event, ctx) => { inTurn = false; await post(ctx); });\n` +
-`  pi.on(\"turn_start\", async (_event, ctx) => { inTurn = true; await post(ctx, \"busy\", undefined, true); });\n` +
+`  let inRun = false;\n` +
+`  pi.on(\"session_start\", async (_event, ctx) => { inRun = false; await post(ctx); });\n` +
+`  pi.on(\"turn_start\", async (_event, ctx) => { inRun = true; await post(ctx, \"busy\", undefined, true); });\n` +
 `  pi.on(\"ui_prompt_start\", async (event: any, ctx) => { await post(ctx, \"waiting\", event?.kind); });\n` +
-`  pi.on(\"ui_prompt_end\", async (_event, ctx) => { await post(ctx, inTurn ? \"busy\" : \"idle\"); });\n` +
-`  pi.on(\"turn_end\", async (_event, ctx) => { inTurn = false; await post(ctx, \"idle\"); });\n` +
-`  pi.on(\"agent_settled\", async (_event, ctx) => { inTurn = false; await post(ctx, \"idle\"); });\n` +
+`  pi.on(\"ui_prompt_end\", async (_event, ctx) => { await post(ctx, inRun ? \"busy\" : \"idle\"); });\n` +
+`  pi.on(\"agent_settled\", async (_event, ctx) => { inRun = false; await post(ctx, \"idle\"); });\n` +
 `  pi.on(\"session_info_changed\", async (_event, ctx) => { await post(ctx); });\n` +
 `}\n`;
   fs.writeFileSync(file, source, 'utf8');

@@ -27,9 +27,21 @@ function generate() {
 
 test('the generated extension reports every lifecycle edge it claims to', () => {
   const { source } = generate();
-  for (const event of ['session_start', 'turn_start', 'turn_end', 'agent_settled', 'session_info_changed']) {
+  for (const event of ['session_start', 'turn_start', 'agent_settled', 'session_info_changed']) {
     assert.ok(source.includes(`pi.on("${event}"`), `${event} is subscribed`);
   }
+});
+
+test('a model round ending is not the work ending (#573)', () => {
+  // `turn_start` / `turn_end` bracket ONE LLM response plus its tool calls — Pi's own lifecycle diagram
+  // loops them "while LLM calls tools" — so a prompt that makes the agent call ten tools passes ten of
+  // them. Pi names the event a host is supposed to read instead: "Use `agent_settled` for status
+  // integrations that need to know Pi will not continue running automatically."
+  const { source } = generate();
+  assert.equal(source.includes('pi.on("turn_end"'), false, 'turn_end states no edge at all');
+  assert.match(source, /pi\.on\("agent_settled", async \(_event, ctx\) => \{ inRun = false; await post\(ctx, "idle"\); \}\);/);
+  // And exactly one handler says the work is over, or the round-per-round churn comes back through it.
+  assert.equal((source.match(/await post\(ctx, "idle"\)/g) || []).length, 1);
 });
 
 test('a blocking UI prompt is reported as waiting (#529)', () => {
@@ -38,17 +50,20 @@ test('a blocking UI prompt is reported as waiting (#529)', () => {
 });
 
 test('the end of a prompt answers with whichever state it interrupted (#529)', () => {
-  // A prompt raised INSIDE a turn returns the agent to work, and that turn's own end still closes it. One
-  // raised outside a turn — from a slash command, or from an extension's own `turn_end` handler — has no
-  // turn behind it, and `busy` would be the last word anyone says about the session: nothing in the app
+  // A prompt raised INSIDE a run returns the agent to work, and that run's own end still closes it. One
+  // raised outside a run — from a slash command, or from an extension's own `turn_end` handler — has no
+  // run behind it, and `busy` would be the last word anyone says about the session: nothing in the app
   // clears a busy edge a backend stated exactly, so the row would read "Working" until the next real turn.
+  //
+  // The flag tracks the RUN, not the model round (#573): reset per round, a prompt answered between two
+  // of them would post the `idle` that issue exists to remove.
   const { source } = generate();
-  assert.match(source, /let inTurn = false;/);
-  assert.match(source, /pi\.on\("turn_start", async \(_event, ctx\) => \{ inTurn = true; await post\(ctx, "busy", undefined, true\); \}\);/);
-  assert.match(source, /pi\.on\("ui_prompt_end", async \(_event, ctx\) => \{ await post\(ctx, inTurn \? "busy" : "idle"\); \}\);/);
-  // And every edge that ends a turn puts the flag back, or the next prompt outside a turn answers wrongly.
-  for (const event of ['session_start', 'turn_end', 'agent_settled']) {
-    assert.ok(source.includes(`pi.on("${event}", async (_event, ctx) => { inTurn = false;`), `${event} clears it`);
+  assert.match(source, /let inRun = false;/);
+  assert.match(source, /pi\.on\("turn_start", async \(_event, ctx\) => \{ inRun = true; await post\(ctx, "busy", undefined, true\); \}\);/);
+  assert.match(source, /pi\.on\("ui_prompt_end", async \(_event, ctx\) => \{ await post\(ctx, inRun \? "busy" : "idle"\); \}\);/);
+  // And every edge that ends a run puts the flag back, or the next prompt outside a run answers wrongly.
+  for (const event of ['session_start', 'agent_settled']) {
+    assert.ok(source.includes(`pi.on("${event}", async (_event, ctx) => { inRun = false;`), `${event} clears it`);
   }
 });
 

@@ -532,8 +532,9 @@ test('an ordinary lifecycle edge is routed without an activity field (#529)', as
 test('an idle binding goes through the turn hold, like a Stop does (#530)', async () => {
   // The whole point of Pi answering `readTurnQueue`: without this the descriptor answers a question
   // nobody asks. `holdReady` used to be reached only from the attention-hook branch below, which the
-  // session-bind route returns before — so a Pi `turn_end` was delivered straight through and the hook
-  // was never consulted for any Pi session.
+  // session-bind route returns before — so a Pi `idle` binding was delivered straight through and the
+  // hook was never consulted for any Pi session. (It was posted on `turn_end` then; #573 moved it to
+  // `agent_settled`, which changes which event carries it and nothing about this route.)
   const asked = [];
   const ctx = makeCtx({
     adoptSessionId: () => null,
