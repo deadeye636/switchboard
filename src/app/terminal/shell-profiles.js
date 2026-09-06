@@ -61,6 +61,42 @@ function gitBashCandidates() {
 }
 const MSYS2_BASH = 'C:\\msys64\\usr\\bin\\bash.exe';
 
+// Git for Windows ships bash TWICE, and the two are not the same shell (#585).
+//
+//   <git>\bin\bash.exe      the wrapper a Git Bash shortcut starts. It sets MSYSTEM and the MinGW
+//                           PATH up first, then runs the second one.
+//   <git>\usr\bin\bash.exe  the raw MSYS binary underneath it.
+//
+// `discoverShellProfiles` already offers the wrapper as the "Git Bash" profile. Auto detection did not:
+// its first step trusts `$SHELL`, and `$SHELL` inside a Git Bash names the RAW binary — Git's MSYS
+// runtime hands a native child the Windows spelling of it, so Switchboard launched from a Git Bash
+// window inherits `<git>\usr\bin\bash.exe` and starts THAT for its terminals, while the same
+// Switchboard launched from Explorer starts the wrapper. Which shell a project's Terminal gets then
+// depends on how the app itself happened to be started, which is not something the user can see.
+//
+// MEASURED, in a ConPTY through node-pty: the raw binary comes up in `MSYSTEM=MSYS` mode when the MSYS
+// environment is not inherited, against `MINGW64` through the wrapper — a different PATH and a
+// different toolchain, from the same "Auto" setting.
+//
+// Only the Git layout is rewritten, and only when the wrapper is really there: MSYS2's own
+// `usr\bin\bash.exe` has no `bin\bash.exe` beside it, so `exists` says no and the path is left alone.
+// `.exe` keeps this Windows-shaped — on Linux `/usr/bin/bash` must stay exactly where it is.
+function gitBashWrapperFor(shellPath, exists = fs.existsSync) {
+  if (!shellPath) return null;
+  const p = String(shellPath);
+  if (path.basename(p).toLowerCase() !== 'bash.exe') return null;
+  const binDir = path.dirname(p);
+  if (path.basename(binDir).toLowerCase() !== 'bin') return null;
+  const usrDir = path.dirname(binDir);
+  if (path.basename(usrDir).toLowerCase() !== 'usr') return null;
+  const root = path.dirname(usrDir);
+  // `dirname` is its own fixed point at a root and answers '.' for a relative path, so these three are
+  // what say "there is nothing above `usr` to hang a wrapper off".
+  if (!root || root === '.' || root === usrDir) return null;
+  const wrapper = path.join(root, 'bin', 'bash.exe');
+  return exists(wrapper) ? wrapper : null;
+}
+
 function discoverShellProfiles() {
   const profiles = [];
 
@@ -177,9 +213,11 @@ function resolveShell(profileId) {
   }
 
   // Auto: original detection logic
-  // 1. Respect explicit SHELL env (set by Git Bash, MSYS2, WSL, etc.)
+  // 1. Respect explicit SHELL env (set by Git Bash, MSYS2, WSL, etc.) — but where it names Git for
+  //    Windows' raw MSYS bash, start the wrapper beside it instead, so "Auto" is the same shell the
+  //    "Git Bash" profile is and does not depend on how Switchboard itself was launched (#585).
   if (process.env.SHELL && fs.existsSync(process.env.SHELL)) {
-    return { id: 'auto', name: 'Auto', path: process.env.SHELL };
+    return { id: 'auto', name: 'Auto', path: gitBashWrapperFor(process.env.SHELL) || process.env.SHELL };
   }
 
   if (isWindows) {
@@ -304,4 +342,4 @@ function ptyShellArgs(shellPath, cmd, extraArgs) {
   return args;
 }
 
-module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin };
+module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin, gitBashWrapperFor };
