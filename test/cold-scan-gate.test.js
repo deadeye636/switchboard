@@ -232,6 +232,29 @@ test('a full request while a gated scan is in flight still gets a full pass', as
   }
 });
 
+test('a full request chained behind a CANCELLED gated scan does not start a scan at quit', async () => {
+  // `terminateScanWorker` settles the in-flight scan from inside `will-quit`, and the escalation's
+  // continuation is a microtask — so it would run after `closeDb()` and spawn a scan Worker whose folder
+  // applies write to a closed database. The #76 hazard at the escalation seam.
+  const infoLines = [];
+  const w = setup(4, { infoLines });
+  try {
+    await sessionCache.populateCacheViaWorker();
+    infoLines.length = 0;
+
+    const gated = sessionCache.populateCacheViaWorker({ incremental: true });
+    const full = sessionCache.populateCacheViaWorker();
+    storeIndexer.terminateScanWorker();          // will-quit
+    await Promise.all([gated, full]);
+    await new Promise(r => setImmediate(r));     // let any chained continuation run
+
+    const scans = infoLines.filter(l => l.includes('cold scan:'));
+    assert.deepEqual(scans, [], 'nothing announced itself, so nothing was started after the cancel');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
 test('a full request while a FULL scan is in flight still shares it', async () => {
   const infoLines = [];
   const w = setup(3, { infoLines });

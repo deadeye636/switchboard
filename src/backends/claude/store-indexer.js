@@ -364,6 +364,11 @@ function refreshFilePrepare(folder, relFilename) {
 // Promise so the first get-projects after a migration can await it instead of seeing an empty list.
 let populatePromise = null;
 let populateIsIncremental = false;   // #589: is the in-flight scan the gated one? (escalation, below)
+// Did the scan that just settled settle because it was CANCELLED? #589's escalation chains a full pass
+// behind a gated one, and `terminateScanWorker` settles the gated scan from inside `will-quit` — so
+// without this the chained `.then` would spawn a fresh scan Worker as a microtask after `closeDb()` had
+// already run, and its folder applies would write to a closed database. The #76 hazard at a new seam.
+let populateCancelled = false;
 let activeScanWorker = null; // handle to the in-flight scan Worker, terminated on quit (issue #76)
 // Drop whatever the streamed apply still has queued and resolve the shared promise. Set for the life of
 // one scan; `terminateScanWorker` calls it, because since #567 the apply outlives the worker by however
@@ -455,9 +460,12 @@ function coldScanSkipStamps() {
 function populateCacheViaWorker({ incremental = false } = {}) {
   if (populatePromise) {
     if (incremental || !populateIsIncremental) return populatePromise;
-    return populatePromise.then(() => populateCacheViaWorker({ incremental: false }));
+    // …unless the scan we waited on was cancelled, which only `terminateScanWorker` does, and only from
+    // `will-quit`. Starting a Worker there would land its writes after `closeDb()`.
+    return populatePromise.then(() => (populateCancelled ? undefined : populateCacheViaWorker({ incremental: false })));
   }
   populateIsIncremental = !!incremental;
+  populateCancelled = false;
   const skipStamps = incremental ? coldScanSkipStamps() : {};
   sendStatus('Scanning projects…', 'active');
 
@@ -527,7 +535,9 @@ function populateCacheViaWorker({ incremental = false } = {}) {
     settle();
   };
 
-  cancelActiveScan = () => { pending.length = 0; settle(); };
+  // The quit path. `populateCancelled` is what stops #589's escalation from chaining a fresh scan behind
+  // this one — that chain runs as a microtask, so it would land after `closeDb()`.
+  cancelActiveScan = () => { pending.length = 0; populateCancelled = true; settle(); };
 
   const drain = () => {
     if (settled) { draining = false; pending.length = 0; return; }
