@@ -1852,3 +1852,79 @@ test('a store folder recorded under a linked spelling still belongs to the proje
     assert.strictEqual(projects.projectHasSessionsOnDisk(path.join(root, 'unrelated')), false);
   } finally { t.cleanup(); fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// --- a worktree is a sub-unit of its project, not a project beside it ------------------------------
+
+const WT_PROJECT = 'D:\\repo';
+const WT_PATH = WT_PROJECT + '\\.claude\\worktrees\\wt1';
+
+test('discovery puts the project on the list and its worktree not', () => {
+  const t = makeCtx();
+  try {
+    t.setCachedRows([
+      { sessionId: 'p1', projectPath: WT_PROJECT, modified: '2026-07-01T00:00:00.000Z' },
+      { sessionId: 'w1', projectPath: WT_PATH, modified: '2026-07-01T00:00:00.000Z' },
+    ]);
+    projects.setProjectAutoAdd(true);
+    projects.syncRegistry();
+
+    assert.strictEqual(t.state(WT_PROJECT).registered, 1);
+    assert.strictEqual(t.state(WT_PATH), null,
+      'a worktree exists for an afternoon and belongs to a project — the register is not where it goes');
+  } finally { t.cleanup(); }
+});
+
+test('a worktree the USER adds is still added', () => {
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded(WT_PATH);
+    assert.strictEqual(t.state(WT_PATH).registered, 1,
+      'only discovery is refused; what the user puts on their own list is theirs');
+  } finally { t.cleanup(); }
+});
+
+test('the sweep reads a worktree\'s activity as its project\'s', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([
+      { projectPath: WT_PROJECT, registered: true, lastActivity: new Date(Date.now() - 60 * 86400000).toISOString() },
+      { projectPath: WT_PATH, worktreeRoot: WT_PROJECT, lastActivity: new Date(Date.now() - 86400000).toISOString() },
+    ]);
+    projects.applyAutoHide(true);
+
+    assert.strictEqual(t.autoHidden.has(WT_PROJECT), false,
+      'a project whose work all happens inside its worktrees never touches its own recency, and hiding'
+      + ' it now hides them too');
+  } finally { t.cleanup(); }
+});
+
+test('the sweep does not judge a worktree on its own', () => {
+  const t = makeCtx({ autoHideDays: 30 });
+  try {
+    t.setAdminRows([
+      { projectPath: WT_PROJECT, registered: true, lastActivity: new Date().toISOString() },
+      { projectPath: WT_PATH, worktreeRoot: WT_PROJECT, registered: true,
+        lastActivity: new Date(Date.now() - 60 * 86400000).toISOString() },
+    ]);
+    projects.applyAutoHide(true);
+
+    assert.strictEqual(t.autoHidden.has(WT_PATH), false,
+      'it is shown and hidden with its project — a flag of its own would be a second answer');
+  } finally { t.cleanup(); }
+});
+
+test('a worktree can be hidden, and unhiding it does not put it on the list', () => {
+  const t = makeCtx();
+  try {
+    // The button used to open a confirmation dialog and then do nothing at all: hideProject refuses a
+    // path that is not on the list, and the renderer threw the answer away.
+    assert.deepStrictEqual(projects.hideProject(WT_PATH), { ok: true });
+    assert.strictEqual(t.state(WT_PATH).hidden, 1);
+    assert.ok(!t.state(WT_PATH).registered, 'hidden without being on the list — the one shape that may');
+
+    projects.unhideProject(WT_PATH);
+    assert.strictEqual(t.state(WT_PATH).hidden, 0);
+    assert.ok(!t.state(WT_PATH).registered,
+      'an unhide that registered it would hand it the row the model says it has not got');
+  } finally { t.cleanup(); }
+});

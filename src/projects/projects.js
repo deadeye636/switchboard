@@ -27,7 +27,7 @@ const registry = require('./project-registry');
 const { registerLookup, resolveRegisterRow } = require('./register-lookup');
 // "Is this a worktree, and of what" — the one pattern the sidebar nests by and the delete handler
 // validates against (#582). The unlisted notice asks the same question rather than growing a copy (#583).
-const { parseWorktreePath } = require('../shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf } = require('../shared/worktree-path');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
 const { GLOBAL_ONLY_DEFAULTS } = require('../app/settings');
@@ -123,21 +123,49 @@ function applyAutoHide(force) {
     lastAutoHideAt = now;
 
     let changed = false;
+    const adminRows = ctx.cache.buildProjectsAdmin();
+
+    // What its worktrees have been doing counts as the project's own activity. A project whose work all
+    // happens inside worktrees never touches its own recency, so the sweep took it while a worktree was
+    // busy — and now that a worktree's visibility IS its project's, that would have hidden the busy
+    // worktree with it. Folded to the TOP, so a worktree of a worktree reaches the project too.
+    const foldedActivity = new Map();   // canonical project path -> newest activity in its worktrees
+    const foldedLive = new Set();       // canonical project path -> a worktree of it has a live session
+    for (const row of adminRows) {
+      if (!row.worktreeRoot) continue;
+      const key = samePathKey(row.worktreeRoot);
+      const at = row.lastActivity ? new Date(row.lastActivity).getTime() : 0;
+      if (at > (foldedActivity.get(key) || 0)) foldedActivity.set(key, at);
+      if (liveSessionsIn(row.projectPath)) foldedLive.add(key);
+    }
+
     // buildProjectsAdmin returns every project (hidden included) with lastActivity.
-    for (const row of ctx.cache.buildProjectsAdmin()) {
+    for (const row of adminRows) {
+      if (row.worktreeRoot) {
+        // A sub-unit is not judged on its own — and must not keep an `autoHidden` flag from the era when
+        // it was. This loop is the only writer that could ever clear one, so skipping the row outright
+        // left a legacy worktree hidden by a sweep that will never look at it again.
+        if (row.autoHidden) {
+          try { ctx.db.setProjectAutoHidden(row.projectPath, 0); } catch { /* best effort */ }
+          changed = true;
+        }
+        continue;
+      }
       if (!row.registered) continue;                    // not on the list — nothing to hide
       if (row.hidden) continue;                         // hidden by hand: not the machine's to undo
       const meta = ctx.db.getProjectMeta(row.projectPath);
       const activityMs = row.lastActivity ? new Date(row.lastActivity).getTime() : 0;
       const resetMs = meta && meta.autoHideResetAt ? new Date(meta.autoHideResetAt).getTime() : 0;
-      const eff = Math.max(activityMs, resetMs);
+      const ownKey = samePathKey(row.projectPath);
+      const eff = Math.max(activityMs, resetMs, foldedActivity.get(ownKey) || 0);
       // A project with a live (non-exited) session is active by definition, whatever its timestamps say.
       // Asked through `liveSessionsIn`, which is the ONE reading of "is a session live in this project"
       // — this loop used to fold `ctx.activeSessions` into a Set of its own, and two readings of one
       // question is how they start disagreeing. It costs a walk of `activeSessions` per row instead of
       // one per pass; the map holds the terminals this app has open, the pass is throttled to ten
       // seconds, and the key is the memoised one.
-      const stale = !liveSessionsIn(row.projectPath) && ctx.cache.shouldAutoHide(eff, now, days);
+      const stale = !liveSessionsIn(row.projectPath) && !foldedLive.has(ownKey)
+        && ctx.cache.shouldAutoHide(eff, now, days);
 
       if (stale && !row.autoHidden) {
         // ONLY the flag. It used to also push the path onto `hiddenProjects` — the same list a manual
@@ -420,6 +448,22 @@ function hideProject(projectPath) {
     // Both questions are asked of the row this project IS filed under, not of the spelling the caller was
     // handed (#566): refusing a hide because a junction spells the directory differently is the same
     // defect as removing it into a row nobody reads, and here it at least says so out loud.
+    // A WORKTREE is the one thing that may carry `hidden` without `registered`, and the reason the
+    // refusal below exists does not apply to it: that refusal is about a flag nothing shows and nothing
+    // clears, which arrives as an ambush the day discovery registers the project. Discovery can never
+    // register a worktree any more. Until this exception the hide button was a confirmation dialog
+    // followed by nothing at all.
+    //
+    // WHERE IT IS CLEARED, because it is not where you would guess: a hidden worktree draws no header,
+    // so its own hide button is gone the moment it is used. The project manager's eye is the way back,
+    // and that cell had to stop gating itself on `registered` for this to be true at all — see
+    // `hiddenCell` in `src/renderer/panels/projects-admin.js`.
+    if (parseWorktreePath(projectPath)) {
+      ctx.db.setProjectState(projectPath, { hidden: 1 });
+      ctx.cache.notifyRendererProjectsChanged();
+      return { ok: true };
+    }
+
     const registeredPath = registeredPathFor(projectPath);
     const state = ctx.db.getProjectMeta(registeredPath);
     if (!state || !state.registered) return { error: 'This project is not on the list, so there is nothing to hide' };
@@ -521,6 +565,20 @@ function unhideProject(projectPath) {
     if (!projectPath) return { error: 'No project path' };
     // An unhide of a project that is somehow not on the list puts it on it: the user is asking to see it.
     // Onto its own row (#566) — clearing the flag on a second spelling leaves the hidden one hidden.
+    // The other half of the exception above: clearing a worktree's flag must NOT put it on the list. An
+    // unhide that registered it would hand it back the row the model says it does not have, and the next
+    // sweep would then judge it on its own.
+    if (parseWorktreePath(projectPath)) {
+      // BOTH flags, like the general branch below. `isVisiblePath` refuses on `hidden || autoHidden`, and
+      // a row written before a worktree stopped being judged on its own can carry the second one — so
+      // clearing only the first reported success and left the worktree exactly where it was, for good.
+      ctx.db.setProjectState(projectPath, { hidden: 0 });
+      try { ctx.db.resetProjectAutoHide(projectPath); } catch { /* best effort */ }
+      refreshProjectFolders(projectPath);
+      ctx.cache.notifyRendererProjectsChanged();
+      return { ok: true };
+    }
+
     const registeredPath = registeredPathFor(projectPath);
     ctx.db.setProjectState(registeredPath, { hidden: 0, registered: 1 });
     try { ctx.db.resetProjectAutoHide(registeredPath); } catch { /* best effort */ }
@@ -617,6 +675,15 @@ function syncRegistry() {
     let changed = false;
 
     for (const [projectPath, times] of newest) {
+      // A worktree is a SUB-UNIT of its project, not a project beside it, so discovery does not put one
+      // on the list. It used to: `syncRegistry` registers every path a session points at, with no
+      // exception, and in an agent-driven checkout that filled the register with rows for directories
+      // that exist for an afternoon. Its sessions are still indexed and still shown — visibility comes
+      // from the project it belongs to now (`buildProjectsFromCache`).
+      //
+      // Only DISCOVERY is refused. A user who adds one by hand is answering a question nobody asked
+      // them, and the register is theirs to write.
+      if (parseWorktreePath(projectPath)) continue;
       const row = rowByKey.get(samePathKey(projectPath));
       const wasRemovedAt = row && row.state && row.state.removedAt;
       if (!registry.shouldRegister(row && row.state, {

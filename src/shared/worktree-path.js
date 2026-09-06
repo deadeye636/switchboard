@@ -41,6 +41,33 @@ function parseWorktreePath(p) {
   return { parentPath: match[1], name: match[2] };
 }
 
+/**
+ * Walk up until the path is no longer a worktree: the PROJECT a worktree belongs to, however many
+ * levels of worktree sit between them.
+ *
+ * `parseWorktreePath` answers one level, which is the right answer to "who is my parent". This answers
+ * "whose sub-unit am I", and that is the question the register asks: a worktree carries no registration
+ * of its own, so its visibility, its auto-hide and its settings all come from the project at the top.
+ * A worktree inside a worktree is still that project's, not a project of its own.
+ *
+ * Bounded rather than `while (true)`: the pattern strictly shortens the path each time, so the loop
+ * ends on its own — but a regex is a thing someone edits, and a cap costs nothing.
+ *
+ * @param {string} p
+ * @returns {string|null}  the project path, or null when `p` is not a worktree at all
+ */
+function worktreeRootOf(p) {
+  let cur = String(p || '');
+  let root = null;
+  for (let depth = 0; depth < 16; depth++) {
+    const wt = parseWorktreePath(cur);
+    if (!wt) break;
+    root = wt.parentPath;
+    cur = wt.parentPath;
+  }
+  return root;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseWorktreePath };
+  module.exports = { parseWorktreePath, worktreeRootOf };
 }

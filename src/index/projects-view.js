@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const { encodeProjectPath } = require('../session/encode-project-path');
-const { parseWorktreePath } = require('../shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
 
 let PROJECTS_DIR, activeSessions;
@@ -64,7 +64,40 @@ function buildProjectsFromCache(showArchived) {
   for (const [projectPath, state] of states) {
     if (registry.isVisible(state)) visible.set(normPath(projectPath), projectPath);
   }
-  const isVisiblePath = (p) => visible.has(normPath(p));
+  // A WORKTREE has no registration of its own — discovery stopped writing one, because a worktree is a
+  // sub-unit of its project rather than a project beside it. So its visibility is its project's, walked
+  // up through however many levels of worktree sit in between.
+  //
+  // Its own row still gets a say in one direction: a worktree CAN carry `hidden` (the header's hide
+  // button writes it) and that flag is the one thing that overrules an otherwise visible parent. It
+  // cannot carry `registered`, which is why `hideProject` grew an exception for exactly this shape.
+  //
+  // For anything that is not a worktree this is the old one-line answer, reached on the first pass.
+  const stateByKey = new Map([...states].map(([p, st]) => [normPath(p), st]));
+  // Memoised per build: this is asked twice for every cached row, and a worktree costs a `normPath` per
+  // level rather than the single map lookup the old one-liner was. `pathKey` memoises too, but the walk
+  // and the two map lookups are ours.
+  const visibleMemo = new Map();
+  const isVisiblePath = (p) => {
+    if (visibleMemo.has(p)) return visibleMemo.get(p);
+    const answer = resolveVisible(p);
+    visibleMemo.set(p, answer);
+    return answer;
+  };
+  const resolveVisible = (p) => {
+    let cur = p;
+    for (let depth = 0; depth < 16; depth++) {
+      const own = stateByKey.get(normPath(cur));
+      if (own && (own.hidden || own.autoHidden)) return false;
+      // A worktree does not answer this for itself even when a row for it exists — one written before
+      // discovery stopped making them, or one a user added by hand through the project manager. Two
+      // answers to one question is what this walk exists to remove, so the project has the only one.
+      const wt = parseWorktreePath(cur);
+      if (!wt) return visible.has(normPath(cur));
+      cur = wt.parentPath;
+    }
+    return false;
+  };
 
   // Group by projectPath, not on-disk folder name. Multiple ~/.claude/projects/<folder>/ directories can
   // resolve to the same projectPath, so we merge them into a single sidebar group to avoid duplicate-id
@@ -90,8 +123,10 @@ function buildProjectsFromCache(showArchived) {
     // ONE canonical key per row (#245), used for all three things below — visibility, activity and the
     // bucket. They must agree, and deriving it three times is both slower and easier to get out of step.
     const key = normPath(row.projectPath);
-    // Not on the list, or on it and not shown: its sessions belong to no visible group.
-    if (!visible.has(key)) continue;
+    // Not on the list, or on it and not shown: its sessions belong to no visible group. Through the same
+    // function the pass above uses — a raw `visible.has` here was a SECOND reading of the question, and it
+    // is the one that answered "no" for every worktree once a worktree stopped being registered.
+    if (!isVisiblePath(row.projectPath)) continue;
     if (row.modified) {
       const prev = lastActivityByPath.get(key);
       if (!prev || row.modified > prev) lastActivityByPath.set(key, row.modified);
@@ -340,6 +375,10 @@ function buildProjectsAdmin() {
     const state = states.get(projectPath) || statesByKey.get(key) || {};
     rows.push({
       projectPath,
+      // The project this row belongs to when it is a worktree, walked to the TOP (#582, #596). The
+      // auto-hide sweep folds a worktree's activity into it, and it is what the project manager needs to
+      // say whose sub-unit a row is. Null for an ordinary project.
+      worktreeRoot: worktreeRootOf(projectPath),
       folder: encodeProjectPath(projectPath),
       displayName: displayNames.get(projectPath) || displayNameByKeyAdmin.get(key) || '',
       sessionCount: e.sessionCount,

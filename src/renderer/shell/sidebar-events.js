@@ -598,7 +598,11 @@ async function archiveProjectGroup(project) {
 }
 
 async function hideWorktree(wtProject) {
-  const name = wtProject.projectPath.split('/').pop();
+  // Through the shared helper, not a split on one separator: the path here is the resolved cwd out of a
+  // transcript, which on Windows is spelled with backslashes — so `split('/')` handed the dialog the
+  // whole path as the worktree's "name".
+  const parsed = typeof parseWorktreePath === 'function' ? parseWorktreePath(wtProject.projectPath) : null;
+  const name = (parsed && parsed.name) || wtProject.projectPath.split(/[\\/]/).filter(Boolean).pop();
   const confirmed = await showControlDialog({
     title: 'Hide Worktree',
     message: 'This removes the worktree from Switchboard. Session files are not deleted.',
@@ -609,7 +613,14 @@ async function hideWorktree(wtProject) {
   if (!confirmed) return;
   // The dialog says "Hide", so it hides (#167). It used to call removeProject — which, back when hiding
   // and removing were the same act, was the only thing it could do.
-  await window.api.hideProject(wtProject.projectPath);
+  // The answer is read. It was thrown away, and `hideProject` refuses a path that is not on the list —
+  // which every worktree is — so the dialog was a confirmation followed by nothing at all, with no way
+  // for the user to tell. A worktree may carry the flag now; anything else that comes back says so.
+  const result = await window.api.hideProject(wtProject.projectPath);
+  if (result && result.error) {
+    await showControlMessage({ title: 'Hide Worktree Failed', message: result.error, confirmLabel: 'OK', tone: 'danger' });
+    return;
+  }
   loadProjects();
 }
 

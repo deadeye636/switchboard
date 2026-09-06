@@ -176,3 +176,48 @@ test('a worktree whose parent is not in the payload nests under nothing (#596)',
   assert.equal(projects.length, 1);
   assert.equal(projects[0].nestUnder, null);
 });
+
+// A worktree carries no registration of its own any more — it is a sub-unit of its project, so its
+// visibility is the project's. These pin the three answers that follow from that.
+
+test('a worktree with no registration of its own is visible because its project is', () => {
+  setup([row('p', REGISTERED, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: new Map([[REGISTERED, REGISTERED_STATE]]) });
+
+  const projects = view.buildProjectsFromCache(false);
+  const worktree = projects.find(p => normPath(p.projectPath) === normPath(WORKTREE));
+  assert.ok(worktree, `the worktree must still be shown, got: ${projects.map(p => p.projectPath).join(' | ')}`);
+  assert.deepEqual(worktree.sessions.map(s => s.sessionId), ['w']);
+});
+
+test('hiding the project takes its worktrees with it', () => {
+  setup([row('p', REGISTERED, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: new Map([[REGISTERED, { ...REGISTERED_STATE, hidden: 1 }]]) });
+
+  assert.deepEqual(view.buildProjectsFromCache(false), [],
+    'the user hid the project; a sub-unit of it is not a second thing to hide');
+});
+
+test('a worktree may still be hidden on its own', () => {
+  setup([row('p', REGISTERED, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: new Map([[REGISTERED, REGISTERED_STATE], [WORKTREE, { hidden: 1 }]]) });
+
+  const projects = view.buildProjectsFromCache(false);
+  assert.equal(projects.length, 1, 'only the project is left');
+  assert.equal(normPath(projects[0].projectPath), normPath(REGISTERED));
+});
+
+test('the admin row says which project a worktree belongs to', () => {
+  // The auto-hide fold reads this field, and its own tests hand it to a fixture. Nothing else asserted
+  // that the real builder produces it, which is a field name matching across two files on trust.
+  setup([row('p', REGISTERED, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: new Map([[REGISTERED, REGISTERED_STATE]]) });
+
+  const rows = view.buildProjectsAdmin();
+  const worktree = rows.find(r => normPath(r.projectPath) === normPath(WORKTREE));
+  const project = rows.find(r => normPath(r.projectPath) === normPath(REGISTERED));
+  assert.ok(worktree && project, 'both rows are in the admin list');
+  assert.equal(normPath(worktree.worktreeRoot), normPath(REGISTERED));
+  assert.equal(project.worktreeRoot, null, 'an ordinary project belongs to nothing');
+  assert.equal(worktree.registered, false, "and it is on nobody's list");
+});

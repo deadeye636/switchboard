@@ -107,7 +107,12 @@
   // simply not there, and offering the toggle would write a flag that nothing shows and nothing clears
   // (and that would ambush the user the day discovery registers the project). Use the "Listed" toggle.
   function hiddenCell(row) {
-    if (!row.registered) {
+    // A WORKTREE is the exception, and the only one. It carries no registration by design — it is a
+    // sub-unit of its project, and its visibility is the project's — and it can still be hidden on its
+    // own, from its header in the sidebar. Gating this cell on `registered` alone therefore showed a
+    // dash for the one row that CAN be hidden, and a hidden worktree draws no header any more: this cell
+    // is the only way back. It was a one-way door for as long as the two disagreed.
+    if (!row.registered && !row.worktreeRoot) {
       return '<span class="pa-dash" title="Not on the project list, so there is nothing to hide. Put it on the list first — see Listed.">—</span>';
     }
 
@@ -116,8 +121,11 @@
     // whole difference between the three, and it is the thing a user cannot guess.
     let cls = 'pa-toggle pa-eye pa-eye-shown';
     let icon = EYE;
-    let title = 'Shown in the sidebar.\n\nClick to hide it: it stays on the list and its sessions keep being '
-      + 'indexed, you just stop seeing it. Useful for a project you are done with but do not want to remove.';
+    let title = row.worktreeRoot
+      ? 'Shown in the sidebar, nested under the project it belongs to.\n\nClick to hide just this worktree. '
+        + 'It is a sub-unit of its project, so hiding the PROJECT hides it too — this only hides the one worktree.'
+      : 'Shown in the sidebar.\n\nClick to hide it: it stays on the list and its sessions keep being '
+        + 'indexed, you just stop seeing it. Useful for a project you are done with but do not want to remove.';
     let label = 'Shown — click to hide';
 
     if (row.autoHidden) {

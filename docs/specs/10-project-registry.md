@@ -171,23 +171,62 @@ offered back until a session that **started** after the removal turns up (#575).
 A worktree is a **sub-unit of its project**. It has no settings of its own and inherits the project's; it
 is visible whether or not it has sessions, so a user can start one in it; and it can be hidden.
 
-That is the model to build toward. Three of its four halves are not what the code does today, and each is
-tracked rather than assumed:
+Where each half stands:
 
-- **Identity** — a worktree is already a project row of its own (#147/#157) and stays one. "Sub-unit"
-  describes where it belongs, not how it is keyed; nothing here proposes folding its sessions into the
-  parent's list.
-- **Settings — not implemented (#593).** `effectiveSettings` cascades `global` then
+- **Identity — a worktree is not on the list, and discovery may not put it there.** It keeps its own
+  `projectPath` and its own sessions (#147/#157); what it does not keep is a registration.
+  `syncRegistry` used to register every path a session pointed at, with no exception, so an
+  agent-driven checkout filled the register with rows for directories that existed for an afternoon —
+  measured at eight in one dev database, none in the installed one, because the two modes disagreed and
+  nothing said so. Only DISCOVERY is refused; a user adding one by hand is answering a question nobody
+  asked them.
+- **Visibility is the project's.** `buildProjectsFromCache` walks up from a worktree to the project it
+  belongs to and asks the register there. A worktree does **not** answer for itself even when a row for
+  it exists — one written before this, or one a user added by hand — because two answers to one question
+  is what the walk exists to remove. That walk is the ONE reading: a second raw `visible.has` a few lines
+  down was the reason every worktree vanished the first time this was tried.
+  **What it costs, stated:** a worktree of a project that is not on the list is not shown either. The
+  unlisted-projects notice is then the only surface that says the checkout exists (#583), and putting the
+  project on the list brings its worktrees with it.
+- **Hiding works, and it did not before.** The header's hide button called `hideProject`, which refuses a
+  path that is not on the list — and the renderer threw the answer away, so it was a confirmation dialog
+  followed by nothing at all, with no way to tell. A worktree is now the one shape that may carry
+  `hidden` **without** `registered`: the refusal exists to stop a flag that nothing shows and nothing
+  clears from ambushing a project the day discovery registers it, and discovery can never register a
+  worktree. Unhiding one does not put it on the list either — that would hand it back the row this model
+  says it has not got.
+  **Where it is cleared is not where you would guess.** A hidden worktree draws no header, so its own
+  hide button is gone the moment it is used — the project manager's eye is the way back, and that cell had
+  to stop gating itself on `registered` before that was true at all. For a while it showed a dash for the
+  one kind of row that can be hidden, which made hiding a worktree a one-way door.
+  Unhiding clears `autoHidden` as well as `hidden`: a row from before this could carry the second, and
+  clearing only the first reported success and moved nothing.
+  Hiding the PROJECT hides its worktrees with it. They are its sub-units, not two things the user has to
+  hide separately.
+- **The auto-hide sweep reads a worktree's activity as its project's.** A project whose work all happens
+  inside worktrees never touches its own recency, so the sweep took it while a worktree was busy — and
+  now that the worktree's visibility is the project's, that would have hidden the busy worktree too. The
+  fold walks to the top, so a worktree of a worktree reaches the project. A worktree is never judged on
+  its own.
+One write path is NOT covered and it is named here rather than discovered later: the settings import
+(`importProjects` in `src/app/settings.js`) writes `registered: 1` for every project in the file without
+asking what it is, so an export made before this can put a worktree back on the list. Nothing follows from
+it any more — visibility, the sweep and the settings cascade all ignore a worktree's own registration — which is
+why it is a note and not a guard.
+
+- **Settings — still not implemented (#593).** `effectiveSettings` cascades `global` then
   `project:<projectPath>`, and a worktree's own path is the key it looks under. It finds nothing there
   and falls back to global, so every override the parent carries — shell profile, handoff and plan
   directories, per-backend launch defaults, log level — is skipped for an agent running inside it.
-- **Visible without sessions — not implemented (#594).** A sidebar row comes from a registration or from
-  a cached session. A worktree has neither registration nor, when freshly created, a session, so there is
-  no row and nowhere to click "new session". Fixing it needs a third source — the worktrees a project has
-  on disk — and that is a directory listing per project, so it is a measurement before it is a feature.
-- **Hideable — implemented**, through the header's hide button. Open with it: whether that hidden state
-  belongs to the worktree or to its parent. It is written to the registry against a path that carries no
-  registration, which is the shape #566 came out of.
+- **Visible without sessions — still not implemented (#594).** A sidebar row comes from a registration or
+  from a cached session, and a worktree now has neither: not registered by design, and no session when it
+  is fresh. So there is no row and nowhere to click "new session". It needs a third source — the
+  worktrees a project has on disk — and that is a directory listing per project, so it is a measurement
+  before it is a feature.
+
+`worktreeRootOf` (`src/shared/worktree-path.js`) is the one answer to "whose sub-unit am I", beside
+`parseWorktreePath`'s "who is my parent". The register asks the first, the sidebar's nesting asks the
+second, and a worktree inside a worktree is where they differ.
 
 **This model may change an answer already given.** #591 asks whether the unlisted-projects notice
 suppresses a worktree while its parent is *listed* or while it is *shown*. Under a sub-unit reading,

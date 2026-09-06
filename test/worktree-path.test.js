@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { parseWorktreePath } = require('../src/shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf } = require('../src/shared/worktree-path');
 const { stripComments } = require('./helpers/strip-comments');
 
 const ROOT = path.join(__dirname, '..');
@@ -175,4 +175,25 @@ test('the delete-worktree handler validates through the shared helper', () => {
     "main.js must require the shared helper, not keep its own WORKTREE_PATH_RE");
   assert.match(code, /parseWorktreePath\(normalizedPath\)/,
     'the delete handler validates the path it is about to hand to `git worktree remove` through it');
+});
+
+test('worktreeRootOf walks past a worktree of a worktree to the project', () => {
+  // `parseWorktreePath` answers "who is my parent", which for a nested worktree is another worktree.
+  // The register asks the other question — "whose sub-unit am I" — and that has exactly one answer.
+  const project = 'D:\\repo';
+  const wt1 = project + '\\.claude\\worktrees\\wt1';
+  const wt2 = wt1 + '\\.claude\\worktrees\\wt2';
+
+  assert.equal(worktreeRootOf(wt1), project);
+  assert.equal(worktreeRootOf(wt2), project, 'two levels down is still that project\'s sub-unit');
+  assert.equal(parseWorktreePath(wt2).parentPath, wt1, 'and the one-level answer is unchanged');
+  assert.equal(worktreeRootOf(project), null, 'a project is not a worktree of anything');
+  assert.equal(worktreeRootOf(''), null);
+});
+
+test('worktreeRootOf answers the same for either separator', () => {
+  // No drive letters here: this asks about the SEPARATOR, and an invented absolute path in a public
+  // repository buys nothing (CLAUDE.md reflex 6).
+  assert.equal(worktreeRootOf('repo/nested/.claude/worktrees/a'), 'repo/nested');
+  assert.equal(worktreeRootOf('repo\\nested\\.worktrees\\a'), 'repo\\nested');
 });
