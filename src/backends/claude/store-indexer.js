@@ -437,6 +437,12 @@ function populateCacheViaWorker() {
   let announcedIndexing = false;
 
   const finish = () => {
+    // The same guard `drain` opens with. `terminateScanWorker` can settle this scan while the worker's
+    // terminal message is already posted — a MessagePort delivers what was sent before `.terminate()` —
+    // and without this the quit path would log a "complete" scan and push `projects-changed` after the
+    // cancel, with only the partial count that was actually written. `settle` is idempotent, so nothing
+    // was ever written twice; the report was the part that lied.
+    if (settled) return;
     const elapsedMs = Math.round(elapsed());
     const perSession = sessionCount ? Math.round(elapsedMs / sessionCount) : 0;
     log.info(
@@ -486,6 +492,12 @@ function populateCacheViaWorker() {
     }
 
     if (msg.type === 'folder') {
+      // The line used to read `Indexing ${n} projects…`, where n was the folders that yielded a result.
+      // Streamed, main cannot know that number until the stream ends — and the worker cannot either
+      // without deriving every folder's project path in a first pass, which is the expensive half of the
+      // scan. The count is dropped rather than replaced by the folder TOTAL, which is a different and
+      // larger number (folders with no derivable project are skipped) and would disagree with the
+      // `Indexed … across M projects` line that follows it.
       if (!announcedIndexing) { announcedIndexing = true; sendStatus('Indexing projects…', 'active'); }
       pending.push(msg.result);
       schedule();

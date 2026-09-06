@@ -12,7 +12,7 @@
 //
 // Protocol (store-indexer.js populateCacheViaWorker is the other half):
 //   OUT progress{type:'progress', text}                    — status-bar line, unchanged
-//       folder{type:'folder', result, total}               — ONE scanned folder, posted as it finishes
+//       folder{type:'folder', result}                      — ONE scanned folder, posted as it finishes
 //       {ok:true, folders}                                 — the stream is complete
 //       {ok:false, status}                                 — the store root could not be read
 const { parentPort, workerData } = require('worker_threads');
@@ -49,7 +49,7 @@ try {
     const result = readFolderFromFilesystem(folders[i]);
     // Post it NOW rather than collecting it: main applies this folder while we read the next one, and
     // its DB writes are one folder long instead of the whole store (#567).
-    if (result) { parentPort.postMessage({ type: 'folder', result, total: folders.length }); posted++; }
+    if (result) { parentPort.postMessage({ type: 'folder', result }); posted++; }
   }
   parentPort.postMessage({ ok: true, folders: posted });
 } catch (err) {
