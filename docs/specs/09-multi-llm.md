@@ -414,7 +414,14 @@ The ones that will look wrong to someone tidying up later:
    *shared*: refreshing, hiding or removing a Claude project must not take another backend's rows with
    it — their data is still on disk.
 10. **Real git worktrees are their own project**, detected by the `.git` *file*; grouping stays on the
-    stable head cwd (deriving it per session let one moved session drag its siblings).
+    stable head cwd (deriving it per session let one moved session drag its siblings). The helpers that
+    read a session's CURRENT cwd exist and are tested (`sessionCwd`, `extractCurrentCwdFromJsonl`) and
+    are deliberately not used for grouping — a Claude project FOLDER is keyed on the directory it was
+    created from and `deriveProjectPath` assigns one project to the whole folder from the first
+    transcript it happens to read, so a current-cwd derivation let one moved session drag every sibling
+    with it, in readdir order. **Attributing a session to the tree it is in NOW cannot be expressed at
+    folder granularity at all — it needs a per-session project column.** That is an open point, and the
+    thing not to do is swap the helper back in.
 11. **`backends/cli-probe.js` stays in the backends folder, and an app-side probe closes its own stdin
     (#541).** Shell discovery runs `wsl.exe --list --quiet` to read what it prints and had the same open
     stdin pipe #532 swept out of every backend, which raised the obvious question: move the module
