@@ -463,7 +463,7 @@ Still open:
 | `SWITCHBOARD_ALLOW_MULTIPLE_INSTANCES` | `1` drops the single-instance lock — **unpackaged builds only** | lock active |
 | `SWITCHBOARD_FORCE_SINGLE_INSTANCE` | `1` forces the lock. Checked **before** the previous one, so it wins. | lock active anyway |
 | `SWITCHBOARD_DEV_ATTENTION_HOOK` | `1` lets a dev build write/strip the attention hook in `~/.claude/settings.json`. Without it the whole path is a no-op in dev and attention falls back to the OSC-9 heuristic. Packaged builds ignore it. | no-op in dev |
-| `SWITCHBOARD_TRIGGERS_DIR` | Where the trigger watcher looks for trigger JSON (results land in `<dir>/processed/`) | `~/.switchboard/triggers` |
+| `SWITCHBOARD_TRIGGERS_DIR` | Where the trigger watcher looks for trigger JSON (results land in `<dir>/processed/`) | `<data dir>/triggers` — so `~/.switchboard/triggers` installed, `~/.switchboard-dev/triggers` under `npm start`, and its own directory in a demo or sandbox run (#587) |
 | `SWITCHBOARD_TRIGGER_IDLE_TIMEOUT_MS` | How long a trigger waits for a session to go idle | the built-in default; a non-numeric value falls back to it |
 | `SWITCHBOARD_SUBMIT_ENTER_DELAY_MS` | Delay between writing the text and writing Enter on a PTY submit | built-in default; only finite values ≥ 0 are accepted |
 | `SWITCHBOARD_SUBMIT_VERIFY_MS` | Window in which a submit waits for the busy rising edge | built-in default; same validation |

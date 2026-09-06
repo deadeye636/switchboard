@@ -1,10 +1,17 @@
 // trigger-watcher.js — File-based input injection for harness scripts.
 //
 // Drop a JSON trigger file into SWITCHBOARD_TRIGGERS_DIR (default
-// ~/.switchboard/triggers/<uuid>.json) and this module writes the command into
+// <data dir>/triggers/<uuid>.json) and this module writes the command into
 // the matching PTY session's stdin.  The result is written to
 // SWITCHBOARD_TRIGGERS_DIR/processed/<uuid>.result.json; the trigger file is
 // then deleted.
+//
+// The default follows the DATA DIRECTORY, not the home directory (#587). A trigger is an instruction
+// to type into a session, so the directory belongs to the instance that owns those sessions: the
+// installed app reads ~/.switchboard/triggers as it always did, a dev run reads
+// ~/.switchboard-dev/triggers, and a demo run reads its own. Composed from os.homedir() instead, all
+// three watched one folder and whichever noticed a file first consumed it — an isolated demo run
+// could execute a trigger meant for the real install.
 //
 // Exports: start(ctx) where ctx = { getPtyForSession, isSessionBusy, log }
 //
@@ -31,7 +38,15 @@ const path   = require('path');
 const os     = require('os');
 const crypto = require('crypto');
 
-const DEFAULT_TRIGGERS_DIR   = path.join(os.homedir(), '.switchboard', 'triggers');
+// Where an instance keeps its triggers when nothing overrides it (#587). Resolved per call, never at
+// module load: main.js sets SWITCHBOARD_DATA_DIR for an unpackaged run, and it does that AFTER this
+// module can be required. A packaged app leaves the variable unset and keeps the historical path.
+function defaultTriggersDir() {
+  const dataDir = process.env.SWITCHBOARD_DATA_DIR;
+  return dataDir
+    ? path.join(dataDir, 'triggers')
+    : path.join(os.homedir(), '.switchboard', 'triggers');
+}
 // Default idle-wait timeout: 5 minutes.
 // Rationale: agentic Claude CLI turns can run 10-20 min between idle states.
 // 30 s (the original default) was too short and would time-out healthy long
@@ -254,7 +269,7 @@ function waitForBusyFall(sessionId, ctx, deadlineMs) {
 }
 
 function getTriggersDir() {
-  return process.env.SWITCHBOARD_TRIGGERS_DIR || DEFAULT_TRIGGERS_DIR;
+  return process.env.SWITCHBOARD_TRIGGERS_DIR || defaultTriggersDir();
 }
 
 function getIdleTimeout() {
