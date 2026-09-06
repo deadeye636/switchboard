@@ -4,6 +4,9 @@ const path = require('path');
 // only, so this module stays the Electron-free leaf the index worker requires
 // (test/worker-leaf-electron-free.test.js).
 const { pathKey, isInside } = require('../app/path-containment');
+// The one spelling of "<parent>/<worktrees dir>/<name>" (#582) — pure string work, so requiring it keeps
+// this module the Electron-free leaf the index worker needs.
+const { parseWorktreePath } = require('../shared/worktree-path');
 
 // Only the head of the file is scanned: every session/subagent transcript
 // carries `cwd` on its first JSONL line. Reading the whole file here froze
@@ -57,13 +60,11 @@ function resolveWorktreePath(cwd) {
   // it happens to sit under a conventional worktrees directory (#147).
   if (isRealGitWorktree(cwd)) return cwd;
 
-  // Detect worktree paths: <project>/.claude-worktrees/<name>, <project>/.worktrees/<name>, or <project>/.claude/worktrees/<name>
-  // Accept both separators so Windows backslash paths collapse too.
-  const worktreeMatch = cwd.match(/^(.+?)[\\/]\.(?:claude[\\/]worktrees|claude-worktrees|worktrees)[\\/][^\\/]+[\\/]?$/);
-  if (worktreeMatch) {
-    const parent = worktreeMatch[1];
-    if (fs.existsSync(parent)) return parent;
-  }
+  // Detect worktree paths — all three layouts, either separator. The pattern is shared with the sidebar's
+  // nesting, the delete handler and the unlisted notice (#582); this call site is the one that then asks
+  // the filesystem whether the parent is really there.
+  const worktree = parseWorktreePath(cwd);
+  if (worktree && fs.existsSync(worktree.parentPath)) return worktree.parentPath;
   return cwd;
 }
 

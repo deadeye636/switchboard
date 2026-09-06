@@ -34,6 +34,9 @@ const { findOnPath } = require('./backends/file-store');
 // Tier-3 custom launchers (T-3.10): the entry shape + cascade live in one module shared with the
 // renderer; main only re-validates what the renderer hands it before spawning.
 const { normalizeLauncher } = require('./shared/custom-launchers');
+// "Is this path a worktree, and of which project" — one separator-agnostic answer for the delete handler
+// here, the sidebar's nesting and the unlisted-projects notice (#582).
+const { parseWorktreePath } = require('./shared/worktree-path');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
 //   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
@@ -584,21 +587,20 @@ skills.init({
 skills.registerIpc(ipcMain);
 
 // --- IPC: delete-worktree ---
-// Validated path pattern: <project>/.<segment>/[worktrees/]<name>
-// Matches .claude/worktrees/<n>, .claude-worktrees/<n>, .worktrees/<n>
-const WORKTREE_PATH_RE = /^(.+?)\/\.(?:claude\/worktrees|claude-worktrees|worktrees)\/([^/]+)\/?$/;
+// The layout the path has to match is `shared/worktree-path.js` (#582) — the same one the sidebar nests
+// by, so a worktree can no longer be deletable as one without being displayed as one.
 
 ipcMain.handle('delete-worktree', (_event, worktreePath) => {
   return new Promise((resolve) => {
-    // Normalize trailing slash
-    const normalizedPath = worktreePath.replace(/\/$/, '');
+    // Normalize a trailing separator — either separator, because the path is the cwd out of a transcript.
+    const normalizedPath = String(worktreePath || '').replace(/[\\/]$/, '');
 
     // Validate path matches a known worktree layout
-    const match = normalizedPath.match(WORKTREE_PATH_RE);
-    if (!match) {
+    const parsed = parseWorktreePath(normalizedPath);
+    if (!parsed) {
       return resolve({ ok: false, error: 'Path does not match a recognized worktree layout' });
     }
-    const parentRepo = match[1];
+    const parentRepo = parsed.parentPath;
 
     // Helper: run git worktree remove, optionally double-force
     function runRemove(doubleForce, callback) {

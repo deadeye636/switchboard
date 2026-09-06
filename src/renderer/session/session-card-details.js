@@ -1,10 +1,13 @@
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('../../shared/worktree-path'));
   } else {
-    Object.assign(root, factory());
+    // The renderer has no require: `../shared/worktree-path.js` is a classic <script> loaded before this
+    // one, and its top-level function lands on the global object — so the global object IS the module.
+    Object.assign(root, factory(root));
   }
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+})(typeof window !== 'undefined' ? window : globalThis, function (worktreePath) {
+  const { parseWorktreePath } = worktreePath;
   const METRIC_THRESHOLDS = {
     userMessageCount: { amber: 21, red: 30 },
     cacheReadTokens: { amber: 14_000_000, red: 20_000_000 },
@@ -37,9 +40,12 @@
     return value ? `${Math.round(value)}m` : '';
   }
 
+  // The card's "Worktree <name>" line. It asked a forward-slash, one-layout copy of the pairing pattern
+  // until #582, so a session in a worktree was never labelled on Windows and never in the other two
+  // layouts on any platform.
   function getWorktreeLabel(session = {}) {
-    const match = String(session.projectPath || '').match(/\/\.claude\/worktrees\/([^/]+)\/?$/);
-    return match ? `Worktree ${match[1]}` : '';
+    const parsed = parseWorktreePath(session.projectPath);
+    return parsed ? `Worktree ${parsed.name}` : '';
   }
 
   function getSessionMetricLabels(session = {}) {

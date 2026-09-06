@@ -184,6 +184,9 @@
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
   <script src="lib/icons.js"></script>
   <script src="../shared/preview-kind.js"></script>
+  <!-- "Is this path a worktree, and of which project" (#582) — before sidebar.js, which nests by it,
+       and before session-card-details.js, which reads it off the global object at load time. -->
+  <script src="../shared/worktree-path.js"></script>
   <script src="views/format-commands.js"></script>
   <script src="views/format-toolbar.js"></script>
   <script src="views/viewer-toolbar.js"></script>

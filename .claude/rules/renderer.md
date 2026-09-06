@@ -518,7 +518,10 @@ while the app runs, so routing it would make the copy correct only until somethi
 
 ## `src/shared/`
 
-The four modules **both processes load** — `attention-source`, `custom-launchers`,
-`variable-insert`, `preview-kind`. `require()`d in main, a global in the renderer (which has no
-require — plain `<script>` tags). The preview in main must compute with the same code the insert runs
-in the renderer; two copies would be a bug factory. **Nothing else belongs here.**
+The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
+`preview-kind`, and since #582 `worktree-path`. **List the directory rather than trusting this line.**
+`require()`d in main, a global in the renderer (which has no require — plain `<script>` tags). The
+preview in main must compute with the same code the insert runs in the renderer; two copies would be
+a bug factory. `worktree-path` is what that reads like when it is ignored: the pairing that decides
+"is this a worktree, and of what" existed four times, three of them forward-slash-only, and the
+sidebar's nesting therefore never ran on Windows at all. **Nothing else belongs here.**

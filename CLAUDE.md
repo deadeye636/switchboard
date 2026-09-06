@@ -239,7 +239,7 @@ absent from the installer.
 | `src/main.js` | composition root: requires, `DATA_DIR`, the module wiring (count the `.init(` calls rather than trusting a number here), the legacy IPC handlers (`GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there) |
 | `src/app/**` | the areas main.js used to hold — **list the directory**, an enumeration here goes stale (it missed `backend-models` and `backend-resources` for as long as they existed) |
 | `src/preload.js` | the **only** IPC surface — `window.api.*` |
-| `src/shared/**` | the four modules **both** processes load (`attention-source`, `custom-launchers`, `variable-insert`, `preview-kind`) |
+| `src/shared/**` | the modules **both** processes load — **list the directory**, an enumeration here goes stale (`worktree-path` joined the four in #582) |
 | `src/renderer/**` | vanilla JS, no framework; plain `<script>` tags, morphdom, `@xterm/xterm`, CodeMirror via esbuild |
 | `src/db/**` | `db.js` = façade (#217) over `connection`/`schema`/`migrations` + the stores |
 | `src/index/**` | `session-cache.js` = façade (#199) over the index/search worker clients |

@@ -51,12 +51,11 @@ const ALLOWLIST = {
   // Claude's projects store root, injected into session-cache / the index worker / spawn / transitions since
   // Phase 1. Retiring it in favour of a descriptor watchTargets() is its own issue, not #227's.
   'src/main.js': 'PROJECTS_DIR = ~/.claude/projects, the injected Claude store root (retire is its own issue)',
-  // The Claude CLI's on-disk worktree layout, parsed out of paths the CLI itself created. (Only the files
-  // that spell it as a string segment trip the token; derive-project-path.js writes it as a regex the
-  // token deliberately does not match, so it is not listed — a real '.claude' store literal there would
-  // still trip and need adding.)
-  'src/renderer/shell/sidebar.js': "parses the CLI's own .claude/worktrees on-disk layout",
-  'src/renderer/session/session-card-details.js': "parses the CLI's own .claude/worktrees on-disk layout",
+  // The CLI's on-disk worktree layout used to be spelled as a string segment in the sidebar and in the
+  // session card, and both were listed here. Since #582 the layout lives once, in
+  // `src/shared/worktree-path.js`, written as a regex the token deliberately does not match — the same
+  // shape derive-project-path.js has always had. Neither renderer file trips a token any more, so neither
+  // may stay on this list: an entry that no longer trips is stale and fails.
   // The MCP IDE bridge emulates Claude's own ~/.claude/ide discovery protocol.
   'src/servers/mcp-bridge.js': "emulates Claude's ~/.claude/ide IDE-discovery protocol",
   // The attention hook is Claude's own declared integration; it patches ~/.claude/settings.json.

@@ -565,8 +565,11 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
 // Build the project groups (with nested worktrees) into `container`, recording
 // each project's item order into `newSortedOrder`.
 function appendProjectGroups(container, projects, resort, newSortedOrder, { sortable = false } = {}) {
-  const worktreePattern = /^(.+?)\/\.claude\/worktrees\/([^/]+)\/?$/;
+  // The pairing pattern is `shared/worktree-path.js` (#582): all three layouts, either separator. It used
+  // to be a forward-slash-only literal here, so on Windows — where the projectPath is the backslash cwd
+  // out of the transcript — nothing ever matched and no worktree was ever nested.
   const worktreeMap = new Map(); // parentPath → [worktreeProject, ...]
+  const worktreeNames = new Map(); // worktree projectPath → its own name
   const worktreeSet = new Set();
   // #17: divider between the favorites block and the rest (favorites pinned on
   // top, not in the favorites-only filter).
@@ -576,11 +579,11 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
   let sawFavorite = false;
   let dividerDone = false;
   for (const project of projects) {
-    const match = project.projectPath.match(worktreePattern);
-    if (match) {
-      const parentPath = match[1];
-      if (!worktreeMap.has(parentPath)) worktreeMap.set(parentPath, []);
-      worktreeMap.get(parentPath).push(project);
+    const wt = parseWorktreePath(project.projectPath);
+    if (wt) {
+      if (!worktreeMap.has(wt.parentPath)) worktreeMap.set(wt.parentPath, []);
+      worktreeMap.get(wt.parentPath).push(project);
+      worktreeNames.set(project.projectPath, wt.name);
       worktreeSet.add(project.projectPath);
     }
   }
@@ -709,7 +712,9 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       if (!wtResult) continue;
       newSortedOrder.push(wtResult.sortOrderEntry);
 
-      const wtName = wt.projectPath.match(worktreePattern)?.[2] || wt.projectPath.split('/').pop();
+      // The name was parsed on the pass that built the map — every entry in it matched, so the split is
+      // only the belt-and-braces fallback it always was. Both separators, since the path may be either.
+      const wtName = worktreeNames.get(wt.projectPath) || wt.projectPath.split(/[\\/]/).filter(Boolean).pop();
       const wtFId = folderId(wt.projectPath);
 
       const wtGroup = document.createElement('div');

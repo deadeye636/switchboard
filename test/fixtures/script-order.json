@@ -10,6 +10,7 @@
     "purify.min.js",
     "icons.js",
     "preview-kind.js",
+    "worktree-path.js",
     "format-commands.js",
     "format-toolbar.js",
     "viewer-toolbar.js",
