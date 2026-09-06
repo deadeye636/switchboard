@@ -20,7 +20,9 @@
 // app.js state still in its TDZ; registered after, the state is bound.
 //
 // What it reaches into app.js at call time (read, or mutate a Map/Set in place; it rebinds no let):
-//   openSessions, sessionMap, pendingSessions, launchExitedSessions, userStoppedSessions (session tables),
+//   openSessions, sessionMap, pendingSessions, launchExitedSessions, userStoppedSessions, activePtyIds
+//   (session tables — `activePtyIds` since #514: the exit handler retracts the id main has just
+//   reported dead, in the set every status surface reads, rather than waiting on the next poll),
 //   activeSessionId, cachedAllProjects, cachedProjects, gridViewActive, sessionTimelineStore,
 //   refreshSidebar, setActiveSession, trackActivity, dropTimeline, and the terminal-header DOM
 //   handles (placeholder, terminalHeader, terminalHeaderName/PtyTitle, gridViewerCount) and
@@ -114,17 +116,39 @@ window.api.onSessionDetected((tempId, realId) => {
 // had retired, so terminal output arriving under the new id found no entry and went nowhere (#348).
 // One function, called by both, so the two windows cannot answer the same event differently.
 //
-// Returns false when this window does not render the session — the ordinary case for whichever
-// window it is not in.
+// A MOUNTED TERMINAL IS NOT THE CONDITION (#514). `openSessions` holds the terminals this window has
+// on screen; `sessionMap`, `pendingSessions`, `launchExitedSessions` and the pane tabs are keyed by the
+// session id whether or not one is mounted. Refusing the whole re-key on a missing entry stranded all of
+// those on an id the CLI had retired — and for a backend that adopts its own session id
+// (`src/watch/adopt.js`: Codex, Pi, agy) main drops the launch id from `activeSessions` in the same
+// breath, so no later `process-exited` can ever name that id again. The row then kept a Running this
+// window had no way to retract: `getSessionStatus`'s last branch reads `pendingSessions` MINUS
+// `launchExitedSessions`, and the exit marker was landing under the id main knows while the pending
+// entry sat under the id it had retired. That branch is what the sidebar row, the tab strip dot and the
+// grid card all read — the three surfaces #514's acceptance names — while the pane's placeholder asks
+// `sessionIsLive` (`activePtyIds`) alone and therefore said, correctly, that nothing was running.
+//
+// So the entry gates only the half that IS about a mounted terminal. Returns false when this window
+// holds nothing at all under the old id — the ordinary case for whichever window it is not in.
 window.rekeySessionState = function (oldId, newId) {
+  if (!oldId || !newId || oldId === newId) return false;
   const entry = openSessions.get(oldId);
-  if (!entry || !newId || oldId === newId) return false;
+  const pendingEntry = pendingSessions.get(oldId);
+  // The one record, wherever this window is holding it. It is the same object in all three maps by
+  // construction — launchNewSession builds it once and puts that object into `sessionMap`, the pending
+  // entry and the terminal entry (app.js) — so moving its id moves it for the sidebar row, the pending
+  // row and the mounted terminal together.
+  const session = (entry && entry.session) || sessionMap.get(oldId)
+    || (pendingEntry && pendingEntry.session) || null;
+  if (!entry && !pendingEntry && !session) return false;
 
-  entry.session.sessionId = newId;
+  if (session) session.sessionId = newId;
   if (activeSessionId === oldId) setActiveSession(newId);
 
-  openSessions.delete(oldId);
-  openSessions.set(newId, entry);
+  if (entry) {
+    openSessions.delete(oldId);
+    openSessions.set(newId, entry);
+  }
   // Same as above: the record already moved, so this window forgets both ids and re-reads on demand.
   dropTimeline(sessionTimelineStore, oldId);
   dropTimeline(sessionTimelineStore, newId);
@@ -139,17 +163,16 @@ window.rekeySessionState = function (oldId, newId) {
   if (window.panesView) window.panesView.rekeySession(oldId, newId);
 
   // Re-key pending session to newId so sidebar item persists until DB has real data
-  const pendingEntry = pendingSessions.get(oldId);
   pendingSessions.delete(oldId);
   launchExitedSessions.delete(oldId); // the old id is retired; its marker must not outlive it
   if (pendingEntry) {
     // Re-key only: the pending shape is { session, projectPath, folder } with no
-    // own sessionId field (the Map key carries it); entry.session.sessionId was
+    // own sessionId field (the Map key carries it); session.sessionId was
     // already updated above (issue #75 — removed a dead write to a phantom field).
     pendingSessions.set(newId, pendingEntry);
   }
   sessionMap.delete(oldId);
-  sessionMap.set(newId, entry.session);
+  if (session) sessionMap.set(newId, session);
   return true;
 };
 
@@ -226,6 +249,14 @@ window.api.onProcessExited((sessionId, exitCode) => {
   // for the relaunch, so this marker is what stops it from still reading as "starting" — see
   // launchPending() in app.js. Cleared again by the next poll that sees a live PTY under this id.
   launchExitedSessions.add(sessionId);
+  // …and the set every surface actually asks "is it running" (#514). `activePtyIds` was written by the
+  // POLL alone, so the pushed fact and the polled one answered the same question at two different
+  // times: the sidebar row, the tab dot, the grid card and the pane placeholder all read this set, and
+  // whichever of them repainted before the poll's answer came back kept a Running that main had already
+  // retracted. This is not a second reading — it is main's answer landing in the one place the readings
+  // come from, which is what `confirmAndStopSession` (app.js) already does for a user stop. The poll
+  // still owns the set: it replaces it wholesale on the next tick, so a relaunch heals here too.
+  activePtyIds.delete(sessionId);
   if (entry) {
     entry.closed = true;
     // 'exited' is recorded by the PTY's own exit handler in main (#396) — it knows the code and it knows

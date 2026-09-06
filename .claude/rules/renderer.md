@@ -134,6 +134,26 @@ not in that map. `window.sessionIdsInThisWindow()` (`shell/detach-window.js`) is
 layout when panes mode is on, `openSessions` otherwise. It was derived twice before it was named, and
 the second derivation got it wrong.
 
+**And a mounted terminal is not what makes a session THIS window's (#514).** `rekeySessionState`
+(`shell/session-ipc.js`) used to refuse the whole re-key on a missing `openSessions` entry, which threw
+away the half that has nothing to do with a terminal: `sessionMap`, `pendingSessions`,
+`launchExitedSessions` and the pane tabs are keyed by the session id whether or not one is on screen.
+For a backend that adopts its own session id (`src/watch/adopt.js` — Codex, Pi, agy) main drops the
+launch id from `activeSessions` in the same breath, so **no later `process-exited` can name that id
+again**: a row left on it asserts `running` through `getSessionStatus`'s pending branch
+(`pendingSessions` minus `launchExitedSessions`) for the life of the window. That branch is read by the
+sidebar row, the tab strip dot AND the grid card — all three go through `getSessionStatus`, which is why
+they were wrong together — while the pane's placeholder asks `sessionIsLive` (`activePtyIds`) alone and
+was the one surface telling the truth. Gate the terminal half on the entry; move the id-keyed half
+regardless.
+
+**The exit is a fact, not a hint: it lands in `activePtyIds` at the push.** That set is the one answer
+every status surface reads, and it used to be written by the 3 s/30 s poll alone — so main's push and
+the poll's answer described the same moment at two different times, and anything repainting in between
+kept a Running that had already been retracted. `onProcessExited` deletes the id now, the way
+`confirmAndStopSession` already did for a user stop. This is not a second reading: the poll still owns
+the set and replaces it wholesale on the next tick, which is what heals a relaunch.
+
 ## A working backend is the control, not the thing to normalize away
 
 When a request says a terminal interaction already works in one backend, write the behaviour matrix
