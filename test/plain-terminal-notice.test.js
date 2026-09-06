@@ -16,9 +16,11 @@
 //
 // And it spelled a backend's binary name in `src/app/**`, which CLAUDE.md reflex 5 forbids.
 //
-// The guidance is kept and moved: one dim line pushed into the session's buffer when the terminal opens,
-// through the same path the startup hint and the resume notice use. Earlier than the wrapper (before the
-// user types rather than after), backend-neutral, and it wraps nothing.
+// The guidance is kept and moved: one dim line pushed into the session's buffer, through the same path
+// the startup hint and the resume notice use. Backend-neutral, and it wraps nothing. It waits for the
+// shell to stop drawing rather than landing at open — measured, because a Git Bash login shell under
+// ConPTY sends its mode-set at 267 ms and its screen clear at 268 ms, so both earlier placements were
+// wiped one millisecond after they arrived.
 //
 // WHY SOURCE CHECKS: `node-pty` is required at module load rather than taken through ctx, so nothing in
 // the suite can reach past `pty.spawn` — the reason `test/spawn-first-resize.test.js` and
@@ -66,9 +68,25 @@ test('the notice is a single dim line, and goes through the output buffer', () =
     'dim rather than yellow, because this is a standing fact about the terminal rather than something '
     + 'that happened to the user; and through the buffer so a detach and reattach keeps it');
 
-  assert.match(CODE, /if \(isPlainTerminal && !launcher\) \{/,
+  assert.match(CODE, /if \(isPlainTerminal && !launcher && !session\._unmonitoredNoticeSent\)/,
     'shown for a plain terminal and not for a launcher — that terminal was opened to run one command '
     + 'the user saved, and telling them it is unmonitored answers a question they did not ask');
+});
+
+test('the notice waits for the shell to stop drawing (#588)', () => {
+  // Two earlier placements were measured and both were wiped. Written at open, it arrives and the
+  // shell's clear takes it. Written on the first byte, it arrives at 267 ms and the clear lands at
+  // 268 ms — one millisecond later, because the shell sends its mode-set and its `ESC[2J` in two
+  // chunks. So it waits for a gap instead of racing a redraw it cannot see coming.
+  assert.match(CODE, /clearTimeout\(session\._noticeTimer\);[\s\S]{0,80}?setTimeout\(sendUnmonitoredNotice, NOTICE_SETTLE_MS\)/,
+    'every chunk pushes the deadline out, so the notice lands after the shell has settled');
+
+  assert.match(CODE, /!session\._unmonitoredNoticeSent/,
+    'and the whole branch is dead once it has been sent — a long-lived terminal must not pay a '
+    + 'clearTimeout per chunk for a notice it already showed');
+
+  assert.ok(!/sendUnmonitoredNotice\(\);/.test(CODE),
+    'it is never called directly, which is the placement that was measured to be wiped');
 });
 
 test('the notice points at the way to get a monitored session', () => {

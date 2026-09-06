@@ -917,14 +917,26 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   //
   // Not shown for a LAUNCHER: that terminal was opened to run one specific command the user saved,
   // and telling them it is unmonitored answers a question they did not ask.
-  if (isPlainTerminal && !launcher) {
+  // Sent once the shell has gone QUIET, not at open and not on its first byte. Both were measured and
+  // both are wiped: a Git Bash login shell under ConPTY sends `ESC[?9001h ESC[?1004h` at 267 ms, and
+  // its `ESC[2J` clear lands at 268 ms — one millisecond later — with the prompt at 645 ms and a
+  // repaint at 1049 ms. So the notice waits for a gap in the output instead of racing a redraw it
+  // cannot see coming.
+  //
+  // The settle timer is armed only while the notice is still owed, so a terminal that has shown it
+  // does no per-chunk work at all for the rest of its life. A shell that never prints anything never
+  // shows it, which is right: the silence notice below covers that case and says something more useful.
+  const NOTICE_SETTLE_MS = 250;
+  const sendUnmonitoredNotice = () => {
+    if (session._unmonitoredNoticeSent) return;
+    session._unmonitoredNoticeSent = true;
     const notice = `\x1b[2m── this terminal is not monitored — the + button in the sidebar starts a tracked session ──\x1b[0m\r\n`;
     session.outputBuffer.push(notice);
     session.outputBufferSize += notice.length;
     if (windowLive()) {
-      sendTerminalData(sessionId, notice);
+      sendTerminalData(session.realSessionId || sessionId, notice);
     }
-  }
+  };
 
   // A terminal whose shell never says anything (#585). Running and silent looks exactly like running
   // and working: the tab reads `status-running`, the session is in `activePtyIds`, and the screen is
@@ -1095,6 +1107,15 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       ctx.log.info(`[altscreen] session=${currentId} ${alt.altScreen ? 'ON' : 'OFF'}`);
     }
 
+    // The unmonitored notice waits for the shell to stop drawing (#588). Every chunk pushes the
+    // deadline out; the whole branch is dead the moment the notice has been sent, so a long-lived
+    // terminal pays nothing for it.
+    if (isPlainTerminal && !launcher && !session._unmonitoredNoticeSent) {
+      clearTimeout(session._noticeTimer);
+      session._noticeTimer = setTimeout(sendUnmonitoredNotice, NOTICE_SETTLE_MS);
+      if (typeof session._noticeTimer.unref === 'function') session._noticeTimer.unref();
+    }
+
     // Buffer output (skip resize-triggered redraws for plain terminals)
     if (!session._suppressBuffer) {
       appendToOutputBuffer(session, data, MAX_BUFFER_SIZE);
@@ -1109,6 +1130,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.exited = true;
     clearTimeout(session._silenceTimer);
     session._silenceTimer = null;
+    clearTimeout(session._noticeTimer);
+    session._noticeTimer = null;
     // During quit the DB is already closed (getSetting below would throw) and
     // before-quit has shut down MCP + killed the PTYs — skip the cleanup.
     if (ctx.getAppQuitting()) return;
