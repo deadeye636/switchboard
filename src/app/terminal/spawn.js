@@ -53,6 +53,28 @@ function init(context) {
   ctx = context;
 }
 
+// How long a PLAIN terminal may stay mute before it says so in its own screen (#585). Long enough that
+// a shell reading a slow profile is not accused of being broken, short enough that nobody sits in front
+// of a black tab wondering. Measured against the shells this picks on Windows: Git Bash's login shell
+// prints its prompt in well under a second.
+const SILENT_TERMINAL_NOTICE_MS = 6000;
+
+/**
+ * What that terminal is told. A pure function because it is the only part of the silence path a test can
+ * reach — `pty.spawn` is required at module load, so the timer around it has no seam (the same reason
+ * `test/spawn-first-resize.test.js` gives for reading this file as text).
+ *
+ * It names the shell by BASENAME on purpose, and that is a rule rather than a preference: the spawn
+ * failure a few hundred lines down keeps the path out of the user's screen for the same reason (#457,
+ * `readableError`) — the terminal gets a sentence, the log gets the detail.
+ */
+function silentTerminalNotice(shellPath, ms) {
+  const secs = Math.round(ms / 1000);
+  return `\x1b[33m── ${path.basename(String(shellPath || 'the shell'))} has printed nothing in ${secs}s — it may be `
+    + 'waiting on something, or it may not run as an interactive shell here. Settings → Terminal shell '
+    + 'picks another one. ──\x1b[0m\r\n';
+}
+
 const windowLive = () => {
   const w = ctx.getMainWindow();
   return !!w && !w.isDestroyed();
@@ -303,7 +325,18 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     const wslCwd = windowsToWslPath(spawnCwd);
     shellExtraArgs.unshift('--cd', wslCwd);
   }
-  ctx.log.info(`[shell] profile=${shellProfile.id} shell=${shell} args=${JSON.stringify(shellExtraArgs)}`);
+  // `extraArgs`, not `args`, and the name is the whole point (#585). This field has only ever held
+  // `shellProfile.args` — the WSL profile's `-d <distro>`, plus the `--cd` pushed in above — so off WSL
+  // it is `[]` for every session there has ever been. Spelled `args=[]` it reads as "this shell was
+  // started with no arguments at all", and #585 was filed on exactly that reading: a bare MSYS bash was
+  // blamed for a terminal that showed nothing, when the argv is `-l -i` and always was. The argv each
+  // branch really passes is logged at its own `pty.spawn` below.
+  //
+  // The session id and the kind are here for the other half of that misreading: the plain terminal and
+  // the backend spawn print the SAME line, so a log with several sessions in it cannot be read back to
+  // "which of these was the terminal that stayed empty".
+  const sessionKind = isPlainTerminal ? (launcher ? 'launcher' : 'terminal') : 'backend';
+  ctx.log.info(`[shell] session=${sessionId} kind=${sessionKind} profile=${shellProfile.id} shell=${shell} extraArgs=${JSON.stringify(shellExtraArgs)}`);
 
   let knownJsonlFiles = new Set();
   let sessionSlug = null;
@@ -394,7 +427,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         Object.assign(env, ctx.resolveSpawnEnv(launcher.env, launcher.name || 'Launcher', sessionId));
       }
 
-      ptyProcess = pty.spawn(shell, ptyShellArgs(shell, undefined, shellExtraArgs), {
+      // The argv this terminal really gets. Logged because it is the one thing the `[shell]` line above
+      // cannot say (it is resolved per branch), and because it is what #585 guessed wrong about.
+      const terminalArgv = ptyShellArgs(shell, undefined, shellExtraArgs);
+      ctx.log.info(`[spawn] session=${sessionId} kind=${sessionKind} argv=${JSON.stringify(terminalArgv)}`);
+      ptyProcess = pty.spawn(shell, terminalArgv, {
         name: 'xterm-256color',
         cols: 120,
         rows: 30,
@@ -857,6 +894,30 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     }
   }
 
+  // A terminal whose shell never says anything (#585). Running and silent looks exactly like running
+  // and working: the tab reads `status-running`, the session is in `activePtyIds`, and the screen is
+  // black — so the user has no way to tell a shell that is thinking from one that came up mute. Say it
+  // in the terminal itself, once, and only for a PLAIN terminal: a backend CLI is expected to be quiet
+  // while it boots (Hermes takes about twelve seconds, and `startupHint` above is what covers that).
+  //
+  // Cancelled by the first byte and by the exit, so it can only ever be seen where it is true. Through
+  // the buffer like the two notices above, so a detach/reattach keeps it. `unref` because a pending
+  // timer must not be a reason the app stays alive.
+  if (isPlainTerminal) {
+    session._silenceTimer = setTimeout(() => {
+      session._silenceTimer = null;
+      if (session.exited || session._sawOutput) return;
+      const notice = silentTerminalNotice(shell, SILENT_TERMINAL_NOTICE_MS);
+      session.outputBuffer.push(notice);
+      session.outputBufferSize += notice.length;
+      if (windowLive()) {
+        sendTerminalData(session.realSessionId || sessionId, notice);
+      }
+      ctx.log.info(`[terminal] session=${sessionId} shell=${shell} produced no output in ${SILENT_TERMINAL_NOTICE_MS} ms`);
+    }, SILENT_TERMINAL_NOTICE_MS);
+    if (typeof session._silenceTimer.unref === 'function') session._silenceTimer.unref();
+  }
+
   ptyProcess.onData(data => {
     // ConPTY flushes buffered output asynchronously after pty.kill(), so a last
     // chunk can arrive after will-quit closed the DB — the OSC 9;4 path below
@@ -870,6 +931,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // it — "the process is still talking" — so state derivation can refuse to call such a turn idle.
     // It is deliberately NOT a busy signal: a spinner frame is output, and so is an echoed keystroke.
     session._lastOutputAt = Date.now();
+
+    // The shell has spoken — the silence notice above has nothing left to report (#585).
+    if (!session._sawOutput) {
+      session._sawOutput = true;
+      clearTimeout(session._silenceTimer);
+      session._silenceTimer = null;
+    }
 
     // Parse OSC sequences (title changes, progress, notifications, etc.)
     if (data.includes('\x1b]')) {
@@ -991,9 +1059,18 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
   ptyProcess.onExit(({ exitCode }) => {
     session.exited = true;
+    clearTimeout(session._silenceTimer);
+    session._silenceTimer = null;
     // During quit the DB is already closed (getSetting below would throw) and
     // before-quit has shut down MCP + killed the PTYs — skip the cleanup.
     if (ctx.getAppQuitting()) return;
+    // An exit had no line of its own until #585, and its absence was read as evidence: the report said
+    // "nothing is logged about an exit", which is true of a session that exited and of one that did not,
+    // so the log could not tell the two apart. It can now — one line, at the transition, with how long
+    // the process lived, because a shell that dies in 40 ms and one that dies after a minute are
+    // different faults.
+    ctx.log.info(`[exit] session=${session.realSessionId || sessionId} kind=${sessionKind} code=${exitCode} `
+      + `after=${Date.now() - (session._openedAt || 0)}ms output=${session._sawOutput ? 'yes' : 'none'}`);
     // Clean up MCP server. It answers and clears whatever reviews this session still had open (#405),
     // so the log line belongs to this exit rather than to nowhere.
     const mcpId = session.realSessionId || sessionId;
@@ -1127,4 +1204,9 @@ function registerIpc(ipc) {
 // `scanAltScreen` / `altScreenFromReplay` are exported for `test/alt-screen-tracking.test.js`: the PTY
 // itself has no seam a test can reach (node-pty is required at module load), so the chunk-boundary cases
 // are exercised on the pure function the onData handler calls.
-module.exports = { init, registerIpc, openTerminal, scanAltScreen, altScreenFromReplay };
+module.exports = {
+  init, registerIpc, openTerminal, scanAltScreen, altScreenFromReplay,
+  // #585: the silence notice's text and its deadline. Exported for the same reason the two above are —
+  // the timer that uses them sits behind `pty.spawn`, which no test can reach.
+  silentTerminalNotice, SILENT_TERMINAL_NOTICE_MS,
+};
