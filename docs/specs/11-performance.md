@@ -265,10 +265,40 @@ Two things on our side of that fence, one fixed and one open:
   **It is a part, not the whole.** 1-2 s does not explain 10-13 s, and the remaining candidate is the
   physical read on a genuinely cold page cache — the first-ever run measured 17 960 ms against
   8 600-10 800 ms warm, which is the right order for the gap. That has not been measured, because
-  dropping the Windows page cache needs a reboot. The lever left unpulled is gating each folder on
-  `getFolderIndexMtimeMs` the way the incremental reconcile already does; it is not built, because the
-  cold scan's stated job is the unconditional full rebuild that prunes ghost rows, and folding a
-  directory mtime into that is a decision about a guarantee rather than a performance tweak.
+  dropping the Windows page cache needs a reboot.
+
+- **The scan itself does not re-read what has not changed (#589).** The lever the paragraph above
+  called unpulled has been pulled. `src/workers/scan-projects.js` now takes a per-folder
+  `skipStamps` map and compares `getFolderIndexMtimeMs` against it — the same gate, against the same
+  number, that the reconcile has made in `src/workers/index-worker.js` since #199. Measured on a
+  synthetic store of 1015 transcripts across 35 folders (2.25 GiB, warm page cache, in-memory index):
+  a second launch went from **21 903 ms to 85 ms**, and a launch with one folder's newest transcript
+  moved took 737 ms. A first-ever launch is unchanged by design — there is nothing to skip.
+
+  **The gate is OPT-IN, and only `app/lifecycle.js`'s cold start opts in.** Three callers must keep the
+  unconditional pass and get it by doing nothing: the "Rebuild session cache" action, the
+  `claudeParserBumped` branch of `get-projects`, and the FTS-recreated path. That third one is not
+  caution: migration v6 drops the FTS tables and leaves `cache_meta` stamped, so a gate it did not
+  bypass would skip every folder and leave search **permanently empty** behind a full sidebar, with
+  nothing visibly broken. `lifecycle.js` reads `searchFtsRecreated()` before it starts the scan and asks
+  for the full pass; `populateCacheViaWorker` also chains a real full scan behind a gated one that is
+  already in flight, because concurrent callers otherwise share the gated promise.
+
+  **`parserVersion` is part of the decision, per folder.** A parser bump moves no file's mtime, and
+  #152's per-row gate sits *behind* the folder gate — so a stamp comparison alone cannot see one. Main
+  clears a folder for skipping only when it is stamped, has at least one cached row in Claude's scope,
+  and every one of those rows was written by the current parser.
+
+  **What the gate takes away, and it is not nothing.** A skipped folder keeps its drift: a row for a
+  transcript deleted inside a folder whose newest `.jsonl` did not move (anything but the newest file,
+  or a nested subagent transcript) is not pruned; an FTS entry orphaned there is not cleared, because
+  the folder-scoped search wipe rides on the apply that is skipped; and the folder's `projectPath` is
+  the stored one rather than a freshly derived one. All three are repaired by the unconditional pass.
+  The fourth case was a hazard rather than a cost and is closed: `refreshFilePrepare` stamps a folder
+  *before* posting its parse, so a reply lost to a worker respawn or a quit left the folder stamped with
+  a row that was never written — repaired for free by the old unconditional scan, and lost for ever
+  under a gate. `index-worker-client.js` rolls those stamps back to 0 on `respawn` and `terminate`, so
+  the next gate trips on them.
 
   **What streaming costs, stated because it is a new flow.** The per-folder writes used to run in one
   synchronous loop, so a concurrent `get-projects` saw either all-old or all-new rows. Yielding between

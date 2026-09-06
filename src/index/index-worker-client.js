@@ -153,6 +153,27 @@ function ensureWorker() {
   return worker;
 }
 
+// A file request whose reply never came leaves the folder STAMPED but not written (#589).
+//
+// `refreshFilePrepare` stamps the folder as indexed-as-of-now BEFORE posting the parse, so the reconcile
+// cannot jump in with a full refresh underneath the in-flight read. If the reply is then lost — a worker
+// respawn, a quit — the row was never written and the stamp says it was. Until #589 the next launch
+// repaired that for free, because the cold scan re-read every folder unconditionally. Gated, it would not:
+// the folder is stamped, its other rows are current, and nothing would ever open it again.
+//
+// So roll the stamp back on the way out. Zero is what an unindexed folder looks like, so the next gate —
+// the cold scan's and the reconcile's alike — trips and re-reads the folder in full. The cost of being
+// wrong here is one folder re-read; the cost of not doing it is a transcript nothing can find.
+function unstampLostFileRequests() {
+  if (typeof setFolderMeta !== 'function') return;
+  const done = new Set();
+  for (const [, p] of pending) {
+    if (p.kind !== 'file' || !p.folder || done.has(p.folder)) continue;
+    done.add(p.folder);
+    try { setFolderMeta(p.folder, p.projectPath || null, 0); } catch { /* the DB may already be closing */ }
+  }
+}
+
 // Crash → drop the handle and let the next request spawn a fresh one. The in-flight requests are settled so
 // no caller hangs; a lost reconcile is caught by the next sweep, a lost file event by the reconcile safety
 // net. The new worker starts with an EMPTY memo — one round of full re-reads, then incremental again (#194/
@@ -161,6 +182,7 @@ function respawn() {
   const dead = worker;
   worker = null;
   if (dead) { try { dead.removeAllListeners(); dead.terminate(); } catch {} }
+  unstampLostFileRequests();
   for (const [, p] of pending) { try { p.resolve(); } catch {} }
   pending.clear();
   clearReconcileGate();   // the gate-holding request is lost with the worker — don't wedge future sweeps
@@ -170,6 +192,9 @@ function terminate() {
   const dead = worker;
   worker = null;
   if (dead) { try { dead.removeAllListeners(); dead.terminate(); } catch {} }
+  // Before the clear, and it is safe here: will-quit terminates the workers and only THEN closes the DB
+  // (see app/lifecycle.js — that order is #76's), so this write lands on an open database.
+  unstampLostFileRequests();
   pending.clear();
   clearReconcileGate();
   if (_filePushTimer) { clearTimeout(_filePushTimer); _filePushTimer = null; }
@@ -326,7 +351,9 @@ function postFile(folder, relFilename, { immediate = false } = {}) {
   const reqId = ++reqSeq;
   const postedSeq = reqSeq;
   return new Promise((resolve) => {
-    pending.set(reqId, { resolve, postedSeq, kind: 'file' });
+    // `folder`/`projectPath` ride along so a reply lost with the worker can have its up-front folder stamp
+    // rolled back (unstampLostFileRequests).
+    pending.set(reqId, { resolve, postedSeq, kind: 'file', folder, projectPath: prep.projectPath });
     instrumentedPost({
       type: immediate ? 'immediate' : 'file',
       reqId, folder, path: prep.filePath, projectPath: prep.projectPath, parentSessionId: prep.parentSessionId,

@@ -131,13 +131,26 @@ function start(ctx) {
     // Remove IDE lock files left behind by a crashed instance whose PID was
     // reused (the function only unlinks locks matching our own pid).
     ctx.cleanStaleLockFiles(ctx.log);
-    // Full cache rebuild on every startup — prunes stale rows for deleted
-    // transcripts (sub-agent/workflow runs cleaned up between sessions leave
-    // ghost rows in session_cache that show in the sidebar but are
-    // inaccessible on open). populateCacheViaWorker runs in a Worker thread
-    // and is non-blocking; concurrent callers share the same in-flight
-    // Promise so the FTS-recreated path below (if also triggered) is free.
-    ctx.populateCacheViaWorker().then(() => {
+    // The cold-start scan. GATED since #589: a folder whose newest transcript has not moved past the
+    // stamp main last indexed it at is not re-read, which is what took 9-20 s and 1.11 GiB off every
+    // launch of a 1013-transcript store. store-indexer decides which folders may carry a stamp — it
+    // folds in the parser version, so a bump still re-reads.
+    //
+    // The gate is OPT-IN and this is the ONE caller that opts in. It also opts back OUT for the one
+    // condition it can see and store-indexer cannot: migration v6 recreates the FTS tables and leaves
+    // `cache_meta` stamped, so a gated pass would skip every folder and leave search permanently empty
+    // behind a full sidebar — certain on the first affected upgrade, not a race. `searchFtsRecreated` is
+    // a snapshot of what THIS run's migrations did, so reading it here is the same answer as below.
+    //
+    // What the gate stops doing on a warm launch, so it is on the record here too: rows for a transcript
+    // deleted inside an unchanged folder are not pruned, FTS entries orphaned there are not cleared, and
+    // the folder's projectPath is the stored one rather than a freshly derived one. The rebuild action, a
+    // parser bump and a recreated FTS table all still run the unconditional pass that repairs all three.
+    //
+    // populateCacheViaWorker runs in a Worker thread and is non-blocking; concurrent callers share the
+    // same in-flight Promise, so the FTS-recreated call below is free.
+    const ftsRecreated = ctx.searchFtsRecreated();
+    ctx.populateCacheViaWorker({ incremental: !ftsRecreated }).then(() => {
       // #57: run one auto-hide pass once the cache is populated on startup, so
       // stale projects are hidden before the first sidebar render settles.
       try { ctx.applyAutoHide(true); } catch {}
@@ -171,8 +184,10 @@ function start(ctx) {
     // Re-index search if FTS table was recreated (e.g. tokenizer config change).
     // populateCacheViaWorker is already running above; the guard inside it
     // (populatePromise !== null) means this is a no-op on the same tick and
-    // returns the shared Promise — no double scan.
-    if (ctx.searchFtsRecreated()) ctx.populateCacheViaWorker();
+    // returns the shared Promise — no double scan. Since #589 the scan above is
+    // already the FULL one whenever this is true, so the shared Promise is the
+    // right one to be handed; this line is kept as the belt to that braces.
+    if (ftsRecreated) ctx.populateCacheViaWorker();
 
     app.on('activate', () => {
       if (ctx.BrowserWindow.getAllWindows().length === 0) ctx.createWindow();

@@ -363,6 +363,7 @@ function refreshFilePrepare(folder, relFilename) {
 // Returns a Promise that resolves when the in-flight scan finishes. Concurrent callers share the same
 // Promise so the first get-projects after a migration can await it instead of seeing an empty list.
 let populatePromise = null;
+let populateIsIncremental = false;   // #589: is the in-flight scan the gated one? (escalation, below)
 let activeScanWorker = null; // handle to the in-flight scan Worker, terminated on quit (issue #76)
 // Drop whatever the streamed apply still has queued and resolve the shared promise. Set for the life of
 // one scan; `terminateScanWorker` calls it, because since #567 the apply outlives the worker by however
@@ -393,8 +394,71 @@ function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, sco
   return sessions.length;
 }
 
-function populateCacheViaWorker() {
-  if (populatePromise) return populatePromise;
+/**
+ * Which folders may the cold scan SKIP (#589), and why each condition is there.
+ *
+ * The scan re-read the whole store on every launch — measured at 1.11 GiB and 9-20 s against a
+ * 1013-transcript store, of which ~95 % was parse of rows already in the cache and still correct. The
+ * reconcile has had a gate for this since #199; the cold scan computed `getFolderIndexMtimeMs` only to
+ * STAMP it, never to ask.
+ *
+ * A folder is cleared for skipping only when all three hold, and none of them is belt-and-braces:
+ *
+ *   1. It carries a stamp. No stamp means main has never recorded indexing it.
+ *   2. It has at least one cached row in Claude's scope. A folder that is stamped but has no rows is the
+ *      shape `refreshFilePrepare` leaves behind when its parse reply is lost (a worker respawn, a quit):
+ *      the stamp is written BEFORE the post. index-worker-client rolls those stamps back now, but a
+ *      database that already carries one from before this change must still be repairable, and reading an
+ *      empty folder costs a readdir.
+ *   3. Every one of those rows was written by the CURRENT parser. A parser bump moves no file's mtime, so
+ *      a stamp comparison alone cannot see one — #152's per-row gate sits BEHIND the folder gate and
+ *      never runs when the folder is skipped. Asking per folder means a bump is repaired whether or not
+ *      the global `claudeParserVersion` setting agrees.
+ *
+ * The scope is Claude's: a project folder key is shared with Axis-B backends, whose rows live elsewhere
+ * and carry their own parser versions.
+ */
+function coldScanSkipStamps() {
+  if (typeof getAllFolderMeta !== 'function' || typeof getCachedByFolder !== 'function') return {};
+  let metaMap;
+  try { metaMap = getAllFolderMeta() || new Map(); } catch { return {}; }
+  const scope = claudeStoreScope();
+  const skip = {};
+  for (const [folder, meta] of metaMap) {
+    const stamp = meta && meta.indexMtimeMs;
+    if (!stamp) continue;
+    let rows;
+    try { rows = getCachedByFolder(folder, scope) || []; } catch { continue; }
+    if (!rows.length) continue;
+    if (rows.some(r => r.parserVersion !== CLAUDE_PARSER_VERSION)) continue;
+    skip[folder] = stamp;
+  }
+  return skip;
+}
+
+/**
+ * The cold scan.
+ *
+ * `incremental` (#589) is OPT-IN, and that direction is the safeguard: every existing caller keeps the
+ * unconditional full pass it has always had, and only the cold start on `app.whenReady` asks for the
+ * gate. The three that MUST stay full are `rebuild-cache`, the `claudeParserBumped` branch of
+ * get-projects, and the `searchFtsRecreated` path — migration v6 drops the FTS tables but leaves
+ * `cache_meta` stamped, so a gate they did not bypass would skip every folder and leave search
+ * permanently empty behind a full sidebar.
+ *
+ * ESCALATION. Concurrent callers share one in-flight scan, so a full request arriving while the gated
+ * cold-start scan is running would otherwise be handed the gated promise and silently get no full pass —
+ * exactly the get-projects/parser-bump race. A full request chains a real full scan behind the gated one
+ * instead; a full request while a FULL scan is in flight still shares it, and an incremental request
+ * always shares whatever is running.
+ */
+function populateCacheViaWorker({ incremental = false } = {}) {
+  if (populatePromise) {
+    if (incremental || !populateIsIncremental) return populatePromise;
+    return populatePromise.then(() => populateCacheViaWorker({ incremental: false }));
+  }
+  populateIsIncremental = !!incremental;
+  const skipStamps = incremental ? coldScanSkipStamps() : {};
   sendStatus('Scanning projects…', 'active');
 
   // TIME IT (#153). `info`, not `debug`: packaged builds default to info, and a number nobody can see
@@ -407,13 +471,14 @@ function populateCacheViaWorker() {
       if (settled) return;
       settled = true;
       populatePromise = null;
+      populateIsIncremental = false;
       activeScanWorker = null;
       cancelActiveScan = null;
       resolve();
     };
 
   const worker = new Worker(path.join(__dirname, '..', '..', 'workers', 'scan-projects.js'), {
-    workerData: { projectsDir: PROJECTS_DIR },
+    workerData: { projectsDir: PROJECTS_DIR, skipStamps },
   });
   activeScanWorker = worker;
 
@@ -434,6 +499,7 @@ function populateCacheViaWorker() {
   let streamEnded = false;
   let folderCount = 0;
   let sessionCount = 0;
+  let skippedCount = 0;   // #589: folders the gate cleared — reported, or the win is invisible
   let announcedIndexing = false;
 
   const finish = () => {
@@ -445,12 +511,16 @@ function populateCacheViaWorker() {
     if (settled) return;
     const elapsedMs = Math.round(elapsed());
     const perSession = sessionCount ? Math.round(elapsedMs / sessionCount) : 0;
+    // The skipped count is the whole point of #589 and belongs on the line that is already `info`: a warm
+    // launch now reports `0 sessions across 0 projects`, which without the second half reads as a scan
+    // that found nothing rather than one that had nothing to do.
+    const unchanged = skippedCount ? `, ${skippedCount} unchanged` : '';
     log.info(
-      `[scan] cold scan: ${sessionCount} sessions across ${folderCount} projects in ${elapsedMs} ms`
+      `[scan] cold scan: ${sessionCount} sessions across ${folderCount} projects${unchanged} in ${elapsedMs} ms`
       + (sessionCount ? ` (${perSession} ms/session)` : '')
     );
 
-    sendStatus(`Indexed ${sessionCount} sessions across ${folderCount} projects`, 'done');
+    sendStatus(`Indexed ${sessionCount} sessions across ${folderCount} projects${unchanged}`, 'done');
     // Clear status after a few seconds
     setTimeout(() => sendStatus(''), 5000);
     notifyRendererProjectsChanged();
@@ -515,6 +585,7 @@ function populateCacheViaWorker() {
 
     // The stream is complete. Anything still queued is applied first — `finish` runs from the drain.
     streamEnded = true;
+    skippedCount = msg.skipped || 0;
     if (!draining) { if (pending.length) schedule(); else finish(); }
   });
 
