@@ -41,7 +41,7 @@ file really sends it.**
 
 ## An allow-list entry carries its reason, and the list is checked BOTH ways
 
-`GRANDFATHERED`, `ALLOWED_BINDINGS`, `DELIBERATE`, `NOT_ON_DISK`, `AUDITED_EXCLUDED` — every one of them
+`GRANDFATHERED`, `ALLOWED_BINDINGS`, `DELIBERATE`, `NOT_ON_DISK`, `AUDITED_EXCLUDED`, `PLURAL_ALLOWED` — every one of them
 is a place to silence a finding, and that is what they turn into without two properties:
 
 - **A reason per entry.** Not a category, the actual sentence: why this one is not a defect.
@@ -52,6 +52,23 @@ is a place to silence a finding, and that is what they turn into without two pro
 
 A red guard that only says "no" ends as a new entry in its own allow-list. **It has to name the
 alternative** in the failure message, and that alternative has to still exist — test it.
+
+## A guard for a duplicated pattern errs towards CATCHING
+
+A false positive costs one reviewed line in an allow-list. A false negative is silent, which is the whole
+failure mode a duplication guard exists to prevent — so when the two trade off, take the noisy one.
+
+The worktree-layout guard is the worked example. It scans `src/` for the bare word `worktrees`, and a
+sidebar fold that says "2 worktrees" to a user made it red. Narrowing the pattern to the LAYOUT — the word
+with a dot within twenty characters — looked obviously right and left a hole a real copy falls into: the
+window cannot cross a quote, so `path.join(dir, '.claude', 'worktrees')`, the idiomatic separator-safe
+spelling in this codebase, matched nothing at all. The scan went back to the bare word and the one label
+carries a named exemption (`PLURAL_ALLOWED` in `test/worktree-path.test.js`, which is in the list
+above and has both of its properties).
+
+**And a guard that carries its own pattern is a second copy of the thing it audits.** That test asserts
+the shapes a fifth copy would take DO match, so the pattern is checked in both directions rather than only
+against a tree that happens to be clean today.
 
 ## Walk the directory, or list the files — decide, and say which
 

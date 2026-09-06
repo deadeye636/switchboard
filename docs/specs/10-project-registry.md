@@ -219,15 +219,22 @@ why it is a note and not a guard.
   configures a worktree: it is made by `git worktree add`, usually by an agent, and it lives for hours.
   A third level would also need a per-option inherit/override/empty state, which #149 already paid for
   once. It used to read the worktree's own key, find nothing and fall back to **global**, so an agent two
-  directories below a project ran with its shell profile, handoff and plan directories, per-backend
-  launch defaults and log level all reset.
+  directories below a project ran with its shell profile, terminal shell, handoff and plan directories and
+  per-backend launch defaults all reset. Not the log level — that key is global-only (it is not in
+  `SETTING_DEFAULTS`) and never cascaded, so a worktree could not lose it.
   Three consequences worth having written down: a blob under a worktree's own path is **ignored** rather
   than winning; the settings window opened for a worktree opens on its project (resolved in
-  `settingsQuery`, so the tags and the per-backend panes describe the same thing the fields do); and
+  `settingsQuery`, so the tags and the per-backend panes describe the same thing the fields do) **and says
+  so** — the clicked row named the worktree and the title names the project, so the worktree's name rides
+  along in the query as a label and the screen carries a note; and
   `displayName` deliberately does **not** resolve — that blob holds identity as well as settings, and
   renaming a worktree must not rename its project.
   Every hand-rolled reader of `project:<path>` has to ask the same question or it disagrees with the
   cascade: the AFK timeout at spawn and the custom launchers in the renderer both do now.
+  **A worktree inherits the NAME, not the directory.** `conventionDirs` resolves the project's relative
+  `handoffDir`/`planDir` against the path it is handed, so a packet written from a worktree lands inside
+  the worktree — which is what you want. An **absolute** setting is not inside the worktree, so the escape
+  guard drops it to the default there: the one case where a worktree does not get its project's answer.
 - **Visible without sessions — still not implemented (#594).** A sidebar row comes from a registration or
   from a cached session, and a worktree now has neither: not registered by design, and no session when it
   is fresh. So there is no row and nowhere to click "new session". It needs a third source — the
@@ -238,10 +245,16 @@ why it is a note and not a guard.
 `parseWorktreePath`'s "who is my parent". The register asks the first, the sidebar's nesting asks the
 second, and a worktree inside a worktree is where they differ.
 
-**This model may change an answer already given.** #591 asks whether the unlisted-projects notice
-suppresses a worktree while its parent is *listed* or while it is *shown*. Under a sub-unit reading,
-hiding a project arguably hides its worktrees too — which argues for the literal "listed" and against what
-shipped. Settle the model first; #591 follows from it rather than the other way round.
+**The model is settled now, and #591 follows from it.** That issue asks whether the unlisted-projects
+notice suppresses a worktree while its parent is *listed* or while it is *shown*. The sub-unit reading is
+the one built above — hiding a project hides its worktrees — which argues for the literal "listed". The
+code still ships `isVisible`; it is one line, and it is the only place the decision has not been applied.
+
+**And the notice has a second hole, which came with the hidden-without-registered shape.** Its filter
+skips a row that is `registered`, and `shouldRegister` never looks at `hidden` — but a worktree is the one
+thing that carries `hidden` without `registered`. So a worktree the user hid from its header, whose
+project is not visible, is offered by the notice as a project to ADD, and adding it registers it: the row
+this model says it has not got. The project manager's eye is the way back, not the notice.
 
 ### The worktree layout is spelled once (#582)
 
@@ -269,9 +282,13 @@ but an INJECTED copy of it (`vcsPoll.init({ worktreePathRe })`), which is why de
 also forward-slash only, so the worktree-delete dialog's dirty check had been refusing every path on
 Windows, and the refusal reads like a legitimate "not a worktree layout".
 
-What the helper does **not** answer: it is one level deep by design, and a worktree nested inside another
-worktree renders nowhere (#586, open) — the sidebar's nesting pass only attaches children to projects that
-are not themselves worktrees.
+What `parseWorktreePath` does **not** answer: it is one level deep by design — "who is my parent", which
+for a nested worktree is another worktree. `worktreeRootOf` beside it answers "whose sub-unit am I" and
+walks to the top; the register, the admin rows and the settings cascade ask that one, the sidebar's
+nesting asks the first. A worktree nested inside another still renders nowhere (#586, open), and the
+reason is now the sidebar's own pass rather than the helper: every worktree is skipped as a top-level
+group, so a `worktreeMap` entry keyed on a worktree path is never read, even though `nestUnder` is filled
+in for it.
 
 ### A worktree is not a project to add (#583)
 

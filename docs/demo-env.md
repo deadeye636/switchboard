@@ -159,8 +159,9 @@ delete its `.git` and rerun `demo:seed`.
 
 ### Worktrees
 
-A worktree is a sub-unit of its project — it inherits the project's settings, and it is visible whether
-or not it has sessions (`docs/specs/10-project-registry.md`). None of that could be looked at here,
+A worktree is a sub-unit of its project — it inherits the project's settings (shipped), and it is meant to
+be visible whether or not it has sessions (#594, **not** shipped; that is what `demo-idle` below is for).
+The model is in `docs/specs/10-project-registry.md`. None of that could be looked at here,
 because the seed built five projects and no worktree at all: every question about nesting, inheritance
 and visibility had to be asked against somebody's own development checkout. `demo-alpha` now carries
 five shapes.

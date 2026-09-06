@@ -203,6 +203,18 @@ table is the fallback and it is binding.
     plainly the owner's — and closing an issue as "does not fit" is a legitimate result, with the reason
     in a comment.
 
+17. **Never assemble `project:<path>` by hand** — `settingsOwnerPath` (`src/shared/worktree-path.js`) is
+    the one answer to "whose settings apply here", and a **worktree resolves to its project**: it is a
+    sub-unit and carries no settings of its own. Two readers had already built the key themselves and both
+    had to be corrected in the same commit (the AFK timeout in `src/app/terminal/spawn.js`, the custom
+    launchers in `src/renderer/dialogs/dialogs.js`); a guard in `test/worktree-path.test.js` names them and
+    says it is a wiring guard.
+    **The exception is identity, not settings.** `displayName` is written against the row's OWN path,
+    because renaming a worktree must not rename the project it sits in — the same blob holds both, and
+    only the cascading half resolves. `worktreeRootOf` beside it answers "whose sub-unit am I"; the
+    register, the admin rows and the settings cascade ask that, while the sidebar's nesting asks
+    `parseWorktreePath`'s "who is my parent".
+
 ## Backlog & workflow
 
 The task board is **GitHub Issues** on `deadeye636/switchboard`, not a file. Migrated 2026-07-03 from

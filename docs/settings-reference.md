@@ -20,8 +20,11 @@ Settings are **one JSON blob per scope** in the `settings` table of `switchboard
 the owner first (`settingsOwnerPath`, `src/shared/worktree-path.js`) and then cascades the ordinary two
 levels — a worktree of a worktree resolves to the same project. It used to look under its own path,
 find nothing there and fall back to **global**, so an agent working in `<project>/.claude/worktrees/<name>`
-ran with the shell profile, the handoff and plan directories, the per-backend launch defaults and the
-log level all reset, two directories below a project that had set every one of them.
+ran with the shell profile, the terminal shell, the handoff and plan directories and every per-backend
+launch default reset, two directories below a project that had set them. **Not** the log level: that key
+is global-only (it is not in `SETTING_DEFAULTS`, so the cascade never touches it) and a worktree could
+not lose what it never inherited. This page said otherwise for a while, three lines above its own table
+row saying `logLevel` is global.
 
 A blob written against a worktree path is therefore **ignored** rather than winning, and the settings
 window opened for a worktree opens on its project. What does *not* resolve is `displayName`: the same

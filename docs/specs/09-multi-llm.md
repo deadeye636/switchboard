@@ -413,7 +413,7 @@ The ones that will look wrong to someone tidying up later:
 9. **Cross-backend deletes are scoped.** A project bucket is keyed on the working directory and therefore
    *shared*: refreshing, hiding or removing a Claude project must not take another backend's rows with
    it — their data is still on disk.
-10. **Real git worktrees are their own project**, detected by the `.git` *file*; grouping stays on the
+10. **Real git worktrees are their own project **for session attribution** (in the register they are a sub-unit of it — `docs/specs/10-project-registry.md`)**, detected by the `.git` *file*; grouping stays on the
     stable head cwd (deriving it per session let one moved session drag its siblings). The helpers that
     read a session's CURRENT cwd exist and are tested (`sessionCwd`, `extractCurrentCwdFromJsonl`) and
     are deliberately not used for grouping — a Claude project FOLDER is keyed on the directory it was

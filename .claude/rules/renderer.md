@@ -211,6 +211,20 @@ the application — the same default an unknown declaration gets, for the same r
 the buffer can switch partway through a CLI's start, so a value captured at mount describes the startup
 screen.
 
+## A fold must not be able to hide something that is running (#598)
+
+The sidebar's worktrees fold groups a project's worktrees under one caret. A worktree with a RUNNING
+session is rendered **beside** it, never inside — the same split `processProjectSessions` already makes for
+sessions, where `item.running || item.pinned` goes into `visible` and can never land in the "N older"
+bucket. The first attempt held the fold open instead when a child was running, and that is a rule one
+click beats: the collapsed state is carried across every render, so a single click would have hidden a
+running worktree until its session ended. Structure, not a rule.
+
+**A fold that defaults OPEN needs its state carried in BOTH directions by `preserveSidebarState`.** The
+clauses there carry "the user opened it", which is the whole answer for a fold that defaults closed and
+reopens a user's collapse on every render otherwise. The worktrees fold copies `display` and toggles
+`expanded` explicitly for that reason.
+
 ## A new control inherits NO styling
 
 A button with only a behaviour class renders as the browser's native control — a white box with

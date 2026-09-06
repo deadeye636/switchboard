@@ -150,7 +150,11 @@ anywhere else is the same bug again**, and it fails the way this one did: silent
 
 **And two of them live outside this file**, which is how they were missed when #566 was written — an
 enumeration that only looked where the fix was. The settings **import** writes a register row per project
-in the imported file, and the **worktree removal** un-registers a directory the renderer named. Neither
+in the imported file — **and it does not ask what the path is**, so an export made before a worktree
+stopped being registered can put one back on the list (`importProjects`, `src/app/settings.js`). Nothing
+follows from that any more: visibility, the auto-hide sweep and the settings cascade all ignore a
+worktree's own registration. It is a note rather than a guard, and it is written down so the next reader
+does not have to rediscover it — and the **worktree removal** un-registers a directory the renderer named. Neither
 path had ever seen the register. `registeredPathFor` is exported for them, and main.js wraps the
 `setProjectState` it hands `app/settings.js` rather than that module requiring this one — `projects.js`
 already requires `app/settings`, so the direct import would be a cycle. Grep for `setProjectState` across
@@ -209,7 +213,11 @@ the project the user is working in off the list for as long as that terminal is 
   backends' own files for a project that is still listed. Neither is one of the two things the dialog
   offers, and the removal also clears the cached rows the delete reads to find the transcripts, so the user
   cannot even ask again. The on-the-list toggle is the third: it threw the answer away entirely.
-  `test/project-refusal-stops-action.test.js` pins all three shapes.
+  `test/project-refusal-stops-action.test.js` pins all three shapes. **A fourth existed and is not in
+  that file:** the sidebar's `hideWorktree` opened a confirmation dialog, called `hideProject`, and threw
+  the answer away — and `hideProject` refuses a path that is not on the list, which every worktree is. So
+  the dialog was a confirmation followed by nothing at all. Fixed in `sidebar-events.js` (it reads the
+  result and says so), unguarded: a fifth of this family goes in that test, or this line grows again.
 - **And a delete that removed NOTHING is that same failure through the success path (#580).** A
   `deleteSessions` that threw was logged and skipped; one answering `{removed: 0}` was skipped in silence.
   Either way `deleted` and `refused` came back empty together, so the renderer fired no toast at all and

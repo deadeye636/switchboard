@@ -351,7 +351,19 @@ the user's installed app with it (`npm run stop:dev` does exactly that filtering
 ## Prefer the demo instance
 
 `npm run demo:start` is the default for dev/verify work: fully isolated stores, consistent test
-projects and sessions every run. Plain `npm start` scans the **real** `~/.claude` store and is the
+projects and sessions every run.
+
+**It opens NO debug port without `--debug`, and that is a trap with no symptom.** The port check and the
+`--remote-debugging-port` flag are both behind the flag (`scripts/demo-start.js`), so after a bare
+`npm run demo:start` there is nothing for `drive-app.js` to attach to — and it will happily answer from
+whatever *other* Electron holds 9222 (an installed app, an older `start:debug`, a demo instance from an
+earlier run). The guard that would have refused never runs. Use `npm run demo:start -- --debug`.
+
+**And read the launcher's output, not only the tool's.** With `--debug` the guard DOES refuse when the
+port is taken, exits 0, and prints why — so a backgrounded start looks like it succeeded while the app you
+then drive is the previous one, running the previous code. That happened here for five restarts in a row
+during one afternoon, and every "confirmed live" claim from that stretch had to be re-run. Stop the old
+instance first, or check the output for `Debug port 9222 is already in use`. Plain `npm start` scans the **real** `~/.claude` store and is the
 exception, for when you deliberately want live data.
 
 ## Timing a renderer function from outside (#516)

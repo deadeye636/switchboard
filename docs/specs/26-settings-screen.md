@@ -119,6 +119,15 @@ alone, and that page carries no `#placeholder` at all. So the first line blanked
 threw on a null. Pressing a destructive button produced an empty window that said nothing either way,
 which is also what kept the failure in #566 out of sight.
 
+**A window opened from a WORKTREE opens on its project (#593).** A worktree has no settings scope of its
+own, so a page keyed on its own path would show global values while the app applied the project's, and
+write a blob nothing reads. The resolution happens in `settingsQuery` (`src/app/windows.js`), before the
+URL is built — the one place the scope is decided — so the tags and the per-backend panes describe the
+same thing the fields do. The worktree's NAME rides along as a `worktree=` parameter and the panel renders
+it as a note in the title, because otherwise the row the user clicked names one thing and the title names
+another. The name, not the path: `settings.html` does not load the worktree helper and a label is not a
+decision.
+
 The screen closes instead, and the alternative was weighed rather than skipped. Going back to a project
 list is not something this window can do: the scope is settled once, from the URL, while the window loads
 (`settings-window.js`), and the list of projects lives in the main window. Landing on one here would mean

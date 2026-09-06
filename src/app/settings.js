@@ -316,8 +316,9 @@ function effectiveSettings(projectPath) {
   // Two levels, not three. A worktree resolves to the project it belongs to and reads THAT blob: it is a
   // sub-unit, and it has no settings of its own to hold. Before this it looked under its own path, found
   // nothing and fell back to global — so an agent working in a worktree ran under different rules from
-  // the same project two directories up, with the shell profile, the handoff and plan directories, every
-  // per-backend launch default and the log level all quietly reset.
+  // the same project two directories up, with the shell profile, the terminal shell, the handoff and plan
+  // directories and every per-backend launch default quietly reset. (NOT the log level: that one is
+  // global-only and never cascaded, and saying otherwise was wrong in two docs and a commit message.)
   const owner = projectPath ? settingsOwnerPath(projectPath) : '';
   const project = owner ? (ctx.db.getSetting('project:' + owner) || {}) : {};
   const effective = { ...SETTING_DEFAULTS };
