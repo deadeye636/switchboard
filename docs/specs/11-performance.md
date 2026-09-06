@@ -245,10 +245,39 @@ Two things on our side of that fence, one fixed and one open:
   `test/spawn-first-resize.test.js` pins which branch may, as a source check, because `node-pty` is
   required at module load and there is no seam to reach a fresh spawn through. The regression it guards
   against is somebody restoring the symmetry between the branches because it reads as an oversight.
-- **The restore itself (#567, open).** Four Claude sessions spawned within three seconds while a cold
-  project scan ran, measured at 10-13 s to the alternate screen. Filed separately and not re-derived
-  here — the issue carries the evidence and the open questions, including whether a restore re-keys or
-  replaces a terminal inside the CLI's ten-second window.
+- **The restore itself (#567, half fixed and still open).** Four Claude sessions spawned within three
+  seconds while a cold project scan ran, measured at 10-13 s to the alternate screen. The issue carries
+  the evidence and is not re-derived here.
+
+  What was measured since, and it moved the blame: the scan WORKER is not the contended resource. Over
+  a 1013-transcript store it never blocked the parent's event loop (max 26 ms, zero ticks over 50 ms),
+  the reads were disk-cheap warm (1.11 GiB in 534 ms, so the scan is ~95 % parse), and a child process
+  spawned at the restore's own cadence took the same time to its first output during the scan as
+  outside it. What DID block was the main-thread database apply, in one uninterruptible stretch of
+  0.8-2.2 s per scan.
+
+  So the cold scan now STREAMS: the worker posts a folder as it finishes it and main applies exactly
+  one per `setImmediate`. Longest single block dropped from a median around 2 s to ~320 ms, with one
+  run at 1.3 s; scan wall clock was equal or shorter in every run, because the writes overlap the parse
+  instead of following it. **Deliberately not a throttle**: nothing demonstrated CPU or disk
+  contention, and a throttle aimed at an uncontended resource is a fix that changes nothing.
+
+  **It is a part, not the whole.** 1-2 s does not explain 10-13 s, and the remaining candidate is the
+  physical read on a genuinely cold page cache — the first-ever run measured 17 960 ms against
+  8 600-10 800 ms warm, which is the right order for the gap. That has not been measured, because
+  dropping the Windows page cache needs a reboot. The lever left unpulled is gating each folder on
+  `getFolderIndexMtimeMs` the way the incremental reconcile already does; it is not built, because the
+  cold scan's stated job is the unconditional full rebuild that prunes ghost rows, and folding a
+  directory mtime into that is a decision about a guarantee rather than a performance tweak.
+
+  **What streaming costs, stated because it is a new flow.** The per-folder writes used to run in one
+  synchronous loop, so a concurrent `get-projects` saw either all-old or all-new rows. Yielding between
+  folders means a read taken mid-scan can now see some folders rebuilt and others still holding
+  pre-scan rows, for as long as the scan runs. Nothing is persisted wrong — each folder's wipe and
+  re-insert is still atomic with respect to the event loop — and the final `projects-changed` push
+  makes every reader take a consistent picture. It is a torn READ, and it is the price of not blocking
+  the main thread for two seconds; if it ever becomes visible enough to matter, the fix is a
+  scan-in-progress gate on `buildProjectsFromCache`, not a return to the big bite.
 
 The general shape is worth keeping even after both are closed: **a cost this app pays on the main thread
 is not the only cost it imposes.** A CLI drawing its first frame is a real-time consumer of the PTY, and

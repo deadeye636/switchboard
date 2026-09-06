@@ -57,7 +57,7 @@ function makeFakeDb(onUpsert) {
   };
 }
 
-function setup(folders, onUpsert) {
+function setup(folders, onUpsert, infoLines) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-coldscan-'));
   const projectsDir = path.join(root, 'claude-projects');
   fs.mkdirSync(projectsDir, { recursive: true });
@@ -84,7 +84,7 @@ function setup(folders, onUpsert) {
     PROJECTS_DIR: projectsDir,
     activeSessions: new Map(),
     getMainWindow: () => null,
-    log: { info() {}, warn() {}, debug() {}, silly() {} },
+    log: { info(msg) { if (infoLines) infoLines.push(String(msg)); }, warn() {}, debug() {}, silly() {} },
     db,
   });
   sessionBackends._configureForTests({ filePath: path.join(root, 'session-backends.json') });
@@ -130,6 +130,37 @@ test('terminateScanWorker stops a drain that is still queued (no write after the
   try {
     await sessionCache.populateCacheViaWorker();
     assert.equal(applied.length, 1, 'nothing queued behind the terminate was written');
+  } finally {
+    fs.rmSync(w.root, { recursive: true, force: true });
+  }
+});
+
+test('a scan that was cancelled does not report itself complete afterwards (#567)', async () => {
+  // `terminateScanWorker` settles the scan, and the worker's terminal message can already be in flight:
+  // a MessagePort delivers what was posted before `.terminate()`. Without the `settled` guard in
+  // `finish()`, that late message logs a finished cold scan and pushes `projects-changed` — carrying the
+  // partial count that was actually written, which reads as a scan that indexed one project and stopped.
+  //
+  // The race itself has no deterministic seam, and the commit that added the guard said so. Measured
+  // against the code as it was: this test passes there too, because in a harness this small the worker
+  // is terminated before it ever posts its terminal message, so `finish` is not reached with or without
+  // the guard. It is kept as a CONTRACT pin, not as a regression catch — it fails the day a cancelled
+  // scan starts announcing itself, whichever way that comes about — and it says so here rather than
+  // being counted as coverage it does not provide.
+  const FOLDERS = 8;
+  const applied = [];
+  const infoLines = [];
+  let stop = null;
+  const w = setup(FOLDERS, (sessions) => {
+    applied.push(sessions[0].sessionId);
+    if (applied.length === 1 && stop) stop();
+  }, infoLines);
+  stop = () => storeIndexer.terminateScanWorker();
+  try {
+    await sessionCache.populateCacheViaWorker();
+    const completions = infoLines.filter(l => l.includes('cold scan:'));
+    assert.deepEqual(completions, [],
+      `a cancelled scan reported itself complete: ${completions.join(' | ')}`);
   } finally {
     fs.rmSync(w.root, { recursive: true, force: true });
   }

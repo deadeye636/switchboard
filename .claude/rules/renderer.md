@@ -178,7 +178,8 @@ or told otherwise. Measured on one machine on one afternoon: four long-running s
 only once it has drawn a frame and survived; a fresh spawn used to arm the reattach path's redraw nudge
 too, so the CLI met three geometry changes inside its first 150 ms while drawing that frame. It no longer
 does — `.claude/rules/main-process.md` carries the rule and `test/spawn-first-resize.test.js` the guard,
-and the remaining half (four CLIs plus a cold scan starving the first frame) is **#567**. It belongs in
+and the remaining half (four CLIs plus a cold scan starving the first frame) is **#567**, whose
+main-thread half is fixed (the scan's writes stream a folder at a time) while the rest is open. It belongs in
 this file because the symptom lands in this file's territory: nothing in the renderer is wrong when a
 user's conversation suddenly appears in xterm's scrollback and the page keys change meaning.
 
