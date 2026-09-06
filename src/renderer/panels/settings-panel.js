@@ -110,6 +110,19 @@
       : shortName;
     settingsViewerTitle.textContent = (isProject ? 'Project Settings — ' : 'Global Settings — ') + titleName;
 
+    // Opened from a worktree, this screen is about the PROJECT — a worktree has no settings of its own
+    // and reads its project's (#593), so the scope is resolved before the window loads. Saying so is the
+    // difference between "the right screen" and "a screen with someone else's name on it": the row that
+    // was clicked said one name, and the title says another. `textContent` above wipes the element's
+    // children on every render, so this appends afterwards rather than being merged into the string.
+    const fromWorktree = isProject ? window.__SETTINGS_FROM_WORKTREE__ : null;
+    if (fromWorktree) {
+      const note = document.createElement('span');
+      note.className = 'settings-hint settings-scope-note';
+      note.textContent = `opened from the worktree ${fromWorktree} — a worktree has no settings of its own`;
+      settingsViewerTitle.appendChild(note);
+    }
+
     // Show settings viewer, hide others. Null-safe: the standalone settings
     // window (settings.html) has none of these main-app elements.
     ['placeholder', 'terminal-area', 'plan-viewer', 'stats-viewer', 'memory-viewer', 'jsonl-viewer'].forEach(id => {

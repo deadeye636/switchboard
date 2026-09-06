@@ -5902,6 +5902,14 @@ mark.jsonl-search-hit-active {
   padding-left: 18px;
 }
 
+/* The same hint, worn inside the settings title rather than under a control: the block metrics above
+   are what make it a caption, and in a heading they would push it onto its own line and indent it. */
+.settings-scope-note {
+  margin: 0 0 0 10px;
+  padding-left: 0;
+  font-weight: 400;
+}
+
 /* --- Use-global checkbox --- */
 .settings-use-global {
   font-size: 11px;

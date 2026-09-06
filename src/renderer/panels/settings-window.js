@@ -16,6 +16,9 @@ if (typeof window.openSettingsViewer === 'function') {
     if (params.get('scope') === 'project' && params.get('path')) {
       scope = 'project';
       projectPath = params.get('path');
+      // Set only when the path was resolved from a worktree (#593). A label, so it rides beside the
+      // scope rather than changing it — `openSettingsViewer`'s two arguments still say WHICH settings.
+      window.__SETTINGS_FROM_WORKTREE__ = params.get('worktree') || null;
     }
   } catch { /* no query: the global settings are the sane default */ }
   window.openSettingsViewer(scope, projectPath);

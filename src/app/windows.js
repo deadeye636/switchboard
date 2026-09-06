@@ -13,7 +13,7 @@
 'use strict';
 
 const { BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require('electron');
-const { settingsOwnerPath } = require('../shared/worktree-path');
+const { parseWorktreePath, settingsOwnerPath } = require('../shared/worktree-path');
 const path = require('path');
 const fs = require('fs');
 const quitGuard = require('./quit-guard');
@@ -70,7 +70,19 @@ function settingsQuery(scope, projectPath) {
   // values and write a blob nothing reads — a page that lies twice. Resolved here, at the one place the
   // scope is decided, rather than in the panel: everything else the panel loads for a project (tags, the
   // per-backend panes) then describes the same thing the fields do.
-  if (query.scope === 'project') query.path = settingsOwnerPath(projectPath);
+  if (query.scope === 'project') {
+    query.path = settingsOwnerPath(projectPath);
+    // …and WHICH worktree it was opened from, when it was one. Without it the screen is silently about
+    // something other than the row that was clicked: same fields, same values, a different name in the
+    // title. The NAME rides in the query rather than the path, because settings.html does not load the
+    // worktree helper and should not have to — this is a label, not a decision.
+    //
+    // No second "and the path actually moved" test: the pattern only matches when there IS a parent
+    // above the worktrees directory, and that parent is always a strictly shorter path. A guard for the
+    // other case reads as if the case existed.
+    const wt = parseWorktreePath(projectPath);
+    if (wt) query.worktree = wt.name;
+  }
   return query;
 }
 
@@ -466,6 +478,9 @@ function registerIpc(ipc = ipcMain) {
 module.exports = {
   init,
   registerIpc,
+  // Pure, and exported so it can be tested without a window: it decides WHICH settings a load is about,
+  // and the worktree half of that answer has no other seam.
+  settingsQuery,
   createWindow,
   buildMenu,
   openSettingsWindow,
