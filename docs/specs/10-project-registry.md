@@ -166,6 +166,34 @@ the offer can never contradict what the register would do — with the same time
 carries `lastStartedAt` beside its recency. The tombstone therefore holds: a project you removed is not
 offered back until a session that **started** after the removal turns up (#575).
 
+### What a worktree IS (owner's model, 2026-09-06)
+
+A worktree is a **sub-unit of its project**. It has no settings of its own and inherits the project's; it
+is visible whether or not it has sessions, so a user can start one in it; and it can be hidden.
+
+That is the model to build toward. Three of its four halves are not what the code does today, and each is
+tracked rather than assumed:
+
+- **Identity** — a worktree is already a project row of its own (#147/#157) and stays one. "Sub-unit"
+  describes where it belongs, not how it is keyed; nothing here proposes folding its sessions into the
+  parent's list.
+- **Settings — not implemented (#593).** `effectiveSettings` cascades `global` then
+  `project:<projectPath>`, and a worktree's own path is the key it looks under. It finds nothing there
+  and falls back to global, so every override the parent carries — shell profile, handoff and plan
+  directories, per-backend launch defaults, log level — is skipped for an agent running inside it.
+- **Visible without sessions — not implemented (#594).** A sidebar row comes from a registration or from
+  a cached session. A worktree has neither registration nor, when freshly created, a session, so there is
+  no row and nowhere to click "new session". Fixing it needs a third source — the worktrees a project has
+  on disk — and that is a directory listing per project, so it is a measurement before it is a feature.
+- **Hideable — implemented**, through the header's hide button. Open with it: whether that hidden state
+  belongs to the worktree or to its parent. It is written to the registry against a path that carries no
+  registration, which is the shape #566 came out of.
+
+**This model may change an answer already given.** #591 asks whether the unlisted-projects notice
+suppresses a worktree while its parent is *listed* or while it is *shown*. Under a sub-unit reading,
+hiding a project arguably hides its worktrees too — which argues for the literal "listed" and against what
+shipped. Settle the model first; #591 follows from it rather than the other way round.
+
 ### The worktree layout is spelled once (#582)
 
 A worktree is paired with its parent by matching its path against a layout — `<parent>/.claude/worktrees/
