@@ -510,11 +510,13 @@ function registerIpc(ipc) {
       if (typeof worktreePath !== 'string' || !worktreePath) {
         return resolve({ ok: false, error: 'No worktree path' });
       }
-      const normalizedPath = worktreePath.replace(/\/$/, '');
-      const re = ctx.worktreePathRe;
-      const match = re ? normalizedPath.match(re) : null;
-      if (!match) return resolve({ ok: false, error: 'Path does not match a recognized worktree layout' });
-      const parentRepo = match[1];
+      // Either separator, and the one parser (#582). This used to normalise a forward slash only and
+      // match an injected forward-slash-only pattern, so on Windows the dirty check refused every path
+      // it was handed — the same failure the sidebar's nesting had, one layer down.
+      const normalizedPath = worktreePath.replace(/[\\/]$/, '');
+      const parsed = ctx.parseWorktreePath ? ctx.parseWorktreePath(normalizedPath) : null;
+      if (!parsed) return resolve({ ok: false, error: 'Path does not match a recognized worktree layout' });
+      const parentRepo = parsed.parentPath;
       execFile('git', ['--no-optional-locks', '-C', parentRepo, '-C', normalizedPath, 'status', '--porcelain'],
         { windowsHide: true }, (err, stdout, stderr) => {
           if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).trim() });

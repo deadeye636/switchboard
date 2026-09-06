@@ -678,14 +678,16 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
 
 // --- VCS status poller + the moved worktree-status handler (#277) ---
 // The chip poller lives in src/app/vcs.js (neutral core over src/vcs/*). The old worktree-status
-// handler moved there too (F5), gaining `--no-optional-locks` (H1); WORKTREE_PATH_RE (defined above)
-// rides in on ctx.
+// handler moved there too (F5), gaining `--no-optional-locks` (H1). It asks the same question the
+// delete handler above asks, so it rides in on ctx as the shared parser rather than as a second
+// pattern — #582 left it holding an injected regex that had been forward-slash only, and its match
+// therefore never ran on Windows either.
 const vcsPoll = require('./app/vcs');
 vcsPoll.init({
   getMainWindow: () => mainWindow,
   getSetting,
   log,
-  worktreePathRe: WORKTREE_PATH_RE,
+  parseWorktreePath,
   BrowserWindow,
   shell,
 });
