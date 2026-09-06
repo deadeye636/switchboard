@@ -1722,6 +1722,103 @@ test('#579: a tombstone under ANOTHER spelling still keeps the project out of th
   } finally { t.cleanup(); }
 });
 
+// --- a worktree is not a project to add (#583) -------------------------------------------------------
+//
+// A worktree is a project of its own (#147/#157), it is not registered and it has sessions — the exact
+// shape the notice offers — so it was offered. In an agent-driven checkout that is most of the notice.
+//
+// The owner's decision is the hybrid, and the two halves need separate tests because they are separate
+// behaviours: suppressed while the parent is listed, shown and labelled when it is not. The paths are
+// spelled with backslashes on purpose — the pattern that answers this was forward-slash-only until #582,
+// so a test that only spells POSIX paths would pass against the code that could not do it at all.
+
+test('#583: a worktree of a LISTED project is not offered as a project to add', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const parent = 'D:\\parent-repo';
+    const worktree = parent + '\\.claude\\worktrees\\agent-one';
+    t.ctx.db.setProjectState(parent, { registered: 1 });
+    t.setAdminRows([
+      { projectPath: parent, registered: true, sessionCount: 4, lastActivity: '2026-07-01T10:00:00.000Z' },
+      { projectPath: worktree, registered: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    const res = projects.unlistedProjects();
+    assert.deepStrictEqual(res.projects, [],
+      'the sidebar already shows it nested under the parent — offering it here offers a second row for it');
+    assert.strictEqual(res.sessionCount, 0, 'and its sessions are not counted as withheld, because they are not');
+  } finally { t.cleanup(); }
+});
+
+// The gap between "on the list" and "on screen", and it is not a corner: the sidebar draws a project only
+// when `registry.isVisible` says so, and auto-hide takes a parent whose only work happens inside its
+// worktrees — the parent's own recency never moves. Suppressing here on `registered` alone would leave
+// such a worktree in no surface at all, which is the outcome this issue's decision ruled out.
+for (const [flag, why] of [['hidden', 'the user hid the parent, which was never a statement about the worktree'],
+  ['autoHidden', 'the machine hid the parent for staleness while the worktree was busy']]) {
+  test(`#583: a parent that is listed but ${flag} does not suppress its worktree`, () => {
+    const t = makeCtx({ global: { projectAutoAdd: false } });
+    try {
+      const parent = 'D:\\parent-repo';
+      const worktree = parent + '\\.claude\\worktrees\\agent-four';
+      t.ctx.db.setProjectState(parent, { registered: 1, [flag]: 1 });
+      t.setAdminRows([
+        { projectPath: worktree, registered: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+      ]);
+
+      const res = projects.unlistedProjects();
+      assert.deepStrictEqual(res.projects.map(p => p.projectPath), [worktree],
+        `the parent draws no header, so there is nothing to nest under — ${why}`);
+      assert.strictEqual(res.projects[0].worktreeOf, parent, 'and it still says whose worktree it is');
+    } finally { t.cleanup(); }
+  });
+}
+
+test('#583: a worktree whose parent is NOT listed is still shown, and says whose worktree it is', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const parent = 'D:\\parent-repo';
+    const worktree = parent + '\\.worktrees\\agent-two';
+    t.setAdminRows([
+      { projectPath: worktree, registered: false, sessionCount: 3, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    const res = projects.unlistedProjects();
+    assert.deepStrictEqual(res.projects.map(p => p.projectPath), [worktree],
+      'leaving it out would remove the one surface that says this checkout exists at all');
+    assert.strictEqual(res.projects[0].worktreeOf, parent,
+      'the label is what stops it reading as an unrelated project');
+  } finally { t.cleanup(); }
+});
+
+test('#583: an ordinary project carries no worktree label', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    t.setAdminRows([
+      { projectPath: 'D:\\ordinary', registered: false, sessionCount: 1, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+    assert.strictEqual(projects.unlistedProjects().projects[0].worktreeOf, null,
+      'the notice has one kind of row until a worktree puts a second one in it');
+  } finally { t.cleanup(); }
+});
+
+test('#583: a worktree suppressed for a parent listed under ANOTHER spelling stays suppressed', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    // The register holds the spelling the user's act carried; the admin row holds the CLI's raw cwd, and
+    // a trailing separator is enough to make them differ (#579). The suppression asks through the same
+    // lookup, so it must survive that too.
+    const registeredParent = 'D:\\parent-repo';
+    const worktree = registeredParent + path.sep + '.claude-worktrees' + path.sep + 'agent-three';
+    t.ctx.db.setProjectState(registeredParent + path.sep, { registered: 1 });
+    t.setAdminRows([
+      { projectPath: worktree, registered: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects, [],
+      'the parent is on the list — which spelling it was added under is not the user\'s problem');
+  } finally { t.cleanup(); }
+});
+
 // --- the same-path key is about the REAL path (#563) ---
 //
 // `samePathKey` decides which store folders belong to a project: whether a tombstone may be laid, which

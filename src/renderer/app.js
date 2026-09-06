@@ -1379,7 +1379,13 @@ async function refreshUnlistedNotice() {
   const sessions = res.sessionCount || 0;
   const s = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
   el.textContent = `${s(sessions, 'session')} in ${s(projects.length, 'project')} not on your list`;
-  el.title = projects.map(p => `${p.projectPath} — ${s(p.sessionCount, 'session')}`).join('\n')
+  // #583: a worktree reaches this list only when its parent is NOT listed — otherwise it is already on
+  // screen, nested under that parent. The one that does reach it says whose it is, so it does not read as
+  // an unrelated project.
+  el.title = projects.map(p => {
+    const row = `${p.projectPath} — ${s(p.sessionCount, 'session')}`;
+    return p.worktreeOf ? `${row} (worktree of ${p.worktreeOf})` : row;
+  }).join('\n')
     + '\n\nClick to see them in the project manager, where you can put one on the list.';
   el.style.display = '';
 }

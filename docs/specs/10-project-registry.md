@@ -166,6 +166,40 @@ the offer can never contradict what the register would do — with the same time
 carries `lastStartedAt` beside its recency. The tombstone therefore holds: a project you removed is not
 offered back until a session that **started** after the removal turns up (#575).
 
+### A worktree is not a project to add (#583)
+
+A worktree is a project of its own — that is #147/#157, and it is deliberate — it is not registered, and it
+has sessions. That is exactly the shape this offers, so it was offered, and in a checkout where agents work
+in worktrees it was most of what the notice contained.
+
+Two readings were available and the answer is the owner's: the hybrid. A worktree whose parent is **shown**
+is suppressed — the sidebar already draws it nested under that parent (#582), so the notice would be
+offering a second row for something the user can already see and reach. A worktree whose parent is **not
+shown** is kept, carrying `worktreeOf` so the notice can name the project it belongs to. Leaving that one out
+would remove the only surface that says the checkout exists at all, and losing the sighting is the worse of
+the two.
+
+**Shown, not on the list, and the difference decides a real case.** `registry.isVisible` is registered AND
+not hidden AND not auto-hidden, and it is what `buildProjectsFromCache` builds the sidebar from. A parent
+that is on the list and hidden draws no header, so its worktree has nothing to nest under — suppressing it
+on `registered` alone would take the last surface that mentions it and produce exactly the outcome this
+decision ruled out. Auto-hide makes that ordinary rather than exotic: a parent whose work all happens inside
+its worktrees never touches its own recency, so the sweep takes it while the worktree is busy. And hiding a
+project was never a statement about the worktree — they are two projects, and the user hid one of them.
+
+What it costs, written down so nobody rediscovers it: the notice has two behaviours where it had one, and a
+worktree offered here is still a worktree — adding it puts a second sidebar row beside the one it would
+otherwise sit under. That was weighed against silently hiding a found checkout.
+
+The question is asked through `src/shared/worktree-path.js` (#582), the same pattern the sidebar nests by
+and the delete handler validates against. A copy here would inherit both defects that issue fixed: one
+layout where three exist, and forward slashes against the backslash cwd Windows hands over.
+
+**The project manager's own filter is not this list.** `src/renderer/panels/projects-admin.js` decides
+`unlistedOnly` from `row.inAllowlist` over the admin rows — a second derivation of the same idea, which
+predates this and still lists a suppressed worktree once the notice is clicked through. Bringing the two
+together is a change of its own.
+
 ## As built — where the pieces are
 
 | Piece | Where |

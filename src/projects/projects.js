@@ -25,6 +25,9 @@ const registry = require('./project-registry');
 // WHICH ROW of the register a path is about (#566, enumerated for the READ side in #579). Shared with
 // `index/index-writes.js`, so the scan's removed-check resolves the row the way a write to it does.
 const { registerLookup, resolveRegisterRow } = require('./register-lookup');
+// "Is this a worktree, and of what" — the one pattern the sidebar nests by and the delete handler
+// validates against (#582). The unlisted notice asks the same question rather than growing a copy (#583).
+const { parseWorktreePath } = require('../shared/worktree-path');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
 const { GLOBAL_ONLY_DEFAULTS } = require('../app/settings');
@@ -911,6 +914,24 @@ function projectKnownToAnyBackend(projectPath) {
  * anything exotic happening. Measured: a tombstone under one spelling, an admin row under another, and
  * this offered the removed project straight back. It resolves the row the way a WRITE to the register
  * does now, keyed once for the whole walk rather than per row.
+ *
+ * A WORKTREE is the one row that is offered conditionally (#583). It is a project of its own by design
+ * (#147/#157), it is not registered and it has sessions — the exact shape this offers — so in an
+ * agent-driven checkout the notice filled with entries nobody would ever add. The owner's decision is the
+ * hybrid, and both halves are deliberate:
+ *
+ *   * its parent is SHOWN  → suppressed. The sidebar already draws it nested under that parent (#582), so
+ *     the notice would be offering something the user can already see and reach.
+ *   * its parent is NOT shown → kept, carrying `worktreeOf` so the notice can say whose worktree it is.
+ *     Leaving it out would remove the only surface that says the checkout exists at all, and losing the
+ *     sighting was judged worse than a notice with two kinds of row in it.
+ *
+ * "Shown", not "on the list": a hidden or auto-hidden parent is registered and draws no header, so its
+ * worktree has nothing to nest under. See the note at the check itself.
+ *
+ * The cost, stated so nobody rediscovers it: the notice has two behaviours where it had one, and a
+ * worktree offered here is still a worktree, so adding it puts a second row in the sidebar for a directory
+ * that belongs under another. That is the price of not hiding a found checkout.
  */
 function unlistedProjects() {
   try {
@@ -925,10 +946,33 @@ function unlistedProjects() {
       // The START, not the recency (#575) — the same time the register decides on, so this offer cannot
       // say "you could add this" about a project auto-add would refuse.
       if (!registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionStartedAt: row.lastStartedAt })) continue;
+      // #583 — a worktree whose parent is SHOWN is already on screen, nested under it. One whose parent is
+      // not is the only sighting there is, so it stays and says whose it is.
+      //
+      // `isVisible`, not `registered`, and the difference is the whole rule: the sidebar draws a project
+      // only when it is registered AND neither hidden by the user nor auto-hidden by staleness
+      // (`index/projects-view.js` builds its `visible` map from exactly this). A parent that is on the list
+      // and hidden draws no header, so there is nothing for the worktree to nest under — suppressing it
+      // here as well would take the last surface that mentions it, which is the outcome the decision on
+      // this issue named as the worse of the two. Auto-hide makes that ordinary rather than exotic: a
+      // parent whose only work happens inside its worktrees never touches its own recency, so the sweep
+      // takes it while the worktree is busy.
+      //
+      // And hiding the parent was never a statement about the worktree. They are two projects (#147/#157);
+      // the user hid one of them.
+      const worktree = parseWorktreePath(row.projectPath);
+      let worktreeOf = null;
+      if (worktree) {
+        const parent = lookup(worktree.parentPath);
+        if (parent && registry.isVisible(parent.state)) continue;
+        worktreeOf = worktree.parentPath;
+      }
       out.push({
         projectPath: row.projectPath,
         sessionCount: row.sessionCount,
         lastActivity: row.lastActivity || null,
+        // null for an ordinary project — the notice has one kind of row until this says otherwise.
+        worktreeOf,
       });
     }
     out.sort((a, b) => new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0));
