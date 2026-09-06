@@ -131,3 +131,48 @@ test('the admin list shows one row per directory, however its sessions are spell
   assert.equal(entry.displayName, 'Alpha');
   assert.equal(entry.lastActivity, '2026-06-01T00:00:00Z', 'newest activity across all spellings');
 });
+
+// #596 — the same defect one layer up: the SIDEBAR paired a worktree with its project by a raw `===`.
+// A bucket exposes whichever spelling filled it, so one directory reaches the renderer spelled two ways,
+// and a worktree whose parent did not match was drawn nowhere at all — it is already excluded from the
+// top level for being a worktree, so "no parent found" is "no row". `nestUnder` answers it in main.
+const WORKTREE = REGISTERED + '/.claude/worktrees/wt1';
+const bothRegistered = (parentSpelling) => new Map([
+  [parentSpelling, REGISTERED_STATE],
+  [WORKTREE, REGISTERED_STATE],
+]);
+
+test('a worktree nests under its project even when the two are spelled differently (#596)', () => {
+  // The parent row takes the OTHER spelling (a backslash one on Windows, a trailing separator on POSIX)
+  // while the worktree path is built from the registered one — which is exactly how it happens: a
+  // registered project carries the register's spelling and a worktree carries its session rows'.
+  setup([row('p', SECOND_SPELLING, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: bothRegistered(SECOND_SPELLING) });
+
+  const projects = view.buildProjectsFromCache(false);
+  const parent = projects.find(p => normPath(p.projectPath) === normPath(REGISTERED));
+  const worktree = projects.find(p => normPath(p.projectPath) === normPath(WORKTREE));
+  assert.ok(parent && worktree, `expected both rows, got: ${projects.map(p => p.projectPath).join(' | ')}`);
+  assert.equal(worktree.nestUnder, parent.projectPath,
+    'the worktree must point at the parent ROW, whatever spelling that row carries');
+  assert.equal(parent.nestUnder, null, 'a plain project nests under nothing');
+});
+
+test('a worktree still nests when both are spelled the same way (#596)', () => {
+  // The control. Without it a fix that always returned the parent would pass the test above.
+  setup([row('p', REGISTERED, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: bothRegistered(REGISTERED) });
+
+  const worktree = view.buildProjectsFromCache(false).find(p => normPath(p.projectPath) === normPath(WORKTREE));
+  assert.equal(worktree.nestUnder, REGISTERED);
+});
+
+test('a worktree whose parent is not in the payload nests under nothing (#596)', () => {
+  // The behaviour that must NOT change: a parent that is hidden or not listed draws no header, so there
+  // is nothing to nest under and the worktree keeps rendering nowhere. That is #591, not this fix.
+  setup([row('w', WORKTREE, '2026-01-03T00:00:00Z')], { states: new Map([[WORKTREE, REGISTERED_STATE]]) });
+
+  const projects = view.buildProjectsFromCache(false);
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].nestUnder, null);
+});

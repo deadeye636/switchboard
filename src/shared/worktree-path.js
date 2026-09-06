@@ -16,8 +16,9 @@
 // So: both separators, all three layouts, one place. A path spelled either way answers the same.
 //
 // Pure string work — no fs, no path, no DOM. Loaded as a classic <script> in the renderer (its top-level
-// function lands on `window`) AND require()d by the main process, `src/projects/**`, the Electron-free
-// index worker leaf `src/session/derive-project-path.js`, and the node tests.
+// function lands on `window`) AND require()d by the main process, `src/projects/**`,
+// `src/index/projects-view.js` (which pairs each row with the project it nests under, #596), the
+// Electron-free index worker leaf `src/session/derive-project-path.js`, and the node tests.
 //
 // This answers about the SPELLING of a path, and that is all it answers. Whether the directory is a real
 // `git worktree add` checkout is a different question with a different answer — `isRealGitWorktree` in

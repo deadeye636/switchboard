@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const { encodeProjectPath } = require('../session/encode-project-path');
+const { parseWorktreePath } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
 
 let PROJECTS_DIR, activeSessions;
@@ -243,6 +244,29 @@ function buildProjectsFromCache(showArchived) {
     return new Date(bDate) - new Date(aDate);
   });
 
+  // Which project a worktree belongs to, answered HERE and not in the renderer (#596).
+  //
+  // The pairing itself is #582 — one pattern, both separators, three layouts. What it hands back is a
+  // path SPELLING, and the renderer used to compare that spelling against a project row with `===`. Every
+  // other identity question in this file goes through `normPath`, because a bucket exposes a DISPLAY
+  // spelling that is whichever source filled it: a registered project takes the register's, a worktree
+  // takes its session rows'. One directory therefore reaches the renderer spelled two ways, the raw
+  // compare misses, and the worktree is drawn nowhere at all — it is already excluded from the top level
+  // for being a worktree, so a parent that is not found is a row that does not exist.
+  //
+  // `worktreeOf` is the parent's own display spelling, so the renderer can key on it directly and asks
+  // no path question of its own. It is null when the pattern does not match, and also when the parent is
+  // not in this payload — a parent that is hidden draws no header, and a worktree still has nothing to
+  // nest under. That case is #591, not this one, and it keeps the behaviour it had.
+  // NOT called `worktreeOf`, and the collision is worth the clumsier name: `unlistedProjects` in
+  // `src/projects/projects.js` already ships a `worktreeOf`, and it answers a different question — the
+  // raw parent path, set whether or not that parent is anywhere in view (#583). This one is the row to
+  // NEST UNDER, canonically matched, and null when there is none.
+  const byKey = new Map(projects.map(p => [normPath(p.projectPath), p.projectPath]));
+  for (const proj of projects) {
+    const wt = parseWorktreePath(proj.projectPath);
+    proj.nestUnder = wt ? (byKey.get(normPath(wt.parentPath)) || null) : null;
+  }
   // No allowlist filter any more. The mode now decides who may WRITE to the register (see
   // project-registry.js); by the time we get here, the register is the list, in both modes.
   return projects;

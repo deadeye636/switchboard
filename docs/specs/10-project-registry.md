@@ -206,7 +206,14 @@ that had been built and tested never ran on Windows at all, and nobody noticed b
 worktree standing in the list as an unrelated project, which looks like a choice.
 
 `src/shared/worktree-path.js` is the one answer now — both separators, all three layouts — and a guard
-walks `src/` and fails on a fifth copy. Two things that hunt is worth remembering by: the issue said the
+walks `src/` and fails on a fifth copy. A **sixth** caller joined in #596: `buildProjectsFromCache`
+asks it once per project so the renderer no longer has to. The renderer had been pairing the worktree with
+its parent by a raw `===` on two path spellings, and `buildProjectsFromCache` exposes a DISPLAY spelling
+per row — whichever source filled the bucket. One directory therefore arrived spelled two ways, the compare
+missed, and the worktree was drawn NOWHERE: it is excluded from the top level for being a worktree, so a
+parent that is not found is a row that does not exist. The pairing is answered in main against `normPath`
+now and rides on the row as `nestUnder`; the renderer still asks the pattern for the worktree's NAME, which
+is a question about the spelling. Two things that hunt is worth remembering by: the issue said the
 pattern existed twice and it existed four times, and a **fifth** consumer did not hold the pattern at all
 but an INJECTED copy of it (`vcsPoll.init({ worktreePathRe })`), which is why deleting the constant left a
 `ReferenceError` that no test could see — nothing under `test/` loads `main.js`. That injected copy was

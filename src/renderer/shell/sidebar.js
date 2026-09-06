@@ -578,14 +578,20 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     && !(typeof showFavoritedProjectsOnly !== 'undefined' && showFavoritedProjectsOnly);
   let sawFavorite = false;
   let dividerDone = false;
+  // The parent comes from `worktreeOf` on the row (#596). The renderer used to derive it here and look
+  // it up with `===`, which misses the same directory spelled two ways — and misses it silently, because
+  // a worktree is skipped as a top-level group whether or not a parent was found. Main answers it now,
+  // against the canonical path; `parseWorktreePath` is still asked here for the NAME, which is a
+  // question about the spelling and belongs where the spelling is.
   for (const project of projects) {
     const wt = parseWorktreePath(project.projectPath);
-    if (wt) {
-      if (!worktreeMap.has(wt.parentPath)) worktreeMap.set(wt.parentPath, []);
-      worktreeMap.get(wt.parentPath).push(project);
-      worktreeNames.set(project.projectPath, wt.name);
-      worktreeSet.add(project.projectPath);
-    }
+    if (!wt) continue;
+    worktreeNames.set(project.projectPath, wt.name);
+    worktreeSet.add(project.projectPath);
+    const parent = project.nestUnder;
+    if (!parent) continue;   // parent not in this payload — hidden, or not listed. Same as before.
+    if (!worktreeMap.has(parent)) worktreeMap.set(parent, []);
+    worktreeMap.get(parent).push(project);
   }
 
   for (const project of projects) {
