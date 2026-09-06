@@ -157,6 +157,37 @@ would otherwise put there without being asked.
 A project that already has a `.git` is left alone, like every other file in the seed. To rebuild one,
 delete its `.git` and rerun `demo:seed`.
 
+### Worktrees
+
+A worktree is a sub-unit of its project — it inherits the project's settings, and it is visible whether
+or not it has sessions (`docs/specs/10-project-registry.md`). None of that could be looked at here,
+because the seed built five projects and no worktree at all: every question about nesting, inheritance
+and visibility had to be asked against somebody's own development checkout. `demo-alpha` now carries
+five shapes.
+
+| Shape | Where | What it is for |
+|---|---|---|
+| **demo-feature** | `<alpha>/.claude/worktrees/demo-feature` | the ordinary case — a worktree with sessions, nested under its project |
+| **demo-hotfix** | inside `demo-feature`'s own worktrees directory | a worktree of a worktree; the sidebar draws it nowhere (#586) |
+| **demo-idle** | `<alpha>/.claude/worktrees/demo-idle` | a worktree with **no** sessions, so it has no row and nowhere to start one (#594) |
+| **demo-stale** | `<alpha>/.claude/worktrees/demo-stale` | a plain directory git has never heard of — only the path spelling calls it a worktree |
+| **demo-alpha-detached** | `<demo>/projects/demo-alpha-detached` | a real worktree outside the conventional layout: git calls it one, the spelling does not |
+
+The last two are a pair on purpose. They disagree in opposite directions, which is what makes them the
+test of whether the app should keep answering "is this a worktree" from the path alone.
+
+`demo-alpha` also carries a project-level override — `planDir` and `handoffDir`, written by
+`scripts/demo-settings.js` — which runs as part of `demo:start`, **not** `demo:seed`: that one writes files and
+never touches the database. Inheritance is invisible when the parent overrides nothing, so open the plan or
+handoff prompt in the project, then in `demo-feature`, and compare the directory each one names.
+
+`.claude/` goes into the repository's shared `info/exclude` rather than a committed `.gitignore`. The
+seed leaves an existing repo alone, so a tracked ignore file would never reach a demo tree that is
+already seeded, and the untracked worktree directories would then turn up as rows in the changes window.
+
+All five need `git` on PATH. Without it `seedRepo` builds no repository and the worktree block returns
+nothing — the rest of the seed still stands.
+
 ## What is seeded into the DATABASE
 
 Tags, tasks, project display names and the activity history are rows in `switchboard.db`, not files,

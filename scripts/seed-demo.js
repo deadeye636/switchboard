@@ -42,6 +42,12 @@ const IDS = {
   // a story that matches the working-tree state seedRepo leaves behind. Everything else here is two
   // lines long, which is enough to be indexed and not enough to be read.
   showcase: 'cafe0001-0000-4000-8000-000000000001',
+  // The worktree fixtures (see the block below). There is no id for the idle worktree on purpose:
+  // that one is the shape with NO session in it.
+  wtFeature: 'deadbee1-0000-4000-8000-000000000001',
+  wtNested: 'deadbee2-0000-4000-8000-000000000002',
+  wtStale: 'deadbee3-0000-4000-8000-000000000003',
+  wtDetached: 'deadbee4-0000-4000-8000-000000000004',
 };
 
 // demo-alpha's Claude parent spawns three subagents of DIFFERENT types, so the subagent-row layouts and
@@ -334,6 +340,86 @@ function seedRepo(dir, name, created, skipped) {
   created.push(path.join(dir, '.git'));
 }
 
+// ── Demo worktrees (#586, #591, #593, #594) ──────────────────────────────
+// A worktree is a sub-unit of its project, and until now the demo held none: five projects and not one
+// worktree, so every question about nesting, inheritance and visibility had to be asked against a real
+// development checkout instead. Five shapes, each here because one open question cannot be looked at
+// without it:
+//
+//   demo-feature                a worktree WITH sessions — the ordinary case, nests under demo-alpha
+//   demo-feature/…/demo-hotfix  a worktree inside that one — renders nowhere today (#586)
+//   demo-idle                   a worktree with NO sessions — no row, so no session can be started (#594)
+//   demo-stale                  a plain directory in the worktrees folder: the path SPELLING calls it a
+//                               worktree, git has never heard of it
+//   demo-alpha-detached         a real `git worktree add` OUTSIDE the conventional layout: git calls it
+//                               a worktree, the spelling calls it an unrelated project
+//
+// The last two are the pair that decides whether the app should keep answering "is this a worktree" from
+// the path alone. Both happen in the wild: a directory left behind when a worktree is removed by hand,
+// and `git worktree add ../elsewhere`.
+
+/**
+ * Hang the worktree fixtures off `repoDir` (demo-alpha) and return their paths.
+ *
+ * Idempotent like everything else here: a directory that is already there is reported as skipped and its
+ * path still comes back, so a rerun seeds the sessions against the same worktrees.
+ */
+function seedWorktrees(repoDir, demoDir, created, skipped) {
+  const out = {};
+  if (!fs.existsSync(path.join(repoDir, '.git'))) return out;   // git absent — seedRepo built no repo
+
+  // `info/exclude` lives in the common dir and is shared by every linked worktree, so one write covers
+  // all of them. It is used instead of a committed .gitignore because the demo tree usually already
+  // exists and seedRepo leaves a repo that has a `.git` exactly as it is — an untracked worktree
+  // directory would then turn up as a row in the changes window REPO_STATE composes deliberately.
+  const excludeFile = path.join(repoDir, '.git', 'info', 'exclude');
+  try {
+    const current = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, 'utf8') : '';
+    if (current.split(/\r?\n/).includes('.claude/')) {
+      skipped.push(excludeFile);
+    } else {
+      ensureDir(path.dirname(excludeFile));
+      fs.writeFileSync(excludeFile, current + (!current || current.endsWith('\n') ? '' : '\n') + '.claude/\n');
+      created.push(excludeFile);
+    }
+  } catch { /* an exclude we cannot write costs a noisier changes window and nothing else */ }
+
+  /** `git worktree add`, unless the directory is already there. Returns the path, or null if git failed. */
+  const addWorktree = (target, branch) => {
+    if (fs.existsSync(target)) {
+      skipped.push(target);
+      return target;
+    }
+    ensureDir(path.dirname(target));
+    if (!git(repoDir, ['worktree', 'add', '-b', branch, target])) return null;
+    created.push(target);
+    return target;
+  };
+
+  const wtDir = path.join(repoDir, '.claude', 'worktrees');
+  out.wtFeature = addWorktree(path.join(wtDir, 'demo-feature'), 'demo/feature');
+  if (out.wtFeature) {
+    out.wtNested = addWorktree(path.join(out.wtFeature, '.claude', 'worktrees', 'demo-hotfix'), 'demo/hotfix');
+  }
+  out.wtIdle = addWorktree(path.join(wtDir, 'demo-idle'), 'demo/idle');
+  out.wtDetached = addWorktree(path.join(demoDir, 'projects', 'demo-alpha-detached'), 'demo/detached');
+
+  // The stale one is deliberately NOT a git worktree: a plain directory that only the path spelling calls
+  // one. It is what removing a worktree with `rm -rf` instead of `git worktree remove` leaves behind.
+  const stale = path.join(wtDir, 'demo-stale');
+  const STALE_README = [
+    '# Left behind',
+    '',
+    'This directory sits where a worktree used to be. It is not a checkout: git has no record of it, and',
+    'only the path spelling still calls it a worktree. That is what it is here to be.',
+    '',
+  ].join('\n');
+  writeIfAbsent(path.join(stale, 'README.md'), STALE_README, created, skipped);
+  out.wtStale = stale;
+
+  return out;
+}
+
 // ── The seed ─────────────────────────────────────────────────────────────────
 function resolveDemoDir() {
   return (process.env.SWITCHBOARD_DEMO_DIR || 'C:/temp/switchboard').replace(/\\/g, '/');
@@ -395,6 +481,10 @@ function seedDemo(demoDir = resolveDemoDir()) {
     if (REPO_FILES[name]) seedRepo(dir, name, created, skipped);
   }
 
+  // The worktrees hang off demo-alpha's repository, so this runs after seedRepo has made one.
+  const wt = seedWorktrees(paths.projectAlpha, demoDir, created, skipped);
+  Object.assign(paths, wt);
+
   // Placement helpers (same layout each backend's real store uses).
   const claudeFile = (project, sid) => path.join(paths.storeClaude, encodeProjectPath(project), `${sid}.jsonl`);
   const piFile = (project, sid, tSec) =>
@@ -405,6 +495,31 @@ function seedDemo(demoDir = resolveDemoDir()) {
       String(d.getUTCMonth() + 1).padStart(2, '0'), String(d.getUTCDate()).padStart(2, '0'));
     return path.join(dir, `rollout-${iso(tSec).slice(0, 19).replace(/:/g, '-')}-${sid}.jsonl`);
   };
+
+  // The worktree sessions. The idle worktree deliberately gets NONE — that is the whole point of it: a
+  // worktree whose only route into the sidebar is a session has no row before it has one (#594). These
+  // keep their real mtime rather than being stamped back to the fixed base, so they sort to the top of
+  // their groups where a reader will find them.
+  if (wt.wtFeature) writeIfAbsent(
+    claudeFile(wt.wtFeature, IDS.wtFeature),
+    claudeSession({ cwd: wt.wtFeature, model: 'claude-opus-4-6', prompt: 'Add the metrics collector on a feature worktree of demo-alpha.', reply: 'Added the collector and left the tests green on the feature worktree.', t0: 900 }),
+    created, skipped,
+  );
+  if (wt.wtNested) writeIfAbsent(
+    claudeFile(wt.wtNested, IDS.wtNested),
+    claudeSession({ cwd: wt.wtNested, model: 'claude-opus-4-6', prompt: 'Reproduce the crash from a worktree of the feature worktree.', reply: 'Reproduced it and pinned the commit that introduced it.', t0: 960 }),
+    created, skipped,
+  );
+  if (wt.wtStale) writeIfAbsent(
+    claudeFile(wt.wtStale, IDS.wtStale),
+    claudeSession({ cwd: wt.wtStale, model: 'claude-opus-4-6', prompt: 'A session in a directory that only looks like a worktree.', reply: 'Nothing here is a checkout — the directory outlived the worktree that made it.', t0: 1020 }),
+    created, skipped,
+  );
+  if (wt.wtDetached) writeIfAbsent(
+    claudeFile(wt.wtDetached, IDS.wtDetached),
+    claudeSession({ cwd: wt.wtDetached, model: 'claude-opus-4-6', prompt: 'Work in a worktree git knows about and the path layout does not.', reply: 'Made the change in the detached worktree of demo-alpha.', t0: 1080 }),
+    created, skipped,
+  );
 
   // Claude: two sessions under demo-alpha, the second a FORK of the first (lineage "▶ earlier" thread).
   const claudeFolder = path.join(paths.storeClaude, encodeProjectPath(projectAlpha));

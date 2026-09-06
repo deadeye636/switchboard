@@ -47,10 +47,31 @@ for (const b of ready) {
   turnedOn.push(b.id);
 }
 
-if (!turnedOn.length) {
+if (turnedOn.length) {
+  db.setSetting('global', { ...global, backendEnabled: enabled });
+  console.log(`[demo-settings] enabled: ${turnedOn.join(', ')}`);
+} else {
   console.log('[demo-settings] all ready backends already enabled');
-  process.exit(0);
 }
 
-db.setSetting('global', { ...global, backendEnabled: enabled });
-console.log(`[demo-settings] enabled: ${turnedOn.join(', ')}`);
+// A per-project override on demo-alpha, so the worktree question has something to be visible about.
+// A worktree resolves settings against its OWN path, finds nothing there and falls back to global
+// (#593) — which is invisible unless the parent project actually overrides something. These two are
+// chosen because they are read on a path a user can walk: the plan and handoff prompts name the
+// directory they are about to write into, so the same prompt in demo-alpha and in its worktree either
+// says the same thing or does not.
+//
+// Deliberately NOT written against the worktree paths: the model says a worktree carries no settings of
+// its own, and seeding one here would answer the question this exists to ask.
+const projectAlpha = path.join(demoDir, 'projects', 'demo-alpha');
+const PROJECT_OVERRIDE = { planDir: 'docs/plans', handoffDir: 'docs/handoffs' };
+
+const projectKey = 'project:' + projectAlpha;
+const projectBlob = db.getSetting(projectKey) || {};
+const alreadySet = Object.entries(PROJECT_OVERRIDE).every(([k, v]) => projectBlob[k] === v);
+if (alreadySet) {
+  console.log('[demo-settings] demo-alpha already carries its project override');
+} else {
+  db.setSetting(projectKey, { ...projectBlob, ...PROJECT_OVERRIDE });
+  console.log(`[demo-settings] demo-alpha: ${Object.entries(PROJECT_OVERRIDE).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+}
