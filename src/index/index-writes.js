@@ -327,7 +327,21 @@ function applyIndexResults({ sessions = [], wipeFolders = [], deleteIds = [], me
 // window then kept the list it loaded when it opened, for as long as it stayed open. Optional in the
 // ctx on purpose: every test that wires this module predates it, and a build without detached windows
 // is simply the empty list.
+// When this app last told a renderer the projects moved (#590).
+//
+// Every one of those pushes comes back as a `get-projects` a fraction of a second later — the renderer
+// debounces `projects-changed` and calls `loadProjects()` — and that refetch used to queue a full index
+// sweep. The sweep buys nothing there: whatever wrote the rows this push announces has already written
+// them, and on the transcript-append path `refreshFilePrepare` has already stamped the folder, so the
+// sweep finds zero tripped folders and clones every row for nothing. `app/index-sweep.js` reads this to
+// tell an echo from a request that came from somewhere else.
+//
+// A timestamp and not a counter, because the reader's question is "how long ago", and because a push
+// with no window on screen still counts: the view windows and a reopened main window refetch too.
+let _lastProjectsPushAt = 0;
+
 function notifyRendererProjectsChanged() {
+  _lastProjectsPushAt = Date.now();
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('projects-changed');
@@ -356,5 +370,8 @@ module.exports = {
   newestStartedAt,
   isRemovedProject,
   notifyRendererProjectsChanged,
+  // #590: when the last push went out, so a `get-projects` that this app's own push provoked can be told
+  // from one somebody asked for. `app/index-sweep.js` is the reader.
+  lastProjectsPushAt: () => _lastProjectsPushAt,
   sendStatus,
 };

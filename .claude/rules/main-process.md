@@ -71,6 +71,13 @@ repository, it walked `dist/`, and `electron-builder` could no longer unlink `ap
 `main.js` (the reloader's `ignore`), `plans-memory.js` and `backends/resource-expand.js`. Deliberately NOT
 `backends/file-store.js`: a store walk that quietly returns fewer transcripts feeds a reconcile that
 purges history it only failed to read, #197),
+`index-sweep.js` (WHEN the index-repair sweep a `get-projects` asks for actually runs — #590; the
+decision left main.js so it is testable, and it exists because the app was answering its own push. A
+transcript append pushes `projects-changed`, the renderer refetches, and that refetch used to queue a
+full reconcile that found nothing — `refreshFilePrepare` had already stamped the folder. A
+`get-projects` inside the echo window of one of our own pushes is dropped, with a floor so the drift
+safety net still runs; every caller that posts a reconcile DIRECTLY — the two watchers, the settings
+enable/disable, `rebuild-cache` — is untouched, and that is what makes the floor affordable),
 `path-containment.js` (is this path inside that one — #474; the REAL path of both sides, so a junction
 cannot be spelled inside a project it is not in. One implementation for the plan directories, the handoff
 directories, the folder picked after a refused write, the backend resources and the working-copy readers

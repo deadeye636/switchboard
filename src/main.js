@@ -1018,31 +1018,17 @@ ipcMain.handle('rebuild-cache', async () => {
   }
 });
 
-// #199 step 3: the index-repair sweep, coalesced and OFF the get-projects response path.
-//
-// reconcile (Claude store) + backend sweep (Codex/etc.) + syncRegistry + applyAutoHide used to run
-// inline on every get-projects, blocking the sidebar paint. They now run here, once per burst of
-// sidebar refreshes: get-projects returns the cached view immediately and calls queueIndexSweep(),
-// which defers the work to the next tick and drops duplicate requests while one is pending. When the
-// sweep actually changes the cache it pushes 'projects-changed', so the renderer re-fetches and the
-// view converges — the paint simply never waits on the repair work.
-//
-// This still runs on the main thread (moving the parse off-thread is #199 step 5); the win is that the
-// RESPONSE no longer waits, and after step 2 the reconcile is incremental and cheap.
-let indexSweepQueued = false;
-function queueIndexSweep() {
-  if (indexSweepQueued) return;
-  indexSweepQueued = true;
-  setImmediate(() => {
-    indexSweepQueued = false;
-    if (appQuitting) return;
-    // The whole reconcile + backend sweep runs off-thread. postReconcile applies the reply on the main
-    // thread and then runs syncRegistry + applyAutoHide + notify itself (the `afterReconcile` hook wired
-    // at init) — nothing to fold in here: the push happens inside the apply. postReconcile also coalesces
-    // a burst of these into one in-flight + one trailing sweep.
-    indexWorker.postReconcile();
-  });
-}
+// #199 step 3: the index-repair sweep, coalesced and OFF the get-projects response path. Its decision
+// moved into src/app/index-sweep.js with #590 — get-projects returns the cached view immediately and
+// asks there, and that module decides whether the request is worth a sweep at all (a get-projects the
+// app's own projects-changed push provoked is an echo and buys nothing).
+const indexSweep = require('./app/index-sweep');
+indexSweep.init({
+  isAppQuitting: () => appQuitting,
+  lastProjectsPushAt: sessionCache.lastProjectsPushAt,
+  postReconcile: () => indexWorker.postReconcile(),
+});
+const queueIndexSweep = () => indexSweep.queue();
 
 ipcMain.handle('get-projects', async (_event, showArchived) => {
   try {

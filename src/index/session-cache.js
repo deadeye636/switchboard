@@ -55,6 +55,9 @@ module.exports = {
   claudeStoreScope: indexWrites.claudeStoreScope,
   getStoreProjectPaths: indexWrites.getStoreProjectPaths,
   notifyRendererProjectsChanged: indexWrites.notifyRendererProjectsChanged,
+  // #590: when that push last went out. `app/index-sweep.js` asks, to tell a get-projects the app's own
+  // push provoked from one somebody asked for.
+  lastProjectsPushAt: indexWrites.lastProjectsPushAt,
   sendStatus: indexWrites.sendStatus,
   // --- projects view (projects-view.js) ---
   buildProjectsFromCache: projectsView.buildProjectsFromCache,

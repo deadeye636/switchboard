@@ -234,7 +234,7 @@ renderer and leaves it there until the CLI is updated or the user runs `/tui ful
 dialog. The user finds out because their conversation is suddenly in xterm's scrollback and PageUp means
 something else, which is how #558 came to be reported.
 
-Two things on our side of that fence, one fixed and one open:
+Three things on our side of that fence:
 
 - **The redraw nudge on a fresh spawn (#560, fixed).** `src/app/terminal/io.js` follows a resize with a
   `cols+1` / `cols` wiggle for sessions flagged `firstResize`. That flag exists for **reattach**, where a
@@ -267,8 +267,17 @@ Two things on our side of that fence, one fixed and one open:
   8 600-10 800 ms warm, which is the right order for the gap. That has not been measured, because
   dropping the Windows page cache needs a reboot.
 
-- **The scan itself does not re-read what has not changed (#589).** The lever the paragraph above
-  called unpulled has been pulled. `src/workers/scan-projects.js` now takes a per-folder
+  **What streaming costs, stated because it is a new flow.** The per-folder writes used to run in one
+  synchronous loop, so a concurrent `get-projects` saw either all-old or all-new rows. Yielding between
+  folders means a read taken mid-scan can now see some folders rebuilt and others still holding
+  pre-scan rows, for as long as the scan runs. Nothing is persisted wrong — each folder's wipe and
+  re-insert is still atomic with respect to the event loop — and the final `projects-changed` push
+  makes every reader take a consistent picture. It is a torn READ, and it is the price of not blocking
+  the main thread for two seconds; if it ever becomes visible enough to matter, the fix is a
+  scan-in-progress gate on `buildProjectsFromCache`, not a return to the big bite.
+
+- **The scan itself does not re-read what has not changed (#589).** The lever the bullet above left
+  unpulled — gating each folder the way the incremental reconcile does — has been pulled. `src/workers/scan-projects.js` now takes a per-folder
   `skipStamps` map and compares `getFolderIndexMtimeMs` against it — the same gate, against the same
   number, that the reconcile has made in `src/workers/index-worker.js` since #199. Measured on a
   synthetic store of 1015 transcripts across 35 folders (2.25 GiB, warm page cache, in-memory index):
@@ -300,15 +309,59 @@ Two things on our side of that fence, one fixed and one open:
   under a gate. `index-worker-client.js` rolls those stamps back to 0 on `respawn` and `terminate`, so
   the next gate trips on them.
 
-  **What streaming costs, stated because it is a new flow.** The per-folder writes used to run in one
-  synchronous loop, so a concurrent `get-projects` saw either all-old or all-new rows. Yielding between
-  folders means a read taken mid-scan can now see some folders rebuilt and others still holding
-  pre-scan rows, for as long as the scan runs. Nothing is persisted wrong — each folder's wipe and
-  re-insert is still atomic with respect to the event loop — and the final `projects-changed` push
-  makes every reader take a consistent picture. It is a torn READ, and it is the price of not blocking
-  the main thread for two seconds; if it ever becomes visible enough to matter, the fix is a
-  scan-in-progress gate on `buildProjectsFromCache`, not a return to the big bite.
-
 The general shape is worth keeping even after both are closed: **a cost this app pays on the main thread
 is not the only cost it imposes.** A CLI drawing its first frame is a real-time consumer of the PTY, and
 work the app does in that window is charged to it, not to us.
+
+## The app answering its own push (#590)
+
+The same shape as #521 and found the same way — by reading a log at rest rather than under a
+reproduction. `[index-worker] post reconcile … clone~35f/1177rows` fired **28 times in 93 seconds** in
+an ordinary dev instance with two sessions writing, 1467 times in 36 minutes. The file lane beside it
+was right (`clone~1f/1rows`); the reconcile lane shipped the whole cache to communicate a one-row
+change.
+
+**The cause is a loop the app closes on itself**, and the three routes the issue proposed all missed
+it:
+
+```
+transcript append → postFile → applyFileReply → onFileApplied → notifyRendererProjectsChanged
+                  → the renderer's loadProjects() → get-projects → the sweep → postReconcile
+```
+
+Every file apply buys a full reconcile through the sidebar's own refetch. And the reconcile it buys
+finds **nothing**: `refreshFilePrepare` stamped that folder before it posted the parse, so the gate
+walk trips on zero folders. 1177 rows gathered and cloned for a sweep with no work in it.
+
+Why the issue's three routes were not built. **Coalescing already exists** —
+`index-worker-client.js` keeps one reconcile in flight and one trailing, with the scope unioned; a
+time-window coalesce on top would be a second mechanism for the same job. **Scoping the snapshot has no
+input to scope on**: the gate walk runs in the worker, so main does not know which folder tripped, and
+the unscoped callers carry no folder either. It would also make things worse rather than smaller — the
+delete-diff is computed on main against the retained snapshot, so a tripped folder outside a scoped
+snapshot gets an empty cached map, is fully re-read, and its delete-diff does not run at all, leaving a
+ghost row. **A delta needs a copy on the far side**, and the worker holds none; `rootCacheReset` clears
+the derive-project-path root memo, not a row cache.
+
+So the fix is not to shrink the payload, it is not to ask. `src/app/index-sweep.js` owns the decision:
+a `get-projects` that arrived within 1.5 s of one of this app's own `projects-changed` pushes is an
+echo and is dropped, with a 30 s floor under it so the drift safety net still runs — an echo arriving
+with no sweep in that long runs, and one that arrives sooner is remembered and run by a timer when the
+floor elapses. Nothing is dropped outright; a sweep that was owed is only delayed.
+
+**What is deliberately not throttled**: every caller that posts a reconcile *directly* —
+`watch/projects.js` (a folder appeared or vanished), `watch/stores.js` (an Axis-B store moved),
+`app/settings.js` (a backend was enabled or disabled) and `rebuild-cache` (force). That is what makes
+the floor affordable: every change the app can actually observe already has its own path, and this
+sweep is the net under the drift nobody observed.
+
+**Measured.** One unforced post costs 1.48 ms on main at 35 folders / 1177 rows — `buildSnapshot`'s
+`getAllCached` plus a `resolveRowFilePath` per row, then the structured clone (1.20 ms of the 1.48). A
+replay of the loop's cadence on a virtual clock (a push every second, the renderer's refetch 350 ms
+later, 36 minutes) posts **60 reconciles a minute before and 2 after**, with a longest gap between
+sweeps of exactly the 30 s floor — about 70 000 row copies a minute down to about 2 400.
+
+**What it takes away.** A repair sweep can now be up to 30 s late. Nothing a user *sees* is delayed —
+`get-projects` answers from the cache and never waited on this — but a row that drifted is corrected up
+to half a minute later than it was. The alternative was correcting it 46 times a minute and finding
+nothing 45 of those times.
