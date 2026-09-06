@@ -103,13 +103,58 @@ function walk(dir) {
 
 const rel = (abs) => path.relative(ROOT, abs).replace(/\\/g, '/');
 
+// The scan is the bare word, and it stays that way. Narrowing it to "a dot within twenty characters of
+// the word" was tried and had a hole a copy would actually fall into: the window cannot cross a quote,
+// so `path.join(dir, '.claude', 'worktrees')` — the idiomatic, separator-safe way to build this exact
+// path in this codebase — matched nothing at all. A guard for a duplicated pattern must err towards
+// catching: a false positive costs one reviewed line below, a false negative is silent.
+const SCAN_RE = /worktrees/;
+
+// Where the plural WORD is legitimately in the code, and why. The word is also an ordinary English
+// plural, and the sidebar says it to a user once.
+//
+// Each entry names the exact text it excuses, and a STALE entry FAILS (below) — an exemption list that
+// only ever grows is the failure mode `.claude/rules/guards-and-scripts.md` names. Comments are already
+// stripped before the scan, so prose about worktrees needs no entry here.
+const PLURAL_ALLOWED = [
+  {
+    file: 'src/renderer/shell/sidebar.js',
+    text: "'worktree' : 'worktrees'",
+    why: "the worktrees fold's label (#598) — an English plural shown to the user, not a path layout",
+  },
+];
+
+test('the guard catches a copy of the layout however it is spelled', () => {
+  // The shapes a fifth copy would plausibly take, asserted rather than assumed — the guard carries its
+  // own pattern, so the pattern is a second copy of the thing it audits and gets checked both ways.
+  for (const shape of [
+    "path.join(dir, '.claude', 'worktrees')",
+    "['.claude', 'worktrees'].join('/')",
+    '`${parent}/.claude/worktrees/${name}`',
+    '.claude-worktrees',
+    String.raw`\.(?:claude[\\/]worktrees|claude-worktrees|worktrees)`,
+  ]) assert.match(shape, SCAN_RE, `a copy spelled ${shape} must be caught`);
+});
+
+test('every plural exemption is still in the file it names', () => {
+  for (const entry of PLURAL_ALLOWED) {
+    const code = stripComments(fs.readFileSync(path.join(ROOT, entry.file), 'utf8'));
+    assert.ok(code.includes(entry.text),
+      `${entry.file} no longer contains ${entry.text} — remove the exemption rather than leaving a hole.\n` +
+      `It was there because: ${entry.why}`);
+  }
+});
+
 test('the worktree layout is spelled in exactly one file', () => {
   const offenders = [];
   for (const abs of walk(SRC)) {
     const relPath = rel(abs);
     if (relPath === 'src/shared/worktree-path.js') continue;      // the one place it belongs
-    const code = stripComments(fs.readFileSync(abs, 'utf8'));
-    if (/worktrees/.test(code)) offenders.push(relPath);
+    let code = stripComments(fs.readFileSync(abs, 'utf8'));
+    for (const entry of PLURAL_ALLOWED) {
+      if (entry.file === relPath) code = code.split(entry.text).join('');
+    }
+    if (SCAN_RE.test(code)) offenders.push(relPath);
   }
   assert.deepEqual(offenders, [],
     `the worktree layout is spelled outside src/shared/worktree-path.js:\n  ${offenders.join('\n  ')}\n\n` +

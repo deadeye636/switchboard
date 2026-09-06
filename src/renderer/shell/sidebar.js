@@ -711,12 +711,31 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     group.appendChild(sessionsList);
     if (window.vcsView) window.vcsView.decorateHeader(header, group, sessionsList, project.projectPath);
 
-    // Render nested worktree sub-groups
+    // The worktrees go into a fold of their own (#598). Appended straight into the session list they
+    // landed AFTER the "N older" toggle: a sub-unit of the project read as part of that fold, and
+    // expanding the fold pushed it down by however many sessions it had been hiding. The fold also
+    // carries the count, which no surface answered before — an agent-driven checkout can hold many.
     const childWorktrees = worktreeMap.get(project.projectPath) || [];
+    const wtList = document.createElement('div');
+    wtList.className = 'worktree-fold-list';
+    wtList.id = 'worktree-fold-list-' + fId;
+    // A worktree with a running session is rendered BESIDE the fold, never inside it — the same split
+    // `processProjectSessions` makes for sessions, where `item.running || item.pinned` goes into
+    // `visible` and can never land in the "N older" bucket. Holding the fold open instead would have
+    // been a rule a click could beat: the collapsed state is carried across every render, so one click
+    // would have hidden a running worktree until its session ended.
+    const wtRunning = document.createDocumentFragment();
+    let wtNewest = null;
     for (const wt of childWorktrees) {
       const wtResult = processProjectSessions(wt, resort);
       if (!wtResult) continue;
       newSortedOrder.push(wtResult.sortOrderEntry);
+      // Running items are never in `older`, so `visible` is the whole answer — and under an active
+      // filter it is the unsplit set, which is the same answer.
+      const wtIsRunning = wtResult.visible.some(item => item.running);
+      // The fold's default reads the newest of what it will actually HOLD; a running worktree is not in it.
+      const wtRecent = wtIsRunning ? null : wtResult.filtered[0]?.modified;
+      if (wtRecent && (!wtNewest || new Date(wtRecent) > new Date(wtNewest))) wtNewest = wtRecent;
 
       // The name was parsed on the pass that built the map — every entry in it matched, so the split is
       // only the belt-and-braces fallback it always was. Both separators, since the path may be either.
@@ -771,7 +790,43 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       wtGroup.appendChild(wtHeader);
       wtGroup.appendChild(wtSessionsList);
       if (window.vcsView) window.vcsView.decorateHeader(wtHeader, wtGroup, wtSessionsList, wt.projectPath);
-      sessionsList.appendChild(wtGroup);
+      (wtIsRunning ? wtRunning : wtList).appendChild(wtGroup);
+    }
+
+    // Where both halves go. Direct children only: `appendSubagentChildren` drops carets of its own into
+    // this list and a querySelector would find one of those first. The orphan-subagents group is in the
+    // list too and is appended last whether or not there is an older fold, so it is named here as well —
+    // otherwise the worktrees landed before it in one shape and after it in the other.
+    const wtBefore = Array.from(sessionsList.children).find(
+      c => c.classList.contains('sessions-more-toggle') || c.classList.contains('sidebar-orphan-subagents'),
+    ) || null;
+    if (wtRunning.childNodes.length) sessionsList.insertBefore(wtRunning, wtBefore);
+
+    if (wtList.children.length) {
+      // It starts OPEN and collapses by the same staleness rule the worktree headers already use.
+      // Nothing running is in here, so this decides about quiet worktrees only.
+      const wtCollapsed = typeof projectStartCollapsed === 'function' && projectStartCollapsed({
+        filtersActive: searchMatchIds !== null || showStarredOnly || showRunningOnly,
+        mostRecent: wtNewest,
+        mode: sidebarCollapseDefault,
+        ageDays: sidebarCollapseAgeDays,
+        now: Date.now(),
+      });
+      const wtCount = wtList.children.length;
+      const wtLabel = `${wtCount} ${wtCount === 1 ? 'worktree' : 'worktrees'}`;
+      const wtToggle = document.createElement('div');
+      wtToggle.className = 'sidebar-children-caret worktree-fold-toggle' + (wtCollapsed ? '' : ' expanded');
+      wtToggle.id = 'worktree-fold-' + fId;
+      wtToggle.innerHTML = `<span class="caret-arrow">&#9654;</span> <span class="worktree-fold-label">${wtLabel}</span>`;
+      wtToggle.setAttribute('aria-expanded', wtCollapsed ? 'false' : 'true');
+      ariaButton(wtToggle, wtLabel);   // click/keyboard delegated in sidebar-events.js
+      wtList.style.display = wtCollapsed ? 'none' : '';
+      // BEFORE the "N older" toggle, so the fold of the project's own sessions stays last — and inside
+      // `.project-sessions`, because collapsing a project works through
+      // `.project-header.collapsed + .project-sessions` and a sibling beside that list would stay on
+      // screen with the project collapsed.
+      sessionsList.insertBefore(wtToggle, wtBefore);
+      sessionsList.insertBefore(wtList, wtBefore);
     }
 
     if (showFavDivider) {

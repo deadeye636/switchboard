@@ -1616,12 +1616,15 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   white-space: nowrap;
 }
 
+/* All three are permanently visible (#597). The project header hides its buttons until hover; this row
+   is denser and carries three of them, and a control you cannot see is a control you cannot find. */
 .worktree-new-btn,
-.worktree-hide-btn {
+.worktree-hide-btn,
+.worktree-delete-btn {
   width: 16px;
   height: 16px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
   background: transparent;
   border: none;
   color: #808098;
@@ -1637,19 +1640,28 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   border: 1px solid #555570;
 }
 
-.worktree-header:hover .worktree-new-btn,
-.worktree-header:hover .worktree-hide-btn {
-  opacity: 0.7;
-}
+/* No `.worktree-header:hover` lift here. That rule existed to REVEAL buttons that were invisible until
+   the row was hovered, and they are not any more (#597) — but it also outranks each button's own
+   `:hover` for `opacity` (three compound selectors against two), so hovering a button would have
+   capped it at the row's value instead of lighting it fully. The old rules answered that with
+   `!important`; removing the rule removes the fight. */
 
 .worktree-new-btn:hover {
-  opacity: 1 !important;
+  opacity: 1;
   background: rgba(100,220,120,0.1);
   color: #5ec46a;
 }
 
+/* Hiding is not destructive, and the project header's hide is neutral for that reason. The red belongs
+   on the one control here that removes a checkout from disk. */
 .worktree-hide-btn:hover {
-  opacity: 1 !important;
+  opacity: 1;
+  background: rgba(255,255,255,0.06);
+  color: #c0c0d0;
+}
+
+.worktree-delete-btn:hover {
+  opacity: 1;
   background: rgba(255,100,100,0.1);
   color: #e06060;
 }
@@ -7744,6 +7756,25 @@ body.grid-dragging .grid-card-header {
 
 .sidebar-children-caret.expanded .caret-arrow {
   transform: rotate(90deg);
+}
+
+/* The worktrees fold (#598). Same caret mechanics, but it opens a group of SUB-PROJECTS instead of
+   ending a project's list, so it keeps the quiet base look and only moves out to the session edge.
+   Must stay AFTER the block above — equal specificity, so source order is what decides. */
+.worktree-fold-toggle {
+  margin: 4px 10px 2px 8px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8f8fae;
+}
+
+.worktree-fold-toggle:hover {
+  color: #b8b8d8;
+}
+
+.worktree-fold-toggle .caret-arrow {
+  font-size: 9px;
 }
 
 /* The "+ N older" toggle borrows the caret mechanics above but ends a PROJECT's list rather than

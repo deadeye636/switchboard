@@ -111,6 +111,14 @@
       toEl.setAttribute('aria-expanded', 'true');
     }
     if (has('slug-group-more') && has('expanded')) toEl.classList.add('expanded');
+    // The worktrees fold starts OPEN (#598), so its state has to carry in BOTH directions — the two
+    // clauses above only carry "the user opened it", which would reopen a fold the user had closed on
+    // every render.
+    if (has('worktree-fold-list')) toEl.style.display = fromEl.style.display;
+    if (has('worktree-fold-toggle')) {
+      toEl.classList.toggle('expanded', has('expanded'));
+      toEl.setAttribute('aria-expanded', has('expanded') ? 'true' : 'false');
+    }
     // Where the row sits in the scroller is not the builder's business either (#519). The observer
     // re-delivers after every render, but a frame or two later — long enough for a paused animation to
     // start up again on a row nobody can see, twice per render, on every busy row in the sidebar.

@@ -349,6 +349,18 @@ function dispatchSidebarActivation(e) {
     return;
   }
 
+  // --- the worktrees fold (#598) ---
+  const wtFoldToggle = t.closest('.worktree-fold-toggle');
+  if (wtFoldToggle) {
+    const list = wtFoldToggle.nextElementSibling;
+    if (!list || !list.classList.contains('worktree-fold-list')) return;
+    const wtShowing = list.style.display !== 'none';
+    list.style.display = wtShowing ? 'none' : '';
+    wtFoldToggle.classList.toggle('expanded', !wtShowing);
+    wtFoldToggle.setAttribute('aria-expanded', wtShowing ? 'false' : 'true');
+    return;
+  }
+
   // --- "+ N older" toggle ---
   const olderToggle = t.closest('.sessions-more-toggle');
   if (olderToggle) {
