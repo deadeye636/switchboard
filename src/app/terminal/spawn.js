@@ -927,7 +927,19 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // chunk can arrive after will-quit closed the DB — the OSC 9;4 path below
     // calls ctx.getSetting() and would throw "The database connection is not open"
     // in an uncaught-exception dialog (#90 class, PTY edition).
-    if (ctx.getAppQuitting()) return;
+    if (ctx.getAppQuitting()) {
+      // Said once per session, because this guard is indistinguishable from a mute CLI from the
+      // outside: the bytes are gone, `_sawOutput` never turns true, so the silence notice below is
+      // cancelled by nothing and the screen stays black. #585 spent a session on a terminal that
+      // showed nothing while its shell was demonstrably talking, and this branch could not be told
+      // apart from the shell having said nothing at all. Once per session and only while quitting,
+      // so it cannot become a per-frame line.
+      if (!session._quittingDropLogged) {
+        session._quittingDropLogged = true;
+        ctx.log.info(`[terminal] session=${session.realSessionId || sessionId} output dropped: the app is quitting`);
+      }
+      return;
+    }
     const currentId = session.realSessionId || sessionId;
 
     // LIVENESS, not state. A backend whose busy/idle comes from its store (Codex/Hermes/Pi) has one
