@@ -364,6 +364,34 @@ function refreshFilePrepare(folder, relFilename) {
 // Promise so the first get-projects after a migration can await it instead of seeing an empty list.
 let populatePromise = null;
 let activeScanWorker = null; // handle to the in-flight scan Worker, terminated on quit (issue #76)
+// Drop whatever the streamed apply still has queued and resolve the shared promise. Set for the life of
+// one scan; `terminateScanWorker` calls it, because since #567 the apply outlives the worker by however
+// many folders are still queued — and a queued folder must NEVER be written after the DB is closed.
+let cancelActiveScan = null;
+
+// Apply ONE scanned folder. Split out of the message handler so the streamed drain below can run it
+// once per event-loop turn — the body is byte-for-byte the old loop body. Returns the session count.
+function applyScannedFolder({ folder, projectPath, sessions, indexMtimeMs }, scope) {
+  // A REMOVED project is not indexed — and this is a WRITE path like any other (#167). Without this a
+  // "Rebuild session cache" (or any cold start that takes the worker path) would put a removed
+  // project's sessions back into the cache, the search index and the stats as an invisible zombie.
+  if (projectPath && isRemovedProject(projectPath)) {
+    // The cold scan parsed these rows in full, so it can report a real START (#575) — unlike the
+    // incremental removed branch, which reads only the heads of the folder's transcripts.
+    noteStoreProject(projectPath, newestSessionAt(sessions), newestStartedAt(sessions));
+    setFolderMeta(folder, projectPath, indexMtimeMs);
+    return 0;
+  }
+  // Claude prepare + the neutral sink: a folder-scoped wipe (search BEFORE cache, scoped) then the
+  // prepared rows. The wipe runs even for an emptied folder.
+  applyIndexResults({
+    sessions: sessions.map(stampClaudeProvenance),
+    wipeFolders: [{ folder, scope }],
+    metricsMode: 'always',
+  });
+  setFolderMeta(folder, projectPath, indexMtimeMs);
+  return sessions.length;
+}
 
 function populateCacheViaWorker() {
   if (populatePromise) return populatePromise;
@@ -380,6 +408,7 @@ function populateCacheViaWorker() {
       settled = true;
       populatePromise = null;
       activeScanWorker = null;
+      cancelActiveScan = null;
       resolve();
     };
 
@@ -388,10 +417,78 @@ function populateCacheViaWorker() {
   });
   activeScanWorker = worker;
 
+  // The STREAMED apply (#567). The worker posts one folder as it finishes it, and we write exactly one
+  // folder per event-loop turn. The old shape gathered all of them into a single terminal message and
+  // ran every folder's DB writes back-to-back — ONE uninterrupted main-thread block of 821, 957, 1447
+  // and 2172 ms across four runs against a 1011-session, 13-project store. Nothing else on main runs
+  // during it: no PTY chunk reaches the renderer, no `open-terminal` is served, no timer fires, so a
+  // restore spawning its CLIs into a cold scan waits out every millisecond of it. Streamed, the same
+  // store's longest block was 275, 315, 331 and 1335 ms, and the scan's own wall clock did not grow —
+  // the writes now overlap the parse instead of being appended to it.
+  //
+  // The worker only scans Claude's root, so its rebuild must stay inside Claude's store — an unscoped
+  // wipe would drop the Codex rows that share this folder key (multi-LLM T-4.2).
+  const scope = claudeStoreScope();
+  const pending = [];
+  let draining = false;
+  let streamEnded = false;
+  let folderCount = 0;
+  let sessionCount = 0;
+  let announcedIndexing = false;
+
+  const finish = () => {
+    const elapsedMs = Math.round(elapsed());
+    const perSession = sessionCount ? Math.round(elapsedMs / sessionCount) : 0;
+    log.info(
+      `[scan] cold scan: ${sessionCount} sessions across ${folderCount} projects in ${elapsedMs} ms`
+      + (sessionCount ? ` (${perSession} ms/session)` : '')
+    );
+
+    sendStatus(`Indexed ${sessionCount} sessions across ${folderCount} projects`, 'done');
+    // Clear status after a few seconds
+    setTimeout(() => sendStatus(''), 5000);
+    notifyRendererProjectsChanged();
+    settle();
+  };
+
+  cancelActiveScan = () => { pending.length = 0; settle(); };
+
+  const drain = () => {
+    if (settled) { draining = false; pending.length = 0; return; }
+    const item = pending.shift();
+    if (item) {
+      // A folder that fails to apply must not take the rest of the scan with it — the old shape had the
+      // same property by accident (one throw aborted the loop); here it is deliberate and reported.
+      try { sessionCount += applyScannedFolder(item, scope); } catch (err) {
+        // `console.error` like the two sibling failure paths below, not `log.warn`: this module's ctx is
+        // wired with an info/debug/silly log in more than one test, and a reporter that throws inside a
+        // catch is worse than the failure it reports.
+        console.error(`[scan] cold scan: folder ${item.folder} could not be indexed:`, err?.message || err);
+      }
+      folderCount++;
+    }
+    if (pending.length) { setImmediate(drain); return; }
+    draining = false;
+    if (streamEnded && !settled) finish();
+  };
+
+  const schedule = () => {
+    if (draining) return;
+    draining = true;
+    setImmediate(drain);
+  };
+
   worker.on('message', (msg) => {
     // Progress updates from worker
     if (msg.type === 'progress') {
       sendStatus(msg.text, 'active');
+      return;
+    }
+
+    if (msg.type === 'folder') {
+      if (!announcedIndexing) { announcedIndexing = true; sendStatus('Indexing projects…', 'active'); }
+      pending.push(msg.result);
+      schedule();
       return;
     }
 
@@ -404,47 +501,9 @@ function populateCacheViaWorker() {
       return;
     }
 
-    sendStatus(`Indexing ${msg.results.length} projects…`, 'active');
-
-    // Write results to DB on main thread (fast)
-    let sessionCount = 0;
-    // The worker only scans Claude's root, so its rebuild must stay inside Claude's store — an unscoped
-    // wipe would drop the Codex rows that share this folder key (multi-LLM T-4.2).
-    const scope = claudeStoreScope();
-    for (const { folder, projectPath, sessions, indexMtimeMs } of msg.results) {
-      // A REMOVED project is not indexed — and this is a WRITE path like any other (#167). Without this a
-      // "Rebuild session cache" (or any cold start that takes the worker path) would put a removed
-      // project's sessions back into the cache, the search index and the stats as an invisible zombie.
-      if (projectPath && isRemovedProject(projectPath)) {
-        // The cold scan parsed these rows in full, so it can report a real START (#575) — unlike the
-        // incremental removed branch, which reads only the heads of the folder's transcripts.
-        noteStoreProject(projectPath, newestSessionAt(sessions), newestStartedAt(sessions));
-        setFolderMeta(folder, projectPath, indexMtimeMs);
-        continue;
-      }
-      // Claude prepare + the neutral sink: a folder-scoped wipe (search BEFORE cache, scoped) then the
-      // prepared rows. The wipe runs even for an emptied folder.
-      applyIndexResults({
-        sessions: sessions.map(stampClaudeProvenance),
-        wipeFolders: [{ folder, scope }],
-        metricsMode: 'always',
-      });
-      sessionCount += sessions.length;
-      setFolderMeta(folder, projectPath, indexMtimeMs);
-    }
-
-    const elapsedMs = Math.round(elapsed());
-    const perSession = sessionCount ? Math.round(elapsedMs / sessionCount) : 0;
-    log.info(
-      `[scan] cold scan: ${sessionCount} sessions across ${msg.results.length} projects in ${elapsedMs} ms`
-      + (sessionCount ? ` (${perSession} ms/session)` : '')
-    );
-
-    sendStatus(`Indexed ${sessionCount} sessions across ${msg.results.length} projects`, 'done');
-    // Clear status after a few seconds
-    setTimeout(() => sendStatus(''), 5000);
-    notifyRendererProjectsChanged();
-    settle();
+    // The stream is complete. Anything still queued is applied first — `finish` runs from the drain.
+    streamEnded = true;
+    if (!draining) { if (pending.length) schedule(); else finish(); }
   });
 
   worker.on('error', (err) => {
@@ -456,8 +515,11 @@ function populateCacheViaWorker() {
   });
 
   // If the worker exits abnormally (SIGSEGV, OOM, uncaught exception) without sending a message, neither
-  // the 'message' nor 'error' handler will fire. Resolve here so awaiters aren't stuck forever.
+  // the 'message' nor 'error' handler will fire. Resolve here so awaiters aren't stuck forever. An exit
+  // that FOLLOWS a complete stream is the normal one and must not settle early — the queue may still be
+  // draining, and `finish` owns the resolve.
   worker.on('exit', (code) => {
+    if (streamEnded) return;
     if (!settled && code !== 0) {
       sendStatus('Scan worker exited unexpectedly', 'error');
     }
@@ -476,6 +538,10 @@ function terminateScanWorker() {
     try { activeScanWorker.terminate(); } catch {}
     activeScanWorker = null;
   }
+  // Since #567 the apply is a queue that drains after the worker has posted — terminating the thread no
+  // longer stops the writes. Drop what is queued and resolve, or a `setImmediate` scheduled before quit
+  // would write into a closed DB (the #76 hazard, at the new seam).
+  if (cancelActiveScan) { const cancel = cancelActiveScan; cancelActiveScan = null; cancel(); }
 }
 
 module.exports = {
