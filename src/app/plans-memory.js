@@ -29,6 +29,8 @@ const { writeTextFile } = require('./safe-write');
 // packet are both written by a tool that knows nothing about what may not be published.
 const { isVersioned, isIgnored } = require('./vcs-ignore');
 const { isAtOrInside, isInside } = require('./path-containment');
+// What a walk over a project must not enter, and the one file kind it must not stat (#483).
+const { isBuildDir, isAsarArchive } = require('./build-dirs');
 const { isDeletableKind } = require('./backend-resources');
 // Handoff packets are files in the project since #468, and their own module owns where those live. This
 // tab only shows them, beside the project's other agent files.
@@ -954,12 +956,19 @@ const WORK_FILES_CAP = 200;
 // The kind a work file carries into the Agent Files list, and the id of its chip in the type filter.
 const WORK_FILE_KIND = 'work-file';
 
+// A workspace is scratch space, so what lands in it is a checkout, a venv, an install — the shapes that
+// hold a hundred thousand files and not one document (#483). Two exclusions, and the second is not about
+// cost: a `stat` on an `.asar` makes Electron hold that file open for the rest of the session, which is
+// how a build stopped being possible while the app ran. `src/app/build-dirs.js` has both measurements.
 function walkWorkFiles(dir, baseDir, results) {
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
   for (const e of entries) {
+    // Before the join, because the cheapest place not to touch a file is before there is a path to it.
+    if (isAsarArchive(e.name)) continue;
     const fullPath = path.join(dir, e.name);
     if (e.isDirectory()) {
+      if (isBuildDir(e.name)) continue;
       walkWorkFiles(fullPath, baseDir, results);
     } else if (e.isFile()) {
       try {

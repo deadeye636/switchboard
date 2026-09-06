@@ -14,6 +14,12 @@
 const fs = require('fs');
 const path = require('path');
 
+// Generated output, fetched dependencies, and the one file kind Electron never lets go of (#483). The
+// skills walk is the only unbounded descent a backend does — it keeps going until a folder holds
+// SKILL.md — so a `node_modules` sitting in a customization directory is a walk of a hundred thousand
+// entries, and an `.asar` under it is a handle held for the rest of the session.
+const { isBuildDir, isAsarArchive } = require('../app/build-dirs');
+
 // A directory listing can be a lot; a UI list cannot. The cap belongs to the CONTRACT rather than to
 // one backend's walk — hermes caps its own at 500 internally, which protected hermes and nobody else.
 const MAX_ENTRIES = 500;
@@ -64,10 +70,15 @@ function expandSkillTree(dir, rule, out) {
       entry(out, { kind: rule.kind, name: path.basename(current), filePath: skillFile, source: rule.source, scope: rule.scope });
       continue;
     }
+    // AFTER the SKILL.md question and never for the root: a skill may legitimately be called `build`,
+    // and refusing to look at it because of its name would delete it from the list. What is refused is
+    // the DESCENT into a directory that is generated output and holds no skill of its own (#483).
+    if (current !== dir && isBuildDir(path.basename(current))) continue;
     const entries = readDir(current);
     if (!entries) continue;      // unreadable: skip this branch, never fail the whole expansion
     for (const ent of entries) {
       if (ent.name.startsWith('.')) continue;
+      if (isAsarArchive(ent.name)) continue;
       const p = path.join(current, ent.name);
       if (isDirFollowingLinks(p)) { stack.push(p); continue; }
       if (rule.rootMarkdown && current === dir && /\.md$/i.test(ent.name)) {
@@ -86,6 +97,7 @@ function expandFlatFiles(dir, rule, out) {
   for (const ent of entries) {
     if (out.length >= MAX_ENTRIES) return true;
     if (ent.name.startsWith('.')) continue;
+    if (isAsarArchive(ent.name)) continue;      // one stat and Electron never lets go (#483)
     const p = path.join(dir, ent.name);
     if (isDirFollowingLinks(p)) {
       if (!rule.dirWithIndex) continue;
@@ -110,6 +122,7 @@ function expandDirs(dir, rule, out) {
   for (const ent of entries) {
     if (out.length >= MAX_ENTRIES) return true;
     if (ent.name.startsWith('.')) continue;
+    if (isAsarArchive(ent.name)) continue;      // one stat and Electron never lets go (#483)
     const p = path.join(dir, ent.name);
     if (!isDirFollowingLinks(p)) continue;
     entry(out, { kind: rule.kind, name: ent.name, filePath: p, source: rule.source, scope: rule.scope });
