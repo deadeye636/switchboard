@@ -293,3 +293,39 @@ test('backendCoreEnv: terminal identity + optional MCP port', () => {
   const withPort = backends.backendCoreEnv({ mcpPort: 4321 });
   assert.strictEqual(withPort.CLAUDE_CODE_SSE_PORT, '4321');
 });
+
+// #603: a template announces its turns the way its base does, or it announces nothing and says so.
+//
+// The live binding writes a per-spawn settings file and appends its argument to a launch the base
+// composed anyway, so it works for a template for the same reason the launch options do — same binary.
+// Before this, `profileToDescriptor` forwarded a dozen sibling capabilities and not these, so the spawn
+// gate (`supportsLiveRebinding && buildLiveBinding`) never fired for a template: measured in the demo, a
+// template session logged no `[clear-bind]` line and reported `liveBound: false`.
+//
+// And it was invisible, because #305's notice asks the SAME question: `liveBindingMissing` is true only
+// where the capability is declared, so a template was neither bound nor flagged.
+test('a profile descriptor forwards the live-binding family from its base backend', () => {
+  const prof = { id: 'my-glm', name: 'My GLM', env: {} }; // base defaults to claude
+  withRegistry({}, [prof], () => {
+    const d = backends.get('my-glm');
+    assert.strictEqual(d.supportsLiveRebinding, true, 'the base can report, so its template can');
+    assert.strictEqual(typeof d.buildLiveBinding, 'function', 'the spawn gate needs BOTH — the flag alone binds nothing');
+    assert.strictEqual(typeof d.releaseLiveBinding, 'function', 'and the release, or a settings file is left behind per spawn');
+    // The turn-hold hook comes with them and not after them: it only matters once a backend reports turns
+    // at all, and forwarding the binding without it would announce turns for a template with the defect
+    // #495 removed from its base.
+    assert.strictEqual(typeof d.readTurnQueue, 'function', 'a template holds a premature Stop like its base does');
+  });
+});
+
+test('a template on a base that cannot report does not claim it can', () => {
+  // The honest answer for Codex/agy/Hermes, and the one the #305 notice depends on: a capability nobody
+  // declared must not appear on a template, or every session of one would be marked as missing a binding
+  // it was never going to get.
+  const prof = { id: 'cx-tpl', name: 'Cx Template', backendId: 'codex', env: {} };
+  withRegistry({}, [prof], () => {
+    const d = backends.get('cx-tpl');
+    assert.notStrictEqual(d.supportsLiveRebinding, true, 'the base declares nothing, so neither does the template');
+    assert.strictEqual(d.buildLiveBinding, undefined, 'and no builder is invented for it');
+  });
+});

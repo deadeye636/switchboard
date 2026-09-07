@@ -111,10 +111,20 @@ Where it surfaces is the **session bar's tooltip** and nowhere else: one sentenc
 announce no turn, sitting in the same `note` slot the no-store-record notice uses, and joined with it
 rather than replacing it — Pi is both kinds at once. Deliberately not a chip on the row or the card, and
 not on the tab strip: the CLI in such a session works perfectly well, and a permanent badge would read as
-a broken session rather than an explanation for a quiet one. What it does not cover: a **profile** backend
-running on Claude's or Pi's binary never gets a live binding at all, because `profileToDescriptor` does
-not forward `supportsLiveRebinding` — and by the same token it is never flagged as missing one. That is
-the spawn path's own gate answering consistently, not a hole opened here.
+a broken session rather than an explanation for a quiet one.
+
+**And a template announces its turns like the backend it runs on (#603).** Writing the paragraph above is
+what turned this up: `profileToDescriptor` forwarded a dozen sibling capabilities and not this one, so a
+template running on Claude's or Pi's binary never got a live binding at all — and, because the notice asks
+the same question the spawn gate does, it was never flagged for it either. The two halves cancelled and
+the silence read as "this session is fine". Measured in the demo before the fix: a template session logged
+no `[clear-bind]` line and reported `liveBound: false`; after it, `bound via <template id>`, and a prompt
+into that session produced the CLI's own `[session-bind] terminal=… still on …` — so the mechanism works
+for a template for the same reason the launch options do, same binary.
+
+`readTurnQueue` is forwarded with them rather than after them. The turn hold only matters once a backend
+reports turns at all, so forwarding the binding alone would have announced turns for a template carrying
+the #495 race its base no longer has.
 
 **What a backend calls a turn is its own vocabulary, and one model round is not one turn (#573).** Pi's
 live binding posted `idle` on `turn_end`, which reads as "the work for this prompt is finished". Measured

@@ -160,6 +160,24 @@ function profileToDescriptor(p) {
     // Absent on a base that declares neither (Hermes), which is the honest answer, not a silent no-op.
     ...(base && typeof base.rewriteProjectPath === 'function' ? { rewriteProjectPath: base.rewriteProjectPath } : {}),
     ...(base && typeof base.deleteSessions === 'function' ? { deleteSessions: base.deleteSessions } : {}),
+    // Announcing its turns is the base's too (#603). The binding writes a per-spawn settings file and
+    // appends `--settings <file>` to a launch the base composed anyway, so it works for a template for
+    // exactly the reason the launch options do: same binary. Measured before the fix — a template session
+    // logged no `[clear-bind]` line at all, produced no busy/ready edge, no inbox entry and no chime,
+    // while the same binary under its own id did.
+    //
+    // It was invisible because the notice for #305 asks the same question: `liveBindingMissing` is true
+    // only where `supportsLiveRebinding` is declared, and a template declared it nowhere — so it was
+    // neither bound nor flagged, and the silence read as "this session is fine".
+    //
+    // `readTurnQueue` comes with them rather than after them. It is what holds a `Stop` that arrives
+    // while a queued prompt is still waiting (#495), and it only matters once a backend reports turns at
+    // all — forwarding the binding without it would announce turns for a template with a defect its base
+    // no longer has.
+    supportsLiveRebinding: base ? base.supportsLiveRebinding === true : false,
+    ...(base && typeof base.buildLiveBinding === 'function' ? { buildLiveBinding: base.buildLiveBinding } : {}),
+    ...(base && typeof base.releaseLiveBinding === 'function' ? { releaseLiveBinding: base.releaseLiveBinding } : {}),
+    ...(base && typeof base.readTurnQueue === 'function' ? { readTurnQueue: base.readTurnQueue } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);
