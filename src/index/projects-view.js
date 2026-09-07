@@ -401,6 +401,15 @@ function buildProjectsAdmin() {
       favorite: favorited.has(projectPath) || favoritedKeysAdmin.has(key),
     });
   }
+  // Which ROW a worktree belongs under, canonically matched (#595) — the same question `nestUnder`
+  // answers for the sidebar, under the same name, so the two surfaces cannot start naming one directory
+  // two things. `worktreeRoot` above is the raw path and stays: it is the answer when there is no row,
+  // which the manager still has to name (in manual mode a worktree can be listed while its project is
+  // not). This one is the display spelling of the row that IS here, or null.
+  const rowByKey = new Map(rows.map(r => [normPath(r.projectPath), r.projectPath]));
+  for (const r of rows) {
+    r.nestUnder = r.worktreeRoot ? (rowByKey.get(normPath(r.worktreeRoot)) || null) : null;
+  }
   return rows;
 }
 

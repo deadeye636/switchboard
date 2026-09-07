@@ -126,7 +126,9 @@ URL is built — the one place the scope is decided — so the tags and the per-
 same thing the fields do. The worktree's NAME rides along as a `worktree=` parameter and the panel renders
 it as a note in the title, because otherwise the row the user clicked names one thing and the title names
 another. The name, not the path: `settings.html` does not load the worktree helper and a label is not a
-decision.
+decision. Since #586 that name is the whole chain — `agent-a / hotfix-1` — for the same reason it is here
+at all: it has to read as the row that was clicked, and a nested worktree is drawn beside its own parent
+under the project.
 
 The screen closes instead, and the alternative was weighed rather than skipped. Going back to a project
 list is not something this window can do: the scope is settled once, from the URL, while the window loads

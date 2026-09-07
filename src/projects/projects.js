@@ -1110,10 +1110,25 @@ function getProjectsAdmin() {
           registered: false,
           favorite: false,
           configOnly: true,
+          // A row appended AFTER `buildProjectsAdmin` returned still has to answer the two worktree
+          // questions, or a worktree known only to a backend's config would render in the manager as an
+          // ordinary flat project (#595). `nestUnder` is filled in below, once every row is in.
+          worktreeRoot: worktreeRootOf(projectPath),
+          nestUnder: null,
         };
         rows.push(r);
         byKey.set(samePathKey(projectPath), r);
       }
+    }
+
+    // Re-answer "which ROW do I group under" now that the config-only rows are in (#595). Two of them
+    // change the answer: a worktree appended here had none, and a config-only PROJECT is a row a worktree
+    // from the cache can now group under. Through `samePathKey`, the same canonical compare
+    // `buildProjectsAdmin` used — a raw compare would miss the spelling a backend's config carries.
+    for (const r of rows) {
+      if (!r.worktreeRoot) continue;
+      const parent = byKey.get(samePathKey(r.worktreeRoot));
+      r.nestUnder = parent ? parent.projectPath : null;
     }
 
     // Which backends actually have sessions in each project (#171). `session_cache.backendId` is the

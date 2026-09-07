@@ -15,10 +15,41 @@
   let trustable = [];    // the backends that HAVE a per-project trust gate (#171): Claude, Codex — not Pi/Hermes
   let metaBackends = []; // the backends that keep a per-project config/meta store (#211): [{id,label,removeLabel}]
   let filter = '';       // search substring (lowercased)
+  // Which rows the table on screen was drawn with an indent, keyed by path (#595). Whether a worktree is
+  // drawn under its parent is a fact about the ORDER, and `refreshRow` swaps one `<tr>` into a table it
+  // did not build — so it reads what was drawn rather than deriving it again from a `data` array it has
+  // just replaced. Recomputing there answers about a row set the user is not looking at.
+  let groupedNow = new Map();
   let unlistedOnly = false;  // show only projects that have sessions but are not on the list (#183)
 
   function shortName(p) {
     return String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/') || p || '';
+  }
+
+  // What a WORKTREE row is called, and whose sub-unit it says it is (#595).
+  //
+  // `shortName` takes the last two segments, so a worktree read `worktrees/<name>` — not its own
+  // project's name, not a hint that it belongs to one, and identical for two worktrees of two different
+  // projects that happen to share a name. The manager is where a project is hidden, renamed, remapped or
+  // removed, so that ambiguity sits on exactly the surface where acting on the wrong row costs the most.
+  //
+  // The parent is named in the cell whenever the row is NOT drawn under it — a search filter that matches
+  // the child and not the parent, the "Not on the list" chip, or a parent with no row of its own (in
+  // manual mode a worktree can be listed while its project is not). Under its parent the indentation says
+  // it instead, and repeating the name there would be noise on the common case.
+  //
+  // `nestUnder` (the row that is actually here, canonically matched) and `worktreeRoot` (the raw path,
+  // there whether or not a row is) both come from `buildProjectsAdmin`, so this asks the same question
+  // the sidebar's nesting does and cannot drift from it.
+  function worktreeName(row) {
+    const label = typeof worktreeLabelOf === 'function' ? worktreeLabelOf(row.projectPath) : null;
+    return label || shortName(row.projectPath);
+  }
+
+  function parentName(row) {
+    const parentRow = row.nestUnder ? findRow(row.nestUnder) : null;
+    if (parentRow) return parentRow.displayName || shortName(parentRow.projectPath);
+    return shortName(row.worktreeRoot);
   }
 
   // The per-project cost/MCP/token formatting used to live here — it was Claude's meta rendered by the
@@ -169,8 +200,25 @@
     return `<button type="button" class="${cls}" data-action="allowlist" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}">${on ? TICK_ON : TICK_OFF}</button>`;
   }
 
-  function rowHtml(row) {
-    const name = row.displayName || shortName(row.projectPath);
+  // The branch glyph the sidebar's worktree header already uses, so one shape means one thing in both
+  // places. Small enough to sit on the name line rather than take a column of its own.
+  const BRANCH = '<svg class="pa-branch" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg>';
+
+  // `grouped` says whether this row is being drawn directly under its parent's. It is a property of the
+  // ORDER, not of the row, so `rowsHtml` works it out and `refreshRow` re-derives it before swapping a
+  // single `<tr>` — otherwise a re-checked worktree would lose its indentation, or gain a parent name
+  // that is redundant beside the row above it.
+  function rowHtml(row, grouped) {
+    const isWorktree = !!row.worktreeRoot;
+    const name = row.displayName || (isWorktree ? worktreeName(row) : shortName(row.projectPath));
+    const of = isWorktree && !grouped
+      ? `<span class="pa-of" title="This is a worktree — a sub-unit of that project.">in ${escapeHtml(parentName(row))}</span>`
+      : '';
+    // `pa-worktree` is the row's KIND and carries no styling of its own — the glyph and the label already
+    // say it. It is what a re-check, a test or a future rule can select a worktree row by, whether or not
+    // this particular render drew it under its parent; `pa-worktree-nested` is the indent, and only that.
+    const rowClass = [row.missing ? 'pa-missing' : '', isWorktree ? 'pa-worktree' : '', grouped ? 'pa-worktree-nested' : '']
+      .filter(Boolean).join(' ');
     const allowCol = `<td class="pa-center">${listedCell(row)}</td>`;
     // The info cell is whatever the backends declare per project (#211): each row.meta[backendId] is an
     // array of display-ready { value } columns. The renderer names no backend and knows no column — it
@@ -181,11 +229,12 @@
       .filter(Boolean)
       .join(' · ');
     return `
-      <tr data-path="${escapeHtml(row.projectPath)}" class="${row.missing ? 'pa-missing' : ''}">
+      <tr data-path="${escapeHtml(row.projectPath)}" class="${rowClass}">
         <td class="pa-name">
           ${row.missing ? missingIcon() : ''}
           <div class="pa-name-main">
-            <span class="pa-name-text" title="${escapeHtml(row.projectPath)}">${escapeHtml(name)}</span>
+            ${isWorktree ? BRANCH : ''}<span class="pa-name-text" title="${escapeHtml(row.projectPath)}">${escapeHtml(name)}</span>
+            ${of}
             ${row.configOnly ? '<span class="pa-badge" title="Known only to a backend\'s own config, with no Switchboard sessions">config-only</span>' : ''}
             <div class="pa-path">${escapeHtml(row.projectPath)}</div>
           </div>
@@ -209,13 +258,50 @@
       </tr>`;
   }
 
+  // Put each worktree directly after the project it belongs to (#595). An HTML table cannot nest rows, so
+  // this is ordering plus indentation rather than real nesting — which is what keeps the `<tbody>` flat,
+  // and `refreshRow`'s single-`<tr>` swap and the delegated `data-path` handler untouched.
+  //
+  // Only worktrees move. The panel had no ordering at all — the row order is the insertion order of the
+  // map `buildProjectsAdmin` fills — and a full sort would have reordered every row in the table to
+  // group the handful that needed it. Pulling the children out and re-inserting them leaves every
+  // project exactly where it was.
+  //
+  // A worktree whose parent is not in the filtered set stays where it was and names its parent in the
+  // cell instead. That covers all three ways the grouping tears: a search that matches one and not the
+  // other, the "Not on the list" chip, and a parent that has no row at all.
+  //
+  // Returns [row, grouped] pairs, because whether a row is drawn under its parent is a fact about this
+  // ORDER and `rowHtml` cannot work it out from the row alone.
+  function groupWorktrees(rows) {
+    const present = new Set(rows.map(r => r.projectPath));
+    const children = new Map(); // parent path -> [worktree row, ...]
+    for (const r of rows) {
+      if (!r.nestUnder || !present.has(r.nestUnder)) continue;
+      if (!children.has(r.nestUnder)) children.set(r.nestUnder, []);
+      children.get(r.nestUnder).push(r);
+    }
+    for (const list of children.values()) {
+      list.sort((a, b) => worktreeName(a).localeCompare(worktreeName(b)));
+    }
+    const nested = new Set([].concat(...[...children.values()]));
+    const out = [];
+    for (const r of rows) {
+      if (nested.has(r)) continue;                       // drawn under its parent, below
+      out.push([r, false]);
+      for (const child of children.get(r.projectPath) || []) out.push([child, true]);
+    }
+    return out;
+  }
+
   // Just the table rows for the current filter. Split out so a filter keystroke
   // can refresh only the <tbody> — a full re-render would replace the search
   // input element and steal its focus mid-typing.
   function rowsHtml() {
-    const rows = data.filter(matches);
+    const rows = groupWorktrees(data.filter(matches));
+    groupedNow = new Map(rows.map(([row, grouped]) => [row.projectPath, grouped]));
     return rows.length
-      ? rows.map(rowHtml).join('')
+      ? rows.map(([row, grouped]) => rowHtml(row, grouped)).join('')
       : `<tr><td colspan="11" class="pa-empty">No projects match.</td></tr>`;
   }
 
@@ -309,7 +395,7 @@
 
     const fresh = findRow(path);
     if (!fresh) { await load(); return; } // project vanished — the table is stale
-    tr.outerHTML = rowHtml(fresh);
+    tr.outerHTML = rowHtml(fresh, !!groupedNow.get(fresh.projectPath));
   }
 
   function toast(msg) {

@@ -321,6 +321,43 @@ Three readers moved with it, and each was a defect of its own once the row could
   other two surfaces that name a worktree to a user — the session card's `Worktree <name>` line and the
   settings window's title, which was pinned to the leaf by a test that predates the flattening.
 
+### The project manager groups a worktree under its project (#595)
+
+The manager is where a project is hidden, renamed, remapped or removed, and a worktree was an ordinary row
+in it: `shortName` takes the last two path segments, so it read `worktrees/<name>` — not its project's
+name, no hint that it belongs to one, and identical for two worktrees of two different projects that share
+a name. The only thing saying where the checkout sat was the full path printed underneath.
+
+Three routes were weighed and the owner chose the third with the first as its fallback, because the third
+needs the first anyway:
+
+- **The name carries the parent.** No structural change, and it still works when the parent has no row.
+- **A "belongs to" column.** An eleventh column in a table that already scrolls sideways, filled on one
+  row in twenty. Rejected.
+- **Group the rows under the parent, indented** — what the sidebar does, in the manager.
+
+An HTML table cannot nest rows, so the grouping is **ordering plus indentation**: `groupWorktrees` pulls
+each worktree out and re-inserts it after its parent, `rowHtml` takes a `grouped` flag, and the `<tbody>`
+stays flat — so `refreshRow`'s single-row swap and the delegated `data-path` handler are untouched
+(`refreshRow` re-derives the flag, or a re-checked row would lose its indent). **Only worktrees move.**
+The panel had no ordering at all and a full sort would have reordered every row in the table to group the
+handful that needed it.
+
+The grouping tears in three ways — a search that matches the child and not the parent, the "Not on the
+list" chip, and a parent with no row of its own (manual mode lists a worktree while its project is not) —
+and all three have one answer: the row falls back to flat and names its parent in the cell, `in
+<project>`. That is why the fallback ships either way.
+
+The row it groups under is `nestUnder` on the admin row, which is the same field, the same name and the
+same canonical match `buildProjectsFromCache` hands the sidebar. The two surfaces cannot disagree about
+which project a worktree belongs to, including a nested one. `worktreeRoot` stays beside it as the raw
+path, because that is the answer when there is no row and the cell still has to name something.
+
+**Two things stay wrong on a worktree row and are out of scope here:** Remove means "off the list, cached
+sessions cleared" here while the sidebar's worktree header offers "Delete worktree from disk" — two
+meanings of deleting one thing, neither mentioning the other; and Settings and Rename are offered on a
+worktree row and write against the worktree's own key.
+
 ### A worktree is not a project to add (#583)
 
 A worktree is a project of its own — that is #147/#157, and it is deliberate — it is not registered, and it

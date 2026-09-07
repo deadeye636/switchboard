@@ -9319,6 +9319,22 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   background: #2a2a34;
   color: #9a9aac;
 }
+/* A worktree row (#595). The glyph is the sidebar's branch icon, so one shape means one thing in both
+   places; the indent and the rail only appear when the row really is drawn under its parent, because an
+   indent that points at a stranger is worse than no indent at all. */
+.pa-branch { color: #5ec46a; opacity: 0.7; vertical-align: -2px; margin-right: 4px; }
+.pa-worktree-nested .pa-name {
+  padding-left: 16px;
+  border-left: 2px solid rgba(128,136,255,0.18);
+}
+/* "in <project>" — carried in the cell whenever the row is NOT under its parent (a filter, the chip, or
+   a parent with no row of its own). Muted: it names the row's context, it is not the row's name. */
+.pa-of {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  color: #8a8aa0;
+}
 /* Unavailable project (#135): the same amber warning triangle the sidebar uses,
    and clickable to re-check — the manager is where remap-or-delete is decided. */
 .pa-missing-icon {

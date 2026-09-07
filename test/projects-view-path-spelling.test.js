@@ -251,3 +251,47 @@ test('a nested worktree is still hidden with the project it belongs to (#586)', 
 
   assert.deepEqual(view.buildProjectsFromCache(false), []);
 });
+
+// #595 — the project manager groups a worktree under its project, and the row it groups under has to be
+// the one the SIDEBAR nests it under, or the two surfaces name one directory two things. Both ask
+// `nestUnder`, and both resolve it canonically, so this pins the admin half against the same fixtures.
+
+test('the admin row points at the project ROW it belongs under (#595)', () => {
+  setup([row('p', SECOND_SPELLING, '2026-01-02T00:00:00Z'), row('w', WORKTREE, '2026-01-03T00:00:00Z')],
+    { states: bothRegistered(SECOND_SPELLING) });
+
+  const rows = view.buildProjectsAdmin();
+  const parent = rows.find(r => normPath(r.projectPath) === normPath(REGISTERED));
+  const worktree = rows.find(r => normPath(r.projectPath) === normPath(WORKTREE));
+  assert.ok(parent && worktree, `expected both rows, got: ${rows.map(r => r.projectPath).join(' | ')}`);
+  assert.equal(worktree.nestUnder, parent.projectPath,
+    'the manager groups by this, so it must be the row\'s own display spelling — the parent takes the ' +
+    'register\'s and the worktree its session rows\', and a raw compare misses that');
+  assert.equal(parent.nestUnder, null, 'an ordinary project is grouped under nothing');
+});
+
+test('a nested worktree groups under the same project the sidebar nests it under (#595)', () => {
+  setup([
+    row('p', REGISTERED, '2026-01-02T00:00:00Z'),
+    row('w', WORKTREE, '2026-01-03T00:00:00Z'),
+    row('n', NESTED, '2026-01-04T00:00:00Z'),
+  ], { states: new Map([[REGISTERED, REGISTERED_STATE]]) });
+
+  const admin = view.buildProjectsAdmin().find(r => normPath(r.projectPath) === normPath(NESTED));
+  const sidebar = view.buildProjectsFromCache(false).find(p => normPath(p.projectPath) === normPath(NESTED));
+  assert.ok(admin && sidebar);
+  assert.equal(normPath(admin.nestUnder), normPath(sidebar.nestUnder),
+    'the two surfaces cannot disagree about which project a worktree belongs to');
+});
+
+test('a worktree whose project has no row of its own still knows the path (#595)', () => {
+  // Manual mode: a worktree can be listed while its project is not. There is nothing to group under, so
+  // the manager names the parent in the cell instead — and `worktreeRoot` is what it names.
+  setup([row('w', WORKTREE, '2026-01-03T00:00:00Z')], { states: new Map([[WORKTREE, REGISTERED_STATE]]) });
+
+  const rows = view.buildProjectsAdmin();
+  const worktree = rows.find(r => normPath(r.projectPath) === normPath(WORKTREE));
+  assert.equal(worktree.nestUnder, null, 'no row to group under');
+  assert.equal(normPath(worktree.worktreeRoot), normPath(REGISTERED),
+    'but the path is still there, so the row can say whose sub-unit it is');
+});
