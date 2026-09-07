@@ -485,7 +485,18 @@ indexWorker.init({
   afterReconcile: (changed = true) => {
     try { projects.syncRegistry(); } catch (err) { log.warn('[registry] sync failed:', err?.message || err); }
     try { projects.applyAutoHide(); } catch (err) { log.warn('[auto-hide] failed:', err?.message || err); }
-    if (changed) notifyRendererProjectsChanged();
+    // The worktrees the listed projects have on disk (#594) — the third row source, so a worktree with
+    // no sessions still has a row and somewhere to start one. It rides the sweep rather than a
+    // `get-projects` and carries a 30 s floor of its own, so how often this runs decides nothing.
+    //
+    // Its own `changed` joins the push condition, and that is not belt-and-braces: this sweep notifies
+    // only when the INDEX moved, and a new checkout moves no index at all. Without it a fresh worktree
+    // sat in the payload, correct and unrendered, until something unrelated happened to change a row.
+    let worktreeDirsMoved = false;
+    try {
+      worktreeDirsMoved = !!sessionCache.refreshWorktreeDirs().changed;
+    } catch (err) { log.warn('[worktree-dirs] refresh failed:', err?.message || err); }
+    if (changed || worktreeDirsMoved) notifyRendererProjectsChanged();
   },
   // A per-file apply (watcher hot path) pushes projects-changed so the sidebar learns of a new/updated
   // session; it rides each file reply (coalesced in the client).

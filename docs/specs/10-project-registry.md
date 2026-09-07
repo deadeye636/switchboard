@@ -235,11 +235,11 @@ why it is a note and not a guard.
   `handoffDir`/`planDir` against the path it is handed, so a packet written from a worktree lands inside
   the worktree — which is what you want. An **absolute** setting is not inside the worktree, so the escape
   guard drops it to the default there: the one case where a worktree does not get its project's answer.
-- **Visible without sessions — still not implemented (#594).** A sidebar row comes from a registration or
-  from a cached session, and a worktree now has neither: not registered by design, and no session when it
-  is fresh. So there is no row and nowhere to click "new session". It needs a third source — the
-  worktrees a project has on disk — and that is a directory listing per project, so it is a measurement
-  before it is a feature.
+- **Visible without sessions (#594).** A sidebar row came from a registration or from a cached session,
+  and a worktree has neither: not registered by design, and no session when it is fresh. So there was no
+  row and nowhere to click "new session" — the only way to get one was to start a session from outside
+  the app and wait for the scan. The third source is what a project holds ON DISK, and it is
+  `src/index/worktree-dirs.js`. Two decisions in it, both costed below.
 
 `worktreeRootOf` (`src/shared/worktree-path.js`) is the one answer to "whose sub-unit am I", beside
 `parseWorktreePath`'s "who is my parent". The register asks the first, the sidebar's nesting asks the
@@ -281,6 +281,54 @@ Windows, and the refusal reads like a legitimate "not a worktree layout".
 What `parseWorktreePath` does **not** answer: it is one level deep by design — "who is my parent", which
 for a nested worktree is another worktree. `worktreeRootOf` beside it answers "whose sub-unit am I" and
 walks to the top; the register, the admin rows and the settings cascade ask that one.
+
+### The third row source: what a project holds on disk (#594)
+
+`src/index/worktree-dirs.js` walks the three conventional directories under every LISTED project,
+follows what it finds down to `MAX_DEPTH` levels, and remembers the paths.
+`buildProjectsFromCache` reads that list after its two existing sources and adds a row for anything that
+has none yet — so a worktree with sessions keeps the row its sessions built, and one without gets an
+empty row carrying the name, the new-session button, and the hide and delete buttons the header already
+had.
+
+**Only a real `git worktree add` checkout gets a row.** `parseWorktreePath` answers about the SPELLING of
+a path, and an ordinary folder somebody left under `.worktrees/` matches it — the demo seeds exactly that
+case on purpose. Offering "start a session here" for that folder would be the app inventing a checkout,
+so the walk asks `isRealGitWorktree`, which reads the `.git` FILE. What it costs: one `stat` and a first
+line per candidate, and a worktree whose `.git` is momentarily unreadable is missing until the next pass.
+
+**Collected on the sweep, with a floor of its own — never per `get-projects`.** A directory listing per
+project per refresh is the cost shape #521 and #590 each paid for once: individually invisible,
+permanent in aggregate. `refreshWorktreeDirs()` is called from main's post-reconcile upkeep and returns
+immediately inside its 30 s floor, so what bounds the cost is the clock rather than how often anything
+asks. What it costs: a worktree created right now can take up to that floor to appear.
+
+**And the pass says whether the ANSWER moved, not merely that it ran** — that is what the push is
+conditioned on, alongside the sweep's own. The sweep notifies only when the INDEX moved, and a new
+checkout moves no index at all: measured in the demo, a fresh worktree sat in the payload, correct and
+unrendered, until something unrelated happened to change a row. Pushing on "a pass ran" instead would
+rebuild the sidebar on every quiet pass, which is the opposite mistake.
+
+**Two deduplication bugs were measured here, in opposite directions, and the code carries both.** One set
+keyed on raw strings gave 7 answers for 3 checkouts: the register holds a directory under several
+spellings, and each spelling composes a different candidate string for the same directory, which compounds
+with depth. One set keyed canonically then gave 1 answer for 3: a database written before discovery
+stopped registering worktrees hands them in AS projects, so a checkout was in the set as a starting point
+and its own discovery read as a duplicate of itself. What bounds the WALK and what bounds the ANSWER have
+to be two sets.
+
+It is deliberately **not** in the Claude cold-scan worker, which was the first idea and is what the issue
+suggested. That worker walks STORE folders rather than project paths, and its #589 gate skips almost all
+of them on a warm start — a listing hung off that loop would be blind exactly when it matters. A worktree
+also belongs to no backend, and a backend-neutral fact does not live in one backend's scan.
+
+The row is gated by the same visibility as every other: `isVisiblePath` resolves a worktree to its
+project, so a hidden project contributes none of these and a worktree the user hid keeps its own flag.
+**And the WALK asks that question too** — `refreshWorktreeDirs` collects for the projects
+`registry.isVisible` accepts, not merely the registered ones, because walking a hidden project's
+directories produces rows that are dropped one function later.
+And the row disappears when the checkout is deleted, which is the second reason the source has to be the
+filesystem rather than a remembered list.
 
 ### A worktree of a worktree hangs from the project (#586)
 

@@ -10,6 +10,11 @@ const { deriveProjectPath, normPath } = require('../session/derive-project-path'
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { parseWorktreePath, worktreeRootOf } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
+// The third row source (#594). A sibling require rather than a ctx entry: it is a leaf with no database
+// and no Electron, and a partially-initialised ctx (which every test hands us) would silently make the
+// source vanish instead of failing. Its answer is empty until something has called `refresh` — main's
+// post-reconcile upkeep does, on a floor of its own.
+const worktreeDirs = require('./worktree-dirs');
 
 let PROJECTS_DIR, activeSessions;
 let getAllMeta, getAllCached, getAllFolderMeta, setFolderMeta;
@@ -212,6 +217,36 @@ function buildProjectsFromCache(showArchived) {
       // Its recency: the last real activity when its sessions are merely archived; otherwise the moment
       // it was put on the list.
       lastActivity: lastActivityByPath.get(key) || state.registeredAt || null,
+    });
+  }
+
+  // …and every WORKTREE a listed project has on disk (#594). The third source, and the reason it exists:
+  // the two above are a registration and a cached session, and a worktree has neither — it is not
+  // registered by design, and a freshly created one has no session yet. So it had no row, and there was
+  // nowhere to click "new session" in the checkout an agent had just made.
+  //
+  // The listing itself is `index/worktree-dirs.js`, collected on the sweep with a floor of its own; this
+  // only reads what it found. A row here is a real `git worktree add` checkout — an ordinary folder that
+  // merely matches the layout is not offered as somewhere to start work.
+  //
+  // Gated on the same visibility every other row is: `isVisiblePath` resolves a worktree to its project,
+  // so a hidden project contributes none of these and a worktree the user hid keeps its own flag. And a
+  // path that already has a bucket is left alone — one with sessions is the FIRST source's row, with its
+  // sessions in it, and overwriting it here would empty it.
+  for (const worktreePath of worktreeDirs.list()) {
+    const key = normPath(worktreePath);
+    if (projectMap.has(key)) continue;
+    if (!isVisiblePath(worktreePath)) continue;
+    projectMap.set(key, {
+      folder: encodeProjectPath(worktreePath),
+      projectPath: worktreePath,
+      // It was on disk when the pass ran; `existsSync` here is about the moment the payload is built, and
+      // it is what makes the row disappear when the checkout is deleted rather than waiting for a pass.
+      missing: !fs.existsSync(worktreePath),
+      sessions: [],
+      // No activity of its own and none to invent: it sorts last among its project's worktrees, which is
+      // the honest place for a checkout nothing has happened in yet.
+      lastActivity: null,
     });
   }
 

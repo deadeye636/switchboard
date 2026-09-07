@@ -295,3 +295,74 @@ test('a worktree whose project has no row of its own still knows the path (#595)
   assert.equal(normPath(worktree.worktreeRoot), normPath(REGISTERED),
     'but the path is still there, so the row can say whose sub-unit it is');
 });
+
+// #594 — the third row source. `buildProjectsFromCache` reads what `worktree-dirs` found on disk, so a
+// worktree with no sessions still gets a row and somewhere to start one.
+const worktreeDirs = require('../src/index/worktree-dirs');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+const { worktreeDirsIn } = require('../src/shared/worktree-path');
+
+function seedWorktreeOnDisk(projectDir, name) {
+  const dir = nodePath.join(worktreeDirsIn(projectDir)[0], name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, '.git'), 'gitdir: ' + nodePath.join(projectDir, '.git') + '\n');
+  return dir;
+}
+
+test('a worktree with no sessions still gets a row (#594)', () => {
+  const project = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pv594-'));
+  const idle = seedWorktreeOnDisk(project, 'demo-idle');
+  worktreeDirs._reset();
+  worktreeDirs.refresh([project], { force: true });
+
+  setup([], { states: new Map([[project, REGISTERED_STATE]]) });
+  const projects = view.buildProjectsFromCache(false);
+  const row = projects.find(p => normPath(p.projectPath) === normPath(idle));
+  assert.ok(row, `the idle worktree must have a row, got: ${projects.map(p => p.projectPath).join(' | ')}`);
+  assert.deepEqual(row.sessions, [], 'and it has no sessions, which is the whole point');
+  assert.equal(normPath(row.nestUnder), normPath(project), 'it nests under its project like any other');
+  worktreeDirs._reset();
+});
+
+test('a worktree found on disk does not overwrite the row its sessions built (#594)', () => {
+  // The ordering trap: the disk pass runs after the cached rows, and a bucket it replaced would be a
+  // worktree whose sessions all vanished from the sidebar.
+  const project = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pv594-'));
+  const busy = seedWorktreeOnDisk(project, 'demo-busy');
+  worktreeDirs._reset();
+  worktreeDirs.refresh([project], { force: true });
+
+  setup([row('s', busy, '2026-01-03T00:00:00Z')], { states: new Map([[project, REGISTERED_STATE]]) });
+  const found = view.buildProjectsFromCache(false).find(p => normPath(p.projectPath) === normPath(busy));
+  assert.ok(found);
+  assert.deepEqual(found.sessions.map(s => s.sessionId), ['s'], 'its sessions survive the third source');
+  worktreeDirs._reset();
+});
+
+test('a worktree on disk under a HIDDEN project gets no row (#594)', () => {
+  // The third source is gated by the same visibility as the other two — a sub-unit of a hidden project
+  // is hidden, and a source that skipped that check would put the project back on screen one row at a time.
+  const project = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pv594-'));
+  seedWorktreeOnDisk(project, 'demo-idle');
+  worktreeDirs._reset();
+  worktreeDirs.refresh([project], { force: true });
+
+  setup([], { states: new Map([[project, { ...REGISTERED_STATE, hidden: 1 }]]) });
+  assert.deepEqual(view.buildProjectsFromCache(false), []);
+  worktreeDirs._reset();
+});
+
+test('a worktree the user hid gets no row even though it is on disk (#594)', () => {
+  const project = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'pv594-'));
+  const idle = seedWorktreeOnDisk(project, 'demo-idle');
+  worktreeDirs._reset();
+  worktreeDirs.refresh([project], { force: true });
+
+  setup([], { states: new Map([[project, REGISTERED_STATE], [idle, { hidden: 1 }]]) });
+  const projects = view.buildProjectsFromCache(false);
+  assert.equal(projects.length, 1, `only the project is left, got: ${projects.map(p => p.projectPath).join(' | ')}`);
+  assert.equal(normPath(projects[0].projectPath), normPath(project));
+  worktreeDirs._reset();
+});

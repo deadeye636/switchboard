@@ -27,7 +27,15 @@
 
 // <parent>/.claude/worktrees/<name>, <parent>/.claude-worktrees/<name>, <parent>/.worktrees/<name>,
 // with `/` or `\` between every segment and an optional trailing separator.
-const WORKTREE_PATH_RE = /^(.+?)[\\/]\.(?:claude[\\/]worktrees|claude-worktrees|worktrees)[\\/]([^\\/]+)[\\/]?$/;
+//
+// The three layouts as SEGMENTS, and the pattern is built from them (#594). Two readers need them in two
+// shapes — this one matches a path that already exists, `worktreeDirsIn` builds the directories to go
+// and LOOK in — and spelling them twice in one file is the same drift this module was created to end,
+// one scope smaller. The leading dot is added here so a segment list never carries it.
+const WORKTREE_DIRS = [['claude', 'worktrees'], ['claude-worktrees'], ['worktrees']];
+const WORKTREE_PATH_RE = new RegExp(
+  '^(.+?)[\\\\/]\\.(?:' + WORKTREE_DIRS.map(segs => segs.join('[\\\\/]')).join('|') + ')[\\\\/]([^\\\\/]+)[\\\\/]?$',
+);
 
 /**
  * Split a worktree path into the project it belongs to and its own name.
@@ -97,6 +105,25 @@ function worktreeLabelOf(p) {
 }
 
 /**
+ * Where a project's worktrees WOULD be: the three conventional directories, whether or not they exist.
+ *
+ * The other functions here answer about a path somebody already has. This one is the question asked
+ * before there is a path at all — #594 needs to list what a project holds on disk, because a worktree
+ * with no sessions has no row and therefore nowhere to start one. Still pure string work: it composes
+ * candidates, it does not go and look.
+ *
+ * Joined with `/`, which Node accepts on every platform and which `parseWorktreePath` reads back.
+ *
+ * @param {string} p  a project path
+ * @returns {string[]}  three candidate directories, or [] for a blank path
+ */
+function worktreeDirsIn(p) {
+  const base = String(p || '').replace(/[\\/]+$/, '');
+  if (!base) return [];
+  return WORKTREE_DIRS.map(segs => base + '/.' + segs.join('/'));
+}
+
+/**
  * Whose settings apply to this directory.
  *
  * A worktree is a sub-unit of its project and carries no settings of its own — so the cascade resolves
@@ -117,5 +144,5 @@ function settingsOwnerPath(p) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseWorktreePath, worktreeRootOf, worktreeLabelOf, settingsOwnerPath };
+  module.exports = { parseWorktreePath, worktreeRootOf, worktreeLabelOf, worktreeDirsIn, settingsOwnerPath };
 }

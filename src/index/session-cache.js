@@ -22,6 +22,11 @@ const indexWrites = require('./index-writes');
 const storeIndexer = require('../backends/claude/store-indexer');
 const backendScan = require('../backends/scan');
 const projectsView = require('./projects-view');
+const worktreeDirs = require('./worktree-dirs');
+// For the one question `refreshWorktreeDirs` asks about a register row. A pure leaf — no database, no
+// Electron — and the same module `projects-view.js` builds its `visible` map from, so the two cannot
+// start disagreeing about which projects are on screen.
+const registry = require('../projects/project-registry');
 
 // Claude's readers come off its descriptor, shared with the scan worker via the same module.
 const claude = backends.get('claude');
@@ -36,6 +41,34 @@ function init(ctx) {
   storeIndexer.init(ctx);
   backendScan.init(ctx);
   projectsView.init(ctx);
+  worktreeDirs.init(ctx);
+  _getProjectStates = (ctx && ctx.db && ctx.db.getProjectStates) || null;
+}
+
+// The register, for the one caller below. Kept here rather than in `worktree-dirs.js` so that module
+// stays a leaf with no database in it — it is handed paths and answers about the filesystem.
+let _getProjectStates = null;
+
+/**
+ * Re-collect the worktrees the VISIBLE projects have on disk (#594).
+ *
+ * Called from main's post-reconcile upkeep, which is what gives it the sweep's cadence; the floor inside
+ * `worktree-dirs.js` is what keeps that cadence from being the cost.
+ *
+ * `registry.isVisible`, not `state.registered`: a worktree is only ever drawn under a project that is on
+ * screen — `buildProjectsFromCache` gates every one of these rows on the same answer — so walking a
+ * hidden project's directories is work whose result is dropped on the floor. The one answer to "is this
+ * project shown", asked here as it is asked there.
+ */
+function refreshWorktreeDirs(opts) {
+  let paths = [];
+  try {
+    const states = _getProjectStates ? _getProjectStates() : new Map();
+    for (const [projectPath, state] of states) {
+      if (registry.isVisible(state)) paths.push(projectPath);
+    }
+  } catch { paths = []; }
+  return worktreeDirs.refresh(paths, opts);
 }
 
 module.exports = {
@@ -63,4 +96,6 @@ module.exports = {
   buildProjectsFromCache: projectsView.buildProjectsFromCache,
   buildProjectsAdmin: projectsView.buildProjectsAdmin,
   shouldAutoHide: projectsView.shouldAutoHide,
+  // --- worktrees on disk (worktree-dirs.js) ---
+  refreshWorktreeDirs,
 };

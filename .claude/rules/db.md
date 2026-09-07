@@ -32,8 +32,15 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
   (the Stats SQL, Electron-free so it can be tested)
 
 `src/index/session-cache.js` is a **façade** (#199) over `index-writes.js`,
-`index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js`.
-The workers themselves are `src/workers/`.
+`index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js` and
+`worktree-dirs.js`. **List the directory rather than trusting that line** — the same reason
+`.claude/rules/main-process.md` gives for `src/app/`. The workers themselves are `src/workers/`.
+
+`worktree-dirs.js` is the odd one and says so in its own header: it reads the FILESYSTEM, not the
+database, and it is the third source a sidebar row can come from (#594) — the worktrees a listed project
+holds on disk, so one with no sessions still has a row and somewhere to start a session. It carries a
+floor of its own because it is the shape #521 and #590 each paid for once, and `refreshWorktreeDirs` on
+the façade is the one way to drive it (main's post-reconcile upkeep does).
 
 ## `migrations.length` IS the schema version
 
