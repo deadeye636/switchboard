@@ -225,12 +225,35 @@ clauses there carry "the user opened it", which is the whole answer for a fold t
 reopens a user's collapse on every render otherwise. The worktrees fold copies `display` and toggles
 `expanded` explicitly for that reason.
 
+**Where the fold is INSERTED is three constraints, and each one is a bug if you get it wrong.** It goes
+before both the `.sessions-more-toggle` and the `.sidebar-orphan-subagents` anchor (the orphan group is
+appended last in either shape); it matches DIRECT children only, because `appendSubagentChildren` drops
+carets of its own into that list; and it sits INSIDE `.project-sessions`, because project collapse works
+through `.project-header.collapsed + .project-sessions` and a fold outside it would survive a collapse.
+
+**What "a project's worktrees" means has widened twice since, and the fold holds both.** Since #586 a
+worktree of a worktree is in there too, flat at one level — it attaches to the top-most project and is
+named `agent-a / hotfix-1` by `worktreeLabelOf`, because the indentation no longer says where it sits.
+Since #594 a fold row need not be backed by any session at all: the third row source is the worktrees a
+project holds on disk, so `processProjectSessions` can return a row with an empty session list and the
+header still carries the new-session, hide and delete buttons.
+
 ## A new control inherits NO styling
 
 A button with only a behaviour class renders as the browser's native control — a white box with
 black text next to your styled ones. Reuse an existing class (`.settings-action-btn`,
 `.new-session-secondary-btn`, `.backend-btn`, …) or add one; never ship a bare `<button>`. Same for
-popovers and overlays. This has bitten repeatedly.
+popovers and overlays. This has bitten repeatedly — most recently `.worktree-delete-btn` (#597), which
+had **no rule in `style.css` at all** and shipped as a light box with a black glyph, 14 × 19.5 px, next
+to two 16 × 16 transparent siblings in a dark sidebar. Nothing failed; it simply looked wrong to whoever
+opened that project.
+
+**And when you fix one, check what the ROW's hover does to it.** Those three buttons used to be hidden
+until `.worktree-header:hover` revealed them, and that rule outranks a button's own `:hover` on `opacity`
+(three compound selectors against two) — so a hover on the button was capped at the row's value. The old
+rules answered that with `!important`. Making the controls permanently visible let the row rule go
+entirely, and the `!important`s with it: a specificity fight is a smell that two rules are trying to own
+one property.
 
 **A dialog that holds work must not be dismissible by accident.** A stray backdrop click or a
 reflexive Escape closes a `showControlDialog` — fine for a question, wrong for anything holding

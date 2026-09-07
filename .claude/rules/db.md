@@ -37,10 +37,24 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
 `.claude/rules/main-process.md` gives for `src/app/`. The workers themselves are `src/workers/`.
 
 `worktree-dirs.js` is the odd one and says so in its own header: it reads the FILESYSTEM, not the
-database, and it is the third source a sidebar row can come from (#594) — the worktrees a listed project
-holds on disk, so one with no sessions still has a row and somewhere to start a session. It carries a
-floor of its own because it is the shape #521 and #590 each paid for once, and `refreshWorktreeDirs` on
-the façade is the one way to drive it (main's post-reconcile upkeep does).
+database, and it is the third source a sidebar row can come from (#594) — the worktrees a **visible**
+project holds on disk, so one with no sessions still has a row and somewhere to start a session.
+"Visible", not "listed", and the distinction is the one this repo keeps making elsewhere: a hidden or
+auto-hidden project's worktrees are dropped one function later, so walking them is work thrown away.
+It carries a floor of its own because it is the shape #521 and #590 each paid for once.
+
+**Two seams, not one, and each has a rule.** The WRITE side is `refreshWorktreeDirs` on the façade, which
+main's post-reconcile upkeep drives — and **its return value is a push condition**, not a status: it says
+whether the ANSWER moved, and main pushes `projects-changed` on that as well as on the sweep's own
+`changed`, because the sweep notifies only when the INDEX moved and a new checkout moves no index at all.
+A caller that drops the result re-creates a row that is correct in the payload and never rendered.
+The READ side is `list()`, called synchronously by `projects-view.js` while it builds a payload somebody
+is waiting for — which is why the module keeps no filesystem call on that path.
+
+Two placements that look like oversights and are not: the register read lives on the **façade**
+(`_getProjectStates`), so the module stays a leaf with no database in it; and `projects-view.js` requires
+it as a **sibling, deliberately not through ctx**, because every test hands that file a partial ctx and a
+missing entry there would make the third source silently vanish instead of failing.
 
 ## `migrations.length` IS the schema version
 

@@ -122,7 +122,10 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 - Compact per-session metric labels (turns, cache, active time, message count)
   with **green/amber/red** traffic-light levels for each metric and for
   last-activity age — so an at-risk session reads at a glance.
-- Worktree label extraction for sessions living under `.claude/worktrees/`.
+- Worktree label extraction for a session working in one — all three conventional layouts and either
+  separator since #582, and since #586 the whole chain (`agent-a / hotfix-1`) rather than the leaf, so two
+  checkouts of the same name under different agents do not read alike. `worktreeLabelOf`
+  (`src/shared/worktree-path.js`) is the one answer; every surface that names a worktree asks it.
 
 ### Usage monitoring (per backend, #191)
 `src/renderer/shell/usage-status.js`, `src/backends/usage-format.js`, `backends/<id>/usage.js`
@@ -549,6 +552,18 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   it listed and unseen; remove takes it off and leaves a tombstone, so the sessions on disk do not
   resurrect it — a *new* session does), a project with **no sessions** can be on the list, and
   discovery registers from **any** backend's store. Design record: `docs/specs/10-project-registry.md`.
+- **A worktree is a SUB-UNIT of its project, not a project beside it** (#582/#586/#593/#594/#595/#598).
+  All three conventional layouts, either separator, one pattern — the copies that existed before had
+  drifted so far apart that the nesting never ran on Windows at all. Discovery no longer registers one;
+  its visibility, its auto-hide and its settings all resolve to the project, walked up through however
+  many levels sit between. In the sidebar its worktrees are gathered under one caret carrying the count,
+  with anything RUNNING drawn beside the fold so a collapse can never hide work in progress; a worktree
+  created inside another hangs from the top-most project and its name carries the chain
+  (`agent-a / hotfix-1`). A checkout with no sessions still gets a row — the third row source is what the
+  project holds on disk, real `git worktree add` checkouts only, collected on the index sweep behind a
+  floor of its own. The project manager groups and indents the same rows, naming the parent in the cell
+  wherever a filter breaks the grouping. Hiding a worktree works and is undone from the manager's eye.
+  Design record: `docs/specs/10-project-registry.md`.
 - **Sidebar** — favorite projects, an own favorites list, and a startup-collapse setting.
 - **View menu** — the project order (Activity / A–Z / Manual) sits in the
   sidebar, where the list is, instead of only behind the settings dialog. What it sets is an override

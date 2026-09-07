@@ -44,7 +44,7 @@ They always existed as three. Two of them shared one code path, and that was the
 | state | on the list? | what brings it back |
 |---|---|---|
 | **auto-hidden** (#57) | yes | activity, or an unhide. It is a staleness *view* and it resets itself. |
-| **hidden** (manual) | yes | only an unhide. New sessions do **not** unhide it — that is the point of saying "hide". Its sessions keep being indexed, so unhiding shows them at once. |
+| **hidden** (manual) | yes — **except a worktree**, which may carry this flag with no registration at all (see "What a worktree IS") | only an unhide. New sessions do **not** unhide it — that is the point of saying "hide". Its sessions keep being indexed, so unhiding shows them at once. |
 | **removed** | no (+ tombstone) | a session **newer than the tombstone**, or a manual add. The sessions it left behind do not. |
 
 Precedence: **removed > hidden > auto-hidden**. A removal clears the hide flags — `hidden` qualifies a
@@ -209,10 +209,12 @@ Where each half stands:
   fold walks to the top, so a worktree of a worktree reaches the project. A worktree is never judged on
   its own.
 One write path is NOT covered and it is named here rather than discovered later: the settings import
-(`importProjects` in `src/app/settings.js`) writes `registered: 1` for every project in the file without
-asking what it is, so an export made before this can put a worktree back on the list. Nothing follows from
-it any more — visibility, the sweep and the settings cascade all ignore a worktree's own registration — which is
-why it is a note and not a guard.
+(`importProjects` in `src/app/settings-transfer.js`; `src/app/settings.js` only calls it) writes
+`registered: 1` for every project in the file without asking what it is, so an export made before this
+can put a worktree back on the list. Little follows from the registration — visibility, the sweep and the
+settings cascade all ignore a worktree's own. **It writes `hidden` too, though, at the raw path**, and
+since #599 that flag is read: an import can hide or un-hide a worktree as a side effect of restoring a
+project. Still a note rather than a guard, and now a note with a consequence.
 
 - **Settings are the project's (#593).** `effectiveSettings` resolves the owner through
   `settingsOwnerPath` and then cascades its ordinary two levels — no third scope, because nobody
@@ -242,8 +244,11 @@ why it is a note and not a guard.
   `src/index/worktree-dirs.js`. Two decisions in it, both costed below.
 
 `worktreeRootOf` (`src/shared/worktree-path.js`) is the one answer to "whose sub-unit am I", beside
-`parseWorktreePath`'s "who is my parent". The register asks the first, the sidebar's nesting asks the
-second, and a worktree inside a worktree is where they differ.
+`parseWorktreePath`'s "who is my parent". **Since #586 every ownership question asks the first** — the
+register, the admin rows, the settings cascade, the sidebar's nesting, the delete handler's repo, the
+unlisted notice and the auto-hide fold. Grep for the callers rather than trusting that list. The
+one-level answer survives as a yes/no "is this a worktree at all" (discovery's refusal, the hide/unhide
+exception, `derive-project-path`), and the sidebar's nesting is the reader that moved between the two.
 
 **Two questions the model did NOT answer by itself, both now settled — the reasoning is under #583
 below.** #591 asked whether the unlisted-projects notice suppresses a worktree while its parent is
@@ -264,7 +269,8 @@ that had been built and tested never ran on Windows at all, and nobody noticed b
 worktree standing in the list as an unrelated project, which looks like a choice.
 
 `src/shared/worktree-path.js` is the one answer now — both separators, all three layouts — and a guard
-walks `src/` and fails on a fifth copy. A **sixth** caller joined in #596: `buildProjectsFromCache`
+walks `src/` and fails on a copy of the layout wherever it appears. **Do not write down how many callers
+there are**; grep for the require. `buildProjectsFromCache` joined them in #596 and
 asks it once per project so the renderer no longer has to. The renderer had been pairing the worktree with
 its parent by a raw `===` on two path spellings, and `buildProjectsFromCache` exposes a DISPLAY spelling
 per row — whichever source filled the bucket. One directory therefore arrived spelled two ways, the compare
@@ -280,12 +286,21 @@ Windows, and the refusal reads like a legitimate "not a worktree layout".
 
 What `parseWorktreePath` does **not** answer: it is one level deep by design — "who is my parent", which
 for a nested worktree is another worktree. `worktreeRootOf` beside it answers "whose sub-unit am I" and
-walks to the top; the register, the admin rows and the settings cascade ask that one.
+walks to the top, and that is what every ownership question asks (see above).
+
+**The three layouts are a LIST, and the pattern is built from it.** `WORKTREE_DIRS` holds them as
+segments; the regex is composed from that list, and `worktreeDirsIn` composes the candidate directories
+to go and LOOK in from the same one (#594 needs those, because listing what a project holds on disk is
+asked before there is a path at all). So "where a worktree can be" and "what counts as one" cannot drift
+apart, and a fourth layout is one edit. Adding a function that spells a layout itself is the fifth copy
+the guard exists to catch.
 
 ### The third row source: what a project holds on disk (#594)
 
-`src/index/worktree-dirs.js` walks the three conventional directories under every LISTED project,
-follows what it finds down to `MAX_DEPTH` levels, and remembers the paths.
+`src/index/worktree-dirs.js` walks the three conventional directories under every VISIBLE project,
+follows what it finds down to `MAX_DEPTH` levels (three — a second level is ordinary in an agent-driven
+checkout, a third has never been seen, and a filesystem walk does not get to be open-ended), and
+remembers the paths.
 `buildProjectsFromCache` reads that list after its two existing sources and adds a row for anything that
 has none yet — so a worktree with sessions keeps the row its sessions built, and one without gets an
 empty row carrying the name, the new-session button, and the hide and delete buttons the header already
@@ -383,7 +398,9 @@ needs the first anyway:
 An HTML table cannot nest rows, so the grouping is **ordering plus indentation**: `groupWorktrees` pulls
 each worktree out and re-inserts it after its parent, `rowHtml` takes a `grouped` flag, and the `<tbody>`
 stays flat — so `refreshRow`'s single-row swap and the delegated `data-path` handler are untouched
-(`refreshRow` re-derives the flag, or a re-checked row would lose its indent). **Only worktrees move.**
+(`refreshRow` READS the flag the table was drawn with, out of the `groupedNow` map `rowsHtml` fills — it
+swaps one `<tr>` into a table it did not build, and it replaces `data` first, so re-deriving there would
+answer about a row set nobody is looking at). **Only worktrees move.**
 The panel had no ordering at all and a full sort would have reordered every row in the table to group the
 handful that needed it.
 
@@ -397,10 +414,20 @@ same canonical match `buildProjectsFromCache` hands the sidebar. The two surface
 which project a worktree belongs to, including a nested one. `worktreeRoot` stays beside it as the raw
 path, because that is the answer when there is no row and the cell still has to name something.
 
-**Two things stay wrong on a worktree row and are out of scope here:** Remove means "off the list, cached
-sessions cleared" here while the sidebar's worktree header offers "Delete worktree from disk" — two
-meanings of deleting one thing, neither mentioning the other; and Settings and Rename are offered on a
-worktree row and write against the worktree's own key.
+**And it is answered TWICE, which is not a redundancy.** `buildProjectsAdmin` fills it in for the rows it
+built; `getProjectsAdmin` then appends the projects that exist only in a backend's own config, and re-runs
+the pairing over the whole set. Two cases force that second pass: a worktree known only to a backend's
+config arrives with nothing filled in, and a config-only PROJECT is a row a cached worktree can now group
+under. A reader who fills it in once, in the builder, gets a flat unglyphed row for the first case and a
+missed grouping for the second. That pass has no test — there is no harness for the config-only branch.
+
+**Two things stay unresolved on a worktree row and are out of scope here.** Remove means "off the list,
+cached sessions cleared" here while the sidebar's worktree header offers "Delete worktree from disk" —
+two meanings of deleting one checkout, in two places, neither mentioning the other. And the row offers
+**Settings**, which since #593 opens on the PROJECT (`settingsQuery` resolves through `settingsOwnerPath`
+before the URL is built) — correct, and still a button that silently acts on a different row than the one
+it sits in. **Rename** does write against the worktree's own key, and that is deliberate rather than a
+defect: `displayName` is identity, and renaming a worktree must not rename its project.
 
 ### A worktree is not a project to add (#583)
 
@@ -473,6 +500,11 @@ together is a change of its own.
 | `syncRegistry()` before the list is built; one visibility rule for every view | `src/main.js` |
 | "Listed" toggle (both modes), hide ≠ remove | `src/renderer/panels/projects-admin.js`, `src/renderer/shell/sidebar.js` |
 | The "not on your list" line + the manager's filter (#183) | `src/renderer/app.js`, `src/renderer/panels/projects-admin.js` |
+| Is this a worktree, of what, and what is it called — one pattern, one segment list (#582, #586, #594) | `src/shared/worktree-path.js` (`parseWorktreePath` / `worktreeRootOf` / `worktreeLabelOf` / `worktreeDirsIn` / `settingsOwnerPath`) |
+| The third row source: the worktrees a visible project holds on disk (#594) | `src/index/worktree-dirs.js`, driven by `refreshWorktreeDirs` on `src/index/session-cache.js` from main's post-reconcile upkeep |
+| Which row a worktree nests under, on both surfaces (#586, #595, #596) | `src/index/projects-view.js` (`nestUnder`), re-answered for config-only rows in `src/projects/projects.js` |
+| A worktree reads its project's settings, and the window says which worktree it was opened from (#593) | `src/app/settings.js` (`effectiveSettings`), `src/app/windows.js` (`settingsQuery`) |
+| Grouping worktree rows under their project in the manager (#595) | `src/renderer/panels/projects-admin.js` (`groupWorktrees`), `src/renderer/style.css` (`.pa-worktree*`) |
 
 ## Which project a session belongs to (#157, #182)
 
@@ -699,6 +731,12 @@ used to throw the answer away entirely.
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was
   removed from Switchboard — but it is a behaviour change worth knowing.
+- **Three worktree consequences, each stated where it was decided and collected here so they are not
+  rediscovered one at a time.** A worktree the user hid, whose project is later removed, is on no
+  discovery surface at all — the project manager's row is the only thing that still names it (#599).
+  "Remove" in the manager and "Delete worktree from disk" on the sidebar header are two unrelated
+  meanings of deleting one checkout, and neither mentions the other. And the settings import writes a
+  worktree's `hidden` flag at the raw path, so restoring a project can hide or un-hide its worktrees.
 - The sweep's "no session anywhere" check sees a backend store only once that backend has been scanned in
   the current run. It errs on the safe side: an unscanned store means the tombstone is **kept**.
 - ~~Whether removing a project should be refused while a CLI this app started is running in it~~ —

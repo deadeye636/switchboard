@@ -211,9 +211,17 @@ table is the fallback and it is binding.
     says it is a wiring guard.
     **The exception is identity, not settings.** `displayName` is written against the row's OWN path,
     because renaming a worktree must not rename the project it sits in — the same blob holds both, and
-    only the cascading half resolves. `worktreeRootOf` beside it answers "whose sub-unit am I"; the
-    register, the admin rows and the settings cascade ask that, while the sidebar's nesting asks
-    `parseWorktreePath`'s "who is my parent".
+    only the cascading half resolves.
+    **`worktreeRootOf` beside it answers "whose sub-unit am I", and since #586 that is what EVERY
+    ownership question asks** — the register, the admin rows, the settings cascade, the sidebar's nesting,
+    the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather
+    than trusting that list. `parseWorktreePath`'s one-level "who is my parent" survives only as a yes/no
+    "is this a worktree at all"; the sidebar used to ask it for the nesting and no longer does.
+    **And a worktree is NAMED by `worktreeLabelOf`, never by splitting the path yourself.** It spells
+    every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
+    nested worktree sits once #586 draws it beside its own parent — five surfaces call it (the sidebar
+    row, the hide and delete dialogs, the session card, the settings window title) and a sixth that
+    reaches for `.split()` will name two checkouts identically. Nothing guards this one yet.
 
 ## Backlog & workflow
 
@@ -254,7 +262,7 @@ absent from the installer.
 | `src/shared/**` | the modules **both** processes load — **list the directory**, an enumeration here goes stale (`worktree-path` joined the four in #582) |
 | `src/renderer/**` | vanilla JS, no framework; plain `<script>` tags, morphdom, `@xterm/xterm`, CodeMirror via esbuild |
 | `src/db/**` | `db.js` = façade (#217) over `connection`/`schema`/`migrations` + the stores |
-| `src/index/**` | `session-cache.js` = façade (#199) over the index/search worker clients |
+| `src/index/**` | `session-cache.js` = façade (#199) — **list the directory**, "the worker clients" is not what it holds: `projects-view.js` builds the sidebar/admin rows and `worktree-dirs.js` reads the FILESYSTEM (#594) |
 | `src/workers/**` | the scan + search workers |
 | `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js`, `record-claim.js` |
 | `src/backends/**` | one folder per coding CLI + `index.js` registry + the shared modules beside them (`file-store.js`, `capabilities.js`, `cli-probe.js`, `resource-expand.js`, … — **list the directory**) |

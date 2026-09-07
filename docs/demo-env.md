@@ -159,8 +159,8 @@ delete its `.git` and rerun `demo:seed`.
 
 ### Worktrees
 
-A worktree is a sub-unit of its project — it inherits the project's settings (shipped), and it is meant to
-be visible whether or not it has sessions (#594, **not** shipped; that is what `demo-idle` below is for).
+A worktree is a sub-unit of its project — it inherits the project's settings (#593) and is visible whether
+or not it has sessions (#594). Both shipped; `demo-idle` below is the fixture for the second.
 The model is in `docs/specs/10-project-registry.md`. None of that could be looked at here,
 because the seed built five projects and no worktree at all: every question about nesting, inheritance
 and visibility had to be asked against somebody's own development checkout. `demo-alpha` now carries
@@ -170,7 +170,7 @@ five shapes.
 |---|---|---|
 | **demo-feature** | `<alpha>/.claude/worktrees/demo-feature` | the ordinary case — a worktree with sessions, nested under its project |
 | **demo-hotfix** | inside `demo-feature`'s own worktrees directory | a worktree of a worktree; it hangs from the project beside its own parent and reads `demo-feature / demo-hotfix` (#586) |
-| **demo-idle** | `<alpha>/.claude/worktrees/demo-idle` | a worktree with **no** sessions — it gets its row from the disk pass (#594), with a new-session button and nothing else |
+| **demo-idle** | `<alpha>/.claude/worktrees/demo-idle` | a worktree with **no** sessions — it gets its row from the disk pass (#594), carrying the header's new-session, hide and delete buttons and the VCS glyph, with an empty session list under it |
 | **demo-stale** | `<alpha>/.claude/worktrees/demo-stale` | a plain directory git has never heard of — only the path spelling calls it a worktree, and #594's walk therefore gives it no row |
 | **demo-alpha-detached** | `<demo>/projects/demo-alpha-detached` | a real worktree outside the conventional layout: git calls it one, the spelling does not |
 

@@ -71,9 +71,10 @@ function run(now) {
   clearFloor();
   lastSweepAt = now;
   // The whole reconcile + backend sweep runs off-thread. index-worker-client applies the reply on main
-  // and then runs syncRegistry + applyAutoHide + the projects-changed push itself (the `afterReconcile`
-  // hook wired at init), so there is nothing to fold in here. It also coalesces a burst into one
-  // in-flight + one trailing sweep of its own — this module decides whether to ask at all.
+  // and then runs main's own upkeep itself (the `afterReconcile` hook wired at init) — syncRegistry,
+  // applyAutoHide, the worktree-directory collection (#594) and the projects-changed push — so there is
+  // nothing to fold in here. It also coalesces a burst into one in-flight + one trailing sweep of its
+  // own — this module decides whether to ask at all.
   postReconcile();
 }
 

@@ -56,6 +56,13 @@ switches over.
 them. Nothing goes missing quietly: sessions in projects that are not on your list stay indexed and
 searchable, and a line under the sidebar says how many there are and offers to add them.
 
+**A worktree belongs to its project, and behaves like it.** Checkouts under `.claude/worktrees/` and the
+two layouts beside it are gathered under one caret in their project's row, not scattered through the list
+as if they were projects of their own — a worktree created inside another one included. They read the
+project's settings, they are hidden when it is, and a fresh checkout with no sessions still gets a row
+you can start a session in. Anything running is drawn outside the fold, so collapsing it can never hide
+work in progress.
+
 **Your repository, in the app.** A git glyph on every project header opens a changes window: files
 grouped by state, renames as `old → new`, click one and its diff expands inline. Polling never takes
 git's index lock, so it cannot fight the agent working in that repo.

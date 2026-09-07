@@ -100,6 +100,12 @@ field for it anywhere in the app, so the only way to change it was to export the
 and import it back. And a project that did override it was ignored anyway, because `planDirCandidates()`
 asked the cascade with `null` while `planDir` beside it resolved per project correctly.
 
+**A WORKTREE inherits the name, not the directory.** It reads its project's settings (#593), and
+`conventionDirs` resolves that relative name against the path it is handed — so plans written from a
+worktree live in the worktree, which is where the work they describe is. An absolute `planDir` is not
+inside the worktree and the escape guard drops it to the default there: the one case where a worktree
+does not get its project's answer. Same rule for handoffs, `docs/specs/25-handoffs.md`.
+
 That combination is worth naming, because nothing could see it. A setting that reads as global-only
 *because it behaves that way by accident* looks exactly like a setting that is global by decision — and
 the Plans tab renders identically either way unless a project actually has a directory the global list

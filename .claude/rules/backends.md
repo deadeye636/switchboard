@@ -151,9 +151,13 @@ anywhere else is the same bug again**, and it fails the way this one did: silent
 **And two of them live outside this file**, which is how they were missed when #566 was written — an
 enumeration that only looked where the fix was. The settings **import** writes a register row per project
 in the imported file — **and it does not ask what the path is**, so an export made before a worktree
-stopped being registered can put one back on the list (`importProjects`, `src/app/settings.js`). Nothing
-follows from that any more: visibility, the auto-hide sweep and the settings cascade all ignore a
-worktree's own registration. It is a note rather than a guard, and it is written down so the next reader
+stopped being registered can put one back on the list (`importProjects`, `src/app/settings-transfer.js`;
+`src/app/settings.js` only calls it). Little follows from the registration itself: visibility, the
+auto-hide sweep and the settings cascade all ignore a worktree's own. **But it writes `hidden` too, at
+the raw path, and that flag is no longer ignored** — since #599 a worktree is the one shape that carries
+`hidden` without `registered`, and `unlistedProjects` and the project manager's eye both read it. An
+import can therefore hide or un-hide a worktree as a side effect of restoring a project. It is a note
+rather than a guard, and it is written down so the next reader
 does not have to rediscover it — and the **worktree removal** un-registers a directory the renderer named. Neither
 path had ever seen the register. `registeredPathFor` is exported for them, and main.js wraps the
 `setProjectState` it hands `app/settings.js` rather than that module requiring this one — `projects.js`
@@ -170,6 +174,11 @@ half rather than its own copy. The three:
   under another, and it offered the removed project straight back, while its own docstring claimed it could
   not contradict the register. The admin row's spelling comes out of `deriveProjectPath` — the CLI's raw
   cwd — so the divergence needs nothing exotic. It keys the register ONCE and looks each row up.
+  Two things about that function moved after #579 and are easy to miss when reading it: it skips a row
+  carrying `hidden` **before** it reaches the register lookup at all (#599 — a worktree is the one shape
+  that can carry the flag unregistered), and the parent it asks about is `worktreeRootOf`, the project,
+  not the immediate parent (#586) — while still asking `registry.isVisible` about it rather than
+  `registered` (#591, decided).
 - **`isRemovedProject`**, which runs per session in the scan loop and therefore may not do what
   `registeredPathFor` does. Three tiers, and the ordering IS the fix: the primary-key lookup it always was
   (a registered row for the caller's own path settles it, at the old cost), then `getProjectTombstones` —
@@ -215,9 +224,15 @@ the project the user is working in off the list for as long as that terminal is 
   cannot even ask again. The on-the-list toggle is the third: it threw the answer away entirely.
   `test/project-refusal-stops-action.test.js` pins all three shapes. **A fourth existed and is not in
   that file:** the sidebar's `hideWorktree` opened a confirmation dialog, called `hideProject`, and threw
-  the answer away — and `hideProject` refuses a path that is not on the list, which every worktree is. So
+  the answer away — and `hideProject` refused a path that was not on the list, which every worktree is. So
   the dialog was a confirmation followed by nothing at all. Fixed in `sidebar-events.js` (it reads the
   result and says so), unguarded: a fifth of this family goes in that test, or this line grows again.
+  **Both halves of that sentence have since changed and the reason is gone, so do not read it as current
+  behaviour:** `hideProject` now takes a worktree BEFORE it reaches that refusal (`projects.js`, the
+  `parseWorktreePath` branch), writing `hidden` through `registeredPathFor` — a worktree is the one shape
+  that may carry `hidden` without `registered`, because discovery can never register one. `unhideProject`
+  has the mirror and clears `autoHidden` with it. What is left of the original defect is only the
+  renderer's obligation to READ the answer.
 - **And a delete that removed NOTHING is that same failure through the success path (#580).** A
   `deleteSessions` that threw was logged and skipped; one answering `{removed: 0}` was skipped in silence.
   Either way `deleted` and `refused` came back empty together, so the renderer fired no toast at all and

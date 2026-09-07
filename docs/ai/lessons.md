@@ -1021,3 +1021,47 @@ unbuilt: a user-triggered repaint that nudges the PTY by one column (cheap — t
 from #27 already exists), and an automatic nudge on every busy→idle edge (rejected: visible flicker after
 every turn, and mid-output resizes have their own history in #27). Re-check against a new Claude CLI
 release before building either.
+
+## One set cannot bound both the walk and the answer (#594)
+
+`worktree-dirs.js` walks a project's conventional directories and reports the real checkouts it finds. The
+first version deduplicated with one `Set` on the raw path string. On a live demo instance it reported
+**7 worktrees for 3 checkouts**.
+
+The register holds one directory under several spellings — a cwd out of a transcript, a drive-letter case,
+a trailing separator — so the same project is handed in more than once, and each spelling composes a
+different candidate string for the same directory. Deduplicating on the string therefore deduplicated
+nothing, and it compounds with depth: once per spelling of the project, then again per spelling of every
+worktree above.
+
+Keying that one set canonically fixed the count and broke the answer: **1 for 3**. A database written
+before discovery stopped registering worktrees hands them in AS projects, so a checkout was already in the
+set as a *starting point*, and its own discovery then read as a duplicate of itself.
+
+- **What bounds the WALK is not what bounds the ANSWER.** `visited` stops one directory being searched
+  twice; `foundKeys` stops one checkout being reported twice. A path can legitimately be in both, and the
+  moment one set does both jobs it is wrong in one direction or the other.
+- **Both numbers came from the log line, not from a test.** The module logs what it found and under how
+  many projects; the tests that now pin both cases were written after the counts had already said
+  something was wrong. A collector that does not say how much it collected fails silently in both
+  directions — 7-for-3 is invisible in a UI that deduplicates downstream, and 1-for-3 looks like "the
+  feature does not work yet".
+
+## A new source riding an existing notification inherits its gate (#594)
+
+The third sidebar row source was correct in the payload and never appeared on screen. `getProjects`
+returned the row; the sidebar did not draw it until something unrelated happened.
+
+`afterReconcile` pushes `projects-changed` only when the sweep reports the INDEX moved — which is right
+for the two sources that existed, because both are made of rows the index writes. A worktree created on
+disk moves no index at all: it is a directory somebody made, not a session anybody wrote. So the collector
+ran, found the checkout, and the one notification that would have told the renderer was gated on a
+question the new source cannot answer yes to.
+
+- **A collector that rides someone else's notification has to say whether IT changed anything.**
+  `refresh()` reports whether the answer MOVED, not whether a pass ran, and main pushes on that as well.
+  Reporting "a pass ran" would have rebuilt the sidebar on every quiet pass — the opposite mistake, and
+  the one that is easy to reach for because it needs no comparison.
+- **The symptom is indistinguishable from "not implemented".** The payload was right the whole time, so
+  every check short of opening the app agreed the feature worked. What found it was looking at the
+  rendered sidebar after a launch that changed nothing else.

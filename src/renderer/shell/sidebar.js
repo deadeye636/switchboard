@@ -578,7 +578,9 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     && !(typeof showFavoritedProjectsOnly !== 'undefined' && showFavoritedProjectsOnly);
   let sawFavorite = false;
   let dividerDone = false;
-  // The parent comes from `worktreeOf` on the row (#596). The renderer used to derive it here and look
+  // The parent comes from `nestUnder` on the row (#596) — NOT `worktreeOf`, which is a different field on
+  // a different payload (`unlistedProjects`, #583) and answers a different question. The renderer used to
+  // derive it here and look
   // it up with `===`, which misses the same directory spelled two ways — and misses it silently, because
   // a worktree is skipped as a top-level group whether or not a parent was found. Main answers it now,
   // against the canonical path; the NAME is still asked here, which is a question about the spelling and

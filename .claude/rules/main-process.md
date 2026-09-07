@@ -139,6 +139,24 @@ what people skip: a reader who does not already know a module exists has no reas
 So the price of the list is that **whoever adds a module to `src/app/` adds its line here** — and until
 that has a guard, list `src/app/` yourself before assuming an area has no home yet.
 
+## The post-reconcile upkeep is THREE steps, and the third decides whether anyone is told (#594)
+
+`afterReconcile` in `src/main.js` is what the index worker calls after it applies a sweep, and it is the
+one place main's own bookkeeping hangs off. It runs `syncRegistry`, `applyAutoHide` and — since #594 —
+`sessionCache.refreshWorktreeDirs()`, which re-collects the worktrees the visible projects hold on disk.
+
+**Its answer joins the push condition, and that is the part to keep.** The sweep notifies the renderer
+only when the INDEX moved, and a new worktree checkout moves no index at all: it is a directory somebody
+created, not a session anybody wrote. So the row was in the payload, correct, and never rendered until
+something unrelated happened to change a row. `if (changed || worktreeDirsMoved)` is what fixes that, and
+the collector reports whether its ANSWER moved rather than whether it ran — pushing on "a pass ran" would
+rebuild the sidebar on every quiet pass instead.
+
+What keeps this affordable is not this file: the collector carries a floor of its own (`src/index/worktree-dirs.js`,
+`.claude/rules/db.md`), so how often `afterReconcile` fires decides nothing about the filesystem cost. A
+fourth step added here inherits the same obligation — say whether it changed anything, or the push
+condition silently stops covering it.
+
 ## Quitting WAITS, and both kill sites go through one module (#424)
 
 `pty.kill()` is asynchronous. Firing it at every session and letting the process exit is not a teardown,

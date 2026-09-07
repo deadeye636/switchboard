@@ -66,6 +66,14 @@ reading decision, and it would silently move where future packets land.
 Both are in the cascade, both are project-relative, and a path that escapes the project root is refused
 wherever it comes from, including the folder picker offered after a failed write.
 
+**In a WORKTREE that relativity is the whole behaviour, and it is the one place a worktree does not get
+its project's answer.** A worktree reads its project's settings (#593), so it inherits the *name* —
+`conventionDirs` then resolves that name against the path it is handed, and a packet written from a
+worktree lands inside the worktree. That is what you want: the packet belongs with the checkout it
+describes. An **absolute** setting is a different story — it is not inside the worktree, so the escape
+guard drops it to the default there rather than writing outside. `docs/specs/10-project-registry.md`
+carries the same note from the settings side.
+
 `prompts/` is **not** in the default read list even though the skills write there first. In many
 repositories that directory is prompt assets, and scanning it offers files that are not handoffs at all.
 A project that does keep them there adds it.
