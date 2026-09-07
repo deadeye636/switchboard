@@ -228,6 +228,18 @@
       .flatMap(bid => (row.meta[bid] || []).map(c => c.value))
       .filter(Boolean)
       .join(' · ');
+    // On a worktree row this button opens the PROJECT's settings — `settingsQuery` resolves through
+    // `settingsOwnerPath` (#593), because a worktree carries no settings of its own. Correct, and still a
+    // button that acts on a different row than the one it sits in, so it names whose settings it opens.
+    // The settings screen says the same thing once it is open; this is the half that reaches the user
+    // BEFORE the click. `parentName` is the same answer the `in <project>` cell gives, so the two cannot
+    // disagree about which project a worktree belongs to.
+    //
+    // Rename beside it is deliberately NOT relabelled: it writes against the worktree's own key, because a
+    // display name is identity and renaming a worktree must not rename its project.
+    const settingsTitle = isWorktree
+      ? `Open the settings of ${parentName(row)} — a worktree has none of its own`
+      : "Open this project's settings";
     return `
       <tr data-path="${escapeHtml(row.projectPath)}" class="${rowClass}">
         <td class="pa-name">
@@ -250,7 +262,7 @@
           : 'Click to make it a favourite — favourites are pinned to the top of the sidebar, ahead of every other project.')}</td>
         ${allowCol}
         <td class="pa-actions">
-          <button data-action="settings" title="Open this project's settings">Settings</button>
+          <button data-action="settings" title="${escapeHtml(settingsTitle)}">Settings</button>
           <button data-action="rename" title="Rename (display name)">Rename</button>
           <button data-action="remap" title="Remap to another folder">Remap</button>
           <button data-action="remove" class="pa-danger" title="Remove from Switchboard (off the list, cached sessions cleared)">Remove</button>

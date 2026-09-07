@@ -2042,3 +2042,30 @@ test('#599: the two hides are different questions — the parent\'s does not ans
     assert.strictEqual(res.projects[0].worktreeOf, parent);
   } finally { t.cleanup(); }
 });
+
+// The manager's Settings button, read as SOURCE for the same reason the #580 guard above is: this panel
+// is a classic renderer script with no seam a `node --test` process can reach.
+//
+// On a worktree row that button opens the PROJECT's settings — `settingsQuery` resolves through
+// `settingsOwnerPath` (#593) — which is correct and is still a control acting on a row other than the one
+// it sits in. The title is the only thing that says so before the click, and the regression that will
+// actually happen is somebody folding the two titles back into the one literal that was there before.
+test('the manager names whose settings a worktree row opens', () => {
+  const src = stripComments(fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'panels', 'projects-admin.js'), 'utf8'));
+
+  const decl = src.indexOf('settingsTitle');
+  assert.ok(decl !== -1, 'rowHtml still works out a title for the Settings button');
+  const branch = src.slice(decl, src.indexOf('return `', decl));
+  assert.match(branch, /isWorktree/,
+    'and it still asks whether this row is a worktree');
+  assert.match(branch, /parentName\(row\)/,
+    'naming the parent through the same answer the `in <project>` cell gives, so the two cannot disagree');
+
+  assert.match(src, /data-action="settings" title="\$\{escapeHtml\(settingsTitle\)\}"/,
+    'the button carries that title, escaped — a display name is user input');
+  // Rename sits beside it and must NOT be relabelled: it writes against the worktree's own key, because a
+  // display name is identity and renaming a worktree must not rename its project (#586).
+  assert.match(src, /data-action="rename" title="Rename \(display name\)"/,
+    'Rename beside it still speaks for the row it sits in');
+});
