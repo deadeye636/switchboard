@@ -158,9 +158,10 @@ window teardown, `detach.closeAll()`, the final bounds write. What is left behin
 broken teardown — the main window gone, its detached windows still standing, the app alive with no way
 back to them — and reading it that way cost most of an afternoon in #371.
 
-To close it the way a user does, send `WM_CLOSE` to the window itself
-(`.claude/scratchpad/close-main-window.ps1` in this checkout, if it is still there — the tree is
-gitignored). Two things it has to get right, and both matter:
+To close it the way a user does, send `WM_CLOSE` to the window itself. There used to be a
+`close-main-window.ps1` in the scratchpad; that tree is gitignored and has since been emptied, so treat
+the two rules below as the recipe rather than the file as the artifact — they are the whole of it, and a
+script written from them is a few lines. Both matter:
 
 - **Enumerate top-level windows**, not `Process.MainWindowTitle`. Every Electron window belongs to one
   process, and that property names exactly one of them, arbitrarily.
