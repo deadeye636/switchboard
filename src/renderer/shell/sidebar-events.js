@@ -601,8 +601,11 @@ async function hideWorktree(wtProject) {
   // Through the shared helper, not a split on one separator: the path here is the resolved cwd out of a
   // transcript, which on Windows is spelled with backslashes — so `split('/')` handed the dialog the
   // whole path as the worktree's "name".
-  const parsed = typeof parseWorktreePath === 'function' ? parseWorktreePath(wtProject.projectPath) : null;
-  const name = (parsed && parsed.name) || wtProject.projectPath.split(/[\\/]/).filter(Boolean).pop();
+  // `worktreeLabelOf` (#586), so the dialog names the checkout the way the row the user clicked does —
+  // for a worktree of a worktree that is `agent-a / hotfix-1`, and the bare last segment would name two
+  // different checkouts identically.
+  const label = typeof worktreeLabelOf === 'function' ? worktreeLabelOf(wtProject.projectPath) : null;
+  const name = label || wtProject.projectPath.split(/[\\/]/).filter(Boolean).pop();
   const confirmed = await showControlDialog({
     title: 'Hide Worktree',
     message: 'This removes the worktree from Switchboard. Session files are not deleted.',
@@ -625,7 +628,10 @@ async function hideWorktree(wtProject) {
 }
 
 async function deleteWorktree(wtProject) {
-  const name = wtProject.projectPath.split('/').pop();
+  // Through the shared helper for the same two reasons the hide dialog above is: `split('/')` handed a
+  // Windows path to the dialog whole, and the last segment alone cannot tell two nested checkouts apart.
+  const label = typeof worktreeLabelOf === 'function' ? worktreeLabelOf(wtProject.projectPath) : null;
+  const name = label || wtProject.projectPath.split(/[\\/]/).filter(Boolean).pop();
   const confirmed = await showDeleteWorktreeDialog(name, wtProject.projectPath);
   if (!confirmed) return;
   const result = await window.api.deleteWorktree(wtProject.projectPath);

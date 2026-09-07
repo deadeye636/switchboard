@@ -284,11 +284,42 @@ Windows, and the refusal reads like a legitimate "not a worktree layout".
 
 What `parseWorktreePath` does **not** answer: it is one level deep by design — "who is my parent", which
 for a nested worktree is another worktree. `worktreeRootOf` beside it answers "whose sub-unit am I" and
-walks to the top; the register, the admin rows and the settings cascade ask that one, the sidebar's
-nesting asks the first. A worktree nested inside another still renders nowhere (#586, open), and the
-reason is now the sidebar's own pass rather than the helper: every worktree is skipped as a top-level
-group, so a `worktreeMap` entry keyed on a worktree path is never read, even though `nestUnder` is filled
-in for it.
+walks to the top; the register, the admin rows and the settings cascade ask that one.
+
+### A worktree of a worktree hangs from the project (#586)
+
+An agent working in `.claude/worktrees/agent-a` creates a worktree there to try something, and until #586
+that checkout appeared on no surface at all. Every worktree is skipped as a top-level group and the nesting
+pass only runs for top-level projects, so `nestUnder` was filled in with a row that never gets to attach
+anything. Silent: no error, no empty group, and the sessions stayed indexed and searchable the whole time.
+
+Two routes were drawn and the owner chose the second:
+
+- **Nest one rail deeper.** The indentation keeps meaning "inside" at any depth. It costs about 34 px of a
+  340 px panel per level, and a third level would cost another.
+- **Attach to the top-most project.** The tree stays two deep and the row sits beside its own parent, so
+  the indentation stops being the thing that says where the checkout is — **the name says it instead**.
+
+So `nestUnder` asks `worktreeRootOf`, and the label is `worktreeLabelOf`: every level between the checkout
+and its project, joined — `agent-a / hotfix-1`. A one-level worktree reads exactly its own name, which is
+why nothing about the ordinary row changed. The cost is stated rather than rediscovered: that name is what
+truncates first in a narrow sidebar, and it is the only place the relationship survives.
+
+Three readers moved with it, and each was a defect of its own once the row could be nested:
+
+- **The delete handler** ran `git worktree remove` in the immediate parent. Every worktree of a repository
+  is registered in that repository's own `.git`, whichever checkout `git worktree add` was run from — so
+  the project answers for all of them, while the immediate parent answers only while it is still there.
+  Deleting the middle worktree first left the inner one undeletable, `git -C` failing on a directory that
+  was gone before it reached the removal.
+- **The unlisted-projects notice** asked the immediate parent whether it was on screen. A worktree carries
+  no registration, so that lookup answered "not visible" whatever the project was doing, and the notice
+  offered a checkout the sidebar was already drawing. It also named the middle worktree as the parent — a
+  directory the user has never been offered and would not recognise.
+- **The hide and delete dialogs** named the last path segment, so two nested checkouts called `hotfix-1`
+  under different agents read identically. They ask `worktreeLabelOf` now, like the row does. So do the
+  other two surfaces that name a worktree to a user — the session card's `Worktree <name>` line and the
+  settings window's title, which was pinned to the leaf by a test that predates the flattening.
 
 ### A worktree is not a project to add (#583)
 

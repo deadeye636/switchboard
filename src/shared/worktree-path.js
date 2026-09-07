@@ -69,6 +69,34 @@ function worktreeRootOf(p) {
 }
 
 /**
+ * What a worktree is CALLED, once every level between it and its project is spelled out.
+ *
+ * `<project>/.worktrees/agent-a/.worktrees/hotfix-1` reads `agent-a / hotfix-1`; an ordinary one-level
+ * worktree reads exactly its own name, so nothing about today's rows changes.
+ *
+ * It exists because #586 attaches a nested worktree to the TOP-MOST project rather than nesting a level
+ * deeper (the decision, with both options drawn: a third rail costs ~34 px of a 340 px panel, and a
+ * fourth level would cost another). The row therefore sits beside its own parent, and the only thing
+ * left to say where the checkout is, is the name — so the name has to say it. Every surface that names a
+ * worktree asks HERE rather than joining the segments itself: the separator is a display decision, and
+ * two of them is how a sidebar row and its delete dialog end up naming the same directory differently.
+ *
+ * @param {string} p
+ * @returns {string|null}  null when the path is not a worktree at all
+ */
+function worktreeLabelOf(p) {
+  const names = [];
+  let cur = String(p || '');
+  for (let depth = 0; depth < 16; depth++) {
+    const wt = parseWorktreePath(cur);
+    if (!wt) break;
+    names.unshift(wt.name);
+    cur = wt.parentPath;
+  }
+  return names.length ? names.join(' / ') : null;
+}
+
+/**
  * Whose settings apply to this directory.
  *
  * A worktree is a sub-unit of its project and carries no settings of its own — so the cascade resolves
@@ -89,5 +117,5 @@ function settingsOwnerPath(p) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseWorktreePath, worktreeRootOf, settingsOwnerPath };
+  module.exports = { parseWorktreePath, worktreeRootOf, worktreeLabelOf, settingsOwnerPath };
 }

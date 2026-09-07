@@ -39,7 +39,7 @@ const { findOnPath } = require('./backends/file-store');
 const { normalizeLauncher } = require('./shared/custom-launchers');
 // "Is this path a worktree, and of which project" — one separator-agnostic answer for the delete handler
 // here, the sidebar's nesting and the unlisted-projects notice (#582).
-const { parseWorktreePath } = require('./shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf } = require('./shared/worktree-path');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
 //   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
@@ -612,11 +612,15 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
     const normalizedPath = String(worktreePath || '').replace(/[\\/]$/, '');
 
     // Validate path matches a known worktree layout
-    const parsed = parseWorktreePath(normalizedPath);
-    if (!parsed) {
+    if (!parseWorktreePath(normalizedPath)) {
       return resolve({ ok: false, error: 'Path does not match a recognized worktree layout' });
     }
-    const parentRepo = parsed.parentPath;
+    // The TOP-MOST project, not the immediate parent (#586). Every worktree of a repository is
+    // registered in that repository's own `.git`, whichever checkout `git worktree add` was run from —
+    // so the project answers for all of them, while the immediate parent answers only while it is still
+    // there. For a worktree created inside a worktree, deleting the middle one first left the inner one
+    // undeletable: `git -C <gone directory>` fails before it reaches the removal.
+    const parentRepo = worktreeRootOf(normalizedPath);
 
     // Helper: run git worktree remove, optionally double-force
     function runRemove(doubleForce, callback) {

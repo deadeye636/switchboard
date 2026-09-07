@@ -169,7 +169,7 @@ five shapes.
 | Shape | Where | What it is for |
 |---|---|---|
 | **demo-feature** | `<alpha>/.claude/worktrees/demo-feature` | the ordinary case — a worktree with sessions, nested under its project |
-| **demo-hotfix** | inside `demo-feature`'s own worktrees directory | a worktree of a worktree; the sidebar draws it nowhere (#586) |
+| **demo-hotfix** | inside `demo-feature`'s own worktrees directory | a worktree of a worktree; it hangs from the project beside its own parent and reads `demo-feature / demo-hotfix` (#586) |
 | **demo-idle** | `<alpha>/.claude/worktrees/demo-idle` | a worktree with **no** sessions, so it has no row and nowhere to start one (#594) |
 | **demo-stale** | `<alpha>/.claude/worktrees/demo-stale` | a plain directory git has never heard of — only the path spelling calls it a worktree |
 | **demo-alpha-detached** | `<demo>/projects/demo-alpha-detached` | a real worktree outside the conventional layout: git calls it one, the spelling does not |

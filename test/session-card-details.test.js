@@ -17,6 +17,12 @@ test('getWorktreeLabel extracts worktree names from Claude worktree paths', () =
     'Worktree feature-session-cards',
   );
   assert.equal(getWorktreeLabel({ projectPath: '/repo/app' }), '');
+  // #586 — a worktree of a worktree hangs from the project beside its own parent, so the card names it
+  // the way the row does. The leaf alone would call two checkouts under two different agents the same.
+  assert.equal(
+    getWorktreeLabel({ projectPath: '/repo/.claude/worktrees/agent-a/.worktrees/hotfix-1' }),
+    'Worktree agent-a / hotfix-1',
+  );
 });
 
 test('getSessionMetricLabels returns individual high-signal metric labels', () => {

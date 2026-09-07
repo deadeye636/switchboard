@@ -1928,3 +1928,41 @@ test('a worktree can be hidden, and unhiding it does not put it on the list', ()
       'an unhide that registered it would hand it the row the model says it has not got');
   } finally { t.cleanup(); }
 });
+
+// #586 — a worktree created inside a worktree. The notice used to ask the IMMEDIATE parent, which for one
+// of these is another worktree: a worktree carries no registration, so the lookup answered "not visible"
+// whatever the project was doing, and the offer stood even while the project was on screen with the
+// checkout nested under it. Both halves of the question resolve to the project now — the same row the
+// sidebar attaches this one to.
+const NESTED_PARENT = 'D:\\parent-repo';
+const NESTED_MIDDLE = NESTED_PARENT + '\\.claude\\worktrees\\agent-one';
+const NESTED_WT = NESTED_MIDDLE + '\\.worktrees\\hotfix-one';
+
+test('#586: a nested worktree of a LISTED project is not offered either', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    t.ctx.db.setProjectState(NESTED_PARENT, { registered: 1 });
+    t.setAdminRows([
+      { projectPath: NESTED_PARENT, registered: true, sessionCount: 4, lastActivity: '2026-07-01T10:00:00.000Z' },
+      { projectPath: NESTED_WT, registered: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    assert.deepStrictEqual(projects.unlistedProjects().projects, [],
+      'the sidebar draws it under the project (#586), so the notice would be offering a second row for it');
+  } finally { t.cleanup(); }
+});
+
+test('#586: a nested worktree whose project is not listed names the PROJECT, not the worktree above it', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    t.setAdminRows([
+      { projectPath: NESTED_WT, registered: false, sessionCount: 3, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    const res = projects.unlistedProjects();
+    assert.deepStrictEqual(res.projects.map(p => p.projectPath), [NESTED_WT]);
+    assert.strictEqual(res.projects[0].worktreeOf, NESTED_PARENT,
+      'naming the middle worktree would name a directory the user has never been offered and would not ' +
+      'recognise — the project is the row the sidebar nests this one under');
+  } finally { t.cleanup(); }
+});

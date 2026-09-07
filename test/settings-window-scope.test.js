@@ -36,8 +36,12 @@ test('a worktree is about its project, and says which worktree it came from', ()
 });
 
 test('a worktree of a worktree resolves to the same project, and names the one it came from', () => {
+  // The label was the leaf `wt2` until #586. It is the full chain now, and for the same reason it was
+  // ever here: it has to read as the row that was clicked, and since #586 that row is drawn beside its
+  // own parent under the project and reads `wt1 / wt2`. The leaf alone also names two checkouts
+  // identically when two agents both call theirs `wt2`.
   assert.deepEqual(settingsQuery('project', NESTED),
-    { scope: 'project', path: PROJECT, worktree: 'wt2' },
+    { scope: 'project', path: PROJECT, worktree: 'wt1 / wt2' },
     'the path walks to the project; the label is the worktree the user actually clicked');
 });
 

@@ -221,3 +221,33 @@ test('the admin row says which project a worktree belongs to', () => {
   assert.equal(project.worktreeRoot, null, 'an ordinary project belongs to nothing');
   assert.equal(worktree.registered, false, "and it is on nobody's list");
 });
+
+// #586 — a worktree created inside a worktree. `parseWorktreePath` answers "who is my parent", which
+// here is another worktree; that parent is itself excluded from the top level, and the nesting pass only
+// runs for top-level projects, so the inner checkout was attached to nothing and drawn nowhere at all.
+// The owner chose to attach it to the TOP-MOST project rather than nest a rail deeper.
+const NESTED = WORKTREE + '/.worktrees/wt2';
+
+test('a worktree of a worktree nests under the top-most project (#586)', () => {
+  setup([
+    row('p', REGISTERED, '2026-01-02T00:00:00Z'),
+    row('w', WORKTREE, '2026-01-03T00:00:00Z'),
+    row('n', NESTED, '2026-01-04T00:00:00Z'),
+  ], { states: new Map([[REGISTERED, REGISTERED_STATE]]) });
+
+  const projects = view.buildProjectsFromCache(false);
+  const nested = projects.find(p => normPath(p.projectPath) === normPath(NESTED));
+  assert.ok(nested, `the nested worktree must be in the payload, got: ${projects.map(p => p.projectPath).join(' | ')}`);
+  assert.equal(nested.nestUnder, REGISTERED,
+    'it points at the PROJECT, not at the worktree it sits inside — which is drawn nested itself and so ' +
+    'has no header of its own for a third level to hang under');
+});
+
+test('a nested worktree is still hidden with the project it belongs to (#586)', () => {
+  // The control for the flattening: the row moved, the model did not. Visibility walks to the top
+  // already (`resolveVisible`), and this pins that the two answers agree about the same directory.
+  setup([row('n', NESTED, '2026-01-04T00:00:00Z')],
+    { states: new Map([[REGISTERED, { ...REGISTERED_STATE, hidden: 1 }]]) });
+
+  assert.deepEqual(view.buildProjectsFromCache(false), []);
+});

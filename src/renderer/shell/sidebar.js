@@ -581,12 +581,16 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
   // The parent comes from `worktreeOf` on the row (#596). The renderer used to derive it here and look
   // it up with `===`, which misses the same directory spelled two ways — and misses it silently, because
   // a worktree is skipped as a top-level group whether or not a parent was found. Main answers it now,
-  // against the canonical path; `parseWorktreePath` is still asked here for the NAME, which is a
-  // question about the spelling and belongs where the spelling is.
+  // against the canonical path; the NAME is still asked here, which is a question about the spelling and
+  // belongs where the spelling is.
+  //
+  // `worktreeLabelOf`, not `parseWorktreePath().name` (#586): a worktree of a worktree nests under the
+  // top-most project, beside its own parent, so its name is what says where the checkout sits —
+  // `agent-a / hotfix-1`. A one-level worktree gets exactly its own name, as before.
   for (const project of projects) {
-    const wt = parseWorktreePath(project.projectPath);
-    if (!wt) continue;
-    worktreeNames.set(project.projectPath, wt.name);
+    const label = worktreeLabelOf(project.projectPath);
+    if (!label) continue;
+    worktreeNames.set(project.projectPath, label);
     worktreeSet.add(project.projectPath);
     const parent = project.nestUnder;
     if (!parent) continue;   // parent not in this payload — hidden, or not listed. Same as before.

@@ -1038,12 +1038,19 @@ function unlistedProjects() {
       // (Historic, and kept because #591 has to weigh it:) hiding the parent was never a statement about
       // the worktree. They were two projects (#147/#157);
       // the user hid one of them.
-      const worktree = parseWorktreePath(row.projectPath);
+      //
+      // The PROJECT at the top, not the immediate parent (#586). A worktree created inside a worktree is
+      // nested under the top-most project in the sidebar, so that is the row deciding whether this one is
+      // already on screen — and it is the name the notice has to say, because the immediate parent is a
+      // worktree the user has never been offered and would not recognise. Asking the immediate parent
+      // suppressed nothing for a nested worktree either: a worktree carries no registration, so the
+      // lookup answered "not visible" whatever the project was doing.
+      const worktreeParent = worktreeRootOf(row.projectPath);
       let worktreeOf = null;
-      if (worktree) {
-        const parent = lookup(worktree.parentPath);
+      if (worktreeParent) {
+        const parent = lookup(worktreeParent);
         if (parent && registry.isVisible(parent.state)) continue;
-        worktreeOf = worktree.parentPath;
+        worktreeOf = worktreeParent;
       }
       out.push({
         projectPath: row.projectPath,

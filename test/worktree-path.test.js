@@ -19,7 +19,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { parseWorktreePath, worktreeRootOf, settingsOwnerPath } = require('../src/shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf, worktreeLabelOf, settingsOwnerPath } = require('../src/shared/worktree-path');
 const { stripComments } = require('./helpers/strip-comments');
 
 const ROOT = path.join(__dirname, '..');
@@ -164,7 +164,10 @@ test('the worktree layout is spelled in exactly one file', () => {
 
 test('the sidebar pairs worktrees through the shared helper', () => {
   const src = fs.readFileSync(path.join(SRC, 'renderer', 'shell', 'sidebar.js'), 'utf8');
-  assert.match(stripComments(src), /parseWorktreePath\(/,
+  // `worktreeLabelOf` since #586 — it is still the shared helper, and it is still the call site the
+  // Windows defect lived in. Either name satisfies this: what the guard is about is that the sidebar
+  // does not go back to spelling the layout itself.
+  assert.match(stripComments(src), /\b(?:parseWorktreePath|worktreeLabelOf)\(/,
     'sidebar.js must ask the shared helper — this is the call site the Windows defect lived in');
 });
 
@@ -175,6 +178,29 @@ test('the delete-worktree handler validates through the shared helper', () => {
     "main.js must require the shared helper, not keep its own WORKTREE_PATH_RE");
   assert.match(code, /parseWorktreePath\(normalizedPath\)/,
     'the delete handler validates the path it is about to hand to `git worktree remove` through it');
+  assert.match(code, /worktreeRootOf\(normalizedPath\)/,
+    'and it runs `git worktree remove` in the PROJECT (#586), not in the immediate parent — for a ' +
+    'worktree of a worktree the immediate parent may already have been removed, and `git -C` on a ' +
+    'directory that is gone fails before it reaches the removal');
+});
+
+test('worktreeLabelOf names every level between a worktree and its project (#586)', () => {
+  const project = 'D:\\repo';
+  const wt1 = project + '\\.claude\\worktrees\\agent-a';
+  const wt2 = wt1 + '\\.worktrees\\hotfix-1';
+
+  assert.equal(worktreeLabelOf(wt1), 'agent-a',
+    'a one-level worktree reads exactly its own name — nothing about today\'s rows changes');
+  assert.equal(worktreeLabelOf(wt2), 'agent-a / hotfix-1',
+    'a nested one sits BESIDE its parent (#586), so the name is what says where the checkout is');
+  assert.equal(worktreeLabelOf(project), null, 'a project is not a worktree of anything');
+  assert.equal(worktreeLabelOf(''), null);
+  assert.equal(worktreeLabelOf(null), null, 'and never the string "null"');
+});
+
+test('worktreeLabelOf answers the same for either separator', () => {
+  assert.equal(worktreeLabelOf('repo/.claude/worktrees/a/.worktrees/b'), 'a / b');
+  assert.equal(worktreeLabelOf('repo\\.claude\\worktrees\\a\\.worktrees\\b'), 'a / b');
 });
 
 test('worktreeRootOf walks past a worktree of a worktree to the project', () => {

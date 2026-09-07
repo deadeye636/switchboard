@@ -13,7 +13,7 @@
 'use strict';
 
 const { BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require('electron');
-const { parseWorktreePath, settingsOwnerPath } = require('../shared/worktree-path');
+const { worktreeLabelOf, settingsOwnerPath } = require('../shared/worktree-path');
 const path = require('path');
 const fs = require('fs');
 const quitGuard = require('./quit-guard');
@@ -80,8 +80,10 @@ function settingsQuery(scope, projectPath) {
     // No second "and the path actually moved" test: the pattern only matches when there IS a parent
     // above the worktrees directory, and that parent is always a strictly shorter path. A guard for the
     // other case reads as if the case existed.
-    const wt = parseWorktreePath(projectPath);
-    if (wt) query.worktree = wt.name;
+    // `worktreeLabelOf`, not the leaf name (#586): a nested worktree is drawn beside its own parent, so
+    // the leaf alone names two checkouts identically and disagrees with the row that was clicked.
+    const wt = worktreeLabelOf(projectPath);
+    if (wt) query.worktree = wt;
   }
   return query;
 }

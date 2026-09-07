@@ -7,7 +7,7 @@
     Object.assign(root, factory(root));
   }
 })(typeof window !== 'undefined' ? window : globalThis, function (worktreePath) {
-  const { parseWorktreePath } = worktreePath;
+  const { worktreeLabelOf } = worktreePath;
   const METRIC_THRESHOLDS = {
     userMessageCount: { amber: 21, red: 30 },
     cacheReadTokens: { amber: 14_000_000, red: 20_000_000 },
@@ -43,9 +43,12 @@
   // The card's "Worktree <name>" line. It asked a forward-slash, one-layout copy of the pairing pattern
   // until #582, so a session in a worktree was never labelled on Windows and never in the other two
   // layouts on any platform.
+  // `worktreeLabelOf` since #586: a nested worktree hangs from the project beside its own parent, so the
+  // leaf name alone leaves two checkouts called `hotfix-1` under different agents reading identically —
+  // and it would name this session's checkout differently from the sidebar row it sits in.
   function getWorktreeLabel(session = {}) {
-    const parsed = parseWorktreePath(session.projectPath);
-    return parsed ? `Worktree ${parsed.name}` : '';
+    const label = worktreeLabelOf(session.projectPath);
+    return label ? `Worktree ${label}` : '';
   }
 
   function getSessionMetricLabels(session = {}) {

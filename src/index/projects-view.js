@@ -297,10 +297,18 @@ function buildProjectsFromCache(showArchived) {
   // `src/projects/projects.js` already ships a `worktreeOf`, and it answers a different question — the
   // raw parent path, set whether or not that parent is anywhere in view (#583). This one is the row to
   // NEST UNDER, canonically matched, and null when there is none.
+  //
+  // `worktreeRootOf`, not `parseWorktreePath` (#586): the row to nest under is the TOP-MOST project, so a
+  // worktree created inside a worktree lands beside its own parent rather than under it. The one-level
+  // answer put it under a row that is itself excluded from the top level, and the nesting pass only runs
+  // for top-level projects — so a nested worktree was attached to nothing and drawn nowhere at all, with
+  // its sessions still indexed and searchable. The alternative was a recursive pass one rail deeper,
+  // which costs ~34 px of a 340 px panel per level; what carries the relationship instead is the row's
+  // NAME (`worktreeLabelOf`), which spells every level between the checkout and its project.
   const byKey = new Map(projects.map(p => [normPath(p.projectPath), p.projectPath]));
   for (const proj of projects) {
-    const wt = parseWorktreePath(proj.projectPath);
-    proj.nestUnder = wt ? (byKey.get(normPath(wt.parentPath)) || null) : null;
+    const root = worktreeRootOf(proj.projectPath);
+    proj.nestUnder = root ? (byKey.get(normPath(root)) || null) : null;
   }
   // No allowlist filter any more. The mode now decides who may WRITE to the register (see
   // project-registry.js); by the time we get here, the register is the list, in both modes.
