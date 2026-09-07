@@ -1000,7 +1000,11 @@ function projectKnownToAnyBackend(projectPath) {
  *     sighting was judged worse than a notice with two kinds of row in it.
  *
  * "Shown", not "on the list": a hidden or auto-hidden parent is registered and draws no header, so its
- * worktree has nothing to nest under. See the note at the check itself.
+ * worktree has nothing to nest under. That was #591, asked deliberately and answered on what shipped —
+ * see the note at the check itself for what decided it.
+ *
+ * A worktree the user hid THEMSELVES is a third case and is skipped outright (#599). It is the one shape
+ * that carries `hidden` without `registered`, so the ordinary filter above never saw it.
  *
  * The cost, stated so nobody rediscovers it: the notice has two behaviours where it had one, and a
  * worktree offered here is still a worktree, so adding it puts a second row in the sidebar for a directory
@@ -1013,6 +1017,23 @@ function unlistedProjects() {
     const out = [];
     for (const row of ctx.cache.buildProjectsAdmin()) {
       if (row.registered) continue;
+      // …and a row the user HID (#599). `shouldRegister` never looks at `hidden`, which was sound while
+      // the two travelled together — but a worktree is the one shape that carries `hidden` without
+      // `registered`: it has no registration by design, and its own flag is what the sidebar's hide
+      // button writes. So a worktree the user had explicitly hidden was offered back here as a project to
+      // ADD, and adding it registers the row this model says it has not got.
+      //
+      // What that costs, stated rather than rediscovered: a worktree hidden long ago whose project was
+      // later removed is now named on no DISCOVERY surface — not the sidebar, not this notice. It is
+      // still a row in the project manager, which is where it has to be, because a hidden worktree draws
+      // no header and its own hide button is gone the moment it is used: the manager's eye is the way
+      // back. That is the narrowing, and it is the one the owner chose — a click on Hide means "I do not
+      // want to see this", and a row that offers it straight back contradicts the click.
+      //
+      // `hidden` alone, not `autoHidden`: the sweep folds a worktree's activity into its project and
+      // judges nothing on its own, so an `autoHidden` here is a row written before that and no statement
+      // by anyone.
+      if (row.hidden) continue;
       if (!row.sessionCount) continue;                 // nothing to miss
       const hit = lookup(row.projectPath);
       const state = hit ? hit.state : null;
@@ -1022,22 +1043,25 @@ function unlistedProjects() {
       // #583 — a worktree whose parent is SHOWN is already on screen, nested under it. One whose parent is
       // not is the only sighting there is, so it stays and says whose it is.
       //
-      // `isVisible`, not `registered`, and the difference is the whole rule: the sidebar draws a project
-      // only when it is registered AND neither hidden by the user nor auto-hidden by staleness
-      // (`index/projects-view.js` builds its `visible` map from exactly this). A parent that is on the list
-      // and hidden draws no header, so there is nothing for the worktree to nest under — suppressing it
-      // here as well would take the last surface that mentions it, which is the outcome the decision on
-      // this issue named as the worse of the two. Auto-hide makes that ordinary rather than exotic: a
-      // parent whose only work happens inside its worktrees never touches its own recency, so the sweep
-      // takes it while the worktree is busy. **Both halves of that reasoning have since gone**: the sweep
-      // folds a worktree's activity into its project, so that parent is not swept any more, and hiding a
-      // project now hides its worktrees with it. What is left of the argument is only the plain case — a
-      // parent the user hid by hand draws no header, so a worktree suppressed here would be named nowhere
-      // at all. #591 is the open question about which of the two states this should ask about.
+      // `isVisible`, not `registered`, and that is the answer to #591 rather than an implementer's
+      // shortcut: the question was put deliberately and settled on what shipped. The sidebar draws a
+      // project only when it is registered AND neither hidden by the user nor auto-hidden by staleness
+      // (`index/projects-view.js` builds its `visible` map from exactly this). A parent that is on the
+      // list and hidden draws no header, so there is nothing for the worktree to nest under, and
+      // suppressing it here as well would take the last surface that mentions it — the "invisible
+      // everywhere" outcome #583 named as the worse of the two.
       //
-      // (Historic, and kept because #591 has to weigh it:) hiding the parent was never a statement about
-      // the worktree. They were two projects (#147/#157);
-      // the user hid one of them.
+      // The sub-unit model argues the other way and was weighed: a sub-unit of something hidden is
+      // arguably hidden, which reads for the literal `registered`. What decided it is that the two costs
+      // are not symmetric. `registered` costs a checkout that exists and is named nowhere; `isVisible`
+      // costs Hide a second effect nobody asked for — the notice starts mentioning the worktrees of the
+      // project that was just hidden. The second is visible and undoable; the first is silent.
+      //
+      // Two of the arguments this used to rest on have gone, and the line stands without them: the sweep
+      // folds a worktree's activity into its project, so a parent whose work all happens in its worktrees
+      // is not swept any more, and hiding a project hides its worktrees with it. What is left is the
+      // plain case — a parent the user hid by hand. And the worktree's OWN hide is answered above (#599),
+      // so this is only ever about the parent's state now.
       //
       // The PROJECT at the top, not the immediate parent (#586). A worktree created inside a worktree is
       // nested under the top-most project in the sidebar, so that is the row deciding whether this one is

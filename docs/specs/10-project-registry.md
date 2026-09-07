@@ -245,16 +245,12 @@ why it is a note and not a guard.
 `parseWorktreePath`'s "who is my parent". The register asks the first, the sidebar's nesting asks the
 second, and a worktree inside a worktree is where they differ.
 
-**The model is settled now, and #591 follows from it.** That issue asks whether the unlisted-projects
-notice suppresses a worktree while its parent is *listed* or while it is *shown*. The sub-unit reading is
-the one built above — hiding a project hides its worktrees — which argues for the literal "listed". The
-code still ships `isVisible`; it is one line, and it is the only place the decision has not been applied.
-
-**And the notice has a second hole, which came with the hidden-without-registered shape.** Its filter
-skips a row that is `registered`, and `shouldRegister` never looks at `hidden` — but a worktree is the one
-thing that carries `hidden` without `registered`. So a worktree the user hid from its header, whose
-project is not visible, is offered by the notice as a project to ADD, and adding it registers it: the row
-this model says it has not got. The project manager's eye is the way back, not the notice.
+**Two questions the model did NOT answer by itself, both now settled — the reasoning is under #583
+below.** #591 asked whether the unlisted-projects notice suppresses a worktree while its parent is
+*listed* or while it is *shown*, and the sub-unit reading argues for the literal "listed" while the shipped
+code says `isVisible`. It stays `isVisible`: the two costs are not symmetric, and only one of them is
+silent. #599 is the hole that came with the hidden-without-registered shape — a worktree the user hid was
+offered back as a project to add — and that row is skipped now.
 
 ### The worktree layout is spelled once (#582)
 
@@ -379,11 +375,29 @@ decision ruled out. Auto-hide makes that ordinary rather than exotic: a parent w
 its worktrees never touches its own recency, so the sweep takes it while the worktree is busy. And hiding a
 project was never a statement about the worktree — they are two projects, and the user hid one of them.
 
-**This is the one word in the decision that was resolved by the implementer rather than by the owner, and
-it is open as #591.** The decision said "while its parent is **listed**", which in this codebase means
-`registered`; the third state — listed but hidden — was never in the two-reading framing it answered. The
-argument above is why it shipped as `isVisible`, and it is one line either way. If #591 comes back the
-other way, this section is what has to follow it.
+**That one word was resolved by the implementer and has since been asked properly: #591 settles on
+`isVisible`, what shipped.** The decision had said "while its parent is **listed**", which in this
+codebase means `registered`, and the third state — listed but hidden — was never in the two-reading
+framing it answered. The sub-unit model argues the other way and was weighed: a sub-unit of something
+hidden is arguably hidden. What decided it is that the two costs are not symmetric. `registered` costs a
+checkout that exists and is named on no surface at all; `isVisible` costs Hide a second effect nobody
+asked for — the notice starts mentioning the worktrees of the project that was just hidden. The second is
+visible and undoable, the first is silent.
+
+Two of the arguments the shipped line used to rest on have gone, and it stands without them: the sweep
+folds a worktree's activity into its project, so a parent whose work all happens in its worktrees is no
+longer swept, and hiding a project hides its worktrees with it.
+
+**And the worktree's OWN hide is answered separately (#599).** The notice skipped a row that was
+`registered`, and `shouldRegister` never looked at `hidden` — sound while the two travelled together, but
+a worktree is the one shape that carries `hidden` without `registered`. So a worktree the user had
+explicitly hidden was offered back as a project to add, and adding it would register the row this model
+says it has not got. It is skipped now. The cost is the narrowing: a worktree hidden long ago whose
+project was later removed is named on no DISCOVERY surface — not the sidebar, not this notice. It is
+still a row in the project manager, and it has to be: a hidden worktree draws no header, so its own hide
+button is gone the moment it is used, and the manager's eye is the only way back. A click on Hide means
+"I do not want to see this", and a row that offers it straight back contradicts the click. `hidden` alone, never `autoHidden`: the sweep judges no worktree on its own, so an
+`autoHidden` flag on one is a row written before that and a statement by nobody.
 
 What it costs, written down so nobody rediscovers it: the notice has two behaviours where it had one, and a
 worktree offered here is still a worktree — adding it puts a second sidebar row beside the one it would

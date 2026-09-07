@@ -1966,3 +1966,79 @@ test('#586: a nested worktree whose project is not listed names the PROJECT, not
       'recognise — the project is the row the sidebar nests this one under');
   } finally { t.cleanup(); }
 });
+
+// #599 — the notice is the surface of last resort, and it was offering back the one thing the user had
+// explicitly taken away. A worktree carries `hidden` without `registered`, which is the shape the
+// registered filter above cannot see.
+
+test('#599: a worktree the user hid is not offered as a project to add', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const parent = 'D:\\parent-repo';
+    const worktree = parent + '\\.claude\\worktrees\\agent-hidden';
+    // The parent is not visible, so #583's suppression does NOT fire — without the hide check this row
+    // is offered, and the test would prove nothing if the parent were listed.
+    t.ctx.db.setProjectState(worktree, { hidden: 1 });
+    t.setAdminRows([
+      { projectPath: worktree, registered: false, hidden: true, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    assert.deepStrictEqual(projects.unlistedProjects().projects, [],
+      'adding it would register the row the model says a worktree has not got, and it contradicts the ' +
+      'click that hid it');
+  } finally { t.cleanup(); }
+});
+
+test('#599: a worktree that is NOT hidden is still offered', () => {
+  // The control. Without it, a filter that dropped every worktree would pass the test above.
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const parent = 'D:\\parent-repo';
+    const worktree = parent + '\\.claude\\worktrees\\agent-shown';
+    t.setAdminRows([
+      { projectPath: worktree, registered: false, hidden: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), [worktree]);
+  } finally { t.cleanup(); }
+});
+
+test('#599: an autoHidden row is still offered — the sweep judges no worktree on its own', () => {
+  // `hidden` is a statement by the user; `autoHidden` on a worktree row is a leftover from before the
+  // sweep folded a worktree's activity into its project, and no statement by anyone.
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const parent = 'D:\\parent-repo';
+    const worktree = parent + '\\.claude\\worktrees\\agent-stale';
+    t.setAdminRows([
+      { projectPath: worktree, registered: false, hidden: false, autoHidden: true, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+
+    assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), [worktree]);
+  } finally { t.cleanup(); }
+});
+
+test('#599: the two hides are different questions — the parent\'s does not answer the worktree\'s', () => {
+  // What #591 and #599 look like TOGETHER, which neither issue's own case covers: the parent is hidden
+  // (so #583's suppression does not fire and the notice would name the worktree) AND the worktree carries
+  // its own hide. The worktree's own flag wins. Written this way round because the #583 loop above already
+  // pins the parent-hidden case on its own — a second copy of that would be a test that never fails.
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    const parent = 'D:\\parent-repo';
+    const shown = parent + '\\.worktrees\\agent-shown-591';
+    const hidden = parent + '\\.worktrees\\agent-hidden-591';
+    t.ctx.db.setProjectState(parent, { registered: 1, hidden: 1 });
+    t.ctx.db.setProjectState(hidden, { hidden: 1 });
+    t.setAdminRows([
+      { projectPath: shown, registered: false, sessionCount: 1, lastActivity: '2026-07-02T10:00:00.000Z' },
+      { projectPath: hidden, registered: false, hidden: true, sessionCount: 1, lastActivity: '2026-07-02T11:00:00.000Z' },
+    ]);
+
+    const res = projects.unlistedProjects();
+    assert.deepStrictEqual(res.projects.map(p => p.projectPath), [shown],
+      'the parent being hidden keeps its worktrees in the notice (#591); the worktree\'s OWN hide takes ' +
+      'that one out again (#599)');
+    assert.strictEqual(res.projects[0].worktreeOf, parent);
+  } finally { t.cleanup(); }
+});
