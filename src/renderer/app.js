@@ -456,6 +456,40 @@ function noStoreRecordFor(sessionId) {
   return (sessionId && noStoreRecordBySession.get(sessionId)) || null;
 }
 
+// --- Sessions whose live binding never arrived (#305) --------------------------------------------
+//
+// The sibling of the notice above, and the same shape on purpose: main holds the fact, this window keeps
+// the latest answer, and the surfaces that describe a session read it while rendering. The difference is
+// where it comes from — this rides on the live-sessions payload (`app/live-sessions.js`) rather than a
+// broadcast, because it is a property of a running process and dies with it.
+//
+// Main answers the whole question, not half of it: `liveBindingMissing` is already the pairing of "this
+// backend CAN report" with "this spawn did not get what makes it report". Nothing here asks about a
+// backend, and nothing here may — the two ids that would be needed are exactly what reflex 5 keeps out.
+let liveBindingMissingSessions = new Set();
+
+function setLiveBindingMissing(liveList) {
+  const next = new Set();
+  for (const entry of liveList || []) {
+    if (entry && entry.sessionId && entry.liveBindingMissing) next.add(entry.sessionId);
+  }
+  if (next.size === liveBindingMissingSessions.size
+      && [...next].every(id => liveBindingMissingSessions.has(id))) return;
+  liveBindingMissingSessions = next;
+  refreshSessionStatusViews();
+  // …and the tabs-mode header on top of it, because `refreshSessionStatusViews` reaches the panes chrome
+  // and not this one. The two surfaces read the same tooltip from `sessionBarTooltipFor`, so a repaint
+  // that covered only one of them would show the note in panes mode and not in tabs mode.
+  if (typeof refreshSessionHeaderChrome === 'function') refreshSessionHeaderChrome();
+}
+
+/** The sentence for a session that will never announce a turn, or null. */
+function liveBindingNoteFor(sessionId) {
+  if (!sessionId || !liveBindingMissingSessions.has(sessionId)) return null;
+  return 'Not announcing its turns — this session started without its status link, '
+    + 'so no working/idle, no inbox entry and no chime. Its transcript is unaffected.';
+}
+
 // Noise patterns — these don't count as activity
 const activityNoiseRe = /file-history-snapshot|^\s*$/;
 // The attention/activity engine — setActivity, applyAttention, announceAttentionSummary and the
@@ -1129,6 +1163,11 @@ function dropSessionFromCachedLists(sessionId) {
  * Returns whether anything changed, so the 3-second poll can leave the sidebar alone when nothing did.
  */
 function syncLiveUnindexedSessions(liveList, indexedIds = null) {
+  // Every live session, not only the ones this function invents a row for (#305). An unbound session is
+  // usually an ORDINARY indexed one — it has a transcript, the index knows it, and `planLiveSessionRows`
+  // deliberately drops it here. Reading the note off the same list before that filter is what keeps the
+  // two questions apart: which rows to invent, and which sessions cannot announce themselves.
+  setLiveBindingMissing(liveList);
   const { add, drop, release } = planLiveSessionRows(liveList, {
     indexedIds, synthetic: syntheticLiveSessions, known: sessionMap,
   });

@@ -41,7 +41,13 @@ search, stats and every counter that expects an indexed one. Its payload also ca
 (#305), and that field is meaningless alone: `supportsLiveRebinding` says a backend CAN report,
 `liveBound` says the argument that makes it report reached THIS spawn. Everything that stops it is
 swallowed on purpose — no hook URL, a backend that declines, a throw — so `false` means "cannot report"
-for one backend and "was supposed to and did not" for another. Read them together),
+for one backend and "was supposed to and did not" for another. **`liveBindingMissing` beside it IS that
+pairing**, answered here because both facts live in this process: true only for a backend that CAN report
+on a spawn that did not get what makes it report. It exists because a consumer who has to remember the
+second question is one who will forget it, and because the only consumer is the renderer, which may name
+no backend at all (reflex 5). It fails toward SILENCE — no backend id, no registry, an unknown id, a
+throw all answer false — since a mark that appears because a lookup failed accuses a session that is
+working),
 `store-record-notice.js` (which live sessions their backend has no record of, so no busy/idle can be
 shown — decided in `src/watch/adopt.js`),
 `settings-transfer.js`, `backend-models.js` + `backend-resources.js` (backend-owned model and

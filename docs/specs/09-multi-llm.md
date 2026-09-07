@@ -99,6 +99,23 @@ binding failed and when it succeeded without needing a release. So the spawn rec
 `live-sessions.js` publishes it. It is meaningless alone and must be read with the capability: `false`
 means "cannot report" for a backend that never could, and "was supposed to and did not" for one that can.
 
+**So the pairing itself is published, and that is what the user sees.** `liveBindingMissing` is answered
+in `live-sessions.js` rather than by whoever reads it, because both halves live in the main process and
+the one consumer is the renderer, which names no backend (reflex 5). It is true only for the interesting
+case — a backend that can report, on a spawn that did not get the argument — and false for a plain
+terminal, for a backend that never could, and for every way the question fails to resolve: no backend id,
+no registry, an unknown id, a throw. Silence is the safe answer, because a mark that appears through a
+failed lookup accuses a session that is working.
+
+Where it surfaces is the **session bar's tooltip** and nowhere else: one sentence saying the session will
+announce no turn, sitting in the same `note` slot the no-store-record notice uses, and joined with it
+rather than replacing it — Pi is both kinds at once. Deliberately not a chip on the row or the card, and
+not on the tab strip: the CLI in such a session works perfectly well, and a permanent badge would read as
+a broken session rather than an explanation for a quiet one. What it does not cover: a **profile** backend
+running on Claude's or Pi's binary never gets a live binding at all, because `profileToDescriptor` does
+not forward `supportsLiveRebinding` — and by the same token it is never flagged as missing one. That is
+the spawn path's own gate answering consistently, not a hole opened here.
+
 **What a backend calls a turn is its own vocabulary, and one model round is not one turn (#573).** Pi's
 live binding posted `idle` on `turn_end`, which reads as "the work for this prompt is finished". Measured
 against Pi 0.84.4 over RPC it is one **model round**: a prompt that makes the agent call a single tool

@@ -422,7 +422,7 @@ storeRecordNotice.registerIpc(ipcMain);
 // `get-active-sessions` answers with ids alone, and the renderer names a session out of the index — which
 // has never seen one whose backend did not record it. This is the same set with enough on it to draw.
 const liveSessions = require('./app/live-sessions');
-liveSessions.init({ activeSessions, sessionBackends });
+liveSessions.init({ activeSessions, sessionBackends, backends });
 liveSessions.registerIpc(ipcMain);
 
 // --- Native notifications, dock/taskbar badge, and tray (Spec 01) -> app/notifications.js ---

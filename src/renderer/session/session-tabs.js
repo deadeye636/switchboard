@@ -282,7 +282,17 @@ if (typeof module !== 'undefined' && module.exports) {
       project: sessionProjectName(session),
       backend: backend && backend.label,
       state: status && status.label,
-      note: (typeof noStoreRecordFor === 'function') ? noStoreRecordFor(session.sessionId) : null,
+      // Two notes can be true at once — a backend that reports through its store AND a spawn whose live
+      // binding never arrived (Pi is both kinds) — so they are joined rather than one winning. Both
+      // qualify the STATE line, which is why they sit here and not in the detail list.
+      //
+      // Deliberately the session BAR only, not the tab strip beside it (#305). The bar is the surface a
+      // user reaches for when they wonder why a session has been quiet; a mark on every tab would put a
+      // permanent qualifier on a session whose CLI is working perfectly well.
+      note: [
+        (typeof noStoreRecordFor === 'function') ? noStoreRecordFor(session.sessionId) : null,
+        (typeof liveBindingNoteFor === 'function') ? liveBindingNoteFor(session.sessionId) : null,
+      ].filter(Boolean).join('\n'),
     });
   };
   window.sessionProjectLabel = (session) => sessionProjectName(session);

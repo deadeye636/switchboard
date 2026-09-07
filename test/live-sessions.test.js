@@ -11,10 +11,13 @@ const assert = require('node:assert/strict');
 
 const liveSessions = require('../src/app/live-sessions');
 
-function setup(entries, backends = {}) {
+// `rebinding` is which backend ids declare `supportsLiveRebinding` — the capability half of #305. Claude
+// and Pi declare it in the real registry; a test that needs the other half names it here.
+function setup(entries, backends = {}, rebinding = ['claude', 'pi']) {
   liveSessions.init({
     activeSessions: new Map(entries),
     sessionBackends: { get: (id) => (backends[id] ? { backendId: backends[id] } : null) },
+    backends: { get: (id) => (id ? { id, supportsLiveRebinding: rebinding.includes(id) } : null) },
   });
 }
 
@@ -25,7 +28,7 @@ test('a live session is reported with what the renderer needs to draw it', () =>
 
   assert.deepEqual(liveSessions.snapshot(), [{
     sessionId: 's1', projectPath: '/p', backendId: 'hermes', isPlainTerminal: false,
-    liveBound: false, startedAt: 1000,
+    liveBound: false, liveBindingMissing: false, startedAt: 1000,
   }]);
 });
 
@@ -40,6 +43,50 @@ test('a session reports whether its live binding actually reached the spawn (#30
   setup([['s2', live()]], { s2: 'claude' });
   assert.equal(liveSessions.snapshot()[0].liveBound, false,
     'a spawn that never got the argument reports false, not undefined');
+});
+
+// `liveBindingMissing` is the PAIRING of the two facts, answered here because both live in this process:
+// a backend that CAN report, on a spawn that did not get what makes it report. A consumer that has to
+// remember to ask the second question is one that will one day forget — and the renderer, which is where
+// it is read, may not ask it at all (no backend id there, CLAUDE.md reflex 5).
+test('#305: only a backend that CAN report counts as missing its binding', () => {
+  setup([['s1', live()]], { s1: 'claude' });
+  assert.equal(liveSessions.snapshot()[0].liveBindingMissing, true,
+    'Claude declares the capability and this spawn did not get the argument');
+
+  setup([['s1', live({ _liveBound: true })]], { s1: 'claude' });
+  assert.equal(liveSessions.snapshot()[0].liveBindingMissing, false, 'a bound spawn is not missing it');
+
+  setup([['s1', live()]], { s1: 'codex' });
+  assert.equal(liveSessions.snapshot()[0].liveBindingMissing, false,
+    'a backend that never could report is the NORMAL case, not a defect to mark');
+});
+
+test('#305: a plain terminal is never missing a binding it was never meant to have', () => {
+  setup([['s1', live({ isPlainTerminal: true })]], { s1: 'claude' });
+  const row = liveSessions.snapshot()[0];
+  assert.equal(row.isPlainTerminal, true);
+  assert.equal(row.liveBindingMissing, false);
+});
+
+test('#305: the answer fails toward silence when it cannot be established', () => {
+  // A mark that appears because a lookup failed is worse than no mark at all: it accuses a session that
+  // is working. So an unmapped session, a registry that is not there, and one that throws all say false.
+  setup([['s1', live()]], {});
+  assert.equal(liveSessions.snapshot()[0].liveBindingMissing, false, 'no backend id, no accusation');
+
+  liveSessions.init({
+    activeSessions: new Map([['s1', live()]]),
+    sessionBackends: { get: () => ({ backendId: 'claude' }) },
+  });
+  assert.equal(liveSessions.snapshot()[0].liveBindingMissing, false, 'no registry in ctx, no accusation');
+
+  liveSessions.init({
+    activeSessions: new Map([['s1', live()]]),
+    sessionBackends: { get: () => ({ backendId: 'claude' }) },
+    backends: { get: () => { throw new Error('registry blew up'); } },
+  });
+  assert.equal(liveSessions.snapshot()[0].liveBindingMissing, false, 'a throw is not evidence either');
 });
 
 test('an exited session is not live', () => {

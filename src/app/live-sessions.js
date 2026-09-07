@@ -23,6 +23,29 @@ function init(context) {
 }
 
 /**
+ * Was a live binding EXPECTED here, and did it fail to arrive (#305)?
+ *
+ * A plain terminal is never bound and never was meant to be, so it is not this. Neither is a backend that
+ * does not declare `supportsLiveRebinding` — Codex, agy and Hermes report through their own stores, and
+ * marking every one of their sessions would be noise on the normal case. What is left is the one case
+ * worth a word: Claude or Pi, spawned without the `--settings` file that makes the CLI announce its
+ * turns, so this session will never produce a busy/ready edge, an inbox entry or a chime.
+ *
+ * Everything that can stop the binding is swallowed on purpose at the spawn — no hook URL, a backend that
+ * declines, a throw — which is why the fact has to be recorded rather than inferred later.
+ *
+ * Fails toward SILENCE: no backend id, no registry, an unknown id, all answer false. A mark that appears
+ * because a lookup failed is worse than no mark, because the session it accuses is working fine.
+ */
+function liveBindingMissing(backendId, session) {
+  if (!session || session.isPlainTerminal || session._liveBound) return false;
+  if (!backendId || !ctx || !ctx.backends || typeof ctx.backends.get !== 'function') return false;
+  let backend = null;
+  try { backend = ctx.backends.get(backendId); } catch { return false; }
+  return !!(backend && backend.supportsLiveRebinding === true);
+}
+
+/**
  * Every live session, named the way the renderer draws it.
  *
  * The id is the LIVE one: a backend that names its own sessions is adopted onto its id (`realSessionId`),
@@ -53,6 +76,11 @@ function snapshot() {
       // backend's `supportsLiveRebinding` capability, never on its own — false means "cannot report"
       // for a backend that never could, and "was supposed to and did not" for one that can.
       liveBound: !!session._liveBound,
+      // …and the pairing itself, because a consumer that has to remember to ask the second question is a
+      // consumer that will one day forget. TRUE means only the interesting case: a backend that CAN
+      // report, on a spawn that did not get what makes it report. It is answered here because both facts
+      // live in this process — the renderer names no backend and knows no capability (reflex 5).
+      liveBindingMissing: liveBindingMissing(mapped && mapped.backendId, session),
       startedAt: session._openedAt || 0,
     });
   }
