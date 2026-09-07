@@ -240,6 +240,22 @@
     const settingsTitle = isWorktree
       ? `Open the settings of ${parentName(row)} — a worktree has none of its own`
       : "Open this project's settings";
+    // Remove is not offered on a worktree row, because three of the four things it does there are wrong.
+    // Measured against `removeProject` (`src/projects/projects.js`): the live-session refusal works; the
+    // tombstone it writes has NO effect, because `resolveVisible` asks a worktree only about `hidden` /
+    // `autoHidden` and a removal clears both, so the walk goes on to the project and that is visible; the
+    // cached rows it clears come back on the next cold scan, since the transcripts are still on disk; and
+    // `deleteSetting('project:<path>')` takes the worktree's OWN display name with it, which is the one
+    // effect that no rescan restores — a worktree is renamed against its own key on purpose (#586).
+    // So the row came back within the sweep's 30 s floor, wearing its path instead of its name.
+    //
+    // What it takes away, and it is not nothing: the Remove dialog was also the only place to delete a
+    // worktree's transcripts per backend, and THAT half worked. The project's settings screen is not a
+    // substitute — it resolves to the project (#593), so it would delete the project's history.
+    // Hide (the sidebar's worktree header) and "Delete worktree from disk" beside it are what remain.
+    const actions = isWorktree
+      ? ''
+      : '<button data-action="remove" class="pa-danger" title="Remove from Switchboard (off the list, cached sessions cleared)">Remove</button>';
     return `
       <tr data-path="${escapeHtml(row.projectPath)}" class="${rowClass}">
         <td class="pa-name">
@@ -265,7 +281,7 @@
           <button data-action="settings" title="${escapeHtml(settingsTitle)}">Settings</button>
           <button data-action="rename" title="Rename (display name)">Rename</button>
           <button data-action="remap" title="Remap to another folder">Remap</button>
-          <button data-action="remove" class="pa-danger" title="Remove from Switchboard (off the list, cached sessions cleared)">Remove</button>
+          ${actions}
         </td>
       </tr>`;
   }

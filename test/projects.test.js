@@ -2069,3 +2069,28 @@ test('the manager names whose settings a worktree row opens', () => {
   assert.match(src, /data-action="rename" title="Rename \(display name\)"/,
     'Rename beside it still speaks for the row it sits in');
 });
+
+// Remove is not offered on a worktree row (source read, same reason as the two guards above).
+//
+// Measured against `removeProject` before it was taken away: the tombstone has no effect on a worktree
+// (`resolveVisible` asks it only about `hidden`/`autoHidden`, and a removal clears both), the cached rows
+// come back on the next cold scan, and the settings blob it deletes is the worktree's OWN display name —
+// the one effect no rescan restores. The row returned within the sweep's floor wearing its path.
+test('the manager does not offer Remove on a worktree row', () => {
+  const src = stripComments(fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'panels', 'projects-admin.js'), 'utf8'));
+
+  const decl = src.indexOf('const actions');
+  assert.ok(decl !== -1, 'rowHtml still decides per row whether the danger action is drawn');
+  const branch = src.slice(decl, src.indexOf('return `', decl));
+  assert.match(branch, /isWorktree/, 'and it still decides that on whether the row is a worktree');
+  assert.match(branch, /data-action="remove"/,
+    'the button itself lives in that branch, so an unconditional one elsewhere fails the count below');
+
+  // Exactly one occurrence, and it is the one inside the branch. A second — an unconditional button put
+  // back into the row markup — is what this counts.
+  const hits = src.match(/data-action="remove"/g) || [];
+  assert.strictEqual(hits.length, 1, 'exactly one Remove button in the file, and it is the guarded one');
+  assert.doesNotMatch(src, /<button data-action="remove"[\s\S]{0,200}<\/td>/,
+    'and it is not written straight into the actions cell');
+});
