@@ -171,6 +171,97 @@ test('the sidebar pairs worktrees through the shared helper', () => {
     'sidebar.js must ask the shared helper — this is the call site the Windows defect lived in');
 });
 
+// --- naming a worktree ----------------------------------------------------------------------------
+//
+// `worktreeLabelOf` is the one answer to "what is this worktree called", and since #586 the answer is not
+// derivable from the last path segment: a nested checkout is drawn BESIDE its own parent, so its name is
+// the only thing left saying where it sits (`agent-a / hotfix-1`). Two surfaces spelling that differently
+// name one directory two things, and two checkouts called `hotfix-1` under different agents read alike.
+//
+// Two halves, because neither is enough on its own — `.claude/rules/guards-and-scripts.md`:
+//
+//   * the LIST below is what the five surfaces are, and a stale entry fails. It cannot see a sixth;
+//   * the SCAN after it walks `src/` and catches the sixth, because a new surface hides in whichever
+//     file grows it next.
+
+const NAMES_A_WORKTREE = [
+  { file: 'src/renderer/shell/sidebar.js', why: "the worktree row's own label" },
+  { file: 'src/renderer/shell/sidebar-events.js', why: 'the hide and the delete dialog' },
+  { file: 'src/renderer/session/session-card-details.js', why: "the session card's `Worktree <name>` line" },
+  { file: 'src/renderer/panels/projects-admin.js', why: "the project manager's row" },
+  { file: 'src/app/windows.js', why: "the settings window's title note" },
+];
+
+test('every surface that names a worktree asks the shared helper (#586)', () => {
+  for (const entry of NAMES_A_WORKTREE) {
+    const code = stripComments(fs.readFileSync(path.join(ROOT, entry.file), 'utf8'));
+    assert.match(code, /worktreeLabelOf\(/,
+      `${entry.file} names a worktree (${entry.why}) without asking \`worktreeLabelOf\`.\n` +
+      'The last path segment is not the answer since #586: a nested worktree hangs from the top-most ' +
+      'project, so the name is what says where the checkout is. If this surface stopped naming one, ' +
+      'remove its entry rather than leaving a hole.');
+  }
+});
+
+// A line that NAMES a worktree and takes a path apart in the same breath. That is the shape of the
+// mistake — not `.split()` itself, which is how every project short-name in the renderer is built and
+// which must stay legal.
+//
+// **The `wt` half is not a nicety.** The first version of this pattern was `/worktree/i` alone, and the
+// shapes below caught it out immediately: this codebase writes `wtName`, `wtProject`, `wtGroup` — the
+// realistic sixth surface would have been spelled with the abbreviation and walked straight past a guard
+// named after the full word. `\bwt[A-Z]` is the camel-case form and matches nothing else; a bare `wt`
+// would match half the tree.
+const HAND_SPELLED_NAME = /worktree|\bwt[A-Z]/i;
+const TAKES_A_PATH_APART = /\.split\(|\.pop\(\)/;
+
+test('the naming scan catches a sixth surface however it is spelled', () => {
+  // The guard carries its own pattern, so the pattern is a second copy of the thing it audits and gets
+  // checked in both directions rather than only against a tree that happens to be clean today.
+  for (const shape of [
+    "const wtName = wt.projectPath.split('/').pop();",
+    'const name = worktreePath.split(/[\\\\/]/).filter(Boolean).pop();',
+    'label = `Worktree ${p.split(sep).pop()}`;',
+  ]) {
+    assert.ok(HAND_SPELLED_NAME.test(shape) && TAKES_A_PATH_APART.test(shape),
+      `a sixth surface spelled ${shape} must be caught`);
+  }
+  // And the shape that must NOT be caught, or the guard would outlaw every project short name.
+  const projectShortName = "const shortName = p.projectPath.split('/').filter(Boolean).slice(-2).join('/');";
+  assert.ok(!HAND_SPELLED_NAME.test(projectShortName),
+    'a project short name is not a worktree name and stays legal');
+});
+
+// A generated bundle is not source and must not be scanned: `codemirror-bundle.js` and `pdf-worker.js`
+// both contain a minified `wtX` by chance, and both are gitignored — so a scan that read them was red
+// here and green on a fresh clone, which is the one thing a guard may never be.
+//
+// Told apart by a PROPERTY rather than by name, so the next bundle is covered on the day it is built:
+// measured, the three generated files under `src/` have longest lines of 689 244, 379 215 and 146 030
+// characters, and the longest hand-written line in the tree is 3 835 (an inline icon SVG).
+const GENERATED_LINE_LENGTH = 20000;
+
+function isGenerated(text) {
+  return text.split(/\r?\n/).some(l => l.length > GENERATED_LINE_LENGTH);
+}
+
+test('a file that spells a worktree name by hand asks the helper too', () => {
+  const offenders = [];
+  for (const abs of walk(SRC)) {
+    const relPath = rel(abs);
+    if (relPath === 'src/shared/worktree-path.js') continue;      // it IS the answer
+    const raw = fs.readFileSync(abs, 'utf8');
+    if (isGenerated(raw)) continue;
+    const code = stripComments(raw);
+    const spells = code.split(/\r?\n/).some(l => HAND_SPELLED_NAME.test(l) && TAKES_A_PATH_APART.test(l));
+    if (spells && !/worktreeLabelOf\(/.test(code)) offenders.push(relPath);
+  }
+  assert.deepEqual(offenders, [],
+    `a worktree is named by taking a path apart, without asking the helper:\n  ${offenders.join('\n  ')}\n\n` +
+    'Call `worktreeLabelOf(path)`. A fallback split beside it is fine — `sidebar.js` keeps one — but it ' +
+    'has to be the fallback, not the answer, or a nested checkout is named after its last segment alone.');
+});
+
 test('the delete-worktree handler validates through the shared helper', () => {
   const src = fs.readFileSync(path.join(SRC, 'main.js'), 'utf8');
   const code = stripComments(src);

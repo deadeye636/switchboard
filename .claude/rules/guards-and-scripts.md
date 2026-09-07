@@ -70,6 +70,21 @@ above and has both of its properties).
 the shapes a fifth copy would take DO match, so the pattern is checked in both directions rather than only
 against a tree that happens to be clean today.
 
+**Write the shapes down BEFORE the tree is clean — they catch the pattern, not the code.** The sibling
+guard in the same file (every surface that names a worktree asks `worktreeLabelOf`, #586) was first
+written as `/worktree/i`, and the three violation shapes asserted beside it failed on the spot: this
+codebase writes `wtName`, `wtProject`, `wtGroup`, so the realistic sixth surface would have been spelled
+with the abbreviation and walked past a pattern named after the full word. The tree was green either way.
+The shapes are what found it, and they cost three lines.
+
+**A GENERATED file is not source, and tell it apart by a property.** That same scan went red on
+`codemirror-bundle.js` and `pdf-worker.js`, which contain a minified `wtX` by chance — and both are
+gitignored, so the guard was red here and green on a fresh clone, which is the one state a guard may
+never be in. It skips a file with a line over 20 000 characters instead of naming the two: measured, the
+three generated files under `src/` have longest lines of 689 244, 379 215 and 146 030 characters and the
+longest hand-written line in the tree is 3 835 (an inline icon SVG). The next bundle is covered on the
+day it is built, and no list goes stale.
+
 ## Walk the directory, or list the files — decide, and say which
 
 Both are right for something and the trade-off is opposite:

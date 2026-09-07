@@ -221,7 +221,11 @@ table is the fallback and it is binding.
     every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
     nested worktree sits once #586 draws it beside its own parent — five surfaces call it (the sidebar
     row, the hide and delete dialogs, the session card, the settings window title) and a sixth that
-    reaches for `.split()` will name two checkouts identically. Nothing guards this one yet.
+    reaches for `.split()` would name two checkouts identically. `test/worktree-path.test.js` guards it in
+    both directions — a named list of the five, so one that stops calling it fails, and a scan of `src/`
+    for a line that names a worktree while taking a path apart, so a SIXTH is caught in whichever file
+    grows it. The scan matches `wtName` as well as `worktree`: this codebase writes the abbreviation, and
+    a pattern named after the full word let the realistic violation straight through when it was tried.
 
 ## Backlog & workflow
 
