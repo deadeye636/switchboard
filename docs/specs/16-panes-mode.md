@@ -29,7 +29,7 @@ deprecate, because a single-leaf pane tree IS that mode now:
 | Step | What went |
 |---|---|
 | #357 | The MODE. No setting selects it any more; a stored `tabs` resolves to `panes` (`resolveSessionDisplayMode` in `views/grid-layout.js`, and `legacy` is grid's old spelling on the same rule) |
-| #367 | The STRIP it drew. `refreshSessionTabs` had emptied it and returned ever since, so the tab builders, the drag-reorder, the overflow dropdown, the context menu and the `#session-tabs` element were unreachable — `session/session-tabs.js` went from 666 lines to 290 |
+| #367 | The STRIP it drew. `refreshSessionTabs` had emptied it and returned ever since, so the tab builders, the drag-reorder, the overflow dropdown, the context menu and the `#session-tabs` element were unreachable — `session/session-tabs.js` lost more than half its lines |
 | #368 | Its one remaining SETTING. `tabPosition` put that strip at the top or the bottom and had driven nothing since; migration [18] takes the stored value out of the global blob |
 | #385 | Its stored ORDER. `tabOrder` held the order that strip drew in; migration [19] takes it out of the blob |
 | #387 | The function that READ that order. `buildTabModel` sorted sessions against `tabOrder`, and by then had no caller at all — panes orders its tabs from its own layout tree, which is the thing that knows where a tab was put |
@@ -155,8 +155,11 @@ opening rather than like a mechanism of its own. It matters more now than it did
 three — with tabs retired this is the only tabbed mode, so "everything piled into one pane" would be
 the first thing seen after a launch.
 
-**A tab is a typed view, not a session id** (see O11/O12 below). `{id, kind, ref}` with
-`kind ∈ terminal | preview | diff | plan | stats | memory | jsonl`. This is the decision with the
+**A tab is a typed view, not a session id** (see O11/O12 below). `{id, kind, ref}` — the kinds this
+shipped with were `terminal | preview | diff | plan | stats | memory | jsonl`, and there are roughly twice
+as many now (#342 added the sidebar-driven surfaces, #402 the away overview, #365 removed `settings`).
+**`VIEW_KINDS` in `src/renderer/views/panes-view.js` is the list**; do not count them from here. This is
+the decision with the
 longest reach: it is what lets a preview sit next to the terminal it belongs to, and what makes a
 detached window (#2) "a tree with one leaf" instead of a separate mechanism.
 
@@ -435,7 +438,9 @@ is unique, so there could only ever be one of each, which IS the symptom. Step 2
 
 Grid was considered as "auto-arranged panes" and kept separate. It carries features panes do not have
 an equivalent for: auto-tiling of *all* sessions with a column count derived from the window width, the
-status filter, bulk actions over card selection, and the card chrome. VS Code has no counterpart —
+status filter, bulk actions over **what the filter currently shows** (there is no card selection — the
+actions read `getGridOpenSessions()` narrowed by `gridStatusFilter`, which §4.5 states correctly), and the
+card chrome. VS Code has no counterpart —
 "Arrange Groups: Grid" is even-sizing, not an overview. Folding grid in would mean moving filter and
 bulk actions to the sidebar and rebuilding the a11y move mode on the tree; that is its own issue, not a
 side effect of this one. The tree model is pure, so the option stays open.
@@ -476,10 +481,10 @@ policy is built on — Dockview per panel, Lumino only through `layoutModified`.
 the reparent as well: no context-loss events, `isContextLost()` false afterwards.
 
 So it is not a capability question, and the answer rests on what the trade is: **946 lines out**
-(`pane-tree.js` entire, plus 461 of `panes-view.js`'s 2833 — sixteen per cent) against 186–291 KB of
+(`pane-tree.js` entire, plus about 461 lines of `panes-view.js` — sixteen per cent of it on the day, and that file has since doubled) against 186–291 KB of
 third-party code, a second bundle in a renderer that has one, a one-way migration of the saved
 `localStorage` tree, and re-securing every behaviour the audit paid for (#310, #311, #320, #342, #354,
-#355) on a model we do not own, with 183 tests rewritten because they are written against ours.
+#355) on a model we do not own, with every test of that model rewritten because they are written against ours.
 
 **Kept.** If the question ever returns, Dockview is the candidate — zero dependencies against eleven,
 and per-panel visibility events are what the WebGL policy needs.
@@ -513,7 +518,7 @@ and per-panel visibility events are what the WebGL policy needs.
 ## 7 · Related
 
 - **#2** — detachable windows, built after this and on top of it. A detached window loads the same
-  `index.html?detached=<id>` and gets a tree with exactly one leaf, so it inherits the strip, the
+  `index.html?win=detached` (the identity marker since #370; `detached=<id>` says what it opens ON) and gets a tree with exactly one leaf, so it inherits the strip, the
   session bar and every terminal fix; the ghost tab #2's own plan proposed turned out to be
   unnecessary. The one thing panes had to learn: a detached window shares this origin's localStorage,
   so it neither loads nor writes the saved layout — otherwise popping a session out would overwrite

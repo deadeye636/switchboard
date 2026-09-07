@@ -22,7 +22,9 @@ our own `origin` plus the upstream forks we port from.
 - A read-only **git worktree** on `jbr/main` beside the checkout used to be kept for reference. There is
   none today (`git worktree list`), so read that source with `git show jbr/main:<path>` — which is what
   you want anyway, since a checkout of a fetch-only branch is one more tree to keep in sync.
-- All forks diverged from merge-base `b98c2f8`. Version numbers between forks are not comparable.
+- The forks did not all diverge at one point. Measured with `git merge-base <fork>/main upstream/main`:
+  `kreaddis` at `b98c2f84`, `jbr` at `c3c5ee9a`, and haydng/brianstanley/aaaron together at `0b153cde`.
+  Ask git rather than this line. Version numbers between forks are not comparable either way.
 
 Feature-adoption catalogue: closed issue
 [#1](https://github.com/deadeye636/switchboard/issues/1) (JBR candidates + refs live in its
@@ -52,7 +54,8 @@ alone went 3199 → 1893 in #228), so the same applies there.
 
 ## Detecting upstream changes
 
-`npm run upstream:check` fetches `haydng` + `jbr` and reports new/updated/removed branches and new
+`npm run upstream:check` fetches every remote in `REMOTES` (`scripts/upstream-check.js` — seven of them
+today, not just the two this line used to name) and reports new/updated/removed branches and new
 commits since the last review (marker in `.git/upstream-seen.json`, not versioned). After
 reviewing/porting, `npm run upstream:seen` marks the current state as seen so the next check only
 shows fresh activity. It watches **all** upstream branches, not just `main`.

@@ -170,7 +170,13 @@ corrects it (up to ~15 minutes, pre-existing). A PTY exit clears it immediately.
 ### Dual-mode discovery — built first, not retrofitted
 
 Hermes keeps its history in **SQLite**, not in files. Because it was the *second* backend, the discovery
-seam is dual-mode from Phase 1: a handle is either a file or a database reference. Had the seam been
+seam is dual-mode from Phase 1: a handle is either a file or a database reference.
+
+**The hard rule that comes with reading someone else's database: a reader must never block Hermes
+writing.** Every open is `readonly: true` (`src/backends/sqlite-driver.js`), and it is why Hermes declares
+neither `deleteSessions` nor `rewriteProjectPath` — the project manager's remap and per-backend delete
+skip it rather than take a write lock on a database its owner is using. Upstream's issue 2914 on the
+Hermes side is what this defends against. Had the seam been
 file-only, Hermes would have forced a rewrite of the scanner. It did not: the DB backend landed without
 touching the seam, and the generalized watcher already handled a `{kind:'db'}` target.
 
@@ -386,8 +392,10 @@ The ones that will look wrong to someone tidying up later:
 
    The check is the #548 derivation used twice rather than a second list. The flags the launch shapes,
    the live-binding hook and the **declared** fields can produce, subtracted from the flags an options
-   object that answers everything can produce, leaves exactly the options nothing declares — with the
-   core's `SENT_ELSEWHERE` (a flag added outside the descriptor) as the one door.
+   object that answers everything can produce, leaves exactly the options nothing declares — with
+   `SENT_ELSEWHERE` (a flag added outside the descriptor) as the one door. That is not one core list but
+   one set per checking script, each naming its own backend's flags: `scripts/check-claude-help.js`
+   (`--ide`) and `scripts/check-pi-help.js` (`--list-models`).
 
    The **Configure dialog** is the fifth place with the same marker, and it means something slightly
    different there: it is a **per-session override that layers ON TOP of the cascade**, not a replacement
@@ -441,14 +449,21 @@ The ones that will look wrong to someone tidying up later:
    *shared*: refreshing, hiding or removing a Claude project must not take another backend's rows with
    it — their data is still on disk.
 10. **Real git worktrees are their own project **for session attribution** (in the register they are a sub-unit of it — `docs/specs/10-project-registry.md`)**, detected by the `.git` *file*; grouping stays on the
-    stable head cwd (deriving it per session let one moved session drag its siblings). The helpers that
-    read a session's CURRENT cwd exist and are tested (`sessionCwd`, `extractCurrentCwdFromJsonl`) and
-    are deliberately not used for grouping — a Claude project FOLDER is keyed on the directory it was
-    created from and `deriveProjectPath` assigns one project to the whole folder from the first
-    transcript it happens to read, so a current-cwd derivation let one moved session drag every sibling
-    with it, in readdir order. **Attributing a session to the tree it is in NOW cannot be expressed at
-    folder granularity at all — it needs a per-session project column.** That is an open point, and the
-    thing not to do is swap the helper back in.
+    stable head cwd. The first attempt derived the project from the CURRENT cwd for the whole folder, and
+    that let one moved session drag every sibling with it, in readdir order — a Claude project FOLDER is
+    keyed on the directory it was created from, and `deriveProjectPath` assigns one project to the whole
+    folder from the first transcript it happens to read. The two helpers that attempt read a session's
+    current cwd with (`sessionCwd`, `extractCurrentCwdFromJsonl`) were **deleted in July**; this paragraph
+    named them as existing and tested for two months after they were gone.
+
+    **The per-session column that was the open point here is built** (#157/#182). `session_cache` carries
+    `projectPath` per session (`src/db/schema.js`), written from
+    `sessionProjectPath(st.lastCwd, projectPath)` in `src/backends/claude/session-reader.js` — so a
+    session that moved into a worktree or another repo follows it while a session that merely `cd`-ed into
+    a subdirectory does not, and the folder keeps its own stable identity either way, so no sibling is
+    dragged along. `docs/specs/10-project-registry.md` describes the same thing from the register's side
+    ("a session is attributed per session, not per store folder"), and the two documents said opposite
+    things until this was corrected.
 11. **`backends/cli-probe.js` stays in the backends folder, and an app-side probe closes its own stdin
     (#541).** Shell discovery runs `wsl.exe --list --quiet` to read what it prints and had the same open
     stdin pipe #532 swept out of every backend, which raised the obvious question: move the module

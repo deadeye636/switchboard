@@ -28,7 +28,8 @@ and both scopes are asked for: the CLI's home and the project's.
 running there. They belong to no CLI, so they are always handed over as text. The location is a setting
 with a global default and a per-project override: unset means the `skills` directory beside the
 database; a relative path in a project is read from the project root, so a team can keep its skills in
-the repository.
+the repository; an **absolute** path is taken as given, which is what lets one directory outside any
+project serve every project.
 
 Sorted by skill NAME, not by source. The name is what someone is looking for; a list ordered by where a
 skill happens to live makes them read three groups to find out whether it exists at all. Where the same

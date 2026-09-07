@@ -330,6 +330,25 @@ is absent, and pins every backend's every answer by name.
 **A new row means every backend answers it, declining included.** A row nobody answered renders as a
 visible gap rather than as a no — that is deliberate, not a bug to paper over.
 
+## A TEMPLATE inherits by hand, and the list goes stale silently
+
+`profileToDescriptor` (`src/backends/index.js`) builds an Axis-A template's descriptor by copying
+capability after capability off the backend whose binary it borrows — around two dozen lines, each added
+the day somebody noticed it was missing. **A capability you add to a base descriptor does not reach a
+template unless you add it there too**, and nothing derives or checks that.
+
+It has gone wrong at least four times, each as its own issue and each found by a user rather than a test:
+`resolveLineage` (#193 — a forked template session lost its lineage), `transcriptPathFor` and
+`projectMeta` (#211 — remap left its sessions behind), `rewriteProjectPath`/`deleteSessions` (the manager
+treated every template like Hermes), and the live-binding family (#603 — a template announced no turn at
+all, and could not even be flagged for it, because the flag asks the capability the same question).
+
+**The symptom is silence, not an error**, which is why it survives review: the template launches, runs
+and writes its transcript exactly as expected, and only the missing behaviour is absent. When you add a
+hook to a descriptor, ask whether a template running that binary should have it. Some deliberately do
+NOT — `projectMeta` would make a template a second "meta backend" and double Claude's Info column — so
+the answer is a decision, not a reflex. #605 is the open question of how to stop deciding it by memory.
+
 ## "Is something else already running this session?" is TWO hooks (#172)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a

@@ -16,6 +16,11 @@
 > makes it the one recorded exception to CLAUDE.md rule 7 — see the rule itself. Rule 6 has **no**
 > exception here: the author's name has been removed from both bylines, and corrections made to this
 > file since (§5's stylesheet path, §9's update behaviour) are marked where they were made.
+>
+> **`scripts/apply-theme.ps1` does all of this in one command** — the same three outcomes (Cowork light
+> theme, background colour only, revert), always from a clean `app.asar.bak`, repacking with the native
+> modules unpacked. It was written after this guide and is the shorter route; the steps below remain the
+> record of what it does and the way to do it by hand.
 
 ---
 

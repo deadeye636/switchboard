@@ -34,7 +34,7 @@ start an unrelated empty session instead.
 ## Reading a mixed sidebar
 
 When more than one backend is in play, each session row carries a small **provider badge** (`C`, `Cx`,
-`H`, `Pi`). If you only use Claude, no badges appear at all — the app looks exactly as it did.
+`Ag`, `H`, `Pi` — each backend declares its own monogram, so a new one brings its own). If you only use Claude, no badges appear at all — the app looks exactly as it did.
 
 Sessions from every backend are grouped into the **same project** when they share a working directory,
 and all of them are in the same full-text search. Hermes sessions that genuinely have no working

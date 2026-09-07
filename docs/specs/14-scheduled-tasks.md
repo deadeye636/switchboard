@@ -148,7 +148,7 @@ that tag, and it appears in no real transcript — an upstream leftover).
   command that writes a schedule file nothing executes.
 - **`schedule-*.md` files in projects** — untouched, still valid slash commands, still listed in the Agent
   Files tab (without clock or play button).
-- **The shell-quoting tests** from `test/schedule-injection.test.js` (#76) — they test
+- **The shell-quoting tests** (#76), which moved to `test/shell-quoting.test.js` when the scheduler went — they test
   `quoteArgForShell` / `quoteArgvForShell`, which are shared spawn infrastructure.
 
 **Also removed with it:** the `binary` field on the Claude descriptor, whose only documented consumer was

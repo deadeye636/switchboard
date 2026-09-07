@@ -40,7 +40,9 @@ Each backend's reader exposes only its OWN raw field; the descriptor turns it in
 | Pi | `parentSession` (the parent transcript's PATH, on a FORKED session only) | `{ parent, 'fork' }` | hard. The id is read out of Pi's filename convention `<ISO>_<uuid>.jsonl` in the descriptor — the WHOLE name must match, or a path like `backup_copy.jsonl` yields a confident link to a session that does not exist |
 | agy | — | `null` | a `parent_references` protobuf blob exists but is unverified |
 
-`PARSER_SCHEMA_VERSION` bumped so existing rows re-derive fork lineage on the next scan: Claude 4→5, and Pi 3→4 when its `parentSession` was added. Adding
+`PARSER_SCHEMA_VERSION` bumped so existing rows re-derive fork lineage on the next scan: Claude 4→5, and
+Pi 3→4 when its `parentSession` was added — read the constant rather than this line, both have moved since
+(Pi is at 5). Adding
 a backend to this feature is a descriptor edit (`resolveLineage`) plus its reader exposing a raw field — no
 core change, which is the whole point.
 
@@ -93,7 +95,10 @@ a caret ("▶ N earlier", the same `.sidebar-children-caret` affordance the suba
 ancestor stays its own row. Nothing groups by root, so a shared ancestor may legitimately appear under more
 than one head. Each ancestor renders as a **full session row** (`buildSessionItem`, with a `noLineageThread`
 flag so the flat chain does not recurse) — it is a real session, so every normal action (open, transcript,
-timeline, tags, fork, archive) works through the delegated sidebar events (#218 opt6), no special case. The
+timeline, tags, fork, archive) works through the delegated sidebar events (#218 opt6). **One special case
+and it is load-bearing:** the row is built with `ancestorCopy` (#288), because lineage is a TREE and the
+same ancestor can appear under two heads — without it the copy would claim the session's DOM id, and
+anything navigating to that session would land on whichever copy came first in document order. The
 hard-vs-soft distinction lives only in the data (`lineageKind`) for now — no visual marker (a dimmed/italic
 row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
 
@@ -166,7 +171,11 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
   a descriptor + reader edit, no core change. Same-session **compaction** (Claude `logicalParentUuid`,
   Codex `compacted`) is deliberately out of scope — it is not a cross-session parent, so it is not a
   lineage row.
-- A very long `/clear` chain is not capped in the expander (all ancestors listed).
-- An expanded lineage thread collapses on the next sidebar re-render (morphdom re-applies `display:none`);
-  a live ancestor also still appears inside a descendant's expander (consistent with Model A's shared-ancestor
-  stance). Both cosmetic.
+- ~~A very long `/clear` chain is not capped in the expander.~~ **Closed:** `lineageAncestorChain` walks
+  at most 25 ancestors (`src/renderer/shell/sidebar-lineage.js`).
+- ~~An expanded lineage thread collapses on the next sidebar re-render; a live ancestor still appears
+  inside a descendant's expander.~~ **Both closed.** The expanded state is carried in
+  `localStorage.expandedLineage`, keyed on the chain ROOT so it survives a re-key, with a garbage
+  collection pass on first use; and `lineageThreadChain` cuts the chain at the first ancestor that does
+  not fold under a descendant, so a live one is drawn as its own row instead of inside the expander
+  (#229, #502).

@@ -21,4 +21,7 @@ Do not replace or shadow the Pi PTY integration with RPC yet. RPC is promising f
 
 ## Follow-up shape
 
+**It was revisited: #568** carries that direction (effort label `pi-native`, with #569/#571/#572 under it),
+and #530 renegotiated the RPC question separately. Read those before this document's conclusion.
+
 If this is revisited, open a new design/feature issue for an optional structured runtime capability. The first milestone should be a prototype behind a backend descriptor hook, with no replacement of the existing PTY path until launch/resume/fork, transcript indexing and state reporting match the current behavior.

@@ -20,7 +20,7 @@ Power users juggling many agents need to move between them without the mouse, an
 > (the renderer split), so its paths are a record of the ground this spec was designed against, not of
 > where to look today. The two that matter: `isSessionNavKey` / `handleSessionNavKey` / `appShortcuts`
 > live in **`src/renderer/shell/session-nav.js`**, not in grid-view.js — #218 moved them because they were
-> never grid code (app.js and terminal-manager.js read `appShortcuts` seven times between them). The
+> never grid code — `appShortcuts` is read from several files, app.js and terminal-manager.js among them. The
 > passthrough pattern this spec tells you to mirror is unchanged; only its address is.
 
 - `getNextAttentionInboxItem(sessions, runtime, currentSessionId)` exists and is tested (`src/renderer/session/session-status.js`); already wired to the inbox "Focus next" button (built in `src/renderer/shell/sidebar.js`, handler in `src/renderer/shell/sidebar-events.js`).

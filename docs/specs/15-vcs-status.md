@@ -31,8 +31,9 @@ shipped provider; hg/svn would be sibling files, registered with one line, no co
 | `probe()` | is the binary on PATH |
 | `netFree` | `true` — the status path must never hit the network (parity-asserted) |
 
-`test/vcs-parity.test.js` requires every registered provider to answer the whole contract (even to decline)
-and asserts `netFree`.
+`test/vcs-parity.test.js` requires every registered provider to answer the contract (even to decline) and
+asserts `netFree`. **Not the whole of it:** `diffArgs` and `showArgs` are in the hook table above and are
+not pinned there, so a provider can omit them and stay green.
 
 ### Normalized form (the contract)
 
@@ -99,8 +100,10 @@ A standalone `BrowserWindow` per cwd (`Map`, focus-if-exists, **destroy-on-close
 is called from the main-window close in `windows.js`, or `window-all-closed` never fires). Loads
 `src/renderer/changed-files.html` + `changed-files.js` — an **external** script, because the app enforces a
 `script-src 'self'` CSP that blocks inline. It lists the changed files grouped by state (conflicts first),
-renames as `old → new`, with **Open** (the existing hardened `open-path`) and **Reveal**
-(`shell.showItemInFolder`), a Refresh button and live refresh on the same per-repo poll. Chip counts and the
+renames as `old → new`, with **Open** (the existing hardened `open-path`) and **Reveal** — its own
+`vcs-reveal` IPC since #477, which asks the same containment question Open does before it reveals
+anything, rather than a bare `shell.showItemInFolder` — a Refresh button and live refresh on the same
+per-repo poll. Chip counts and the
 file list come from one porcelain snapshot, so they never disagree.
 
 ## The inline diff (#285)
@@ -116,6 +119,10 @@ git.
 - **Untracked files** have no tracked side to diff against, so `readUntrackedDiff` reads the file directly and
   renders it as an all-`+` block. It is **hardened**: path containment (must resolve inside the repo),
   symlink reject, a size cap, binary detection (NUL byte → "use Open"), and a line cap that flags truncation.
+  Containment is `src/app/path-containment.js` since #474/#476 — it compares the REAL path of both sides, it
+  is asked about the DIRECTORY and **before** the `stat` (this reader answers a missing file with an empty
+  side, so a guard placed after the stat never sees a path that escaped and had nothing at the end of it),
+  and a refused read is deliberately not the same answer as an absent version.
   Every diff line is HTML-escaped in the renderer before it reaches the DOM.
 - The window enforces `script-src 'self'`, so the diff rendering lives in the external `changed-files.js`, not
   inline.
@@ -156,7 +163,7 @@ own "does not exist" answer counts as absence: collapsing every failure into an 
 look exactly like a newly added file. Everything else (timeout, over-cap, a failed command) surfaces as a note,
 and the note text is deliberately generic — git's stderr carries absolute paths and this string reaches the UI.
 
-IPC: `open-diff-window` (send) and `vcs-file-versions` (invoke), both in `src/app/vcs.js`.
+IPC: `open-diff-window` (send), `vcs-file-versions` and `vcs-reveal` (invoke), all in `src/app/vcs.js`.
 
 ## Settings (global)
 

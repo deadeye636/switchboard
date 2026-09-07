@@ -345,6 +345,30 @@ directories produces rows that are dropped one function later.
 And the row disappears when the checkout is deleted, which is the second reason the source has to be the
 filesystem rather than a remembered list.
 
+### The sidebar gathers a project's worktrees under one caret (#597, #598)
+
+A project with several checkouts pushed its own sessions off the screen, so its worktrees sit behind one
+fold carrying the count. Three things about it are decisions rather than styling, and each is a bug if it
+is undone.
+
+**A worktree with a RUNNING session is drawn BESIDE the fold, never inside it.** The first attempt held
+the fold open while a child was running, and that is a rule one click beats: the collapsed state is
+carried across every render, so a single click would have hidden a running worktree until its session
+ended. Structure, not a rule — the same split `processProjectSessions` already makes for sessions, where
+`item.running || item.pinned` can never land in the "N older" bucket.
+
+**A fold that defaults OPEN needs its state carried in BOTH directions** by `preserveSidebarState`. The
+existing clauses there carry "the user opened it", which is the whole answer for a fold that defaults
+closed; this one copies `display` and toggles `expanded` explicitly.
+
+**Where it is INSERTED is three constraints.** Before both the `.sessions-more-toggle` and the
+`.sidebar-orphan-subagents` anchor; DIRECT children only, because `appendSubagentChildren` drops carets of
+its own into that list; and INSIDE `.project-sessions`, because project collapse works through
+`.project-header.collapsed + .project-sessions` and a fold outside it would survive a collapse.
+
+What "a project's worktrees" means has widened twice since: a worktree of a worktree is in there too, flat
+at one level (#586), and a fold row need not be backed by any session at all (#594).
+
 ### A worktree of a worktree hangs from the project (#586)
 
 An agent working in `.claude/worktrees/agent-a` creates a worktree there to try something, and until #586
@@ -376,9 +400,11 @@ Three readers moved with it, and each was a defect of its own once the row could
   offered a checkout the sidebar was already drawing. It also named the middle worktree as the parent — a
   directory the user has never been offered and would not recognise.
 - **The hide and delete dialogs** named the last path segment, so two nested checkouts called `hotfix-1`
-  under different agents read identically. They ask `worktreeLabelOf` now, like the row does. So do the
-  other two surfaces that name a worktree to a user — the session card's `Worktree <name>` line and the
-  settings window's title, which was pinned to the leaf by a test that predates the flattening.
+  under different agents read identically. They ask `worktreeLabelOf` now, like the row does. So does
+  every other surface that names a worktree to a user — the session card's `Worktree <name>` line, the
+  settings window's title (which was pinned to the leaf by a test that predates the flattening), and the
+  project manager's row since #595. `NAMES_A_WORKTREE` in `test/worktree-path.test.js` is the list, by
+  file with the reason each is on it; this sentence counted two while there were four, and then five.
 
 ### The project manager groups a worktree under its project (#595)
 
@@ -421,13 +447,30 @@ config arrives with nothing filled in, and a config-only PROJECT is a row a cach
 under. A reader who fills it in once, in the builder, gets a flat unglyphed row for the first case and a
 missed grouping for the second. That pass has no test — there is no harness for the config-only branch.
 
-**Two things stay unresolved on a worktree row and are out of scope here.** Remove means "off the list,
-cached sessions cleared" here while the sidebar's worktree header offers "Delete worktree from disk" —
-two meanings of deleting one checkout, in two places, neither mentioning the other. And the row offers
-**Settings**, which since #593 opens on the PROJECT (`settingsQuery` resolves through `settingsOwnerPath`
-before the URL is built) — correct, and still a button that silently acts on a different row than the one
-it sits in. **Rename** does write against the worktree's own key, and that is deliberate rather than a
-defect: `displayName` is identity, and renaming a worktree must not rename its project.
+**Two things were left unresolved on a worktree row when #595 shipped, and both were settled afterwards.**
+
+**Remove is no longer offered there at all.** It used to mean "off the list, cached sessions cleared"
+while the sidebar's worktree header offered "Delete worktree from disk" — two meanings of deleting one
+checkout, in two places, neither mentioning the other. Measured against `removeProject` before deciding,
+and only one of its four effects was right on a worktree: the live-session refusal. The tombstone does
+nothing, because `resolveVisible` asks a worktree only about `hidden`/`autoHidden` and a removal clears
+both, so the walk carries on to the project and that one is visible. The cleared cache rows come back on
+the next cold scan, since the transcripts are still on disk. And `deleteSetting('project:<path>')` takes
+the worktree's OWN display name with it — the one effect no rescan restores, because a worktree is
+renamed against its own key on purpose. So the row returned inside the sweep's 30 s floor wearing its
+path instead of its name. Hide and "Delete worktree from disk" are what remain, and both do what they say.
+
+**What that took away is real and is #602:** the Remove dialog was also the only place to delete a
+worktree's transcripts per backend, and that half worked. The project's settings screen is not a
+substitute — it resolves to the project (#593), so it would delete the project's history.
+
+**Settings stays, and now names what it opens.** It opens the PROJECT's settings (`settingsQuery`
+resolves through `settingsOwnerPath` before the URL is built, #593), which is correct because a worktree
+carries none of its own — and the button's title says so before the click: `Open the settings of
+<project> — a worktree has none of its own`, through the same `parentName(row)` the `in <project>` cell
+uses, so the two cannot disagree. The settings screen repeats it once open; this is the half that reaches
+the user first. **Rename** beside it is deliberately not relabelled and writes against the worktree's own
+key: `displayName` is identity, and renaming a worktree must not rename its project.
 
 ### A worktree is not a project to add (#583)
 
@@ -504,7 +547,7 @@ together is a change of its own.
 | The third row source: the worktrees a visible project holds on disk (#594) | `src/index/worktree-dirs.js`, driven by `refreshWorktreeDirs` on `src/index/session-cache.js` from main's post-reconcile upkeep |
 | Which row a worktree nests under, on both surfaces (#586, #595, #596) | `src/index/projects-view.js` (`nestUnder`), re-answered for config-only rows in `src/projects/projects.js` |
 | A worktree reads its project's settings, and the window says which worktree it was opened from (#593) | `src/app/settings.js` (`effectiveSettings`), `src/app/windows.js` (`settingsQuery`) |
-| Grouping worktree rows under their project in the manager (#595) | `src/renderer/panels/projects-admin.js` (`groupWorktrees`), `src/renderer/style.css` (`.pa-worktree*`) |
+| Grouping worktree rows under their project in the manager (#595) | `src/renderer/panels/projects-admin.js` (`groupWorktrees`), `src/renderer/style.css` (`.pa-worktree-nested` — the only rule; `pa-worktree` itself is the row's KIND and carries no styling) |
 
 ## Which project a session belongs to (#157, #182)
 
@@ -734,8 +777,8 @@ used to throw the answer away entirely.
 - **Three worktree consequences, each stated where it was decided and collected here so they are not
   rediscovered one at a time.** A worktree the user hid, whose project is later removed, is on no
   discovery surface at all — the project manager's row is the only thing that still names it (#599).
-  "Remove" in the manager and "Delete worktree from disk" on the sidebar header are two unrelated
-  meanings of deleting one checkout, and neither mentions the other. And the settings import writes a
+  The manager no longer offers "Remove" on a worktree row — three of its four effects there were wrong,
+  and the one that worked (deleting the transcripts per backend) went with it, which is #602. And the settings import writes a
   worktree's `hidden` flag at the raw path, so restoring a project can hide or un-hide its worktrees.
 - The sweep's "no session anywhere" check sees a backend store only once that backend has been scanned in
   the current run. It errs on the safe side: an unscanned store means the tombstone is **kept**.

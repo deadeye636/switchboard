@@ -349,7 +349,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   never pairs with a store record — Hermes writes plain JSON when it cannot open its own database, and
   the database is what we read — no state can be reported for as long as it runs. The session then
   carries a **hollow dot and the reason on hover** (#151, #460) instead of a blank indicator. It is
-  never inferred from PTY output: output is liveness, never work. Each backend also says WHEN its record
+  never inferred from PTY output: output is liveness, never work.
+  **A second reason sits in the same place** (#305): a backend that CAN announce its turns still needs
+  the per-spawn argument that makes it, and everything that stops that is swallowed on purpose — so a
+  session that will never say a word used to look exactly like one with nothing to say. Now it says so,
+  in one sentence in the session bar's tooltip, joined with the notice above rather than replacing it.
+  Deliberately not a badge on the row: the CLI in such a session works, and this explains a quiet
+  session rather than reporting a broken one. **A template inherits its base's ability to report**
+  (#603) — it runs the base's binary, so it gets the base's binding, and the turn-hold that goes with it. Each backend also says WHEN its record
   appears (#512) — Codex writes its rollout and agy its conversation database with the first turn rather
   than at the spawn, so a session of theirs sitting at its prompt with nothing asked of it yet is never
   reported as one the backend cannot see. That same answer narrows who a record can belong to when two
@@ -500,7 +507,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Hermes declared a single option each while their CLIs took a dozen (`--provider`, `--thinking`,
   `--tools`, `--toolsets`, `--skills`, `--safe-mode`, `-c key=value`, …) — so neither was configurable at
   all. Two honest exceptions are **declared** rather than discovered: `appliesAt: 'spawn'` (applied by
-  `app/terminal/spawn.js`, not in the argv) and `requires: '<other>'` (meaningless on its own). `preLaunchCmd` belongs to
+  `src/app/terminal/spawn.js`, not in the argv) and `requires: '<other>'` (meaningless on its own). `preLaunchCmd` belongs to
   Switchboard rather than to a CLI, so the registry adds it to **every** backend; setting one drops that
   session to the shell path, because a shell prefix needs a shell. A declared option that changes nothing
   is a control that lies, and `test/backend-config-fields.test.js` refuses to let one exist.
@@ -562,7 +569,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   (`agent-a / hotfix-1`). A checkout with no sessions still gets a row — the third row source is what the
   project holds on disk, real `git worktree add` checkouts only, collected on the index sweep behind a
   floor of its own. The project manager groups and indents the same rows, naming the parent in the cell
-  wherever a filter breaks the grouping. Hiding a worktree works and is undone from the manager's eye.
+  wherever a filter breaks the grouping — and its Settings button names the project it opens, because a
+  worktree carries none of its own. Hiding a worktree works and is undone from the manager's eye;
+  **Remove is not offered on a worktree row at all**, because three of its four effects were wrong there
+  and one of them silently destroyed the checkout's own display name. What that costs is #602: there is
+  no route left to delete a worktree's transcripts on their own.
   Design record: `docs/specs/10-project-registry.md`.
 - **Sidebar** — favorite projects, an own favorites list, and a startup-collapse setting.
 - **View menu** — the project order (Activity / A–Z / Manual) sits in the
@@ -659,6 +670,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   **external-terminal + file-explorer** launcher, a **configurable external editor** (open
   files via Ctrl/Cmd+click a file link, the right-click menu, or the file-panel button;
   OS-default fallback), and a batch of **Windows ConPTY** rendering fixes.
+- **A plain terminal says what it is, and says when nothing is happening** (#585, #588). It opens with
+  one dim line — this terminal is not monitored, the `+` button starts a tracked session — written into
+  its own buffer once the shell has stopped drawing, so a login shell's own clear cannot wipe it. A
+  launcher terminal does not get it: that one was opened to run a command the user saved. And a terminal
+  whose shell prints nothing at all says so after six seconds, in the terminal and in the log, instead of
+  sitting black behind a Running tab. What replaced the old `claude` wrapper: it names no backend, wraps
+  nothing, and reaches the user before they type rather than after they guessed wrong.
 - **Drop = paste** (#307): a drop on a terminal takes the same route as Ctrl+V — files insert their
   escaped absolute paths, an image with no file behind it (a screenshot, an image dragged out of a
   web page) is saved to a temp file so the CLI can read it as a path, and text inserts as text. A

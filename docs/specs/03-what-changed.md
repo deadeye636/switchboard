@@ -68,9 +68,11 @@ A session's history is fetched once per window (`window.api.getSessionTimeline`)
 app runs. The cache carries a `loaded` set, so *not fetched yet* and *fetched, nothing there* stay
 different answers.
 
-Every former writer in the renderer is **removed**, not silenced. The one exception is a fact only the
-UI can see — a handoff packet seeded into a session — which is NOTED through `timeline:note`; main
-validates the kind and does the writing. A window cannot forge a busy edge or an exit.
+Every former writer in the renderer is **removed**, not silenced. What survives is the class of fact only
+the UI can see, NOTED through `timeline:note` — main validates the kind against `NOTEABLE_KINDS` and does
+the writing, so a window cannot forge a busy edge or an exit. Three kinds are on that list, not one:
+`started`, `viewed` and `file-touched`. The last two are what lets the away recap survive a reload with
+the rest of the record (#396) — they are how it decides, not what it says.
 
 ### The surface: one inbox entry, one overview — `#402`
 

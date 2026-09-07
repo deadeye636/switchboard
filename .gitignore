@@ -30,6 +30,12 @@ app.png
 .claude/settings.local.json
 .claude/scratchpad/
 
+# Agent worktrees. CLAUDE.md sends agents here, so on any clone this is a directory
+# that fills with checkouts — and an untracked checkout in a public repo is exactly
+# what reflex 6 is about. It was only in .git/info/exclude, which is per-clone and
+# never committed, so a second machine had no protection at all.
+.claude/worktrees/
+
 # Local, untracked planning for large efforts (e.g. multi-LLM #142)
 docs/plans/
 

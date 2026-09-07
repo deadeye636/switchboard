@@ -13,9 +13,9 @@ node scripts/drive-app.js count "<selector>"          # how many match
 node scripts/drive-app.js click "<selector>"          # click the first match
 node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match containing <text>
 node scripts/drive-app.js drag "<from>" "<to>" [zone] # a REAL drag: center|left|right|top|bottom of <to>
-node scripts/drive-app.js console                     # renderer console — finds a ReferenceError in seconds
+node scripts/drive-app.js console [seconds]           # renderer console (default 2 s) — finds a ReferenceError in seconds
 node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry: cols/rows, cell box, WebGL state
-node scripts/drive-app.js shot out.png                # screenshot the window
+node scripts/drive-app.js shot [out.png]              # screenshot the window (default app.png)
 node scripts/drive-app.js --target=settings shot s.png  # …a SECOND window, by title or URL
 ```
 

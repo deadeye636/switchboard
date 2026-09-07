@@ -48,7 +48,7 @@ by review where it is not.
 ### Tests
 
 - **`npm test` passes.** It is `node --test`, discovered from the repo root, and needs no Electron. It
-  takes about half a minute — time your own run rather than trusting that number.
+  takes well under a minute — time your own run rather than trusting that number.
 - **A new test must fail against the code as it was.** This is the one that gets skipped, and it is the
   most important line on this page. A test written after a fix tends to describe the fix rather than the
   defect, and then it passes against the broken code too. Check yours: run it against the OLD source and

@@ -191,7 +191,8 @@ off in the settings and the CLI goes back to discovering your real editor.
 
 Add projects manually or automatically, hide or remove them (and a removal *sticks* — the sessions it
 left behind do not bring it back, but a new one does), rename them, set per-project trust, or delete
-one backend's history without touching another's.
+one backend's history without touching another's. A worktree row is the exception: it can be hidden and
+renamed, and it is deleted from the sidebar's own header rather than removed here.
 
 ## Tasks & notes
 
@@ -232,6 +233,7 @@ follows the shipped default even after that default improves.
 | `Cmd/Ctrl+Shift+H` | Insert a handoff into the focused session |
 | `Cmd/Ctrl+Shift+M` | Move mode on the focused grid card — arrows reorder, `Shift`+arrows resize |
 | `Cmd/Ctrl+Shift+,` / `.` | Back / forward through the sessions you visited |
+| `PageUp` / `PageDown`, `Home` / `End` | In any picker (variables, plans, skills, handoffs, the palette): a page at a time, or to the ends |
 
 ## Download
 

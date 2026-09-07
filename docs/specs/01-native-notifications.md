@@ -21,8 +21,8 @@
 > loads this shell, so every one ran the funnel — and `set-badge` / `set-tray-summary` do not look at who
 > sent them, so a window of its own reported "0 waiting" and cleared what main had just set.
 > `raisesAttention()` in `shell/attention-engine.js` is the single answer to "may THIS window announce",
-> and it gates exactly four surfaces: **the badge, the tray summary, the native notification and the
-> attention chime** (spec 02). A new OS-facing surface has to consult it or it fires from every window.
+> and it gates **the badge, the tray summary, the native notification and the attention chime** (spec 02)
+> — and since #402 the away recap as well. Grep its callers; the count written here was already short. A new OS-facing surface has to consult it or it fires from every window.
 > It fails **open** on a missing identity answer — a silenced main window is the worse failure.
 > Recording is not gated: every window still learns about its own sessions. See spec 17 §2.
 
@@ -63,7 +63,8 @@ Decides whether/what to notify based on transitions + focus + settings + coalesc
 //   - never emit when windowFocused is true (badge still updates)
 //   - coalesce multiple sessionIds of the same kind into one "N sessions need you"
 //   - throttle: skip if now - lastNotifiedAt < COALESCE_WINDOW_MS (e.g. 4000); caller batches
-//   - badgeCount = attention.size + (notifyOnReady ? ready.size : 0)
+//   - badgeCount = enabled ? attention.size + (notifyOnReady ? ready.size : 0) : 0
+//     (the "Enable notifications" toggle governs the badge too — when off there is nothing to show)
 ```
 
 ### Main process (`src/main.js`)

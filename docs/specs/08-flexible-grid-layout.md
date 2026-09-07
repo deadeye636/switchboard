@@ -19,6 +19,11 @@
 
 ## Problem & goal
 
+> **Since #343 the mosaic runs only in `sessionDisplayMode: 'grid'`, and since #374 the default mode is
+> `panes`** — so everything below describes a view a user now chooses rather than the one they land in.
+> A mode switch out of panes carries the pane tab order into the grid (`resolveGridCardOrder`, #369);
+> the sidebar order is only the fallback.
+
 The grid is a **uniform auto-grid** — equal-size cards, column count derived from width, order fixed to the sidebar. When watching many agents you can't make the important one bigger or arrange them to match how you work.
 
 **Goal:** Let users **resize** grid cards (span more columns/rows) and **drag to reorder** them, with the layout persisting across restarts. Recommended approach is **snap-to-grid spans + drag-to-reorder**, not a free-form absolute canvas (keeps the CSS-grid architecture and clean terminal fit).

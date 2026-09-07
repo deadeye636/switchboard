@@ -45,6 +45,14 @@ file this app could not PARSE came back as `{}`, which turned one syntax error i
 every hook the user had with it. `writeTextFile` is the grep that stays true — and the way to keep that
 sentence honest is to run the grep rather than to read it.
 
+**One writer is exempt, and its header argues the case: `src/backends/rewrite-cwd.js` (#557).** Everything
+above is a small settings blob a human edits in a dialog, and `writeTextFile`'s two answers fit that shape.
+Neither fits a session's transcript: the other party appends a line per turn, so refusing a racing write is
+not an answer, and a document-wide EOL would rewrite every line nobody touched. That write is append-aware
+(only the bytes present at read time are rewritten; anything appended past that offset is copied as bytes)
+and keeps each line's own ending. It still imports `renameWithRetry` from `safe-write.js` rather than
+growing a second copy of the Windows retry. It does not generalise.
+
 ## Validation
 
 `src/app/format-validate.js`, keyed by **extension** rather than by backend: TOML is TOML for everyone,

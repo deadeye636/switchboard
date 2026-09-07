@@ -1,7 +1,7 @@
 # Windows build (NSIS installer)
 
 How to build Switchboard's Windows installer with VS 2026 / Visual Studio Build Tools, x64.
-As of 2026-07-31.
+As of 2026-09-07 (the node-pty pin last moved on 2026-09-06, #498).
 
 ## TL;DR
 
@@ -48,10 +48,16 @@ a desktop app with a local PTY, and there is no Spectre attack model here worth 
 Since node-pty 1.2.x **winpty is gone from the package**, so the two former patch sites in
 `deps/winpty/src/winpty.gyp` no longer exist.
 
-**The patch is keyed to the file name and therefore to the exact version.** `package.json` pins
-`"node-pty": "^1.2.0-beta.14"` — a caret on a prerelease, which npm also satisfies with a final
-`1.2.0`. So a casual `npm update` un-patches the Windows build **silently**, and it comes back as
-MSB8040. After any version change: regenerate the patch (below) and delete the old file.
+**The patch is keyed to the file name and therefore to the exact version.** `package.json` pins a
+caret on a prerelease, which npm also satisfies with a final `1.2.0`. So a casual `npm update` can
+un-patch the Windows build **silently**, and it comes back as MSB8040. After any version change:
+regenerate the patch (below) and delete the old file — read the pin in `package.json` rather than this
+sentence, which named beta.14 for a day after the bump to beta.15 (#498).
+
+**And that day is a worked example of the failure being quieter than expected.** The pin moved and the
+patch file did not, so `patches/` still holds a beta.14 file. patch-package v8 applied it anyway — the
+built `binding.gyp` does carry `SpectreMitigation: 'false'` — so nothing broke and nothing said
+anything. Do not read a working build as evidence that the patch name matches the pin.
 
 The `postinstall` hook re-applies it:
 ```json

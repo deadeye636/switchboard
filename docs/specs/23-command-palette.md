@@ -4,6 +4,12 @@ Issue: #274. Built: one ranked list over the sessions, the projects and the acti
 opened by F1 (Ctrl/Cmd+K until #491 — that chord is kill-line in a readline shell, and a focused
 terminal answered it before xterm did).
 
+**Moving a default binding needs a one-shot migration, and it is not a value comparison.** A user who
+deliberately rebinds the palette BACK to Ctrl+K has a binding indistinguishable from an inherited one, so
+comparing values would undo their choice on every load, forever. `SUPERSEDED_DEFAULTS` plus a
+`_defaultsVersion` stamp inside the shortcuts blob (`src/renderer/shell/shortcuts.js`) is what tells the
+two apart: the rewrite happens once, for a table that predates the move, and never again.
+
 ## What was missing
 
 Reaching a session meant finding it in the sidebar, which is a tree with filters, folds and an "N older"
@@ -139,6 +145,13 @@ field can be a function: the row builder, the ranker and anything later see the 
 
 The fold is written through the same store a manual toggle uses, so it survives the next render exactly
 as if it had been clicked (#278's explicit-wins rule).
+
+**A worktree row is the exception, and it does nothing today.** `revealProjectFromPalette` looks for
+`.project-group[data-project-path=…]`, and the sidebar renders no such element for a worktree — it is
+skipped from the top-level loop on purpose and drawn nested under its project instead (#582/#586). So a
+worktree picked in the palette unfolds and scrolls nothing. It is a silent no-op rather than an error,
+which is why nobody has reported it; the fix would be to resolve a worktree to its project's group and
+mark the row inside it.
 
 ## Tests
 

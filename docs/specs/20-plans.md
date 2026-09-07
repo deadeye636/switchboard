@@ -86,7 +86,11 @@ layout it declares is a recommendation and the tools that write are the ones tha
 - **Configuring** is still allowed: pointing a CLI at a directory, reversibly, after showing exactly what
   would be written. That is the same act as wiring the attention hook into Claude's settings.
 - Which file a CLI needs changed is the CLI's business. A backend declares `planDirSetup` and answers
-  with the file, its current contents and what they would become. The first attempt put a `.claude`
+  with the file, its current contents and what they would become. It takes a **`shared`** flag besides:
+  the file a project normally commits, or the one that stays on this machine — a team convention belongs
+  in the first, a personal preference in the second, and only the caller knows which this is. And the
+  answers come back in **two** lists, not one (#556): a backend that TRIED and refused is a different
+  answer from one that had nothing to do, and folding them together read as success. The first attempt put a `.claude`
   literal in `src/app/` and `test/backend-path-neutrality.test.js` caught it — see
   [`docs/ai/lessons.md`](../ai/lessons.md).
 

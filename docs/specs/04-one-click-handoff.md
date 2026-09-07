@@ -12,10 +12,13 @@
 > this split. Its tests went with it: `test/handoff-{actions,extract,prompt,submit}.test.js`, not the
 > single `handoff-flow.test.js` named below.
 >
-> **The fork-vs-fresh question below is DECIDED: fresh wins, nothing is resumed.** A fresh agent reads
-> the old session's transcript and writes the handoff itself, which is why the transcript has to exist
-> and be reachable before the flow starts. Forking would inherit the bloated context the feature exists
-> to escape.
+> **The fork-vs-fresh question below was decided as "fresh wins", and it has since grown a second
+> producer.** A fresh agent reads the old session's transcript and writes the handoff itself, which is why
+> the transcript has to exist and be reachable before the flow starts — forking would inherit the bloated
+> context the feature exists to escape. What was added is not a fork: the dialog now offers **this
+> session's own agent** as the first choice, because it is already holding the state and can summarise it
+> without reading anything; a session that has stopped is resumed for exactly one turn to answer. Both
+> producers end in the same review dialog, and the user picks.
 >
 > **Where a saved packet lives changed in #468**: it was a row in `project_handoffs`, and it is a markdown
 > file in the project now. The flow this spec describes is untouched — only its last step writes somewhere

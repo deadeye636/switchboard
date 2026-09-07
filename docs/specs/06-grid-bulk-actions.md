@@ -51,7 +51,10 @@ Reuse `getFilteredSessionsByStatus` + `getSessionStatus` + `getAttentionInboxIte
 ### UI (`grid-view.js`)
 - Add a bulk-action row to `#grid-viewer-header` (next to filters/count). Buttons reflect counts and disable at zero:
   - **Step ▶** — focus the next item in `queue` relative to `gridFocusedSessionId` (wrap). Pure traversal, no confirm.
-  - **Mark N ready seen** — `clearUnread` for each `readyToClear`; toast with **Undo** (re-add to `responseReadySessions`) via `showControlToast`.
+  - **Mark N ready seen** — `clearUnread` for each `readyToClear`; toast with **Undo** via `showControlToast`.
+    As built, Undo goes through `markResponseReady` rather than re-adding the ids directly, and it only
+    touches sessions with a live PTY: a session that started a new turn in the meantime refuses to be
+    marked ready again (#252), so the undo cannot resurrect a state that is no longer true.
   - **Stop N running** — `showControlDialog` tone `danger`, listing affected session names/projects (detail rows), then stop each (`window.api.stopSession` / existing stop path). No silent stop.
 - Keep the bar visible (not hover-only), consistent with the existing "attention actions visible" decision in the supervision plan.
 

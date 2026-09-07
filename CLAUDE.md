@@ -27,7 +27,7 @@ table is the fallback and it is binding.
 |---|---|
 | `src/main.js`, `src/app/**`, `src/watch/**`, `src/preload.js` | `.claude/rules/main-process.md` |
 | `src/renderer/**`, `src/shared/**` | `.claude/rules/renderer.md` |
-| `src/db/**`, `src/index/**`, `src/workers/**` | `.claude/rules/db.md` |
+| `src/db/**`, `src/index/**`, `src/workers/**`, `src/perf.js` | `.claude/rules/db.md` |
 | `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
 | `test/**`, `scripts/**` | `.claude/rules/guards-and-scripts.md` |
 | `docs/**`, `README.md`, `CONTRIBUTING.md` | `.claude/rules/docs.md` |
@@ -219,11 +219,15 @@ table is the fallback and it is binding.
     "is this a worktree at all"; the sidebar used to ask it for the nesting and no longer does.
     **And a worktree is NAMED by `worktreeLabelOf`, never by splitting the path yourself.** It spells
     every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
-    nested worktree sits once #586 draws it beside its own parent — five surfaces call it (the sidebar
-    row, the hide and delete dialogs, the session card, the settings window title) and a sixth that
-    reaches for `.split()` would name two checkouts identically. `test/worktree-path.test.js` guards it in
-    both directions — a named list of the five, so one that stops calling it fails, and a scan of `src/`
-    for a line that names a worktree while taking a path apart, so a SIXTH is caught in whichever file
+    nested worktree sits once #586 draws it beside its own parent — six call sites across five files (the
+    sidebar row, the hide and the delete dialog, the session card, the project manager's row, the settings
+    window title), and one more that
+    reaches for `.split()` would name two checkouts identically. **Count them in the guard, not here:**
+    `NAMES_A_WORKTREE` in `test/worktree-path.test.js` is the list, by file with the reason each is on it,
+    and this sentence has already been wrong once by omitting the manager's row. The guard works in
+    both directions — that named list, so a surface which stops calling the helper fails by name, and a
+    scan of `src/`
+    for a line that names a worktree while taking a path apart, so a NEW one is caught in whichever file
     grows it. The scan matches `wtName` as well as `worktree`: this codebase writes the abbreviation, and
     a pattern named after the full word let the realistic violation straight through when it was tried.
 
@@ -267,7 +271,8 @@ absent from the installer.
 | `src/renderer/**` | vanilla JS, no framework; plain `<script>` tags, morphdom, `@xterm/xterm`, CodeMirror via esbuild |
 | `src/db/**` | `db.js` = façade (#217) over `connection`/`schema`/`migrations` + the stores |
 | `src/index/**` | `session-cache.js` = façade (#199) — **list the directory**, "the worker clients" is not what it holds: `projects-view.js` builds the sidebar/admin rows and `worktree-dirs.js` reads the FILESYSTEM (#594) |
-| `src/workers/**` | the scan + search workers |
+| `src/workers/**` | the scan + search workers — `index-worker.js`, `scan-projects.js`, `search-query.js` |
+| `src/perf.js` | the one timing primitive (`startTimer`), logger-agnostic on purpose so each caller decides where the number goes |
 | `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js`, `record-claim.js` |
 | `src/backends/**` | one folder per coding CLI + `index.js` registry + the shared modules beside them (`file-store.js`, `capabilities.js`, `cli-probe.js`, `resource-expand.js`, … — **list the directory**) |
 | `src/session/**` | what happens to a session across its life — transitions, clear-claims, the subagent seam |
@@ -295,7 +300,7 @@ absent from the installer.
   exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds
   without launching; `npm run demo:auth` copies credentials into the isolated home. See
   `docs/demo-env.md`.
-- `npm start` — bundles CodeMirror and PDF.js, then launches Electron against the **real** stores. The exception,
+- `npm start` — stamps `build-info.json`, bundles CodeMirror and PDF.js, then launches Electron against the **real** stores. The exception,
   for when you deliberately want live data.
 - `npm run start:debug` — the same with DevTools port 9222 open → `docs/ai/driving-the-app.md`.
 - `npm run stop:dev` — stop **this checkout's** dev run. Killing every `electron` image takes the

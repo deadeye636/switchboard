@@ -3,6 +3,7 @@ paths:
   - "src/db/**"
   - "src/index/**"
   - "src/workers/**"
+  - "src/perf.js"
 ---
 
 # Persistence & indexing

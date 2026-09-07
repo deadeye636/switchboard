@@ -43,7 +43,8 @@ search, stats and every counter that expects an indexed one. Its payload also ca
 swallowed on purpose — no hook URL, a backend that declines, a throw — so `false` means "cannot report"
 for one backend and "was supposed to and did not" for another. **`liveBindingMissing` beside it IS that
 pairing**, answered here because both facts live in this process: true only for a backend that CAN report
-on a spawn that did not get what makes it report. It exists because a consumer who has to remember the
+on a spawn that did not get what makes it report — never for a plain terminal, which was never meant to
+have one, and never for a spawn that got it. It exists because a consumer who has to remember the
 second question is one who will forget it, and because the only consumer is the renderer, which may name
 no backend at all (reflex 5). It fails toward SILENCE — no backend id, no registry, an unknown id, a
 throw all answer false — since a mark that appears because a lookup failed accuses a session that is
@@ -393,9 +394,10 @@ detached → detached. Four things follow, and `docs/specs/17-detached-windows.m
 `test/main-no-new-ipc.test.js` (#222) fails on one and names the module to use instead.
 
 **This table and that test's `WHERE_IT_GOES` string are the same list, and the test's copy is the one an
-agent reads** — it is the failure message. They had drifted by six rows, so a handler in one of those
-areas met a red test that offered it no home and became a `GRANDFATHERED` entry instead. Nothing checks
-that they agree. Add a row here, add the line there, in the same commit.
+agent reads** — it is the failure message. They have now drifted twice: by six rows when this warning was
+first written, and by nine after it, so a handler in one of those areas met a red test that offered it no
+home and became a `GRANDFATHERED` entry instead. Nothing checks that they agree. Add a row here, add the
+line there, in the same commit.
 
 | The handler is about | Home |
 |---|---|
@@ -413,6 +415,13 @@ that they agree. Add a row here, add the line there, in the same commit.
 | Whether the user is at the machine (focus + input, across every window) | `src/app/presence.js` |
 | What happened to a session, and reading its history back | `src/app/timeline.js` |
 | Which live sessions their backend has no record of, so no busy/idle can be shown | `src/app/store-record-notice.js` (decided in `src/watch/adopt.js`) |
+| What main knows about a running session the index has never seen | `src/app/live-sessions.js` |
+| Whether something OUTSIDE Switchboard is holding a session | `src/app/live-owners.js` |
+| A backend's model discovery / a backend's own files | `src/app/backend-models.js` / `src/app/backend-resources.js` |
+| May this file be written; keeping an open document live | `src/app/file-access.js` / `src/app/file-watch.js` |
+| Where a project keeps its handoffs and its plans | `src/app/convention-dirs.js` |
+| What a running session can be asked to run | `src/app/skills.js` |
+| Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

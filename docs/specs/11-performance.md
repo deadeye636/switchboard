@@ -245,7 +245,7 @@ Three things on our side of that fence:
   `test/spawn-first-resize.test.js` pins which branch may, as a source check, because `node-pty` is
   required at module load and there is no seam to reach a fresh spawn through. The regression it guards
   against is somebody restoring the symmetry between the branches because it reads as an oversight.
-- **The restore itself (#567, half fixed and still open).** Four Claude sessions spawned within three
+- **The restore itself (#567, part fixed and then closed as measured out).** Four Claude sessions spawned within three
   seconds while a cold project scan ran, measured at 10-13 s to the alternate screen. The issue carries
   the evidence and is not re-derived here.
 
@@ -262,10 +262,38 @@ Three things on our side of that fence:
   instead of following it. **Deliberately not a throttle**: nothing demonstrated CPU or disk
   contention, and a throttle aimed at an uncontended resource is a fix that changes nothing.
 
-  **It is a part, not the whole.** 1-2 s does not explain 10-13 s, and the remaining candidate is the
-  physical read on a genuinely cold page cache — the first-ever run measured 17 960 ms against
-  8 600-10 800 ms warm, which is the right order for the gap. That has not been measured, because
-  dropping the Windows page cache needs a reboot.
+  **It is a part, not the whole — and the rest was not I/O.** 1-2 s does not explain 10-13 s, and the
+  candidate left standing was the physical read on a genuinely cold page cache. That has since been
+  measured, and it is not the cause.
+
+  **The page cache costs ~1.3 s.** Five runs, each against a fresh `SWITCHBOARD_DATA_DIR` so every run
+  did the identical full scan of 1089 sessions across 13 projects: warm 18 472 / 18 767 ms, cache
+  emptied 19 428 / 20 174 ms, warm control afterwards 18 254 ms. 1.2 GiB off an NVMe is 0.6-1.2 s, which
+  is the whole delta — nothing is left for I/O to hide in, which agrees with the scan being ~95 % parse.
+
+  **And no reboot is needed to measure it**, which is what had made this look unanswerable: RAMMap
+  empties the standby list on a running system (`-Es`, then `-Et`, elevated). It is also the better
+  measurement — a reboot puts the run into the noisiest minutes of the day, and under Fast Startup a
+  reboot is not fully cold to begin with.
+
+  **The 17 960 ms this rested on was never a cold run.** It is reproduced as a *warm* number: a full
+  scan of that store costs ~18.5 s whatever the cache holds. The 8 600-10 800 ms beside it were runs
+  with less work to do, not with a warmer cache — the database state decides how many sessions get
+  parsed. Measured while setting the above up: two consecutive runs of one build gave 43 009 ms and
+  7 101 ms, and the difference was 1004 against 378 sessions scanned. **Any timing here starts from an
+  empty data directory or it compares two different amounts of work** — and because that also defeats
+  the #589 gate, such a run describes a first-ever launch, not what a launch costs.
+
+  **`claude --resume` does not scale with its transcript either.** One trusted working directory, an
+  isolated `CLAUDE_CONFIG_DIR`, four transcripts cut from one file, three passes each, spawn until the
+  CLI stopped drawing for two seconds: 0.1 MB → 3220 ms, 0.2 MB → 4238 ms, 14.3 MB → 4791 ms,
+  42.4 MB → 3795 ms. No monotonic relationship, and the spread within one size (up to 1.8 s) is wider
+  than any difference between sizes. 424 times the data costs nothing measurable.
+
+  So the issue was closed with the gap unexplained rather than pending. What remains unmeasured, for
+  whoever picks it up: CPU contention rather than disk (the scan saturates a core parsing while the
+  starting CLI needs one for its own 3-5 s boot), and the VCS poller's first heartbeat starting a
+  `git status` per sidebar project, three at a time.
 
   **What streaming costs, stated because it is a new flow.** The per-folder writes used to run in one
   synchronous loop, so a concurrent `get-projects` saw either all-old or all-new rows. Yielding between
@@ -292,6 +320,12 @@ Three things on our side of that fence:
   nothing visibly broken. `lifecycle.js` reads `searchFtsRecreated()` before it starts the scan and asks
   for the full pass; `populateCacheViaWorker` also chains a real full scan behind a gated one that is
   already in flight, because concurrent callers otherwise share the gated promise.
+
+  **And that chaining has to be cancellable, which is the #76 hazard at a new seam.** A chained scan is
+  queued as a microtask, while `terminateScanWorker` settles the gated one from inside `will-quit` — so
+  the chained pass would spawn a Worker whose folder applies write to a database `closeDb()` has already
+  closed. `cancelActiveScan` (`src/backends/claude/store-indexer.js`) is set synchronously by the cancel
+  path and checked by the continuation before it does anything (`a97ec4b7`).
 
   **`parserVersion` is part of the decision, per folder.** A parser bump moves no file's mtime, and
   #152's per-row gate sits *behind* the folder gate — so a stamp comparison alone cannot see one. Main

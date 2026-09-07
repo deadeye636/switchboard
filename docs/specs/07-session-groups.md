@@ -92,9 +92,15 @@ is n:m, lives in its own table, is centrally managed (rename, recolour, hide, de
 everywhere), and since #164 it filters the sidebar. What a tag cannot do yet is *structure* the list — which
 is the one thing a group is for, and the sole reason the **folder-first layout** exists at all.
 
-So the plan is not to delete groups but to fold them in: **group the sidebar by session tag**. One concept
+So the plan was not to delete groups but to fold them in: **group the sidebar by session tag**. One concept
 instead of two, and a session with two grouping tags may legitimately appear in two sections — something a
-group cannot express. Groups, the folder-first render path and `groups-model.js` go once tag grouping
-covers them; existing assignments migrate to tags of the same name and colour.
+group cannot express.
 
-Until then this spec stands as built. Do not grow the group UI further without reading #185.
+**What actually happened, and it is not what the paragraph above expected.** #185 removed groups, the
+folder-first render path and `groups-model.js` outright, and the migration this text promised was never
+written: there is no `groups` handling in `src/db/migrations.js`, and nothing reads that settings blob any
+more. Anyone who had groups re-tags those sessions by hand — the header of this document says so, and this
+sentence used to say the opposite two screens further down.
+
+**Nothing in this document is built.** It is kept as the design record for why the feature existed and why
+it did not last; read #185 before reviving any part of it.

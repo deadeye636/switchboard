@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// What the upstreams (haydng + jbr) have done since anyone last looked: branches that are new or
+// What the upstreams have done since anyone last looked (every remote in REMOTES below): branches that are new or
 // have moved, and the commits behind them. The marker lives in .git/upstream-seen.json, which is
 // not versioned — it records what THIS checkout has reviewed, not what the project has.
 //
@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REMOTES = ['haydng', 'jbr', 'brianstanley', 'kreaddis', 'aaaron', 'ivandobsky', 'upstream'];
-const OURS = 'main'; // unsere Linie
+const OURS = 'main'; // our own line
 const SEEN_FILE = path.join(__dirname, '..', '.git', 'upstream-seen.json');
 const APPLY = process.argv.includes('--seen');
 

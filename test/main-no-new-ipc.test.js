@@ -83,6 +83,15 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/presence.js            whether the user is at the machine (focus + input, across every window)
   src/app/timeline.js            what happened to a session, and reading its history back
   src/app/store-record-notice.js live sessions their backend has no record of (no busy/idle to show)
+  src/app/live-sessions.js       what main knows about a running session the index has never seen
+  src/app/live-owners.js         whether something OUTSIDE Switchboard is holding a session
+  src/app/backend-models.js      a backend's model discovery
+  src/app/backend-resources.js   a backend's own files — listing, reading, writing
+  src/app/file-access.js         may this file be written
+  src/app/file-watch.js          keeping an open document live while something else rewrites it
+  src/app/convention-dirs.js     where a project keeps its handoffs and its plans
+  src/app/skills.js              what a running session can be asked to run
+  src/app/terminal/images.js     images pasted or dropped into a terminal
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

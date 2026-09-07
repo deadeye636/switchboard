@@ -15,10 +15,12 @@ gh release download v<version> --pattern "Switchboard.Setup.<version>.exe" --dir
 
 ## Install the build before releasing it
 
-`build.files` in `package.json` is an **allow-list**, and `*.js` in it matches the **top level
-only** — so a new directory of modules is silently left out of the package unless it is added there.
-0.7.5's first draft shipped without `backends/` and died on its first `require`: the repo ran,
-`npm start` ran, the whole suite was green, and only the installer was missing anything.
+`build.files` in `package.json` is an **allow-list**. It used to name `*.js`, which matches the **top
+level only**, so a new directory of modules was silently left out of the package: 0.7.5's first draft
+shipped without `backends/` and died on its first `require` — the repo ran, `npm start` ran, the whole
+suite was green, and only the installer was missing anything. That exact shape cannot recur, because
+#214 moved every module under `src/` and the list is led by `src/**/*`. The allow-list itself is still
+the risk: a new directory OUTSIDE `src/` is absent from the installer and nothing at run time says so.
 `test/packaged-files.test.js` now walks the real require graph against that allow-list, but a test
 is not a substitute for starting the thing you are about to hand someone.
 
@@ -33,6 +35,10 @@ verified nothing.
 creates the release as a **draft** and uploads 19 assets: the Windows installer, the macOS
 `.dmg`/`.zip` (arm64 + x64), the Linux AppImage/`.deb`/pacman — **and the `latest*.yml` files the
 auto-updater needs.**
+
+It also accepts a **manual run** (`workflow_dispatch`) with a `platform` choice — `all`, `mac`, `win`
+or `linux`, defaulting to `mac`. That is the one way to build macOS from a Windows machine, and it is
+what `scripts/build-mac.bat` drives.
 
 So after `git push origin refs/tags/v<version>`, the release already exists. Adding your own with
 `gh release create` produces a **second** release on the same tag, carrying only whatever you

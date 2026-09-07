@@ -22,10 +22,10 @@ something *outside* it still called:
 
 - Pulling the tag lists out of `openSettingsViewer` left `settingsViewerBody` behind (an IIFE-level
   const, not a global). The entire Tags section died with a `ReferenceError` the instant the panel
-  opened. **All 1488 tests passed.**
+  opened. **The whole suite passed** — 1488 tests on the day, a fraction of what it holds now.
 - Cutting the shortcut rebinding out left `stopShortcutCapture` behind — and both `persistSettings`
   *and* the Cancel button call it. The panel looked perfect, the rebind showed in the button, and
-  **Save threw for every setting** while **Cancel threw too**. Again 1488 green. Opening the panel
+  **Save threw for every setting** while **Cancel threw too**. Green again. Opening the panel
   found nothing; only pressing Save did.
 
 So after any cut: **grep the moved file for every name it declares**, and expect more than one caller.
@@ -119,8 +119,10 @@ funnel — and `set-badge` / `set-tray-summary` do not look at which window sent
 therefore sent "0 waiting" and cleared what main had just set.
 
 `raisesAttention` in `shell/attention-engine.js` is the one answer to "may THIS window announce". It
-gates exactly four surfaces: the badge, the tray summary, the native notification and the attention
-chime. **A new OS-facing surface has to consult it**, or it fires from every window. It deliberately
+gates the OS-facing surfaces — the badge, the tray summary, the native notification and the attention
+chime — plus the away recap and its inbox entry (`shell/away-overview-view.js`, #402), which is not
+OS-facing but is just as wrong coming from two windows at once. **Grep its callers rather than counting
+from here**; this sentence said "exactly four" while there were five. **A new OS-facing surface has to consult it**, or it fires from every window. It deliberately
 fails open — a missing identity answer announces — because a silenced main window is the worse failure.
 
 Recording is not gated: a window of its own still learns and records everything about its own sessions.

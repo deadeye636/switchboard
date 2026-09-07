@@ -29,6 +29,7 @@ detach-session (IPC)  →  new BrowserWindow: index.html?detached=<sessionId>
 | `session-detached` / `session-reattached` | the window that must let go / take over — main by default, a specific detached window since #316 |
 | `timeline-signal` | the owning window, and **never** main (#395) — see below |
 | `mcp-open-diff`, `mcp-open-file`, `mcp-close-tab`, `mcp-close-all-diffs` | the owning window (#393) — a review opens where the user is looking. The close notices go to the window actually SHOWING the diff, which is not the same question once a session moves |
+| a re-key of a detached session | **both**, as two channels with two audiences: `detached-session-rekeyed` to the owning window so its tab follows the new id, and `session-detach-rekeyed` to main so the register does (#348) |
 | `cli-busy-state`, `terminal-notification`, `session-forked`, everything else | main only |
 
 The separation is the point. The sidebar, the attention inbox and the badges live in the main window,
@@ -340,7 +341,7 @@ guards, in the order a session can slip past them:
 | `openSession` (sidebar, inbox, tasks, panes, dialogs) | raises the detached window instead of mounting |
 | `attachRunningSession` (the grid's auto-open — does **not** go through `openSession`) | the same check, repeated |
 | The launch restore, in a detached window | `window.__suppressLaunchRestore` |
-| The grid inside a detached window | `toggleGridView` bails |
+| The grid inside a detached window | `showGridView` bails — it is the funnel every entry path meets, which a mode switch reaches directly (#369). `toggleGridView` was where the refusal used to sit |
 
 Both grid paths were found by review, not by testing: they only fire after a display-mode switch,
 which is not where anyone looks for a detach bug.

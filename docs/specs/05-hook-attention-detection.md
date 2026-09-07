@@ -42,13 +42,17 @@ Document findings in this spec's "Spike notes" before building.
 
 ### Step 1 — Ingest channel (`src/main.js`)
 - Stand up the chosen channel (local endpoint or watched file). Normalize each event to `{ sessionId, kind, reason }` where `kind ∈ {needs-attention, busy, idle, ready}`.
+  Two more kinds joined them with #119 and carry extra fields: `subagent-live-start` and
+  `subagent-live-stop`, both with `agentId` (and the first with `agentType`). `SubagentStop` must NOT
+  map to `ready` — that would flip the parent to "finished" while it is still generating.
 - Emit to renderer via a **new** structured event `attention-signal` (don't overload `terminal-notification`): `mainWindow.webContents.send('attention-signal', { sessionId, kind, reason, source: 'hook' })`.
 
 ### Step 2 — Pure mapping helper `src/shared/attention-source.js` (UMD, tested)
 ```js
 // classifyAttentionSignal({ source, payload }) -> { kind, reason } | null
 //   source: 'osc9' | 'hook' | 'bind'
-//   for osc9: run the existing regex (move it here from app.js) -> needs-attention|null
+//   for osc9: two regexes — the attention one -> needs-attention, and a "waiting for your input"
+//              one -> ready. An OSC-9 payload is not attention-only.
 //   for hook: trust the structured kind/reason
 //   for bind: a terminal-bound extension's own lifecycle edge (#529). busy/idle pass through; a
 //             `waiting` edge — the CLI blocked on its own prompt — is needs-attention AND carries the
@@ -68,6 +72,12 @@ Move the inline regex from `app.js:409` into this helper (keeps one source of tr
 ## Files to touch
 - **New:** `src/shared/attention-source.js`, `test/attention-source.test.js`. *(As built the ingest channel is its own module too — `src/app/hooks.js` + `test/hook-ingest.test.js`, since #213.)*
 - **Modified:** `src/main.js` (ingest channel near OSC parsing region; new `attention-signal` send), `src/preload.js` (append `onAttentionSignal`), `src/renderer/app.js` (funnel both sources via `applyAttention`; remove inline regex now living in the helper, ~401–415), `src/renderer/panels/settings-panel.js` (toggle), `src/renderer/index.html` (script tag).
+
+  **The toggle moved with #212.** It is no longer a hand-placed control in `settings-panel.js`: Claude's
+  descriptor declares it (`integrations.fields`, id `attentionHooks`, in `src/backends/claude/index.js`)
+  and `src/renderer/panels/backends-panel.js` renders it under Settings → Backends → Claude →
+  Integrations. The renderer names no backend for it; `test/backend-integrations.test.js` ties the
+  descriptor's `domId` to the save path.
 
 ## Tests (`test/attention-source.test.js`)
 - OSC-9 payloads that previously matched still classify as needs-attention; non-matching payloads return null.

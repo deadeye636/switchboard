@@ -296,6 +296,19 @@ shows the override, or it becomes invisible state.
 
 Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the defaults above.
 
+**One key here is written by the main process rather than by the screen**, and it decides behaviour
+rather than appearance:
+
+| Key | Holds | Written by |
+|---|---|---|
+| `usage:lastSuccessful:<backendId>` | the last usage reading that succeeded, with its timestamp | `src/main.js`, on every successful poll |
+
+It is what keeps a figure on screen when the source cannot answer today, and — for AGY — it is also the
+switch that decides whether the app may start a CLI of its own to read quota (`allowLaunch` is
+`!hasCachedUsage`). Nothing clears or ages it, so the first successful reading turns that probe off for
+the life of the installation: **#604**. There is no UI for the key; deleting it means editing the
+settings blob.
+
 ## Hotkeys — `shortcuts.<id>`
 
 `primary` = Cmd on macOS, Ctrl elsewhere. Defaults live in `src/renderer/shell/shortcuts.js`.
@@ -333,6 +346,7 @@ Ctrl/Cmd+K until #491, which is kill-line in every readline shell and was being 
 | `paneCloseTab` | Close the focused pane's active tab (panes mode) | primary+Shift+W |
 | `paneClose` | Close the focused pane (panes mode) | primary+Shift+K |
 | `paneMoveMode` | Move a tab between panes (panes mode) — arrows move it, Esc leaves | primary+Shift+M |
+| `insertHandoff` | Insert handoff — opens the picker in the focused terminal and inserts a reference at the cursor | primary+Shift+H |
 | `nextAttention` | Next attention item | primary+Shift+A — **not re-bindable**, preserved on save |
 
 `sessionNavArrows` means three different journeys depending on the display mode: it cycles sessions in
@@ -429,7 +443,8 @@ and because a second window can corrupt them.
 | `gridLayout`, `gridStatusFilter` | per-session `{order, colSpan, rowSpan}`; the grid's status filter |
 | `persistedOpenSessions` | the set to reopen on the next launch — deliberately durable, so it survives a crash |
 | `filePanelWidth`, `filePanelDiffMode` | the side panel's width; side-by-side vs inline diff |
-| `projectCollapseState`, `projectOrder`, `projectSortMode`, `favoritesOwnList` | sidebar arrangement |
+| `projectCollapseState`, `projectOrder` | sidebar arrangement — these two are localStorage-only |
+| `projectSortMode`, `favoritesOwnList` | a **boot cache** of two real global settings (see the table above). The blob is the source of truth; the mirror is what lets the first paint sort before the settings arrive |
 | `expandedSlugs`, `expandedSubagents`, `orphanExpanded:<project>` | which sidebar groups are open |
 | `usageStatusLastValue` | the last usage reading, so the status bar is not empty on boot |
 
@@ -616,7 +631,9 @@ notice, because those were explicit configuration choices.
 | `node scripts/heap-snapshot.js` / `heap-summary.js` / `heap-retainers.js` | Take and read a heap snapshot of the running app — what grew, and what still holds it (#525). |
 | `node scripts/io-sample.js` | What the app reads and writes while it sits there. |
 | `node scripts/pi-rpc-spike.js [cwd] ["prompt"]` | What Pi's RPC mode actually sends (#568): every event type in arrival order, the assistant message assembled from deltas alone (`message_update` carries a delta and no cumulative snapshot), and whether the session file is named the way `src/backends/pi/turn-queue.js` expects. Run by hand, not part of the suite, and it costs one real model call against whatever Pi is authenticated for — keep the prompt small. |
-| `node scripts/check-doc-refs.js` | Fails when a repo path named in backticks in `CLAUDE.md`, `README.md`, `.claude/rules/**` or `docs/**` no longer exists. `docs/plans/**` is skipped (gitignored scaffolding, written against a tree that does not exist yet). A path named on purpose — a removal record, a plan option not taken — goes in `DELIBERATE` in that file **with its reason**, keyed by the doc that names it; an exemption whose path comes back is reported too. `test/doc-refs.test.js` runs it in the suite. |
+| `scripts/build-mac.bat` | Builds the macOS installer on GitHub Actions from a Windows machine and downloads the artifacts into `dist/`. It triggers `build.yml` manually with `platform: mac`, waits for the run and fetches the result. Needs an authenticated `gh`. There is no local way to build macOS from here, which is what this exists for. |
+| `scripts/apply-theme.ps1` | Repaints the installed app by rewriting the CSS inside its packaged `app.asar` — three modes (`Cowork` light theme, `Solid` background colour only, `Revert`). Always works from a clean `app.asar.bak` and repacks with the native modules unpacked. It automates by hand what `docs/customizing-colors.md` walks through step by step, and like that document it edits an installed build, not this repo. |
+| `node scripts/check-doc-refs.js` | Fails when a repo path named in backticks in `CLAUDE.md`, `CONTRIBUTING.md`, `README.md`, `.claude/rules/**` or `docs/**` no longer exists. `docs/plans/**` is skipped (gitignored scaffolding, written against a tree that does not exist yet). A path named on purpose — a removal record, a plan option not taken — goes in `DELIBERATE` in that file **with its reason**, keyed by the doc that names it; an exemption whose path comes back is reported too. `test/doc-refs.test.js` runs it in the suite. |
 
 ## Known inconsistency
 

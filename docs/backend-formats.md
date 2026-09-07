@@ -443,8 +443,8 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   each turn's prose out of the protobuf blob with a shallow wire-format walk — a model reply is one
   length-delimited field whose value carries newlines and markdown, so a naive byte scan would split it.
 - Resource discovery is read-only through agy's `listResources()` hook. It surfaces safe Gemini and
-  Antigravity settings, `GEMINI.md`, builtin/implicit resource directories, knowledge directories and project
-  `GEMINI.md`. It deliberately excludes OAuth/account files, logs, crashes, caches, history, scratch/tmp data
+  Antigravity settings, builtin/implicit resource directories, the knowledge directory, the plugins
+  directory, and per project both `GEMINI.md` and the project's own `.gemini` settings directory. It deliberately excludes OAuth/account files, logs, crashes, caches, history, scratch/tmp data
   and conversation databases.
 - **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
   `supportsFork: false` (offering it would launch an unrelated session).
@@ -469,7 +469,17 @@ it spawned itself, then any other `agy` process on the machine, found by image n
 durable cached reading, it starts one bounded PTY probe and shuts it down after the fetch. A probe that
 does not return a reading backs off — five minutes, doubling to an hour — and its answer is re-served
 while the wait runs, so an install that is present but not signed in is not respawned once a minute for
-the app's whole lifetime. On a machine with several users signed in, the process list is not private:
+the app's whole lifetime.
+
+**"No durable cached reading" is the whole of that condition, and it never becomes true again.** The
+gate is `allowLaunch: !hasCachedUsage`, and `hasCachedUsage` is read from the persistent setting
+`usage:lastSuccessful:agy`, which nothing clears or ages. So the first reading that succeeds turns the
+managed probe off for the life of the installation: from then on quota is read only when an AGY process
+happens to be running anyway, and otherwise the stored figure is served indefinitely with the neutral
+limits-unavailable reason. That is why an installed instance shows no probe activity in its log at all,
+and it is **#604**. Verified against a real install: with a process running the reading is live and uses
+the foreign process; from a sandbox with an empty usage cache and no AGY anywhere, the probe does spawn,
+read and clean up after itself. On a machine with several users signed in, the process list is not private:
 a discovered `agy` can belong to another account, and if its loopback service answers, the figure shown
 is that account's. The summary can carry grouped Weekly/5-hour
 limits; older/local fallbacks carry per-model fractions and reset times. All map into the same usage buckets.
@@ -593,7 +603,7 @@ which meant they were, in practice, not configurable from Switchboard.
 | **agy** | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` | `--dangerously-skip-permissions` (removes all tool approvals), `--project` / `--new-project` / `--agent` (agy's own project/agent selection, orthogonal to Switchboard's cwd), `--print` / `--prompt` and `--prompt-interactive` (non-standard launch modes), `--log-file` (diagnostic output path), `--continue` (latest conversation rather than Switchboard's recorded id), `--input-format` (#537 — print mode only, and it needs `--output-format stream-json` besides). |
 
 **Some options belong to Switchboard, not to a CLI**, and the registry adds those to *every* backend
-(`src/backends/agy/index.js`, `UNIVERSAL_FIELDS`) rather than letting four descriptors carry four copies that
+(`UNIVERSAL_FIELDS` in `src/backends/index.js`) rather than letting every descriptor carry its own copy, which would
 drift apart. Today that is **`preLaunchCmd`** — a raw shell prefix (`nvm use 20 &&`, `aws-vault exec
 profile --`) with nothing Claude-specific about it. It *was* Claude's, for a reason nobody wrote down and
 which turned out to be about the **spawn mode**: Claude starts through a shell (there is a command line to
