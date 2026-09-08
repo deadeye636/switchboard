@@ -462,7 +462,7 @@ function registerIpc(ipc = ipcMain) {
 
   ipc.on('settings-changed', (event) => broadcastSettingsChanged(event.sender));
 
-  // Show the welcome tour again, from the button in Settings → About (#146).
+  // Show the welcome tour again, from the button in Settings → Maintenance (#146).
   //
   // Three things this has to do that a plain `send` would not. The settings window is a CHILD of the
   // main window, so hiding it does not un-minimise the parent — a tour drawn into a minimised window is

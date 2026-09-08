@@ -163,6 +163,27 @@
             <!-- ===== Maintenance ===== -->
             <section class="settings-cat" data-cat="maintenance">
               <div class="settings-cat-head"><h2>Maintenance</h2><p>Repair and move your Switchboard data.</p></div>
+              <!-- The welcome tour, reachable again (#146). It lives in MAINTENANCE rather than About:
+                   About is a plate — version, lineage, license, runtime — and this is a thing you DO, next
+                   to the other things you do to an installation. It OPENS the tour rather than resetting
+                   the welcomeDismissed flag, because resetting it would make the tour reappear unasked on
+                   the next launch, which is the one thing that flag exists to prevent. The tour lives in
+                   the main window, so the click relays through main and this window closes on the way.
+                   NO BACKTICKS IN HERE: this comment sits inside a template literal, and one ends it. -->
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header">
+                      <span class="settings-label">Welcome tour</span>
+                    </div>
+                    <div class="settings-description">The eight things a new installation does not explain by itself.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button class="settings-action-btn" id="sv-show-welcome-tour" type="button">Show the tour</button>
+                  </div>
+                </div>
+              </div>
+
               <div class="settings-section">
                 <div class="settings-field">
                   <div class="settings-field-info">
@@ -1159,25 +1180,6 @@
                 <div class="about-app">
                   <div class="about-name">Switchboard</div>
                   <div class="about-version">Version <span id="sv-about-version">…</span> · <code>deadeye</code> · <code id="sv-about-build">…</code></div>
-                </div>
-              </div>
-
-              <!-- The welcome tour, reachable again (#146). It OPENS the tour rather than resetting the
-                   welcomeDismissed flag — resetting it would make the tour reappear unasked on the next
-                   launch, which is the one thing that flag exists to prevent. The tour lives in the main
-                   window, so the click relays through main; this window closes on the way.
-                   NO BACKTICKS IN HERE: this comment sits inside a template literal, and one ends it. -->
-              <div class="settings-section">
-                <div class="settings-field">
-                  <div class="settings-field-info">
-                    <div class="settings-field-header">
-                      <span class="settings-label">Welcome tour</span>
-                    </div>
-                    <div class="settings-description">The eight things a new installation does not explain by itself.</div>
-                  </div>
-                  <div class="settings-field-control">
-                    <button class="settings-action-btn" id="sv-show-welcome-tour" type="button">Show the tour</button>
-                  </div>
                 </div>
               </div>
 

@@ -2,7 +2,7 @@
 //
 // Nine panes over one dialog: a welcome pane and eight things a fresh installation does not explain by
 // itself. Shown once, on the first launch of a profile that has no `welcomeDismissed` in its global
-// settings, and reachable afterwards from Settings → About.
+// settings, and reachable afterwards from Settings → Maintenance.
 //
 // Three things about it are decisions rather than taste, and they are the ones to keep:
 //
@@ -268,8 +268,8 @@
       body: `<p>Switchboard finds the coding-CLI sessions already on this machine, groups them by project,
         and keeps them running side by side. Nothing here starts a session on its own.</p>
         <p>Eight short panes cover what a fresh installation does not explain by itself. Every one of them
-        lets you change the setting it talks about, right here. Settings → About brings the tour back at
-        any time.</p>`,
+        lets you change the setting it talks about, right here. Settings → Maintenance brings the tour
+        back at any time.</p>`,
     },
     {
       rail: 'Your CLIs',
@@ -684,8 +684,15 @@
             kind: 'toggle',
             label: b.label || b.id,
             desc: b.available === false ? (b.unavailableReason || 'Not installed on this machine.') : '',
+            // The SAME badge the settings screen draws BESIDE A TOGGLE — `backends-panel.js`'s enable
+            // list, which spells the key `colour || id` and deliberately NOT `icon`. The per-backend
+            // page header uses `icon` first and therefore shows Claude's Anthropic mark; the enable
+            // list shows a monogram for every backend, so the column reads as one set. This pane is
+            // that list, so it takes that key. Two earlier spellings both looked right on their own and
+            // put a different badge next to the same backend in the two places: passing `colour` as an
+            // OPTION (it overrides the fill the key would have chosen), and reaching for `icon` first.
             badge: typeof window.backendBadgeHtml === 'function'
-              ? window.backendBadgeHtml(b.icon || b.id, 20, { monogram: b.monogram, colour: b.colour })
+              ? window.backendBadgeHtml(b.colour || b.id, 20, { monogram: b.monogram })
               : '',
             setting: { type: 'backendEnabled', backendId: b.id, fallback: b.enabled !== false },
           })),
@@ -742,7 +749,7 @@
     overlay.addEventListener('click', (e) => {
       // Four ways out, on purpose: the × in the corner, Skip, Escape, and a click on the backdrop.
       // Nothing here holds work that a stray click could lose — every control writes as it is changed —
-      // and the way back is one button in Settings → About. A tour that is hard to leave is a tour
+      // and the way back is one button in Settings → Maintenance. A tour that is hard to leave is a tour
       // people learn to resent.
       if (e.target === overlay) { dismiss(); return; }
       const go = e.target.closest('[data-wt-go]');

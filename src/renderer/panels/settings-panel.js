@@ -869,7 +869,7 @@
         }).catch(() => {});
       }
 
-      // Show the welcome tour again (#146). The tour lives in the MAIN window, and this panel also runs
+      // Show the welcome tour again (#146), from Maintenance. The tour lives in the MAIN window, and this panel also runs
       // inside the standalone settings window — so the click relays through main rather than opening
       // anything locally. Main hides this window and raises the main one; a tour behind the settings
       // window would be a button that appears to do nothing.

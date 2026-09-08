@@ -2495,7 +2495,7 @@ loadProjects().then(async () => {
   Promise.resolve(window.welcomeTour?.maybeShowOnLaunch?.()).catch(() => {});
 });
 
-// Settings → About asks for the tour again; main relays it to this window (#146).
+// Settings → Maintenance asks for the tour again; main relays it to this window (#146).
 if (window.api && typeof window.api.onShowWelcomeTour === 'function') {
   window.api.onShowWelcomeTour(() => window.welcomeTour?.open?.());
 }

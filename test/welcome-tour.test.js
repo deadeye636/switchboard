@@ -157,7 +157,7 @@ test('the reopen relay raises the main window and addresses it alone', () => {
 test('there are four ways out of the tour', () => {
   // It opens by itself on the first launch after an update, in front of somebody who did not ask for it.
   // Nothing in it holds work a stray click could lose — every control writes as it is changed — and the
-  // way back is one button in Settings → About, so leaving must be the easy part.
+  // way back is one button in Settings → Maintenance, so leaving must be the easy part.
   const tour = read(TOUR);
   assert.match(tour, /wt-close/, 'a × in the corner');
   assert.match(tour, /wt-skip/, 'a labelled button in the actions row');
@@ -180,6 +180,31 @@ test('both surfaces say when the attention hook was not installed', () => {
   // A dialog rather than an inline note, and that is forced: Save closes the panel and Apply rebuilds it,
   // so anything written into the DOM there is gone before it can be read.
   assert.match(read(PANEL), /noteHookOutcome[\s\S]{0,900}showControlMessage/);
+});
+
+test('the reopen button lives in Maintenance, and its markup says so', () => {
+  // Not About: About is a plate to read - version, lineage, license, runtime - and this is a thing you
+  // DO, next to the other things you do to an installation.
+  const html = read('src/renderer/panels/settings-global-html.js');
+  // The SECTION, not the nav button of the same name — the nav is rendered first, so a plain indexOf
+  // slices an empty range and the test passes for the wrong reason.
+  const start = html.indexOf('<section class="settings-cat" data-cat="maintenance"');
+  assert.ok(start > 0, 'the Maintenance section is gone');
+  const end = html.indexOf('<section class="settings-cat"', start + 1);
+  const maintenance = html.slice(start, end > start ? end : undefined);
+  assert.match(maintenance, /sv-show-welcome-tour/, 'the button must sit inside the Maintenance section');
+});
+
+test('pane 1 draws the badge the settings screen draws beside a toggle', () => {
+  // Two surfaces, two spellings, and they were different: the per-backend page header resolves
+  // `icon || colour || id` and shows Claude's Anthropic mark, while the ENABLE LIST - the list this pane
+  // is - resolves `colour || id` so the column reads as one set of monograms. Taking the wrong one puts a
+  // different badge next to the same backend in the two places.
+  const tour = read(TOUR);
+  const panel = read('src/renderer/panels/backends-panel.js');
+  assert.match(tour, /backendBadgeHtml\(b\.colour \|\| b\.id, 20, \{ monogram: b\.monogram \}\)/);
+  assert.match(panel, /data-icon="\$\{esc\(b\.colour \|\| b\.id\)\}" data-size="20"/,
+    'the enable list changed its badge key - the tour has to follow it');
 });
 
 test('the demo seed marks the tour as seen, but only when nobody has answered', () => {
