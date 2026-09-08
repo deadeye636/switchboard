@@ -1972,8 +1972,19 @@ window.__sessionDragId = null;
   function closeStopsProcess(sessionId) {
     const entry = openSessions.get(sessionId);
     if (!entry) return false;
-    const isTerminal = !!(entry.session && entry.session.type === 'terminal');
-    return isTerminal ? (terminalCloseBehavior === 'kill') : (closeBehavior === 'stopSession');
+    return isPlainTerminalTab(sessionId)
+      ? (terminalCloseBehavior === 'kill')
+      : (closeBehavior === 'stopSession');
+  }
+
+  // Is this a plain terminal rather than an agent session? Its own reader since #479, because two
+  // callers now ask it and they ask it for opposite reasons — `closeStopsProcess` above wants to know
+  // what closing DOES, the redraw entry wants to know whether the main process will act at all. Reading
+  // the first for the second is wrong in both directions: with `terminalCloseBehavior: keep` a terminal
+  // answers false, and with `tabCloseBehavior: stopSession` an agent answers true.
+  function isPlainTerminalTab(sessionId) {
+    const entry = openSessions.get(sessionId);
+    return !!(entry && entry.session && entry.session.type === 'terminal');
   }
 
   // Ask before a pane close ends processes — once, naming how many, not once per session. A pane
@@ -2290,6 +2301,25 @@ window.__sessionDragId = null;
     item('Relaunch', () => window.relaunchSession(sessionId), {
       disabled: typeof window.relaunchSession !== 'function',
     });
+    // Repair a screen a foreign writer has destroyed (#479). Something that attaches to the console and
+    // writes into the PTY leaves the running TUI in pieces, and a tab switch does not repair it — only a
+    // resize does. `terminal-redraw` nudges the PTY by one column and back; it existed since the grid
+    // resize path and had no caller a user could reach.
+    //
+    // The label says what it costs, because a context-menu item has nowhere else to say it: the nudge
+    // re-wraps the buffer, which drops the selection (#459), and it repairs the VISIBLE screen only — the
+    // polluted scrollback stays, and nothing helps while the offender is still writing.
+    //
+    // Main returns silently for a plain terminal and for a dead session (src/app/terminal/io.js), so
+    // the item would be a click into nothing in both cases. They are answered differently on purpose:
+    // a terminal never has this entry at all — the redraw is not a thing that applies to it — while a
+    // session whose process has ended keeps the entry, disabled, because it is the same session that
+    // will have one again after a relaunch.
+    if (!isPlainTerminalTab(sessionId)) {
+      item('Redraw (clears selection)', () => {
+        try { window.api.redrawTerminal(sessionId); } catch { /* the PTY is gone; nothing to redraw */ }
+      }, { disabled: !activePtyIds.has(sessionId) });
+    }
   }
 
   // Every tab in this pane, filterable — the panes counterpart of the "All open tabs" list in tabs
