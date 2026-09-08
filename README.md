@@ -63,6 +63,12 @@ project's settings, they are hidden when it is, and a fresh checkout with no ses
 you can start a session in. Anything running is drawn outside the fold, so collapsing it can never hide
 work in progress.
 
+**It introduces itself once.** The first launch opens a short tour: the CLIs that are switched off, the
+attention hooks nobody finds, the drag that splits a pane, why the sidebar is shorter than the session
+list. Each of its panes carries the setting it is about, so a thing you have just had explained is a
+thing you can change without going looking for it, and five of them draw what your choice will look
+like. Four ways out of it, and Settings → About brings it back.
+
 **Your repository, in the app.** A git glyph on every project header opens a changes window: files
 grouped by state, renames as `old → new`, click one and its diff expands inline. Polling never takes
 git's index lock, so it cannot fight the agent working in that repo.
@@ -159,6 +165,23 @@ chart rather than a row of zeroes.
   import to move a configured Switchboard to another machine
 
 </details>
+
+## The welcome tour
+
+![Welcome tour](docs/images/welcome-tour.png)
+
+The first launch opens a short tour of the things a fresh installation does not explain by itself: the
+CLIs that are switched off until you say otherwise, the attention hooks nobody finds, the drag that
+splits a pane, why the sidebar is shorter than your session list, what the × on a tab does and does not
+stop.
+
+Every pane that names a setting also **carries** it, so something you have just had explained is
+something you can change without going looking for it — and five of the panes draw what your choice
+will look like and redraw as you change it: the split zones against an equal-cell grid, your sidebar
+with its fold, the review panel against a prompt in the terminal, the directories a plan and a handoff
+will be written to. The pictures are drawn, not photographed, which is why they can answer to a number.
+
+Four ways out of it, and **Settings → About** brings it back at any time.
 
 ## Session overview
 

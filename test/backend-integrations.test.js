@@ -140,6 +140,9 @@ const ALLOWED_BINDINGS = {
   'src/renderer/dialogs/dialogs.js': [
     'LEGACY_TEMPLATE_BASE',      // ditto, for a template's baseId
   ],
+  // #146 — the welcome tour names capability ids (`attentionHooks`, `mcpEmulation`) and asks the
+  // registry which backend declares them, so it binds no backend id at all.
+  'src/renderer/dialogs/welcome-tour.js': [],
   'src/renderer/panels/settings-panel.js': [],
   'src/renderer/panels/settings-tags.js': [],
   'src/renderer/panels/settings-maintenance.js': [],

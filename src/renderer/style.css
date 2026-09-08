@@ -6653,6 +6653,140 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   border-color: rgba(62,207,90,0.5);
 }
 
+/* ========== WELCOME TOUR (#146) ==========
+   Rides `.new-session-overlay` / `.new-session-dialog` for the frame, the backdrop and the buttons, and
+   adds only what a nine-pane dialog needs that a one-pane dialog does not: the rail, and a body that
+   scrolls while the actions stay put. The control rows deliberately look like `.settings-field` — a
+   control that looked different here would read as a different setting. */
+.wt-dialog {
+  width: 940px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 208px 1fr;
+  overflow: hidden;
+}
+
+.wt-rail {
+  background: rgba(0,0,0,0.18);
+  border-right: 1px solid rgba(255,255,255,0.035);
+  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wt-rail-title {
+  font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: #6a6a80; font-weight: 600; padding: 0 8px 10px;
+}
+.wt-rail-item {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 12.5px;
+  color: #7a7a90;
+  text-align: left;
+  cursor: pointer;
+}
+.wt-rail-item:hover { background: rgba(255,255,255,0.04); color: #b0b0c4; }
+.wt-rail-item[aria-current="true"] { background: rgba(128,136,255,0.12); color: #e0e0f0; font-weight: 600; }
+.wt-rail-num { font-size: 10.5px; font-variant-numeric: tabular-nums; color: #6a6a80; text-align: center; }
+.wt-rail-item[aria-current="true"] .wt-rail-num { color: #8088ff; }
+.wt-rail-item.seen .wt-rail-num { color: #3ecf5a; }
+
+/* Fixed height, and only the CONTENT scrolls: a dialog that scrolls its own buttons away is what the
+   Configure dialog did once a backend declared enough options (#160). Sized to the tallest pane rather
+   than to the shortest — five panes carry a figure under their controls, and a frame that fits the text
+   alone makes every one of them a scroll. The `vh` half keeps it off the bottom of a small screen, and
+   it stays under the 88vh cap `.new-session-dialog` already sets. */
+.wt-pane {
+  position: relative;
+  padding: 22px 26px 18px;
+  display: flex;
+  flex-direction: column;
+  /* Grows with the pane it holds and stops at the screen. A FIXED height sized to the tallest pane
+     leaves the short ones with a field of empty dialog under them; a height sized to the shortest
+     makes a scrollbar of every pane that carries a figure. */
+  max-height: min(86vh, 900px);
+  min-height: 430px;
+}
+.wt-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding-right: 8px; margin-right: -8px;
+}
+/* The × sits over the pane's top-right corner, so the title keeps clear of it. */
+.wt-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 1;
+}
+.wt-title { font-size: 16px; font-weight: 600; color: #d0d0e8; letter-spacing: -0.01em; padding-right: 28px; }
+.wt-where {
+  margin-top: 5px; font-size: 11.5px; color: #6a6a80;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.wt-prose { margin-top: 14px; color: #b0b0c4; font-size: 13px; max-width: 62ch; line-height: 1.5; }
+.wt-prose p + p { margin-top: 9px; }
+.wt-prose b { color: #e0e0f0; font-weight: 600; }
+.wt-prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px; background: rgba(255,255,255,0.05);
+  padding: 1px 5px; border-radius: 4px; color: #c8c8e0;
+}
+
+.wt-rows { margin-top: 16px; border-radius: 10px; overflow: hidden; }
+.wt-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 11px 16px; min-height: 48px;
+  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid rgba(255,255,255,0.035);
+}
+.wt-row:last-child { border-bottom: none; }
+.wt-row-info { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
+.wt-row-icon { flex: 0 0 auto; display: flex; }
+.wt-row-icon svg { display: block; }
+.wt-row-label { font-size: 13px; color: #e0e0f0; font-weight: 600; letter-spacing: -0.01em; }
+.wt-row-desc { font-size: 11.5px; color: #7a7a90; margin-top: 2px; line-height: 1.4; }
+.wt-row-control { flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+.wt-unit { font-size: 11.5px; color: #7a7a90; }
+.wt-input-path {
+  width: 140px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.wt-note {
+  margin-top: 9px; font-size: 11px; color: #6a6a80; line-height: 1.45;
+  border-left: 2px solid rgba(255,255,255,0.1); padding: 3px 0 3px 10px;
+}
+/* The one thing a control here can honestly fail at: the hook could not be installed. Amber, not red —
+   the setting was saved, only the file was not written. */
+.wt-status {
+  margin-top: 10px; font-size: 11.5px; color: #e0a34a; line-height: 1.45;
+  background: rgba(224,163,74,0.08); border-left: 2px solid #e0a34a;
+  padding: 7px 10px; border-radius: 0 6px 6px 0;
+}
+
+.wt-intro-actions { margin-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+.wt-figure { margin-top: 16px; }
+.wt-figure svg, .wt-figure img {
+  display: block; width: 100%; height: auto;
+  border-radius: 8px; border: 1px solid rgba(255,255,255,0.035); background: #15151f;
+}
+.wt-figure figcaption { margin-top: 7px; font-size: 11px; color: #6a6a80; font-style: italic; }
+
+.wt-actions { margin-top: auto; padding-top: 18px; display: flex; align-items: center; gap: 8px; }
+.wt-spacer { flex: 1; }
+.wt-count { font-size: 11.5px; color: #6a6a80; font-variant-numeric: tabular-nums; }
+.wt-back:disabled { opacity: 0.35; cursor: default; }
+
 /* ========== DELETE WORKTREE DIALOG ========== */
 .delete-worktree-dialog {
   width: 460px;

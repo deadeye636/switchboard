@@ -86,6 +86,7 @@
     "subagent-live.js",
     "jsonl-viewer.js",
     "dialogs.js",
+    "welcome-tour.js",
     "handoff.js",
     "sidebar-events.js",
     "sidebar-session-row.js",

@@ -1162,6 +1162,25 @@
                 </div>
               </div>
 
+              <!-- The welcome tour, reachable again (#146). It OPENS the tour rather than resetting the
+                   welcomeDismissed flag — resetting it would make the tour reappear unasked on the next
+                   launch, which is the one thing that flag exists to prevent. The tour lives in the main
+                   window, so the click relays through main; this window closes on the way.
+                   NO BACKTICKS IN HERE: this comment sits inside a template literal, and one ends it. -->
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header">
+                      <span class="settings-label">Welcome tour</span>
+                    </div>
+                    <div class="settings-description">The eight things a new installation does not explain by itself.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button class="settings-action-btn" id="sv-show-welcome-tour" type="button">Show the tour</button>
+                  </div>
+                </div>
+              </div>
+
               <div class="settings-section">
                 <div class="settings-section-title">Fork lineage</div>
                 <div class="settings-description">Our own variant (codename <code>deadeye</code>); upstream features are adopted one at a time rather than tracking a single fork.</div>

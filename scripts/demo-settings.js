@@ -47,9 +47,21 @@ for (const b of ready) {
   turnedOn.push(b.id);
 }
 
-if (turnedOn.length) {
-  db.setSetting('global', { ...global, backendEnabled: enabled });
-  console.log(`[demo-settings] enabled: ${turnedOn.join(', ')}`);
+// The welcome tour opens on any profile that has never dismissed it (#146), and a seeded demo store is
+// exactly that — so without this every `npm run demo:start` and every `drive-app.js` run would boot
+// behind a modal.
+//
+// Only when the key is ABSENT. This script runs on every `demo:start`, so stamping `true` unconditionally
+// would make the tour unreachable in the demo: deleting the key would be undone before Electron launched.
+// Absent means "never asked", so an explicit `welcomeDismissed: false` survives here and shows the tour —
+// which is how you look at the first-launch path on purpose.
+const stampTour = global.welcomeDismissed === undefined;
+const next = { ...global, backendEnabled: enabled };
+if (stampTour) next.welcomeDismissed = true;
+
+if (turnedOn.length || stampTour) {
+  db.setSetting('global', next);
+  console.log(`[demo-settings] enabled: ${turnedOn.length ? turnedOn.join(', ') : 'none (already on)'}${stampTour ? ' · welcome tour marked as seen' : ''}`);
 } else {
   console.log('[demo-settings] all ready backends already enabled');
 }

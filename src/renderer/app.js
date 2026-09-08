@@ -2484,7 +2484,21 @@ loadProjects().then(async () => {
     const session = sessionMap.get(activeSessionId);
     if (session) openSession(session);
   }
+}).then(() => {
+  // The welcome tour on a first launch (#146) — chained AFTER the whole boot callback, including the
+  // paths above that return early, because the restore ends in `showSession` → `terminal.focus()`. A
+  // dialog opened before that resolves has its focus taken away by a terminal.
+  //
+  // The catch is on THIS call and not on the chain: a `.catch()` at the end would also swallow a throw
+  // from the boot callback itself, and an unhandled rejection in the console is how a boot failure is
+  // found at all (`node scripts/drive-app.js console`).
+  Promise.resolve(window.welcomeTour?.maybeShowOnLaunch?.()).catch(() => {});
 });
+
+// Settings → About asks for the tour again; main relays it to this window (#146).
+if (window.api && typeof window.api.onShowWelcomeTour === 'function') {
+  window.api.onShowWelcomeTour(() => window.welcomeTour?.open?.());
+}
 
 // Live-reload sidebar when filesystem changes are detected
 let projectsChangedTimer = null;

@@ -51,6 +51,24 @@ back on Save.
 | `shellProfile` | CLI shell | `auto` or a profile id | `auto` | **cascades** |
 | `terminalShellProfile` | Terminal shell | `inherit` \| `auto` \| profile id | `inherit` | **cascades** |
 | `attentionHooks` | (toggle lives on Claude's backend page) | bool | `false` | global |
+| `welcomeDismissed` | (no label — written by the welcome tour) | bool | absent | global |
+
+
+### `welcomeDismissed` — the welcome tour's one piece of state (#146)
+
+Absent means the tour has never been dismissed, and the first launch of a profile shows it. Dismissing it
+— Done, Skip, Escape — writes `true`. It lives in the global blob, so it rides export/import like every
+other key; **an imported blob therefore carries the exporting machine's answer**, which is intended: a
+machine set up from another one is not a first launch.
+
+**Settings → About → Show the tour does not reset it.** That button opens the tour; the flag stays
+`true`, because resetting it would make the tour reappear unasked on the next launch, which is the one
+thing the flag exists to prevent.
+
+`scripts/demo-settings.js` sets it when it seeds a demo store, so a demo run does not boot behind a modal —
+but only when the key is **absent**, because that script runs on every `demo:start` and would otherwise undo
+any attempt to see the tour. To watch the first-launch path, set `welcomeDismissed` to **`false`** in the
+demo store (not delete it): absent is re-stamped, `false` is left alone and shows the tour.
 
 ## Terminal
 
@@ -366,7 +384,7 @@ screen.
 
 | Key | Shape | Default |
 |---|---|---|
-| `backendEnabled` | `{[backendId]: bool}` | a backend is enabled unless switched off |
+| `backendEnabled` | `{[backendId]: bool}` | an absent key reads **off for a built-in backend and on for a profile** (`src/backends/index.js`) — so a fresh install has Claude enabled and no other CLI, and switching one on is a deliberate act. The old wording here said "enabled unless switched off", which is the profile half stated as the whole rule |
 | `defaultLaunchTarget` | backend or profile id | the stored target while it is launchable, else the first launchable, else `''` |
 | `backendDefaults` | `{[backendId]: {[optionId]: value}}` | `{}` — cascades **per option**, global → project |
 | `backendEnv` | `{[backendId]: {VAR: '$REF'}}` | `{}` — values are `$VAR` references, resolved at spawn |
@@ -596,13 +614,12 @@ notice, because those were explicit configuration choices.
 | `npm test` | `node --test --test-timeout=60000`, discovered from the repo root — no path argument, no Electron needed |
 | `npm run electron` | `electron .` and nothing else — skips the build-info stamp and both bundles. Faster iteration once one of the start scripts has produced them; wrong as a first run, because the bundles it needs will not exist |
 | `npm run stop:dev` | Stop **this checkout's** dev Electron processes (never the installed app) |
-| `npm run bundle:codemirror` | esbuild the CodeMirror bundle into `src/renderer/codemirror-bundle.js` |
-| `npm run bundle:pdf` | esbuild the PDF viewer bundle **and** pdfjs-dist's worker into `src/renderer/pdf-bundle.js` + `src/renderer/pdf-worker.js`. Every start and build script runs it beside `bundle:codemirror` |
+| `node scripts/build-and-verify.js [electron-builder args]` | The build wrapper every build script goes through (#484). Stamps, bundles, runs electron-builder with whatever arguments it was given, keeps the exit code, moves anything in `dist/` older than the run into `dist/previous/`, and ends with either the artifact path plus the commit or a line naming the failure |
+| `npm run bundle` | `scripts/bundle.js` — esbuild's JS API builds all three renderer bundles: CodeMirror, the PDF viewer, and pdfjs-dist's worker. **One definition of the flags**, because four callers need them (the two start scripts, the build wrapper, the demo launcher) and a second copy is how they drift |
 | `npm run generate-icons` | Regenerate the app icons and the macOS DMG background from the sources in `build/` |
 | `npm run upstream:check` / `:seen` | Report new upstream activity / mark the current state as seen |
-| `npm run build` \| `build:win` \| `:mac` \| `:linux` | Stamp build info → bundle CodeMirror + PDF.js → electron-builder for that platform (or the host's) into `dist/` |
-| `npm run build:mac:arm64` | `electron-builder --mac --arm64` **alone** — no stamp, no bundles. A re-pack of an already-built tree, not a build from clean |
-| `npm run release` | Build with `electron-builder --publish always` |
+| `npm run build` \| `build:win` \| `:mac` \| `:linux` \| `build:mac:arm64` | All of them go through `scripts/build-and-verify.js` (#484): stamp → bundle → electron-builder, with the **exit code kept** and a last line saying whether an installer came from this run. On a failure it also removes what an earlier run left in `dist/`, so a stale installer cannot be mistaken for the result. `build:mac:arm64` used to skip the stamp and the bundles, and both mac scripts used to end in `; true` and exit 0 on a failed build |
+| `npm run release` | The same wrapper with `--publish always` |
 | `postinstall` | Runs itself after `npm install`: `patch-package`, then `scripts/postinstall.js`, then `scripts/ensure-conpty-dll.js`. Not something you invoke — listed because a failed install leaves the native modules half-set-up and the error scrolls past |
 
 ## Scripts and their arguments

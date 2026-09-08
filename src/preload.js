@@ -182,6 +182,11 @@ contextBridge.exposeInMainWorld('api', {
   onSessionDetachRekeyed: (cb) => ipcRenderer.on('session-detach-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
+  // The welcome tour (#146), asked for from Settings → About and drawn in the main window. The relay
+  // is main's, not a direct window-to-window send: the settings window is a separate BrowserWindow and
+  // only main can hide it, raise the main one, and address that window alone.
+  showWelcomeTour: () => ipcRenderer.send('show-welcome-tour'),
+  onShowWelcomeTour: (cb) => ipcRenderer.on('show-welcome-tour', () => cb()),
   renameSession: (id, name) => ipcRenderer.invoke('rename-session', id, name),
   archiveSession: (id, archived) => ipcRenderer.invoke('archive-session', id, archived),
   openTerminal: (id, projectPath, isNew, sessionOptions) => ipcRenderer.invoke('open-terminal', id, projectPath, isNew, sessionOptions),

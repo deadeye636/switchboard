@@ -462,6 +462,23 @@ function registerIpc(ipc = ipcMain) {
 
   ipc.on('settings-changed', (event) => broadcastSettingsChanged(event.sender));
 
+  // Show the welcome tour again, from the button in Settings → About (#146).
+  //
+  // Three things this has to do that a plain `send` would not. The settings window is a CHILD of the
+  // main window, so hiding it does not un-minimise the parent — a tour drawn into a minimised window is
+  // a button that did nothing. It goes to the MAIN window only: every window loads the same shell
+  // (#390), so a broadcast would open a copy in each detached window too. And the settings window goes
+  // away first, because it is seeded from the blob when it opens and never redraws — its Save would
+  // write a stale copy back over whatever the tour just changed.
+  ipc.on('show-welcome-tour', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed() && settingsWindow.isVisible()) settingsWindow.hide();
+    const mainWindow = ctx.getMainWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    mainWindow.webContents.send('show-welcome-tour');
+  });
+
   // The renderer's answer. Only a yes does anything: a no has already been honoured by the cancelled close.
   ipc.on('confirm-close-result', (_event, confirmed) => {
     if (!confirmed) return;

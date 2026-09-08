@@ -325,6 +325,18 @@ Smaller but important changes (mostly in main/Node-side files).
 Everything below is added by **this fork** on top of the HaydnG base. Derived via
 `git diff haydng/main...main`. Some items are ports of other community forks (noted).
 
+### Onboarding
+
+- **A welcome tour on the first launch (#146)** — nine panes over one dialog, opened once on a profile
+  that has no `welcomeDismissed`, and reachable again from **Settings → About**. What makes it more than a
+  splash screen: **every pane that names a setting also writes it**, through the route that setting is
+  actually written by (a flat merge, a read-modify-write for the nested ones, the hook call for the
+  attention hooks) and re-applied in the window on the spot. Five panes draw the effect of their own
+  controls — the arrangement, the sidebar's fold, what the × on a tab does, where a diff lands, which
+  directories a plan and a handoff go into — and redraw as the controls change. The figures are inline
+  SVG rather than screenshots, because a picture that answers to a number cannot be a PNG. It names no
+  backend: the two panes about a CLI's own options ask the registry which backend declares them.
+
 ### Multi-LLM backends
 
 The largest structural change this fork makes: Switchboard stops being a Claude-only cockpit and

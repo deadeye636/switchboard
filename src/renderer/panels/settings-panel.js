@@ -869,6 +869,13 @@
         }).catch(() => {});
       }
 
+      // Show the welcome tour again (#146). The tour lives in the MAIN window, and this panel also runs
+      // inside the standalone settings window — so the click relays through main rather than opening
+      // anything locally. Main hides this window and raises the main one; a tour behind the settings
+      // window would be a button that appears to do nothing.
+      const tourBtn = settingsViewerBody.querySelector('#sv-show-welcome-tour');
+      if (tourBtn) tourBtn.addEventListener('click', () => window.api.showWelcomeTour?.());
+
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.
       wireTwoPane();
@@ -1052,6 +1059,35 @@
       const raw = settingsViewerBody.querySelector('#sv-handoff-dir-names')?.value || '';
       const names = raw.split(',').map(n => n.trim()).filter(Boolean);
       return names.length ? names : ['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs'];
+    }
+
+    /**
+     * Say what became of the attention hook (#146/O19).
+     *
+     * A DIALOG rather than a note beside the toggle, and that is forced rather than chosen: Save closes
+     * the panel and Apply rebuilds it 600 ms later, so anything inserted into the DOM here is gone before
+     * it can be read. It is not noisy either — it appears only when the toggle actually CHANGED and the
+     * write did not fully take effect, which is `devBlocked` (an unpackaged build refuses to write into
+     * the CLI's shared settings file) or a refused write. A success says nothing.
+     *
+     * Until this existed the answer was discarded, and the toggle then read as on with no hook behind
+     * it — the one failure a hook-based feature must not have silently.
+     */
+    async function noteHookOutcome(outcome) {
+      if (!outcome || (outcome.ok && !outcome.devBlocked)) return;
+      if (typeof showControlMessage !== 'function') return;
+      await showControlMessage(outcome.devBlocked
+        ? {
+          title: 'Setting saved, hook not installed',
+          message: 'An unpackaged build does not write into the CLI\'s shared settings file, so no hook was added. The setting is stored and takes effect from the packaged app.',
+          tone: 'warning',
+        }
+        : {
+          title: 'Setting saved, hook not written',
+          message: 'The setting is stored, but the CLI\'s settings file could not be updated, so attention detection still runs off the terminal check alone.',
+          details: { Reason: outcome.error || 'unknown error' },
+          tone: 'warning',
+        });
     }
 
     async function persistSettings() {
@@ -1436,9 +1472,21 @@
         window._refreshProjectTagFilter();
       }
 
-      // Write/remove the reversible ~/.claude hook when the toggle changes
+      // Write/remove the reversible ~/.claude hook when the toggle changes.
+      //
+      // The ANSWER is shown, not discarded (#146/O19). Main returns `{ devBlocked }` for an unpackaged
+      // build (it will not point a hook at a binary that is not there) and `{ ok: false, error }` for a
+      // refused write — and its own comment says it returns them "so the renderer can note why the toggle
+      // didn't take effect". Nothing noted it: the toggle read as on and no hook existed, which is the
+      // one failure a hook-based feature must not have silently.
       if (!isProject && settings.attentionHooks !== attentionHooksValue) {
-        try { await window.api.configureAttentionHook(settings.attentionHooks); } catch {}
+        let outcome = null;
+        try {
+          outcome = await window.api.configureAttentionHook(settings.attentionHooks);
+        } catch (err) {
+          outcome = { ok: false, error: (err && err.message) || 'unknown error' };
+        }
+        await noteHookOutcome(outcome);
       }
 
       // Log level applies live — no restart (#121).
