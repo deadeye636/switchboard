@@ -291,6 +291,25 @@ the palette may have been open while the session ended.
 changed", worded through `formatDate` so a picker row reads like the Plans list rather than inventing its
 own wording (#475).
 
+## A window that writes a setting must apply it ITSELF, and the settings window is a snapshot (#146)
+
+Two invariants that everything writing a setting from the renderer depends on, and neither is guessable
+from the code that does it.
+
+**`broadcastSettingsChanged` excludes the sender** (`src/app/windows.js`). So the window that made the
+change is the one window that does not hear about it — the settings screen has always applied its own
+save locally, and it looked like belt and braces until a second writer appeared. The welcome tour calls
+`reapplyGlobalSettings()` after every write for that reason; without it the display mode, the sidebar
+numbers, the close behaviours and the shortcuts are written correctly and appear to do nothing until the
+next launch. `notifySettingsChanged()` beside it is for the OTHER windows — a detached window loads this
+same shell (#390) and does listen.
+
+**The settings window never re-reads.** It is seeded from the blob when it opens, and the renderer's only
+`onSettingsChanged` registration is in `app.js`, which `settings.html` does not load. So it holds a
+snapshot for as long as it is open, and its Save writes that snapshot back over anything another writer
+changed in the meantime. That is why the tour closes when Settings opens rather than sitting beside it —
+and why a third writer has to answer the same question before it exists.
+
 ## The settings screen: grouped by subject, counted, and closed by default (#471, #472)
 
 Three things there are decisions rather than styling, and each is the kind a later change undoes without

@@ -215,7 +215,7 @@ session it means — with a right-click that is the tab that was clicked, from t
 active tab, and until then nothing on screen said which.
 
 ```
-Close · Close others · Close to the right · Close all · Stop & close · Relaunch   ← only on a right-click
+Close · Close others · Close to the right · Close all · Stop & close · Relaunch · Redraw   ← only on a right-click
 ──────────
 PANE       Split right · Split down · Move pane to new window · Close pane
 ──────────
@@ -564,7 +564,31 @@ Neither flavour can change window (O16).
   whose session is still running elsewhere is unaffected — clicking it attaches, as before. The tab
   reads as ended (dimmed, struck through) when `launchExitedSessions` says so — a marker cleared the
   moment a live PTY appears under the id, so a tab restored from a saved layout whose session never ran
-  *this run* is not "exited". Its menu also gained **Stop & close** and **Relaunch** (#312).
+  *this run* is not "exited". Its menu also gained **Stop & close** and **Relaunch** (#312), and
+  **Redraw** (#479).
+
+  **Redraw is the one entry that repairs rather than acts.** A process that attaches to a session's
+  console and writes into the PTY leaves the running TUI in pieces; a tab switch does not repair it,
+  because nothing re-renders — only a resize does. The entry calls `terminal-redraw`, which nudges the PTY
+  by one column and back. Four decisions came with it:
+
+  - **The nudge only, never ``.** A form feed is input injection: what it means is the running TUI's
+    to decide, which is per-backend behaviour the core may not branch on (reflex 5). Claude documents it
+    as a full redraw; nobody measured the others.
+  - **The cost is in the LABEL** ("Redraw (clears selection)"), because `item(label, fn, opts)` takes
+    `disabled`/`danger` and has no description slot. The nudge re-wraps the buffer, which drops the
+    selection (#459), it repairs the visible screen only — the polluted scrollback stays — and it helps
+    nothing while the offender is still writing.
+  - **Hidden for a plain terminal, disabled for a dead session.** Main returns silently for both, so the
+    entry would be a click into nothing either way; they differ because a redraw is not a thing that
+    applies to a terminal at all, while a session whose process ended will have one again after a
+    relaunch. "Is this a terminal" is its own reader (`isPlainTerminalTab`) rather than
+    `closeStopsProcess`, which answers a different question and would have shown the entry in exactly the
+    wrong places.
+  - **The third silent case is left silent.** Main also returns when no `terminal-resize` has recorded a
+    size, and the renderer cannot see that — `_lastCols` is never reported back. Measured, the window is
+    the few milliseconds between an open resolving and its first resize landing, so the residue is what
+    the two visible guards already hide.
 
 **H2 became a setting, not a decision.** `paneToolsPlacement` picks `bar` (default — the session tools
 on a row of their own, §4.2 H1) or `strip` (H2). Seeing H2 in place is what changed the call; both

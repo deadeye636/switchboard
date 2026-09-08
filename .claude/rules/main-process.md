@@ -585,3 +585,11 @@ strips nothing, attention falls back to the OSC-9 heuristic.
 
 To work on the hook itself: `SWITCHBOARD_DEV_ATTENTION_HOOK=1 npm run start:debug`.
 `test/hook-ingest.test.js` pins both states.
+
+**And `{ devBlocked: true }` is now SHOWN, on both surfaces that can set the toggle (#146).** The handler
+returned it from the day it was written, with a comment saying the renderer could note why the toggle did
+not take effect — and for as long as that comment stood, nobody did: the settings screen discarded the
+answer, so the switch read as on with no hook behind it, which is the one failure a hook-based feature
+must not have silently. The welcome tour says it inline; the settings screen says it in a dialog, because
+Save closes that panel and Apply rebuilds it 600 ms later, so anything written into its DOM is gone before
+it can be read. A refused write (`{ ok: false, error }`) takes the same path.

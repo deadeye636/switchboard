@@ -65,6 +65,11 @@ const DELIBERATE = {
   'docs/specs/02-next-attention-hotkey.md': {
     'src/renderer/sounds/attention.mp3': 'a plan option ("or synthesize a tone") — the tone won, no asset shipped',
   },
+  // The tour draws its figures rather than shipping them, so the assets directory the plan called for was
+  // never created — the spec names it in order to say it does not exist.
+  'docs/specs/27-welcome-tour.md': {
+    'src/renderer/assets/': "the plan's image directory, named to record that the figures are drawn instead and nothing was shipped",
+  },
   'docs/specs/04-one-click-handoff.md': {
     'test/handoff-flow.test.js': 'conditional on a pure module that was not added; the shipped tests are test/handoff-{actions,extract,prompt,submit}.test.js',
   },

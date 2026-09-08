@@ -105,6 +105,23 @@ from `eval`, so the app's own IPC can be exercised directly — e.g. `await wind
 to read what the sidebar would render, or `await window.api.unhideProject(path)` to do what a click
 would do. Give the renderer a second after launch; a query fired too early answers about an empty page.
 
+## A fresh store opens the welcome tour in front of you (#146)
+
+The tour shows on any profile whose global settings carry no `welcomeDismissed`, and a sandbox created
+for one agent run is exactly that. It is a modal overlay, so the first `click` or `clicktext` of a script
+that has not accounted for it lands on `.wt-overlay` and reports nothing useful.
+
+`npm run demo:start` is covered — `scripts/demo-settings.js` stamps the flag when it is absent — but a
+sandbox pointed at a bare `SWITCHBOARD_DATA_DIR` is not. Two ways out, and the first is the cheap one:
+
+```
+node scripts/drive-app.js eval "window.welcomeTour?.close?.(); 'closed'"
+```
+
+or write the flag before launching, the way the demo seed does. To see the first-launch path ON PURPOSE
+in the demo, set `welcomeDismissed` to `false` rather than deleting it — the seed re-stamps an absent key
+on every start.
+
 ## `drive-app.js` talks to the FIRST page — unless you name one
 
 Every command attaches to the first target CDP lists, which is normally `index.html`. Open a standalone

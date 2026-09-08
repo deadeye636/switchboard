@@ -1023,6 +1023,33 @@ paragraph told a later reader not to build something that had shipped. The autom
 busy→idle edge stays rejected: visible flicker after every turn, and mid-output resizes have their own
 history in #27.
 
+## Four obvious shapes for spawning a build tool, all wrong (#484)
+
+Writing a wrapper around `electron-builder` looked like ten lines. Each of these was tried or reasoned
+through first, and each is the shape somebody will reach for again:
+
+- **`execFile('electron-builder', …)` does not run on Windows.** The bin is a `.cmd` shim, and Node has
+  refused to spawn one without a shell since CVE-2024-27980 — `spawn EINVAL`. The extensionless entry
+  beside it gives `ENOENT`. What works on every platform is `process.execPath` on
+  `require.resolve('electron-builder/cli.js')`, which needs no shim at all. The same trap catches
+  `npm` — and `require.resolve('npm/bin/npm-cli.js')` fails outright, because npm is not in
+  `node_modules`.
+- **`execFile` buffers.** It collects stdout to a 1 MiB cap and hands it over at exit, so a build would
+  show nothing for minutes and a verbose one would die at the cap and look like a failed build.
+  `spawn(..., { stdio: 'inherit' })` with an args array satisfies reflex 10's intent just as well.
+- **The stamp and the artifact cannot be compared.** `build-info.json` carries the commit and no version;
+  the installer's name carries the version and no commit. And the stamp is written BEFORE the builder
+  runs, so a failed run still leaves a fresh one. The exit code has to be the authority.
+- **Re-deriving the artifact's name copies the builder's own rule.** There is no `artifactName` for win or
+  mac, and each platform's default differs. Modification time answers the same question everywhere:
+  anything older than the run did not come from it.
+
+**And the thing nobody was looking for.** CI bundled CodeMirror and not the PDF viewer, so every installer
+it ever built shipped without `pdf-bundle.js` and the PDF panel was empty in them — with the reason only
+in a console nobody opens. The guard that was supposed to cover this compared npm scripts to each other
+and never read the workflow file, so it agreed with itself. That is the "invisible because nothing pointed
+at it" shape again: the check and the thing it checked had the same blind spot.
+
 ## One set cannot bound both the walk and the answer (#594)
 
 `worktree-dirs.js` walks a project's conventional directories and reports the real checkouts it finds. The
