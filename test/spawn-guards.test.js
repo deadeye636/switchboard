@@ -413,6 +413,25 @@ test('#172: the exit handler still asks about a resume that died immediately', (
   assert.match(src, /'resume-conflict'/, 'and the renderer has to be told, or nothing offers the fork');
 });
 
+// BOTH routes into the dialog answer "may this owner be stopped", and this one shipped without it (#607):
+// the pre-spawn guard fires off a warm cache, while this net exists for the cold one — which is how a
+// foreign owner nobody has polled yet is first met. Undefined reads as false in the renderer, so the
+// button was silently absent exactly where the feature is worth most.
+//
+// Read STRIPPED, because the comment above each of those payloads names both identifiers: a raw read
+// matches the prose and reports success about code it never saw (reflex 14).
+test('#607: both resume-conflict payloads say whether the owner can be stopped', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { stripComments } = require('./helpers/strip-comments');
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src/app/terminal/spawn.js'), 'utf8'));
+
+  const canStop = src.match(/canStop:/g) || [];
+  const asked = src.match(/liveOwners\.stopTargetFor\(/g) || [];
+  assert.equal(canStop.length, 2, 'the pre-spawn refusal and the exit handler — a third route adds a line here');
+  assert.equal(asked.length, 2, 'and each one asks the shared function rather than deciding for itself');
+});
+
 // A pre-launch command is a raw shell prefix. A newline in it is a second command line.
 test('a newline in the pre-launch command is refused', async () => {
   setup();

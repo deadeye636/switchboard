@@ -121,7 +121,7 @@ const held = (over = {}) => ({ sessionId: 's-1', kind: 'background', name: 'a jo
 
 test('#608: a surviving session is named, and NOT as something closing stops', () => {
   const w = closeWarning([live()], [held({ name: 'a handoff job' })]);
-  assert.match(w.message, /1 session still running\. Closing Switchboard stops them/,
+  assert.match(w.message, /1 session still running\. Closing Switchboard stops it/,
     'the first group keeps its wording — those really are stopped');
   assert.match(w.message, /will KEEP running afterwards/,
     'and the second group is told apart, because that sentence is false about it');
@@ -170,4 +170,19 @@ test('#608: the confirm button stops claiming to stop what it does not', () => {
     'with nothing surviving, the click really does stop everything listed');
   assert.equal(closeWarning([live()], [held()]).confirmLabel, 'Close anyway',
     'one session on the list that keeps running makes "stop them" a false claim about the button too');
+});
+
+// One survivor and several are a different sentence, and the first draft only read wrong with exactly
+// one: "1 session … the process holding them".
+test('#608: both sentences agree with their own counts', () => {
+  const one = closeWarning([live()], [held()]).message;
+  assert.match(one, /1 session still running\. Closing Switchboard stops it/,
+    'this half predates #608 and read "stops them" about a single session');
+  assert.match(one, /1 session will KEEP running/);
+  assert.match(one, /the process holding it and cannot stop it\./);
+
+  const two = closeWarning([live(), live()], [held(), held({ sessionId: 's-2' })]).message;
+  assert.match(two, /2 sessions still running\. Closing Switchboard stops them/);
+  assert.match(two, /2 sessions will KEEP running/);
+  assert.match(two, /the processes holding them and cannot stop them\./);
 });

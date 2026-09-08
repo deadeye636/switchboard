@@ -1212,7 +1212,17 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             sessionId: realId,
             projectPath,
             backendId: launchBackend.id,
-            owner: { ...owner, backendId: launchBackend.id },
+            // `canStop` through the same function the pre-spawn guard and the poller use (#607). This is
+            // the route where the answer matters MOST and it was the one that shipped without it: the
+            // pre-spawn guard fires off a warm cache, and this net exists for the case where the cache
+            // was cold — which is exactly how a foreign owner nobody has polled yet is first met. Left
+            // undefined it reads as false in the renderer, so the button was silently absent and the
+            // user got the two answers they had before the feature.
+            owner: {
+              ...owner,
+              backendId: launchBackend.id,
+              canStop: liveOwners.stopTargetFor(launchBackend, owner) !== null,
+            },
             message: liveOwnerMessage(owner),
           };
           const w = ctx.windowForSession ? ctx.windowForSession(realId) : null;

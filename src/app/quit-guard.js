@@ -114,15 +114,21 @@ function closeWarning(running, surviving = []) {
   }
   const allRows = [...details, ...survivingRows];
 
+  // One session or several is a different sentence, and the first draft got it wrong in a way that only
+  // shows up with exactly one: "1 session … the process holding them". The count already varies, so the
+  // pronouns have to vary with it.
   const survivingNote = outlive.length
     ? ` ${describeCounts(outlive.length, 0)} will KEEP running afterwards — Switchboard did not start `
-      + 'the process holding them and cannot stop it.'
+      + `the ${outlive.length === 1 ? 'process holding it and cannot stop it' : 'processes holding them and cannot stop them'}.`
     : '';
 
   return {
     title: 'Sessions are still running',
-    message: `${describeCounts(agents, terminals)} still running. Closing Switchboard stops them — a CLI in `
-      + `the middle of a turn loses what it was doing.${survivingNote}`,
+    // The same agreement the surviving sentence needs, and this half had it wrong first — "1 session
+    // still running. Closing Switchboard stops them" predates #608 and only reads wrong with exactly one.
+    message: `${describeCounts(agents, terminals)} still running. Closing Switchboard stops `
+      + `${list.length === 1 ? 'it' : 'them'} — a CLI in the middle of a turn loses what it was doing.`
+      + survivingNote,
     // The button says what the click does, and with a surviving session on the list "stop them" is the
     // same false claim the message above stopped making. The wording lives here rather than in the
     // renderer for the reason the rest of it does: this is the half that can be tested.
