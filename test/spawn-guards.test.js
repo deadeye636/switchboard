@@ -283,6 +283,12 @@ test('a backend that names no sessions of its own resumes unconditionally (#290)
 // refuse what it actually knows, from an answer that is actually fresh.
 const BG = { sessionId: 's', kind: 'background', pid: null, name: 'a job', state: 'blocked' };
 const TTY = { sessionId: 's', kind: 'interactive', pid: 4242, name: 'a terminal', state: 'busy' };
+// A background agent that DOES carry a pid (#606) — the CLI reports this shape for one it is hosting
+// under a daemon, and the pid names the process actually holding the session.
+const BG_PID = { sessionId: 's', kind: 'background', pid: 4243, name: 'a job', state: 'blocked' };
+// The stop offer is gated on the process still EXISTING, so an owner that must be offered one needs a
+// pid the OS really has. Our own is the only one a test can be sure of.
+const BG_LIVE = { ...BG_PID, pid: process.pid };
 
 function heldBy(owners, over = {}) {
   return fakeBackend({ id: 'claude', label: 'Claude Code', liveOwnersCached: () => owners, ...over });
@@ -311,6 +317,37 @@ test('#172: an interactive owner is a terminal the user can go and find, and say
   setup({ backend: heldBy([TTY]) });
   const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
   assert.match(r.error, /in another terminal \(pid 4242\)/);
+});
+
+// The pid used to be gated on the kind, so this owner was reported without one — while the renderer's own
+// dialog showed it in a detail row. Two routes, one owner, two answers.
+test('#606: a background owner says its pid too, when the entry carries one', async () => {
+  setup({ backend: heldBy([BG_PID]) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.match(r.error, /as a background agent \(pid 4243\)/);
+});
+
+// A pid-less entry must not grow an empty pair of brackets out of the change above.
+test('#606: a background owner without a pid still reads as a plain sentence', async () => {
+  setup({ backend: heldBy([BG]) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.match(r.error, /as a background agent\./);
+  assert.doesNotMatch(r.error, /\(pid/);
+});
+
+// The refusal and the poller's published entries open the SAME dialog, so they have to agree about
+// whether it may offer to stop the process (#607) — both ask `liveOwners.stopTargetFor`.
+test('#607: the refusal says whether the owner can be stopped', async () => {
+  setup({ backend: heldBy([BG_LIVE], { liveOwnerStopTarget: (o) => o.pid }) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.equal(r.liveOwner.canStop, true);
+});
+
+test('#607: a backend that declares no stop hook offers no button', async () => {
+  setup({ backend: heldBy([BG_LIVE]) });
+  const r = await spawn.openTerminal('s', CWD, false, { backendId: 'claude' });
+  assert.equal(r.liveOwner.canStop, false,
+    'today that is every backend but Claude — a button that cannot act is worse than none');
 });
 
 test('#172: "Resume anyway" is honoured — a wrong list must never lock the user out', async () => {

@@ -148,9 +148,17 @@ function buildSessionItem(session, opts = {}) {
     const chip = document.createElement('span');
     chip.className = 'session-detail-pill session-elsewhere-chip';
     chip.textContent = liveOwner.kind === 'background' ? 'Agent' : 'Elsewhere';
-    chip.title = liveOwner.kind === 'background'
-      ? 'Running as a background agent, so it cannot be resumed here. Fork a copy instead.'
-      : `Running in another terminal${liveOwner.pid ? ` (pid ${liveOwner.pid})` : ''}, so it cannot be resumed here.`;
+    // The pid on EITHER kind (#606), and the tooltip no longer says the session cannot be resumed
+    // here (#607). Both halves were wrong for the same reason: a background agent was believed to
+    // have no pid worth naming and no way out but a fork. It can carry one, and where it does the
+    // conflict dialog offers to stop it — so this said no to something the app now does.
+    const ownerPid = liveOwner.pid ? ` (pid ${liveOwner.pid})` : '';
+    const where = liveOwner.kind === 'background'
+      ? `Running as a background agent${ownerPid}`
+      : `Running in another terminal${ownerPid}`;
+    chip.title = liveOwner.canStop
+      ? `${where}. Opening it here asks whether to fork a copy, resume anyway, or stop that process.`
+      : `${where}. Opening it here asks whether to fork a copy or resume anyway.`;
     detailEl.appendChild(chip);
   }
   // Provenance for a session that was imported into its backend's store rather than written there

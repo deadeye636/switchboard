@@ -271,6 +271,7 @@ module.exports = {
     projectTrust: 'no',
     subagentSessions: 'no',
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     quota: 'yes',

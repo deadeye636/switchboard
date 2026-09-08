@@ -323,11 +323,17 @@ contextBridge.exposeInMainWorld('api', {
   },
   // Sessions a process OUTSIDE Switchboard is running (#172). The list is polled by main; a window asks
   // once when it opens and is kept current by the broadcast. Entries carry
-  // `{ sessionId, kind, pid, name, state, backendId }` — `kind` is 'background' or 'interactive'.
+  // `{ sessionId, kind, pid, name, state, backendId, canStop }` — `kind` is 'background' or 'interactive',
+  // and `canStop` says the backend can name a process that may be ended to free the session (#607).
   getLiveOwners: () => ipcRenderer.invoke('live-owners:get'),
   onLiveOwners: (callback) => {
     ipcRenderer.on('live-owners', (_event, owners) => callback(owners || []));
   },
+  // End the process holding a session, so it can be resumed (#607). A session id, never a pid: which
+  // process that is comes from main's own list and the backend's descriptor, so a window cannot name one.
+  // Answers `{ ok: true, alreadyGone, pid }` or `{ ok: false, error }` — a pid that had already exited is
+  // a success, because it is the state the caller asked for.
+  stopLiveOwner: (sessionId) => ipcRenderer.invoke('live-owners:stop', sessionId),
   // The same set `getActiveSessions` returns as bare ids, with enough on each to draw a row for it (#461):
   // `{ sessionId, projectPath, backendId, isPlainTerminal, startedAt }`. A session whose backend never
   // recorded it is in no index, so this is the only place a window can learn what it is.

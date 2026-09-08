@@ -8,8 +8,13 @@
 // `claude agents --json` is that answer, documented in its own help as being for scripting and not needing
 // a TTY. Measured against the installed CLI, it costs ~0.55 s and answers two differently shaped entries:
 //
-//   background   { id, cwd, kind, startedAt, sessionId, name, state }     <- no pid, has `state`
+//   background   { id, cwd, kind, startedAt, sessionId, name, state }     <- has `state`
 //   interactive  { pid, cwd, kind, startedAt, sessionId, name, status }   <- has pid, has `status`
+//
+// …and a third, which is the two of them at once (#606): a background entry that carries a `pid` AND a
+// `status` beside its `state`. Measured, not documented — an agent this app had launched and left behind
+// came back in that shape. So the two lists above are what each kind ALWAYS carries, never what it can
+// only carry, and a reader that keys off the kind to decide which fields exist will be wrong.
 //
 // Both shapes are normalized here, so nothing downstream has to know which kind carries which key.
 //
@@ -56,12 +61,16 @@ function normalizeEntry(raw) {
   return {
     sessionId,
     kind,
-    // Only an interactive entry carries one. A background agent runs under the daemon, so there is no pid
-    // to name — and a message that says "pid undefined" is worse than one that does not mention it.
+    // KEPT WHATEVER THE KIND IS (#606). An interactive entry always carries one; a background entry may,
+    // and when it does it names the process actually holding the session — the leaf of the daemon chain
+    // (`claude daemon run` → `claude --bg-pty-host` → this pid), not the daemon itself. `null` is the
+    // honest answer for an entry without one, because "pid undefined" in a sentence is worse than a
+    // sentence that does not mention a pid at all.
     pid: Number.isInteger(raw.pid) && raw.pid > 0 ? raw.pid : null,
     name: typeof raw.name === 'string' ? raw.name : '',
     cwd: typeof raw.cwd === 'string' ? raw.cwd : '',
-    // `state` on a background agent, `status` on an interactive one — same question, two keys.
+    // `state` on a background agent, `status` on an interactive one — same question, two keys. An entry
+    // carrying both is a background one, and `state` is the answer it has always given.
     state: typeof raw.state === 'string' ? raw.state : (typeof raw.status === 'string' ? raw.status : ''),
     startedAt: Number.isFinite(raw.startedAt) ? raw.startedAt : null,
   };

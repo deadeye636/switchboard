@@ -20,7 +20,7 @@ const PINNED = {
   claude: {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
-    subagentSessions: 'yes', liveOwners: 'yes', liveRebinding: 'yes',
+    subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
     viewportPaging: 'limited',
@@ -28,7 +28,7 @@ const PINNED = {
   codex: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'no',
     modelList: 'no', endpoint: 'no', projectTrust: 'yes',
-    subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'no',
+    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
@@ -36,7 +36,7 @@ const PINNED = {
   hermes: {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     modelList: 'no', endpoint: 'no', projectTrust: 'no',
-    subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'no',
+    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
     resourceDiscovery: 'limited', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
@@ -44,7 +44,7 @@ const PINNED = {
   pi: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
-    subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'yes',
+    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
     // whose extension never reported has no answer at all rather than an empty one.
     queuedTurn: 'limited', quota: 'no',
@@ -54,7 +54,7 @@ const PINNED = {
   agy: {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     modelList: 'yes', endpoint: 'no', projectTrust: 'no',
-    subagentSessions: 'no', liveOwners: 'no', liveRebinding: 'no',
+    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',

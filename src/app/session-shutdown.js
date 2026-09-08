@@ -190,11 +190,48 @@ function pendingCount() {
   return pendingPids.size;
 }
 
+/**
+ * Stop a process this app did NOT spawn (#607).
+ *
+ * Everything above is about our own PTY children, and this is the one thing that is not: a session held
+ * by a CLI process somebody else started, which the user has asked to have stopped so they can resume it.
+ * Same primitive, deliberately — a second `taskkill` spelled somewhere else is a second set of Windows
+ * quirks to get right — and deliberately NOT the same bookkeeping:
+ *
+ *   - it never enters `pendingPids`. That set is what the quit waits on, and a foreign pid in it would
+ *     hold the app's teardown open for a process the app has no claim to.
+ *   - it answers whether the process was there at all. A pid that had already exited is not a failure,
+ *     it is the outcome the caller wanted — the caller must be able to tell that from a kill that ran.
+ *   - it VERIFIES, because the whole point is that the caller then does something the live process was
+ *     preventing. Reporting a stop that did not happen sends them straight back into the same refusal.
+ *
+ * Resolves `{ stopped, alreadyGone, survived }`. It never throws: `taskkill` failing on a pid that is
+ * gone by the time it runs is the ordinary case, not an error.
+ */
+function stopForeignPid(pid, { isAlive = defaultIsAlive, killTree = defaultKillTree } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return Promise.resolve({ stopped: false, alreadyGone: false, survived: false });
+  }
+  if (!isAlive(pid)) return Promise.resolve({ stopped: false, alreadyGone: true, survived: false });
+  return new Promise((resolve) => {
+    killTree(pid, () => {
+      const survived = isAlive(pid);
+      resolve({ stopped: !survived, alreadyGone: false, survived });
+    });
+  });
+}
+
 module.exports = {
   killSession,
   killAll,
   awaitAllStopped,
   pendingCount,
+  stopForeignPid,
+  // "Is this process still there", under its own name (#607). `live-owners.js` asks it about a pid the
+  // CLI reported, to decide whether offering to stop it describes anything real. Exported rather than
+  // re-spelled there: a second `process.kill(pid, 0)` with its own idea of what EPERM means is two
+  // answers to one question, and this one already carries the reasoning.
+  isPidAlive: defaultIsAlive,
   DEFAULT_TIMEOUT_MS,
   // For the suite: the defaults are what production runs, so they are worth exercising directly.
   _defaultIsAlive: defaultIsAlive,

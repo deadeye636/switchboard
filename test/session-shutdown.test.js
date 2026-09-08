@@ -279,3 +279,66 @@ test('#424: a repeated quit does not re-run the teardown underneath the first on
   assert.match(lifecycle, /systemShuttingDown/,
     'a logoff must not be held: the OS is not waiting, and being force-killed mid-wait re-creates the orphan');
 });
+
+// --- Stopping a process this app did NOT spawn (#607) ---------------------------------------------
+//
+// Same primitive as everything above, deliberately different bookkeeping. What these pin is the part
+// that is easy to lose in a later tidy-up: a foreign pid must never reach the set the quit waits on,
+// and an already-dead pid is the outcome the caller wanted rather than a failure to report.
+
+function fakeAlive(...alivePids) {
+  const live = new Set(alivePids);
+  const fn = (pid) => live.has(pid);
+  fn.kill = (pid) => live.delete(pid);
+  return fn;
+}
+
+test('#607: a foreign pid is tree-killed and confirmed gone', async () => {
+  const isAlive = fakeAlive(4242);
+  const killed = [];
+  const killTree = (pid, done) => { killed.push(pid); isAlive.kill(pid); done(); };
+
+  const result = await shutdown.stopForeignPid(4242, { isAlive, killTree });
+  assert.deepEqual(killed, [4242]);
+  assert.deepEqual(result, { stopped: true, alreadyGone: false, survived: false });
+});
+
+test('#607: a pid that had already exited is not killed, and is not a failure', async () => {
+  const killed = [];
+  const result = await shutdown.stopForeignPid(4242, {
+    isAlive: fakeAlive(),
+    killTree: (pid, done) => { killed.push(pid); done(); },
+  });
+  assert.deepEqual(killed, [], 'nothing to kill');
+  assert.deepEqual(result, { stopped: false, alreadyGone: true, survived: false });
+});
+
+test('#607: a process that survives the tree kill is reported, not assumed gone', async () => {
+  const result = await shutdown.stopForeignPid(4242, {
+    isAlive: fakeAlive(4242),
+    killTree: (_pid, done) => done(),
+  });
+  assert.equal(result.survived, true);
+  assert.equal(result.stopped, false, 'the caller is about to resume — a stop that did not happen must say so');
+});
+
+// The one that a refactor would take away without noticing: `killSession` remembers what it killed so
+// the quit can wait for it, and a process belonging to somebody else must not hold the app's teardown.
+test('#607: stopping a foreign pid never puts it in the set the quit waits on', async () => {
+  const before = shutdown.pendingCount();
+  const isAlive = fakeAlive(4242);
+  await shutdown.stopForeignPid(4242, {
+    isAlive,
+    killTree: (pid, done) => { isAlive.kill(pid); done(); },
+  });
+  assert.equal(shutdown.pendingCount(), before);
+  assert.equal(shutdown._pendingPids.has(4242), false);
+});
+
+test('#607: a pid that is not a pid does nothing at all', async () => {
+  const killTree = () => { throw new Error('must not be reached'); };
+  for (const bad of [0, -1, null, undefined, 'nope', 1.5]) {
+    const result = await shutdown.stopForeignPid(bad, { isAlive: fakeAlive(), killTree });
+    assert.deepEqual(result, { stopped: false, alreadyGone: false, survived: false });
+  }
+});

@@ -510,6 +510,25 @@ module.exports = {
     bin: findOnPath('claude') || 'claude',
     env: { ...process.env, ...(cliHomeEnv() || {}) },
   }),
+  /**
+   * WHICH process may be stopped to free this session (#607).
+   *
+   * A third hook rather than a flag, because "may this owner be ended" is a question only the CLI's own
+   * process model can answer, and the core may not learn one. It answers a pid or `null`; the core does
+   * the killing, so nothing about `taskkill` lives in a backend folder.
+   *
+   * IT IS THE REPORTED PID AND NOTHING ELSE. That pid is the leaf of a chain — `claude daemon run`
+   * spawns a `--bg-pty-host`, which spawns the process that holds the session — and the temptation is to
+   * walk up it and take the daemon. Measured, that is both unnecessary and unsafe: killing the leaf took
+   * the host and the daemon with it (a `--origin transient` daemon belongs to one agent and exits when it
+   * has none), the session left `claude agents --json` immediately, and the other background agents were
+   * untouched. Walking parents would have found a daemon that, in another shape, hosts sessions the user
+   * never asked about.
+   *
+   * An entry without a pid answers `null` — there is nothing to name, so nothing is offered. That is the
+   * honest gap, not a reason to guess at the daemon.
+   */
+  liveOwnerStopTarget: (owner) => (owner && Number.isInteger(owner.pid) && owner.pid > 0 ? owner.pid : null),
   // Where Claude keeps its plan documents (#227) — the Plans tab reads every launchable backend's plansDir
   // and shows nothing for a backend that has none. ~/.claude/plans, or the isolated home under a demo run.
   /**
@@ -755,6 +774,7 @@ description:
     projectTrust: 'yes',
     subagentSessions: 'yes',
     liveOwners: 'yes',
+    stopLiveOwner: 'yes',
     liveRebinding: 'yes',
     queuedTurn: 'yes',
     quota: 'yes',

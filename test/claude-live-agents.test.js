@@ -16,6 +16,13 @@ const REAL_OUTPUT = JSON.stringify([
   { pid: 56216, cwd: 'D:\\p', kind: 'interactive', startedAt: 1785825184033, sessionId: '35a20125-0c8b-4960-b3a1-3df4640366b8', name: 'a terminal', status: 'busy' },
 ]);
 
+// …and the third, which is both at once (#606). Also taken from the installed CLI: an agent this app had
+// launched and left running came back as `kind: background` carrying a pid, a `status` AND a `state`. The
+// pid is real — it named the process still holding the session, and killing it freed the session.
+const HYBRID_OUTPUT = JSON.stringify([
+  { pid: 35512, id: '74a494c4', cwd: 'D:\\p', kind: 'background', startedAt: 1788777051068, sessionId: '74a494c4-0000-4000-8000-00000000c0de', name: 'a job we started', status: 'idle', state: 'blocked' },
+]);
+
 /** An execFile stand-in: answers what it is given, records how often it was called. */
 function fakeExec(answer, { fail = false } = {}) {
   const calls = [];
@@ -35,12 +42,22 @@ test('#172: both entry shapes normalise to one, and neither loses its session id
 
   const [bg, tty] = entries;
   assert.equal(bg.kind, 'background');
-  assert.equal(bg.pid, null, 'a background agent runs under the daemon — naming a pid would be inventing one');
+  assert.equal(bg.pid, null, 'this entry carries none, and naming one would be inventing it');
   assert.equal(bg.state, 'blocked', 'its liveness key is `state`');
 
   assert.equal(tty.kind, 'interactive');
   assert.equal(tty.pid, 56216);
   assert.equal(tty.state, 'busy', 'the same question, spelled `status` on this shape');
+});
+
+// The kind says which keys an entry ALWAYS has, never which it can only have — so nothing may read the
+// kind to decide whether to look for a pid. Killing the pid this shape reported tore down the whole
+// daemon chain behind it and freed the session, which is what makes it worth carrying and worth naming.
+test('#606: a background entry that carries a pid keeps it', async () => {
+  const [entry] = await liveAgents.refresh({ exec: fakeExec(HYBRID_OUTPUT) });
+  assert.equal(entry.kind, 'background');
+  assert.equal(entry.pid, 35512, 'the pid survives normalisation whatever the kind says');
+  assert.equal(entry.state, 'blocked', '`state` still wins over `status` when an entry has both');
 });
 
 test('#172: the cache is what the click path reads, and a cold one answers "do not know"', async () => {

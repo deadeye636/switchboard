@@ -486,6 +486,7 @@ module.exports = {
     projectTrust: 'yes',
     subagentSessions: 'no',
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'yes',
     queuedTurn: { state: 'limited', note: 'its extension reports whether a prompt waits, but not how many' },
     quota: { state: 'no', note: 'reports no plan allowance' },

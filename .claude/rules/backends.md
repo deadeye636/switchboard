@@ -349,13 +349,42 @@ hook to a descriptor, ask whether a template running that binary should have it.
 NOT — `projectMeta` would make a template a second "meta backend" and double Claude's Info column — so
 the answer is a decision, not a reflex. #605 is the open question of how to stop deciding it by memory.
 
-## "Is something else already running this session?" is TWO hooks (#172)
+## "Is something else already running this session?" is THREE hooks (#172, #607)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a
 child process. The split is what lets the spawn path ask on the click for free — only Claude declares
 them (`claude agents --json`, ~0.4 s), and a backend that cannot answer declares neither and keeps
 today's behaviour. `app/live-owners.js` polls, filters out sessions **this app** is running (ours is not
 "elsewhere") and broadcasts; the sidebar marks the row, the spawn path asks before opening a tab.
+
+**The third is `liveOwnerStopTarget(owner)` (#607): WHICH process may be ended to free this session.** It
+answers a pid or `null`; the core does the killing (`sessionShutdown.stopForeignPid`, the same
+`taskkill /T` the quit uses), so no part of how a process dies lives in a backend folder and no part of
+which process may die lives in the core. A backend that does not declare it offers no button, which is
+every backend but Claude today.
+
+Three things about it that were paid for:
+
+- **It is the REPORTED pid and nothing else.** That pid is the leaf of a chain — `claude daemon run`
+  spawns a `--bg-pty-host`, which spawns the process holding the session — and walking up it to take the
+  daemon is the obvious next thought. Measured: killing the leaf took the host and the daemon with it (a
+  `--origin transient` daemon belongs to one agent and exits when it has none), the session left
+  `claude agents --json` at once, and the other background agents were untouched. Walking parents would
+  in another shape have found a daemon hosting sessions nobody asked about.
+- **`stopTargetFor` in `app/live-owners.js` is the ONE asker**, and the poller and the spawn guard both
+  go through it. They stamp `canStop` onto the same owner from two different modules, and the dialog they
+  both open would otherwise offer different buttons depending on which route caught the conflict — which
+  is exactly the defect #606 had just finished fixing one field along.
+  **It also asks whether the process still EXISTS** (`process.kill(pid, 0)`, one syscall), because a pid
+  out of that list can be a minute and a half old — a 45 s poll over a 60 s cache — and a button offering
+  to end a process that exited yesterday describes nothing. That is not a guarantee and is not treated as
+  one: `stopOwner` asks the question again at the press, and there it deliberately asks only whether the
+  backend can NAME a process (`requireAlive: false`), because "names nobody" and "names one that has
+  since exited" are a refusal and a success and a helper collapsing both to `null` reports the first for
+  the second.
+- **The renderer names a SESSION, never a pid.** `live-owners:stop` looks the owner up in main's own
+  published snapshot and asks the descriptor for the pid. A window that could name one would make the
+  IPC surface "kill anything you like".
 
 Three things that were paid for once each:
 
@@ -365,8 +394,14 @@ Three things that were paid for once each:
 - **The list is not a verdict.** A background agent listed as `blocked` resumed perfectly well. It says a
   process is *associated* with the session, so the app asks (fork / resume anyway / cancel) instead of
   refusing — a confident refusal of a session that was free is the worse failure.
-- **The two entry shapes differ**: a background agent has no pid and reports `state`, an interactive one
-  has a pid and reports `status`. Normalise in the backend folder, never at the reader.
+- **The two entry shapes differ**: a background agent reports `state`, an interactive one has a pid and
+  reports `status`. Normalise in the backend folder, never at the reader.
+- **A kind says which keys an entry ALWAYS carries, not which it can only carry (#606).** A background
+  entry turned up with a pid, a `status` AND a `state` — an agent this app had launched and left running,
+  hosted under a `claude daemon run` process. So nothing reads the kind to decide whether to look for a
+  pid, and the pid is named wherever there is one: the main process was withholding it while the
+  renderer's own dialog showed it, which is two answers about one owner. Measured: killing that pid took
+  the daemon chain behind it with it and freed the session, and left the other agents alone.
 
 ## Don't hardcode a backend id outside its own folder
 

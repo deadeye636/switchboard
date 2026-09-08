@@ -301,6 +301,7 @@ module.exports = {
     projectTrust: { state: 'no', note: 'no per-project trust gate' },
     subagentSessions: { state: 'no', note: 'it has delegated child sessions, but the seam is not implemented for it yet' },
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
+    stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     quota: { state: 'no', note: 'reports no plan allowance' },

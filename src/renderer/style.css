@@ -283,6 +283,16 @@ input:focus-visible {
   border-color: rgba(63,185,80,0.3) !important;
 }
 
+/* A third button that DESTROYS something (#607: ending the process holding a session). Green is the
+   right colour for the affirmative extra the tertiary normally is, and the wrong one for a kill — so
+   this is opted into per call (`tertiaryDanger`) rather than applied to the shared rule, and the one
+   existing tertiary ("Copy starter prompt") keeps the colour it had. */
+.control-dialog-tertiary-danger {
+  color: #ffb4c4 !important;
+  background: rgba(224,80,112,0.14) !important;
+  border-color: rgba(224,80,112,0.36) !important;
+}
+
 .control-dialog-danger .control-dialog-confirm {
   background: rgba(224,80,112,0.22) !important;
   border-color: rgba(224,80,112,0.45) !important;

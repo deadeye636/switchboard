@@ -209,6 +209,12 @@ async function forkSession(session, project) {
  *
  * Three ways out, and the middle one is not a courtesy. If the CLI's list is ever wrong, "Resume anyway"
  * is what keeps a false refusal from locking someone out of their own session.
+ *
+ * A FOURTH appears only when the backend can name the process (#607). "Resume anyway" leaves the CLI to
+ * refuse a second time, which is the honest answer when the list might be wrong and no answer at all when
+ * it is right — so where the process is known, stopping it is the route that actually ends in the session
+ * opening. It is offered last and worded as what it does, because it is the one button here that destroys
+ * something.
  */
 async function showResumeConflict({ sessionId, projectPath, owner, message } = {}) {
   if (!sessionId) return;
@@ -219,21 +225,38 @@ async function showResumeConflict({ sessionId, projectPath, owner, message } = {
   if (owner && owner.pid) details['Process'] = `pid ${owner.pid}`;
   if (owner && owner.state) details['State'] = owner.state;
 
+  // The pid rides on either kind (#606) — a background agent can carry one, and it names the process
+  // holding the session. Worded exactly as `liveOwnerMessage` in the main process words it, because the
+  // user cannot tell which of the two routes caught the conflict and the two must not disagree.
+  const ownerPid = owner && owner.pid ? ` (pid ${owner.pid})` : '';
   const where = owner && owner.kind === 'background'
-    ? 'as a background agent'
-    : `in another terminal${owner && owner.pid ? ` (pid ${owner.pid})` : ''}`;
+    ? `as a background agent${ownerPid}`
+    : `in another terminal${ownerPid}`;
+  // Said before the button is pressed, not after (#607), and it names both halves: what goes, and what
+  // does not. A turn in flight is the only thing lost — the transcript is a file the CLI has already
+  // written, so the session is still there to resume, which is the whole reason this button exists.
+  const canStop = !!(owner && owner.canStop);
+  const stopNote = canStop
+    ? ' Stopping it ends whatever turn it is in the middle of; the session itself is kept.'
+    : '';
   const choice = await showControlDialog({
     title: 'This session is already running',
     // `message` comes from main when the refusal did (it composed one from the backend's answer). Asked
     // BEFORE any spawn there is nothing to quote, so the same sentence is built here — deliberately the
     // same words, because the user cannot tell which route caught it and should not have to.
-    message: message || `This session is already running ${where}. Opening it a second time can be `
+    message: (message || `This session is already running ${where}. Opening it a second time can be `
       + 'refused outright, and where it is not, both runs write into one transcript. Fork a copy to '
-      + 'branch off from where it is now — or resume anyway if you know it is free.',
+      + 'branch off from where it is now — or resume anyway if you know it is free.') + stopNote,
     details,
     tone: 'warning',
     confirmLabel: 'Fork a copy',
     secondaryLabel: 'Resume anyway',
+    // Absent unless the backend named a process. A button that cannot do what it says is worse than one
+    // that is not there.
+    tertiaryLabel: canStop ? 'Stop it and resume' : undefined,
+    // The one button here that destroys something, and it says so in its colour rather than only in the
+    // sentence above it (#607).
+    tertiaryDanger: true,
     cancelLabel: 'Cancel',
   });
 
@@ -246,7 +269,39 @@ async function showResumeConflict({ sessionId, projectPath, owner, message } = {
   // and the CLI still gets the last word — if it really is held, the tab says so as it did before.
   if (choice === 'secondary') {
     openSession(session, null, { ignoreLiveOwner: true });
+    return;
   }
+  if (choice === 'tertiary') await stopOwnerAndResume(session);
+}
+
+/**
+ * Stop the process holding a session, then open it (#607).
+ *
+ * `ignoreLiveOwner` on the resume is not belt-and-braces: main refreshes the backend's list after the
+ * kill, but that list is a cache with a minute-long TTL and a refresh is allowed to fail. Without the
+ * flag, a stop that worked would be followed by this same dialog, quoting a process the user has just
+ * watched the app end.
+ *
+ * A failure says so and stops there. The dialog is gone by then, so re-opening it would be a second
+ * question about a decision already made — the session is exactly where it was, and Resume anyway is
+ * still one click away on the next attempt.
+ */
+async function stopOwnerAndResume(session) {
+  let result = null;
+  try {
+    result = await window.api.stopLiveOwner(session.sessionId);
+  } catch (err) {
+    result = { ok: false, error: (err && err.message) || 'The process could not be stopped.' };
+  }
+  if (!result || !result.ok) {
+    showControlMessage({
+      title: 'The session is still held',
+      message: (result && result.error) || 'The process could not be stopped.',
+      tone: 'warning',
+    });
+    return;
+  }
+  openSession(session, null, { ignoreLiveOwner: true });
 }
 window.showResumeConflict = showResumeConflict;
 

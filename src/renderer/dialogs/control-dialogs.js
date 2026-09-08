@@ -71,6 +71,11 @@
       cancelLabel: String(options.cancelLabel || 'Cancel'),
       secondaryLabel: String(options.secondaryLabel || ''),
       tertiaryLabel: String(options.tertiaryLabel || ''),
+      // A third button is normally the affirmative extra one — "Copy starter prompt" — and it is green
+      // because that is what it is. #607 made one that ENDS A PROCESS, and green there says the opposite
+      // of what the button does. So the tone is a per-call opt-in rather than a repaint of the shared
+      // rule: nothing already using a tertiary changes, and a destructive one has to ask.
+      tertiaryDanger: options.tertiaryDanger === true,
       tone: KNOWN_TONES.has(options.tone) ? options.tone : 'default',
       details: formatControlDialogDetails(options.details),
       // Which button the dialog OPENS on, and therefore what Enter does (#501). The confirm is the right
@@ -211,7 +216,7 @@
         <div class="control-dialog-actions">
           ${normalized.cancelLabel ? `<button type="button" class="control-dialog-cancel">${escapeHtml(normalized.cancelLabel)}</button>` : ''}
           ${normalized.secondaryLabel ? `<button type="button" class="control-dialog-secondary">${escapeHtml(normalized.secondaryLabel)}</button>` : ''}
-          ${normalized.tertiaryLabel ? `<button type="button" class="control-dialog-tertiary">${escapeHtml(normalized.tertiaryLabel)}</button>` : ''}
+          ${normalized.tertiaryLabel ? `<button type="button" class="control-dialog-tertiary${normalized.tertiaryDanger ? ' control-dialog-tertiary-danger' : ''}">${escapeHtml(normalized.tertiaryLabel)}</button>` : ''}
           <button type="button" class="control-dialog-confirm"${controlDialogConfirmDisabled(normalized, checked) ? ' disabled' : ''}>${escapeHtml(controlDialogConfirmText(normalized, checked))}</button>
         </div>
       `;

@@ -36,6 +36,9 @@ const { decideOsc94 } = require('./osc-busy');
 const { afkTimeoutToEnvMs, resolveAfkTimeoutSec } = require('./afk-timeout');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { readableError } = require('../readable-error');
+// Only for `stopTargetFor` — the one answer to "may this owner's process be ended" (#607), shared so
+// this refusal and the poller's published entries cannot offer different buttons for the same owner.
+const liveOwners = require('../live-owners');
 const { conptyBuildHint } = require('./conpty');
 
 let ctx = null;
@@ -207,13 +210,20 @@ function altScreenFromReplay(chunks) {
  * confident refusal of a session that was free — is the failure this whole path exists to avoid.
  *
  * Backend-neutral by construction: the two kinds read differently because they are different situations,
- * not because one of them is Claude's. A background agent has no window to switch to and no pid worth
- * naming; an interactive one is a terminal the user can go and find.
+ * not because one of them is Claude's. A background agent has no window to switch to; an interactive one
+ * is a terminal the user can go and find.
+ *
+ * THE PID IS NAMED WHENEVER THERE IS ONE, on either kind (#606). This used to be gated on the kind,
+ * because a background agent was believed to run under a daemon with no pid to name — measured, a
+ * background entry can carry one, and it names the process that actually holds the session. Withholding
+ * it left the user with a refusal and nothing to look for; the renderer's own dialog was already showing
+ * it in a detail row, so the two routes disagreed about the same owner.
  */
 function liveOwnerMessage(owner) {
+  const pid = owner.pid ? ` (pid ${owner.pid})` : '';
   const where = owner.kind === 'background'
-    ? 'as a background agent'
-    : (owner.pid ? `in another terminal (pid ${owner.pid})` : 'in another terminal');
+    ? `as a background agent${pid}`
+    : `in another terminal${pid}`;
   return `This session is already running ${where}. Opening it a second time can be refused outright, `
     + 'and where it is not, both runs write into one transcript. Fork a copy to branch off from where it '
     + 'is now — or resume anyway if you know it is free.';
@@ -617,7 +627,18 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         } catch { owner = null; }
         if (owner) {
           ctx.log.info(`[spawn] held back: session ${sessionId} is already running as a ${owner.kind} process`);
-          return { ok: false, error: liveOwnerMessage(owner), liveOwner: { ...owner, backendId: backend.id } };
+          // `canStop` through the same function the poller uses (#607) — this refusal opens the same
+          // dialog the poller's own entries open, and a second reading here is how the two routes would
+          // start offering different buttons for one owner.
+          return {
+            ok: false,
+            error: liveOwnerMessage(owner),
+            liveOwner: {
+              ...owner,
+              backendId: backend.id,
+              canStop: liveOwners.stopTargetFor(backend, owner) !== null,
+            },
+          };
         }
       }
 

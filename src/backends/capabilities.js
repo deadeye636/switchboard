@@ -112,6 +112,13 @@ const CATALOG = [
     declaredBy: 'liveOwnersCached',
   },
   {
+    id: 'stopLiveOwner',
+    group: 'live',
+    label: 'Stop the process holding a session',
+    description: 'Offer to end the process that is keeping a session from being resumed.',
+    declaredBy: 'liveOwnerStopTarget',
+  },
+  {
     id: 'liveRebinding',
     group: 'live',
     label: 'Follow a session that renames itself',
