@@ -19,7 +19,17 @@ function runningSessions(activeSessions) {
   return out;
 }
 
-/** Ask at all? Not when nothing is running, and not when the user said they do not want to be asked. */
+/**
+ * Ask at all? Not when nothing is running, and not when the user said they do not want to be asked.
+ *
+ * IT ASKS ABOUT THE SESSIONS THE QUIT STOPS, and a session that will keep running is deliberately not
+ * one of them (#608) — decided by the owner, not assumed. The dialog exists to prevent a LOSS, and a
+ * session nothing is about to stop has none to prevent; opening one for it would be an interruption
+ * with nothing at stake, on an app that otherwise closes silently. The cost is stated rather than
+ * hidden: the case that produced #606-#608 — quit with nothing of ours running, an agent outliving the
+ * app, a resume conflict the next day — stays silent here. It is answered at the other end instead, by
+ * the conflict dialog naming the process and offering to stop it.
+ */
 function shouldAskBeforeClose(running, settings) {
   if (!running || running.length === 0) return false;
   // The default is to ask: only an explicit `false` switches it off, so a settings blob that predates the
@@ -38,10 +48,34 @@ function describeCounts(agents, terminals) {
 const MAX_ROWS = 6;
 
 /**
+ * The sessions that will still be running AFTER the app is gone (#608).
+ *
+ * The list above is what closing STOPS. This is its opposite, and the dialog had no idea it existed: a CLI
+ * that put itself under a daemon of its own is not one of our PTY children, so the teardown cannot reach
+ * it — measured, one was still holding its session the next day, which is what produced the resume
+ * conflict on the next launch.
+ *
+ * Fed from `app/live-owners.js`, which has already dropped everything `activeSessions` holds. So every
+ * entry it publishes is by definition NOT ours, and there is nothing further to filter — the one thing
+ * this must not do is name a session the quit is about to kill, and that is settled upstream.
+ *
+ * A cold or missing list answers an empty array. Saying nothing is right there: the alternative is
+ * telling somebody a session survived when the truth is that nobody asked.
+ */
+function survivingSessions(liveOwners) {
+  return (liveOwners || []).filter(o => o && o.sessionId);
+}
+
+/**
  * The question, in the shape the app's own dialog takes (title / message / detail rows) — and, as `detail`,
  * the same thing as plain text for the native box main.js falls back to when the renderer cannot answer.
+ *
+ * `surviving` is the second group (#608) and it is worded apart from the first for one reason: the
+ * sentence "Closing Switchboard stops them" is FALSE about it. Rolling the two together would have been
+ * the smaller diff and would have made the dialog lie about exactly the sessions it had just learned to
+ * see.
  */
-function closeWarning(running) {
+function closeWarning(running, surviving = []) {
   const list = (running || []).filter(Boolean);
   const agents = list.filter(s => !s.isPlainTerminal).length;
   const terminals = list.length - agents;
@@ -67,15 +101,37 @@ function closeWarning(running) {
     details.push({ label: '', value: `…and ${entries.length - MAX_ROWS} more` });
   }
 
+  // The second group. Named rather than counted per project: these are sessions somebody else's process is
+  // running, and their own name is what the user can go and find them by — the path would say where they
+  // started, which is the less useful half here.
+  const outlive = survivingSessions(surviving);
+  const survivingRows = outlive.slice(0, MAX_ROWS).map(o => ({
+    label: 'keeps running',
+    value: o.name || o.sessionId,
+  }));
+  if (outlive.length > MAX_ROWS) {
+    survivingRows.push({ label: '', value: `…and ${outlive.length - MAX_ROWS} more` });
+  }
+  const allRows = [...details, ...survivingRows];
+
+  const survivingNote = outlive.length
+    ? ` ${describeCounts(outlive.length, 0)} will KEEP running afterwards — Switchboard did not start `
+      + 'the process holding them and cannot stop it.'
+    : '';
+
   return {
     title: 'Sessions are still running',
     message: `${describeCounts(agents, terminals)} still running. Closing Switchboard stops them — a CLI in `
-      + 'the middle of a turn loses what it was doing.',
-    details,
+      + `the middle of a turn loses what it was doing.${survivingNote}`,
+    // The button says what the click does, and with a surviving session on the list "stop them" is the
+    // same false claim the message above stopped making. The wording lives here rather than in the
+    // renderer for the reason the rest of it does: this is the half that can be tested.
+    confirmLabel: outlive.length ? 'Close anyway' : 'Close and stop them',
+    details: allRows,
     // The native fallback has no detail rows, only a block of text.
-    detail: details.map(d => (d.label ? `• ${d.value} — ${d.label}` : `• ${d.value}`)).join('\n')
+    detail: allRows.map(d => (d.label ? `• ${d.value} — ${d.label}` : `• ${d.value}`)).join('\n')
       + '\n\nSettings → Sessions turns this warning off.',
   };
 }
 
-module.exports = { runningSessions, shouldAskBeforeClose, closeWarning };
+module.exports = { runningSessions, survivingSessions, shouldAskBeforeClose, closeWarning };

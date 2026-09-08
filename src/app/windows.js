@@ -18,6 +18,9 @@ const path = require('path');
 const fs = require('fs');
 const quitGuard = require('./quit-guard');
 const sessionShutdown = require('./session-shutdown');
+// Only for its last published answer (#608) — which sessions a process outside Switchboard is holding,
+// i.e. the ones the teardown below cannot reach.
+const liveOwners = require('./live-owners');
 
 let ctx = null;
 let settingsWindow = null;
@@ -173,14 +176,19 @@ function confirmCloseWithRunningSessions() {
   const running = quitGuard.runningSessions(ctx.activeSessions);
   if (!quitGuard.shouldAskBeforeClose(running, ctx.getSetting('global') || {})) return true;
 
-  const warning = quitGuard.closeWarning(running);
+  // What closing does NOT stop (#608). The poller's last answer, never a fetch: this runs on the close
+  // event, and spawning a CLI to decide what a dialog says would put a child process in front of a
+  // keystroke. A cold list names nothing, which is the honest answer to a question nobody asked yet.
+  let surviving = [];
+  try { surviving = liveOwners.current() || []; } catch { surviving = []; }
+  const warning = quitGuard.closeWarning(running, surviving);
   const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
 
   if (!wc || wc.isDestroyed() || wc.isCrashed()) {
     const choice = dialog.showMessageBoxSync(mainWindow, {
       type: 'warning',
       noLink: true,
-      buttons: ['Cancel', 'Close and stop them'],
+      buttons: ['Cancel', warning.confirmLabel || 'Close and stop them'],
       defaultId: 0,   // Enter cancels: the safe answer is the one you get by reflex
       cancelId: 0,    // Escape too
       title: warning.title,

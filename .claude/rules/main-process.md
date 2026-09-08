@@ -186,6 +186,22 @@ from the keyboard:
 - **A system logoff is not held** (`session-end` → `systemShuttingDown`). Windows is not waiting for us;
   holding the quit there only risks being force-killed mid-wait, which re-creates the orphan.
 
+**And what the teardown CANNOT reach is now said out loud (#608).** A CLI that put itself under a daemon
+of its own is not one of our PTY children — `taskkill /T` walks the tree from `session.pty.pid` and a
+detached daemon is not in it, so it survives a clean quit and keeps holding its session. Measured: one
+was still running the next day, which is what produced a resume conflict on the next launch. The close
+dialog names those sessions as a **second group** (`quitGuard.closeWarning(running, surviving)`, fed from
+`liveOwners.current()`), worded apart from the first for one reason: "Closing Switchboard stops them" is
+FALSE about them, and rolling the two together would have made the dialog lie about exactly the sessions
+it had just learned to see. It reads the poller's last answer and never fetches — a child process in
+front of a keystroke is not what a close event is for — and it does **not** open a dialog that was not
+opening anyway: the switch that turns the warning off is asked about the sessions the quit STOPS.
+
+`stopForeignPid` beside the rest is the one thing here that kills a process the app did not start
+(#607) — same primitive, deliberately different bookkeeping: it never enters `pendingPids`, because a
+foreign pid in the set the quit waits on would hold the teardown open for a process the app has no claim
+to. `.claude/rules/backends.md` has which process it may be, and why it is the leaf and not the daemon.
+
 And a hard deadline inside `awaitAllStopped`, because everything it waits on belongs to someone else: a
 `taskkill` that never calls back would otherwise leave the promise pending forever. **An app that will
 not close is worse than the leak this fixes** — so the answer is guaranteed to arrive, and whatever

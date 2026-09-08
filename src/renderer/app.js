@@ -2254,7 +2254,10 @@ async function reapplyGlobalSettings() {
           title: warning?.title || 'Sessions are still running',
           message: warning?.message || 'Closing Switchboard stops every running session.',
           details: warning?.details || [],
-          confirmLabel: 'Close and stop them',
+          // Main words this, because with a session that will KEEP running on the list "stop them" is a
+          // claim about the close that is not true (#608). The old literal stays as the fallback for a
+          // warning built before that field existed.
+          confirmLabel: warning?.confirmLabel || 'Close and stop them',
           cancelLabel: 'Cancel',
           tone: 'danger',
           dismissible: false,
