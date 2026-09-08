@@ -43,8 +43,9 @@ Three consequences worth knowing:
 - **Two bundles, not one.** pdf.js refuses to parse without a worker — *"No
   GlobalWorkerOptions.workerSrc specified"* is what running it on the main thread gets you — so the
   worker is a bundle of its own beside the viewer's, loaded by a relative path from the same origin
-  `script-src 'self'` already allows. `bundle:pdf` builds both, and every pipeline that bundles
-  CodeMirror bundles these too.
+  `script-src 'self'` already allows. `scripts/bundle.js` builds both beside the CodeMirror bundle, and
+  since #484 every pipeline that starts or builds the app runs that one script — CI used to bundle
+  CodeMirror and not these, so its installers shipped with an empty PDF panel.
 - **Loaded when a PDF is opened, never at start-up.** Same pattern as the CodeMirror bundle: 400 KB of
   viewer plus 1.1 MB of worker parsed for a file most sessions never open is a cost with no payer.
 - **Canvases at device pixel ratio.** A canvas drawn at CSS pixels is soft on every display this app

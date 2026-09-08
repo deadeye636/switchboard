@@ -77,14 +77,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Bundle CodeMirror
-        run: npm run bundle:codemirror
-
-      - name: Stamp build info
-        run: node scripts/gen-build-info.js
-
+      # One step, and it is the same one a local build runs (#484): it stamps the build info, runs the
+      # bundler and then electron-builder, keeps the exit code, and ends with a line saying whether an
+      # installer came from this run. This also closes a gap nobody had noticed — CI bundled CodeMirror
+      # and NOT the PDF viewer, so its installers shipped without `pdf-bundle.js` and the PDF panel was
+      # empty in them.
       - name: Build
-        run: npx electron-builder --${{ matrix.platform }} --publish never
+        run: node scripts/build-and-verify.js --${{ matrix.platform }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 

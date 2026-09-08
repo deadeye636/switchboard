@@ -1,7 +1,8 @@
 // Stamp build-info.json with the git commit a build was made from, so the About
 // pane can show which commit an installation originates from. Run before every
-// build (and on `npm start`) — see the build scripts in package.json and the CI
-// "Stamp build info" step. The file is gitignored: its content changes every
+// build (and on `npm start`). Since #484 the build scripts and CI reach it through
+// `scripts/build-and-verify.js`, which runs it as its first step rather than chaining
+// it with `&&`. The file is gitignored: its content changes every
 // commit, so committing it would create churn and go stale. Best-effort — falls
 // back to "unknown" when git is unavailable (e.g. a source tarball).
 const { execFileSync } = require('child_process');

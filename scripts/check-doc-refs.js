@@ -45,8 +45,8 @@ const NOT_ON_DISK = [
   '.claude/worktrees',
   'build/Release',
   'src/renderer/codemirror-bundle.js',  // esbuild writes it on every start; gitignored
-  'src/renderer/pdf-bundle.js',         // ditto — `bundle:pdf` runs beside `bundle:codemirror`
-  'src/renderer/pdf-worker.js',         // ditto, the second output of the same script
+  'src/renderer/pdf-bundle.js',         // ditto — `scripts/bundle.js` writes all three
+  'src/renderer/pdf-worker.js',         // ditto, the third output of the same script
   '.claude/settings.local.json',        // a checkout's own harness settings, never committed
 ];
 

@@ -91,9 +91,14 @@ photographed without photographing someone's real projects.
 
 ## Building
 
-All build commands stamp `build-info.json`, then bundle **CodeMirror and PDF.js**, then invoke
-electron-builder. Output goes to `dist/`. (`npm run bundle:pdf` is a separate step from
-`bundle:codemirror` and produces two files — the viewer bundle and the PDF.js worker.)
+All build commands run `scripts/build-and-verify.js`, which stamps `build-info.json`, bundles
+**CodeMirror and PDF.js** (three outputs — the viewer bundle, the PDF.js worker, and CodeMirror), and
+then invokes electron-builder. Output goes to `dist/`.
+
+The wrapper exists so a build says how it ended (#484). A failed one prints a line naming the failure
+after the builder's own output and removes what an earlier run left in `dist/`, so the previous
+installer cannot be mistaken for this one's result; a successful one prints the artifact path and the
+commit it was built from. It also sweeps installers from earlier versions on the way.
 
 ```bash
 npm run build         # current platform

@@ -13,6 +13,16 @@ will remember to delete.
 gh release download v<version> --pattern "Switchboard.Setup.<version>.exe" --dir dist
 ```
 
+**A build moves what it did not produce into `dist/previous/`** (#484). `scripts/build-and-verify.js`,
+which every build script goes through, treats everything in `dist/` older than the run as belonging to an
+earlier one and moves it a directory down — so "what is in `dist/`" answers "what this build produced"
+and nothing else. Nothing is deleted, and the last line of the build says what moved.
+
+Two consequences worth knowing before a release: an installer you downloaded for another platform ends up
+in `dist/previous/` as soon as you build, so download AFTER building or fetch it back from there; and a
+build that fails **before** electron-builder starts moves nothing, because the previous installer is then
+still the newest thing anybody built.
+
 ## Install the build before releasing it
 
 `build.files` in `package.json` is an **allow-list**. It used to name `*.js`, which matches the **top
