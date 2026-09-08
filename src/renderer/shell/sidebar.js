@@ -16,12 +16,20 @@
 // draws it, and it is a cache of someone else's fact — nothing in this window may add to it.
 let liveOwnersBySession = new Map();
 
-/** Same sessions, same kinds? A 45 s timer must not rebuild the sidebar for an unchanged answer. */
+/**
+ * Same answer as last time? A 45 s timer must not rebuild the sidebar for a list that has not moved.
+ *
+ * IT COMPARES WHAT THE ROW READS, and every field the row grows has to be added here. `canStop` (#607)
+ * is the one that proves why: it flips on its own when the process behind an entry exits, while the
+ * session, the kind and the pid all stay exactly as they were — so a comparison of the other three
+ * reports "unchanged" and the tooltip goes on offering to stop a process that is gone.
+ */
 function sameLiveOwners(a, b) {
   if (a.size !== b.size) return false;
   for (const [id, entry] of a) {
     const other = b.get(id);
     if (!other || other.kind !== entry.kind || other.pid !== entry.pid) return false;
+    if (!!other.canStop !== !!entry.canStop) return false;
   }
   return true;
 }
