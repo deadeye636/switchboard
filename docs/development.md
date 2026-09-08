@@ -96,9 +96,14 @@ All build commands run `scripts/build-and-verify.js`, which stamps `build-info.j
 then invokes electron-builder. Output goes to `dist/`.
 
 The wrapper exists so a build says how it ended (#484). A failed one prints a line naming the failure
-after the builder's own output and removes what an earlier run left in `dist/`, so the previous
-installer cannot be mistaken for this one's result; a successful one prints the artifact path and the
-commit it was built from. It also sweeps installers from earlier versions on the way.
+after the builder's own output; a successful one prints the artifact path and the commit it was built
+from.
+
+Either way it **moves** everything in `dist/` that is older than the run into `dist/previous/` — the
+previous installer, an installer from an earlier version, the manifests beside them. Nothing is deleted,
+and only files move: `win-unpacked/` and the mac `.app` trees stay where they are. A failure **before**
+electron-builder starts moves nothing, because the previous installer is then still the newest thing
+anybody built.
 
 ```bash
 npm run build         # current platform

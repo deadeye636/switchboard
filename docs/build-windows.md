@@ -142,4 +142,6 @@ chaining them with `&&` — a chain cannot report on the step that killed it (#4
 ## Open / not done
 
 - **Code signing**: the Windows installer is **not signed** — there is no certificate.
-- **CI**: no automated Windows build.
+- **CI**: builds Windows on every `v*` tag and on a manual dispatch with `platform: win`
+  (`.github/workflows/build.yml`). This line said there was no automated Windows build long after there
+  was one.

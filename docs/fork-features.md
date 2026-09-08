@@ -328,7 +328,7 @@ Everything below is added by **this fork** on top of the HaydnG base. Derived vi
 ### Onboarding
 
 - **A welcome tour on the first launch (#146)** — nine panes over one dialog, opened once on a profile
-  that has no `welcomeDismissed`, and reachable again from **Settings → About**. What makes it more than a
+  that has no `welcomeDismissed`, and reachable again from **Settings → Maintenance** (it is a thing you do, not a plate to read). What makes it more than a
   splash screen: **every pane that names a setting also writes it**, through the route that setting is
   actually written by (a flat merge, a read-modify-write for the nested ones, the hook call for the
   attention hooks) and re-applied in the window on the spot. Five panes draw the effect of their own
@@ -476,7 +476,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 
 ### UI / window
 - **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
-  grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch),
+  grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch / Redraw —
+  the last repairs a screen a foreign writer has destroyed, #479),
   auto-close, and removal of the top menubar for a cleaner window.
 - **Detached session windows** (#2, #314, #315, #316) — move a running session into an OS window of its
   own (pane menu or the tab's context menu) and drag it to a second monitor. It comes back the same

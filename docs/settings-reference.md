@@ -50,18 +50,21 @@ back on Save.
 | `confirmQuitWithRunningSessions` | Ask before closing while sessions run | bool | `true` | global |
 | `shellProfile` | CLI shell | `auto` or a profile id | `auto` | **cascades** |
 | `terminalShellProfile` | Terminal shell | `inherit` \| `auto` \| profile id | `inherit` | **cascades** |
-| `attentionHooks` | (toggle lives on Claude's backend page) | bool | `false` | global |
+| `attentionHooks` | (the toggle lives on Claude's backend page, under Integrations — and on the welcome tour's Attention pane) | bool | `false` | global |
 | `welcomeDismissed` | (no label — written by the welcome tour) | bool | absent | global |
 
 
 ### `welcomeDismissed` — the welcome tour's one piece of state (#146)
 
 Absent means the tour has never been dismissed, and the first launch of a profile shows it. Dismissing it
-— Done, Skip, Escape — writes `true`. It lives in the global blob, so it rides export/import like every
+writes `true`, and there are five ways to: the × in the corner, the **Close the tour** button, **Done** on
+the last pane, Escape, and a click on the backdrop. **Import settings and Open settings do not** — they
+replace the tour and leave the flag absent, so it returns on the next launch rather than being lost to a
+click nobody meant as an answer. It lives in the global blob, so it rides export/import like every
 other key; **an imported blob therefore carries the exporting machine's answer**, which is intended: a
 machine set up from another one is not a first launch.
 
-**Settings → About → Show the tour does not reset it.** That button opens the tour; the flag stays
+**Settings → Maintenance → Show the tour does not reset it.** That button opens the tour; the flag stays
 `true`, because resetting it would make the tour reappear unasked on the next launch, which is the one
 thing the flag exists to prevent.
 
@@ -384,7 +387,7 @@ screen.
 
 | Key | Shape | Default |
 |---|---|---|
-| `backendEnabled` | `{[backendId]: bool}` | an absent key reads **off for a built-in backend and on for a profile** (`src/backends/index.js`) — so a fresh install has Claude enabled and no other CLI, and switching one on is a deliberate act. The old wording here said "enabled unless switched off", which is the profile half stated as the whole rule |
+| `backendEnabled` | `{[backendId]: bool}` | an absent key reads **on for Claude and for a profile, off for every other built-in** — and a profile is off whenever its base backend is off, whatever its own key says (`isEnabled`, `src/backends/index.js`). A `planned` backend is off regardless. So a fresh install has Claude and nothing else, and switching another CLI on is a deliberate act. This line has been wrong twice: "enabled unless switched off" was the profile half stated as the whole rule, and "off for a built-in" forgot that Claude is one |
 | `defaultLaunchTarget` | backend or profile id | the stored target while it is launchable, else the first launchable, else `''` |
 | `backendDefaults` | `{[backendId]: {[optionId]: value}}` | `{}` — cascades **per option**, global → project |
 | `backendEnv` | `{[backendId]: {VAR: '$REF'}}` | `{}` — values are `$VAR` references, resolved at spawn |
@@ -607,14 +610,14 @@ notice, because those were explicit configuration choices.
 | `npm start` | Stamp build info → bundle CodeMirror **and PDF.js** → launch Electron (dev: `~/.switchboard-dev`) |
 | `npm run start:debug` | The same with `--remote-debugging-port=9222`; refuses if the port is already bound |
 | `npm run demo:start` | **The default for dev/testing**: seeds and launches a fully isolated instance (own DB, userData, all five stores). `-- --debug` adds the CDP port. |
-| — | `demo:start` also runs `scripts/demo-settings.js`, which **enables every ready backend** in the demo DB (#244). A fresh install enables Claude only; without this the seeded Codex/Pi sessions are never scanned. Idempotent, and it refuses any data dir outside the demo tree. |
+| — | `demo:start` also runs `scripts/demo-settings.js`, which **enables every ready backend** in the demo DB (#244) and **marks the welcome tour as seen** when `welcomeDismissed` is absent (#146), so a demo run does not boot behind a modal. A fresh install enables Claude only; without the first half the seeded Codex/Pi sessions are never scanned, and without the second every demo start opens the tour. Idempotent, and it refuses any data dir outside the demo tree. |
 | — | …and `scripts/demo-content.js`, which seeds the demo's **DB-only** content: project display names, project + session tags, tasks, and a synthetic activity history for the Stats page. Same guard, and idempotent **per block**. |
 | `npm run demo:seed` | Seed the demo layout without launching |
 | `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
 | `npm test` | `node --test --test-timeout=60000`, discovered from the repo root — no path argument, no Electron needed |
-| `npm run electron` | `electron .` and nothing else — skips the build-info stamp and both bundles. Faster iteration once one of the start scripts has produced them; wrong as a first run, because the bundles it needs will not exist |
+| `npm run electron` | `electron .` and nothing else — skips the build-info stamp and all three bundles. Faster iteration once one of the start scripts has produced them; wrong as a first run, because the bundles it needs will not exist |
 | `npm run stop:dev` | Stop **this checkout's** dev Electron processes (never the installed app) |
-| `node scripts/build-and-verify.js [electron-builder args]` | The build wrapper every build script goes through (#484). Stamps, bundles, runs electron-builder with whatever arguments it was given, keeps the exit code, moves anything in `dist/` older than the run into `dist/previous/`, and ends with either the artifact path plus the commit or a line naming the failure |
+| `node scripts/build-and-verify.js [electron-builder args]` | The build wrapper every build script goes through (#484). Stamps, bundles, runs electron-builder with whatever arguments it was given, keeps the exit code, moves every FILE in `dist/` older than the run into `dist/previous/` (nothing is deleted; directories stay), and ends with either the artifact path plus the commit or a line naming the failure. A failure before electron-builder starts moves nothing |
 | `npm run bundle` | `scripts/bundle.js` — esbuild's JS API builds all three renderer bundles: CodeMirror, the PDF viewer, and pdfjs-dist's worker. **One definition of the flags**, because four callers need them (the two start scripts, the build wrapper, the demo launcher) and a second copy is how they drift |
 | `npm run generate-icons` | Regenerate the app icons and the macOS DMG background from the sources in `build/` |
 | `npm run upstream:check` / `:seen` | Report new upstream activity / mark the current state as seen |

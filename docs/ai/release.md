@@ -5,7 +5,8 @@ Read this before building an installer, pushing a tag, or editing a release.
 ## Release artifacts live in `dist/`
 
 **Every installer** — the ones `build:win` produces and the ones you download from a release. It is
-gitignored, and it is where the previous versions already are, so one look tells you what exists.
+gitignored; `dist/` holds what the last build produced and `dist/previous/` everything older, so the two
+together tell you what exists.
 Downloading a build into a scratch or temp directory just scatters a 110 MB file somewhere nobody
 will remember to delete.
 
@@ -14,14 +15,24 @@ gh release download v<version> --pattern "Switchboard.Setup.<version>.exe" --dir
 ```
 
 **A build moves what it did not produce into `dist/previous/`** (#484). `scripts/build-and-verify.js`,
-which every build script goes through, treats everything in `dist/` older than the run as belonging to an
+which every build script goes through, treats every FILE in `dist/` older than the run as belonging to an
 earlier one and moves it a directory down — so "what is in `dist/`" answers "what this build produced"
 and nothing else. Nothing is deleted, and the last line of the build says what moved.
 
-Two consequences worth knowing before a release: an installer you downloaded for another platform ends up
-in `dist/previous/` as soon as you build, so download AFTER building or fetch it back from there; and a
-build that fails **before** electron-builder starts moves nothing, because the previous installer is then
-still the newest thing anybody built.
+Three consequences worth knowing before a release:
+
+- an installer you downloaded for another platform ends up in `dist/previous/` as soon as you build, so
+  download AFTER building or fetch it back from there;
+- a build that fails **before** electron-builder starts moves nothing, because the previous installer is
+  then still the newest thing anybody built;
+- **only files move.** `dist/win-unpacked/` and the mac `.app` trees stay where they are, which matters
+  directly for the check below: after a FAILED build the unpacked tree you are told to launch is the
+  previous build's, not this one's. That is the same confusion #484 ended for the installer, one
+  directory over, and it is a known gap rather than an oversight — a half-written unpacked tree is not
+  something to move behind the user's back.
+
+`dist/previous/` has no housekeeping. Nothing prunes it and nothing reads it; empty it by hand when it
+gets big.
 
 ## Install the build before releasing it
 

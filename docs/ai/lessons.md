@@ -1016,11 +1016,12 @@ Three mechanisms were proposed and only the first two were ours:
   runs the same conpty code as our bundled DLL. That issue is closed as NOT_PLANNED by an inactivity
   bot, not fixed.
 
-**If this turns up again it is not a regression here.** Two app-side workarounds were weighed and left
-unbuilt: a user-triggered repaint that nudges the PTY by one column (cheap — the settle-repaint machinery
-from #27 already exists), and an automatic nudge on every busy→idle edge (rejected: visible flicker after
-every turn, and mid-output resizes have their own history in #27). Re-check against a new Claude CLI
-release before building either.
+**If this turns up again it is not a regression here.** Two app-side workarounds were weighed. The
+user-triggered repaint — a nudge of the PTY by one column, cheap because the settle-repaint machinery from
+#27 already exists — **has since been built** as the tab context menu's **Redraw** entry (#479); this
+paragraph told a later reader not to build something that had shipped. The automatic nudge on every
+busy→idle edge stays rejected: visible flicker after every turn, and mid-output resizes have their own
+history in #27.
 
 ## One set cannot bound both the walk and the answer (#594)
 

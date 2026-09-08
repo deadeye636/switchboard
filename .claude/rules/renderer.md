@@ -9,8 +9,10 @@ paths:
 Vanilla JS, **no framework**. Modules are plain `<script>` tags in `src/renderer/index.html` (load
 order matters — `test/script-tags.test.js` guards it). Sorted into folders (`shell/`, `session/`,
 `terminal/`, `views/`, `jsonl/`, `panels/`, …). DOM reconciliation via morphdom. Terminal =
-`@xterm/xterm`. Diffs = CodeMirror (`codemirror-setup.js`, bundled by esbuild into
-`codemirror-bundle.js`). Don't add a framework, build step or bundler beyond that esbuild bundle.
+`@xterm/xterm`. Diffs = CodeMirror, PDFs = pdf.js — **three esbuild bundles from two roots**
+(`jsonl/codemirror-setup.js`, `views/pdf-setup.js`, and pdf.js's worker), all produced by
+`scripts/bundle.js`, which since #484 is the one place their flags live and the one thing every start and
+build path runs. Don't add a framework, a build step, or a bundle outside that script.
 
 ## THE RULE: on any renderer change, the click IS the test
 
