@@ -45,7 +45,7 @@
     "better-sqlite3": "^12.11.1",
     "dompurify": "^3.4.14",
     "electron-log": "^5.4.4",
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "marked": "^18.0.11",
     "morphdom": "^2.7.8",
     "node-pty": "^1.2.0-beta.15",
@@ -77,7 +77,7 @@
     "node-gyp": "13.0.0",
     "brace-expansion@1": "1.1.18",
     "brace-expansion@2": "2.1.4",
-    "js-yaml@4": "4.3.1"
+    "js-yaml@4": "4.3.2"
   },
   "build": {
     "appId": "ai.doctly.switchboard",
