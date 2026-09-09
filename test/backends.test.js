@@ -447,3 +447,17 @@ test('a template on a base that cannot answer offers no stop button', () => {
     assert.strictEqual(backends.get('cx-owner-tpl').liveOwnerStopTarget, undefined);
   });
 });
+
+// #605: Pi is TOLD its queue depth by push and remembers it for the pull the core makes (#530). A
+// template got the reader and not the recorder, so nothing kept what the extension reported and
+// `readTurnQueue` answered null for every turn — the safe answer, and also the #495 defect again.
+test('a template that reads a turn queue can also record one', () => {
+  const prof = { id: 'pi-queue-tpl', name: 'A template', backendId: 'pi', env: {} };
+  withRegistry({}, [prof], () => {
+    const base = backends.get('pi');
+    if (!base || typeof base.noteTurnQueue !== 'function') return;
+    const d = backends.get('pi-queue-tpl');
+    assert.strictEqual(typeof d.readTurnQueue, 'function', 'the pull the core makes');
+    assert.strictEqual(typeof d.noteTurnQueue, 'function', 'and the push that gives it something to read');
+  });
+});

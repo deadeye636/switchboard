@@ -192,6 +192,12 @@ function profileToDescriptor(p) {
     ...(base && typeof base.buildLiveBinding === 'function' ? { buildLiveBinding: base.buildLiveBinding } : {}),
     ...(base && typeof base.releaseLiveBinding === 'function' ? { releaseLiveBinding: base.releaseLiveBinding } : {}),
     ...(base && typeof base.readTurnQueue === 'function' ? { readTurnQueue: base.readTurnQueue } : {}),
+    // …and the WRITER, where the base has one (#605). Pi is told its queue depth by push and remembers it
+    // for the pull the core makes (#530), and main looks that writer up by the row's backendId. So a
+    // template got the reader and not the recorder: the extension reported, nothing kept it, and
+    // `readTurnQueue` then answered `null` for every turn — "cannot tell", which is the safe answer and
+    // also the one that puts the session back on the #495 defect its base no longer has.
+    ...(base && typeof base.noteTurnQueue === 'function' ? { noteTurnQueue: base.noteTurnQueue } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);
