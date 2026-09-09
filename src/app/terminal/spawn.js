@@ -763,8 +763,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       };
 
       // Per-session AskUserQuestion timeout (#51): cascade session > project >
-      // global, empty = inherit. Only inject when a value is actually set so an
-      // unset field leaves Claude's built-in default (60s) in place.
+      // global, empty = inherit, `0` = off at that scope. Only inject when a POSITIVE value was chosen:
+      // the CLI's default is not to auto-continue at all (#559 — it was 60 s when this was written), and
+      // the mere presence of the variable switches its timer on, so sending anything for "off" would
+      // turn on what it was asked to turn off.
       // The project/global halves now come from backendDefaults.claude (§4a), where every backend's
       // launch options live; the session half still overrides both.
       {

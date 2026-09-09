@@ -133,7 +133,12 @@ const configFields = [
   // nothing to do with which CLI follows it. The registry adds it to EVERY backend now
   // (backends/index.js, UNIVERSAL_FIELDS).
   { id: 'mcpEmulation', label: 'IDE emulation (MCP bridge)', type: 'toggle', default: true, appliesAt: 'spawn' },
-  { id: 'afkTimeoutSec', label: 'AskUserQuestion timeout (s)', type: 'number', default: '', appliesAt: 'spawn' },
+  // Named for what it does NOW (#559). The CLI stopped auto-continuing a question by default and grew a
+  // setting of its own for it, so this field no longer switches that behaviour off — it switches it on,
+  // for one session, which is the thing the CLI can only do globally. `0` and empty are NOT the same
+  // answer: both send no variable, but `0` wins its scope and empty falls through to the wider one.
+  { id: 'afkTimeoutSec', label: 'Question auto-continue after (s)', type: 'number', default: '', appliesAt: 'spawn',
+    description: 'Let this session answer its own AskUserQuestion dialog after N seconds, with whatever is selected so far. `0` = not here, whatever a wider scope says. Empty = inherit that wider scope, and if nothing is set anywhere the CLI decides (it does not auto-continue unless its own "Question auto-continue timeout" setting says so).' },
 ];
 
 // Build the Claude argv exactly as main.js:3052-3086 does today. Returns a clean argv array (the
