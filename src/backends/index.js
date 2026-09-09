@@ -153,6 +153,13 @@ function profileToDescriptor(p) {
     // answers still have to be here, or anything asking a template's capabilities gets a wall of gaps.
     capabilities: base ? base.capabilities : undefined,
     transcriptAccess: base ? base.transcriptAccess : undefined,
+    // …and the READER that declaration promises (#605). `transcriptAccess: 'export'` says "this store is
+    // not a text file, ask `readMessages` instead", and main.js's transcript path checks for BOTH before
+    // it takes that branch. Forwarding the declaration without the reader failed that check and dropped
+    // through to the file branch, which for a template on agy means its `.db` read as JSONL — the comment
+    // at that branch says what that produces: garbage in the viewer, and a binary blob handed to a fresh
+    // agent by the handoff pre-fill. Hermes has no file at all and reached the axis-B "cannot say" reply.
+    ...(base && typeof base.readMessages === 'function' ? { readMessages: base.readMessages } : {}),
     // A template's sessions are written by the base binary, into the base's store, in the base's format —
     // so the base is also the one that can move them and delete them. Without these two the project
     // manager treated every template like Hermes: the remap left its sessions behind at the old path, and

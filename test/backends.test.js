@@ -329,3 +329,31 @@ test('a template on a base that cannot report does not claim it can', () => {
     assert.strictEqual(d.buildLiveBinding, undefined, 'and no builder is invented for it');
   });
 });
+
+// #605: a DECLARATION reaches a template without the reader it promises.
+//
+// `transcriptAccess: 'export'` means "this store is not a text file, ask readMessages instead", and the
+// transcript path checks for both before it takes that branch. The declaration was forwarded and the
+// reader was not, so a template on agy fell through to the file branch and had its `.db` read as JSONL —
+// garbage in the viewer, and a binary blob handed over by the handoff pre-fill.
+test('a template that says its transcript is exported can actually export it', () => {
+  for (const baseId of ['agy', 'hermes']) {
+    const prof = { id: `${baseId}-tpl`, name: 'A template', backendId: baseId, env: {} };
+    withRegistry({}, [prof], () => {
+      const d = backends.get(`${baseId}-tpl`);
+      const base = backends.get(baseId);
+      if (!base || (base.transcriptAccess || 'file') === 'file') return;   // a file backend has nothing to export
+      assert.strictEqual(d.transcriptAccess, base.transcriptAccess, `${baseId}: the store is the base's`);
+      assert.strictEqual(typeof d.readMessages, 'function', `${baseId}: so is the reader that declaration promises`);
+    });
+  }
+});
+
+test('a template on a FILE backend is not given an exporter', () => {
+  // The other half, and the reason this is a spread rather than an assignment: inventing a reader for a
+  // base that has none would take the file branch away from a template that needs it.
+  const prof = { id: 'cx-export-tpl', name: 'Cx Template', backendId: 'codex', env: {} };
+  withRegistry({}, [prof], () => {
+    assert.strictEqual(backends.get('cx-export-tpl').readMessages, undefined);
+  });
+});
