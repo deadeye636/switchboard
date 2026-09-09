@@ -308,6 +308,46 @@ The only backend whose history is **not** in files — the reason the discovery 
   skills, skill bundles, plugins, hooks, memories and model catalogs as neutral rows. Switchboard only
   displays, copies or opens discovered paths; it never runs Hermes management commands or installs/updates
   resources.
+- **Installed plugins**, measured on 0.21.0 (#547). Three directory roots, read in this order: **bundled**
+  inside the install tree (`<install>/hermes-agent/plugins/`), **user** (`<hermes home>/plugins/`), and **project**
+  (`<cwd>/.hermes/plugins/`) — the last only when `HERMES_ENABLE_PROJECT_PLUGINS=1`. A directory is a plugin
+  when it carries `plugin.yaml`/`plugin.yml` (native, Python) or `plugin.json` (portable, called an Agent
+  Plugin). The layout is flat `<root>/<name>/` or one category level `<root>/<category>/<name>/`, keyed
+  `category/name` and capped at depth two: a top-level directory WITHOUT a manifest is a category, not a
+  plugin, which is what a one-level `dirs` expansion of the user directory reports it as.
+  `HERMES_BUNDLED_PLUGINS` moves the bundled root for a packaged install. And a fourth source has no
+  directory anywhere: a pip-installed distribution that declares the `hermes_agent.plugins` entry-point
+  group is a plugin too, and `hermes plugins list` merges it in — so no directory listing can be the
+  complete answer to "what is installed".
+- **Enablement is opt-in and lives in `config.yaml`**, not in the directory: `plugins.enabled` is an
+  allow-list and `plugins.disabled` a deny-list that wins over it. Both are written by `hermes plugins
+  enable|disable` and neither is in a default config, so an absent `plugins.enabled` means "nothing
+  enabled" rather than "everything". **An upgraded install is not empty, though**: the 20 → 21 config
+  migration writes `plugins.enabled` itself and grandfathers every manifest-carrying directory under
+  `<hermes home>/plugins/` into it, so there the user directory does correspond to what is on. The key is
+  the manifest's `name` (or the `category/name` path key), which need not be the directory name. Bundled
+  backends auto-load and bundled platforms load lazily without an entry; the categories that own their own
+  discovery (`memory`, `context_engine`, `model-providers`) are skipped by the bundled scan entirely. On
+  the install this was measured against, `hermes plugins list` reported 57 bundled plugins, every one of
+  them `not enabled`, and an empty user directory — so the directory alone answers neither "is it
+  installed" nor "is it on".
+- **Only a portable plugin ships a `skills/` tree** — `plugin.json` plus `skills/<name>/SKILL.md`, one level
+  deep, the same shape Claude's and Codex' plugins have. A native plugin registers its skills from code at
+  any path it likes. **Neither kind's skills are skills the CLI offers**, and that is the answer to the
+  skill-picker question rather than the tree itself: both go through one `register_skill`, which puts the
+  skill in neither `<hermes home>/skills/` nor the CLI's `<available_skills>` list — it resolves as
+  `<plugin>:<skill>` on an explicit load only. So a Hermes plugin's skills are not the Claude/Codex case,
+  where a plugin's tree is offered beside the user's own. No bundled plugin ships a `skills/` directory at
+  all.
+- The directory names the **plugin** (or a category), never a marketplace — `hermes plugins install` clones
+  top-level into `<hermes home>/plugins/<name>/` and records where it came from in a sidecar,
+  `<hermes home>/plugins/.install-metadata.json`. So a Hermes plugin row needs no `originLabel`, unlike
+  Codex'.
+- **`plugins` is a profile-scoped area** (with `skills`, `cron` and `memories`): a non-default Hermes profile
+  is a different `HERMES_HOME`, resolved from the profile name at CLI entry, and the whole home moves with
+  it — plugins, skills and `state.db` alike. Switchboard reads `HERMES_HOME` from its own environment, so a
+  profile the user switched inside the CLI is not something this app currently follows. Measured as far as
+  the resolution rule; what a live profile does to the session scan is **not measured**.
 - The TUI takes ≈ 12 s to paint (a heavy Python import) — a fresh tab looks dead until then, so the
   descriptor prints a hint.
 
@@ -446,6 +486,40 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   Antigravity settings, builtin/implicit resource directories, the knowledge directory, the plugins
   directory, and per project both `GEMINI.md` and the project's own `.gemini` settings directory. It deliberately excludes OAuth/account files, logs, crashes, caches, history, scratch/tmp data
   and conversation databases.
+- **Installed plugins**, measured on 1.1.28 (#547), against the CLI's own shipped guide
+  (`builtin/skills/agy-customizations/docs/plugins.md`) and `agy plugin validate`. A plugin is
+  `<customization root>/plugins/<name>/` with a `plugin.json` marker, and there are two roots: the
+  **workspace** one (`.agents/`, also `.agent/`, `_agents/`, `_agent/`, found by walking from the cwd up to
+  the repository root) and the **global** one, `~/.gemini/config/`. The bundle may hold `skills/<name>/SKILL.md`,
+  `rules/`, `hooks.json` and `mcp_config.json`; `agy plugin validate` reports the full component set as
+  skills, agents, commands, mcpServers and hooks.
+- **The global root is `~/.gemini/config/`, not the agy home** — the same directory that already holds
+  `mcp_config.json` (#543), plus `skills/`, `hooks.json` and the workflow files. `~/.gemini/antigravity-cli/`
+  holds the session store, the built-in skills the agent config mounts by name, and the CLI's own state;
+  the binary carries no plugins path under it, and its own changelog records fixing a display that named
+  `~/.gemini/antigravity-cli/` as the global configuration directory when the answer is `~/.gemini/config/`.
+  This app lists `<agy home>/plugins` today, which is a directory the CLI never reads (#611).
+- **Enablement lives in `~/.gemini/config/config.json`**, under a `plugins` map keyed by the plugin's
+  **directory** name (`{"plugins": {"my-plugin": {"enabled": false}}}`), written by `agy plugin
+  enable|disable`. A discovered plugin is on by default unless its own `plugin.json` declares
+  `"disabled": true`, and the `config.json` entry wins over that declaration either way. `plugin.json`'s
+  `name` is a display name only. A disabled plugin still appears in the settings UI's plugin panel, so it
+  can be switched back on.
+- The directory names the **plugin**. A marketplace is an install SOURCE: `agy plugin install
+  <plugin>@<marketplace>` fetches a `marketplace.json`, downloads and extracts the archive, and — by the
+  binary's own changelog — lands it in the shared configuration directory `~/.gemini/config/` rather than a
+  private one, "making them instantly discoverable". So the installed layout is the same `plugins/<name>/`
+  and the directory is still not marketplace-named. What that install writes BESIDE the files is **not
+  measured**: the binary carries a `failed to record the marketplace origin of %q` error, so an origin
+  record exists somewhere, and whether a row would want an `originLabel` out of it stays open until a real
+  marketplace install is on disk.
+- **`agy plugin list` is not the enablement ledger**: it lists what `agy plugin import` brought in (from
+  `gemini`, from `claude`, or from a path), and answers "No imported plugins." for a plugin discovered in a
+  customization root. What a session actually sees is the discovery walk above, gated by `config.json` —
+  **plus whatever a `plugins.json` declares**. A customization root may carry one, its `entries` name
+  arbitrary absolute, `~/`- or workspace-relative directories, and declared configurations rank ABOVE
+  global discovery in the CLI's own precedence list. A plugin can therefore come from a directory that is
+  in neither root.
 - **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
   `supportsFork: false` (offering it would launch an unrelated session).
 - **`agy --help` / the argv** (v1.1.1+): `--model`, `--effort`, `--project` / `--new-project`, `--add-dir`
