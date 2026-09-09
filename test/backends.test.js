@@ -427,3 +427,23 @@ test('a template carries its base\'s project trust', () => {
     });
   }
 });
+
+// #605: `app/live-owners.js` picks the backends to poll by whether they declare `refreshLiveOwners`, so
+// a template was not merely unanswered — it was never asked. No conflict warning before a resume, and no
+// stop button, for sessions sitting in the base's own store under the base's own CLI.
+test('a template is asked whether something else is running its session', () => {
+  const prof = { id: 'owner-tpl', name: 'A template', env: {} };   // base defaults to claude
+  withRegistry({}, [prof], () => {
+    const d = backends.get('owner-tpl');
+    assert.strictEqual(typeof d.liveOwnersCached, 'function', 'the free read the spawn path uses');
+    assert.strictEqual(typeof d.refreshLiveOwners, 'function', 'and the one that costs a child process');
+    assert.strictEqual(typeof d.liveOwnerStopTarget, 'function', 'and which process may be ended');
+  });
+});
+
+test('a template on a base that cannot answer offers no stop button', () => {
+  const prof = { id: 'cx-owner-tpl', name: 'Cx Template', backendId: 'codex', env: {} };
+  withRegistry({}, [prof], () => {
+    assert.strictEqual(backends.get('cx-owner-tpl').liveOwnerStopTarget, undefined);
+  });
+});

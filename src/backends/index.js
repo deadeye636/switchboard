@@ -254,6 +254,14 @@ function profileToDescriptor(p) {
     // `projects.js` filters `launchable()`, which contains templates, so a remap carried the trust for
     // every built-in backend and silently not for a template.
     ...(base && base.projectTrust ? { projectTrust: base.projectTrust } : {}),
+    // Is something OUTSIDE Switchboard already running this session (#172, #607)? The answer comes from
+    // asking the BASE's CLI about its own sessions, and a template's sessions are in that same store
+    // under that same CLI — so the question applies unchanged (#605). `app/live-owners.js` selects the
+    // backends to poll by whether they declare `refreshLiveOwners`, so a template was not merely
+    // unanswered, it was never asked: no conflict warning before a resume, and no stop button.
+    ...(base && typeof base.liveOwnersCached === 'function' ? { liveOwnersCached: base.liveOwnersCached } : {}),
+    ...(base && typeof base.refreshLiveOwners === 'function' ? { refreshLiveOwners: base.refreshLiveOwners } : {}),
+    ...(base && typeof base.liveOwnerStopTarget === 'function' ? { liveOwnerStopTarget: base.liveOwnerStopTarget } : {}),
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
     matchLiveSession: base ? base.matchLiveSession : undefined,
