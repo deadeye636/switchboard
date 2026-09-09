@@ -148,6 +148,13 @@ function profileToDescriptor(p) {
     // So does the newline chord (#493): the composer reading it is the base's, not the template's.
     newlineKeySequence: base ? base.newlineKeySequence : null,
     supportsSubagents: base ? base.supportsSubagents === true : false,   // #230
+    // …and the three hooks that flag answers for (#605). The core looks the descriptor up by the ROW's
+    // backendId, which for a template session is the template — so `supportsSubagents: true` with none of
+    // these declared is a descriptor claiming a capability it cannot deliver, the same pairing #603 fixed
+    // one field along. Same binary, same store, same delegated child sessions.
+    ...(base && typeof base.listSubagents === 'function' ? { listSubagents: base.listSubagents } : {}),
+    ...(base && typeof base.subagentMeta === 'function' ? { subagentMeta: base.subagentMeta } : {}),
+    ...(base && typeof base.subagentSessionId === 'function' ? { subagentSessionId: base.subagentSessionId } : {}),
     // A template runs the base's binary, so it can do exactly what the base can (#439). The matrix gives
     // it no column of its own for that reason — a column would be a copy under another name — but the
     // answers still have to be here, or anything asking a template's capabilities gets a wall of gaps.

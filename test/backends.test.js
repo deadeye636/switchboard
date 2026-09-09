@@ -357,3 +357,28 @@ test('a template on a FILE backend is not given an exporter', () => {
     assert.strictEqual(backends.get('cx-export-tpl').readMessages, undefined);
   });
 });
+
+// #605: a template that says it has subagents can list them.
+//
+// `supportsSubagents` was forwarded and the three hooks behind it were not, and the core resolves the
+// descriptor from the ROW's backendId — which for a template session is the template. So the descriptor
+// claimed a capability it could not deliver: the same pairing #603 fixed one field along.
+test('a template forwards the subagent hooks its flag promises', () => {
+  const prof = { id: 'sub-tpl', name: 'A template', env: {} };   // base defaults to claude
+  withRegistry({}, [prof], () => {
+    const d = backends.get('sub-tpl');
+    assert.strictEqual(d.supportsSubagents, true);
+    assert.strictEqual(typeof d.listSubagents, 'function', 'the sidebar asks this for the row');
+    assert.strictEqual(typeof d.subagentMeta, 'function', 'and this for what each one is');
+    assert.strictEqual(typeof d.subagentSessionId, 'function');
+  });
+});
+
+test('a template on a base without subagents claims none', () => {
+  const prof = { id: 'cx-sub-tpl', name: 'Cx Template', backendId: 'codex', env: {} };
+  withRegistry({}, [prof], () => {
+    const d = backends.get('cx-sub-tpl');
+    assert.notStrictEqual(d.supportsSubagents, true);
+    assert.strictEqual(d.listSubagents, undefined);
+  });
+});
