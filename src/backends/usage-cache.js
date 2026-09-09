@@ -53,6 +53,11 @@ function cachedUsageIsFresh(cachedValue, nowMs = Date.now(), maxAgeMs = USAGE_GA
 // case as well. The stored reading and its own `fetchedAt` are carried over untouched: this records an
 // attempt, it does not claim a measurement. Answers null when there is nothing to record — an install
 // with no stored reading has no gate to hold open in the first place.
+//
+// What the stamp says exactly is "the gate was open and nothing came back", NOT "a process was started".
+// Only agy reads `hasCachedUsage` at all; for a backend that reads a file, a fruitless cycle stamps this
+// and nothing consumes it. That is one settings write per window per backend, and it is worth less
+// confusion than a second key that only one backend would ever fill.
 function touchProbeAttempt(cachedValue, at = new Date()) {
   if (!isSuccessfulUsage(cachedValue?.usage)) return null;
   return { ...cachedValue, probedAt: at instanceof Date ? at.toISOString() : String(at) };

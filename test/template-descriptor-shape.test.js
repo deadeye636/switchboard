@@ -21,6 +21,16 @@ const backends = require('../src/backends');
 // those three are not in the table below. A key counts as inherited when the template's value is not
 // `undefined`: several forwards are conditional spreads, and a key whose spread did not fire is exactly
 // the failure this is looking for.
+//
+// ITS LIMIT, stated because a guard nobody knows the edge of is trusted too far: this compares PRESENCE,
+// never the value. A forward written as `thing: base ? base.thing : false` is non-`undefined` whatever
+// the base says, so it passes here while answering `false` for a base that answers `true`. That shape is
+// how `supportsSubagents` and `supportsLiveRebinding` are spelled, deliberately — a boolean must have an
+// answer — and it is why those two carry named guards of their own in `test/backends.test.js`.
+//
+// And forwarding a capability is not the end of the question: a consumer that asks a LIST rather than one
+// session gets a template and its base as two answers to the same question, which is its own defect
+// (`oneAskerPerCli`, #605). This test cannot see that; the wiring guard in `test/backends.test.js` can.
 const NOT_INHERITED = {
   // Identity. A template is named by the user, and describing the base's CLI would describe something
   // they did not create.
@@ -52,9 +62,10 @@ const NOT_INHERITED = {
   _toolchainCacheState: 'private to the backend module (a test seam)',
   _provesNodeIsAbsent: 'private to the backend module',
 
-  // Reading a store the scanner never asks a template about. `session-cache.js` skips templates
-  // entirely — a template's sessions carry its id through the launch overlay, not through the scan —
-  // and Claude's own readers are imported directly by the workers rather than looked up per backend.
+  // Reading a store the scanner never asks a template about. `axisBRoster` in `src/backends/scan.js`
+  // filters profiles out, so a template is never scanned — its sessions carry its id through the launch
+  // overlay instead — and Claude's own readers are imported directly by the workers
+  // (`src/workers/scan-projects.js`, `src/index/session-cache.js`) rather than looked up per backend.
   readSessionFile: 'the scan skips templates; the workers import Claude\'s reader directly',
   readSessionFileIncremental: 'the scan skips templates; the workers import Claude\'s reader directly',
   enumerateSessionFiles: 'the scan skips templates',
@@ -95,11 +106,14 @@ test('nothing in NOT_INHERITED has quietly started being inherited', () => {
     for (const key of missingFrom(base)) stillMissing.add(key);
   }
 
-  const stale = Object.keys(NOT_INHERITED).filter((key) => !stillMissing.has(key));
-  assert.deepEqual(stale, [], `these NOT_INHERITED entries no longer describe anything — remove them:\n  ${stale.join('\n  ')}`);
-
+  // The narrower diagnosis first. A key nothing declares is also missing from every template, so it is in
+  // `stillMissing` too — checked the other way round, the stale assert fires on it and reports the wrong
+  // reason ("it is inherited now") for a key that has simply gone.
   const unknown = Object.keys(NOT_INHERITED).filter((key) => !everDeclared.has(key));
-  assert.deepEqual(unknown, [], `these NOT_INHERITED entries name a key no backend declares:\n  ${unknown.join('\n  ')}`);
+  assert.deepEqual(unknown, [], `these NOT_INHERITED entries name a key no backend declares any more:\n  ${unknown.join('\n  ')}`);
+
+  const stale = Object.keys(NOT_INHERITED).filter((key) => everDeclared.has(key) && !stillMissing.has(key));
+  assert.deepEqual(stale, [], `these NOT_INHERITED entries are forwarded now — remove them:\n  ${stale.join('\n  ')}`);
 });
 
 test('every NOT_INHERITED entry carries a reason, not a category', () => {

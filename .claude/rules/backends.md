@@ -369,6 +369,21 @@ base's inventory twice — so the hook is forwarded and `backends-panel.js` skip
 profile. When a hook is right for one consumer and wrong for another, put the refusal at the surface,
 not on the descriptor.
 
+**And FORWARDING IS HALF THE QUESTION — the other half is who asks.** A consumer that walks the whole
+list gets a template and its base as two answers to one question, because they are one binary over one
+store and one config file. That is #211's doubled Info column reproduced one hook along, and it shipped
+twice in the #605 work before a review caught it: the live-owner poll collected every foreign session once
+per template (wrong count in the close warning, and one CLI spawn per template per poll, against that
+module's own "one interval for every backend, not one per backend"), and the trust list grew a duplicate
+chip per template in the Projects manager.
+
+`oneAskerPerCli` (`src/backends/index.js`) is the one answer, and it is a DEDUPE rather than an
+`isProfile` filter on purpose: a base can be switched off while a template on it stays on (#162), and
+then the template is the only entry that can still answer for that CLI. Its callers are named in
+`test/backends.test.js` with the reason each is on the list, so a surface that stops asking fails by name.
+**The test to apply when you forward a hook**: does any consumer of it take a LIST? Then it goes through
+`oneAskerPerCli` in the same commit.
+
 ## "Is something else already running this session?" is THREE hooks (#172, #607)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a
