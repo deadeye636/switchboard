@@ -36,6 +36,14 @@ const PINNED = {
   hermes: {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     modelList: 'no', endpoint: 'no', projectTrust: 'no',
+    // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
+    // one answer in this table that would read as an oversight without a line saying otherwise. Hermes
+    // does write a session row per delegated child, in the same database this backend reads. They are not
+    // surfaced because a child belongs to its parent's turn — Hermes hides them in its own search for the
+    // same reason — and because the seam's fourth part, the drive, exists only for Claude's store
+    // (`detectSubagentTransitions` walks `PROJECTS_DIR`, and decides completion by 30 s of unchanged
+    // mtime, which a database row does not have). If Hermes is ever in real use here, reopen #553: the
+    // listing alone is the cheap half, and it is declared `limited` with a note, never a bare `yes`.
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
     resourceDiscovery: 'limited', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',

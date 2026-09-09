@@ -224,9 +224,9 @@ module.exports = {
   // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
   newlineKeySequence: '\x1b[13;2u',
   supportsFork: false,   // no confirmed fork flag — do not offer what we cannot do (see codex/index.js)
-  // False because nothing implements the seam yet — NOT because Hermes lacks the concept. An earlier
-  // version of this comment said there is no child session; that was wrong, and the correction is worth
-  // more than the claim was (#535).
+  // False by DECISION, not by absence — and NOT because Hermes lacks the concept. An earlier version of
+  // this comment said there is no child session; that was wrong, and the correction is worth more than
+  // the claim was (#535). What follows is the state of the store; the decision is at the end (#553).
   //
   // Hermes writes a full session row per delegated child: `delegate_tool.py` builds the child with
   // `platform="subagent"` and a `parent_session_id`, `run_agent.py` creates the row, and it lands in the
@@ -240,6 +240,24 @@ module.exports = {
   // rather than delegation, and this backend already declares `resolveLineage` for that case.
   //
   // `async_delegations` is the async queue beside it (state, task_json, result_json), not the register.
+  //
+  // **The decision (#553): a delegated child belongs to its parent's turn, and this app does not surface
+  // it.** Hermes takes the same line — its own session search hides these, and it excludes their
+  // transcripts from its trigram index because on a fan-out-heavy install they are ~70 % of all message
+  // bytes. Nothing here shows them either, and that is already consistent rather than accidental: the
+  // reader's `INGEST_SOURCES` allow-list holds them out both ways round, `source: 'subagent'` under a CLI
+  // turn and an inherited gateway source under a gateway turn.
+  //
+  // Three hooks would not have been the work. The SEAM has a fourth part nobody declares: the drive.
+  // `detectSubagentTransitions` (`src/session/session-transitions.js`) is only ever called from Claude's
+  // store — `PROJECTS_DIR` plus the session's folder — and its own comment names generalising that watch
+  // as #235's sibling rather than part of this seam. And completion there is decided by 30 s of unchanged
+  // MTIME, which is a property of a growing file and not of a row somebody updates.
+  //
+  // **If this becomes real, reopen #553 with the numbers.** What would make it real: Hermes actually in
+  // use here with `delegate` turns in its store. Then the cheap half is the listing alone — the JSONL
+  // viewer asks `listSubagents` directly, so the children become readable without the drive — and it is
+  // declared `limited` with a note, never a bare `yes` the live half does not honour.
   supportsSubagents: false,
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader
   // surfaces as `lineageParentRef`. A hard link.
@@ -299,7 +317,7 @@ module.exports = {
     modelList: 'no',
     endpoint: 'no',
     projectTrust: { state: 'no', note: 'no per-project trust gate' },
-    subagentSessions: { state: 'no', note: 'it has delegated child sessions, but the seam is not implemented for it yet' },
+    subagentSessions: { state: 'no', note: 'it has delegated child sessions; they belong to their parent\'s turn and are not surfaced, as Hermes itself hides them' },
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
     stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'no',

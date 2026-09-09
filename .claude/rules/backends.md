@@ -45,7 +45,9 @@ plans directory** (`planRef` / `planDirSetup`, #449/#450), where it keeps **hand
 project** (`handoffDirs({ projectPath })`, #468 — Claude's handoff skills write into `.claude/handoffs`,
 and a core that spelled that would have learned one backend's layout), whether it has
 **subagents** (`supportsSubagents`, #230 — only Claude implements the seam; Hermes writes delegated child
-sessions its descriptor could describe and does not yet, #553), where its CLI **publishes what changed**
+sessions its descriptor could describe and deliberately does not, because a child belongs to its parent's
+turn and the seam's fourth part — the DRIVE — exists only for Claude's store, #553), where its CLI
+**publishes what changed**
 (`changelogSource`, #528 — `npm run backends:changelog-check` asks every backend rather than holding a
 list of pages, and a CLI without a public changelog declares `null`), whether it still **owes a turn** it has
 not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
