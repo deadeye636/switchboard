@@ -59,6 +59,15 @@ function createListResources({ conversationsRoot }) {
     // Shared Gemini/Antigravity user configuration that is not credential material.
     addFile(resources, geminiHome, 'GEMINI.md', 'memory', 'global-instructions');
     addFile(resources, geminiHome, 'settings.json', 'settings', 'gemini-settings');
+    // The CLI's MCP servers (#543). `agy mcp add/remove/list/enable/disable` all work on this one file,
+    // and the binary carries the literal path — so without it a user has to leave the app to see which
+    // servers their sessions are running with.
+    //
+    // The FILE, not `config/`, which also holds config.json and a projects/ tree: this module lists named
+    // configuration rather than whatever sits beside it. And deliberately not `../antigravity/mcp_config.json`,
+    // which exists on the same machine and is the Antigravity IDE's — listing both would put two entries
+    // under one name in the settings screen and invite an edit to the one the CLI never reads.
+    addFile(resources, geminiHome, path.join('config', 'mcp_config.json'), 'settings', 'gemini-mcp-config');
 
     // agy's own configuration and user-facing resource directories. Deliberately not included:
     // conversations/, conversation_summaries.db, history.jsonl, log/, crashes/, cache/, tmp/, scratch/,

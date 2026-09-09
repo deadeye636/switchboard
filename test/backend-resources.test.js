@@ -219,6 +219,13 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
     fs.writeFileSync(path.join(geminiHome, 'GEMINI.md'), 'instructions');
     fs.writeFileSync(path.join(geminiHome, 'settings.json'), '{}');
     fs.writeFileSync(path.join(geminiHome, 'oauth_creds.json'), '{}');
+    // #543: the CLI's MCP servers live in config/, beside two things that are NOT listed — and the IDE
+    // keeps a file of the same name one directory over, which must not be offered as the CLI's.
+    fs.mkdirSync(path.join(geminiHome, 'config'), { recursive: true });
+    fs.mkdirSync(path.join(geminiHome, 'antigravity'), { recursive: true });
+    fs.writeFileSync(path.join(geminiHome, 'config', 'mcp_config.json'), '{}');
+    fs.writeFileSync(path.join(geminiHome, 'config', 'config.json'), '{}');
+    fs.writeFileSync(path.join(geminiHome, 'antigravity', 'mcp_config.json'), '{}');
     fs.writeFileSync(path.join(agyHome, 'settings.json'), '{}');
     fs.writeFileSync(path.join(agyHome, 'history.jsonl'), '{}\n');
     fs.writeFileSync(path.join(conversations, 'abc.db'), 'sqlite');
@@ -233,7 +240,15 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
     assert.ok(keys.includes('global:resource:implicit'));
     assert.ok(keys.includes('global:memory-store:knowledge'));
     assert.ok(keys.includes('project:memory:GEMINI.md'));
-    const relativePaths = res.resources.map(r => path.relative(geminiHome, r.path || ''));
+    assert.ok(keys.includes('global:settings:mcp_config.json'), 'the CLI\'s MCP servers are listed (#543)');
+    const listed = res.resources.map(r => path.relative(geminiHome, r.path || ''));
+    assert.equal(listed.filter(p => p.endsWith('mcp_config.json')).length, 1,
+      'exactly one — the IDE keeps a file of the same name that the CLI never reads');
+    assert.equal(listed.some(p => p === path.join('antigravity', 'mcp_config.json')), false,
+      'and it is not the IDE\'s');
+    assert.equal(listed.some(p => p === path.join('config', 'config.json')), false,
+      'a named file is listed, not everything sitting beside it');
+    const relativePaths = listed;
     assert.ok(!relativePaths.some(p => /oauth|account|auth|history|conversation|\.db$|(^|[\\/])(log|crashes|cache|tmp|scratch)([\\/]|$)/i.test(p)),
       'credentials, logs, histories and conversation stores are not resources');
   } finally {
