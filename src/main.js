@@ -20,7 +20,7 @@ guardIpcHandlers(ipcMain, log);
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
-const { isSuccessfulUsage, withMainProcessUsageCache } = require('./backends/usage-cache');
+const { isSuccessfulUsage, cachedUsageIsFresh, touchProbeAttempt, withMainProcessUsageCache } = require('./backends/usage-cache');
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
 const backends = require('./backends');
@@ -136,8 +136,10 @@ const cleanPtyEnv = Object.fromEntries(
     k !== 'ORIGINAL_XDG_CURRENT_DESKTOP' &&
     k !== 'WT_SESSION' &&
     // Strip any inherited AFK vars so Switchboard's per-session setting is
-    // authoritative — "empty" must really mean Claude's default, not a leaked
-    // shell value (#51).
+    // authoritative — "empty" must really mean the CLI's own setting, not a leaked
+    // shell value (#51). And since the mere PRESENCE of the timeout variable enables
+    // auto-continue (#559), an inherited one would switch it on for every session
+    // with nothing on screen to say so.
     k !== 'CLAUDE_AFK_TIMEOUT_MS' &&
     k !== 'CLAUDE_AFK_COUNTDOWN_MS' &&
     // A RUNNING Claude Code session exports these into everything it spawns, and they must not reach a
@@ -1237,11 +1239,17 @@ async function collectUsage() {
       const pid = Number(session.pty.pid);
       if (Number.isInteger(pid) && pid > 0) livePids.push(pid);
     }
+    const gateSuppressed = isSuccessfulUsage(cached?.usage) && cachedUsageIsFresh(cached);
     let usage;
     try {
       usage = await b.usage.fetch({
         livePids,
-        hasCachedUsage: isSuccessfulUsage(cached?.usage),
+        // AGES OUT (#604). This answer is what stops a backend from starting a process of its own just to
+        // read a quota, and it used to be permanent: the key is persistent and nothing ever cleared it, so
+        // one successful reading switched the probe off for good and the app served that figure until the
+        // user happened to run the CLI themselves. A reading old enough that a plan change would have been
+        // missed no longer suppresses the probe.
+        hasCachedUsage: gateSuppressed,
         processEnv: cleanPtyEnv,
       }) || {};
     } catch (err) {
@@ -1262,6 +1270,17 @@ async function collectUsage() {
       catch (err) { log.warn(`[usage] ${b.id}: failed to persist cache`, err?.message || String(err)); }
       log.info(`[usage] ${b.id}: fresh`, { buckets: (usage.buckets || []).length });
     } else if (result.fromCache) {
+      // The gate was open and produced nothing, so remember the ATTEMPT (#604). Without this the window
+      // above governs only the successful cycle: a failure leaves `fetchedAt` where it was — deliberately,
+      // so the last good figure survives — and the gate would then stand open from the first failure on,
+      // bounded by nothing but the probe's own backoff at one background process an hour.
+      if (!gateSuppressed) {
+        const touched = touchProbeAttempt(cached);
+        if (touched) {
+          try { setSetting(cacheKey, touched); }
+          catch (err) { log.warn(`[usage] ${b.id}: failed to record probe attempt`, err?.message || String(err)); }
+        }
+      }
       log.warn(`[usage] ${b.id}: serving cached`, { reason: result.response._staleMessage, cachedAt: result.response._cachedAt });
     } else if (usage._error || usage._rateLimited) {
       log.warn(`[usage] ${b.id}: unavailable`, { error: usage.message, rateLimited: !!usage._rateLimited });

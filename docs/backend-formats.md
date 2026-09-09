@@ -466,18 +466,27 @@ retired CLI and are a decoy. agy's own store is elsewhere.
 it spawned itself, then any other `agy` process on the machine, found by image name through `tasklist` or
 `ps` — discovers only the ports owned by that process, and calls `RetrieveUserQuotaSummary`, then
 `GetUserStatus` and `GetCommandModelConfigs` as compatibility fallbacks. With no running process and no
-durable cached reading, it starts one bounded PTY probe and shuts it down after the fetch. A probe that
+FRESH durable cached reading, it starts one bounded PTY probe and shuts it down after the fetch. A probe that
 does not return a reading backs off — five minutes, doubling to an hour — and its answer is re-served
 while the wait runs, so an install that is present but not signed in is not respawned once a minute for
 the app's whole lifetime.
 
-**"No durable cached reading" is the whole of that condition, and it never becomes true again.** The
-gate is `allowLaunch: !hasCachedUsage`, and `hasCachedUsage` is read from the persistent setting
-`usage:lastSuccessful:agy`, which nothing clears or ages. So the first reading that succeeds turns the
-managed probe off for the life of the installation: from then on quota is read only when an AGY process
-happens to be running anyway, and otherwise the stored figure is served indefinitely with the neutral
-limits-unavailable reason. That is why an installed instance shows no probe activity in its log at all,
-and it is **#604**. Verified against a real install: with a process running the reading is live and uses
+**"No durable cached reading" is the whole of that condition, and it used to never become true again.**
+The gate is `allowLaunch: !hasCachedUsage`, and `hasCachedUsage` is read from the persistent setting
+`usage:lastSuccessful:agy`, which nothing cleared or aged. So the first reading that succeeded turned the
+managed probe off for the life of the installation: from then on quota was read only when an AGY process
+happened to be running anyway, and otherwise the stored figure was served indefinitely with the neutral
+limits-unavailable reason. That is why an installed instance showed no probe activity in its log at all,
+and it was **#604**. The stored reading now suppresses the probe only while it is younger than six hours
+(`cachedUsageIsFresh`, `src/backends/usage-cache.js`), and the tooltip says how old the figure it is
+showing is. **The window bounds the failing cycle too, and that took a second stamp**: a failed probe must
+not overwrite the good reading, so `fetchedAt` does not move, and a gate reading only that stamp would
+have stood open from the first failure onwards — bounded by nothing but the backoff above, at one spawn an
+hour. So a failed ATTEMPT is stamped beside the reading (`probedAt`) and the gate reads whichever is
+newer. An install that has never had a successful reading has nothing to stamp and keeps the backoff-only
+regime it already had.
+
+Verified against a real install: with a process running the reading is live and uses
 the foreign process; from a sandbox with an empty usage cache and no AGY anywhere, the probe does spawn,
 read and clean up after itself. On a machine with several users signed in, the process list is not private:
 a discovered `agy` can belong to another account, and if its loopback service answers, the figure shown

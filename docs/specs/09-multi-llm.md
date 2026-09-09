@@ -517,7 +517,9 @@ usage: {
 ```
 
 `context` is what main knows and the backend cannot ask for itself: the pids of the sessions this app is
-running for that backend, whether a successful reading is already cached, the clean spawn environment, and
+running for that backend, whether a successful reading is already cached **and still recent** (`hasCachedUsage`
+— since #604 a stored reading older than six hours no longer counts, or the first success would suppress the
+managed probe for the life of the installation), the clean spawn environment, and
 a way to find the CLI on PATH. It exists so a backend that has to TALK to its own running process (agy, #509)
 does not reach into main for it, and every field is optional — Claude's and Codex' `fetch` ignore the
 argument entirely.

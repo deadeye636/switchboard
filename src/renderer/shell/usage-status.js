@@ -196,9 +196,10 @@
     }
     const quota = quotaStatus(usage);
     if (quota) lines.push(`Extra usage quota: ${quota.percent}%${quota.amounts ? ` (${quota.amounts})` : ''}`);
+    let saidWhen = false;
     if (!usage.live && usage.observedAt) {
       const ago = observedAgo(usage.observedAt);
-      if (ago) lines.push(`Measured ${ago}.`);
+      if (ago) { lines.push(`Measured ${ago}.`); saidWhen = true; }
     }
     // A reading AND a reason: Codex can report a limit it has hit while the windows it also reports are
     // perfectly current. The bars stay; the reason is a line of its own (#494).
@@ -211,7 +212,13 @@
       const opening = usage._staleKind === 'no-data' ? 'Cached — no newer reading yet.'
         : usage._staleKind === 'rate-limited' ? 'Cached — a limit was reached.'
           : 'Cached — the last fetch failed.';
-      lines.push(`${opening} ${retryTitle(usage._retryAfterSeconds)}${why}`);
+      // And HOW OLD the number on screen is (#604). A live backend never reaches the "Measured …" line
+      // above, so a stored figure looked exactly like a current one — one was served once a minute for
+      // three days without saying so. `_cachedAt` is when the cache took it; only said when nothing has
+      // dated the reading already, so the tooltip does not carry two ages of the same number.
+      const cachedAgo = saidWhen ? null : observedAgo(usage._cachedAt);
+      const when = cachedAgo ? ` Measured ${cachedAgo}.` : '';
+      lines.push(`${opening}${when} ${retryTitle(usage._retryAfterSeconds)}${why}`);
     }
     return lines.join('\n');
   }

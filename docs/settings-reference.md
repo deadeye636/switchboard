@@ -322,13 +322,20 @@ rather than appearance:
 
 | Key | Holds | Written by |
 |---|---|---|
-| `usage:lastSuccessful:<backendId>` | the last usage reading that succeeded, with its timestamp | `src/main.js`, on every successful poll |
+| `usage:lastSuccessful:<backendId>` | the last usage reading that succeeded, with its timestamp — plus `probedAt`, when a probe was last allowed and answered nothing | `src/main.js`, on every successful poll and on a fruitless probe |
 
 It is what keeps a figure on screen when the source cannot answer today, and — for AGY — it is also the
 switch that decides whether the app may start a CLI of its own to read quota (`allowLaunch` is
-`!hasCachedUsage`). Nothing clears or ages it, so the first successful reading turns that probe off for
-the life of the installation: **#604**. There is no UI for the key; deleting it means editing the
-settings blob.
+`!hasCachedUsage`). That switch used to be permanent, because nothing cleared or aged the key: the first
+successful reading turned the probe off for the life of the installation, and the app then served that
+figure indefinitely with the neutral limits-unavailable reason under it. Since **#604** the reading only
+suppresses the probe while it is **younger than six hours** (`cachedUsageIsFresh`,
+`src/backends/usage-cache.js`); an entry with no usable timestamp suppresses nothing. A probe that was
+allowed and answered nothing stamps `probedAt` beside the reading rather than replacing it, so the same six
+hours bound the failing case — otherwise a failure would hold the gate open and only the probe's own
+backoff would limit it, at one background process an hour. The stored figure is still served in the
+meantime, and both the status-bar tooltip and the Stats view now say how old it is. There is no UI for the
+key, and no setting for the six hours; deleting the key means editing the settings blob.
 
 ## Hotkeys — `shortcuts.<id>`
 
@@ -403,7 +410,7 @@ own `config.toml`.)
 | Backend | Options (default in brackets when not empty/off) |
 |---|---|
 | *(every backend)* | `preLaunchCmd` — applied at spawn, not argv |
-| `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` |
+| `claude` | `permissionMode` (`default`), `model`, `worktree`, `worktreeName`, `chrome`, `addDirs`, `restricted`, `autocompact`, `mcpEmulation` (**on**, applied at spawn), `afkTimeoutSec` (applied at spawn) |
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
@@ -413,6 +420,29 @@ Pi's `model` field supports backend-owned suggestions from `pi --list-models`; a
 
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
+
+**`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
+answered its own `AskUserQuestion` dialog after 60 seconds; the field's `0` sent a sentinel meaning
+"never". The CLI has since stopped auto-continuing by default and grown its own setting for it —
+`askUserQuestionTimeout`, the `/config` row "Question auto-continue timeout" (`60s` / `5m` / `10m` /
+`never`, default `never`). Measured against 2.1.266: `CLAUDE_AFK_TIMEOUT_MS` is still read and still wins
+over that setting, but the timer's enable gate also asks whether the variable is *defined*, so a value the
+CLI's int reader accepts turns auto-continue on even where the setting says `never` — the old sentinel
+enabled the very timer it was meant to disable. (Garbage reads as absent through that same parser, and the
+gate has further clauses this reading could not resolve, so treat that as the behaviour observed rather
+than a proof about every context.) So `0` sends
+nothing now, and the field's remaining purpose is the per-session opposite: let one session answer itself
+after N seconds, which the CLI can only be told globally. (`dialogExpiry` is a different setting — how long
+a dialog forwarded to a remote client stays parked — and does not replace this.)
+
+**`0` and empty are not the same answer**, although both end up sending no variable. The cascade runs
+first: `0` wins its scope, empty falls through to the next. With a global `90` set, a session left empty
+auto-continues after 90 s and a session set to `0` does not. That is what makes "off here" expressible.
+
+**What the change takes away:** the old sentinel also overrode the CLI's own `askUserQuestionTimeout`.
+Anyone who set that to `60s` and this field to `0` used to get no auto-continue at all; now their own CLI
+setting applies. The app has stopped overruling a setting made elsewhere, which is the right way round —
+but for that person it is a change, not a no-op.
 
 ### What a CLI offers and this app deliberately does not (#537)
 
@@ -561,7 +591,9 @@ profile editor's "resolves ✓ / not set ✗" badge asks for presence only; valu
 
 **Every PTY** starts from the host environment minus what breaks a nested CLI: everything prefixed
 `ELECTRON_`, `GOOGLE_API_KEY*`, plus `NODE_OPTIONS`, `ORIGINAL_XDG_CURRENT_DESKTOP`, `WT_SESSION` and
-Claude's two AFK variables (an inherited AFK value must not overrule the per-session setting).
+Claude's two AFK variables (an inherited AFK value must not overrule the per-session setting — and since
+the mere presence of `CLAUDE_AFK_TIMEOUT_MS` enables auto-continue, an inherited one would switch it on
+for every session with nothing on screen to say so).
 
 `ELECTRON_NO_ATTACH_CONSOLE` is the one `ELECTRON_` variable that survives that strip, because a value
 you set for it is a decision about your own terminals. Switchboard does not set it for every PTY.
@@ -570,7 +602,8 @@ you set for it is a decision about your own terminals. Switchboard does not set 
 `TERM_PROGRAM=iTerm.app`, `TERM_PROGRAM_VERSION`, `FORCE_COLOR=3`, `ITERM_SESSION_ID` — the iTerm identity
 is not cosmetic: Claude Code checks it before emitting the OSC-9 "needs your attention" signal. Plus
 `CLAUDE_CODE_SSE_PORT` when this session has an MCP bridge, and `CLAUDE_AFK_TIMEOUT_MS` **only** when a
-timeout was actually chosen (otherwise Claude's own default stands).
+positive timeout was actually chosen (empty and `0` send nothing, so the CLI's own
+`askUserQuestionTimeout` stands — see `afkTimeoutSec` above).
 
 It also adds `ELECTRON_NO_ATTACH_CONSOLE=1`. An Electron app started from the session's shell with no
 stdio of its own — `Start-Process` on a GUI executable, say — otherwise attaches to that session's

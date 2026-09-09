@@ -249,8 +249,14 @@ function buildUsageSection(payload) {
 
     // A non-live backend states when its figure was true. Codex's comes out of its last rollout, so
     // "42%" with no date is a number pretending to be current.
-    if (!usage.live && usage.observedAt && typeof observedAgo === 'function') {
-      const ago = observedAgo(usage.observedAt);
+    //
+    // A LIVE backend served from the cache is the same number pretending the same thing, and this surface
+    // said nothing about it (#604): the tooltip in the status bar dates a cached reading, and a figure
+    // read here had no marker at all. `_cachedAt` is when the cache took it; asked only when nothing has
+    // dated the reading already, so one number never carries two ages.
+    const asOf = (!usage.live && usage.observedAt) ? usage.observedAt : (usage._stale ? usage._cachedAt : null);
+    if (asOf && typeof observedAgo === 'function') {
+      const ago = observedAgo(asOf);
       if (ago) {
         const when = document.createElement('span');
         when.className = 'usage-backend-asof';

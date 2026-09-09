@@ -6,6 +6,9 @@ const {
   retrySecondsForUsage,
   buildCachedUsageValue,
   withMainProcessUsageCache,
+  cachedUsageIsFresh,
+  touchProbeAttempt,
+  USAGE_GATE_MAX_AGE_MS,
 } = require('../src/backends/usage-cache');
 
 // A reading now arrives with backendId / label / live stamped on it by the collector (#191). "Successful"
@@ -88,4 +91,53 @@ test('a cached reading preserves a backend-owned no-data reason', () => {
   }, cachedValue);
   assert.equal(result.response._staleKind, 'no-data');
   assert.equal(result.response._staleMessage, 'This OAuth source does not expose AGY limits.');
+});
+
+// --- the probe gate ages out (#604) ------------------------------------------------------------
+
+// `hasCachedUsage` is what stops a backend from starting a process of its own just to read a quota, and
+// it used to be permanent: the key is persistent and nothing ever cleared it, so the first successful
+// reading switched the probe off for the life of the installation.
+test('a fresh stored reading still suppresses the probe; an old one does not', () => {
+  const now = Date.UTC(2026, 5, 16, 12, 0, 0);
+  const at = (msAgo) => buildCachedUsageValue(reading(), new Date(now - msAgo));
+
+  assert.equal(cachedUsageIsFresh(at(0), now), true);
+  assert.equal(cachedUsageIsFresh(at(USAGE_GATE_MAX_AGE_MS - 1000), now), true);
+  assert.equal(cachedUsageIsFresh(at(USAGE_GATE_MAX_AGE_MS), now), false);
+  assert.equal(cachedUsageIsFresh(at(3 * 24 * 60 * 60 * 1000), now), false);
+});
+
+// An entry that cannot say when it was taken answers NO. It costs one probe; the other way round it
+// restores exactly the permanent lock-out this exists to end.
+test('a cache entry with no usable stamp does not suppress the probe', () => {
+  const now = Date.UTC(2026, 5, 16, 12, 0, 0);
+  assert.equal(cachedUsageIsFresh(null, now), false);
+  assert.equal(cachedUsageIsFresh({ usage: reading() }, now), false);
+  assert.equal(cachedUsageIsFresh({ usage: reading(), fetchedAt: 'not a date' }, now), false);
+  assert.equal(cachedUsageIsFresh({ usage: reading(), fetchedAt: '' }, now), false);
+  // A stamp from the future is a clock that moved, not a fresh reading.
+  assert.equal(cachedUsageIsFresh(buildCachedUsageValue(reading(), new Date(now + 60000)), now), false);
+});
+
+// A failed reading must not overwrite the good one, so `fetchedAt` does not move — and a gate reading
+// only that stamp would stand open from the first failure onwards, bounded by nothing but the probe's own
+// backoff. The ATTEMPT is stamped instead, and the gate reads whichever stamp is newer.
+test('a failed probe is remembered as an attempt, without touching the reading', () => {
+  const now = Date.UTC(2026, 5, 16, 12, 0, 0);
+  const old = buildCachedUsageValue(reading(), new Date(now - 7 * 60 * 60 * 1000));
+  assert.equal(cachedUsageIsFresh(old, now), false, 'seven hours: the gate is open');
+
+  const touched = touchProbeAttempt(old, new Date(now));
+  assert.deepEqual(touched.usage, old.usage, 'the last good figure is carried over untouched');
+  assert.equal(touched.fetchedAt, old.fetchedAt, 'and so is when it was measured — this is not a reading');
+  assert.equal(cachedUsageIsFresh(touched, now), true, 'but the attempt closes the gate for the window');
+  assert.equal(cachedUsageIsFresh(touched, now + USAGE_GATE_MAX_AGE_MS), false, 'and it ages out like the other');
+});
+
+test('an install that has never had a reading has no attempt to stamp', () => {
+  // It keeps today's behaviour: the probe's own backoff is the only thing bounding it, as #509 left it.
+  assert.equal(touchProbeAttempt(null), null);
+  assert.equal(touchProbeAttempt({ usage: { backendId: 'agy', _error: true } }), null);
+  assert.equal(touchProbeAttempt({ usage: { backendId: 'agy', buckets: [], quota: null } }), null);
 });

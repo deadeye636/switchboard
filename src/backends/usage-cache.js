@@ -3,6 +3,61 @@
 
 const DEFAULT_USAGE_RETRY_SECONDS = 5 * 60;
 
+// How long a cached reading may still SUPPRESS a managed probe (#604).
+//
+// A backend that can only be read by starting a process of its own is asked not to, once there is a
+// stored reading — `hasCachedUsage` on the fetch context, which agy turns into `allowLaunch`. The key it
+// comes from (`usage:lastSuccessful:<id>`) is persistent and was never cleared, aged or invalidated, so
+// the FIRST successful reading switched that probe off for the life of the installation. Measured on an
+// installed instance: a figure stamped three days earlier, served once a minute, with no probe in the log
+// and the neutral "limits unavailable" reason under it — indistinguishable from a source that cannot
+// answer today.
+//
+// Six hours is the compromise, against a number that can be a plan change or a different account old.
+// It is NOT a setting — a knob for how often the app may start a CLI in the background is a question
+// nobody has asked.
+//
+// IT BOUNDS THE FAILING CYCLE TOO, and that took a second stamp. A failed reading must not overwrite the
+// good one — that is what keeps a figure on screen — so `fetchedAt` does not move when a probe fails, and
+// a gate that read only `fetchedAt` would stand open from the first failure onwards. What bounded that
+// was the probe's own backoff (#509: 5 → 10 → 20 → 40 → 60 min, capped), settling at one spawn an hour;
+// an install that succeeded once and later lost its credentials would have gone from probing never to
+// probing hourly. So a failed ATTEMPT is stamped as well (`probedAt`), the reading beside it untouched,
+// and the gate reads whichever of the two is newer.
+//
+// An install that has NEVER had a successful reading has nothing to stamp and keeps today's behaviour:
+// the backoff is the only thing bounding it, exactly as #509 left it.
+const USAGE_GATE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+function stampMs(value) {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// May the stored entry still stand in for a fresh reading, for the purpose of the gate above?
+//
+// An entry with no usable timestamp answers NO. `buildCachedUsageValue` has always written one, so this
+// is defensive rather than a case anyone has seen — and it is the older half of the trade: an unreadable
+// stamp costs one probe, while treating it as fresh restores exactly the permanent lock-out this exists
+// to end.
+function cachedUsageIsFresh(cachedValue, nowMs = Date.now(), maxAgeMs = USAGE_GATE_MAX_AGE_MS) {
+  const stamps = [stampMs(cachedValue?.fetchedAt), stampMs(cachedValue?.probedAt)]
+    // A stamp from the future is a clock that moved, not a recent anything.
+    .filter((ms) => ms !== null && ms <= nowMs);
+  if (stamps.length === 0) return false;
+  return (nowMs - Math.max(...stamps)) < maxAgeMs;
+}
+
+// Remember that a probe was ALLOWED and did not produce a reading, so the window governs the failing
+// case as well. The stored reading and its own `fetchedAt` are carried over untouched: this records an
+// attempt, it does not claim a measurement. Answers null when there is nothing to record — an install
+// with no stored reading has no gate to hold open in the first place.
+function touchProbeAttempt(cachedValue, at = new Date()) {
+  if (!isSuccessfulUsage(cachedValue?.usage)) return null;
+  return { ...cachedValue, probedAt: at instanceof Date ? at.toISOString() : String(at) };
+}
+
 // Did this reading actually measure something? A reading is successful when it carries at least one
 // bucket or a quota — NOT merely "some key is set". Every reading now arrives with `backendId`, `label`
 // and `live` stamped on it by the collector, so a "does any non-underscore key have a value" test (what
@@ -92,6 +147,9 @@ function withMainProcessUsageCache(usage, cachedValue) {
 
 module.exports = {
   DEFAULT_USAGE_RETRY_SECONDS,
+  USAGE_GATE_MAX_AGE_MS,
+  cachedUsageIsFresh,
+  touchProbeAttempt,
   isSuccessfulUsage,
   usageFailureMessage,
   usageStaleKind,

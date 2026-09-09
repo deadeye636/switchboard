@@ -101,6 +101,43 @@ test('a cached reading says why it is cached and when it will be tried again', (
   assert.match(tip, /Last error: Usage API rate limited/);
 });
 
+// #604: a live backend never reaches the "Measured …" line, so a stored figure read exactly like a fresh
+// one — one was served once a minute for three days with nothing on screen saying so.
+test('a cached reading says how old the number on screen is', () => {
+  const tip = getUsageTooltip({
+    ...claude(),
+    _stale: true,
+    _staleKind: 'error',
+    _staleMessage: 'agy did not answer.',
+    _cachedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    _retryAfterSeconds: 300,
+  });
+  assert.match(tip, /Cached — the last fetch failed\. Measured 3 days ago\./);
+});
+
+test('the age is said ONCE — a non-live reading already dated is not dated twice', () => {
+  // `observedAt` is when the backend measured, `_cachedAt` when we stored it. Both on one tooltip would
+  // put two different ages against one number.
+  const tip = getUsageTooltip({
+    backendId: 'codex',
+    label: 'Codex',
+    live: false,
+    buckets: [{ key: 'w', label: '5h', percent: 10, tier: 'short', bar: true }],
+    observedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    _stale: true,
+    _staleKind: 'no-data',
+    _cachedAt: new Date(Date.now() - 9 * 60 * 60 * 1000).toISOString(),
+  });
+  assert.match(tip, /Measured 3 hours ago\./);
+  assert.equal((tip.match(/Measured /g) || []).length, 1);
+});
+
+test('a cached reading with no usable stamp says the rest anyway', () => {
+  const tip = getUsageTooltip({ ...claude(), _stale: true, _staleKind: 'no-data', _cachedAt: null });
+  assert.match(tip, /Cached — no newer reading yet\./);
+  assert.doesNotMatch(tip, /Measured /);
+});
+
 test('a non-live reading goes stale with age; a live one never does', () => {
   const old = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
   assert.equal(isStaleReading({ live: false, observedAt: old }), true);
