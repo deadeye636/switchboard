@@ -191,6 +191,12 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   "3 sessions need you", not five toasts.
 - Global Settings toggles (notifications on/off, notify-on-Ready vs only-Needs-You).
 - The notify/badge decision is a pure, unit-tested helper.
+- An **optional second tray icon** showing usage (#113): one backend's worst window as a
+  ring or a badge, in that backend's own colour, fixed or rotating through the ones the
+  status bar shows. Drawn in the renderer — the main process has no canvas, and the app
+  has no close-to-tray, so a renderer is always there. On macOS the figure goes beside
+  the icon with `setTitle` rather than into a bitmap the menu bar cannot recolour. It
+  reuses the status bar's own reading: no poll and no fetch of its own.
 
 ### 02 — Next-attention hotkey + alert sound
 `src/renderer/shell/alert-sound.js`, `src/renderer/app.js`

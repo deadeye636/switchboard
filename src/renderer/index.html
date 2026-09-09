@@ -240,6 +240,10 @@
   <script src="shell/sidebar-state.js"></script>
   <script src="shell/terminal-pressure.js"></script>
   <script src="shell/usage-status.js"></script>
+  <!-- The usage tray icon (#113): which backend it shows, and how it is drawn. Both must load before
+       statusbar-usage.js pushes the first icon; both are no-ops when the setting is off. -->
+  <script src="shell/usage-tray.js"></script>
+  <script src="shell/usage-tray-icon.js"></script>
   <script src="dialogs/control-dialogs.js"></script>
   <script src="session/session-timeline.js"></script>
   <script src="shell/away-summary.js"></script>

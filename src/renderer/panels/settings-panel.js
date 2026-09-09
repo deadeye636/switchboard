@@ -197,6 +197,26 @@
             <label class="settings-toggle"><input type="checkbox" class="sv-usage-backend" data-backend="${escapeHtml(b.id)}" ${usageSelection[b.id] === false ? '' : 'checked'}><span class="settings-toggle-slider"></span></label>
           </div>
         </div>`).join('');
+    // The tray icon's own settings (#113). Its backend list is the SAME `usageCapable` set the rows above
+    // are built from — a tray that could name a backend the bar cannot show would be a second, invisible
+    // selection, and the one promise this feature makes is that it reuses what the app already has.
+    const usageTrayStored = (globalSettings && globalSettings.usageTray) || {};
+    const usageTrayEnabledValue = usageTrayStored.enabled === true;
+    const usageTrayModeValue = usageTrayStored.mode === 'rotate' ? 'rotate' : 'fixed';
+    const usageTraySecondsValue = Number(usageTrayStored.rotateSeconds) > 0 ? Number(usageTrayStored.rotateSeconds) : 8;
+    const usageTrayStyleValue = usageTrayStored.style === 'badge' ? 'badge' : 'ring';
+    // A stored backend that is not in the list right now — switched off, or uninstalled — gets an option
+    // of its own, disabled-looking but selected, so that Save writes it back unchanged. Without it the
+    // select would hand back the first listed backend and an unrelated Save would silently rewrite the
+    // choice, which is the failure the `usageBackends` merge below exists to prevent.
+    const usageTrayStoredMissing = usageTrayStored.backendId
+      && !usageCapable.some(b => b.id === usageTrayStored.backendId);
+    const usageTrayBackendOptionsHtml = usageCapable.map(b => `
+                      <option value="${escapeHtml(b.id)}"${usageTrayStored.backendId === b.id ? ' selected' : ''}>${escapeHtml(b.label || b.id)}</option>`).join('')
+      + (usageTrayStoredMissing
+        ? `
+                      <option value="${escapeHtml(usageTrayStored.backendId)}" selected>${escapeHtml(usageTrayStored.backendId)} (not available)</option>`
+        : '');
     const themeValue = fieldValue('terminalTheme', 'switchboard');
     // Terminal font (size + family). Family presets carry a monospace fallback;
     // a value not in the list is treated as a custom family.
@@ -846,6 +866,7 @@
         terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
         terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
         usage7dWarnValue, usageBackendRowsHtml, visCountValue,
+        usageTrayEnabledValue, usageTrayModeValue, usageTrayBackendOptionsHtml, usageTraySecondsValue, usageTrayStyleValue,
       });
 
       // --- Tag management (#138) ---
@@ -1181,6 +1202,25 @@
           });
           settings.usageBackends = stored;
         }
+        {
+          // The tray icon (#113). One object rather than four flat keys: it is one feature with one
+          // switch, and a mode that is meaningless without the backend beside it.
+          const enabled = settingsViewerBody.querySelector('#sv-usage-tray');
+          const mode = settingsViewerBody.querySelector('#sv-usage-tray-mode');
+          const backend = settingsViewerBody.querySelector('#sv-usage-tray-backend');
+          const seconds = parseInt(settingsViewerBody.querySelector('#sv-usage-tray-seconds')?.value, 10);
+          const style = settingsViewerBody.querySelector('#sv-usage-tray-style');
+          settings.usageTray = {
+            enabled: !!(enabled && enabled.checked),
+            mode: (mode && mode.value === 'rotate') ? 'rotate' : 'fixed',
+            // Kept even in rotate mode, so switching back does not lose the choice — and falling back to
+            // what was STORED rather than to null, because a select with no usable option must not be
+            // read as "the user cleared this".
+            backendId: (backend && backend.value) || usageTrayStored.backendId || null,
+            rotateSeconds: Math.max(2, Math.min(600, Number.isFinite(seconds) ? seconds : 8)),
+            style: (style && style.value === 'badge') ? 'badge' : 'ring',
+          };
+        }
         settings.terminalTheme = settingsViewerBody.querySelector('#sv-terminal-theme').value || 'switchboard';
         {
           const famSel = settingsViewerBody.querySelector('#sv-terminal-font-family').value;
@@ -1444,6 +1484,9 @@
         }
         if (settings.usageBackends && typeof window._setUsageBackendSelection === 'function') {
           window._setUsageBackendSelection(settings.usageBackends);
+        }
+        if (settings.usageTray && typeof window._setUsageTray === 'function') {
+          window._setUsageTray(settings.usageTray);
         }
         {
           const autoAddEl = settingsViewerBody.querySelector('#sv-project-auto-add');

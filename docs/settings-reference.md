@@ -306,6 +306,7 @@ shows the override, or it becomes invisible state.
 | `usageBackends` | one row per usage-capable backend | `{[id]: bool}` | key absent = shown; only an explicit `false` hides | global |
 | `usage5hWarn` / `usage5hCrit` | Usage colours — short cycle (%) | 1–99 / 2–100 | `60` / `80` | global |
 | `usage7dWarn` / `usage7dCrit` | Usage colours — long cycle (%) | 1–99 / 2–100 | `75` / `90` | global |
+| `usageTray` | Usage icon in the system tray (#113) | `{enabled: bool, mode: 'fixed'\|'rotate', backendId: string\|null, rotateSeconds: 2–600, style: 'ring'\|'badge'}` | `{enabled: false, mode: 'fixed', backendId: null, rotateSeconds: 8, style: 'ring'}`; the first Save writes the backend the select shows | global |
 | `notifications.enabled` | Enable notifications | bool | `true` | global |
 | `notifications.notifyOnReady` | Notify when a session is ready | bool | `false` | global |
 | `notifications.sound` | Alert sound | bool | `false` | global |

@@ -68,6 +68,7 @@
       terminalCloseValue, terminalFontCustomValue, terminalFontSelectValue, terminalFontSizeValue,
       terminalShellProfileValue, themeValue, usage5hCritValue, usage5hWarnValue, usage7dCritValue,
       usage7dWarnValue, usageBackendRowsHtml, visCountValue,
+      usageTrayEnabledValue, usageTrayModeValue, usageTrayBackendOptionsHtml, usageTraySecondsValue, usageTrayStyleValue,
     } = v;
 
     return `      <div class="settings-shell">
@@ -1056,6 +1057,47 @@
                   <div class="settings-field-control">
                     <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-warn" min="1" max="99" value="${usage7dWarnValue}" title="Orange from this %">
                     <input type="number" class="settings-input settings-input-compact" id="sv-usage-7d-crit" min="2" max="100" value="${usage7dCritValue}" title="Red at/above this %">
+                  </div>
+                </div>
+
+                <!-- The optional second tray icon (#113). It shows ONE backend, because it is one 16-pixel
+                     square: either a fixed one, or each of the selected ones in turn. The colours are the
+                     ones set above, so the icon and the bar never disagree. -->
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Usage icon in the system tray</span>
+                    <div class="settings-description">A second tray icon showing the backend's worst usage window as a ring. Off by default. On macOS the number sits beside the icon in the menu bar; elsewhere it is drawn into the icon.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-usage-tray" ${usageTrayEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Which backend the icon shows</span>
+                    <div class="settings-description">Only backends shown in the bar above can appear. A fixed choice that is switched off falls back to the first one shown, rather than leaving the tray empty.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-usage-tray-mode">
+                      <option value="fixed"${usageTrayModeValue === 'rotate' ? '' : ' selected'}>One backend</option>
+                      <option value="rotate"${usageTrayModeValue === 'rotate' ? ' selected' : ''}>Each in turn</option>
+                    </select>
+                    <select class="settings-select" id="sv-usage-tray-backend">
+                      ${usageTrayBackendOptionsHtml}
+                    </select>
+                    <input type="number" class="settings-input settings-input-compact" id="sv-usage-tray-seconds" min="2" max="600" value="${usageTraySecondsValue}" title="Seconds each backend is shown">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Icon style</span>
+                    <div class="settings-description">The ring spends the pixels on the reading and stays legible at 16 px; the badge spends them on the number. Neither is better — pick the one you can read on your screen.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-usage-tray-style">
+                      <option value="ring"${usageTrayStyleValue === 'badge' ? '' : ' selected'}>Ring</option>
+                      <option value="badge"${usageTrayStyleValue === 'badge' ? ' selected' : ''}>Badge</option>
+                    </select>
                   </div>
                 </div>
               </div>

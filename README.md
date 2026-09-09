@@ -96,6 +96,9 @@ chart rather than a row of zeroes.
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey
 - **Native notifications** — OS toasts, dock/taskbar badge, tray icon; coalesced and throttled
+- **Usage in the tray** — an optional second tray icon showing one backend's worst usage window as a
+  ring or a badge, fixed or rotating through the backends the status bar shows. Off by default, and it
+  polls nothing of its own
 - **Session health & handoff** — flags long/expensive sessions; one-click fresh start with a context
   packet; packets are markdown files in the project, so they are editable, greppable and travel with it.
   A picker hands one to the session you are already in, and writing one is a keyboard route out of that

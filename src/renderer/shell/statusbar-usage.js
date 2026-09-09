@@ -30,6 +30,9 @@
 //                            are typeof-guarded, formatUsageStatus is the hard dependency)
 //   lib/utils.js             clampUsageThreshold
 //   (renderBackendIcon)      window property, guarded
+//   shell/attention-engine.js  raisesAttention — the tray is an OS-facing surface (#390), typeof-guarded
+//   shell/usage-tray.js      UsageTray.trayFace / pickTrayFace / msUntilNextFace (window property)
+//   shell/usage-tray-icon.js UsageTrayIcon.trayImageFor (window property); both guarded together
 //
 // THE TWO `window._set*` FUNCTIONS ARE THE PUBLIC EDGE: app.js calls them at boot and on a settings
 // re-apply, and panels/settings-panel.js calls them from the Save path so the bar recolours without a
@@ -71,6 +74,83 @@ window._setUsageBackendSelection = (map) => {
   if (cachedStatusBarUsage) renderUsageStatus(cachedStatusBarUsage);
 };
 
+// --- The optional usage tray icon (#113) -------------------------------------------------------------
+//
+// It hangs off this file for one reason: everything it needs is already here and nowhere else together —
+// the payload, the backends the user chose, and the thresholds that decide the colour. A second module
+// would have to be handed all three and would drift from whatever the bar is actually showing.
+//
+// What is NOT here: which backend to show (shell/usage-tray.js) and how to draw it
+// (shell/usage-tray-icon.js). Both are separate because both can be tested and this cannot.
+let usageTraySettings = { enabled: false, mode: 'fixed', backendId: null, rotateSeconds: 8, style: 'ring' };
+let usageTrayTimer = null;
+window._setUsageTray = (cfg) => {
+  const next = (cfg && typeof cfg === 'object') ? cfg : {};
+  usageTraySettings = {
+    enabled: next.enabled === true,
+    mode: next.mode === 'rotate' ? 'rotate' : 'fixed',
+    backendId: typeof next.backendId === 'string' && next.backendId ? next.backendId : null,
+    // Clamped on the way IN as well as in the settings screen: a blob can also arrive from an import or
+    // a hand edit, and a delay past int32 milliseconds collapses to 0 in setTimeout — a rotation that
+    // redraws in a tight loop.
+    rotateSeconds: Math.max(2, Math.min(600, Number(next.rotateSeconds) > 0 ? Number(next.rotateSeconds) : 8)),
+    style: next.style === 'badge' ? 'badge' : 'ring',
+  };
+  pushUsageTray();
+};
+
+/**
+ * Draw the icon for whichever backend is due, and hand it to main. Off, or nothing selected, sends an
+ * empty payload — which is what takes the icon out of the system tray.
+ *
+ * `payload` is the reading the BAR was just drawn from, passed in rather than read back out of
+ * `cachedStatusBarUsage`. That cache is written AFTER the render and only for a payload that measured
+ * something, so reading it here made the icon one poll older than the bar beside it: absent for the first
+ * minute after a cold start, and frozen on the last good number for as long as an outage lasted — which
+ * is the one failure a number in the corner of the screen must not have.
+ *
+ * ONLY THE MAIN WINDOW PUSHES (#390). Every window loads this shell and `usage-tray-update` does not ask
+ * who sent it, so a detached window opening would run its own boot — with the setting still at its
+ * default `off` — and take down the icon the main window had just created.
+ */
+function pushUsageTray(payload) {
+  if (usageTrayTimer) { clearTimeout(usageTrayTimer); usageTrayTimer = null; }
+  if (typeof raisesAttention === 'function' && !raisesAttention()) return;
+  const api = window.api;
+  if (!api || typeof api.updateUsageTray !== 'function') return;
+  if (!usageTraySettings.enabled) { api.updateUsageTray(null); return; }
+
+  const tray = window.UsageTray;
+  const icon = window.UsageTrayIcon;
+  if (!tray || !icon) return;
+
+  const reading = payload || cachedStatusBarUsage || { backends: [] };
+  const selected = (typeof selectedUsageBackends === 'function')
+    ? selectedUsageBackends(reading, usageBackendSelection)
+    : (reading.backends || []);
+  const faces = selected.map(u => tray.trayFace(u, (typeof getUsageBars === 'function') ? getUsageBars(u, usageThresholds) : []));
+  const face = tray.pickTrayFace(faces, usageTraySettings);
+  if (!face) { api.updateUsageTray(null); return; }
+
+  const drawn = icon.trayImageFor(face, {
+    platform: (window.api && window.api.platform) || '',
+    colourFor: window.backendIconColour,
+    style: usageTraySettings.style,
+  });
+  if (!drawn) return;
+
+  // The tooltip is the SEGMENT's tooltip, unabridged — the icon shows the worst window, the tooltip says
+  // all of them, and that is the whole reason a one-number icon is honest enough to ship.
+  const source = selected.find(u => (u.backendId || null) === face.backendId) || {};
+  // It already OPENS with the backend's name, so prefixing the label here read "Claude\nClaude…".
+  const detail = (typeof getUsageTooltip === 'function') ? getUsageTooltip(source) : '';
+  api.updateUsageTray({ ...drawn, tooltip: detail || face.label });
+
+  // Only a rotation re-renders on a clock; a fixed icon changes when the usage does, and nothing else.
+  const next = tray.msUntilNextFace(faces, usageTraySettings);
+  if (next != null) usageTrayTimer = setTimeout(pushUsageTray, Math.max(250, next));
+}
+
 // One segment per backend the user chose to see (#191):
 //
 //   … │ <icon> 5h ▓░ 12%  7d ▓░ 3% │ <icon> 5h ▓░ 42%  7d ▓░ 8% │ …
@@ -87,7 +167,9 @@ function renderUsageStatus(payload) {
   const selected = (typeof selectedUsageBackends === 'function')
     ? selectedUsageBackends(payload || {}, usageBackendSelection)
     : ((payload && payload.backends) || []);
-  if (selected.length === 0) return;
+  // Nothing to show is a state the tray has to hear about too — every backend switched off leaves the bar
+  // empty AND has to take the icon down, or it stands there showing the last reading forever.
+  if (selected.length === 0) { pushUsageTray(payload); return; }
 
   const separator = () => {
     const sep = document.createElement('span');
@@ -160,6 +242,12 @@ function renderUsageStatus(payload) {
     statusBarUsage.appendChild(segment);
     if (i < selected.length - 1) statusBarUsage.appendChild(separator());
   });
+
+  // The tray icon rides on THIS, not on the poll (#113): every path that repaints the bar — a new
+  // payload, a threshold change, a backend switched on — is a path that must repaint the icon, and
+  // hanging it off the poll would have missed all three. No fetch of its own, which is what the
+  // requirement asked for.
+  pushUsageTray(payload);
 }
 
 // The main process owns the cache and the staleness marking, per backend (usage-cache.js) — a poll that

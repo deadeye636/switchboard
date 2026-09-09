@@ -50,6 +50,8 @@
     "sidebar-state.js",
     "terminal-pressure.js",
     "usage-status.js",
+    "usage-tray.js",
+    "usage-tray-icon.js",
     "control-dialogs.js",
     "session-timeline.js",
     "away-summary.js",

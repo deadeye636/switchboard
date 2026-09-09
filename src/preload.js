@@ -312,6 +312,12 @@ contextBridge.exposeInMainWorld('api', {
   setTraySummary: (text) => ipcRenderer.send('set-tray-summary', text),
   onFocusSession: (cb) => ipcRenderer.on('focus-session', (_e, id) => cb(id)),
   onFocusNextAttention: (cb) => ipcRenderer.on('focus-next-attention', () => cb()),
+  // The optional usage tray icon (#113). The renderer draws it — it is the only side that has a canvas,
+  // and the only one that knows which backend the user asked for — and pushes the finished PNG here. A
+  // payload with no image takes the icon down, which is how switching the setting off reaches the OS.
+  updateUsageTray: (payload) => ipcRenderer.send('usage-tray-update', payload),
+  onOpenStats: (cb) => ipcRenderer.on('open-stats', () => cb()),
+  onRefreshUsage: (cb) => ipcRenderer.on('refresh-usage', () => cb()),
 
   // Listeners (main → renderer)
   onTerminalData: (callback) => {

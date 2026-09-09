@@ -2180,6 +2180,9 @@ async function reapplyGlobalSettings() {
       : (g.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
   window._setUsageBackendSelection?.(g.usageBackends || {});
+  // The usage tray icon (#113). Off unless asked for, and it draws from the same payload the
+  // status bar just rendered — no poll of its own.
+  window._setUsageTray?.(g.usageTray || {});
   if (g.visibleSessionCount != null) window._setVisibleSessionCount?.(g.visibleSessionCount);
   if (g.sessionMaxAgeDays != null) window._setSessionMaxAge?.(g.sessionMaxAgeDays);
   if (g.sidebarCollapseDefault) window._setSidebarCollapseDefault?.(g.sidebarCollapseDefault);
@@ -2340,6 +2343,18 @@ async function reapplyGlobalSettings() {
   if (window.api && typeof window.api.onFocusNextAttention === 'function') {
     window.api.onFocusNextAttention(() => focusNextAttention());
   }
+
+  // The usage tray's own two menu items (#113). Both are things the window already does — the tray is a
+  // shortcut into them, never a second implementation. Guarded the same way the item above is: an older
+  // preload has neither.
+  if (window.api && typeof window.api.onOpenStats === 'function') {
+    window.api.onOpenStats(() => document.querySelector('.sidebar-tab[data-tab="stats"]')?.click());
+  }
+  if (window.api && typeof window.api.onRefreshUsage === 'function') {
+    window.api.onRefreshUsage(() => {
+      if (typeof refreshStatusBarUsage === 'function') refreshStatusBarUsage();
+    });
+  }
 }
 
 // Warm up xterm.js renderer so first terminal open is fast
@@ -2412,6 +2427,7 @@ setTimeout(() => {
         : (global.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
     window._setUsageThresholds?.({ fiveHWarn: global.usage5hWarn, fiveHCrit: global.usage5hCrit, sevenDWarn: global.usage7dWarn, sevenDCrit: global.usage7dCrit });
     window._setUsageBackendSelection?.(global.usageBackends || {});
+    window._setUsageTray?.(global.usageTray || {});
     if (global.shortcuts) setAppShortcuts(global.shortcuts);
     if (typeof window._applySessionDisplaySettings === 'function') window._applySessionDisplaySettings(global);
     // The project sort comes from Settings, and the boot never read it: it was taken from the

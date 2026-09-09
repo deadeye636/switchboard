@@ -15,6 +15,14 @@ let ctx = null;
 let tray = null;
 let traySummary = 'Switchboard';
 
+// The SECOND tray: the optional usage icon (#113). Deliberately its own instance rather than a mode of
+// the one above — the first tray is the app's identity and its menu, and a user who turns the usage icon
+// off must not lose the way back into the window. Everything about what it SHOWS is decided in the
+// renderer (`shell/usage-tray.js` picks the backend, `shell/usage-tray-icon.js` draws it); this end owns
+// only the OS object and its lifetime.
+let usageTray = null;
+let usageTrayTooltip = 'Switchboard usage';
+
 /**
  * @param {object} context
  * @param {() => Electron.BrowserWindow|null} context.getMainWindow  a GETTER: the window is reassigned on
@@ -78,6 +86,17 @@ function registerIpc(ipc = ipcMain) {
     traySummary = typeof text === 'string' && text ? text : 'Switchboard';
     updateTrayTooltip();
   });
+
+  // The usage tray, pushed from the renderer whenever the status bar's own usage changes (#113). A
+  // payload with no image means "off, or nothing to show" and takes the icon down — the renderer is the
+  // only party that knows both the setting and the reading, so it is the one that decides.
+  //
+  // `send`, not `invoke`: nothing here answers, and a usage repaint must never make the renderer wait.
+  ipc.on('usage-tray-update', (_event, payload) => {
+    try { applyUsageTray(payload); } catch (err) {
+      ctx.log.warn('[usage-tray] update failed:', err?.message || String(err));
+    }
+  });
 }
 
 function createTray() {
@@ -128,6 +147,100 @@ function createTray() {
 function destroyTray() {
   if (tray && !tray.isDestroyed()) tray.destroy();
   tray = null;
+  destroyUsageTray();
+}
+
+// --- The usage tray (#113) --------------------------------------------------------------------------
+
+/** Its menu is short on purpose: this icon exists to be READ, and everything actionable already has a
+ *  home in the first tray's menu. Refresh is the one thing that is about this icon's own subject. */
+function usageTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: 'Open Switchboard', click: () => focusMainWindow() },
+    {
+      // Hide, not close: closing the main window takes its sessions down with it (`src/app/windows.js`),
+      // and a menu item one click from a running agent must not be the one that ends it.
+      label: 'Hide window',
+      click: () => {
+        const win = ctx.getMainWindow();
+        if (win && !win.isDestroyed()) win.hide();
+      },
+    },
+    {
+      label: 'Show usage',
+      click: () => {
+        focusMainWindow();
+        const win = ctx.getMainWindow();
+        if (win && !win.isDestroyed()) win.webContents.send('open-stats');
+      },
+    },
+    {
+      label: 'Refresh now',
+      click: () => {
+        const win = ctx.getMainWindow();
+        if (win && !win.isDestroyed()) win.webContents.send('refresh-usage');
+      },
+    },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ]);
+}
+
+/**
+ * Apply one rendered face. Creates the tray on the first call and destroys it when the renderer says the
+ * feature is off, so a switched-off icon costs no OS object at all.
+ *
+ * `payload.dataURL` / `.dataURL2x` are PNGs the renderer drew; `.title` is macOS-only text that sits
+ * beside the icon (`setTitle` exists nowhere else), which is why the percentage is not baked into the
+ * image there — the menu bar's own font follows its light/dark theme and a bitmap number cannot.
+ */
+function applyUsageTray(payload) {
+  const data = payload || {};
+  if (!data.dataURL) {
+    destroyUsageTray();
+    return;
+  }
+  let image;
+  try {
+    image = nativeImage.createFromDataURL(data.dataURL);
+    // The second representation is what keeps it sharp on a scaled display — a menu bar draws at the
+    // display's scale factor, and a 16 px bitmap stretched to 32 is visibly soft.
+    if (data.dataURL2x) {
+      const hiDpi = nativeImage.createFromDataURL(data.dataURL2x);
+      if (!hiDpi.isEmpty()) image.addRepresentation({ scaleFactor: 2, buffer: hiDpi.toPNG() });
+    }
+  } catch (err) {
+    ctx.log.warn('[usage-tray] could not build the icon:', err?.message || String(err));
+    return;
+  }
+  if (image.isEmpty()) return;
+
+  try {
+    if (!usageTray || usageTray.isDestroyed()) {
+      usageTray = new Tray(image);
+      usageTray.setContextMenu(usageTrayMenu());
+      usageTray.on('click', () => focusMainWindow());
+    } else {
+      usageTray.setImage(image);
+    }
+    // NOT a template image, deliberately: `setTemplateImage(true)` makes macOS repaint the icon in one
+    // system colour, and the colour IS the reading here — a monochrome ring would say how full the
+    // bucket is and not whether that is fine or nearly fatal.
+    if (typeof data.tooltip === 'string' && data.tooltip) usageTrayTooltip = data.tooltip;
+    usageTray.setToolTip(usageTrayTooltip);
+    if (process.platform === 'darwin' && typeof usageTray.setTitle === 'function') {
+      usageTray.setTitle(typeof data.title === 'string' ? data.title : '');
+    }
+  } catch (err) {
+    ctx.log.warn('[usage-tray] could not update the icon:', err?.message || String(err));
+  }
+}
+
+function destroyUsageTray() {
+  if (usageTray && !usageTray.isDestroyed()) {
+    try { usageTray.destroy(); } catch { /* already gone */ }
+  }
+  usageTray = null;
 }
 
 module.exports = { init, registerIpc, createTray, destroyTray, focusMainWindow };
