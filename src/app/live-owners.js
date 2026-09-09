@@ -83,13 +83,23 @@ function stopTargetFor(backend, owner, { isAlive = sessionShutdown.isPidAlive, r
   return !requireAlive || isAlive(pid) ? pid : null;
 }
 
-/** Every backend that can answer "is a live process holding this session?". */
+/**
+ * Every backend that can answer "is a live process holding this session?" — ONE PER CLI.
+ *
+ * The answer comes from asking a CLI about its own sessions, so a template and its base answer
+ * identically: they are one binary over one store (#605). Asked separately, every foreign session was
+ * collected once per identity — the snapshot listed it N+1 times, the close warning counted it N+1 times,
+ * and each poll spawned N+1 child processes to learn the same thing, against this module's own rule of
+ * one interval for every backend rather than one per backend. `oneAskerPerCli` is the refusal, and it
+ * keeps a template that is the only launchable entry for its CLI.
+ */
 function answeringBackends() {
   if (!ctx || !ctx.backends || typeof ctx.backends.list !== 'function') return [];
   let all = [];
   try { all = ctx.backends.list() || []; } catch { return []; }
-  return all.filter((b) => b && typeof b.refreshLiveOwners === 'function'
+  const answering = all.filter((b) => b && typeof b.refreshLiveOwners === 'function'
     && (!ctx.backends.isLaunchable || ctx.backends.isLaunchable(b.id)));
+  return typeof ctx.backends.oneAskerPerCli === 'function' ? ctx.backends.oneAskerPerCli(answering) : answering;
 }
 
 /** Is anyone looking? A minimised or closed app has nobody to show a badge to. */

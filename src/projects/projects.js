@@ -936,10 +936,20 @@ function remapProject(oldPath, newPath) {
   }
 }
 
-/** Every enabled backend that has a per-project trust gate at all (Claude, Codex — not Pi, not Hermes). */
+/**
+ * Every enabled backend that has a per-project trust gate at all (Claude, Codex — not Pi, not Hermes),
+ * ONE PER CLI.
+ *
+ * The gate is an entry in that CLI's own config file, keyed by project path, so a template and its base
+ * read and write the same one (#605). Listed separately, the Projects manager grew a duplicate trust chip
+ * per template, the batch read that exists to open the config once ran once per template, and the remap
+ * moved one entry several times. `oneAskerPerCli` refuses that here rather than on the descriptor, so a
+ * template still answers where its base is switched off.
+ */
 function listBackendsWithTrust() {
   try {
-    return ctx.backends.launchable().filter(b => b.projectTrust && typeof b.projectTrust.get === 'function');
+    const withTrust = ctx.backends.launchable().filter(b => b.projectTrust && typeof b.projectTrust.get === 'function');
+    return typeof ctx.backends.oneAskerPerCli === 'function' ? ctx.backends.oneAskerPerCli(withTrust) : withTrust;
   } catch {
     return [];
   }

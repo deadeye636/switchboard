@@ -495,3 +495,73 @@ test('a base that declares none of them hands over none', () => {
     if (!base.deleteBlockedReason) assert.strictEqual(d.deleteBlockedReason, undefined);
   });
 });
+
+// --- one asker per CLI (#605) ---------------------------------------------------------------------
+
+// Forwarding a capability to a template is right for the readers that ask about ONE session, and wrong
+// for the consumers that ask a whole list — a template and its base run one binary over one store and one
+// config file, so both answer the same thing. Asked separately they spawned the same probe twice and
+// rendered the same row twice, which is #211's doubled Info column one hook along.
+test('oneAskerPerCli keeps one entry per underlying CLI', () => {
+  const list = [
+    { id: 'claude' },
+    { id: 'tpl-a', isProfile: true, baseId: 'claude' },
+    { id: 'tpl-b', isProfile: true, baseId: 'claude' },
+    { id: 'codex' },
+  ];
+  assert.deepEqual(backends.oneAskerPerCli(list).map(b => b.id), ['claude', 'codex']);
+});
+
+test('a built-in wins whatever order the list arrives in', () => {
+  const list = [
+    { id: 'tpl-a', isProfile: true, baseId: 'claude' },
+    { id: 'claude' },
+  ];
+  assert.deepEqual(backends.oneAskerPerCli(list).map(b => b.id), ['claude'],
+    'the template must not stand in for a base that is right there');
+});
+
+test('a template stands in for a base that is not in the list', () => {
+  // A base can be switched off while a template on it stays on (#162). Filtering profiles outright would
+  // lose that CLI's answer entirely, which is why this is a dedupe and not an isProfile test.
+  const list = [
+    { id: 'tpl-a', isProfile: true, baseId: 'claude' },
+    { id: 'tpl-b', isProfile: true, baseId: 'claude' },
+    { id: 'codex' },
+  ];
+  assert.deepEqual(backends.oneAskerPerCli(list).map(b => b.id), ['codex', 'tpl-a']);
+});
+
+test('oneAskerPerCli survives the shapes a caller can actually hand it', () => {
+  assert.deepEqual(backends.oneAskerPerCli([]), []);
+  assert.deepEqual(backends.oneAskerPerCli(null), []);
+  assert.deepEqual(backends.oneAskerPerCli([null, undefined, { id: 'claude' }]).map(b => b.id), ['claude']);
+  // A profile with no baseId is the pre-#161 shape: it answers for claude, like everything else that has
+  // forgotten to say what it runs on.
+  assert.deepEqual(backends.oneAskerPerCli([{ id: 'old-tpl', isProfile: true }]).map(b => b.id), ['old-tpl']);
+  assert.deepEqual(backends.oneAskerPerCli([{ id: 'claude' }, { id: 'old-tpl', isProfile: true, baseId: 'claude' }])
+    .map(b => b.id), ['claude']);
+});
+
+// A wiring guard, in the shape `.claude/rules/guards-and-scripts.md` asks for: the list is named here with
+// the reason each surface is on it, so a consumer that stops asking fails BY NAME rather than silently
+// growing a duplicate again.
+test('every list-shaped consumer of a per-CLI answer goes through oneAskerPerCli', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { stripComments } = require('./helpers/strip-comments');
+
+  const ASKS_PER_CLI = [
+    ['../src/app/live-owners.js', 'answeringBackends', 'polls a CLI about its own running sessions'],
+    ['../src/projects/projects.js', 'listBackendsWithTrust', 'reads and writes one entry in the CLI\'s config file'],
+  ];
+
+  for (const [rel, fn, why] of ASKS_PER_CLI) {
+    const src = stripComments(fs.readFileSync(path.join(__dirname, rel), 'utf8'));
+    const at = src.indexOf(`function ${fn}(`);
+    assert.notEqual(at, -1, `${rel}: ${fn} is gone — it ${why}, so whatever replaced it needs this guard`);
+    const body = src.slice(at, src.indexOf('\n}', at));
+    assert.match(body, /oneAskerPerCli/,
+      `${rel}: ${fn} ${why}, so it must not list a template and its base separately`);
+  }
+});

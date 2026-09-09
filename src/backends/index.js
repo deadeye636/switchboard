@@ -367,6 +367,43 @@ function launchable() {
   return list().filter(b => b.status === 'ready' && b.enabled);
 }
 
+/**
+ * One asker per underlying CLI (#605).
+ *
+ * A consumer whose question is answered by the BINARY — "is a process of yours holding this session?",
+ * "does your config file trust this project?" — must not ask a template and its base separately. They run
+ * one binary against one store and one config file, so they return the SAME answer: asking both spawns
+ * the same probe twice, moves the same trust entry twice, and renders the same row twice. That is the
+ * #211 failure ("a template became a second meta backend and doubled Claude's Info column") reproduced
+ * one hook along, and it is what happened when the capabilities themselves were forwarded.
+ *
+ * So the capability travels — a template CAN answer, which is what makes the session-scoped readers work
+ * — and the refusal sits at the surface that would show the duplicate. This is that refusal, once, rather
+ * than an `isProfile` test written out at each call site.
+ *
+ * A built-in always wins where it is present. A TEMPLATE stands in for a base that is not in the list —
+ * a base can be switched off while a template on it stays on (#162), and then the template is the only
+ * entry that can still answer for that CLI. Filtering profiles outright would lose that case silently.
+ */
+function oneAskerPerCli(list) {
+  const out = [];
+  const answeredFor = new Set();
+  for (const b of list || []) {
+    if (!b || b.isProfile || answeredFor.has(b.id)) continue;
+    answeredFor.add(b.id);
+    out.push(b);
+  }
+  // Second pass, so a built-in wins whatever order the caller's list happens to be in.
+  for (const b of list || []) {
+    if (!b || !b.isProfile) continue;
+    const owner = b.baseId || b.id;
+    if (answeredFor.has(owner)) continue;
+    answeredFor.add(owner);
+    out.push(b);
+  }
+  return out;
+}
+
 // The one backend/profile a plain new-session action launches (00 §4). Falls back to `claude` when
 // unset or when the stored target no longer exists / isn't launchable.
 // The target a plain "new session" launches. It must be one that can ACTUALLY launch (#162): this used
@@ -476,6 +513,6 @@ _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, profileToDescriptor,
+  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };
