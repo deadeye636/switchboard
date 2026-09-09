@@ -244,6 +244,11 @@ function profileToDescriptor(p) {
     ...(base && base.resourceScaffolds ? { resourceScaffolds: base.resourceScaffolds } : {}),
     // And what a skill is CALLED in this CLI's prompt — the answer is the binary's, like the rest.
     ...(base && typeof base.skillInvocation === 'function' ? { skillInvocation: base.skillInvocation } : {}),
+    // Which models this CLI offers is the binary's answer too (#605). `modelDiscovery` in the
+    // backends-list payload is literally `typeof b.listModels === 'function'`, so leaving it off did not
+    // merely fail — it reported to the Configure dialog that this backend has no model list, and a
+    // template on agy or pi got a bare text field where its base gets suggestions.
+    ...(base && typeof base.listModels === 'function' ? { listModels: base.listModels } : {}),
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
     matchLiveSession: base ? base.matchLiveSession : undefined,

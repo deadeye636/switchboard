@@ -400,3 +400,16 @@ test('a template forwards the resource hooks, so its sessions see the CLI\'s ski
     });
   }
 });
+
+// #605: `modelDiscovery` in the backends-list payload is `typeof b.listModels === 'function'`, so an
+// unforwarded hook did not merely fail — it told the Configure dialog this backend has no model list.
+test('a template offers the model suggestions its base has', () => {
+  for (const baseId of ['agy', 'pi']) {
+    const prof = { id: `${baseId}-model-tpl`, name: 'A template', backendId: baseId, env: {} };
+    withRegistry({}, [prof], () => {
+      const base = backends.get(baseId);
+      if (!base || typeof base.listModels !== 'function') return;
+      assert.strictEqual(typeof backends.get(`${baseId}-model-tpl`).listModels, 'function', baseId);
+    });
+  }
+});
