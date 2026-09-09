@@ -413,3 +413,17 @@ test('a template offers the model suggestions its base has', () => {
     });
   }
 });
+
+// #605: the trust entry lives in the BASE's config file, keyed by project path, so a template asks and
+// writes the same one. `projects.js` filters `launchable()`, which contains templates — so a remap
+// carried the trust for every built-in and silently not for a template.
+test('a template carries its base\'s project trust', () => {
+  for (const baseId of ['claude', 'codex', 'pi']) {
+    const prof = { id: `${baseId}-trust-tpl`, name: 'A template', backendId: baseId, env: {} };
+    withRegistry({}, [prof], () => {
+      const base = backends.get(baseId);
+      if (!base || !base.projectTrust) return;
+      assert.strictEqual(backends.get(`${baseId}-trust-tpl`).projectTrust, base.projectTrust, baseId);
+    });
+  }
+});

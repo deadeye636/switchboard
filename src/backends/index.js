@@ -249,6 +249,11 @@ function profileToDescriptor(p) {
     // merely fail — it reported to the Configure dialog that this backend has no model list, and a
     // template on agy or pi got a bare text field where its base gets suggestions.
     ...(base && typeof base.listModels === 'function' ? { listModels: base.listModels } : {}),
+    // Whether the CLI trusts a project is recorded in the BASE's own config file, keyed by path — so a
+    // template asks and writes the same entry, exactly as it does for the sessions in that store (#605).
+    // `projects.js` filters `launchable()`, which contains templates, so a remap carried the trust for
+    // every built-in backend and silently not for a template.
+    ...(base && base.projectTrust ? { projectTrust: base.projectTrust } : {}),
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
     matchLiveSession: base ? base.matchLiveSession : undefined,
