@@ -229,6 +229,21 @@ function profileToDescriptor(p) {
     // into the user's real store while its base backend wrote into the demo one.
     cliHomeEnv: base && typeof base.cliHomeEnv === 'function' ? base.cliHomeEnv : () => null,
     probe: base && typeof base.probe === 'function' ? base.probe : undefined,
+    // A template's CLI reads the base's customization directories, because it IS the base's binary
+    // reading the base's home (#605). Left off, `app/skills.js` — which resolves the descriptor from the
+    // SESSION's backendId — could offer a template session none of its CLI's skills, only Switchboard's
+    // own, and `app/backend-resources.js` answered "not supported" for every read.
+    //
+    // The settings screen does NOT grow a second inventory from this: `backends-panel.js` skips the
+    // resources disclosure for a profile, because the rows would be the base's own listing under another
+    // name — the `projectMeta` argument from #211, one hook along. The declaration lives here so the
+    // session-scoped consumer works; the duplicate is refused at the surface that would show it.
+    ...(base && typeof base.listResources === 'function' ? { listResources: base.listResources } : {}),
+    ...(base && typeof base.expandResource === 'function' ? { expandResource: base.expandResource } : {}),
+    ...(base && base.resourceEditing ? { resourceEditing: base.resourceEditing } : {}),
+    ...(base && base.resourceScaffolds ? { resourceScaffolds: base.resourceScaffolds } : {}),
+    // And what a skill is CALLED in this CLI's prompt — the answer is the binary's, like the rest.
+    ...(base && typeof base.skillInvocation === 'function' ? { skillInvocation: base.skillInvocation } : {}),
     liveRefFor: base ? base.liveRefFor : undefined,
     liveState: base ? base.liveState : undefined,
     matchLiveSession: base ? base.matchLiveSession : undefined,

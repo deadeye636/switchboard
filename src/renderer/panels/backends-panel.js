@@ -215,6 +215,11 @@
   // occasionally, and expanded it pushed the launch options off the screen on every visit.
   function resourcesShell(backend, title, projectPath) {
     if (!backend.resourceDiscovery) return '';
+    // A template reads its BASE's directories — same binary, same home — so since #605 it can answer the
+    // listing, which is what lets a template session be offered its CLI's skills. Here that answer would
+    // be the base's own inventory printed a second time under the template's name, so this surface does
+    // not print it. Same call as #211 made for `projectMeta`, one hook along.
+    if (backend.isProfile) return '';
     return `
       <details class="settings-adv backend-resources" data-resources-for="${esc(backend.id)}">
         <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>${esc(title || 'Resources')}</summary>

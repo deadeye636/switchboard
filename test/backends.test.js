@@ -382,3 +382,21 @@ test('a template on a base without subagents claims none', () => {
     assert.strictEqual(d.listSubagents, undefined);
   });
 });
+
+// #605: a template's CLI reads the base's customization directories, because it is the base's binary
+// reading the base's home. Without these, `app/skills.js` — which resolves the descriptor from the
+// SESSION's backendId — offered a template session none of its CLI's skills, only Switchboard's own.
+test('a template forwards the resource hooks, so its sessions see the CLI\'s skills', () => {
+  for (const baseId of ['claude', 'codex', 'pi']) {
+    const prof = { id: `${baseId}-res-tpl`, name: 'A template', backendId: baseId, env: {} };
+    withRegistry({}, [prof], () => {
+      const d = backends.get(`${baseId}-res-tpl`);
+      const base = backends.get(baseId);
+      if (!base || typeof base.listResources !== 'function') return;
+      assert.strictEqual(typeof d.listResources, 'function', `${baseId}: the listing`);
+      assert.strictEqual(typeof d.expandResource, 'function', `${baseId}: and the expander — skills need both`);
+      assert.deepEqual(d.resourceEditing, base.resourceEditing, `${baseId}: what may be written back`);
+      assert.deepEqual(d.resourceScaffolds, base.resourceScaffolds, `${baseId}: and what may be created`);
+    });
+  }
+});
