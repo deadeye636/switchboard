@@ -121,22 +121,28 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   // else null. Only a backend that declares supportsSubagents has any reason to pass it.
   if (subagentOf != null && typeof subagentOf !== 'function') throw new Error('file-store: subagentOf must be a function');
 
-  /** FILE-mode discovery: one {kind:'file'} handle per transcript. */
-  function discoverSessions() {
-    const storeRoot = root();
-    const stats = { errors: 0 };
-    const handles = walkStore(storeRoot, matches, [], stats).map(p => ({
+  /** One {kind:'file'} handle for one transcript path. Shared by discovery and by the candidate path
+   *  below, so a candidate is parsed against exactly the handle discovery would have produced. */
+  function handleFor(filePath, storeRoot) {
+    return {
       kind: 'file',
-      path: p,
+      path: filePath,
       // The filename usually carries the id too, but the header is authoritative — the parser reads it there.
       sessionId: null,
       // Whether this transcript belongs to a subagent is the BACKEND's to say (#235): the shared walk
       // cannot know, and hardcoding `null` here meant a composing backend structurally could not have
       // subagents — it would have had to abandon the shared discovery to declare one. `subagentOf` is
       // optional: a backend without subagents does not pass it and gets exactly today's `null`.
-      parentSessionId: typeof subagentOf === 'function' ? (subagentOf(p, storeRoot) || null) : null,
+      parentSessionId: typeof subagentOf === 'function' ? (subagentOf(filePath, storeRoot) || null) : null,
       root: storeRoot,
-    }));
+    };
+  }
+
+  /** FILE-mode discovery: one {kind:'file'} handle per transcript. */
+  function discoverSessions() {
+    const storeRoot = root();
+    const stats = { errors: 0 };
+    const handles = walkStore(storeRoot, matches, [], stats).map(p => handleFor(p, storeRoot));
     // A subtree that could not be read makes this result PARTIAL: its sessions are missing, not gone. Flag
     // it so the reconcile keeps unseen rows instead of deleting real history for a store it only half-read
     // (#197). A wholly-absent root also trips this, harmlessly: the whole-store guard already keeps
@@ -193,6 +199,33 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   }
 
   /**
+   * The paths this match may consider, when the CALLER already knows which files moved (#210).
+   *
+   * The store watcher is handed the filename in its `fs.watch` callback and used to throw it away, so
+   * the walk below existed to find that same file again — measured at ~110 ms for a 5000-transcript
+   * store, on the main thread, on every 600 ms flush for as long as a session stayed unpaired. A caller
+   * that names the changed files pays neither the readdir nor the stat of anything else.
+   *
+   * Two things the raw watch event is not: it may be a `-wal` sibling (watchTargets accepts those, so a
+   * WAL-buffered store signals its commits), and it may name the same transcript twice. Strip and
+   * de-duplicate here rather than in the watcher — `matches` is the store's own answer to what a
+   * transcript is called, and the watcher has no business knowing it.
+   */
+  function candidateHandles(candidates, storeRoot) {
+    const seen = new Set();
+    const handles = [];
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const filePath = String(raw).replace(/-wal$/, '');
+      if (!matches(path.basename(filePath))) continue;
+      if (seen.has(filePath)) continue;
+      seen.add(filePath);
+      handles.push(handleFor(filePath, storeRoot));
+    }
+    return handles;
+  }
+
+  /**
    * The NEW-session half of the identity seam. These CLIs name their own sessions, so the id we spawned
    * under is not the id the store records; until the two are paired the app shows two rows for one
    * session and resume targets an id the CLI never had.
@@ -201,11 +234,15 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
    * so birth time is what lines up with the spawn. Newest-mtime would let an already-working session's
    * file be stolen by an older session whose own file is still just a header.
    */
-  function matchLiveSession({ cwd, sinceMs, claimed } = {}) {
+  function matchLiveSession({ cwd, sinceMs, claimed, candidates } = {}) {
     const claimedSet = claimed instanceof Set ? claimed : new Set(claimed || []);
     let best = null;
     let bestBirth = Infinity;
-    for (const handle of discoverSessions()) {
+    // No `candidates` at all means "look at the whole store" — the 30 s fallback ticker, and every
+    // caller that predates #210. An EMPTY list is not that: it means the caller looked and nothing this
+    // store owns has changed, so there is nothing to pair with and no reason to walk.
+    const handles = candidates == null ? discoverSessions() : candidateHandles(candidates, root());
+    for (const handle of handles) {
       if (claimedSet.has(handle.path)) continue;
       if (tooOldByName(handle.path, sinceMs)) continue;   // #209: no stat for what the name already rules out
       let st;

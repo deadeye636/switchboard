@@ -266,6 +266,78 @@ test('birthHint falls through to the stat when it cannot answer (unparseable nam
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+// --- #210: `candidates` — the caller already knows which files moved, so do not walk the store --------
+//
+// The store watcher receives the changed filename in its `fs.watch` callback and used to discard it, so
+// the walk below existed to find that same file again: ~110 ms for a 5000-transcript store, on the main
+// thread, on every 600 ms flush for as long as a session stayed unpaired. These pin the three answers
+// the argument has — a named file, nothing at all, and "I cannot name it".
+
+test('candidates: only the named file is considered, and the store is never walked', () => {
+  const { root, bucket } = makeStore();
+  try {
+    // Two records that BOTH satisfy the correlation. Only one is offered as a candidate, so if the walk
+    // still ran, the older one would win the oldest-wins tiebreak and this would return `first`.
+    const older = writeSession(bucket, 'first', '/p');
+    const named = writeSession(bucket, 'second', '/p');
+    const soon = new Date(Date.now() + 60_000);
+    fs.utimesSync(named, soon, soon);   // and it is the NEWER of the two, by mtime and by order
+
+    const match = storeFor(root).matchLiveSession({ cwd: '/p', sinceMs: 0, claimed: new Set(), candidates: [named] });
+    assert.equal(match.ref, named, 'the candidate is what got parsed');
+    assert.ok(match.ref !== older, 'the record the walk would have preferred was never looked at');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('candidates: an EMPTY list means nothing changed — not "walk the store"', () => {
+  // The distinction the watcher depends on. A backend whose store did not move offers no candidates, and
+  // treating that as "no scope, walk everything" would put the whole cost straight back.
+  const { root, bucket } = makeStore();
+  try {
+    writeSession(bucket, 'live-1', '/p');
+    const store = storeFor(root);
+    assert.equal(store.matchLiveSession({ cwd: '/p', sinceMs: 0, claimed: new Set(), candidates: [] }), null,
+      'an empty candidate list matches nothing');
+    assert.ok(store.matchLiveSession({ cwd: '/p', sinceMs: 0, claimed: new Set() }),
+      'and omitting it entirely still walks the store (the 30 s fallback ticker)');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('candidates: a WAL sibling names the transcript beside it, and a non-transcript is dropped', () => {
+  // watchTargets accepts `<name>-wal` so a WAL-buffered store signals its commits, so that is what the
+  // watcher hands over. Stripping it here keeps the watcher out of the business of knowing what a
+  // transcript is called — `matches` is the store's own answer.
+  const { root, bucket } = makeStore();
+  try {
+    const file = writeSession(bucket, 'live-1', '/p');
+    const store = storeFor(root);
+    const match = store.matchLiveSession({
+      cwd: '/p', sinceMs: 0, claimed: new Set(),
+      // the same record twice (once through its WAL sibling), plus a file this store does not own
+      candidates: [file + '-wal', file, path.join(bucket, 'notes.txt')],
+    });
+    assert.equal(match.ref, file);
+    assert.equal(store.matchLiveSession({
+      cwd: '/p', sinceMs: 0, claimed: new Set(), candidates: [path.join(bucket, 'notes.txt')],
+    }), null, 'a sidecar the store does not own is not a candidate');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('candidates: the record still has to satisfy every rule the walk applies', () => {
+  // Being named by the watcher is not a licence to skip the correlation — a candidate goes through the
+  // same cwd, claimed and birth checks, so the only thing #210 removed is the readdir.
+  const { root, bucket } = makeStore();
+  try {
+    const file = writeSession(bucket, 'live-1', 'D:\\Example\\demo');
+    const store = storeFor(root);
+    const ask = (over) => store.matchLiveSession({ cwd: 'D:\\Example\\demo', sinceMs: 0, claimed: new Set(), candidates: [file], ...over });
+    assert.equal(ask({ cwd: 'D:\\Example\\elsewhere' }), null, 'another project');
+    assert.equal(ask({ claimed: new Set([file]) }), null, 'already claimed by another session');
+    assert.equal(ask({ sinceMs: Date.now() + 3600_000 }), null, 'older than the spawn');
+    assert.equal(ask({}).sessionId, 'live-1', 'and it does match when none of those apply');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('createFileStore refuses a birthHint that is not a function', () => {
   assert.throws(() => createFileStore({
     root: () => '/tmp', matches: () => true, parseSession: () => null, refSuffix: () => '', birthHint: 'nope',

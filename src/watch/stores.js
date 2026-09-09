@@ -16,6 +16,7 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 // Required directly, NOT taken through ctx, and that is deliberate: adopt.js is a sibling module, not a
 // piece of main.js's mutable state. The ctx rule exists to stop a module capturing a `let` main.js
 // reassigns; a module reference is not that. Both this file and main.js resolve the same path, so they
@@ -42,7 +43,10 @@ function startBackendWatchers() {
   stopBackendWatchers();
 
   const DEBOUNCE_MS = 600;
-  const pending = new Set();       // backendIds with unflushed changes
+  // backendId -> the files of that store which changed, or null when the event could not name one (a
+  // polled db file). The paths are what spares the identity match a full store walk (#210); the KEYS
+  // are what scopes the reconcile (#282), and that is why this is a map and no longer a set of ids.
+  const pending = new Map();
   let debounceTimer = null;
   let missingRoot = false;
 
@@ -55,7 +59,8 @@ function startBackendWatchers() {
     // those — not the whole roster. An agy append no longer drags Hermes' full-`messages` GROUP BY and the
     // Codex/Pi store walks through the worker on every flush. A burst that outruns the coalescing gate
     // safely widens back to a full sweep (index-worker-client.js).
-    const changed = [...pending];
+    const changed = [...pending.keys()];
+    const changedPaths = new Map(pending);
     pending.clear();
     // Which store actually moved, per flush. An idle instance was measured posting a reconcile every
     // 612 ms — the debounce interval, so a flush was being scheduled continuously — and nothing said by
@@ -71,11 +76,22 @@ function startBackendWatchers() {
     // The store that just changed is also the busy/idle signal — and the place a freshly launched session's
     // real id first appears (T-4.5 / T-5.3). This reads the live PTY set, NOT a transcript, so it stays
     // synchronous on main: the spinner must update at once, not after a worker round-trip.
-    try { adopt.updateBackendLiveStates(); } catch (err) { ctx.log.warn(`[backends] live-state update failed: ${err?.message || err}`); }
+    //
+    // It is handed the CHANGED FILES, not just the ids (#210). The identity match used to walk the whole
+    // store to find the very file this watcher had already named — ~110 ms at 5000 transcripts, on every
+    // flush, for as long as any session stayed unpaired. The full walk still exists, in the 30 s ticker
+    // below, which is what heals a session if a watch event is ever lost.
+    try { adopt.updateBackendLiveStates(changedPaths); } catch (err) { ctx.log.warn(`[backends] live-state update failed: ${err?.message || err}`); }
   }
 
-  function schedule(backendId) {
-    pending.add(backendId);
+  /** `changedPath` is the transcript this event named, absolute; null when the event cannot name one
+   *  (the db poll below watches one file and reports a stat, not a path in a tree). */
+  function schedule(backendId, changedPath) {
+    const named = pending.get(backendId);
+    if (changedPath == null) pending.set(backendId, null);         // fall back to the walk for this flush
+    else if (named === undefined) pending.set(backendId, new Set([changedPath]));
+    else if (named) named.add(changedPath);
+    // named === null: this flush already asks for the walk, and a path cannot narrow that.
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(flush, DEBOUNCE_MS);
   }
@@ -126,7 +142,10 @@ function startBackendWatchers() {
           if (!filename) return;
           // Only session files matter; ignore the dir churn of the date buckets themselves.
           if (!matchFile(filename)) return;
-          schedule(backend.id);
+          // `filename` is relative to the watched root, and it is what spares the identity match a walk
+          // of the whole store (#210) — resolve it here, where the root is known, rather than making
+          // adopt.js or a backend guess which root a bare name belongs to.
+          schedule(backend.id, path.resolve(target.path, String(filename)));
         });
         w.on('error', (err) => ctx.log.warn(`[watch] backend ${backend.id} watcher error: ${err?.message || err}`));
         backendWatchers.push({ kind: 'watch', watcher: w });

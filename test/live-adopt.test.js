@@ -583,3 +583,77 @@ test('#395: the echo carries no backend id', () => {
   assert.deepEqual(echo, [['s1', { kind: 'idle', source: 'store', reason: '' }]],
     'source names the KIND of producer, never which backend — that must not cross into the renderer');
 });
+
+// --- #210: the watcher already knows which files changed, so the match need not walk the store -------
+//
+// `updateBackendLiveStates` is called from the store watcher's flush, which receives the changed
+// filename in its own `fs.watch` callback. Passing it through is what spares an unpaired session a full
+// readdir of the store on every 600 ms flush (~110 ms at 5000 transcripts). What these pin is the
+// TRANSLATION — which of the three answers each caller shape produces — because a backend that gets the
+// wrong one either walks when it should not, or never looks where the record actually is.
+
+test('#210: the changed files reach the match, per backend', () => {
+  const asked = [];
+  setup({
+    sessions: [['temp-1', live()]],
+    backend: fakeBackend({ matchLiveSession: (q) => { asked.push(q.candidates); return null; } }),
+  });
+
+  adopt.updateBackendLiveStates(new Map([['codex', new Set(['/store/2026/07/12/rollout-new.jsonl'])]]));
+
+  assert.deepEqual(asked, [new Set(['/store/2026/07/12/rollout-new.jsonl'])],
+    'the file the watcher named is what the correlation looks at');
+});
+
+test('#210: a backend whose store did not change is asked with an EMPTY set, not a walk', () => {
+  // The whole point. A Pi append must not make an unpaired Codex session re-read the Codex store — and
+  // `undefined` here would mean exactly that, because that is how the fallback ticker asks.
+  const asked = [];
+  setup({
+    sessions: [['temp-1', live()]],
+    backend: fakeBackend({ matchLiveSession: (q) => { asked.push(q.candidates); return null; } }),
+  });
+
+  adopt.updateBackendLiveStates(new Map([['pi', new Set(['/other/store/rec.jsonl'])]]));
+
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0] instanceof Set, true);
+  assert.equal(asked[0].size, 0, 'nothing of this backend moved, so there is nothing to pair with');
+});
+
+test('#210: an event that cannot name its file still asks for the full walk', () => {
+  // The db-kind poll watches one file and reports a stat, not a path in a tree. It schedules a `null`,
+  // and that has to arrive as "no scope" — the same thing the ticker sends — or a Hermes session that
+  // only ever gets polled events would stop being able to pair at all.
+  const asked = [];
+  setup({
+    sessions: [['temp-1', live()]],
+    backend: fakeBackend({ matchLiveSession: (q) => { asked.push(q.candidates); return null; } }),
+  });
+
+  adopt.updateBackendLiveStates(new Map([['codex', null]]));
+  adopt.updateBackendLiveStates();   // and the 30 s ticker, which names nothing at all
+
+  assert.deepEqual(asked, [undefined, undefined], 'both ask the whole store, as this always did');
+});
+
+test('#210: a TEMPLATE session is asked with its BASE store\'s candidates', () => {
+  // The map is keyed by the backend the watcher watches, and it only watches Axis-B descriptors. A
+  // template is Axis-A and forwards its base's store hooks, so looking the candidates up under the
+  // template's own id finds nothing — and "nothing" here means "your store did not move", about a store
+  // that just did. The session would then pair only on the 30 s ticker instead of the next 600 ms flush.
+  const asked = [];
+  const base = fakeBackend({ matchLiveSession: (q) => { asked.push(q.candidates); return null; } });
+  const template = { ...base, id: 'tpl-1', baseId: 'codex', isProfile: true };
+  setup({
+    sessions: [['on-template', live()]],
+    backend: base,
+    backendOf: () => 'tpl-1',
+    registry: (id) => (id === 'tpl-1' ? template : base),
+  });
+
+  adopt.updateBackendLiveStates(new Map([['codex', new Set(['/store/rollout-new.jsonl'])]]));
+
+  assert.deepEqual(asked, [new Set(['/store/rollout-new.jsonl'])],
+    'the template asked under its base id, which is whose store the record is in');
+});

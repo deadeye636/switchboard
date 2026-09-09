@@ -97,7 +97,32 @@ function unpairedCandidates(asking, backend) {
   return out;
 }
 
-function claimLiveRecord(sessionId, session, backend) {
+/**
+ * Which paths the correlation below may look at, for one backend (#210).
+ *
+ * `undefined` means "walk the store": the 30 s ticker asks that way, and so does every caller that
+ * names nothing. A Set — including an EMPTY one — means the caller knows exactly which files moved, and
+ * a backend whose store did not move offers no candidates at all rather than a walk. `null` in the map
+ * is the third answer: the watcher saw a change it could not name (a polled db file), so it asks for the
+ * walk it would have done before.
+ *
+ * **Ask by POOL, not by the session's descriptor id.** The map is keyed by the backend the watcher
+ * watches, and it only watches Axis-B descriptors — a template is Axis-A and forwards its base's store
+ * hooks, so a template session looked up under its own id finds nothing and is told "your store did not
+ * move" about a store that just did. It would then pair only on the 30 s ticker instead of the next
+ * flush. `recordPoolId` above is already the answer to "whose store is this", for the same reason.
+ *
+ * A fresh Set each time rather than one shared empty one: this value crosses into a backend, and a
+ * single instance handed to all of them is a thing one of them could mutate for the life of the process.
+ */
+function candidatesFor(changedPaths, backend) {
+  if (!changedPaths) return undefined;
+  const named = changedPaths.get(recordPoolId(backend));
+  if (named === null) return undefined;
+  return named || new Set();
+}
+
+function claimLiveRecord(sessionId, session, backend, candidatePaths) {
   const existing = liveStoreRef.get(sessionId);
   if (existing) return existing;   // #282 lever 3: a CLAIMED session never reaches the full-store walk below
 
@@ -143,7 +168,7 @@ function claimLiveRecord(sessionId, session, backend) {
   for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
     let offer = null;
     try {
-      offer = backend.matchLiveSession({ cwd: session.projectPath, sinceMs, claimed });
+      offer = backend.matchLiveSession({ cwd: session.projectPath, sinceMs, claimed, candidates: candidatePaths });
     } catch (err) {
       ctx.log.warn(`[${backend.id}] live match failed: ${err?.message || err}`);
       return null;
@@ -197,7 +222,12 @@ function claimLiveRecord(sessionId, session, backend) {
   return match.ref;
 }
 
-function updateBackendLiveStates() {
+/**
+ * @param {Map<string, Set<string>|null>} [changedPaths]  which files of which backend just changed, from
+ *   the store watcher's own event (#210). Omitted — the 30 s ticker, and the tests — means "ask the
+ *   whole store", which is what this did unconditionally before.
+ */
+function updateBackendLiveStates(changedPaths) {
   // Snapshot: claimLiveRecord may re-key a session, which mutates activeSessions mid-iteration.
   for (const [sessionId, session] of [...ctx.activeSessions]) {
     if (session.exited) {
@@ -217,7 +247,7 @@ function updateBackendLiveStates() {
       continue;   // Claude & Axis-A: they report state through OSC and own their session id already.
     }
 
-    const ref = claimLiveRecord(sessionId, session, backend);
+    const ref = claimLiveRecord(sessionId, session, backend, candidatesFor(changedPaths, backend));
     // claimLiveRecord may ADOPT the backend's own id here — re-keying session.realSessionId (Codex/Pi/agy
     // name their own sessions). Read the live id AFTER it, not before: on the adoption tick a busy/idle
     // edge computed from the pre-adoption id is sent to an id the renderer has just re-keyed away, so the

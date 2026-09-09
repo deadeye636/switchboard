@@ -161,7 +161,7 @@ longer prints — see "Observability" below for what does.
     independent analysis showed a worker buys single-digit ms while re-opening the
     `updateBackendLiveStates`/re-key race surface (the #210/#90 class). The win was in the read, not the
     thread.
-- **MITIGATED by [#209]; the residual is [#210]** — the live-session identity match. `updateBackendLiveStates`
+- **MITIGATED by [#209], then CLOSED by [#210]** — the live-session identity match. `updateBackendLiveStates`
   stays synchronous in the watcher flush (it drives the spinner), and through `claimLiveRecord` it calls
   `matchLiveSession` (`src/backends/file-store.js`) for a freshly spawned, not-yet-paired Axis-B session. That
   correlates by BIRTH time, so it used to `statSync` **every transcript in the store**, on the main thread,
@@ -183,10 +183,35 @@ longer prints — see "Observability" below for what does.
   filenames carry no timezone (Codex writes `rollout-2026-07-01T10-00-00-<id>`) and a hint that wrongly said
   "old" would stop a session pairing at all. A backend without the hook (agy: `<id>.db`, no timestamp) keeps
   the stat path. Hermes is db-mode and never had this walk.
-  **Residual → [#210]:** the `discoverSessions()` readdir walk itself (~44 ms at 5000) still runs on main.
-  Removing it means running the match in the worker — which makes `claimLiveRecord` async and re-opens the
-  `activeSessions` re-key + stale-reply race surface, for a bounded cost an order below the #199 stall. Filed,
-  not built; the trade-offs are written up in [#210].
+  **Residual, and CLOSED by [#210]:** the `discoverSessions()` readdir walk itself. Re-measured on the
+  tree of the day it was fixed, against a store shaped like a real one: 1.8 ms at 48 transcripts, 21.8 ms
+  at 1020, 110.6 ms at 5020 — and `walkStore` ALONE costs what the whole match costs, so after #209 the
+  readdir is the entire remaining bill. The re-measurement also broke this issue's own framing: it is not
+  bounded to "1-2 flushes". `updateBackendLiveStates` runs on every 600 ms store-watcher flush and nothing
+  there is gated on how long a session has been unpaired (only the 30 s ticker skips a session already
+  reported as record-less). Codex writes its rollout with the first turn (#512), so a tab left at its
+  prompt stays unpaired while a second, working session keeps the flush firing: ~100 ms per 600 ms, about
+  17 % of a core, indefinitely.
+
+  **The fix is the candidate list, NOT the worker.** `src/watch/stores.js` was handed the changed filename
+  in its own `fs.watch` callback and threw it away, keeping only `schedule(backend.id)` — so the walk
+  existed to find the file the watcher had just named. It now collects the paths per backend, the flush
+  passes them to `updateBackendLiveStates`, and they reach `matchLiveSession({ …, candidates })`, which
+  parses those and skips `discoverSessions()` entirely. Three answers, and the difference between the last
+  two is the whole design: a Set means "these files moved", an EMPTY Set means "this store did not move,
+  so there is nothing to pair with", and `undefined` means "no scope, walk the store" — which is how the
+  30 s fallback ticker asks, and what heals a session if a watch event is ever lost.
+  This is the shape [#283] was closed with (the win is in the read, not the thread): `claimLiveRecord`
+  stays synchronous, so the `activeSessions` re-key + stale-reply race surface a worker would reopen never
+  appears. **What it takes away:** a session already reported as record-less no longer gets a full walk per
+  flush, so if the watch event that would name its record is lost, it pairs later than it did before. The
+  same applies to a backend whose store root did not exist when the watchers armed — it has no watcher at
+  all (`missingRoot`), so its sessions are told "nothing of yours moved" by another backend's flush where
+  they used to get a walk. Both heal on the 30 s ticker, and the second also on the 60 s re-arm.
+  **Ask for the candidates by POOL, never by the session's descriptor id**: the map is keyed by the backend
+  the watcher watches, and it watches only Axis-B, so a template (Axis-A, forwarding its base's store
+  hooks) looked up under its own id is told its store did not move — about its base's store, which just
+  did. `recordPoolId` in `src/watch/adopt.js` is the same answer #527 already needed there.
 - The sweep cadence is a coalesced `setImmediate` fired **after each `get-projects`**, plus the Axis-B
   watcher's post on a store change — not a wall-clock interval. Active changes are covered by the live
   watchers; the safety-net reconcile does not fire on its own if the sidebar is never re-fetched AND no
