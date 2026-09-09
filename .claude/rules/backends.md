@@ -344,10 +344,30 @@ treated every template like Hermes), and the live-binding family (#603 — a tem
 all, and could not even be flagged for it, because the flag asks the capability the same question).
 
 **The symptom is silence, not an error**, which is why it survives review: the template launches, runs
-and writes its transcript exactly as expected, and only the missing behaviour is absent. When you add a
-hook to a descriptor, ask whether a template running that binary should have it. Some deliberately do
-NOT — `projectMeta` would make a template a second "meta backend" and double Claude's Info column — so
-the answer is a decision, not a reflex. #605 is the open question of how to stop deciding it by memory.
+and writes its transcript exactly as expected, and only the missing behaviour is absent.
+
+**Since #605 the two shapes are COMPARED**, so the decision is no longer made by memory.
+`test/template-descriptor-shape.test.js` subtracts a template's keys from every base's and fails on
+anything left over, naming the key. So when you add a hook to a descriptor there are exactly two
+outcomes: forward it in `profileToDescriptor`, or add it to `NOT_INHERITED` in that test **with the
+reason a template must not have it**. A reason, not a category — the test refuses a label — and a stale
+entry fails too, so the list cannot quietly become a place to silence a finding.
+
+That measurement found twenty more, in seven families, and the pattern in them is worth carrying: **the
+expensive ones are a DECLARATION forwarded without the hook it promises.** `transcriptAccess: 'export'`
+reached a template while `readMessages` did not, and the transcript path checks for both — so a template
+on agy fell through to the file branch and had its `.db` read as JSONL, which is the failure the comment
+at that branch exists to prevent. `supportsSubagents` without `listSubagents` is the same shape, and so
+was `readTurnQueue` without `noteTurnQueue`. Grep a new flag for the hook that answers it.
+
+Some hooks deliberately do NOT travel, and the reason is always the CONSUMER rather than the capability:
+`projectMeta` would make a template a second "meta backend" and double Claude's Info column (#211);
+`handoffDirs` and `planRef`/`planDirSetup` are read by consumers that filter `!b.isProfile` already, so
+the base answers for both. `listResources` is the one that splits: the session-scoped consumer
+(`app/skills.js`, keyed on the SESSION's backend) needs it, and the settings screen must not print the
+base's inventory twice — so the hook is forwarded and `backends-panel.js` skips the disclosure for a
+profile. When a hook is right for one consumer and wrong for another, put the refusal at the surface,
+not on the descriptor.
 
 ## "Is something else already running this session?" is THREE hooks (#172, #607)
 
