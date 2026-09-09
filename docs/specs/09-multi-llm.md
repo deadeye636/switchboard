@@ -159,6 +159,7 @@ corrects it (up to ~15 minutes, pre-existing). A PTY exit clears it immediately.
 | `watchTargets()` | store-level addresses — also how the app knows the store **exists** |
 | `matchLiveSession` / `liveRefFor` / `liveState` | the identity + state seam (below) |
 | `resolveLineage(row)` | → `{lineageParentId, lineageKind}` \| `null` — which session this one continued (Spec 13). Claude: a fork's `forkedFrom`; Hermes: `parent_session_id`; Pi: a fork's `parentSession` path (only a forked session has one); Codex and agy `null` until a verified on-disk parent field exists. The core stamps it at one sink and never reads a backend's format (#193/#223). |
+| `openedWithCommand(row)` | → the slash command a session OPENED with, when that is still all it has said, else `null` (#229, Spec 13). Claude reads its own command markup; Codex, Hermes, Pi and agy decline until their formats are measured. The core stamps the answer onto the sidebar payload (`src/index/projects-view.js`) so the renderer can name such a row after the session it continues without holding any backend's grammar. |
 | `transcriptPathFor(row)` | → the path to this row's transcript, or `null`. A file backend hands back `row.filePath`; Claude reconstructs from folder + session id over its own roots. The Projects admin's remap/delete no longer reconstructs a Claude path inline (#211). |
 | `normalizeTranscriptEntries(entries)` | OPTIONAL Message History adapter. A backend whose raw transcript has richer or different entry shapes can return renderer-neutral entries (`message` with text/tool blocks, `custom-title`, `local-command`, `transcript-meta`) before the renderer sees them. Pi uses this to follow the active tree leaf and render `toolCall`/`toolResult`, bash executions, compactions, branch summaries and extension messages without a renderer backend-id branch (#409). |
 | `projectTrust` / `projectMeta` | OPTIONAL per-project capabilities. `projectTrust` = the trust gate (Claude's `~/.claude.json`, Codex's config.toml, Pi's `trust.json`). `projectMeta` = a backend's own projects table (Claude's `~/.claude.json`: `getMany` display-ready columns, `knownProjects`, `has`, `rename`, `remove`, `removeLabel`). A backend with none declares none, and the Projects admin shows no columns for it rather than borrowing Claude's (#171/#211/#406). |
@@ -654,7 +655,7 @@ capabilities, columns are backends, cells are `yes` / `limited` / `no`.
 
 **The answers are DECLARED, and that is the whole decision.** The obvious implementation reads
 `typeof descriptor.someHook === 'function'`, and it produces a table that is wrong. Nearly every hook exists
-on every backend — `plansDir`, `memorySources`, `resolveLineage`, `cliHomeEnv`, `transcriptPathFor` and
+on every backend — `plansDir`, `memorySources`, `resolveLineage`, `openedWithCommand`, `cliHomeEnv`, `transcriptPathFor` and
 `listResources` are declared by all five — and several exist *in order to decline*: agy's `cliHomeEnv`
 returns null, Codex' `resolveLineage` returns null, Hermes' `plansDir` returns null. Presence says a backend
 answered the question, not what it answered. Two backends enumerate their skill files and two stop at the

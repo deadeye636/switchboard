@@ -103,6 +103,22 @@ not this line:** it claimed the renderer was clean for eleven issues while #212 
 list there rather than a number here**: this line said "eleven files" while the map held dozens. Clean a
 file → add it to `ALLOWED_BINDINGS`.
 
+**A backend's FORMAT is the same rule, and no guard here can see it.** `test/backend-integrations.test.js`
+looks for an id; `test/backend-path-neutrality.test.js` looks for a store layout. A regex over one CLI's
+transcript markup carries neither, so it lives in `src/renderer/**` looking like a string helper and
+nothing fails. #229 got that far twice: the rule for "this row is still only the `/clear` it opened with"
+was written in Claude's reader AND beside the renderer, and the obvious repair — one copy in
+`src/shared/` — only made Claude's grammar load in both processes, which is what that directory's own
+paragraph at the end of this file exists to refuse.
+
+The shape that holds: the BACKEND answers, the core carries the answer, the renderer reads a field.
+`openedWithCommand` on the descriptor, stamped by `src/index/projects-view.js`, read as
+`session.openedWithCommand` in `lib/continuation-title.js`; four backends decline until their formats are
+measured, and `test/backend-parity.test.js` makes each of them say so. The test to apply before writing a
+derivation here: **whose store does this answer come out of?** If the answer is "one CLI's", the renderer
+may hold the ANSWER and never the derivation — a second backend then costs a line in its own folder
+instead of an edit here.
+
 **`window._defaultBackendId` is already resolved — never rescue it.** It is the stored target while
 still launchable, else the first launchable, else `''` (`resolveDefaultTarget`). So
 `_defaultBackendId || <anything>` means the `<anything>` is a bug. That is the whole of #225: sixteen

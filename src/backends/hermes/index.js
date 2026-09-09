@@ -262,6 +262,9 @@ module.exports = {
   // Lineage (#193): Hermes records a real parent in its store (`parent_session_id`), which the reader
   // surfaces as `lineageParentRef`. A hard link.
   resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'parent' } : null),
+  // A session's opening slash command (#229): Hermes stores messages as SQLite rows, and no measured
+  // session opens with command markup in the message text. Declines until one does.
+  openedWithCommand: () => null,
   // Hermes sessions are rows in state.db, not files — there is no transcript path (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Hermes keeps no plans store (#227).

@@ -214,6 +214,10 @@ module.exports = {
   // Lineage (#193): Codex records no parent link on disk — a `/clear` starts a new rollout with no
   // back-ref, and `compacted` is a per-message state, not a parent reference. Declares none (honest gap).
   resolveLineage: () => null,
+  // A session's opening slash command (#229): Codex records a `/clear` as a NEW rollout rather than as a
+  // message in the old one, so there is no command line to mistake for a prompt here. Declines until a
+  // real transcript shows one.
+  openedWithCommand: () => null,
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Codex keeps no plans store (#227).

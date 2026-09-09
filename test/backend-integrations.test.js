@@ -143,6 +143,9 @@ const ALLOWED_BINDINGS = {
   // #146 — the welcome tour names capability ids (`attentionHooks`, `mcpEmulation`) and asks the
   // registry which backend declares them, so it binds no backend id at all.
   'src/renderer/dialogs/welcome-tour.js': [],
+  // #229 — it reads `openedWithCommand`, the answer the BACKEND gave and the core stamped onto the row.
+  // No backend id, and no transcript grammar either: the derivation never leaves the backend's folder.
+  'src/renderer/lib/continuation-title.js': [],
   'src/renderer/panels/settings-panel.js': [],
   'src/renderer/panels/settings-tags.js': [],
   'src/renderer/panels/settings-maintenance.js': [],

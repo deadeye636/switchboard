@@ -1348,6 +1348,13 @@ async function loadProjects({ resort = false } = {}) {
   for (const proj of cachedAllProjects) for (const s of proj.sessions) indexedIds.add(s.sessionId);
   syncLiveUnindexedSessions(liveSessions, indexedIds);
   rebuildProjectDisplayNames();
+  // A row that is still only the slash command it opened with borrows the name of the session it
+  // continues (#229). Over the shared map, so both project lists and every view that reads a session
+  // object show the same title, and after the invented live rows so a just-launched one is included.
+  // Nothing is stored: the next payload re-derives it.
+  if (typeof applyContinuationTitles === 'function') {
+    applyContinuationTitles([...sessionMap.values()], id => sessionMap.get(id));
+  }
 
   // Reconcile pending sessions: remove ones that now have real data
   let hasReinjected = false;

@@ -10,6 +10,13 @@ const { deriveProjectPath, normPath } = require('../session/derive-project-path'
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { parseWorktreePath, worktreeRootOf } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
+// The backend registry, for the one question this file asks a descriptor: what did this session OPEN
+// with (#229). Neutral by construction — the core never reads a transcript format, it asks and passes
+// the answer on.
+const backends = require('../backends');
+// A row with no explicit backendId predates the multi-LLM era and is Claude by definition — the same
+// named default `index-writes.js` uses to route a row to its descriptor.
+const LEGACY_SESSION_BACKEND = 'claude';
 // The third row source (#594). A sibling require rather than a ctx entry: it is a leaf with no database
 // and no Electron, and a partially-initialised ctx (which every test hands us) would silently make the
 // source vanish instead of failing. Its answer is empty until something has called `refresh` — main's
@@ -39,6 +46,27 @@ function init(ctx) {
 
 // The later of two timestamps, either of which may be absent. Compared as dates rather than strings
 // because the two sides can reach us in different ISO spellings.
+/**
+ * The slash command a session opened with, as its own backend spells it — or null (#229).
+ *
+ * One line of neutrality: the core asks the descriptor and never looks at a transcript. Claude answers
+ * from its own markup, every other backend declines until its format has been measured, and a template
+ * forwards its base's answer. A row that answers is one the renderer may name after the session it
+ * continues, because it has said nothing of its own yet.
+ *
+ * No shortcut on the summary's first character, however cheap: "a `/` or a `<`" is CLAUDE's spelling, and
+ * asserting it here would silently skip a backend that answers for `:new` or `#clear` — it would pass the
+ * parity test and never be asked, which is precisely the failure this seam exists to prevent. The cost is
+ * a map lookup and a call per row on a rebuild, against a filesystem realpath the same loop already pays.
+ */
+function commandOpenerFor(row) {
+  const summary = row && row.summary;
+  if (!summary) return null;
+  const backend = backends.get(row.backendId || LEGACY_SESSION_BACKEND);
+  if (!backend || typeof backend.openedWithCommand !== 'function') return null;
+  try { return backend.openedWithCommand(row) || null; } catch { return null; }
+}
+
 function newerOf(a, b) {
   if (!a) return b || '';
   if (!b) return a;
@@ -174,6 +202,11 @@ function buildProjectsFromCache(showArchived) {
       // How that parent link was established (#193): 'fork'/'parent'/'compaction' are hard (the backend
       // recorded it), 'clear' is the soft mtime-freeze guess — the sidebar labels a guess as a guess.
       lineageKind: row.lineageKind || null,
+      // The slash command this session opened with, when that is still all it has said (#229). The
+      // backend decides — the core holds no transcript grammar and the renderer holds less than that:
+      // it reads this string and nothing else. Null for every backend that records no such thing, and
+      // for every session that has a prompt of its own.
+      openedWithCommand: commandOpenerFor(row),
       // Which tool this session was imported from, as a label (#552). Null for everything nobody
       // imported, which is nearly every row. It rides to the sidebar because the same work can be in the
       // list twice — once from the tool's own store, once from the store it was imported into — and this

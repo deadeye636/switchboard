@@ -49,7 +49,11 @@ sessions its descriptor could describe and deliberately does not, because a chil
 turn and the seam's fourth part — the DRIVE — exists only for Claude's store, #553), where its CLI
 **publishes what changed**
 (`changelogSource`, #528 — `npm run backends:changelog-check` asks every backend rather than holding a
-list of pages, and a CLI without a public changelog declares `null`), whether it still **owes a turn** it has
+list of pages, and a CLI without a public changelog declares `null`), what a session **opened with** when that is
+still all it has said (`openedWithCommand`, #229 — a `/clear` re-keys onto a session whose transcript is
+one line of the CLI's own command markup, and the row it replaces would be titled after the command that
+ended its predecessor; the renderer names such a row after the session it continues and holds no grammar
+of its own), whether it still **owes a turn** it has
 not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
 the core must not believe; Claude reads it out of its own transcript, Pi is told by its binding extension
 and remembers it (#530), and a backend that cannot tell answers `null`, which is **not** the same as

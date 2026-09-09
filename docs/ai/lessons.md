@@ -444,6 +444,29 @@ Worth remembering when the same shape appears again: the guard is not being peda
 `.claude` literal in the core is the point where a second backend's version of the feature becomes a
 branch instead of an answer.
 
+## A backend's GRAMMAR is a backend id no guard can see (#229)
+
+The sibling of #450, and worse, because nothing went red. A session re-keyed by a `/clear` was titled after
+the command that ended its predecessor, and fixing that needs one question answered in two processes: is
+this row still nothing but the command it opened with? The reader answered it from Claude's transcript
+markup; the renderer answered it again, with its own regex over the same markup.
+
+Two copies of a derivation is a named trap in `.claude/rules/renderer.md`, so the obvious repair was one
+copy in `src/shared/` — and that made it worse rather than better: one CLI's transcript grammar now loaded
+in both processes, in the directory whose whole reason is code that must compute identically on both sides.
+`test/backend-integrations.test.js` hunts backend IDs and found none; `test/backend-path-neutrality.test.js`
+hunts store layouts and found none. A regex carries neither, so it reads as a string helper.
+
+The shape that holds is the one #193 already established for lineage: the BACKEND answers
+(`openedWithCommand`), the core carries the answer (`src/index/projects-view.js`), the renderer reads a
+field. Four backends decline with a reason and `test/backend-parity.test.js` makes each of them say so.
+
+The question to ask before writing any derivation in the renderer: **whose store does this answer come out
+of?** If it is one CLI's, the renderer may hold the answer and never the derivation. Two verifier passes
+weighed the shared module without either of them naming this — one asked to delete it, one to keep it, and
+both were arguing about the file rather than about which process owns the question. The owner asked "isn't
+this backend-near?" and that settled it in a sentence.
+
 ## A red test can be the specification working (#472)
 
 Making the per-backend resource lists load lazily turned nine tests in `backend-resources-panel.test.js`

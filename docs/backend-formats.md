@@ -28,19 +28,36 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   `.claude/` resources when a project is in scope. It deliberately excludes credentials, logs, history,
   transcripts and Claude's main config file, which can carry secrets.
 
-### Not every `user` entry is the user (#495)
+### Not every `user` entry is the user (#495, #229)
 
-Three things wear `type: 'user'` and none of them is somebody typing. Reading them as a turn is how the
-app came to report a turn start on every tool call:
+Five things wear `type: 'user'` and none of them is somebody typing a prompt. Reading them as a turn is how
+the app came to report a turn start on every tool call — and reading one as the session's first words is
+how a cleared session came to be titled after the command that ended its predecessor:
 
 | Marker | What it is |
 |---|---|
 | `message.content` is an array holding `tool_result` blocks | the result of a tool call the agent made |
 | `isSidechain: true` | a subagent's line, from its own conversation |
 | `isMeta: true` | injected text — a skill's body, a system reminder — written as a user message with an ordinary text block |
+| `<command-name>` + `<command-message>` + `<command-args>` and nothing else | an invoked slash command (#229) |
+| `<local-command-stdout>` | what that command printed (#229) |
 
-The last one is the least obvious and the most common: **452 of them** in the store this was measured
+`isMeta` is the least obvious and the most common: **452 of them** in the store this was measured
 against, each with a perfectly ordinary `[{type: 'text', …}]` content array.
+
+The last two are **separate messages from each other and from the caveat block**, measured on a live
+transcript: `<local-command-caveat>` arrives as its own entry, then the command markup as its own, then
+the CLI's output as its own, and only then the prompt. An existing skip test that named the caveat alone
+therefore never saw the command, and a `/clear` — whose whole child transcript is that one markup line
+until the user types — produced the title "/clear clear" once the tags were stripped for display.
+
+Two consequences the reader acts on. **A command is not a prompt**: the summary is the next real message,
+except that a session which has run nothing else keeps the command as its title, because a row with no
+summary is not built at all and the sidebar would drop the row a `/clear` had just created. **A command
+the user gave ARGUMENTS to is a prompt**: `<command-args>reconnect all</command-args>` is the only part
+they typed. Whether a stored row is still only its command is the descriptor's `openedWithCommand`, so the
+grammar above stays in Claude's folder — `docs/specs/13-session-lineage.md` has what the renderer does
+with the answer.
 
 ### The prompt queue is in the transcript (#495)
 

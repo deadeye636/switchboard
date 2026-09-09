@@ -32,6 +32,7 @@
     "session-status.js",
     "pixel-icon.js",
     "project-name.js",
+    "continuation-title.js",
     "project-list-state.js",
     "project-sort.js",
     "session-tags-filter.js",

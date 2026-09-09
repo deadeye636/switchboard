@@ -15,7 +15,13 @@ const { sessionProjectPath } = require('../../session/derive-project-path');
 //   v4: a session that moved DEEPER into its own project stays with it — a nested repository is not a
 //       new project (#182). Same reason for the bump: the sessions v3 scattered into phantom projects
 //       have long-settled mtimes, so only the version marker brings them home.
-const PARSER_SCHEMA_VERSION = 5; // v5: fork lineage (lineageParentId/lineageKind) — #193
+//   v5: fork lineage — lineageParentId/lineageKind (#193).
+//   v6: a session that OPENED with a slash command is no longer titled after it (#229) — the summary is
+//       the first real prompt, and a session that has run nothing else falls back to the command alone.
+//       Without the bump every already-indexed row keeps the raw `<command-name>` markup, because
+//       folder-parse skips a file whose mtime and parser version both match — and a stale row lends that
+//       markup to the session that continues it.
+const PARSER_SCHEMA_VERSION = 6; // v6: a slash-command opener is not the summary — #229
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -154,6 +160,78 @@ function extractDailyMetrics(lines, fallbackDate) {
   return Array.from(map.values());
 }
 
+// ── What a session that has only run a slash command is called (#229) ────────
+//
+// Claude writes an invoked command as its own user message — `<command-name>/clear</command-name>` with a
+// `<command-message>` and an empty `<command-args>`, and nothing else — so it is not a prompt and the next
+// message is the summary. Stripping the tags (what the renderer's cleanDisplayName does) left "/clear
+// clear": the command that ENDED the previous session, on the row that had just replaced it.
+//
+// This is Claude's transcript grammar and it stays in Claude's folder. The renderer needs an ANSWER, not
+// the grammar — `openedWithCommand` on the descriptor is where the core asks for it, and every other
+// backend answers for its own format or declines.
+
+// The command's own tags, paired or self-closing. Claude writes the paired form today; a self-closing
+// `<command-args />` would otherwise leave text behind and turn the whole markup back into a title.
+const COMMAND_TAGS = /<command-(?:name|message|args)\s*\/>|<command-(?:name|message|args)>[\s\S]*?<\/command-(?:name|message|args)>/g;
+const STDOUT_TAGS = /<local-command-stdout\s*\/>|<local-command-stdout>[\s\S]*?<\/local-command-stdout>/g;
+const COMMAND_NAME = /<command-name>\s*([^<]+?)\s*<\/command-name>/;
+const COMMAND_ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
+
+/**
+ * The command a user message consists of, or '' when the message carries anything else.
+ *
+ * A message with markup AND prose is a real prompt — a skill invocation expands into one. So is a command
+ * the user gave ARGUMENTS to (`/mcp reconnect all`): the arguments are the part they typed, and reducing
+ * that to `/mcp` would throw away the only words in it.
+ */
+function commandOnlyText(text) {
+  const named = COMMAND_NAME.exec(String(text || ''));
+  if (!named) return '';
+  const args = COMMAND_ARGS.exec(String(text));
+  if (args && args[1].trim()) return '';
+  const rest = String(text)
+    .replace(COMMAND_TAGS, ' ')
+    .replace(STDOUT_TAGS, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (rest) return '';
+  const cmd = named[1].trim();
+  if (!cmd || /\s/.test(cmd)) return '';
+  return cmd.startsWith('/') ? cmd : '/' + cmd;
+}
+
+/**
+ * The command a STORED row opened with, or '' when it opened with something a user wrote.
+ *
+ * This is what the descriptor hands the core, and through it the renderer: a row whose summary is nothing
+ * but its opening command has no name of its own yet. It recognises what this parser writes now (`/clear`)
+ * AND the raw markup a row indexed by an older parser still holds until the v6 re-read reaches it — a
+ * stale row has no name to lend, and saying it has is how "↳ /clear clear" would appear.
+ */
+function openedWithCommand(summary) {
+  const s = String(summary || '').trim();
+  if (!s) return '';
+  // What this parser writes: one token, one leading slash. The second-slash refusal is not decoration —
+  // a first prompt that is nothing but a pasted POSIX path (`/usr/local/bin/foo`) would otherwise be read
+  // as a command, and the session would be named after its parent while its own words went unseen.
+  if (/^\/[^\s<\/]+$/.test(s)) return s;
+  const whole = commandOnlyText(s);
+  if (whole) return whole;
+  // A row indexed by an older parser holds the raw markup — SLICED AT 120 CHARACTERS, so anything past a
+  // short command name arrives with its tail cut off and never closes. Recognising only the intact form
+  // left such a row lending its markup to the session that continues it, which renders as
+  // "↳ /it-admin:project_init it-admin:project_init". The name is in the first tag either way.
+  const named = /^<command-name>\s*([^<]+?)\s*<\/command-name>/.exec(s);
+  if (!named) return '';
+  const rest = s.slice(named[0].length).replace(COMMAND_TAGS, ' ').replace(STDOUT_TAGS, ' ').trim();
+  // Whatever is left must be a tag that the slice cut in half, never prose the user wrote.
+  if (rest && !/^<[^>]*$/.test(rest)) return '';
+  const cmd = named[1].trim();
+  if (!cmd || /\s/.test(cmd)) return '';
+  return cmd.startsWith('/') ? cmd : '/' + cmd;
+}
+
 // ── Shared per-line parse state ──────────────────────────────────────────────
 // One mutable accumulator holds everything a single pass over JSONL lines
 // derives. readSessionFile() runs it over the whole file in one go; the
@@ -162,6 +240,11 @@ function extractDailyMetrics(lines, fallbackDate) {
 function createParseState() {
   return {
     summary: '',
+    // The slash command a session OPENED with, when its first user message is nothing but the CLI's
+    // command markup (#229). It is not the summary — the real prompt is the next message — but it is
+    // what a row falls back to in the seconds between `/clear` and the user typing, which is exactly
+    // when a re-keyed session appears. Without it that row has no summary at all and is not built.
+    commandSummary: '',
     messageCount: 0,
     textContent: '',
     slug: null,
@@ -229,8 +312,21 @@ function applyEntryLine(st, line) {
   }
   if (!st.summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
     // Skip local command messages (! prefix) — use the next real user message
-    if (text && !/<bash-input>|<bash-stdout>|<local-command-caveat>/.test(text)) {
-      st.summary = text.slice(0, 120);
+    // `<local-command-stdout>` joined the list with the command rule below: a command that PRINTS writes
+    // its output as the next user message, and taking that as the summary titles the session with the
+    // CLI's own output — which a handoff heading would then present as what the user said.
+    if (text && !/<bash-input>|<bash-stdout>|<local-command-caveat>|<local-command-stdout>/.test(text)) {
+      // A slash command is not a prompt either (#229). The CLI writes `/clear` as its own user message,
+      // one line of markup and nothing else, so a session that was just cleared was titled "/clear clear"
+      // — the markup with its tags stripped — while its real first prompt sat in the very next message.
+      // Measured against a live transcript: the caveat block and the command block are SEPARATE messages,
+      // so the existing caveat test never saw this one.
+      const cmd = commandOnlyText(text);
+      if (cmd) {
+        if (!st.commandSummary) st.commandSummary = cmd;
+      } else {
+        st.summary = text.slice(0, 120);
+      }
     }
   }
   if (text && st.textContent.length < 8000) {
@@ -243,7 +339,11 @@ function applyEntryLine(st, line) {
 function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMetrics) {
   const fileBase = path.basename(filePath, '.jsonl');
   const isSubagent = Boolean(opts.parentSessionId);
-  if (!st.summary || st.messageCount < 1) return null;
+  // A session whose only user message so far is the slash command that opened it still gets a row: it is
+  // the one a `/clear` has just re-keyed onto, and a row that is not built is a row the sidebar drops on
+  // the very event that created it (#229). The command stands in until the first real prompt arrives.
+  const summary = st.summary || st.commandSummary;
+  if (!summary || st.messageCount < 1) return null;
 
   // Which project this SESSION belongs to — not which project its folder stands for (#157). A session
   // that moved into a git worktree (or into another repo) follows the tree it is working in; one that
@@ -272,8 +372,8 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     return {
       sessionId: subagentSessionId(opts.parentSessionId, agentId),
       folder, projectPath: rowProjectPath,
-      summary: description || st.summary,
-      firstPrompt: st.summary,
+      summary: description || summary,
+      firstPrompt: summary,
       created: stat.birthtime.toISOString(),
       modified: stat.mtime.toISOString(),
       messageCount: st.messageCount,
@@ -289,7 +389,7 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
 
   return {
     sessionId: fileBase, folder, projectPath: rowProjectPath,
-    summary: st.summary, firstPrompt: st.summary,
+    summary, firstPrompt: summary,
     created: stat.birthtime.toISOString(),
     modified: stat.mtime.toISOString(),
     messageCount: st.messageCount,
@@ -318,7 +418,8 @@ function readSessionFile(filePath, folder, projectPath, opts = {}) {
     const lines = content.split('\n').filter(Boolean);
     const st = createParseState();
     for (const line of lines) applyEntryLine(st, line);
-    if (!st.summary || st.messageCount < 1) return null;
+    // Same fallback as buildSessionRow's guard: a just-cleared session is only its command so far.
+    if ((!st.summary && !st.commandSummary) || st.messageCount < 1) return null;
 
     const fallbackDate = stat.mtime.toISOString().slice(0, 10);
     const dailyMetrics = extractDailyMetrics(lines, fallbackDate);
@@ -561,4 +662,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly };
+module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, openedWithCommand };

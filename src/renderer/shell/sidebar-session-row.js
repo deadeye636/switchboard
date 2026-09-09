@@ -424,21 +424,30 @@ function startRename(summaryEl, session) {
   // user — and the comparison in `resolveRenameTarget` then never matched, so confirming without
   // editing anything stored the cleaned string as a MANUAL name and switched the automatic title off.
   const display = (value) => (typeof cleanDisplayName === 'function' ? cleanDisplayName(value) : value) || '';
-  input.value = display(session.name || session.aiTitle || session.summary);
+  // `summaryRaw` before `summary` (#229): not the borrowed label — an edited prefill is STORED as this
+  // session's manual name.
+  input.value = display(session.name || session.aiTitle || session.summaryRaw || session.summary);
 
   summaryEl.replaceWith(input);
   input.focus();
   input.select();
 
   const save = async () => {
-    const fallback = display(session.aiTitle || session.summary);
+    // The SAME source as the prefill, or #358 comes back for a borrowed row (#229): the box would show
+    // `/clear` while the comparison used `↳ Parent`, so confirming without editing anything stored
+    // `/clear` as a manual name and switched the automatic title off for good.
+    const fallback = display(session.aiTitle || session.summaryRaw || session.summary);
     const nameToSave = resolveRenameTarget(input.value, fallback);
     await window.api.renameSession(session.sessionId, nameToSave);
     session.name = nameToSave;
 
     const newSummary = document.createElement('div');
     newSummary.className = 'session-summary';
-    newSummary.textContent = nameToSave || fallback;
+    // What the row SHOWS is the label again, which for a borrowed row is the name it borrows — not the
+    // `/clear` the comparison above needed. Painting `fallback` here would leave the row reading `/clear`
+    // until the next render, i.e. undoing the borrow for anyone who opened the rename box and changed
+    // their mind.
+    newSummary.textContent = nameToSave || display(session.aiTitle || session.summary);
     // No per-node dblclick — the delegated listener on sidebarContent re-triggers rename (#218 opt6).
     input.replaceWith(newSummary);
   };

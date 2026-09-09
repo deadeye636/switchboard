@@ -447,6 +447,9 @@ module.exports = {
     const m = PI_TRANSCRIPT_NAME.exec(path.basename(String(ref)));
     return m ? { lineageParentId: m[1], lineageKind: 'fork' } : null;
   },
+  // A session's opening slash command (#229): Pi records a local command as its own entry type, which the
+  // parser already keeps out of the visible conversation, so no summary here is command markup. Declines.
+  openedWithCommand: () => null,
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Does this session still owe a turn (#530)? The answer is pushed by the per-spawn binding extension and

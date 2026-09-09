@@ -157,11 +157,36 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
   The claim arrived ~2 s before the file event, so the re-key landed on the first pass; when the race goes
   the other way the `ambiguous … will re-check` line is expected and the re-key follows late.
 
-  One cosmetic follow-up this exposed: the re-keyed row takes its title from the child transcript's first
-  line, which for a `/clear` is the command text itself.
+  ~~One cosmetic follow-up this exposed: the re-keyed row takes its title from the child transcript's
+  first line, which for a `/clear` is the command text itself.~~ **Closed:** the reader no longer takes a
+  slash command as a session's summary — the first real prompt is — and a session that has run nothing
+  else keeps a row titled after the command alone, because a row that is not built is a row the sidebar
+  drops on the very event that created it. While that is all it has, the row borrows the name of the
+  session it continues, marked `↳` (`src/renderer/lib/continuation-title.js`, over the lineage the
+  sidebar already draws). The hand-off to the CLI's own title needs no undoing: `name || aiTitle ||
+  summary` prefers an `aiTitle` the moment one is written.
+  **Whether a row is still only its command is the BACKEND's answer, not the renderer's** — `openedWithCommand`
+  on the descriptor, stamped onto the sidebar payload by `src/index/projects-view.js` and read there as a
+  plain field. Claude answers from its own markup inside `src/backends/claude/session-reader.js`; the other
+  four decline until their formats have been measured, and `test/backend-parity.test.js` makes every one of
+  them answer. A regex over `<command-name>` in the renderer would have been one backend's grammar in the
+  wrong process, and invisible to both guards that look for such things: the backend-id check finds no id
+  and the path guard finds no store layout.
+  The borrowed name is a LABEL: a handoff heading, an agent prompt's goal line and the rename prefill read
+  `summaryRaw || summary` instead, so no borrowed name reaches a file or the database. **That field is
+  cleared the moment the borrow ends** — the renderer keeps one object per session across payloads, so a
+  `summaryRaw` left behind is not inert: it is what those three paths would go on reading after the row
+  itself had moved on to the session's own first prompt. The three are named in
+  `test/clear-continuation-title.test.js` (`READS_ITS_OWN_SUMMARY`), with the reason each is on the list,
+  because nothing else marks a summary as unsafe to write out.
 - **Codex / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
   parent on a `/clear` and `compacted` is a state not a reference; agy's `parent_references` is an
   unverified protobuf blob.
+  **agy's half is closed as "not buildable", not as "not done yet"**: reverse-engineering that blob needs a
+  real forked conversation to diff against, and agy has no fork route at all (`supportsFork: false` for
+  exactly that reason), so there is nothing to produce one with. It reopens if agy ever ships a fork.
+  Codex stays open on a different footing: the premise above predates `codex fork <session-id>`, which this
+  app already offers, and whether a forked rollout records its origin has not been re-measured since.
 - **Pi WAS in that list, wrongly, for several issues.** "The session header records no parent (verified)"
   was written from a survey of real sessions — none of which happened to be a fork, which is the only kind
   that carries the key. A single `pi --fork` transcript disproved it. The lesson is not "check harder": it

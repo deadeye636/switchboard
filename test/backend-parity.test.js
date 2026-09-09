@@ -255,6 +255,27 @@ test('every backend declares resolveLineage — a link shape or an honest null',
   }
 });
 
+// #229: what a session OPENED with is the same shape of question as lineage — it is about a backend's own
+// store, so the backend answers and the core passes the answer to the renderer. That is what keeps a
+// transcript grammar out of `src/renderer/**`, where no guard could see it: the backend-id check has no id
+// to find and the path guard has no store layout to find. A backend that has not measured its own format
+// declines, and declining is an answer.
+test('every backend declares openedWithCommand — a command string or an honest null', () => {
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.openedWithCommand, 'function',
+      `${id} must declare openedWithCommand (return null if it records no such thing)`);
+    assert.equal(b.openedWithCommand({}), null, `${id}.openedWithCommand({}) must be null`);
+    assert.equal(b.openedWithCommand(null), null, `${id}.openedWithCommand(null) must be null, not a throw`);
+    // A prompt is never a command, whatever a backend's format looks like.
+    assert.equal(b.openedWithCommand({ summary: 'rewrite the parser' }), null,
+      `${id}.openedWithCommand must not answer for a row carrying a real prompt`);
+    const answer = b.openedWithCommand({ summary: '/clear' });
+    assert.ok(answer === null || typeof answer === 'string',
+      `${id}.openedWithCommand must answer null or a string`);
+  }
+});
+
 // #211: the Projects admin remaps and deletes a project's transcripts, and they do not all live in
 // Claude's store. It used to reconstruct Claude's path inline (resolveJsonlPath(PROJECTS_DIR, row)) — a
 // backend-specific require in the neutral core. Every backend now answers transcriptPathFor(row): a file

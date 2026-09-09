@@ -66,6 +66,16 @@ table is the fallback and it is binding.
    Those are correct; do not "fix" them in passing, and do not copy the spelling — a new one binds the
    named constant. Only `src/renderer/**` is guarded for ids at all
    (`test/backend-integrations.test.js`); `.claude/rules/backends.md` has both halves.
+
+   **And a backend's FORMAT is the same violation with nothing to catch it.** The guards look for an
+   `id` and for a store LAYOUT; a regex over one CLI's transcript markup carries neither, so it sits in
+   the renderer looking like a string utility and no test says a word. #229 shipped that far: the rule
+   for "this row is still only the `/clear` it opened with" was written twice, once in Claude's reader
+   and once beside the renderer, and moving the second copy into `src/shared/` to stop it drifting only
+   made one backend's grammar load in both processes. The question is a backend's, so the BACKEND
+   answers it — `openedWithCommand` on the descriptor, stamped onto the payload by the core, read in the
+   renderer as a plain field. Ask which store the answer comes out of: if it is one CLI's, the renderer
+   may hold the answer and never the derivation.
 6. **No personal or local identifiers. Anywhere that leaves this machine.** No personal name, email,
    machine or account name, and **no real path** — that includes a bare drive letter and folder
    (`<drive>:\<your-folder>\…`), not only a home directory. Use `~`, `<project>`, `<user>`, or an

@@ -352,7 +352,9 @@ function showHandoffSaveDialog(session) {
   overlay.className = 'new-session-overlay';
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
-  const title = cleanDisplayName(session.name || session.aiTitle || session.summary) || 'Handoff';
+  // `summaryRaw` before `summary` (#229): a session that has only just been cleared SHOWS the name it
+  // borrows from its parent, and this heading is written into a file under THIS session's name.
+  const title = cleanDisplayName(session.name || session.aiTitle || session.summaryRaw || session.summary) || 'Handoff';
   const now = new Date();
   const stamp = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}. ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
   const suggested = `${title} · ${stamp}`;

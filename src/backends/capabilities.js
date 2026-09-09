@@ -3,7 +3,8 @@
 //
 // WHY THE ANSWER IS DECLARED AND NOT DERIVED. The obvious implementation is
 // `typeof descriptor.someHook === 'function'`, and it produces a matrix that is wrong. Nearly every
-// hook exists on every backend: `plansDir`, `memorySources`, `resolveLineage`, `cliHomeEnv`,
+// hook exists on every backend: `plansDir`, `memorySources`, `resolveLineage`, `openedWithCommand`,
+// `cliHomeEnv`,
 // `transcriptPathFor` and `listResources` are declared by all five, and several of them are declared
 // precisely in order to DECLINE — agy's `cliHomeEnv` returns null, Codex' `resolveLineage` returns
 // null, Hermes' `plansDir` returns null. Presence says a backend answered the question, not what it

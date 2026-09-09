@@ -127,7 +127,10 @@
       session.cacheReadTokens ? `${formatCompact(session.cacheReadTokens)} cache-read tokens` : null,
       session.activeMinutes ? `${formatDuration(session.activeMinutes)} active time` : null,
     ].filter(Boolean).join(', ') || 'metrics unavailable';
-    const goal = session.name || session.aiTitle || session.summary || 'Continue the current task';
+    // `summaryRaw` first (#229): a just-cleared row's `summary` is the name it BORROWS from the session it
+    // continues, and handing that to an agent would assert the parent's goal as this session's. A cleared
+    // session that has said nothing of its own falls through to the default.
+    const goal = session.name || session.aiTitle || session.summaryRaw || session.summary || 'Continue the current task';
     const projectPath = session.projectPath || 'Unknown project';
 
     return `We are continuing from a long-running Switchboard session. Use this packet instead of re-reading the full old transcript.
@@ -272,7 +275,7 @@ Switchboard: this project's ${spec.noun} directory is ${token} — write ${spec.
       session.cacheReadTokens ? `${formatCompact(session.cacheReadTokens)} cache-read tokens` : null,
       session.activeMinutes ? `${formatDuration(session.activeMinutes)} active time` : null,
     ].filter(Boolean).join(', ') || 'local metrics unavailable';
-    const goal = session.name || session.aiTitle || session.summary || 'the current task';
+    const goal = session.name || session.aiTitle || session.summaryRaw || session.summary || 'the current task';
     const values = {
       goal,
       project: session.projectPath || 'unknown',

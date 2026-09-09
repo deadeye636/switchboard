@@ -228,6 +228,9 @@ function profileToDescriptor(p) {
     // forked template session would silently lose its "continued from" — the parser used to stamp it
     // regardless of backendId, so this restores that for the descriptor era.
     resolveLineage: base ? base.resolveLineage : undefined,
+    // Same reason for the opening-command answer (#229): a template's rows are written by the base binary
+    // in the base's format, so what counts as "opened with a command" there is the base's answer.
+    openedWithCommand: base ? base.openedWithCommand : undefined,
     // A template's rows are the base's rows in the base's store, so the transcript path and the
     // per-project config/meta are the base's too (#211) — forward both, exactly like rewriteProjectPath
     // and resolveLineage. Without transcriptPathFor a template's remap/delete could not find its files.

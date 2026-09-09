@@ -219,6 +219,9 @@
   <script src="session/session-status.js"></script>
   <script src="shell/pixel-icon.js"></script>
   <script src="lib/project-name.js"></script>
+  <!-- A just-cleared session borrows the name of the one it continues (#229). It reads the backend's own
+       answer (`openedWithCommand`) and holds no transcript format of its own. -->
+  <script src="lib/continuation-title.js"></script>
   <script src="lib/project-list-state.js"></script>
   <script src="lib/project-sort.js"></script>
   <!-- Pure tag-filter matching (#98 projects, #164 sessions) — shared with the node tests. -->

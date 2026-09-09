@@ -235,6 +235,9 @@ module.exports = {
   // no forked/parent agy conversation was available to reverse-engineer what it points at. Declares none
   // until the reference is verified against a real forked trajectory (honest gap).
   resolveLineage: () => null,
+  // A session's opening slash command (#229): not measured against a real agy conversation, and its
+  // transcript is a protobuf blob rather than lines of markup. Declines on purpose.
+  openedWithCommand: () => null,
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),

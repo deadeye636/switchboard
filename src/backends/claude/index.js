@@ -17,7 +17,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion } = require('./session-reader');
+const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion, openedWithCommand: readerOpenedWithCommand } = require('./session-reader');
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
@@ -413,6 +413,12 @@ module.exports = {
   // cross-session link Claude records on disk. A /clear records NO back-ref, so its (single-session) link
   // is written live by session-transitions, not here. Same-session compaction is not a lineage row.
   resolveLineage: (row) => (row && row.forkedFrom ? { lineageParentId: row.forkedFrom, lineageKind: 'fork' } : null),
+  // What a session OPENED with, when that is all it has said so far (#229). A `/clear` re-keys onto a new
+  // session (#223) whose transcript holds one line — the command itself — so the row that replaces the
+  // cleared one would be titled after the command that ended its predecessor. The core asks this hook and
+  // hands the answer to the renderer, which borrows the continued session's name while it stands; the
+  // grammar behind it is Claude's transcript format and does not leave this folder.
+  openedWithCommand: (row) => readerOpenedWithCommand(row && row.summary) || null,
   projectTrust,
   projectMeta,
   rewriteProjectPath,
