@@ -461,3 +461,37 @@ test('a template that reads a turn queue can also record one', () => {
     assert.strictEqual(typeof d.noteTurnQueue, 'function', 'and the push that gives it something to read');
   });
 });
+
+// #605: the rest of what the binary decides. Each of these describes the CLI a template is running, so
+// answering differently from the base was the descriptor disagreeing with itself.
+test('a template inherits what its binary decides about starting and reading', () => {
+  const hermes = { id: 'hm-tpl', name: 'A template', backendId: 'hermes', env: {} };
+  withRegistry({}, [hermes], () => {
+    const base = backends.get('hermes');
+    const d = backends.get('hm-tpl');
+    if (base && base.startupHint) assert.strictEqual(d.startupHint, base.startupHint, 'the boot line');
+    if (base && base.seedGraceMs !== undefined) {
+      assert.strictEqual(d.seedGraceMs, base.seedGraceMs, 'how long before text may be typed into it');
+    }
+    if (base && base.deleteBlockedReason) {
+      assert.strictEqual(d.deleteBlockedReason, base.deleteBlockedReason, 'why its history cannot be deleted');
+    }
+  });
+
+  const pi = { id: 'pi-norm-tpl', name: 'A template', backendId: 'pi', env: {} };
+  withRegistry({}, [pi], () => {
+    const base = backends.get('pi');
+    if (!base || typeof base.normalizeTranscriptEntries !== 'function') return;
+    assert.strictEqual(typeof backends.get('pi-norm-tpl').normalizeTranscriptEntries, 'function');
+  });
+});
+
+test('a base that declares none of them hands over none', () => {
+  const prof = { id: 'cl-plain-tpl', name: 'A template', env: {} };   // claude declares no startupHint
+  withRegistry({}, [prof], () => {
+    const d = backends.get('cl-plain-tpl');
+    const base = backends.get('claude');
+    if (!base.startupHint) assert.strictEqual(d.startupHint, undefined);
+    if (!base.deleteBlockedReason) assert.strictEqual(d.deleteBlockedReason, undefined);
+  });
+});

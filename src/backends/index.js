@@ -198,6 +198,17 @@ function profileToDescriptor(p) {
     // `readTurnQueue` then answered `null` for every turn — "cannot tell", which is the safe answer and
     // also the one that puts the session back on the #495 defect its base no longer has.
     ...(base && typeof base.noteTurnQueue === 'function' ? { noteTurnQueue: base.noteTurnQueue } : {}),
+    // The rest of what the BINARY decides, each unforwarded for no reason anyone wrote down (#605):
+    // the line printed while it boots, how long to wait before typing into it, why its history cannot be
+    // deleted, and how its transcript entries are shaped for the viewer. Every one of them describes the
+    // CLI a template is running, so answering differently from the base was the descriptor disagreeing
+    // with itself — a template on Hermes had text seeded before the TUI was up, and one on Pi had its
+    // entries handed to the viewer unnormalized.
+    ...(base && base.startupHint ? { startupHint: base.startupHint } : {}),
+    ...(base && base.seedGraceMs !== undefined ? { seedGraceMs: base.seedGraceMs } : {}),
+    ...(base && base.deleteBlockedReason ? { deleteBlockedReason: base.deleteBlockedReason } : {}),
+    ...(base && typeof base.normalizeTranscriptEntries === 'function'
+      ? { normalizeTranscriptEntries: base.normalizeTranscriptEntries } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);
