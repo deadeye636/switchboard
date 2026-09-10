@@ -16,6 +16,13 @@ const EXPAND_RULES = {
   'implicit-resources': { mode: 'flatFiles', kind: 'resource', keepExtension: true },
   'knowledge-directory': { mode: 'flatFiles', kind: 'memory-store', exts: ['.md'] },
   'plugins-directory': { mode: 'dirs', kind: 'plugin' },
+  // ASSUMED, not measured (#611): `skillTree` reports a folder only where it finds a `SKILL.md`, so a
+  // global `skills/` holding bare `.md` files would expand to nothing at all — silently, with `ok: true`.
+  // The shape is taken from agy's PLUGIN bundles, which are measured (`skills/<name>/SKILL.md`); the
+  // global root was empty on every install seen here, so nobody has looked inside one. If it turns out to
+  // be flat, this needs `rootMarkdown: true` the way Pi's does — that flag is deliberately NOT set now,
+  // because guessing the other layout would trade one silent miss for another.
+  'skills-directory': { mode: 'skillTree', kind: 'skill' },
   'project-gemini-directory': { mode: 'flatFiles', kind: 'settings', keepExtension: true },
 };
 
@@ -69,6 +76,31 @@ function createListResources({ conversationsRoot }) {
     // under one name in the settings screen and invite an edit to the one the CLI never reads.
     addFile(resources, geminiHome, path.join('config', 'mcp_config.json'), 'settings', 'gemini-mcp-config');
 
+    // The GLOBAL CUSTOMIZATION ROOT is `config/`, not the agy home (#611). A plugin is
+    // `<customization root>/plugins/<name>/` marked by a `plugin.json`, and `skills/` beside it is a
+    // global skill root the CLI reads directly. This app used to list `<agy home>/plugins`, a directory
+    // the binary carries no path to and that therefore never held anything.
+    //
+    // THIS LISTING CAN NEVER BE COMPLETE, and it is worth knowing before someone reads an empty panel as
+    // an empty install:
+    //  - A customization root may carry a `plugins.json` whose `entries` declare plugin directories at
+    //    arbitrary absolute, `~/`- or workspace-relative paths, and a declared entry ranks ABOVE
+    //    directory discovery in the CLI's own precedence. Such a plugin lives outside every directory
+    //    named here.
+    //  - A project's own root (`.agents/`, also `.agent/`, `_agents/`, `_agent/`) is found by walking
+    //    from the cwd up to the repository root. That walk is deliberately NOT implemented here: it is
+    //    unmeasured against a real project install, so this hook stays global-only (#611) rather than
+    //    guessing a project row.
+    // Enablement is a third thing this does not read: `config/config.json` holds a `plugins` map keyed
+    // by the plugin's DIRECTORY name, so a listed directory may belong to a plugin that is switched off.
+    // Listing the skills root gives it the SAME reach the other four backends' skill rows have: a listed
+    // skill is editable, and `kind: 'skill'` is on the deletable list, where deleting removes the skill's
+    // whole FOLDER. That is deliberate parity rather than an oversight — an agy skill is a file the user
+    // wrote, like a Claude or Pi one — and it is written down because it is a new way to destroy something
+    // in a directory this app did not touch before (#611).
+    addDir(resources, geminiHome, path.join('config', 'plugins'), 'plugin', 'plugins-directory');
+    addDir(resources, geminiHome, path.join('config', 'skills'), 'skill', 'skills-directory');
+
     // agy's own configuration and user-facing resource directories. Deliberately not included:
     // conversations/, conversation_summaries.db, history.jsonl, log/, crashes/, cache/, tmp/, scratch/,
     // google_accounts.json, oauth_creds.json, state.json or trustedFolders.json.
@@ -76,7 +108,6 @@ function createListResources({ conversationsRoot }) {
     addDir(resources, agyHome, 'builtin', 'resource', 'builtin-resources');
     addDir(resources, agyHome, 'implicit', 'resource', 'implicit-resources');
     addDir(resources, agyHome, 'knowledge', 'memory-store', 'knowledge-directory');
-    addDir(resources, agyHome, 'plugins', 'plugin', 'plugins-directory');
 
     if (projectPath) {
       addFile(resources, projectPath, 'GEMINI.md', 'memory', 'project-instructions', 'project');

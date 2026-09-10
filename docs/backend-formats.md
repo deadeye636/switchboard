@@ -512,9 +512,20 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   each turn's prose out of the protobuf blob with a shallow wire-format walk — a model reply is one
   length-delimited field whose value carries newlines and markdown, so a naive byte scan would split it.
 - Resource discovery is read-only through agy's `listResources()` hook. It surfaces safe Gemini and
-  Antigravity settings, builtin/implicit resource directories, the knowledge directory, the plugins
-  directory, and per project both `GEMINI.md` and the project's own `.gemini` settings directory. It deliberately excludes OAuth/account files, logs, crashes, caches, history, scratch/tmp data
-  and conversation databases.
+  Antigravity settings, builtin/implicit resource directories, the knowledge directory, the global
+  customization root's `plugins/` and `skills/` directories (`~/.gemini/config/`, #611), and per project
+  both `GEMINI.md` and the project's own `.gemini` settings directory. It deliberately excludes
+  OAuth/account files, logs, crashes, caches, history, scratch/tmp data and conversation databases.
+  **The plugin listing is a floor, not an inventory**: a `plugins.json` in a customization root may
+  declare plugin directories at arbitrary absolute, `~/`- or workspace-relative paths and those declared
+  entries outrank directory discovery, the workspace root is not walked at all, and enablement in
+  `config.json` is not read — so a listed directory may belong to a plugin that is switched off.
+  **And the skills row carries the reach the other four backends' skill rows carry**: an agy skill is
+  editable, and deleting one removes its whole folder. Parity, decided rather than inherited — it is a way
+  to destroy something in a directory this app did not touch before #611. The root's LAYOUT is the one
+  thing still assumed: the reader expects `skills/<name>/SKILL.md`, measured from agy's plugin bundles,
+  because no install seen here had a global skills directory to look inside. A flat `.md` root would
+  expand to nothing, silently, and would need the `rootMarkdown` flag Pi's row uses.
 - **Installed plugins**, measured on 1.1.28 (#547), against the CLI's own shipped guide
   (`builtin/skills/agy-customizations/docs/plugins.md`) and `agy plugin validate`. A plugin is
   `<customization root>/plugins/<name>/` with a `plugin.json` marker, and there are two roots: the
@@ -527,7 +538,8 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   holds the session store, the built-in skills the agent config mounts by name, and the CLI's own state;
   the binary carries no plugins path under it, and its own changelog records fixing a display that named
   `~/.gemini/antigravity-cli/` as the global configuration directory when the answer is `~/.gemini/config/`.
-  This app lists `<agy home>/plugins` today, which is a directory the CLI never reads (#611).
+  This app listed `<agy home>/plugins` until #611, a directory the CLI never reads; it lists
+  `<customization root>/plugins` and `<customization root>/skills` instead.
 - **Enablement lives in `~/.gemini/config/config.json`**, under a `plugins` map keyed by the plugin's
   **directory** name (`{"plugins": {"my-plugin": {"enabled": false}}}`), written by `agy plugin
   enable|disable`. A discovered plugin is on by default unless its own `plugin.json` declares
@@ -621,7 +633,7 @@ something that RUNS is a different feature with a different conversation.
 | Codex | `.md`, `.markdown`, `.toml`, `.json` | skill, rule | skill = directory with `SKILL.md`; rule = one `.md` |
 | Hermes | `.md`, `.markdown`, `.yaml`, `.yml`, `.json` | skill | directory with `SKILL.md`. Its hooks and skill bundles are not offered |
 | Pi | `.md`, `.markdown`, `.json` | skill, prompt template | skill = directory with `SKILL.md`, even though pi also reads a bare `.md` — the directory is the shape that stays right when the skill grows. Its `.ts`/`.js` extensions are not offered |
-| agy | `.md`, `.markdown`, `.json` | — | lists no skills, rules, commands or agents directory of its own; an empty declaration is the answer |
+| agy | `.md`, `.markdown`, `.json` | skill | skill = directory with `SKILL.md` in the global customization root's `skills/` (#611) — the same reach the other four have, so an agy skill is editable and deletable like theirs. It scaffolds nothing: the layout of that root is assumed, not measured, and a starter file in the wrong shape is worse than no "New" button |
 
 A settings file is editable (that is what the TOML and YAML validation is for) and never deletable: it
 is a file the CLI owns, and this app edits it rather than deciding whether it should exist.

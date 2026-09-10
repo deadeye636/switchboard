@@ -257,6 +257,59 @@ test('agy resource discovery exposes safe settings and instructions only', () =>
   }
 });
 
+// #611: agy's global customization root is `<gemini home>/config/`, the same directory that already
+// supplies the MCP row. The plugins directory the app listed before this was `<agy home>/plugins`, a path
+// the CLI carries no reference to — so the row was empty on every install and would have stayed empty.
+// Both halves are pinned: the roots that ARE listed, and the one that must not come back.
+test('agy lists the plugins and skills roots the CLI actually reads (#611)', () => {
+  const geminiHome = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'agy-plugin-roots-'));
+  const agyHome = path.join(geminiHome, 'antigravity-cli');
+  const conversations = path.join(agyHome, 'conversations');
+  try {
+    const listResources = agyResources.createListResources({ conversationsRoot: () => conversations });
+    fs.mkdirSync(conversations, { recursive: true });
+    // Both spellings on disk at once, so the assertions are about which one is CHOSEN.
+    fs.mkdirSync(path.join(agyHome, 'plugins', 'stale-plugin'), { recursive: true });
+    fs.mkdirSync(path.join(geminiHome, 'config', 'plugins', 'real-plugin'), { recursive: true });
+    fs.mkdirSync(path.join(geminiHome, 'config', 'skills', 'a-skill'), { recursive: true });
+    fs.writeFileSync(path.join(geminiHome, 'config', 'plugins', 'real-plugin', 'plugin.json'), '{}');
+    fs.writeFileSync(path.join(geminiHome, 'config', 'skills', 'a-skill', 'SKILL.md'), '# skill');
+
+    const res = listResources({});
+    assert.equal(res.ok, true);
+    const bySource = new Map(res.resources.map(r => [r.source, r]));
+
+    const plugins = bySource.get('plugins-directory');
+    assert.ok(plugins, 'the plugins directory is still listed');
+    assert.equal(plugins.path, path.join(geminiHome, 'config', 'plugins'),
+      'and it is the one under the customization root');
+    assert.equal(plugins.kind, 'plugin');
+
+    const skills = bySource.get('skills-directory');
+    assert.ok(skills, 'the global skill root beside it is listed too');
+    assert.equal(skills.path, path.join(geminiHome, 'config', 'skills'));
+    assert.equal(skills.kind, 'skill');
+
+    assert.equal(res.resources.some(r => r.path === path.join(agyHome, 'plugins')), false,
+      'the agy-home plugins directory the CLI never reads is gone');
+
+    // A listed directory the backend cannot expand is unreachable for read, write and delete
+    // (`expandResource.knowsSource`), so a new row needs its rule in the same change.
+    for (const row of [plugins, skills]) {
+      assert.equal(agyResources.expandResource.knowsSource(row.source), true,
+        `${row.source} is expandable`);
+    }
+    const pluginEntries = agyResources.expandResource({ path: plugins.path, source: plugins.source });
+    assert.deepEqual(pluginEntries.entries.map(e => e.name), ['real-plugin']);
+    const skillEntries = agyResources.expandResource({ path: skills.path, source: skills.source });
+    assert.deepEqual(skillEntries.entries.map(e => e.name), ['a-skill']);
+    assert.equal(skillEntries.entries[0].path, path.join(skills.path, 'a-skill', 'SKILL.md'),
+      'a skill is named by the folder that holds its SKILL.md');
+  } finally {
+    fs.rmSync(geminiHome, { recursive: true, force: true });
+  }
+});
+
 test('the resource-discovery IPC is registered in an app module, not main.js', () => {
   assert.doesNotMatch(MAIN, /ipcMain\.handle\('backend-list-resources'/,
     'new IPC handlers must not be added to main.js');

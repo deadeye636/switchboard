@@ -244,8 +244,12 @@ module.exports = {
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // agy lists markdown instructions and a JSON settings file; nothing else is offered for editing (#441).
   resourceEditing: { extensions: ['.md', '.markdown', '.json'] },
-  // agy lists no skills, rules, commands or agents directory of its own, so there is nothing to scaffold
-  // — an empty declaration is the answer, not an absence (#441).
+  // agy DOES list a global skills directory since #611, so the old reason for this ("nothing to scaffold")
+  // is gone. It stays empty on a narrower one: a scaffold writes a starter file, and the shape agy expects
+  // in `config/skills/` is assumed rather than measured (see the note in resources.js). Writing a starter
+  // in a layout the CLI may not read is worse than offering no "New" at all. The visible cost is stated so
+  // nobody has to rediscover it: `plans-memory.js` keeps an empty directory's group only when a scaffold
+  // names its source, so agy's skills group disappears while the directory is empty (#441).
   resourceScaffolds: [],
   // agy keeps no plans store (#227).
   plansDir: () => null,
@@ -281,7 +285,7 @@ module.exports = {
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',
-    skillInvoke: { state: 'no', note: 'it declares no skills directory, so there is nothing to run' },
+    skillInvoke: { state: 'no', note: 'it names no way to run a skill from its prompt, so a picked skill is inserted as a reference' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
