@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const pi = require('../src/backends/pi');
-const { definitionFlags, auditFlags } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // The derivation found one Pi flag the hand-written list had on the wrong side: `--extension`, which
@@ -45,19 +45,30 @@ const AUDITED_EXCLUDED = new Set([
   '--version',
 ]);
 
-/** The option DEFINITIONS in Pi's `Options:` block — one group per definition line, prose ignored. */
+// A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is
+// nothing machine-readable to compare our choices against. Each entry says which field and why — a stale
+// one (the field is gone, or the CLI has started declaring its values) is reported, so this cannot quietly
+// become a place to silence a finding.
+const CHOICES_NOT_ENUMERATED = new Set([
+  // #617. Pi's help writes the levels into the description sentence — "Set thinking level: off, minimal,
+  // low, medium, high, xhigh, max" — and declares no enum of its own. The seven names happen to be the
+  // seven this field offers, but taking them out of a sentence means guessing where the list ends, and a
+  // guess here either invents a dead value or hides a real one. Revisit when Pi declares them.
+  'thinking',
+]);
+
+/** The option DEFINITIONS in Pi's `Options:` block, each with the description lines that belong to it. */
 function extractOptions(help) {
-  const groups = [];
+  const lines = [];
   let inOptions = false;
   for (const raw of String(help || '').split(/\r?\n/)) {
     const line = raw.replace(/\x1b\[[0-9;]*m/g, '');
     if (/^Options:\s*$/i.test(line.trim())) { inOptions = true; continue; }
     if (inOptions && /^(Extensions can register|Extensions|Examples|Environment Variables|Built-in Tool Names)[:\s]/i.test(line.trim())) break;
     if (!inOptions) continue;
-    const flags = definitionFlags(line);
-    if (flags.length) groups.push(flags);
+    lines.push(line);
   }
-  return groups;
+  return optionBlocks(lines);
 }
 
 function extractCommands(help) {
@@ -97,10 +108,36 @@ function main() {
     process.exit(1);
   }
 
-  const groups = extractOptions(help);
+  const blocks = extractOptions(help);
+  const groups = blocks.map(b => b.flags);
   const { advertised, unknown, missing } = auditFlags({
     backend: pi, groups, excluded: AUDITED_EXCLUDED, alsoSent: SENT_ELSEWHERE,
   });
+
+  // The VALUES audit runs BEFORE the unaudited-flag report, and the order is deliberate: a dead value kills
+  // a session at spawn, while an unaudited flag is a decision somebody still owes. A CLI that grows one
+  // flag would otherwise hide every dead value behind it until that decision is made.
+  const choices = auditChoices({ backend: pi, blocks, excluded: CHOICES_NOT_ENUMERATED });
+
+  if (choices.dead.length) {
+    console.error('Pi no longer accepts values this app offers:');
+    for (const d of choices.dead) console.error(`  ${d.field} = "${d.choice}" (${d.flag} takes: ${d.values.join(', ')})`);
+    console.error('Drop the choice in src/backends/pi/index.js and declare what a stored one becomes (retiredChoices).');
+    process.exit(1);
+  }
+
+  if (choices.unenumerated.length) {
+    console.error('Pi declares no possible values for options this app offers a fixed list for:');
+    for (const u of choices.unenumerated) console.error(`  ${u.field}: ${u.why}`);
+    console.error('Add it to CHOICES_NOT_ENUMERATED in this file with the reason — the audit must not claim coverage it lacks.');
+    process.exit(1);
+  }
+
+  if (choices.stale.length) {
+    console.error('A declaration about this CLI’s values is out of date:');
+    for (const s of choices.stale) console.error(`  ${s.field}: ${s.why}`);
+    process.exit(1);
+  }
 
   if (unknown.length) {
     console.error('Pi exposes unaudited top-level options:');
@@ -116,7 +153,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`Pi help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options).`);
+  console.log(`Pi help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options, ${choices.checked.length} enum field(s) checked).`);
 }
 
 main();

@@ -592,6 +592,29 @@ bridge, Pi's `--list-models` probe) — each entry names where it is sent, and a
 really sends it. A flag a help line only MENTIONS is not advertised: the extraction reads definition
 lines, because scraping every `--word` made four Claude flags "advertised" by other flags' prose.
 
+**And a CLI can retire a VALUE while keeping the flag, which every check above walks straight past** (#617).
+Codex dropped `untrusted` and `on-failure` from `--ask-for-approval`; the flag never moved, so
+`npm run backends:help-check` stayed green while a session started on either value died at spawn with exit
+code 2. Two halves, and both are the backend's:
+
+- **`retiredChoices: { <dead>: <surviving> }` on the select field** says what a setting saved under the dead
+  value becomes. The core rewrites the stored value — `app/settings.js`, once at startup over the global
+  blob, every project blob AND every template's own options in `profiles.json`, and again at the settings
+  BLOBS' write door so an Apply from a stale form cannot put it back. The template editor has no such door:
+  its own select offers only live values, but `profiles.save` validates a shape and not a vocabulary, so a
+  caller that is not that editor can still store a dead one — and it is the next start that corrects it.
+  Never a fallback at launch: a substitution
+  the settings screen does not show is a control that lies about what it sends. The MAPPING is a judgement
+  and is argued where it is declared — `on-request` is the strictest policy Codex still has and `untrusted`
+  was stricter, so the rewrite loosens what the user asked for, and it is taken because the alternative is a
+  session that cannot start.
+- **The audit compares the choices against the CLI's own declaration** (`auditChoices` in
+  `scripts/managed-flags.js`, wired into all five help checks). Which flag and value each choice produces is
+  DERIVED by running `buildLaunch`, like the flag set beside it. Only a machine-readable enum is read — clap's
+  two spellings and commander's `(choices: …)`; a description SENTENCE is not parsed, because a list scraped
+  out of prose either invents a dead value or hides a real one. A field whose CLI only writes prose goes in
+  that script's `CHOICES_NOT_ENUMERATED` with its reason, and a stale entry fails.
+
 **Options cascade PER OPTION**, and every level stores only what it marked as set:
 `backend default → global → project → template`. Without that marker, "not set" cannot be told from
 "deliberately empty / off", and an option whose default is ON could never be switched off. The

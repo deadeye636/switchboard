@@ -75,8 +75,18 @@ function cliHomeEnv() {
 const configFields = [
   { id: 'model', label: 'Model', type: 'text', default: '',
     description: 'Model the agent should use. Empty = Codex\' own default.' },
+  // #617 — the CLI dropped `untrusted` and `on-failure`. Measured against codex-cli 0.153.2 and 0.154.0:
+  // `-a, --ask-for-approval` lists on-request and never and nothing else, so a session launched with
+  // either of the old values dies at spawn ("invalid value 'untrusted' for --ask-for-approval", exit 2).
+  //
+  // `retiredChoices` is how the backend says what a value stored before that becomes. WHY `on-request`
+  // and not `never`: `on-request` is the strictest policy the CLI still has, and `untrusted` was stricter
+  // than that — so this LOOSENS what the user asked for, and there is no rewrite here that does not.
+  // It is chosen because the alternative is a session that cannot start at all. The rewrite is applied
+  // once, to the stored blob, in `src/app/settings.js` — never as a fallback at launch.
   { id: 'approvalMode', label: 'Approval', type: 'select',
-    choices: ['untrusted', 'on-failure', 'on-request', 'never'], default: 'on-request',
+    choices: ['on-request', 'never'], default: 'on-request',
+    retiredChoices: { 'untrusted': 'on-request', 'on-failure': 'on-request' },
     description: 'When Codex asks before running a command.' },
   { id: 'sandbox', label: 'Sandbox', type: 'select',
     choices: ['read-only', 'workspace-write', 'danger-full-access'], default: 'workspace-write',

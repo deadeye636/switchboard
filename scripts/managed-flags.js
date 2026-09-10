@@ -156,6 +156,247 @@ function definitionFlags(line, { maxIndent = 6 } = {}) {
 }
 
 /**
+ * The options section cut into one block per DEFINITION line: the flags that line defines, plus every line
+ * that belongs to it (its own, then each following line until the next definition).
+ *
+ * `definitionFlags` answers what an option is CALLED, which is all the flag audit needs. A question about
+ * what an option ACCEPTS needs the description too, because that is where a CLI prints its enum — and it
+ * prints it on the definition line for one CLI and four lines below it for another.
+ */
+function optionBlocks(lines, opts) {
+  const blocks = [];
+  for (const raw of lines || []) {
+    const plain = String(raw == null ? '' : raw).replace(/\x1b\[[0-9;]*m/g, '');
+    const flags = definitionFlags(plain, opts);
+    if (flags.length) { blocks.push({ flags, lines: [plain] }); continue; }
+    if (blocks.length) blocks[blocks.length - 1].lines.push(plain);
+  }
+  return blocks;
+}
+
+/**
+ * The values a CLI DECLARES an option accepts, or null when it declares none.
+ *
+ * Three spellings, and all three are the argument parser's own declaration rather than a sentence
+ * somebody wrote:
+ *   clap, inline   `[possible values: read-only, workspace-write, danger-full-access]`
+ *   clap, block    `Possible values:` and then one `- <value>: <description>` line each
+ *   commander      `(choices: "acceptEdits", "auto", "plan")`, wrapped over as many lines as it needs
+ *
+ * Everything else is PROSE — "Set thinking level: off, minimal, low…", "(lmstudio or ollama)" — and prose
+ * is deliberately not parsed. A list scraped out of a description is a guess about a sentence, and a guess
+ * that goes wrong here either invents a dead value or hides a real one. A field whose CLI only writes prose
+ * is excluded by name in that backend's help check, with its reason, the way an unaudited flag is.
+ *
+ * `null`, not an empty set: "declares no enum" and "declares an empty enum" are different answers, and
+ * only the first one happens.
+ */
+function possibleValues(blockLines) {
+  const text = (blockLines || []).join('\n');
+
+  const inline = /\[possible values:\s*([^\]]+)\]/i.exec(text);
+  if (inline) {
+    const values = inline[1].split(',').map(v => v.trim()).filter(Boolean);
+    if (values.length) return new Set(values);
+  }
+
+  const commander = /\(choices:\s*([^)]+)\)/i.exec(text);
+  if (commander) {
+    // Commander keeps going after the list inside the SAME parenthesis — the installed Claude CLI prints
+    // `(choices: "host", "none", default: "host")` on one option and `preset: …` on another — so the list
+    // ends at the first `word:` that follows a comma, whatever that word is. Cutting at the one keyword
+    // somebody had measured left the second one producing a value spelled `preset: "true`, which is the
+    // same defect one CLI release later. Splitting the whole parenthetical on commas was the original.
+    const values = commander[1].split(/,\s*[A-Za-z][A-Za-z-]*:\s/)[0]
+      .split(',').map(v => v.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+    if (values.length) return new Set(values);
+  }
+
+  const listed = new Set();
+  let inBlock = false;
+  for (const line of blockLines || []) {
+    if (/^\s*possible values:\s*$/i.test(line)) { inBlock = true; continue; }
+    if (!inBlock) continue;
+    const m = /^\s*-\s+([A-Za-z0-9][A-Za-z0-9._-]*):/.exec(line);
+    if (m) listed.add(m[1]);
+    // Anything else inside the block is a wrapped description line, belonging to the entry above it.
+  }
+  return listed.size ? listed : null;
+}
+
+/**
+ * Which flag each SELECT choice actually puts on the command line, and with what value — DERIVED by
+ * building the launch with that one choice set, never written down (#548's rule applied to values).
+ *
+ * A choice that produces no value token is left out, and that is the interesting half: Claude's
+ * `dangerously-skip` becomes a bare `--dangerously-skip-permissions`, Pi's `approve` becomes `--approve`,
+ * and an empty choice means "say nothing at all". None of those is a value the CLI has to know, and the
+ * flags they DO emit are audited by `auditFlags` already. So the audit asks only about the choices that
+ * reach the argv as the value of a flag — which is exactly where a retired enum kills a session.
+ *
+ * Two things it does NOT do quietly, because the whole point of this audit is to know what it covers:
+ *
+ * - **Every launch SHAPE is built**, not only a new session. `launchVariants` above makes the same point
+ *   about flags: new, resume and fork are three mutually exclusive branches, and a choice that only
+ *   reaches the argv on one of them would otherwise be audited in whichever branch this happened to pick.
+ * - **A choice that changes the argv without appearing in it is REPORTED** (`flag: null`). That is a
+ *   choice mapped to some other token — `'plan' -> --mode planMode` — and it is exactly the shape that
+ *   would slip through as "nothing to check here" while the value the CLI sees is never compared to
+ *   anything. No backend does it today, which is the reason to write the branch now rather than after one
+ *   does.
+ */
+function selectChoiceArgs(backend) {
+  const isFlag = (token) => /^--?[a-z0-9][a-z0-9-]*$/i.test(String(token));
+  const shapes = [{}, { resume: true }, { forkFrom: 'PARENT-SESSION-ID' }];
+  const build = (shape, options) => {
+    try { return ((backend.buildLaunch({ ...CTX, ...shape, options }) || {}).args || []).map(String); }
+    catch { return null; }
+  };
+
+  const seen = new Set();
+  const out = [];
+  for (const field of (backend && backend.configFields) || []) {
+    if (!field || field.type !== 'select' || field.appliesAt === 'spawn') continue;
+    const base = field.requires ? { [field.requires]: true } : {};
+    for (const raw of field.choices || []) {
+      const choice = String(raw == null ? '' : raw);
+      if (!choice) continue;
+      for (const shape of shapes) {
+        const args = build(shape, { ...base, [field.id]: raw });
+        const bare = build(shape, base);
+        if (!args || !bare) continue;
+
+        // What this ONE option added to the command line, as a multiset difference against the same launch
+        // built without it. Everything below reads only those positions: a scan of the whole argv for a
+        // token equal to the choice takes the first match, and a `buildLaunch` that puts the same literal
+        // somewhere else — a default it always sends, a session id that happens to collide — would then
+        // attribute the choice to the wrong flag and report a dead value against an enum it never touches.
+        // No backend does that today; the point of a guard is that its verdict can be trusted without
+        // checking whether one does.
+        const rest = [...bare];
+        const addedAt = args.map(a => { const at = rest.indexOf(a); if (at < 0) return true; rest.splice(at, 1); return false; });
+        const added = args.filter((_, i) => addedAt[i]);
+        if (!added.length) continue;                       // the choice says nothing at all
+
+        let flag = null;
+        for (let i = 0; i < args.length && !flag; i++) {
+          if (!addedAt[i]) continue;
+          if (args[i] === choice && i > 0 && isFlag(args[i - 1])) flag = args[i - 1];
+          const joined = /^(--?[a-z0-9][a-z0-9-]*)=(.*)$/i.exec(args[i]);
+          if (joined && joined[2] === choice) flag = joined[1];
+        }
+
+        // A choice that became a flag of its own carries no value for the CLI to enumerate, and the flag
+        // it emits is `auditFlags`' business. Anything else that changed the argv without appearing in it
+        // is reported (`flag: null`) rather than passed over.
+        if (!flag && added.every(isFlag)) continue;
+
+        const key = `${field.id} | ${choice} | ${flag || ''}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ field: field.id, choice, flag });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The choices audit (#617). `auditFlags` asks whether an option still EXISTS; this asks whether the values
+ * we offer for it are still values it takes. Codex dropped `untrusted` and `on-failure` from
+ * `--ask-for-approval` and the flag audit stayed green through it, because the flag itself never moved —
+ * while every session launched on either value died at spawn with exit code 2.
+ *
+ * Three answers, and the second and third are what keep it honest:
+ *   dead          — a choice the CLI no longer lists. The failure this exists for.
+ *   unenumerated  — the CLI declares no machine-readable values for that flag and nothing excludes the
+ *                   field, so the audit would be claiming a coverage it does not have. It says so once,
+ *                   and the backend's own script records the decision with its reason.
+ *   stale         — an exclusion whose field is gone, or whose CLI has started declaring its values after
+ *                   all. An exclusion list that only ever grows is a place to silence a finding.
+ *
+ * A flag the help does not define at all is skipped: that is `auditFlags`' `missing`, and reporting one
+ * defect twice in two vocabularies helps nobody.
+ */
+function auditChoices({ backend, blocks, excluded }) {
+  const excludedSet = excluded instanceof Set ? excluded : new Set(excluded || []);
+  const known = new Set();
+  const longFor = new Map();
+  const valuesFor = new Map();
+  for (const block of blocks || []) {
+    const longs = block.flags.filter(f => f.startsWith('--'));
+    for (const flag of block.flags) {
+      known.add(flag);
+      if (!flag.startsWith('--') && longs.length) longFor.set(flag, longs[0]);
+    }
+    const key = longs[0] || block.flags[0];
+    const values = possibleValues(block.lines);
+    if (key && values) valuesFor.set(key, values);
+  }
+
+  const longOf = (flag) => (flag.startsWith('--') ? flag : (longFor.get(flag) || flag));
+
+  const sends = new Set();          // fields whose choices reach the argv at all — the stale test's subject
+  const revived = [];
+  const dead = [];
+  const checked = new Map();
+  const unenumerated = new Map();
+  const excludedFields = new Map();
+  for (const { field, choice, flag } of selectChoiceArgs(backend)) {
+    sends.add(field);
+    if (flag && !known.has(flag)) continue;   // the flag itself is gone — auditFlags reports that, once
+    if (excludedSet.has(field)) { excludedFields.set(field, flag && longOf(flag)); continue; }
+    if (!flag) {
+      unenumerated.set(field, { flag: null, why: 'its choices change the argv without appearing in it, so nothing can be compared' });
+      continue;
+    }
+    const long = longOf(flag);
+    const values = valuesFor.get(long);
+    if (!values) { unenumerated.set(field, { flag: long, why: `${long} declares no possible values` }); continue; }
+    checked.set(field, long);
+    if (!values.has(choice)) dead.push({ field, choice, flag: long, values: [...values].sort() });
+
+    // A retired value the CLI has taken BACK. `retiredChoices` is the one declaration here that can only
+    // grow — a rewrite that keeps moving a value the CLI accepts again is a setting the user cannot choose
+    // and nothing would say so. The exclusion lists are checked for staleness in both directions; this is
+    // the same property for the descriptor's own list.
+    const retired = (backend.configFields || []).find(f => f.id === field);
+    for (const gone of Object.keys((retired && retired.retiredChoices) || {})) {
+      if (values.has(gone) && !revived.some(r => r.field === field && r.choice === gone)) {
+        revived.push({ field, choice: gone, flag: long });
+      }
+    }
+  }
+  for (const field of unenumerated.keys()) checked.delete(field);   // one field, one answer
+
+  // A stale exclusion, both ways round: the field sends nothing at all any more (it is gone, or it stopped
+  // being a select), or the CLI has started declaring the values the exclusion says it does not.
+  //
+  // Asked against `sends` rather than against what survived the loop, deliberately. An excluded field whose
+  // FLAG the CLI has dropped is not a stale exclusion — it is `auditFlags`' `missing`, and answering it here
+  // reported the wrong defect in the wrong vocabulary and hid the right one behind an earlier exit.
+  const stale = [];
+  for (const field of excludedSet) {
+    if (sends.has(field)) continue;
+    stale.push({ field, why: 'no select choice of this backend reaches the command line as a value' });
+  }
+  for (const [field, long] of excludedFields) {
+    if (long && valuesFor.get(long)) stale.push({ field, why: `${long} declares its values now — drop the exclusion and audit it` });
+  }
+  for (const { field, choice, flag } of revived) {
+    stale.push({ field, why: `${flag} takes "${choice}" again — drop it from this field's retiredChoices and offer it` });
+  }
+
+  return {
+    dead,
+    unenumerated: [...unenumerated].map(([field, entry]) => ({ field, ...entry })),
+    stale,
+    checked: [...checked].map(([field, flag]) => ({ field, flag })),
+    excluded: [...excludedFields.keys()].sort(),
+  };
+}
+
+/**
  * The audit itself, from the definition GROUPS a help's options section yields (one array of flags per
  * definition line, so `-m, --model` stays one option with two spellings).
  *
@@ -203,4 +444,7 @@ function auditFlags({ backend, groups, excluded, alsoSent }) {
   return { advertised: [...advertised].sort(), managed: [...managed].sort(), unknown, missing: missing.sort() };
 }
 
-module.exports = { managedFlags, declaredFlags, definitionFlags, auditFlags, flagsIn, probeValue };
+module.exports = {
+  managedFlags, declaredFlags, definitionFlags, auditFlags, flagsIn, probeValue,
+  optionBlocks, possibleValues, selectChoiceArgs, auditChoices,
+};

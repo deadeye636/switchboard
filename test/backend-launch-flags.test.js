@@ -338,3 +338,251 @@ test('Claude no longer honours the launch option nothing declared (#562)', () =>
   assert.ok(pi.configFields.some(f => f.id === 'appendSystemPrompt'), 'Pi declares its own');
   assert.ok(launchArgs(pi, { appendSystemPrompt: 'be terse' }).includes('--append-system-prompt'));
 });
+
+// --- #617: the flag survives, its VALUES do not ----------------------------------------------------------
+//
+// `--ask-for-approval` never moved, so every check above stayed green while two of the four values the
+// Codex Approval field offered were removed from the CLI. A session launched on either died at spawn with
+// exit code 2. What the help checks compare now is the choices themselves against the values the CLI
+// DECLARES it takes — and, as everywhere else here, the sending side is derived and the excluded side
+// carries a reason.
+
+const { optionBlocks, possibleValues, selectChoiceArgs, auditChoices } = require('../scripts/managed-flags');
+
+/** The field ids in one backend's `CHOICES_NOT_ENUMERATED` — code, not prose, for the same reason as above. */
+function choiceExclusions(backend) {
+  const src = auditCode(backend);
+  const start = src.indexOf('const CHOICES_NOT_ENUMERATED');
+  assert.ok(start >= 0, `${backend} declares CHOICES_NOT_ENUMERATED`);
+  const block = src.slice(start, src.indexOf(']);', start));
+  return [...block.matchAll(/'([A-Za-z][A-Za-z0-9_-]*)'/g)].map(m => m[1]);
+}
+
+/**
+ * A backend whose CLI retired a value, in the smallest shape that has the defect — the same role the
+ * undeclared-option stub plays for #562. The real descriptors are fixed now, and a check nothing can fail
+ * is not a check.
+ */
+const RETIRED_VALUE_BACKEND = {
+  id: 'stub',
+  configFields: [
+    { id: 'approval', label: 'Approval', type: 'select', choices: ['gone', 'kept'], default: 'kept' },
+    { id: 'mood', label: 'Mood', type: 'select', choices: ['sunny'], default: 'sunny' },
+  ],
+  buildLaunch({ options } = {}) {
+    const opts = options || {};
+    const args = [];
+    if (opts.approval) args.push('-a', String(opts.approval));
+    if (opts.mood) args.push('--mood', String(opts.mood));
+    return { command: 'stub', args, env: {}, spawnMode: 'shell' };
+  },
+};
+
+const STUB_HELP = [
+  '  -a, --approval <POLICY>',
+  '          When to ask',
+  '',
+  '          Possible values:',
+  '          - kept:  the one that is left',
+  '',
+  '  --mood <MOOD>',
+  '          How it feels about this',
+];
+
+test('a CLI that drops one of an enum value list is caught, where the flag audit cannot see it (#617)', () => {
+  const blocks = optionBlocks(STUB_HELP);
+  const result = auditChoices({ backend: RETIRED_VALUE_BACKEND, blocks, excluded: new Set(['mood']) });
+  assert.deepEqual(result.dead, [{ field: 'approval', choice: 'gone', flag: '--approval', values: ['kept'] }],
+    'the dead value is named with the flag it would have gone on and what that flag still takes');
+  // …and the flag itself is present and correct throughout, which is why nothing else here noticed.
+  assert.ok(blocks.some(b => b.flags.includes('-a') && b.flags.includes('--approval')));
+});
+
+test('a choice that becomes a BARE flag is not an enum value, and is not asked about (#617)', () => {
+  // Claude's `dangerously-skip` emits `--dangerously-skip-permissions` and Pi's `approve` emits
+  // `--approve`; an empty choice emits nothing at all. None of those is a value a CLI has to list, and the
+  // flags they do emit are audited by `auditFlags`. Derived from the argv rather than listed, so a backend
+  // that changes how a choice is spelled moves in and out of this set on its own.
+  const sent = selectChoiceArgs(claude).filter(c => c.field === 'permissionMode').map(c => c.choice);
+  assert.ok(sent.includes('plan'), 'a choice that rides on --permission-mode is asked about');
+  assert.equal(sent.includes('dangerously-skip'), false, 'the one that becomes its own flag is not');
+  assert.equal(selectChoiceArgs(pi).some(c => c.choice === 'approve'), false, 'and neither is the Pi one');
+});
+
+test('only a DECLARED list of values is read — prose is not parsed (#617)', () => {
+  // Three parser idioms, because the CLIs this app drives use three. Each is the argument parser printing
+  // its own enum, which is a fact; a description sentence is somebody's writing, and scraping one either
+  // invents a dead value or hides a real one.
+  assert.deepEqual([...possibleValues(['  -s, --sandbox <MODE>  [possible values: read-only, workspace-write]'])],
+    ['read-only', 'workspace-write']);
+  assert.deepEqual([...possibleValues(['  -a, --ask <P>', '      Possible values:', '      - on-request: it asks', '      - never:      it does not'])],
+    ['on-request', 'never']);
+  assert.deepEqual([...possibleValues(['  --permission-mode <mode>  Permission mode', '     (choices: "acceptEdits",', '     "plan")'])],
+    ['acceptEdits', 'plan'], 'commander wraps its list over as many lines as it needs');
+  // The three shapes that are NOT a declaration, each taken from a real help this repo audits.
+  assert.equal(possibleValues(['  --thinking <level>   Set thinking level: off, minimal, low, medium, high']), null);
+  assert.equal(possibleValues(['  --local-provider <P>  Specify which local provider to use (lmstudio or ollama)']), null);
+  assert.equal(possibleValues(['  --effort   Reasoning effort for the current CLI session (low|medium|high)']), null);
+});
+
+test('a definition keeps the description lines that belong to it, and only those (#617)', () => {
+  // The enum sits in the description, four lines below the definition for one CLI and on the same line for
+  // another — so the blocks have to end where the next definition starts, or one option's values answer for
+  // its neighbour.
+  const blocks = optionBlocks(STUB_HELP);
+  assert.equal(blocks.length, 2);
+  assert.deepEqual([...possibleValues(blocks[0].lines)], ['kept']);
+  assert.equal(possibleValues(blocks[1].lines), null, 'the next option block carries none of it');
+});
+
+test('an unenumerated field is REPORTED rather than quietly passed (#617)', () => {
+  // The failure this guard could most easily have: a CLI that declares nothing, a check that finds nothing
+  // to complain about, and an audit that reads as coverage. It says so instead, and the backend's own
+  // script records the decision.
+  const blocks = optionBlocks(STUB_HELP);
+  const result = auditChoices({ backend: RETIRED_VALUE_BACKEND, blocks, excluded: new Set() });
+  assert.deepEqual(result.unenumerated, [{ field: 'mood', flag: '--mood', why: '--mood declares no possible values' }]);
+  assert.deepEqual(result.excluded, []);
+});
+
+test('a choice that reaches the argv spelled some OTHER way is reported too (#617)', () => {
+  // The quietest way for this audit to lie: a choice that is translated into a different token, so no value
+  // token matches it, so there is nothing to compare and nothing said. It is not the bare-flag case — the
+  // argv gained a value — and it is not a value the CLI can be asked about either. No backend does it, which
+  // is exactly why the branch is written and pinned now.
+  const RESPELLED = {
+    id: 'stub',
+    configFields: [{ id: 'mode', label: 'Mode', type: 'select', choices: ['plan', 'go'], default: 'go' }],
+    buildLaunch({ options } = {}) {
+      const opts = options || {};
+      return { command: 'stub', args: opts.mode ? ['--mode', `${opts.mode}Mode`] : [], env: {}, spawnMode: 'shell' };
+    },
+  };
+  const blocks = optionBlocks(['  --mode <MODE>', '          How it runs']);
+  const result = auditChoices({ backend: RESPELLED, blocks, excluded: new Set() });
+  assert.deepEqual(result.unenumerated,
+    [{ field: 'mode', flag: null, why: 'its choices change the argv without appearing in it, so nothing can be compared' }]);
+  assert.deepEqual(result.checked, [],
+    'and it is not ALSO counted as checked — one field gets one answer, or the pass line claims coverage ' +
+    'for the very field the run is exiting over');
+});
+
+test('an excluded field whose FLAG the CLI dropped is left to the flag audit (#617)', () => {
+  // The wrong-vocabulary failure. `--mood` is excluded because its CLI declares no values; if the CLI then
+  // removes the flag entirely, that is `auditFlags`' `missing` — and answering it here as a stale exclusion
+  // reported the wrong defect and, because the values block runs first, hid the right one behind it.
+  const blocks = optionBlocks(['  -a, --approval <POLICY>', '          Possible values:', '          - kept:  the one that is left']);
+  const result = auditChoices({ backend: RETIRED_VALUE_BACKEND, blocks, excluded: new Set(['mood']) });
+  assert.deepEqual(result.stale, [], 'the exclusion is not stale — the field still sends a value, the CLI just lost the flag');
+  assert.deepEqual(result.unenumerated, [], 'and it is not reported here either');
+  assert.deepEqual(result.dead, [{ field: 'approval', choice: 'gone', flag: '--approval', values: ['kept'] }],
+    'while the enum that IS still declared is checked as usual');
+});
+
+test('commander keeps writing after the choices, and none of it is a value (#617)', () => {
+  // Both shapes are from the installed Claude CLI rather than invented, and the second is why the cut is a
+  // pattern instead of the one keyword somebody had measured: `--permission-prompts` ends its list with
+  // `default:`, `--prompt-suggestions` with `preset:`, and a cut at `default:` alone left the second one
+  // producing a value spelled `preset: "true`. The list ends at the first `word:` after a comma.
+  assert.deepEqual([...possibleValues(['  --permission-prompts <target>  Who answers (choices: "host", "none",', '     default: "host")'])],
+    ['host', 'none']);
+  assert.deepEqual([...possibleValues(['  --prompt-suggestions <mode>  (choices: "on", "off", preset: "true")'])],
+    ['on', 'off']);
+});
+
+test('a value the CLI has taken BACK is reported, so retiredChoices cannot only grow (#617)', () => {
+  // The exclusion lists are checked for staleness in both directions; a descriptor's own `retiredChoices` is
+  // the third list this work added, and without this it could only accumulate. A rewrite that keeps moving a
+  // value the CLI accepts again is a setting the user can no longer choose, and nothing else would say so.
+  const REVIVED = {
+    id: 'stub',
+    configFields: [{
+      id: 'approval', label: 'Approval', type: 'select', choices: ['kept'], default: 'kept',
+      retiredChoices: { gone: 'kept' },
+    }],
+    buildLaunch({ options } = {}) {
+      const opts = options || {};
+      return { command: 'stub', args: opts.approval ? ['-a', String(opts.approval)] : [], env: {}, spawnMode: 'shell' };
+    },
+  };
+  const back = optionBlocks(['  -a, --approval <POLICY>', '          Possible values:', '          - kept: still here', '          - gone: back again']);
+  const result = auditChoices({ backend: REVIVED, blocks: back, excluded: new Set() });
+  assert.deepEqual(result.stale.map(s => s.field), ['approval']);
+  assert.match(result.stale[0].why, /takes "gone" again/);
+  assert.deepEqual(result.dead, [], 'and the choice it still offers is fine');
+
+  // While the CLI still refuses it, nothing is reported: the rewrite is doing its job.
+  const still = optionBlocks(['  -a, --approval <POLICY>', '          Possible values:', '          - kept: still here']);
+  assert.deepEqual(auditChoices({ backend: REVIVED, blocks: still, excluded: new Set() }).stale, []);
+});
+
+test('a stale choices exclusion fails, in both directions (#617)', () => {
+  // An exclusion list that only ever grows is a place to silence a finding. So: an entry for a field that
+  // no longer sends a value, and an entry for a field whose CLI has started declaring its values after all.
+  const blocks = optionBlocks(STUB_HELP);
+  const gone = auditChoices({ backend: RETIRED_VALUE_BACKEND, blocks, excluded: new Set(['nosuchfield']) });
+  assert.deepEqual(gone.stale.map(s => s.field), ['nosuchfield']);
+
+  const nowDeclared = auditChoices({ backend: RETIRED_VALUE_BACKEND, blocks, excluded: new Set(['approval']) });
+  assert.deepEqual(nowDeclared.stale.map(s => s.field), ['approval']);
+  assert.match(nowDeclared.stale[0].why, /declares its values now/);
+});
+
+test('every help check audits the values as well as the flags (#617)', () => {
+  for (const name of Object.keys(BACKENDS)) {
+    const src = auditCode(name);
+    assert.match(src, /auditChoices\(/, `${name}: the help check compares choices against the CLI own list`);
+    assert.match(src, /const CHOICES_NOT_ENUMERATED/, `${name}: and declares what it deliberately does not check`);
+    assert.match(src, /optionBlocks\(/, `${name}: reading whole option blocks, because the enum is in the description`);
+  }
+});
+
+test('every choices exclusion carries its reason (#617)', () => {
+  // The same rule the flag exclusions live under, and the same reading: the entry itself is code, the
+  // reason is prose. A field named only in a comment must not count as excluded.
+  //
+  // DERIVED over whatever each list actually holds, not over a list written here. The #537 guard above
+  // names its flags by hand, and that is its weakness: an entry added later with no comment passes it. This
+  // one asks every entry of every list, so a new exclusion is covered on the day it is written.
+  let checked = 0;
+  for (const backend of Object.keys(BACKENDS)) {
+    const src = auditProse(backend);
+    const listStart = src.indexOf('const CHOICES_NOT_ENUMERATED');
+    for (const field of choiceExclusions(backend)) {
+      const at = src.indexOf(`'${field}'`, listStart);
+      assert.ok(at > 0, `${backend}: ${field} is listed`);
+      // Back to the PREVIOUS entry, not a byte count — a fixed window reaches over a neighbour's comment
+      // and lets a reason deleted from one entry be answered by the one above it.
+      const prevEntry = src.lastIndexOf("',", at - 1);
+      const from = prevEntry > listStart ? prevEntry : listStart;
+      assert.match(src.slice(from, at), /\/\/[^\n]*#\d+/,
+        `${backend}: ${field} says why its values are not compared, in a comment of its own`);
+      checked++;
+    }
+  }
+  // …and the derivation is only worth anything if it is looking at something. The four that exist today.
+  assert.equal(checked, 4, 'the exclusions that exist are the ones that were reasoned about');
+  assert.deepEqual(choiceExclusions('codex'), ['localProvider']);
+  assert.deepEqual(choiceExclusions('pi'), ['thinking']);
+  assert.deepEqual(choiceExclusions('agy'), ['mode', 'effort']);
+  // Claude and Hermes exclude nothing, and an empty list is an answer: Claude's one select is compared
+  // against commander's own `(choices: …)`, and Hermes declares no select at all.
+  for (const backend of ['claude', 'hermes']) {
+    assert.deepEqual(choiceExclusions(backend), [], `${backend} checks every enum it has`);
+  }
+});
+
+test('a value the CLI retired is DECLARED by the backend, never spelled by the core (#617)', () => {
+  // The rewrite lives in `src/app/settings.js` and reads `retiredChoices` off the descriptor, so the dead
+  // value and its replacement are one CLI vocabulary in one CLI folder — the rule in
+  // `.claude/rules/backends.md`, applied to a value rather than to an id.
+  const approval = codex.configFields.find(f => f.id === 'approvalMode');
+  assert.deepEqual(approval.retiredChoices, { 'untrusted': 'on-request', 'on-failure': 'on-request' });
+  for (const backend of Object.values(BACKENDS)) {
+    for (const f of backend.configFields) {
+      for (const alive of Object.values(f.retiredChoices || {})) {
+        assert.ok(f.choices.includes(alive), `${backend.id}.${f.id} rewrites onto a choice it does not offer`);
+      }
+    }
+  }
+});

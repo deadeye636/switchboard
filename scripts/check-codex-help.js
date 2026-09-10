@@ -5,12 +5,16 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const codex = require('../src/backends/codex');
-const { definitionFlags, auditFlags } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // Codex is the backend that shows why the derivation reads the help's own spellings: buildLaunch sends the
 // SHORT forms (`-m`, `-a`, `-s`, `-c`), and each is answered through the long one its definition line
 // carries. A CLI that drops `-m` while keeping `--model` fails this check, which is the point.
+//
+// And Codex is why the audit also asks about VALUES (#617): `--ask-for-approval` never moved, so the flag
+// half of this check stayed green while two of the four values the Approval field offered were removed from
+// the CLI. Both of them killed the session at spawn.
 
 const REQUIRED_COMMANDS = new Set(['resume', 'fork']);
 const AUDITED_EXCLUDED = new Set([
@@ -34,17 +38,29 @@ const AUDITED_EXCLUDED = new Set([
   '--version',
 ]);
 
-/** The option DEFINITIONS in Codex' `Options:` block — one group per definition line, prose ignored. */
+// A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is
+// nothing machine-readable to compare our choices against. Each entry says which field and why — a stale
+// one (the field is gone, or the CLI has started declaring its values) is reported, so this cannot quietly
+// become a place to silence a finding.
+const CHOICES_NOT_ENUMERATED = new Set([
+  // #617. `--local-provider`'s help is a sentence — "Specify which local provider to use (lmstudio or
+  // ollama). If not specified with --oss, will use config default or show selection" — and clap prints no
+  // `[possible values: …]` for it, because the option takes a free-form provider name. Parsing the two out
+  // of that sentence would be a guess about prose, and a guess here either invents a dead value or hides a
+  // real one.
+  'localProvider',
+]);
+
+/** The option DEFINITIONS in Codex' `Options:` block, each with the description lines that belong to it. */
 function extractOptions(help) {
-  const groups = [];
+  const lines = [];
   let inOptions = false;
   for (const line of String(help || '').split(/\r?\n/)) {
     if (/^Options:\s*$/i.test(line)) { inOptions = true; continue; }
     if (!inOptions) continue;
-    const flags = definitionFlags(line);
-    if (flags.length) groups.push(flags);
+    lines.push(line);
   }
-  return groups;
+  return optionBlocks(lines);
 }
 
 function extractCommands(help) {
@@ -83,8 +99,35 @@ function main() {
     process.exit(1);
   }
 
-  const groups = extractOptions(help);
+  const blocks = extractOptions(help);
+  const groups = blocks.map(b => b.flags);
   const { advertised, unknown, missing } = auditFlags({ backend: codex, groups, excluded: AUDITED_EXCLUDED });
+
+  // The VALUES audit runs BEFORE the unaudited-flag report, and the order is deliberate: a dead value
+  // kills a session at spawn, while an unaudited flag is a decision somebody still owes. This script
+  // reports `--worktree` as unaudited today (its own decision, #617 left it alone), so a values check
+  // placed after that report would never run at all.
+  const choices = auditChoices({ backend: codex, blocks, excluded: CHOICES_NOT_ENUMERATED });
+
+  if (choices.dead.length) {
+    console.error('Codex no longer accepts values this app offers:');
+    for (const d of choices.dead) console.error(`  ${d.field} = "${d.choice}" (${d.flag} takes: ${d.values.join(', ')})`);
+    console.error('Drop the choice in src/backends/codex/index.js and declare what a stored one becomes (retiredChoices).');
+    process.exit(1);
+  }
+
+  if (choices.unenumerated.length) {
+    console.error('Codex declares no possible values for options this app offers a fixed list for:');
+    for (const u of choices.unenumerated) console.error(`  ${u.field}: ${u.why}`);
+    console.error('Add it to CHOICES_NOT_ENUMERATED in this file with the reason — the audit must not claim coverage it lacks.');
+    process.exit(1);
+  }
+
+  if (choices.stale.length) {
+    console.error('A declaration about this CLI’s values is out of date:');
+    for (const s of choices.stale) console.error(`  ${s.field}: ${s.why}`);
+    process.exit(1);
+  }
 
   if (unknown.length) {
     console.error('Codex exposes unaudited top-level options:');
@@ -100,7 +143,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`Codex help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options).`);
+  console.log(`Codex help audit passed (${path.basename(exe)}; ${commands.size} commands, ${advertised.length} top-level options, ${choices.checked.length} enum field(s) checked).`);
 }
 
 main();

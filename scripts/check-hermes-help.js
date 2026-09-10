@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const hermes = require('../src/backends/hermes');
-const { definitionFlags, auditFlags } = require('./managed-flags');
+const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // `hermes --checkpoints` is why: the flag was missing from the CLI and missing from the hand-written list
@@ -34,18 +34,27 @@ const AUDITED_EXCLUDED = new Set([
   '--dev',
 ]);
 
-/** The option DEFINITIONS in hermes' argparse help — its `options:` block, one group per definition line. */
+// A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is
+// nothing machine-readable to compare our choices against. Each entry says which field and why — a stale
+// one (the field is gone, or the CLI has started declaring its values) is reported, so this cannot quietly
+// become a place to silence a finding.
+//
+// Empty because hermes' descriptor declares no select field at all — every option it offers is a text
+// field or a toggle, so there is no fixed list of values to check. The audit is wired anyway, so the day
+// this backend grows one it is covered without anybody remembering to come back here.
+const CHOICES_NOT_ENUMERATED = new Set([]);
+
+/** The option DEFINITIONS in hermes' argparse `options:` block, each with the lines that belong to it. */
 function extractOptions(help) {
-  const groups = [];
+  const lines = [];
   let inOptions = false;
   for (const line of String(help || '').split(/\r?\n/)) {
     if (/^options:\s*$/i.test(line)) { inOptions = true; continue; }
     if (inOptions && /^(Examples:|For more help)/i.test(line)) break;
     if (!inOptions) continue;
-    const flags = definitionFlags(line);
-    if (flags.length) groups.push(flags);
+    lines.push(line);
   }
-  return groups;
+  return optionBlocks(lines);
 }
 
 function main() {
@@ -63,8 +72,34 @@ function main() {
     process.exit(2);
   }
 
-  const groups = extractOptions(help);
+  const blocks = extractOptions(help);
+  const groups = blocks.map(b => b.flags);
   const { advertised, unknown, missing } = auditFlags({ backend: hermes, groups, excluded: AUDITED_EXCLUDED });
+
+  // The VALUES audit runs BEFORE the unaudited-flag report, and the order is deliberate: a dead value kills
+  // a session at spawn, while an unaudited flag is a decision somebody still owes. A CLI that grows one
+  // flag would otherwise hide every dead value behind it until that decision is made.
+  const choices = auditChoices({ backend: hermes, blocks, excluded: CHOICES_NOT_ENUMERATED });
+
+  if (choices.dead.length) {
+    console.error('Hermes no longer accepts values this app offers:');
+    for (const d of choices.dead) console.error(`  ${d.field} = "${d.choice}" (${d.flag} takes: ${d.values.join(', ')})`);
+    console.error('Drop the choice in src/backends/hermes/index.js and declare what a stored one becomes (retiredChoices).');
+    process.exit(1);
+  }
+
+  if (choices.unenumerated.length) {
+    console.error('Hermes declares no possible values for options this app offers a fixed list for:');
+    for (const u of choices.unenumerated) console.error(`  ${u.field}: ${u.why}`);
+    console.error('Add it to CHOICES_NOT_ENUMERATED in this file with the reason — the audit must not claim coverage it lacks.');
+    process.exit(1);
+  }
+
+  if (choices.stale.length) {
+    console.error('A declaration about this CLI’s values is out of date:');
+    for (const s of choices.stale) console.error(`  ${s.field}: ${s.why}`);
+    process.exit(1);
+  }
 
   if (unknown.length) {
     console.error('Hermes exposes unaudited top-level options:');
@@ -80,7 +115,7 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`Hermes help audit passed (${path.basename(exe)}; ${advertised.length} top-level options).`);
+  console.log(`Hermes help audit passed (${path.basename(exe)}; ${advertised.length} top-level options, ${choices.checked.length} enum field(s) checked).`);
 }
 
 main();

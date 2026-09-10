@@ -171,6 +171,32 @@ test('descriptor: codex is Axis-B, ready, monogram Cx, with its own configFields
   ]);
 });
 
+// #617 — the two approval values the CLI stopped accepting. `-a untrusted` and `-a on-failure` both end
+// the session at spawn with exit code 2 ("invalid value … for --ask-for-approval"), so a choice list that
+// still offers them is a settings screen that hands out broken sessions. Named here rather than counted,
+// because a count would pass again the moment somebody adds a different value back.
+test('the Approval field offers only what the CLI still takes (#617)', () => {
+  const approval = codex.configFields.find(f => f.id === 'approvalMode');
+  assert.deepStrictEqual(approval.choices, ['on-request', 'never']);
+  for (const dead of ['untrusted', 'on-failure']) {
+    assert.equal(approval.choices.includes(dead), false, `${dead} is not a value codex-cli accepts`);
+    assert.equal(codex.buildLaunch({ cwd: '/p', options: { approvalMode: dead } }).args.join(' '),
+      `-a ${dead}`,
+      'and buildLaunch still passes whatever it is given — the guard is the choice list plus the rewrite, ' +
+      'not a filter at launch, which would only hide the stored value from the screen that shows it');
+  }
+});
+
+test('a stored approval value the CLI retired declares what it becomes (#617)', () => {
+  // The backend owns the answer; `src/app/settings.js` applies it to whichever scope holds the old value.
+  // `on-request` for both: it is the strictest policy the CLI still has, and `untrusted` was stricter, so
+  // the rewrite loosens what the user chose — taken because the alternative is a session that cannot start.
+  const approval = codex.configFields.find(f => f.id === 'approvalMode');
+  assert.deepStrictEqual(approval.retiredChoices, { 'untrusted': 'on-request', 'on-failure': 'on-request' });
+  assert.equal(approval.retiredChoices.untrusted, approval.default,
+    'and it lands on a value the field itself would have shown');
+});
+
 test('buildLaunch: new session uses argv spawnMode (no shell string)', () => {
   const l = codex.buildLaunch({ cwd: 'D:\\p', resume: false, sessionId: 'S1' });
   assert.strictEqual(l.command, 'codex');

@@ -47,6 +47,19 @@ for (const backend of BACKENDS) {
         assert.ok(Array.isArray(f.choices) && f.choices.length, `${backend.id}.${f.id} is a select with no choices`);
         assert.ok(f.choices.includes(f.default), `${backend.id}.${f.id}'s default is not one of its own choices`);
       }
+      // #617 — a CLI can retire a value. `retiredChoices` is what a blob written before that becomes, and
+      // it only makes sense on a list of values: the DEAD side must be gone from the choices (or the field
+      // still offers the thing that kills a session), and the LIVE side must be one of them (or the rewrite
+      // moves a stored value onto something the settings screen cannot show and the CLI may not take).
+      if (f.retiredChoices !== undefined) {
+        assert.equal(f.type, 'select', `${backend.id}.${f.id} retires choices but is not a select`);
+        for (const [dead, alive] of Object.entries(f.retiredChoices)) {
+          assert.equal(f.choices.includes(dead), false,
+            `${backend.id}.${f.id} still offers "${dead}" while declaring it retired`);
+          assert.ok(f.choices.includes(alive),
+            `${backend.id}.${f.id} rewrites "${dead}" to "${alive}", which is not one of its own choices`);
+        }
+      }
     }
   });
 

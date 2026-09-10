@@ -15,8 +15,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
+const { stripComments } = require('./helpers/strip-comments');
+const profiles = require('../src/backends/profiles');
 
 const ROOT = path.join(__dirname, '..');
 const claude = require('../src/backends/claude');
@@ -202,6 +205,240 @@ test('the Claude launch migration moves the legacy keys once, then leaves the bl
 
   settings.migrateClaudeLaunchDefaults();
   assert.equal(writes.length, 1, 'it runs on every start — a second pass must write nothing');
+});
+
+// --- #617: a launch option value the CLI has retired ----------------------------------------------
+//
+// Codex dropped `untrusted` and `on-failure` from `--ask-for-approval`, and a session launched on either
+// died at spawn. The stored blob is rewritten ONCE, in whichever scope holds it, rather than substituted
+// at every launch — so the settings screen shows what will actually be sent.
+//
+// What the core spells is nothing: the replacement comes off the descriptor's `retiredChoices`, which is
+// why these drive the real Codex descriptor rather than a stub. A stub would pass with the mapping
+// deleted from the backend.
+
+/** A settings store over `store`, wired the way the migration and the write door both need it. */
+function withStore(store) {
+  const writes = [];
+  settings.init({
+    db: {
+      getSetting: (key) => store[key],
+      setSetting: (key, value) => { store[key] = value; writes.push(key); },
+      listSettings: (prefix) => Object.keys(store)
+        .filter(k => k.startsWith(prefix))
+        .map(k => ({ key: k, value: store[k] })),
+    },
+    log: { info() {}, warn() {}, error() {} },
+    startBackendWatchers() {},
+    indexWorker: { postReconcile() {} },
+    notifyRendererProjectsChanged() {},
+  });
+  return writes;
+}
+
+test('a retired launch value is rewritten in the GLOBAL blob (#617)', () => {
+  const store = { global: { sidebarWidth: 500, backendDefaults: { codex: { approvalMode: 'untrusted', model: 'gpt-5.5' } } } };
+  withStore(store);
+
+  settings.migrateRetiredChoices();
+
+  assert.equal(store.global.backendDefaults.codex.approvalMode, 'on-request',
+    'the strictest surviving policy — a loosening, taken because the alternative is a session that cannot start');
+  assert.equal(store.global.backendDefaults.codex.model, 'gpt-5.5', 'the other options are untouched');
+  assert.equal(store.global.sidebarWidth, 500, 'and so is everything outside backendDefaults');
+});
+
+test('…and in a PROJECT blob, which is where the cascade puts an option the project overrode (#617)', () => {
+  // Both scopes, because a project stores only the options it overrides — so a dead value can sit in one,
+  // the other, or both, and a migration that only walked `global` would leave the project launching broken.
+  const store = {
+    global: { backendDefaults: { codex: { approvalMode: 'on-request' } } },
+    'project:/a': { backendDefaults: { codex: { approvalMode: 'on-failure' } } },
+    'project:/b': { backendDefaults: { codex: { approvalMode: 'untrusted' } } },
+  };
+  const writes = withStore(store);
+
+  settings.migrateRetiredChoices();
+
+  assert.equal(store['project:/a'].backendDefaults.codex.approvalMode, 'on-request');
+  assert.equal(store['project:/b'].backendDefaults.codex.approvalMode, 'on-request');
+  assert.deepEqual(writes, ['project:/a', 'project:/b'],
+    'the global blob already held a live value, so it was not rewritten');
+});
+
+test('a blob with nothing retired in it is left exactly as it was (#617)', () => {
+  const store = {
+    global: { backendDefaults: { codex: { approvalMode: 'never', sandbox: 'read-only' }, claude: { permissionMode: 'plan' } } },
+    'project:/a': { displayName: 'A' },
+    'project:/b': { backendDefaults: {} },
+  };
+  const before = JSON.parse(JSON.stringify(store));
+  const writes = withStore(store);
+
+  settings.migrateRetiredChoices();
+  settings.migrateRetiredChoices();
+
+  assert.deepEqual(store, before, 'no value moved');
+  assert.deepEqual(writes, [], 'and nothing was written — it runs on every start');
+});
+
+test('the rewrite is idempotent, so a second start writes nothing (#617)', () => {
+  const store = { global: { backendDefaults: { codex: { approvalMode: 'untrusted' } } } };
+  const writes = withStore(store);
+
+  settings.migrateRetiredChoices();
+  settings.migrateRetiredChoices();
+
+  assert.deepEqual(writes, ['global'], 'once, not once per start');
+});
+
+test('the write door rewrites it too, so an Apply cannot put the dead value back (#617)', () => {
+  // The startup migration cannot answer for a form that was already open, nor for an IMPORT of a file
+  // exported before the CLI dropped the value. Both go through the scrub, so the dead value never reaches
+  // the disk at all — rather than being corrected on the next start, with a broken launch in between.
+  const store = {};
+  withStore(store);
+
+  settings.persistSettingsBlob('global', { backendDefaults: { codex: { approvalMode: 'untrusted' } } });
+  assert.equal(store.global.backendDefaults.codex.approvalMode, 'on-request');
+
+  settings.persistSettingsBlob('project:/a', { backendDefaults: { codex: { approvalMode: 'on-failure' } } });
+  assert.equal(store['project:/a'].backendDefaults.codex.approvalMode, 'on-request');
+});
+
+test('a TEMPLATE carries the dead value too, and its own store is rewritten (#617)', () => {
+  // A template's options are not in a settings blob: they live in profiles.json, and they sit at the TOP of
+  // the cascade — so a template saved with a retired value beats every scope the migration above corrects
+  // and the session still dies. This store was nearly skipped on the grounds that it needs Electron, and it
+  // does not: `app/settings.js` has imported it since long before this, and profiles' Electron use is a
+  // lazy require inside the path resolver, which `_configureForTests` replaces outright.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-retired-'));
+  const file = path.join(dir, 'profiles.json');
+  try {
+    profiles._configureForTests({ filePath: file });
+    assert.ok(profiles.save({ id: 'strict-cx', name: 'Strict Codex', backendId: 'codex', env: {},
+      options: { approvalMode: 'untrusted', model: 'gpt-5.5' } }).ok);
+    assert.ok(profiles.save({ id: 'plain-cx', name: 'Plain Codex', backendId: 'codex', env: {},
+      options: { approvalMode: 'never' } }).ok);
+
+    const store = {};
+    withStore(store);
+    settings.migrateRetiredChoices();
+
+    assert.equal(profiles.get('strict-cx').options.approvalMode, 'on-request');
+    assert.equal(profiles.get('strict-cx').options.model, 'gpt-5.5', 'its other options are untouched');
+    assert.equal(profiles.get('strict-cx').name, 'Strict Codex', 'and so is the rest of the record');
+    assert.equal(profiles.get('plain-cx').options.approvalMode, 'never', 'a live value is left alone');
+
+    const before = fs.readFileSync(file, 'utf8');
+    settings.migrateRetiredChoices();
+    assert.equal(fs.readFileSync(file, 'utf8'), before, 'and a second start writes nothing');
+  } finally {
+    profiles._configureForTests({});
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('one bad scope does not take the other scopes or the templates with it (#617)', () => {
+  // The scope loop reads blobs off disk. A single wrapper around it would let the first one that throws
+  // abort every scope after it AND the template pass below — silently, since the whole thing is inside a
+  // try that only logs. So each scope is guarded on its own.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-retired-'));
+  try {
+    profiles._configureForTests({ filePath: path.join(dir, 'profiles.json') });
+    assert.ok(profiles.save({ id: 'cx', name: 'Codex template', backendId: 'codex', env: {},
+      options: { approvalMode: 'untrusted' } }).ok);
+
+    const store = { 'project:/b': { backendDefaults: { codex: { approvalMode: 'on-failure' } } } };
+    const warned = [];
+    settings.init({
+      db: {
+        getSetting: () => { throw new Error('the global blob will not read'); },
+        setSetting: (key, value) => { store[key] = value; },
+        listSettings: (prefix) => Object.keys(store).filter(k => k.startsWith(prefix)).map(k => ({ key: k, value: store[k] })),
+      },
+      log: { info() {}, warn(msg) { warned.push(String(msg)); }, error() {} },
+      startBackendWatchers() {}, indexWorker: { postReconcile() {} }, notifyRendererProjectsChanged() {},
+    });
+
+    settings.migrateRetiredChoices();
+
+    assert.equal(store['project:/b'].backendDefaults.codex.approvalMode, 'on-request',
+      'the scope after the throwing one is still corrected');
+    assert.equal(profiles.get('cx').options.approvalMode, 'on-request',
+      'and so is the template store, which comes after the whole loop');
+    assert.ok(warned.some(m => m.includes('global')), 'the scope that failed is named');
+  } finally {
+    profiles._configureForTests({});
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the template pass DECLINES while profiles.json holds records this app could not load (#617)', () => {
+  // `flush` rewrites the file from the loader's kept state, so a save erases whatever `ensureLoaded`
+  // discarded. That is the user's own act when they press Save in the editor; doing it from a startup pass
+  // would delete records nobody has been told about, as a side effect of fixing an unrelated field. The
+  // pass declines and says so — the settings blobs are still corrected, and the editor is still a way in.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-retired-'));
+  const file = path.join(dir, 'profiles.json');
+  try {
+    fs.writeFileSync(file, JSON.stringify({
+      profiles: [
+        { id: 'cx', name: 'Codex template', backendId: 'codex', env: {}, options: { approvalMode: 'untrusted' } },
+        { id: '', name: 'unloadable', env: {} },      // an invalid id — the loader drops it
+      ],
+    }, null, 2), 'utf8');
+    profiles._configureForTests({ filePath: file });
+    assert.equal(profiles.list().length, 1, 'one record was kept');
+    assert.equal(profiles.droppedAtLoad(), 1, 'and one was not');
+
+    const store = { global: { backendDefaults: { codex: { approvalMode: 'untrusted' } } } };
+    const warned = [];
+    settings.init({
+      db: {
+        getSetting: (key) => store[key],
+        setSetting: (key, value) => { store[key] = value; },
+        listSettings: () => [],
+      },
+      log: { info() {}, warn(msg) { warned.push(String(msg)); }, error() {} },
+      startBackendWatchers() {}, indexWorker: { postReconcile() {} }, notifyRendererProjectsChanged() {},
+    });
+
+    settings.migrateRetiredChoices();
+
+    assert.equal(store.global.backendDefaults.codex.approvalMode, 'on-request', 'the blob is still corrected');
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).profiles.length, 2,
+      'and the file still holds both records — the unloadable one was not erased');
+    assert.ok(warned.some(m => m.includes('could not load')), 'the decision is logged, not silent');
+  } finally {
+    profiles._configureForTests({});
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the retired-choice migration is actually called at startup (#617)', () => {
+  // A source check, and it says what it pins: `lifecycle.js` requires Electron, so there is no seam a test
+  // can reach `app.whenReady` through — and a migration nothing calls is a rewrite that never happens, with
+  // every unit test below still green. The same gap the Claude migration beside it has always had.
+  const src = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'app', 'lifecycle.js'), 'utf8'));
+  assert.match(src, /ctx\.migrateRetiredChoices\(\)/, 'lifecycle runs it');
+  assert.ok(src.indexOf('ctx.migrateRetiredChoices()') < src.indexOf('ctx.createWindow()'),
+    'and before the first window, so no settings form is ever open against a value it is about to change');
+  const main = stripComments(fs.readFileSync(path.join(ROOT, 'src', 'main.js'), 'utf8'));
+  assert.match(main, /\bmigrateRetiredChoices\b/, 'and main.js puts it on the lifecycle ctx');
+});
+
+test('the rewrite asks the DESCRIPTOR and spells no backend of its own (#617)', () => {
+  // A backend id nothing is registered under answers null, and its options are left alone rather than
+  // guessed at — the same rule the rest of the core follows about a backend it does not know.
+  const blob = { backendDefaults: { 'no-such-backend': { approvalMode: 'untrusted' } } };
+  const { value, changed } = settings.rewriteRetiredChoices(blob);
+  assert.equal(value, blob, 'the original object, untouched');
+  assert.deepEqual(changed, []);
+
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'settings.js'), 'utf8');
+  assert.equal(/['"]untrusted['"]|['"]on-failure['"]/.test(stripComments(src)), false,
+    "the value a CLI retired belongs in that CLI's folder — the core reads it off the descriptor");
 });
 
 // --- renderer half: the effective defaults become the session's launch options --------------------

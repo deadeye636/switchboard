@@ -422,6 +422,15 @@ Pi's `model` field supports backend-owned suggestions from `pi --list-models`; a
 Claude's pre-multi-LLM top-level keys (`permissionMode`, `worktree`, `chrome`, …) are migrated once into
 `backendDefaults.claude` and removed from the blob.
 
+A launch option whose value the CLI has **retired** is rewritten once as well: the backend declares what the dead
+value becomes (`retiredChoices`, `docs/backend-formats.md`), and the rewrite runs over the global blob, every
+project blob and every template's own options at startup. Codex' Approval field is the case this exists for —
+`untrusted` and `on-failure` are gone from `codex --ask-for-approval` and both become `on-request`, which is a
+looser policy than either. The alternative was a session that dies at spawn. The change is logged with the old and
+the new value, and it does not run again once a scope is corrected. It leaves `profiles.json` alone while that
+file holds template records this app could not load, because a template save rewrites the file from what was
+loaded — correcting one template that way would erase the records nobody has been told about.
+
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
 answered its own `AskUserQuestion` dialog after 60 seconds; the field's `0` sent a sentinel meaning
 "never". The CLI has since stopped auto-continuing by default and grown its own setting for it —

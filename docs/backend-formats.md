@@ -745,6 +745,18 @@ default that **matches what the CLI already does** — it is a description of th
 Two markers a field may carry, because two honest exceptions exist and both must be **declared** rather
 than discovered by a puzzled reader:
 
+- **`retiredChoices: { <dead>: <surviving> }`** (#617) — on a select field: a value the CLI used to take and no
+  longer does, and what a setting saved under it becomes. Codex declares
+  `{ untrusted: 'on-request', 'on-failure': 'on-request' }`; both were removed from `--ask-for-approval`, and a
+  session launched on either died at spawn. `app/settings.js` rewrites the stored value once at startup — in the
+  global blob, in every project blob and in a template's own options — and again at the settings blobs' write
+  door, so an Apply from a form loaded before the rewrite cannot put it back. The template editor has no such
+  door: its own select offers only live values, but `profiles.save` validates a shape rather than a
+  vocabulary, so a caller that is not that editor can still store a dead one and the next start corrects it.
+  The startup pass also DECLINES to touch `profiles.json` while it holds records this app could not load,
+  because a save rewrites the file from what was loaded and would erase them. The replacement is a judgement and belongs to the
+  backend: `on-request` is the strictest policy Codex still has, so the rewrite loosens what the user chose. It is
+  taken because the alternative is a session that cannot start.
 - **`appliesAt: 'spawn'`** — the option is real, but it is not in the argv `buildLaunch` returns. `src/app/terminal/spawn.js`
   applies it at the spawn site: Claude's `preLaunchCmd` *prefixes* the command line, `mcpEmulation`
   starts the MCP bridge and appends `--ide`, `afkTimeoutSec` becomes an env var.

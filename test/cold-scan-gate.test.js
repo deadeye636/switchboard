@@ -304,6 +304,7 @@ function lifecycleCtx({ ftsRecreated, calls }) {
     cleanupSecretRefs: noop,
     cleanupClearBindings: noop,
     migrateClaudeLaunchDefaults: noop,
+    migrateRetiredChoices: noop,
     buildMenu: noop,
     createWindow: noop,
     createTray: noop,

@@ -97,6 +97,12 @@ function start(ctx) {
     try { ctx.migrateClaudeLaunchDefaults(); } catch (err) {
       ctx.log.warn('[settings] Claude launch-defaults migration failed:', err?.message || err);
     }
+    // One-time, same window and for the same reason (#617): a launch option whose value the CLI has
+    // retired is rewritten in every scope that holds one, before a settings panel can render the dead
+    // value or a launch can send it.
+    try { ctx.migrateRetiredChoices(); } catch (err) {
+      ctx.log.warn('[settings] retired launch-choice migration failed:', err?.message || err);
+    }
     // Set Content Security Policy
     ctx.session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({

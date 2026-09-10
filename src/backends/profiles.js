@@ -188,7 +188,7 @@ function validateProfile(input, opts = {}) {
 function ensureLoaded() {
   if (loaded) return;
   loaded = true;
-  state = { profiles: [], defaultProfileId: null };
+  state = { profiles: [], defaultProfileId: null, droppedAtLoad: 0 };
   let raw;
   try { raw = fs.readFileSync(resolveFilePath(), 'utf8'); } catch { return; }
   let parsed;
@@ -201,11 +201,19 @@ function ensureLoaded() {
     if (v.ok && !seen.has(v.profile.id)) { state.profiles.push(v.profile); seen.add(v.profile.id); }
     if (state.profiles.length >= MAX_PROFILES) break;
   }
+  // How many records on disk this load did NOT keep — structurally invalid, a duplicate id, or past the
+  // cap. It matters because `flush` rewrites the file from the kept state, so any save ERASES them (#617).
+  // With a user pressing Save that is their act; an unattended writer has to be able to decline instead.
+  state.droppedAtLoad = parsed.profiles.length - state.profiles.length;
   if (typeof parsed.defaultProfileId === 'string' && seen.has(parsed.defaultProfileId)) {
     state.defaultProfileId = parsed.defaultProfileId;
   }
 }
 
+// Returns whether the file was actually written. Every caller used to ignore that, and `save` reported
+// success either way — so a caller that had no user in front of it (the retired-choice migration, #617)
+// could log a rewrite that never reached the disk. In-memory state is still correct, so a failed flush
+// costs the change on the next start rather than corrupting anything.
 function flush() {
   const file = resolveFilePath();
   const tmp = file + '.tmp';
@@ -213,8 +221,10 @@ function flush() {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(tmp, JSON.stringify({ profiles: state.profiles, defaultProfileId: state.defaultProfileId }, null, 2), 'utf8');
     fs.renameSync(tmp, file);
+    return true;
   } catch {
     try { fs.unlinkSync(tmp); } catch {}
+    return false;
   }
 }
 
@@ -223,13 +233,34 @@ function list() {
   return state.profiles.map(p => ({ ...p, env: { ...p.env } }));
 }
 
+/**
+ * How many records the last load read off disk and did not keep (#617). Zero for a missing or unreadable
+ * file — there is nothing to lose in either case.
+ *
+ * `flush` writes the KEPT state over the whole file, so a save erases whatever this counts. That has always
+ * been true and has always needed a user pressing Save. It is exposed because the retired-choice migration
+ * writes with nobody in front of it, and a startup that quietly deletes records the user has never been
+ * told about is a different act from the one they asked for.
+ */
+function droppedAtLoad() {
+  ensureLoaded();
+  return state.droppedAtLoad || 0;
+}
+
 function get(id) {
   ensureLoaded();
   const p = state.profiles.find(x => x.id === id);
   return p ? { ...p, env: { ...p.env } } : null;
 }
 
-// Create or update a profile. Returns { ok, profile } | { ok:false, error }.
+// Create or update a profile.
+// Returns { ok: true, profile, persisted } | { ok: false, error }.
+//
+// `ok` is about the RECORD — it validated and is now in memory. `persisted` is about the FILE, and the two
+// can disagree: a flush that could not write leaves a correct app and an unchanged `profiles.json`, so the
+// change is lost at the next start. A caller with a user in front of it can ignore that (they will see the
+// template and can save it again); a caller with nobody in front of it must not report a rewrite that never
+// reached the disk — see the retired-choice migration in `app/settings.js` (#617).
 function save(input, opts = {}) {
   ensureLoaded();
   const v = validateProfile(input, opts);
@@ -241,8 +272,8 @@ function save(input, opts = {}) {
     if (state.profiles.length >= MAX_PROFILES) return { ok: false, error: `profile cap reached (max ${MAX_PROFILES})` };
     state.profiles.push(v.profile);
   }
-  flush();
-  return { ok: true, profile: { ...v.profile, env: { ...v.profile.env } } };
+  const persisted = flush();
+  return { ok: true, persisted, profile: { ...v.profile, env: { ...v.profile.env } } };
 }
 
 function remove(id) {
@@ -291,7 +322,7 @@ function _configureForTests({ filePath } = {}) {
 }
 
 module.exports = {
-  list, get, save, remove, getDefault, setDefault,
+  list, get, save, remove, getDefault, setDefault, droppedAtLoad,
   pickProfileForSession, resolveEnvForProfile,
   validateProfile, looksLikeRawSecret, checkEndpointLeak,
   MAX_PROFILES, RESERVED_IDS,

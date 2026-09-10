@@ -32,6 +32,9 @@
 
 const fs = require('fs');
 const profiles = require('../backends/profiles');
+// The descriptor registry, for the one question this file asks a backend: has it retired a launch option's
+// value, and what does a blob that still holds one become (#617). No backend id is spelled here.
+const backends = require('../backends');
 const settingsTransfer = require('./settings-transfer');
 // A thrown fs error names the file it failed on, and this one is a path the user picked (#457).
 const { readableError } = require('./readable-error');
@@ -208,6 +211,136 @@ function stripBackendEnvSecrets(blob) {
 }
 
 /**
+ * A CLI can RETIRE a value this app used to offer, and then a blob written before that holds a value the
+ * launch cannot use — Codex dropped `untrusted` and `on-failure` from `--ask-for-approval`, and a session
+ * started with either died at spawn (#617).
+ *
+ * The replacement is the BACKEND's answer, never the core's: a select field declares `retiredChoices`
+ * ({ dead: surviving }) and this walks `backendDefaults` asking the descriptor. So no backend id and no
+ * CLI's vocabulary is spelled here (`.claude/rules/backends.md`), and the next CLI that drops a value
+ * needs one line in its own folder.
+ *
+ * It rewrites the STORED blob rather than substituting at launch — the correction happens once, in
+ * whichever scope holds the dead value, and the settings screen then shows what will actually be sent.
+ * Pure: returns { value, changed[] }, and `value` is the original object when nothing was rewritten.
+ */
+/**
+ * One options object against one descriptor's fields. Returns a NEW object when something was rewritten
+ * and null when nothing was, so a caller can tell "unchanged" from "changed to the same thing" and leave
+ * an untouched store alone. Every note it appends names the field and both values, because the log line is
+ * the only place a user ever learns their choice was moved.
+ */
+function rewriteRetiredIn(descriptor, opts, label, changed) {
+  if (!opts || typeof opts !== 'object' || Array.isArray(opts)) return null;
+  let replaced = null;
+  for (const field of (descriptor && descriptor.configFields) || []) {
+    const retired = field && field.retiredChoices;
+    if (!retired || typeof retired !== 'object') continue;
+    const value = (replaced || opts)[field.id];
+    if (typeof value !== 'string' || !Object.prototype.hasOwnProperty.call(retired, value)) continue;
+    replaced = replaced || { ...opts };
+    replaced[field.id] = retired[value];
+    changed.push(`${label}.${field.id}: ${value} -> ${retired[value]}`);
+  }
+  return replaced;
+}
+
+function rewriteRetiredChoices(blob) {
+  const changed = [];
+  const stored = blob && typeof blob === 'object' ? blob.backendDefaults : null;
+  if (!stored || typeof stored !== 'object') return { value: blob, changed };
+
+  const next = {};
+  for (const [backendId, opts] of Object.entries(stored)) {
+    // An id nothing is registered under (a backend that was removed, a template this process has not been
+    // told about) answers null — leave its options exactly as they are rather than guessing at them.
+    next[backendId] = rewriteRetiredIn(backends.get(backendId), opts, backendId, changed) || opts;
+  }
+
+  if (!changed.length) return { value: blob, changed };
+  return { value: { ...blob, backendDefaults: next }, changed };
+}
+
+/**
+ * The same rewrite over every store that can hold one, and there are TWO of them.
+ *
+ * The settings blobs: `global` AND every `project:` blob, because the cascade stores an option wherever
+ * the user set it — a project that overrode one option holds that one and nothing else.
+ *
+ * And a TEMPLATE's own options, which are not in a settings blob at all: a template is one record —
+ * base, name, icon, options, env — kept in `profiles.json` (`backends/profiles.js`), and its options sit
+ * at the TOP of the cascade, so a template saved with a value the CLI has since retired sends it in
+ * preference to every scope above. That store was nearly left out of this on the grounds that it needs
+ * Electron, and it does not: this module has required it since long before #617, and its Electron use is
+ * a lazy require inside the path resolver. A template's fields belong to the backend it RUNS ON, so the
+ * base descriptor is what answers for them.
+ *
+ * Called once at startup beside the Claude migration (`app/lifecycle.js`), before any window has read
+ * settings, so no form is ever open against a value this is about to change. Idempotent: a second pass
+ * finds nothing and writes nothing.
+ */
+function migrateRetiredChoices() {
+  const notes = [];
+
+  // Collecting the scopes is itself two reads that can fail, and each is guarded separately: an
+  // unreadable `global` must not cost the project blobs, and neither must cost the templates.
+  const scopes = [];
+  try { scopes.push({ key: 'global', value: ctx.db.getSetting('global') }); }
+  catch (err) { ctx.log.warn('[settings] could not read the global blob:', err?.message || err); }
+  try { scopes.push(...ctx.db.listSettings('project:')); }
+  catch (err) { ctx.log.warn('[settings] could not list the project blobs:', err?.message || err); }
+
+  for (const scope of scopes) {
+    // One try PER SCOPE. A single wrapper around the loop would let one unreadable blob take every scope
+    // after it AND the template pass below with it — and the scope that throws is the one nobody can
+    // predict, because these blobs come off disk.
+    try {
+      const { value, changed } = rewriteRetiredChoices(scope.value);
+      if (!changed.length) continue;
+      ctx.db.setSetting(scope.key, value);
+      for (const note of changed) notes.push(`${scope.key} ${note}`);
+    } catch (err) {
+      ctx.log.warn(`[settings] could not rewrite ${scope.key}:`, err?.message || err);
+    }
+  }
+
+  try {
+    // A save rewrites the WHOLE file from the loader's KEPT state, so any record `ensureLoaded` discarded —
+    // one past the cap, a duplicate id, a structurally invalid one — would be erased by this write. That has
+    // always been true of a template save, but it has always taken a user pressing Save; doing it from a
+    // startup pass would delete records the user has never been told about, as a side effect of a fix to a
+    // different field. So the pass declines instead, says so, and leaves the templates to the editor — where
+    // the same erasure is at least the user's own act.
+    const dropped = profiles.droppedAtLoad();
+    if (dropped > 0) {
+      ctx.log.warn(`[settings] not rewriting template launch options: profiles.json holds ${dropped} record(s) this app could not load, and a save would drop them`);
+    } else {
+      for (const profile of profiles.list()) {
+        const changed = [];
+        const options = rewriteRetiredIn(backends.get(profile.backendId), profile.options, `template:${profile.id}`, changed);
+        if (!options) continue;
+        // The same leniency the loader reads an existing record with: a template already on disk must not be
+        // refused by a heuristic while we are correcting a different field of it.
+        const saved = profiles.save({ ...profile, options }, { allowSecrets: true, skipLeakCheck: true });
+        if (!saved.ok) { ctx.log.warn(`[settings] could not rewrite template ${profile.id}: ${saved.error}`); continue; }
+        // `persisted: false` means the file could not be written. The record is correct in memory, so the app
+        // behaves; the note must not claim a disk write that did not happen, or the next start looks like a
+        // rewrite that undid itself.
+        if (!saved.persisted) { ctx.log.warn(`[settings] template ${profile.id} corrected in memory — profiles.json could not be written`); continue; }
+        for (const note of changed) notes.push(note);
+      }
+    }
+  } catch (err) {
+    // A template store that cannot be read leaves the settings blobs already corrected above.
+    ctx.log.warn('[settings] template launch-option rewrite failed:', err?.message || err);
+  }
+
+  if (notes.length) {
+    ctx.log.info(`[settings] rewrote launch option(s) the CLI no longer accepts: ${notes.join(', ')}`);
+  }
+}
+
+/**
  * The one way a settings blob reaches the disk. Every writer goes through here — the settings
  * form, and the settings IMPORT (#145). An importer that called setSetting() directly would be a
  * back door around both halves of this: the secret scrub below, and the backend re-arm.
@@ -234,6 +367,15 @@ function scrubBlobForDisk(value) {
     if (env.removed.length) {
       ctx.log.warn(`[backends] refused to persist literal secret(s) in backendEnv: ${env.removed.join(', ')} — use a $VAR reference`);
       value = env.value;
+    }
+    // …and the retired-choice rewrite (#617), because the startup migration alone leaves two ways back in:
+    // a settings screen whose form was loaded before the rewrite and then applied, and an IMPORT of a file
+    // exported before the CLI dropped the value. Both arrive here, so the dead value cannot be written at
+    // all rather than being corrected on the next start.
+    const retired = rewriteRetiredChoices(value);
+    if (retired.changed.length) {
+      ctx.log.warn(`[backends] rewrote launch option(s) the CLI no longer accepts: ${retired.changed.join(', ')}`);
+      value = retired.value;
     }
   } catch { /* never block a settings save on this */ }
   return value;
@@ -480,6 +622,7 @@ module.exports = {
   // main.js's spawn/terminal paths and its lifecycle call these.
   effectiveSettings,
   migrateClaudeLaunchDefaults,
+  migrateRetiredChoices,
   SETTING_DEFAULTS,
   GLOBAL_ONLY_DEFAULTS,
   // The trust boundary and the cascade. Exported so the tests can REQUIRE them — they used to be
@@ -487,5 +630,6 @@ module.exports = {
   persistSettingsBlob,
   stripLauncherSecrets,
   stripBackendEnvSecrets,
+  rewriteRetiredChoices,
   mergeBackendDefaults,
 };

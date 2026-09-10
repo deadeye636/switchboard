@@ -199,3 +199,30 @@ test('resolveEnvForProfile resolves $VAR at read time', () => {
     delete process.env.__PROF_TEST_KEY__;
   }
 });
+
+// #617 — `save` answers two questions, and a caller with nobody in front of it needs the second one.
+//
+// `ok` says the record validated and is in memory. `persisted` says the file was written. They disagree
+// when the flush fails, and until this existed `flush()` swallowed that and `save` reported success either
+// way — so the retired-choice migration (`app/settings.js`) would log a template rewrite for a
+// `profiles.json` that never changed, and the next start would look like a rewrite that undid itself.
+//
+// The unwritable path is a DIRECTORY where the file should be: `writeFileSync` on the temp name fails on
+// every platform, without needing a permission bit this suite cannot set on Windows and on CI both.
+test('save reports whether the write reached the disk (#617)', () => {
+  const file = tmpFile();
+  profiles._configureForTests({ filePath: file });
+  const good = profiles.save({ id: 'ok1', name: 'Fine', env: {} });
+  assert.ok(good.ok, good.error);
+  assert.strictEqual(good.persisted, true, 'a writable path persists');
+  assert.ok(fs.existsSync(file), 'and the file is really there');
+
+  const blocked = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'proftest-')), 'profiles.json');
+  fs.mkdirSync(blocked + '.tmp');            // the temp name `flush` writes to is taken by a directory
+  profiles._configureForTests({ filePath: blocked });
+  const failed = profiles.save({ id: 'ok2', name: 'Also fine', env: {} });
+  assert.ok(failed.ok, 'the record is valid and is held in memory');
+  assert.strictEqual(failed.persisted, false, 'but the caller is told the file was not written');
+  assert.strictEqual(profiles.get('ok2').name, 'Also fine', 'in-memory state is still correct');
+  assert.ok(!fs.existsSync(blocked), 'and nothing was written');
+});
