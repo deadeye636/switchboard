@@ -33,7 +33,8 @@ const { isTurnEvent } = require('./state');
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with the two cost columns (#159)
 //   v4: the title prefers the user's thread name from session_index.jsonl, where there is one (#153)
 //   v5: a rollout written by an internal subagent (guardian review) is not a session at all (#492)
-const PARSER_SCHEMA_VERSION = 5;
+//   v6: a forked rollout carries its parent (`forked_from_id`), read for lineage (#229)
+const PARSER_SCHEMA_VERSION = 6;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -64,6 +65,10 @@ function createParseState() {
     // This rollout was written by one of Codex's own internal subagents, not by a user session (#492).
     // Set from the header; a rollout that never carries one stays false and is a session like any other.
     internal: false,
+
+    // The session this rollout was forked from, verbatim from the header (#229). The descriptor's
+    // `resolveLineage` turns it into lineageParentId at the neutral sink.
+    lineageParentRef: null,
 
     // Per-(date, hour, model) metrics — what the Stats charts are built from (#154, #159). Codex
     // re-emits RUNNING totals, so a bucket gets the DELTA since the previous token_count, attributed to
@@ -146,6 +151,22 @@ function applyEntry(st, entry) {
       if (payload.thread_source === 'guardian_review'
           || (payload.source && typeof payload.source === 'object' && payload.source.subagent)) {
         st.internal = true;
+      }
+      // `codex fork` stamps the session it was forked from. MEASURED against cli 0.153.2: it names the
+      // IMMEDIATE parent, not the root of the chain (a fork of a fork points at the fork), and a
+      // `codex resume` writes no new rollout at all, so a resumed session is the same row and not a
+      // lineage link.
+      //
+      // The `!st.internal` gate is load-bearing, not a belt-and-braces repeat of buildRow's. The field is
+      // NOT fork-exclusive: a SPAWNED SUBAGENT thread carries it too — half the occurrences in a real
+      // store were `source.subagent.thread_spawn` headers where `forked_from_id` equals the
+      // `parent_thread_id` beside it, i.e. the spawner. Reading it there would fold a subagent under the
+      // session it was spawned for and call the link a recorded fork. Today buildRow drops those rollouts
+      // anyway, so this gate changes nothing that is observable — it is here so that the day a spawned
+      // thread stops being internal (a string `source`, an unfamiliar `thread_source`), it does not
+      // silently arrive with a parent. Lineage means "the user forked this", so ask that question first.
+      if (!st.internal && typeof payload.forked_from_id === 'string' && payload.forked_from_id) {
+        st.lineageParentRef = payload.forked_from_id;
       }
       if (typeof payload.cwd === 'string') st.cwd = payload.cwd;
       if (typeof payload.timestamp === 'string') st.startedAt = payload.timestamp;
@@ -302,6 +323,7 @@ function buildRow(st, filePath, opts = {}) {
     largestUserPromptWords: st.largestUserPromptWords,
     textContent: st.textParts.join('\n'),   // FTS5 body
     slug: null, customTitle: null, aiTitle: null,
+    lineageParentRef: st.lineageParentRef || null,
     startedAt: st.startedAt,
     lastEntryAt: st.lastEntryAt,
     activeMinutes,

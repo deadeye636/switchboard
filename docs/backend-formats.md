@@ -144,9 +144,21 @@ a hook alone cannot say whether a prompt is still waiting.
   would put an arbitrary directory into the listing — and the listing is the allow-list every other guard
   consults. Both halves of the key are checked for being a single path segment, and the resolved directory
   is checked against the cache root through `app/path-containment.js`, before anything is listed.
-- Forking uses Codex' native `codex fork <session-id>` command. Switchboard can launch/adopt the forked
-  rollout, but no verified on-disk parent field has been found in Codex JSONL yet, so `resolveLineage()`
-  still returns `null` rather than inventing a relationship.
+- Forking uses Codex' native `codex fork <session-id>` command, and **the forked rollout records where it
+  came from**: `session_meta.forked_from_id`. Measured against cli 0.153.2 with a fork of a fork, it names
+  the **immediate** parent rather than the root of the chain, so `resolveLineage()` returns
+  `{ lineageParentId, lineageKind: 'fork' }` and a chain folds one level at a time (#229). Two neighbours
+  that look like the same thing and are not:
+  - `codex resume` writes **no new rollout** — it appends to the existing file. A resumed session is the
+    same row, not a lineage link, so there is nothing to record.
+  - **The stamp is not fork-exclusive.** A spawned subagent thread carries `forked_from_id` too, naming
+    its spawner — in a real store that was half the occurrences, all of them `source.subagent.thread_spawn`
+    headers where the field equalled the `parent_thread_id` beside it. The parser therefore reads it only
+    on a header that is not a subagent's (#492); reading it everywhere would fold a subagent under the
+    session it was spawned for and present the link as a recorded fork.
+  - `parent_thread_id` in the same header is the **subagent** relation, not lineage, and it is what marks
+    such a rollout as internal in the first place.
+  - A `/clear` still starts a rollout with no back-ref, and `compacted` remains a per-message state.
 
 ### Rate limits ride along in the transcript (#191)
 

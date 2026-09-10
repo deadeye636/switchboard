@@ -211,9 +211,14 @@ module.exports = {
   // can offer the generic Fork action without learning Codex subcommands.
   supportsFork: true,
   supportsSubagents: false,   // no subagent concept (#230)
-  // Lineage (#193): Codex records no parent link on disk — a `/clear` starts a new rollout with no
-  // back-ref, and `compacted` is a per-message state, not a parent reference. Declares none (honest gap).
-  resolveLineage: () => null,
+  // Lineage (#193, re-measured for #229): a forked rollout DOES carry its origin. `codex fork` stamps
+  // `forked_from_id` in the header, and it names the immediate parent rather than the root of the chain,
+  // so a fork of a fork folds one level at a time. That is a link Codex states itself, hence the hard
+  // kind. What it still records no link for: a `/clear` starts a rollout with no back-ref, and
+  // `compacted` is a per-message state, not a parent. The reader decides WHERE that stamp counts — a
+  // spawned subagent thread carries the same field, naming its spawner, and the parser refuses it there
+  // (#492) — so by the time a row reaches this hook, `lineageParentRef` is only ever a user's fork.
+  resolveLineage: (row) => (row && row.lineageParentRef ? { lineageParentId: row.lineageParentRef, lineageKind: 'fork' } : null),
   // A session's opening slash command (#229): Codex records a `/clear` as a NEW rollout rather than as a
   // message in the old one, so there is no command line to mistake for a prompt here. Declines until a
   // real transcript shows one.
@@ -255,7 +260,7 @@ description:
     deleteSessions: 'yes',
     moveProject: 'yes',
     transcriptHandoff: 'yes',
-    lineage: { state: 'no', note: 'records no parent link on disk' },
+    lineage: { state: 'limited', note: 'only a forked session names its parent' },
     modelList: 'no',
     endpoint: 'no',
     projectTrust: 'yes',

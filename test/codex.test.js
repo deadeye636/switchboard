@@ -534,3 +534,107 @@ test('#492 the scan drops the already-indexed row for a file that turned out to 
   assert.ok(!reply.seenFiles.includes(p),
     'the file must not count as seen, or the reconcile keeps the stale row forever');
 });
+
+// --- #229: a forked rollout carries the session it came from
+
+// A fork header as `codex fork` writes it, MEASURED against cli 0.153.2: `forked_from_id` names the
+// session the fork started from, and `session_id`/`id` are the fork's own.
+function forkHeader(overrides = {}) {
+  return {
+    timestamp: '2026-09-10T08:39:59.000Z',
+    type: 'session_meta',
+    payload: {
+      session_id: 'FORK-1',
+      id: 'FORK-1',
+      forked_from_id: 'ROOT-1',
+      timestamp: '2026-09-10T08:39:59.000Z',
+      cwd: 'D:\\Example\\demo',
+      originator: 'codex_exec',
+      cli_version: '0.153.2',
+      source: 'exec',
+      thread_source: 'user',
+      ...overrides,
+    },
+  };
+}
+
+test('#229 a forked rollout exposes the session it was forked from', () => {
+  const p = writeRollout('rollout-fork.jsonl', forkHeader());
+  const row = parser.parseSession({ kind: 'file', path: p });
+  assert.ok(row, 'a fork IS a session (unlike an internal subagent rollout)');
+  assert.strictEqual(row.sessionId, 'FORK-1');
+  assert.strictEqual(row.lineageParentRef, 'ROOT-1', 'the header link is carried on the row, verbatim');
+});
+
+test('#229 a rollout with no fork header carries no parent ref', () => {
+  const p = writeRollout('rollout-plain.jsonl', forkHeader({ forked_from_id: undefined }));
+  const row = parser.parseSession({ kind: 'file', path: p });
+  assert.strictEqual(row.lineageParentRef, null, 'absent, not undefined — the sink reads a null');
+});
+
+test('#229 the descriptor turns the ref into a hard fork link', () => {
+  const p = writeRollout('rollout-fork-desc.jsonl', forkHeader());
+  const row = parser.parseSession({ kind: 'file', path: p });
+  assert.deepStrictEqual(codex.resolveLineage(row), { lineageParentId: 'ROOT-1', lineageKind: 'fork' },
+    'Codex states the link itself, so it is hard — never the soft /clear kind');
+  assert.strictEqual(codex.resolveLineage({ lineageParentRef: null }), null);
+});
+
+// `parent_thread_id` is a DIFFERENT relation: it marks a subagent thread. Asserting only that such a
+// rollout is not a session would pass even if lineage DID read the field, so the row that pins it is a
+// header carrying `parent_thread_id` while being nobody's subagent — which is the shape a future Codex
+// could write.
+test('#229 parent_thread_id is never read as lineage, even where the rollout IS a session', () => {
+  const p = writeRollout('rollout-parent-thread.jsonl',
+    forkHeader({ forked_from_id: undefined, parent_thread_id: 'SPAWNER-1' }));
+  const row = parser.parseSession({ kind: 'file', path: p });
+  assert.ok(row, 'no subagent source, so this rollout is a session');
+  assert.strictEqual(row.lineageParentRef, null, 'and its parent_thread_id is not a lineage link');
+});
+
+// MEASURED, and the reason the read is gated: `forked_from_id` is NOT fork-exclusive. A spawned subagent
+// thread carries it too, naming its spawner — half the occurrences in a real store were exactly that. If
+// the parser read it there, a subagent would fold under the session it was spawned for and the link would
+// be presented as a recorded fork.
+test('#229 a spawned subagent thread carries the same field and still yields no session', () => {
+  const p = writeRollout('rollout-subagent-fork.jsonl', guardianHeader({
+    thread_source: 'subagent',
+    source: { subagent: { thread_spawn: { parent_thread_id: 'PARENT-1', depth: 1 } } },
+    forked_from_id: 'PARENT-1',
+  }));
+  assert.strictEqual(parser.parseSession({ kind: 'file', path: p }), null,
+    'a spawned thread is not a session, whatever it stamps in its header');
+});
+
+test('#229 the fork stamp is not read on a subagent header, gate and drop independently', () => {
+  const st = parser.createParseState();
+  parser.applyLine(st, JSON.stringify({
+    type: 'session_meta',
+    payload: {
+      session_id: 'SUB-1', id: 'SUB-1',
+      forked_from_id: 'PARENT-1',
+      parent_thread_id: 'PARENT-1',
+      cwd: 'D:\\Example\\demo',
+      source: { subagent: { thread_spawn: { parent_thread_id: 'PARENT-1', depth: 1 } } },
+      thread_source: 'subagent',
+    },
+  }));
+  assert.strictEqual(st.internal, true);
+  assert.strictEqual(st.lineageParentRef, null,
+    'the day such a rollout stops being dropped, it must still arrive without a parent');
+});
+
+test('#229 an incremental resume from a saved offset keeps the fork link', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-fork-inc-'));
+  const p = path.join(dir, 'rollout.jsonl');
+  const line = (o) => JSON.stringify(o) + '\n';
+  fs.writeFileSync(p, line(forkHeader())
+    + line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: 'hi' }] } }));
+  const first = parser.parseSessionIncremental({ kind: 'file', path: p }, {}, null);
+  assert.strictEqual(first.row.lineageParentRef, 'ROOT-1');
+
+  fs.appendFileSync(p, line({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ text: 'ok' }] } }));
+  const second = parser.parseSessionIncremental({ kind: 'file', path: p }, {}, first.parseState);
+  assert.strictEqual(second.row.lineageParentRef, 'ROOT-1',
+    'the header is behind the saved offset, so the link has to live in the parse state');
+});

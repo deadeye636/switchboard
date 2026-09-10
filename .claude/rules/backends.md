@@ -327,11 +327,16 @@ Three rules around them that are not the backend's:
 `src/backends/capabilities.js` holds the catalog of "what can this backend do"; each descriptor answers
 every row with `yes` / `limited` / `no`, and a `limited` answer carries a note saying which half is
 missing. **Do not replace that with `typeof descriptor.hook === 'function'`** — nearly every hook exists
-on every backend, several of them precisely in order to decline (agy's `cliHomeEnv` returns null, Codex'
+on every backend, several of them precisely in order to decline (agy's `cliHomeEnv` returns null, agy's
 `resolveLineage` returns null), so presence says a backend answered the question, not what it answered.
 
 Derivation stays as a *check*: `test/backend-capabilities.test.js` refuses a `yes` whose declaring field
 is absent, and pins every backend's every answer by name.
+
+**Wiring a hook is half the change — the row is the other half.** The guard is one-directional by design,
+so a row that says `no` while its hook now answers is silent: Codex' `lineage` stayed `no` after #229 gave
+it a real `resolveLineage`, and only a reading of the descriptor caught it. Change the row in the commit
+that changes the hook.
 
 **A new row means every backend answers it, declining included.** A row nobody answered renders as a
 visible gap rather than as a no — that is deliberate, not a bug to paper over.
