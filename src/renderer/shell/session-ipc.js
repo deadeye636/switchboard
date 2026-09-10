@@ -161,6 +161,11 @@ window.rekeySessionState = function (oldId, newId) {
   // can ever name it again, so it would sit there for the life of the window.
   if (typeof rekeyStagedPrompts === 'function') rekeyStagedPrompts(oldId, newId);
 
+  // …and the terminal's attention caption (#615). Same shape again: the container moves to the new id with
+  // the entry above, so a caption left keyed on the retired one can never be reached by the keystroke that
+  // is supposed to take it down — it would sit on that terminal for the life of the window.
+  if (typeof rekeyTerminalAttentionNotice === 'function') rekeyTerminalAttentionNotice(oldId, newId);
+
   // …and the pane that renders it (#346). A pane tab's id is derived from the session id, so
   // without this the layout keeps naming the retired one: the pane shows its empty state and the
   // running session is re-adopted into whatever pane is active. Tabs mode needs nothing — its strip
@@ -267,6 +272,13 @@ window.api.onProcessExited((sessionId, exitCode) => {
   // here rather than on the repaint, for the same reason the terminal branch below clears its flags here:
   // this is the lifecycle event, and the exit is a fact by the time it arrives.
   if (typeof discardStagedPromptsOnExit === 'function') discardStagedPromptsOnExit(sessionId);
+  // …and the terminal's attention caption (#615), for every session rather than only the plain-terminal
+  // branch below. A FLAG outliving a pty is deliberate — #259 keeps the row's state so a user can still
+  // see what a session ended in the middle of — but a SENTENCE is a claim about now: "this session is
+  // asking you something" over a dead pty is false, and there is nothing left to type an answer into. A
+  // CLI session keeps its terminal mounted with the exit banner on purpose, so nothing else on the way
+  // would take the caption down; it would sit over the banner until the user re-launched.
+  if (typeof clearTerminalAttentionNotice === 'function') clearTerminalAttentionNotice(sessionId);
   if (entry) {
     entry.closed = true;
     // 'exited' is recorded by the PTY's own exit handler in main (#396) — it knows the code and it knows

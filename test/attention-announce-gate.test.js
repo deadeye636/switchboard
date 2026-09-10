@@ -75,7 +75,9 @@ function setup({ detached = false } = {}) {
   // What detach-window.js sets from the URL, and the only thing the gate reads.
   if (detached) window.isDetachedWindow = () => true;
 
-  for (const file of ['shell/attention-engine.js', 'shell/native-notifications.js']) {
+  // `terminal-attention-notice.js` is loaded because the engine calls into it (#615) — it draws inside
+  // this window's own terminal and announces nothing, which is what the gate below is about.
+  for (const file of ['terminal/terminal-attention-notice.js', 'shell/attention-engine.js', 'shell/native-notifications.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, ...file.split('/')), 'utf8'), ctx, { filename: file });
   }
 

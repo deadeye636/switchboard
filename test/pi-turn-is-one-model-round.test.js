@@ -129,10 +129,13 @@ function renderer() {
   window.reduceAttention = (_prev, next) => next;
   window.shouldPlayAttentionSound = () => false;
   window.sessionRowEls = () => [];
-  vm.runInContext(
-    fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'shell', 'attention-engine.js'), 'utf8'),
-    context, { filename: 'shell/attention-engine.js' },
-  );
+  // Loaded, not stubbed: the engine reaches it on every needs-attention signal (#615).
+  for (const file of ['terminal/terminal-attention-notice.js', 'shell/attention-engine.js']) {
+    vm.runInContext(
+      fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', ...file.split('/')), 'utf8'),
+      context, { filename: file },
+    );
+  }
   return {
     window,
     onCliBusyState: (sessionId, busy, exact) => {

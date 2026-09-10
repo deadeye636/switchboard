@@ -146,6 +146,17 @@ fails open — a missing identity answer announces — because a silenced main w
 Recording is not gated: a window of its own still learns and records everything about its own sessions.
 What it must not do is announce.
 
+**There is a third category, and #615 is the first thing in it: a DRAW inside a surface this window
+holds.** The attention caption on the terminal (`terminal/terminal-attention-notice.js`) is neither a
+record nor an announcement — it is painted on the `.terminal-container` this window mounted, for the
+person typing into it, and a detached terminal is exactly where that person is. So it is reached from
+`recordAttentionSignal` as well as `applyAttention`, and `raisesAttention` has nothing to say about it.
+The line that decides which of the three a new surface is: **who else can see it.** The badge, the tray,
+the notification and the chime leave this window, and the away recap feeds an inbox only main owns — all
+of those consult the gate. A row in the sidebar belongs to the inbox, so it stays main's. Something drawn
+inside a window's own terminal reaches nobody but the person at that window, and duplicating it in main
+would be the bug rather than the rule.
+
 ## `openSessions` is NOT "the sessions this window holds" (#394)
 
 It holds **mounted terminals**. In panes mode a dormant session is in the window — drawn with a Launch

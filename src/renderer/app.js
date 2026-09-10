@@ -779,6 +779,11 @@ function clearNotifications(sessionId) {
 function dismissAttentionItem(sessionId) {
   if (!sessionId) return;
   settleAttentionState(sessionId);
+  // …and the terminal's caption (#615). Wired to the DISMISS and deliberately not to `settleAttentionState`
+  // itself, because the other caller of that is the focus path: "I do not care about this one" answers the
+  // question the caption asks, while arriving to look at it is the moment the caption exists FOR. Focus
+  // leaves it standing and the first keystroke takes it down.
+  if (typeof clearTerminalAttentionNotice === 'function') clearTerminalAttentionNotice(sessionId);
   refreshSidebar();
 }
 

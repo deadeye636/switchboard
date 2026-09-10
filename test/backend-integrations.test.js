@@ -165,6 +165,10 @@ const ALLOWED_BINDINGS = {
   // so no backend has a queue of its own here and none is named.
   'src/renderer/shell/prompt-queue.js': [],
   'src/renderer/shell/prompt-staging.js': [],
+  // #615 — the terminal's attention frame. `needs-attention` is formed backend-neutrally for every
+  // backend, and a per-backend list here would be exactly the id reflex 5 forbids: where a backend states
+  // no reason, the caption is the neutral sentence, not a missing frame.
+  'src/renderer/terminal/terminal-attention-notice.js': [],
   'src/renderer/shell/sidebar-filters.js': [],
   'src/renderer/shell/sidebar-sort.js': [],
   'src/renderer/shell/session-ipc.js': [],

@@ -20,7 +20,9 @@
 // Reaches at call time: the pure module's exports (window globals via its UMD wrapper); getSessionStatus
 // (session/session-status.js); getSessionRuntimeState (shell/sidebar.js); focusedActionSession,
 // sessionMap, openSessions, refreshSidebar, cleanDisplayName (app.js); showControlDialog,
-// showControlToast (dialogs/control-dialogs.js).
+// showControlToast (dialogs/control-dialogs.js); clearTerminalAttentionNotice
+// (terminal/terminal-attention-notice.js — the seam is also how the attention caption learns it was typed
+// into, #615).
 //
 // What calls INTO this file, and nothing else does — `test/prompt-staging-wiring.test.js` is the list in
 // executable form, so check it there rather than trusting this one:
@@ -82,6 +84,15 @@ function sendSessionInput(sessionId, data) {
   try {
     markPromptLineFromInput(sessionId, data);
   } catch { /* the line signal is never worth breaking the user's typing over */ }
+  try {
+    // …and the terminal's attention caption comes down on the first write into the session (#615). It hangs
+    // off this seam rather than off a listener of its own for the reason the seam exists: a paste and the
+    // seed insert put text into the line without a keydown, and a caption that only watched the keyboard
+    // would sit there over a session the user has already started answering. Its own try, so a throw in
+    // either signal cannot cost the other one — and after the write, like the line signal, because
+    // nothing observing the user's typing may ever reorder or block it.
+    clearTerminalAttentionNotice(sessionId);
+  } catch { /* an overlay is never worth breaking the user's typing over */ }
 }
 
 const REDELIVERY_GAP_MS = 5000;

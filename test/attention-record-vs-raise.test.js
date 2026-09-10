@@ -63,8 +63,12 @@ function setup({ activeSessionId = null } = {}) {
   window.sessionRowEls = (sessionId, root = window.document) =>
     root.querySelectorAll(`.session-item[data-session-id="${sessionId}"]`);
 
-  vm.runInContext(fs.readFileSync(path.join(REN, 'shell', 'attention-engine.js'), 'utf8'), ctx,
-    { filename: 'shell/attention-engine.js' });
+  // The engine now also frames the session's own terminal (#615), so its module is loaded rather than
+  // stubbed: a stub here would let the call be deleted with this file still green, and the frame is the
+  // half of an attention signal that reaches the person typing.
+  for (const file of ['terminal/terminal-attention-notice.js', 'shell/attention-engine.js']) {
+    vm.runInContext(fs.readFileSync(path.join(REN, ...file.split('/')), 'utf8'), ctx, { filename: file });
+  }
 
   const call = name => vm.runInContext(name, ctx);
   return {

@@ -81,6 +81,7 @@
     "terminal-fit.js",
     "page-key-routing.js",
     "newline-key-routing.js",
+    "terminal-attention-notice.js",
     "terminal-manager.js",
     "session-nav.js",
     "grid-bulk-actions.js",

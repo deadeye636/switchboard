@@ -49,8 +49,10 @@ function setup({ activeSessionId = null } = {}) {
   window.sessionRowEls = (sessionId, root = window.document) =>
     root.querySelectorAll(`.session-item[data-session-id="${sessionId}"]`);
 
-  vm.runInContext(fs.readFileSync(path.join(REN, 'shell', 'attention-engine.js'), 'utf8'), ctx,
-    { filename: 'shell/attention-engine.js' });
+  // Loaded, not stubbed: the engine reaches it on every needs-attention signal (#615).
+  for (const file of ['terminal/terminal-attention-notice.js', 'shell/attention-engine.js']) {
+    vm.runInContext(fs.readFileSync(path.join(REN, ...file.split('/')), 'utf8'), ctx, { filename: file });
+  }
 
   const call = name => vm.runInContext(name, ctx);
   return {

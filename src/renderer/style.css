@@ -2973,6 +2973,55 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   outline-offset: -2px;
 }
 
+/* ==== "This session is asking you something" — the terminal's own attention caption (#615) ====
+
+   ONE pseudo-element, and that is the requirement rather than a style choice. FitAddon proposes a row
+   count from `getComputedStyle(container).height` and subtracts the padding of the container and of
+   `.xterm` (terminal-manager.js, `terminalVerticalPadding` / `safeFit`); an absolutely positioned
+   pseudo-element appears in neither number and adds no child for `querySelector('.xterm')` to find.
+   So the state class gets NO rule of its own on the container — no border, no padding, no width, no
+   inset — and the caption therefore cannot move a row or cost a refit.
+   `test/terminal-attention-notice.test.js` reads this stylesheet and holds it to exactly the one block
+   below; a second rule for this state fails there, so a geometry declaration cannot be added to the
+   container without someone arguing the case.
+
+   TOP-CENTRED, not centred. The middle of the terminal is where the CLI draws the dialog this caption
+   is describing, and covering that would defeat the whole point; the top edge is the transcript the
+   user has already read. Centred horizontally because the caption is about the WHOLE terminal rather
+   than about anything at one corner of it, and because a corner reads as a badge on the nearest thing.
+   `translateX` rather than `margin: auto`, so no layout box is involved at any point.
+
+   `pointer-events: none`: nothing here may take a click or a key from the terminal, which is the whole
+   difference between this and a guard. The z-index clears xterm's own layers, whose highest is 11.
+
+   Colour comes from the shared status palette (`--status-attention*`, the same tokens the sidebar dot
+   and the status chips read) — no colour is invented here and no backend is named. The caption prints
+   a data attribute, so a reason a CLI supplied is text by construction. */
+.terminal-container.terminal-attention::after {
+  content: attr(data-attention-caption);
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
+  padding: 2px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--status-attention-fg);
+  /* The tint is transparent by design (it is a chip colour); over terminal text it would be
+     unreadable, so it is layered on the container's own opaque theme background — the same
+     `inherit` trick `.terminal-container .xterm` uses for the padding zone. */
+  background-color: inherit;
+  background-image: linear-gradient(var(--status-attention-bg), var(--status-attention-bg));
+  pointer-events: none;
+  z-index: 20;
+}
+
 /* Prevent terminal content from rendering under xterm's scrollbar */
 .terminal-container .xterm-viewport {
   /* xterm.css defaults this to #000. In xterm 6 the theme background is applied

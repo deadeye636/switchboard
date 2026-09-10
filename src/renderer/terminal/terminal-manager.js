@@ -1769,6 +1769,10 @@ function destroySession(sessionId) {
   // `shell/prompt-staging.js`, which every writer of a session's stdin goes through — this is the
   // teardown half, and it is the only half that belongs in this file.)
   if (typeof clearPromptLineState === 'function') clearPromptLineState(sessionId);
+  // …and the attention caption (#615), for the same reason in a different shape: the element it was drawn
+  // on is removed below, and the state behind it would otherwise re-caption a terminal the user re-opens
+  // long after they answered whatever was asked. A new signal is what puts one back.
+  if (typeof clearTerminalAttentionNotice === 'function') clearTerminalAttentionNotice(sessionId);
   clearTimeout(entry._roTimer);
   if (containerResizeObserver) containerResizeObserver.unobserve(entry.element);
   // Drop any accumulated replay data — the terminal is being torn down so

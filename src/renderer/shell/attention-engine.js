@@ -200,10 +200,14 @@ function setExactActivity(sessionId, active) {
  * The record-only twin of applyAttention, for a window that RENDERS a session without owning the inbox
  * (#395). Same normalized vocabulary, arriving on a channel the main window never receives.
  *
- * What it deliberately does NOT do: touch `attentionSessions` / `responseReadySessions`, keep a reason,
- * paint an attention or ready class, or reach the chime. So "Ready for review" — a statement that
- * something is waiting for the user — stays a main-window statement, while "Working" appears wherever
- * the session is drawn.
+ * What it deliberately does NOT do: touch `attentionSessions` / `responseReadySessions`, keep a reason
+ * for the inbox, paint an attention or ready class on a session ROW, or reach the chime. So "Ready for
+ * review" — a statement that something is waiting for the user — stays a main-window statement, while
+ * "Working" appears wherever the session is drawn.
+ *
+ * What it DOES draw, since #615, is the caption on the terminal itself. That is the same distinction one
+ * step further in: the row belongs to the inbox, the terminal belongs to the window holding it, and the
+ * person typing into a detached terminal is exactly the person that caption exists for.
  */
 function recordAttentionSignal(sessionId, signal) {
   if (!sessionId || !signal) return;
@@ -212,6 +216,17 @@ function recordAttentionSignal(sessionId, signal) {
   if (kind === 'needs-attention') {
     // The EVENT is main's (#396); this window has nothing else to do with an attention signal it may
     // not raise. Kept as a branch so an unknown kind still falls through to the return below.
+    //
+    // EXCEPT the terminal's own caption (#615). A window of its own may not announce, and this is not an
+    // announcement: it is drawn INSIDE the terminal this window holds, for the person typing into it. A
+    // caption that appeared only in the main window would leave a detached terminal — the one the user
+    // moved out precisely to keep working in — as the single surface that says nothing.
+    //
+    // The signal's OWN reason, not a reduced one, and that is forced rather than chosen: this window
+    // keeps no `attentionReason` (the line above is the whole point), so there is nothing to reduce
+    // against. Consequence worth knowing: where two sources describe one moment, main captions the
+    // winner and a window of its own captions the latest.
+    noteTerminalAttention(sessionId, reason);
     //
     // EXCEPT the activity edge, when the signal carries one (#529). "Needs You" is a main-window
     // statement, but "Working" is drawn wherever the session is — and a CLI blocked on its own prompt has
@@ -241,10 +256,23 @@ function applyAttention(sessionId, signal) {
 
   if (kind === 'needs-attention') {
     const winner = reduceAttention(attentionReason.get(sessionId) || null, { reason, source });
+    // …and the TERMINAL says so, in a caption across its top (#615). Deliberately ABOVE the focused-session
+    // return below, and it is the one place the two rules differ: the inbox flag is about a row the user is
+    // not looking at, while the caption is about the surface they TYPE into — which is the same surface
+    // whether or not the tab happens to be the active one. It carries the reduced `winner`, not the raw
+    // `reason`, so the caption and the inbox row can never name two different things. Its life is its own
+    // (it ends on the first keystroke, not when the flag is settled); `terminal/terminal-attention-notice.js`
+    // says why that cannot be a read of `attentionSessions`. One consequence of being above the return:
+    // for a FOCUSED session `attentionReason` is empty — focusing settled it (`settleAttentionState`,
+    // app.js) — so `reduceAttention` has no previous winner to weigh and the latest attention message
+    // wins the caption. Both candidates are attention text either way: a payload that is not one never
+    // reaches this function.
+    noteTerminalAttention(sessionId, winner && winner.reason);
     // The EVENT is written by main (#396), whether or not the user is looking (#391) — "the agent asked
     // me something" is part of what happened while they were away even when the session was the one in
-    // front. Reducing without storing keeps the focused case free of side effects: no reason kept, no
-    // set written.
+    // front. Reducing without storing keeps the focused case free of INBOX side effects: no reason kept,
+    // no set written. (The caption above is not one of those — it is drawn on the terminal, not on a row,
+    // and #615 says why it is the one thing a focused session still gets.)
 
     // A focused session needs no inbox flag — the user is already looking at it.
     if (sessionId === activeSessionId) return;
