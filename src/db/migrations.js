@@ -355,9 +355,10 @@ const migrations = [
   },
 
   // Session lineage kind (#193). `lineageParentId` already carries a session's parent; this records HOW
-  // that link was established so the sidebar never presents a guess as fact: 'fork'/'parent'/'compaction'
-  // are hard (the backend recorded them), 'clear' is the soft mtime-freeze heuristic (Claude `/clear`) and
-  // is rendered as a guess. NULL = no lineage. Populated by the scan; the parsers bump their versions in
+  // that link was established so the sidebar never presents a guess as fact: 'fork'/'parent' are hard (the
+  // backend recorded them), 'clear'/'terminal' are soft (Switchboard inferred them from a re-key — a hook
+  // claim for the first, a PTY that ran the session before for the second) and are rendered as a guess.
+  // NULL = no lineage. Populated by the scan; the parsers bump their versions in
   // the same change so existing rows re-derive it (a parser change moves no file's mtime).
   (db) => {
     try { db.exec('ALTER TABLE session_cache ADD COLUMN lineageKind TEXT'); } catch {}

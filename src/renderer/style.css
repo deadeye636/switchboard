@@ -2069,6 +2069,17 @@ body.window-hidden .sidebar-tab *,
   padding-left: 6px;
   border-left: 1px solid #2c2c3a;
 }
+/* A SOFT link (#229): Switchboard inferred that this session continues into the one below it, from a
+   /clear claim or from the terminal that ran both. A hard link — the backend recorded it — renders
+   normally, so the muting is the whole signal and an unmarked row means "the CLI said so". Opacity and
+   italics only: no badge, because the row is already dense and the distinction is a footnote, not a
+   status. The title says it in words for anyone who cannot see the difference. */
+.session-lineage-ancestors > .session-item.lineage-soft > .session-row {
+  opacity: 0.7;
+}
+.session-lineage-ancestors > .session-item.lineage-soft > .session-row .session-summary {
+  font-style: italic;
+}
 
 .session-detail-pill {
   flex-shrink: 0;

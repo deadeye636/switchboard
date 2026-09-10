@@ -36,13 +36,13 @@ Each backend's reader exposes only its OWN raw field; the descriptor turns it in
 |---|---|---|---|
 | Claude | `forkedFrom` (head) | `{ parent, 'fork' }` | hard. `/clear` records nothing on disk → handled live (below). |
 | Hermes | `lineageParentRef` (`parent_session_id` column) | `{ parent, 'parent' }` | hard |
-| Codex | — | `null` | `codex fork <id>` can launch a native fork, but no verified on-disk parent field has been found in the rollout JSONL yet; `/clear` starts a new rollout with no back-ref; `compacted` is a state, not a parent |
+| Codex | `lineageParentRef` (`session_meta.forked_from_id`, read only where the header is not a subagent's) | `{ parent, 'fork' }` | hard, since #229. Measured on cli 0.153.2: it names the IMMEDIATE parent, not the chain's root. The stamp is NOT fork-exclusive — a spawned subagent thread carries it too, naming its spawner, so the reader gates on the `source.subagent` test that already drops those rollouts (#492). `codex resume` writes no new rollout at all, so a resume is the same row and not a link; `/clear` still records nothing and `compacted` is a state, not a parent |
 | Pi | `parentSession` (the parent transcript's PATH, on a FORKED session only) | `{ parent, 'fork' }` | hard. The id is read out of Pi's filename convention `<ISO>_<uuid>.jsonl` in the descriptor — the WHOLE name must match, or a path like `backup_copy.jsonl` yields a confident link to a session that does not exist |
 | agy | — | `null` | a `parent_references` protobuf blob exists but is unverified |
 
 `PARSER_SCHEMA_VERSION` bumped so existing rows re-derive fork lineage on the next scan: Claude 4→5, and
-Pi 3→4 when its `parentSession` was added — read the constant rather than this line, both have moved since
-(Pi is at 5). Adding
+Pi 3→4 when its `parentSession` was added, and Codex 5→6 for `forked_from_id` (#229) — read the constants
+rather than this line, they have all moved since (Pi is at 5, Claude at 6). Adding
 a backend to this feature is a descriptor edit (`resolveLineage`) plus its reader exposing a raw field — no
 core change, which is the whole point.
 
@@ -98,9 +98,17 @@ flag so the flat chain does not recurse) — it is a real session, so every norm
 timeline, tags, fork, archive) works through the delegated sidebar events (#218 opt6). **One special case
 and it is load-bearing:** the row is built with `ancestorCopy` (#288), because lineage is a TREE and the
 same ancestor can appear under two heads — without it the copy would claim the session's DOM id, and
-anything navigating to that session would land on whichever copy came first in document order. The
-hard-vs-soft distinction lives only in the data (`lineageKind`) for now — no visual marker (a dimmed/italic
-row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
+anything navigating to that session would land on whichever copy came first in document order. **Hard and soft links look different since #229.** A soft link (`clear`, `terminal` — Switchboard inferred
+the continuation from a re-key it witnessed) dims the ancestor row to 70% and italicises its title; a hard
+one (`fork`, `parent` — the CLI recorded the link) renders normally, so the muting is the whole signal and
+an unmarked row means "the backend said so". Both carry the relation in words as the row's `title`, for
+anyone who cannot see a 30% opacity difference. No badge: the row is already dense, and the distinction is
+a footnote rather than a status. Two things the code has to keep straight, and a test pins each:
+- **The kind belongs to the DESCENDANT.** `lineageKind` says how THAT row's link to its parent was
+  established, so an ancestor is marked by the row below it in the chain, and the first ancestor by the
+  head itself.
+- **An unknown kind is treated as hard.** An older row, or one a backend adds later, gets no marking and no
+  sentence — asserting doubt we cannot support is the same error as asserting certainty.
 
 ## As built / tests
 
@@ -179,9 +187,11 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
   itself had moved on to the session's own first prompt. The three are named in
   `test/clear-continuation-title.test.js` (`READS_ITS_OWN_SUMMARY`), with the reason each is on the list,
   because nothing else marks a summary as unsafe to write out.
-- **Codex / agy declare `null`** from `resolveLineage` — on purpose, not by omission: Codex records no
-  parent on a `/clear` and `compacted` is a state not a reference; agy's `parent_references` is an
-  unverified protobuf blob.
+- **agy declares `null`** from `resolveLineage` — on purpose, not by omission: its `parent_references` is
+  an unverified protobuf blob. **Codex was on this list until #229 and no longer is**: the entry rested on
+  a `/clear` measurement and nobody had asked the other question, so `codex fork` was never checked. It
+  stamps `forked_from_id`. The premise had also aged past the CLI — the note was written before Codex had
+  a fork command at all.
   **agy's half is closed as "not buildable", not as "not done yet"**: reverse-engineering that blob needs a
   real forked conversation to diff against, and agy has no fork route at all (`supportsFork: false` for
   exactly that reason), so there is nothing to produce one with. It reopens if agy ever ships a fork.
@@ -192,8 +202,8 @@ row for a `clear` guess is a deliberate, cheap follow-up if it is ever wanted).
   that carries the key. A single `pi --fork` transcript disproved it. The lesson is not "check harder": it
   is that a negative claim about a format needs a case that WOULD have shown the thing, and the note should
   say which case that was.
-- Codex and agy are wired to the neutral seam and answer the hook by declining; wiring a real link later is
-  a descriptor + reader edit, no core change. Same-session **compaction** (Claude `logicalParentUuid`,
+- agy is wired to the neutral seam and answers the hook by declining; wiring a real link later is
+  a descriptor + reader edit, no core change — Codex is exactly that edit, made in #229. Same-session **compaction** (Claude `logicalParentUuid`,
   Codex `compacted`) is deliberately out of scope — it is not a cross-session parent, so it is not a
   lineage row.
 - ~~A very long `/clear` chain is not capped in the expander.~~ **Closed:** `lineageAncestorChain` walks

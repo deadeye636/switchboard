@@ -308,3 +308,42 @@ test('the archive scope stops at an archived ancestor because the thread does', 
       "nothing above an archived ancestor is this head's to archive");
   } finally { s.destroy(); }
 });
+
+// --- #229: the hard/soft distinction is visible, and it is read off the DESCENDANT
+
+test('a soft link dims the ancestor it points at, and a hard one leaves the row alone', () => {
+  const s = setup([
+    sess('root'),
+    sess('mid', { lineageParentId: 'root', lineageKind: 'fork' }),   // mid was FORKED from root -> root is hard
+    sess('leaf', { lineageParentId: 'mid', lineageKind: 'clear' }),  // leaf continues mid after /clear -> mid is soft
+  ], { running: ['leaf'] });
+  const thread = s.call('buildLineageThread', s.window.sessionMap.get('leaf'));
+  const rows = [...thread.querySelectorAll('.session-item')];
+  assert.deepEqual(rows.map(r => r.dataset.sessionId), ['mid', 'root'], 'newest ancestor first');
+  assert.ok(rows[0].classList.contains('lineage-soft'), 'mid is reached by leafs soft /clear link');
+  assert.ok(/clear/i.test(rows[0].title), 'and says so on hover');
+  assert.ok(!rows[1].classList.contains('lineage-soft'), 'root is reached by mids recorded fork link');
+  assert.ok(/Forked/i.test(rows[1].title));
+  s.destroy();
+});
+
+test('an unknown or missing kind is not labelled a guess', () => {
+  const s = setup([
+    sess('root'),
+    sess('leaf', { lineageParentId: 'root', lineageKind: 'something-new' }),
+  ], { running: ['leaf'] });
+  const row = s.call('buildLineageThread', s.window.sessionMap.get('leaf')).querySelector('.session-item');
+  assert.ok(!row.classList.contains('lineage-soft'), 'doubt we cannot support is not asserted');
+  assert.equal(row.title, '', 'and no sentence is invented for it');
+  s.destroy();
+});
+
+test('a terminal link is soft — witnessing one PTY is not a recorded parent', () => {
+  const s = setup([
+    sess('root'),
+    sess('leaf', { lineageParentId: 'root', lineageKind: 'terminal' }),
+  ], { running: ['leaf'] });
+  const row = s.call('buildLineageThread', s.window.sessionMap.get('leaf')).querySelector('.session-item');
+  assert.ok(row.classList.contains('lineage-soft'));
+  s.destroy();
+});

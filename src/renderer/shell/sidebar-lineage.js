@@ -1,8 +1,8 @@
 // --- Session lineage in the sidebar: a continuation reads as one (#193) ---
 //
-// A session that continued another's work (a Claude fork, a /clear, a Hermes/Pi child) carries
-// `lineageParentId` (+ `lineageKind`: 'fork'/'parent'/'compaction' are hard, 'clear' is the soft
-// mtime-freeze guess). This renders that as PROVENANCE — Model A, decided in the design: each live/leaf
+// A session that continued another's work (a fork, a /clear, a Hermes child) carries `lineageParentId`
+// (+ `lineageKind`: 'fork'/'parent' are hard — the backend recorded the link; 'clear'/'terminal' are soft
+// — Switchboard inferred it from a re-key). This renders that as PROVENANCE — Model A, decided in the design: each live/leaf
 // session is the face row and walks its OWN path UP the parent chain; idle ancestors fold under it rather
 // than showing as separate rows. Lineage is a TREE (resuming an ancestor and clearing it again branches
 // it), so nothing groups by root — each head walks up independently and a shared ancestor may appear under
@@ -116,6 +116,20 @@ function lineageThreadChain(session) {
   return cut === -1 ? chain : chain.slice(0, cut);
 }
 
+// How a link was established, in words, and whether it is a guess (#229). Hard kinds are the ones a
+// backend recorded itself; soft kinds are the ones Switchboard inferred from a re-key it witnessed.
+// An unknown kind (an older row, or one a future backend writes) is treated as hard rather than
+// labelled a guess — claiming doubt we cannot support is the same error as claiming certainty.
+const LINEAGE_LINK_NOTES = {
+  fork: { soft: false, note: 'Forked from here — the CLI recorded the link' },
+  parent: { soft: false, note: 'Continued from here — the CLI recorded the link' },
+  clear: { soft: true, note: 'Continued after /clear — inferred from the CLI’s claim, not a recorded link' },
+  terminal: { soft: true, note: 'This terminal ran that session before this one — inferred, not a recorded link' },
+};
+function lineageLinkNote(kind) {
+  return LINEAGE_LINK_NOTES[kind] || null;
+}
+
 // The collapsed thread beneath a head: a toggle plus the idle ancestors it folded, newest → oldest. Each
 // ancestor row behaves exactly like its top-level twin — the delegated open in sidebar-events.js routes it
 // by the session's own fields, so a plain session resumes and a subagent opens its transcript (#288).
@@ -153,9 +167,19 @@ function buildLineageThread(session) {
   const list = document.createElement('div');
   list.className = 'session-lineage-ancestors';
   list.style.display = expanded ? '' : 'none';
-  for (const anc of chain) {
-    list.appendChild(buildSessionItem(anc, { noLineageThread: true, ancestorCopy: true }));
-  }
+  // The kind belongs to the DESCENDANT — `lineageKind` says how THAT row's link to its parent was
+  // established — so an ancestor is marked by the row below it in the chain, and the first ancestor by
+  // the head itself (#229). A soft link (Switchboard inferred the continuation) dims the row; a hard one
+  // (the backend recorded it) renders normally, so nothing has to be added for the common case.
+  chain.forEach((anc, i) => {
+    const item = buildSessionItem(anc, { noLineageThread: true, ancestorCopy: true });
+    const link = lineageLinkNote((i === 0 ? session : chain[i - 1]).lineageKind);
+    if (link) {
+      if (link.soft) item.classList.add('lineage-soft');
+      item.title = link.note;
+    }
+    list.appendChild(item);
+  });
 
   wrap.appendChild(toggle);
   wrap.appendChild(list);

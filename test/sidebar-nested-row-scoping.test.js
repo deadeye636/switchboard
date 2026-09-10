@@ -29,8 +29,11 @@ function selectors() {
 }
 
 test('no state rule on .session-item reaches into a NESTED row', () => {
-  // `.session-item.<state>` followed by a descendant combinator and another simple selector.
-  const leaking = selectors().filter(({ sel }) => /^\.session-item\.[^\s>]+\s+[.:#a-z]/i.test(sel));
+  // `.session-item.<state>` followed by a descendant combinator and another simple selector. The match is
+  // NOT anchored at the start of the selector: a rule prefixed by an outer scope
+  // (`.session-lineage-ancestors .session-item.lineage-soft .session-summary`) leaks exactly as far, and an
+  // anchored pattern walked straight past the first one that was written (#229).
+  const leaking = selectors().filter(({ sel }) => /(^|\s|>)\.session-item\.[^\s>]+\s+[.:#a-z]/i.test(sel));
   assert.deepEqual(leaking, [],
     'scope it to the row\'s own `> .session-row`, or the head\'s state paints its lineage ancestors and subagents');
 });
@@ -44,7 +47,8 @@ test('no state rule on .session-item cascades into the subtree from the item its
   const offenders = [];
   lines.forEach((line, i) => {
     const sel = line.split('/*')[0].trim();
-    if (!/^\.session-item\.[^\s>{,]+\s*\{$/.test(sel)) return;
+    // Same reason as above: an outer scope in front of the item does not make the cascade stop.
+    if (!/(^|\s|>)\.session-item\.[^\s>{,]+\s*\{$/.test(sel)) return;
     for (let j = i + 1; j < lines.length && !lines[j].includes('}'); j++) {
       if (CASCADING.test(lines[j])) offenders.push({ sel, decl: lines[j].trim(), line: j + 1 });
     }

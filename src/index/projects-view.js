@@ -199,8 +199,11 @@ function buildProjectsFromCache(showArchived) {
       actualCostUsd: row.actualCostUsd == null ? null : Number(row.actualCostUsd),
       costStatus: row.costStatus || null,
       lineageParentId: row.lineageParentId || null,
-      // How that parent link was established (#193): 'fork'/'parent'/'compaction' are hard (the backend
-      // recorded it), 'clear' is the soft mtime-freeze guess — the sidebar labels a guess as a guess.
+      // How that parent link was established (#193). Hard, because the backend recorded the link itself:
+      // 'fork' (Claude, Codex, Pi) and 'parent' (Hermes). Soft, because Switchboard inferred it from a
+      // re-key: 'clear' (a hook claim named the session that ended) and 'terminal' (only that this PTY ran
+      // that session before this one). The sidebar labels a guess as a guess. This list is the whole
+      // vocabulary — grep `lineageKind` before adding to it (#229).
       lineageKind: row.lineageKind || null,
       // The slash command this session opened with, when that is still all it has said (#229). The
       // backend decides — the core holds no transcript grammar and the renderer holds less than that:
