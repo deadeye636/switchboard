@@ -552,6 +552,11 @@ function refreshSessionStatusViews() {
   // refreshSessionStatusViews that runs before that script has parsed — a boot path racing the module's
   // fetch — would otherwise throw here and abort the rest of boot. Guarded like patchTabStatuses above.
   if (typeof syncNativeNotifications === 'function') syncNativeNotifications();
+  // A staged prompt (#614) is handed over on the edges the status surfaces already repaint on, rather
+  // than from a poll of its own: this function IS the choke point every busy, ready, attention and
+  // pty-set change funnels through, so the delivery gate is re-asked exactly when its answer can have
+  // changed. It returns immediately when nothing is staged, which is the ordinary case.
+  if (typeof deliverStagedPrompts === 'function') deliverStagedPrompts();
 }
 
 // --- Running sessions in the attention inbox (configurable) ---
@@ -1563,7 +1568,10 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel,
       // moves the cursor down. The handoff's other route sent \n and so pasted its prompt into the input
       // and never submitted it — while the code that follows sat waiting for an answer the user had to
       // press Enter to get. Both routes use this one function now, so they cannot drift apart again.
-      window.api.sendInput(sessionId, `\x1b[200~${seedText}\x1b[201~\r`);
+      // Through the renderer's one input seam (`shell/prompt-staging.js`), like every writer of a
+      // session's stdin: this chunk ENDS in the submit, so it leaves the prompt line clean, and a
+      // staged prompt must not be held behind text that was sent before anyone could look at it.
+      sendSessionInput(sessionId, `\x1b[200~${seedText}\x1b[201~\r`);
       // Main cannot see this one: from its side a seeded session is a session that received input. So
       // it is NOTED rather than recorded here — main still writes it, and every window still hears it.
       window.api.noteTimelineEvent(

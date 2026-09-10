@@ -156,6 +156,11 @@ window.rekeySessionState = function (oldId, newId) {
   // Re-key file panel state for the new session ID
   if (typeof rekeyFilePanelState === 'function') rekeyFilePanelState(oldId, newId);
 
+  // …and the staged prompts (#614). They are keyed by session id like everything else here, and a queue
+  // left on the retired id is unreachable in both directions: no row prints its count, and no status edge
+  // can ever name it again, so it would sit there for the life of the window.
+  if (typeof rekeyStagedPrompts === 'function') rekeyStagedPrompts(oldId, newId);
+
   // …and the pane that renders it (#346). A pane tab's id is derived from the session id, so
   // without this the layout keeps naming the retired one: the pane shows its empty state and the
   // running session is re-adopted into whatever pane is active. Tabs mode needs nothing — its strip
@@ -257,6 +262,11 @@ window.api.onProcessExited((sessionId, exitCode) => {
   // come from, which is what `confirmAndStopSession` (app.js) already does for a user stop. The poll
   // still owns the set: it replaces it wholesale on the next tick, so a relaunch heals here too.
   activePtyIds.delete(sessionId);
+  // …and anything staged for it goes with it (#614). A relaunch resumes into a different turn — often a
+  // different conversation — so a prompt the user staged minutes ago must not be typed into it. Discarded
+  // here rather than on the repaint, for the same reason the terminal branch below clears its flags here:
+  // this is the lifecycle event, and the exit is a fact by the time it arrives.
+  if (typeof discardStagedPromptsOnExit === 'function') discardStagedPromptsOnExit(sessionId);
   if (entry) {
     entry.closed = true;
     // 'exited' is recorded by the PTY's own exit handler in main (#396) — it knows the code and it knows

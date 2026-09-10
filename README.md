@@ -47,6 +47,14 @@ one entry: every session that changed while you were gone, in one list, each row
 did and which files it touched. Away means away — leaving the desk, not switching windows — and the
 record behind it survives a reload, a window close and a restart.
 
+**You can hand a busy session its next job and walk away.** Stage a prompt for a session that is
+working, or sitting on a permission dialog, and Switchboard types it in once the session is ready for
+it — never over a turn in progress, and never over a line you have half-typed in the session's own
+prompt. It is a prompt of its own, not a keystroke buffer: nothing is intercepted on its way to the CLI,
+so the keys that answer a permission dialog still answer it. The session's row says what is waiting, and
+says when something you left in that prompt line is holding it up — send that line and the staged prompt
+follows as its own turn.
+
 **It notices when a session is getting expensive.** Each one is rated Healthy → Growing → Marathon
 Risk → Handoff Recommended from turns, transcript size, active time and cache reads. When it is time,
 a guided handoff asks the agent for a context packet, starts a fresh lean session with it, and
@@ -95,6 +103,9 @@ chart rather than a row of zeroes.
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey
+- **Staged prompts** — queue the next instruction for a session that cannot take it yet; it goes in when
+  the session is ready, one per turn. A chip on the row counts what is waiting, opens it for reading and
+  discards it, and says when your own unsent prompt line is holding delivery up
 - **Native notifications** — OS toasts, dock/taskbar badge, tray icon; coalesced and throttled
 - **Usage in the tray** — an optional second tray icon showing one backend's worst usage window as a
   ring or a badge, fixed or rotating through the backends the status bar shows. Off by default, and it

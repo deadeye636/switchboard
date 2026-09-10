@@ -263,7 +263,7 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
     // backend's declaration: Claude reads the kitty protocol's CSI 13;2u, Codex ignores it and takes
     // ESC CR. Both chords carry the same sequence — one answer per backend, not one per chord (#493).
     const newlineResult = handleTerminalNewlineKeyEvent(
-      e, getNewlineSequence?.(), seq => window.api.sendInput(getSessionId(), seq), isMac);
+      e, getNewlineSequence?.(), seq => sendSessionInput(getSessionId(), seq), isMac);
     if (newlineResult !== null) return newlineResult;
 
     // On Windows/Linux, xterm maps Ctrl+V to a control character (0x16). Block
@@ -298,7 +298,7 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
     if (e.key === ' ' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
       if (e.type === 'keydown') {
         e.preventDefault();
-        window.api.sendInput(getSessionId(), ' ');
+        sendSessionInput(getSessionId(), ' ');
       }
       return false;
     }
@@ -1527,7 +1527,9 @@ function createTerminalEntry(session, opts = {}) {
   // Wire up IPC (use entry.session.sessionId so fork re-keying works)
   terminal.onData(data => {
     if (data === '\x1b[I' || data === '\x1b[O') return;
-    window.api.sendInput(entry.session.sessionId, data);
+    // The one input seam (`shell/prompt-staging.js`): it forwards to the preload and records what this
+    // chunk did to the session's prompt line. Keystrokes are one writer of that line out of several.
+    sendSessionInput(entry.session.sessionId, data);
   });
   setupTerminalKeyBindings(terminal, container, () => entry.session.sessionId, {
     onFind: openSearchBar,
@@ -1759,6 +1761,14 @@ function destroySession(sessionId) {
   }
   lastFlushAt.delete(sessionId);
   flowState.delete(sessionId); // PTY is closed with the session — no resume needed
+  // …and what the staged-prompt feature believed about this session's prompt line (#614). That belief
+  // describes a line inside a CLI this window is about to stop talking to, so it cannot outlive the
+  // terminal: a re-mount of the same session id would come up already blocked by a half-typed line that
+  // no longer exists, and only a write into that session clears the flag — which nobody has a reason to
+  // send into a session they just reopened. (The flag itself is set by `sendSessionInput` in
+  // `shell/prompt-staging.js`, which every writer of a session's stdin goes through — this is the
+  // teardown half, and it is the only half that belongs in this file.)
+  if (typeof clearPromptLineState === 'function') clearPromptLineState(sessionId);
   clearTimeout(entry._roTimer);
   if (containerResizeObserver) containerResizeObserver.unobserve(entry.element);
   // Drop any accumulated replay data — the terminal is being torn down so

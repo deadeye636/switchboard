@@ -211,6 +211,44 @@ function buildSessionItem(session, opts = {}) {
     detailEl.appendChild(taskChip);
   }
 
+  // Staged prompts (#614) — what is waiting to be typed into this session, and the way to throw it away.
+  // The same chip shape as the tasks badge above, because it answers the same kind of question: something
+  // is attached to this session and has not happened yet. The count is all a row has space for, so the
+  // click opens the review dialog, where the text is readable and the discard is a button.
+  //
+  // It also has a WAITING state, and that is not decoration. A staged prompt is held while the user has
+  // something unsent in the session's own prompt line, and one of the things that dirties that line is an
+  // arrow key — which the wheel produces over a full-screen TUI (`shell/prompt-queue.js` argues why the
+  // arrows stay on that side). Held and silent, the chip is a count that never goes down for a reason
+  // nothing on screen states; held and SAID, it names the two keys that release it.
+  const stagedCount = typeof stagedPromptCountFor === 'function' ? stagedPromptCountFor(session.sessionId) : 0;
+  if (stagedCount > 0) {
+    const stagedHeld = typeof stagedPromptHeldByLine === 'function' && stagedPromptHeldByLine(session.sessionId);
+    const stagedChip = document.createElement('button');
+    stagedChip.type = 'button';
+    // The waiting state is a MODIFIER on the chip's own class, never a class of its own: a bare
+    // `<button>` inherits no styling at all (CLAUDE.md reflex 8), and a second full rule would be a
+    // second place for the pill's shape to drift.
+    stagedChip.className = 'session-detail-pill session-staged-chip'
+      + (stagedHeld ? ' session-staged-chip-waiting' : '');
+    stagedChip.textContent = stagedHeld ? `${stagedCount} Staged · held` : `${stagedCount} Staged`;
+    stagedChip.title = stagedHeld
+      ? `${stagedCount === 1 ? 'A prompt is' : `${stagedCount} prompts are`} staged and held: this session's`
+        + ' own prompt line has something unsent in it. It goes in once you submit that line. Click to'
+        + ' read or discard what is staged.'
+      : stagedCount === 1
+        ? 'A prompt is staged for this session — delivered when it is ready. Click to read or discard it.'
+        : `${stagedCount} prompts are staged for this session. Click to read or discard them.`;
+    stagedChip.setAttribute('aria-label',
+      `${stagedCount} staged ${stagedCount === 1 ? 'prompt' : 'prompts'}${stagedHeld ? ', held by an unsent prompt line,' : ''}`
+      + ` for ${displayName || session.sessionId}`);
+    stagedChip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof reviewStagedPrompts === 'function') reviewStagedPrompts(session.sessionId);
+    });
+    detailEl.appendChild(stagedChip);
+  }
+
   const quietParts = getQuietDetailParts({
     timeLabel: timeStr,
     session,

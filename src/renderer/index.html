@@ -239,6 +239,10 @@
   <!-- The command palette's two pure halves (#274). command-actions.js defines registerCommandAction and
        must parse BEFORE any file that registers at its tail (grid-view.js, sidebar-collapse.js). -->
   <script src="shell/command-actions.js"></script>
+  <!-- Staged prompts (#614): the pure queue, then the wiring that registers the palette action at its
+       tail — so it has to parse after command-actions.js above. -->
+  <script src="shell/prompt-queue.js"></script>
+  <script src="shell/prompt-staging.js"></script>
   <script src="shell/command-palette-rank.js"></script>
   <script src="shell/sidebar-state.js"></script>
   <script src="shell/terminal-pressure.js"></script>

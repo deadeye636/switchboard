@@ -161,6 +161,10 @@ const ALLOWED_BINDINGS = {
   'src/renderer/shell/native-notifications.js': [],
   'src/renderer/shell/attention-engine.js': [],
   'src/renderer/shell/sidebar-collapse.js': [],
+  // #614 — staged prompts. The queue is keyed by session id and gated on the shared status vocabulary,
+  // so no backend has a queue of its own here and none is named.
+  'src/renderer/shell/prompt-queue.js': [],
+  'src/renderer/shell/prompt-staging.js': [],
   'src/renderer/shell/sidebar-filters.js': [],
   'src/renderer/shell/sidebar-sort.js': [],
   'src/renderer/shell/session-ipc.js': [],

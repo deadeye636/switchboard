@@ -1116,3 +1116,30 @@ question the new source cannot answer yes to.
 - **The symptom is indistinguishable from "not implemented".** The payload was right the whole time, so
   every check short of opening the app agreed the feature worked. What found it was looking at the
   rendered sidebar after a launch that changed nothing else.
+
+## Three signals that passed the suite and failed on the first click (#614)
+
+The staged-prompt delivery must not type into a line the user is halfway through. Where that "halfway
+through" signal was taken from was wrong three times, and every version was green.
+
+- **`terminal.onData` is not "what the user typed".** It is everything xterm sends to the pty: the
+  terminal's own answers to the CLI (device attributes, cursor position) and, because the default mouse
+  mode keeps tracking on, a report per wheel notch. Reading those as typing held a staged prompt forever,
+  silently. It is also not the only writer — a paste from the context menu and a seed insert go straight
+  through `window.api.sendInput`, so text landed in the line that the signal never saw and a prompt was
+  delivered on top of it.
+- **A contextBridge function cannot be wrapped from the renderer.** The second attempt tapped
+  `window.api.sendInput` at parse time. `contextBridge.exposeInMainWorld` hands over an immutable object,
+  so the assignment does nothing AND raises nothing — `String(window.api.sendInput)` still said
+  `[native code]` in the running app while every unit test passed, because a test's `window.api` is an
+  ordinary object. **A fake that answers the question is not evidence the question was asked.** What
+  works is one renderer-owned helper plus a guard that fails when a new writer calls the preload directly.
+- **"Esc clears the line" is a claim about one CLI's composer, not about terminals.** It was measured
+  false on the CLI it was written for: after Esc the text was still in the line and the delivery merged
+  with it. Only a carriage return may be read as clearing — that is a property of the terminal. Everything
+  else leaves the line dirty, which is the conservative direction: a hold that lasts too long is visible
+  on the row and one keystroke ends it, while a merge spends the user's tokens on a sentence they did not
+  write and no CLI offers an undo for a turn it has already answered.
+
+The suite grew by ~40 tests across those rounds and not one of them could see any of it. What found all
+three was the same five minutes in the demo: type into a live session, stage a prompt, watch the row.

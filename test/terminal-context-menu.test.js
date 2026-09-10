@@ -23,6 +23,13 @@ const MENU_SRC = path.join(SRC_DIR, 'renderer', 'terminal', 'terminal-context-me
 const menu = require(MENU_SRC);
 const { fileUriToPath, classifyLinkUri, buildTerminalMenuItems } = menu;
 
+// This module writes a session's stdin through the renderer's one input seam, `sendSessionInput`
+// (`src/renderer/shell/prompt-staging.js`) — a bare global like `document` and `window` above, and a
+// ReferenceError here without it. The stub forwards to whatever `window.api.sendInput` the test in hand
+// installed, which is what the real seam does, so every assertion below still watches the preload call.
+// Read at CALL time on purpose: each test swaps `global.window` for one of its own.
+global.sendSessionInput = (sessionId, data) => global.window.api.sendInput(sessionId, data);
+
 // ── Pure helpers ─────────────────────────────────────────────────────
 
 test('fileUriToPath decodes a file:// URI to a path', () => {

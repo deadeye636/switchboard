@@ -766,6 +766,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Design record: [`docs/specs/19-editor-live-preview.md`](specs/19-editor-live-preview.md).
 
 ### Supervision extensions
+- **Staged prompts** (#614) — hand a busy session its next instruction and walk away. The command palette
+  asks for the text, the session's row carries a chip with the count, and Switchboard types it in when the
+  session is ready for it: never while the agent is working, never while it is waiting for an answer, and
+  never while you have something half-typed in its own prompt line. It is staging, not keystroke
+  buffering — the prompt has an input of its own, so nothing is intercepted on its way to the CLI and the
+  keys that answer a permission dialog still answer it. Held delivery says so on the chip rather than
+  going quiet, and only submitting the line releases it: whether Esc empties a composer is that CLI's
+  business, and one of them was measured not to. Staged items live in the window's memory and go with the session when it exits; the chip
+  is where you read them back and throw them away.
 - **Handoffs as files** — a packet is markdown in the project (`.handoffs/` by default, plus the directories a project or a CLI already uses), so it is editable, greppable and travels with the repo. A picker on Ctrl/Cmd+Shift+H hands one to the session you are already in as a reference, and its rows say when each packet last changed. Writing one is a keyboard route out of the session too — the command palette offers it for the session you are in, and the picker's empty state offers it when there is nothing to pick.
 - **Handoff library** — save packets, editable prompt, resume, direct "New session" seed,
   and target selection in the review dialog (extends inherited feature #03/#04). Since #468 a saved

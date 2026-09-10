@@ -155,7 +155,9 @@ function pasteIntoTerminal(terminal, sessionId, text) {
       // helper), so this is the only place it can be done. Whatever is being pasted, it does not get to end
       // its own paste.
       .replace(/\x1b\[201~/g, '');
-    window.api.sendInput(sessionId, '\x1b[200~' + normalized + '\x1b[201~');
+    // The one input seam (`shell/prompt-staging.js`) — a paste leaves text in the prompt line without
+    // submitting it, which is exactly the state a staged prompt has to wait for.
+    sendSessionInput(sessionId, '\x1b[200~' + normalized + '\x1b[201~');
     return;
   }
   if (terminal && typeof terminal.paste === 'function') terminal.paste(text);
@@ -185,11 +187,11 @@ function insertResolvedText(terminal, sessionId, text, { trailing = '', submit =
   if (terminal && (bracketed || typeof terminal.paste === 'function')) {
     pasteIntoTerminal(terminal, sessionId, payload);
   } else if (sessionId) {
-    window.api.sendInput(sessionId, payload); // no xterm here — the breaks are already collapsed
+    sendSessionInput(sessionId, payload); // no xterm here — the breaks are already collapsed
   } else {
     return false;
   }
-  if (submit && sessionId) window.api.sendInput(sessionId, '\r');
+  if (submit && sessionId) sendSessionInput(sessionId, '\r');
   return true;
 }
 

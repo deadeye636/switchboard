@@ -132,10 +132,24 @@ input:focus-visible {
   line-height: 1.35;
 }
 
+/* A dialog's message may be LONG, and since #614 it may be the only place the text the user is deciding
+   about is readable at all — a staged prompt is up to 2000 characters, and a detail row is one ellipsised
+   line by design. Three properties, none of which changes any existing dialog:
+
+   `pre-line` keeps the newlines a caller puts between several items and is otherwise identical to
+   `normal` (it collapses runs of spaces the same way), so every single-line message renders as before —
+   and the one caller that already joins with "\n" (the settings panel's error list) stops running its
+   lines together. `anywhere` is for a pasted path or URL with nothing to break on. The scroll is what
+   keeps a long message from growing the dialog past the viewport it is centred in, where flex centring
+   would put both ends out of reach; a short message never touches the cap. */
 .control-dialog p {
+  max-height: 40vh;
+  overflow-y: auto;
   color: #a8a8bc;
   font-size: 13px;
   line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .control-dialog-danger {
@@ -2184,6 +2198,35 @@ body.window-hidden .sidebar-tab *,
   background: rgba(152,195,121,0.08);
 }
 .session-task-chip:hover { background: rgba(152,195,121,0.16); }
+
+/* A prompt staged for this session (#614). Same pill as the tasks chip beside it — a button, so it needs
+   the font and the cursor the plain `.session-detail-pill` does not set — in the indigo the IDE chip uses,
+   because this is something Switchboard is holding rather than something the session is doing. */
+.session-staged-chip {
+  flex-shrink: 0;
+  border: 1px solid rgba(128,136,255,0.16);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font: inherit;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 800;
+  cursor: pointer;
+  color: #8088ff;
+  background: rgba(128,136,255,0.08);
+}
+.session-staged-chip:hover { background: rgba(128,136,255,0.16); }
+
+/* Held: the session's own prompt line has something unsent in it, so the staged prompt cannot go in yet
+   (#614). Amber rather than the indigo above, because this is the one state where the count standing
+   still is expected — and a chip that looks identical while it is stuck is how a silent block reads as a
+   broken feature. A modifier on the rule above, so the pill's shape is written once. */
+.session-staged-chip-waiting {
+  border-color: rgba(240,160,80,0.24);
+  color: #f0a050;
+  background: rgba(240,160,80,0.10);
+}
+.session-staged-chip-waiting:hover { background: rgba(240,160,80,0.18); }
 
 .session-health-chip.health-growing,
 .grid-card-health-chip.health-growing {

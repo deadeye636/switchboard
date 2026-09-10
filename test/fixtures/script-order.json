@@ -47,6 +47,8 @@
     "session-card-details.js",
     "session-cleanup.js",
     "command-actions.js",
+    "prompt-queue.js",
+    "prompt-staging.js",
     "command-palette-rank.js",
     "sidebar-state.js",
     "terminal-pressure.js",
