@@ -530,6 +530,77 @@ for (const [kind, hostId, title, route] of MAIN_AREA_SURFACES) {
   });
 }
 
+// #618: a viewer that is ALREADY adopted still has to come to the front. Re-opening one produces a
+// `none` → `flex` pair, and the watcher reads the style at callback time — so both records say
+// "visible", and gated on "has no tab yet" that was neither branch. The transcript behind the tab was
+// replaced while the pane went on showing the tab last clicked.
+test('re-opening an adopted viewer brings its tab to the front (#618)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    const host = h.document.getElementById('jsonl-viewer');
+    host.style.display = 'flex';
+    await h.settle();
+
+    // The user reads the transcript, then goes back to the terminal.
+    h.panes.show('a');
+    await h.settle();
+    assert.equal(h.document.querySelector('#terminals .session-tab.active').dataset.tabId, 'term:a');
+    assert.ok(h.panes.hasViewTab('jsonl'), 'the Messages tab is still there, just not on top');
+    assert.equal(h.document.getElementById('jsonl-viewer').style.display, 'flex', 'still marked visible');
+
+    // …and asks for the messages again. What `showJsonlViewer` does: hide everything, then show itself.
+    host.style.display = 'none';
+    host.style.display = 'flex';
+    await h.settle();
+
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'view:jsonl', 'the Messages tab is on top again');
+  } finally { h.destroy(); }
+});
+
+test('a viewer that hides while adopted still loses its tab (#618)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    const host = h.document.getElementById('jsonl-viewer');
+    host.style.display = 'flex';
+    await h.settle();
+    assert.ok(h.panes.hasViewTab('jsonl'));
+
+    host.style.display = 'none';
+    await h.settle();
+    assert.equal(h.panes.hasViewTab('jsonl'), false, 'the close half of the watcher is unchanged');
+  } finally { h.destroy(); }
+});
+
+test('switching from one adopted viewer to another leaves the new one in front (#618)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    const jsonl = h.document.getElementById('jsonl-viewer');
+    const plan = h.document.getElementById('plan-viewer');
+    jsonl.style.display = 'flex';
+    await h.settle();
+
+    // One batch: `hideAllViewers()` takes the transcript down and the plan viewer shows itself. The
+    // watcher answers per kind, closes first, so the order of the records cannot put the wrong one on top.
+    jsonl.style.display = 'none';
+    plan.style.display = 'flex';
+    await h.settle();
+
+    assert.equal(h.panes.hasViewTab('jsonl'), false);
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'view:plan');
+  } finally { h.destroy(); }
+});
+
 // Closing the tab has to take the route that surface's OWN × takes: `closeAdminView` for the three a
 // sidebar tab drives, the viewer teardown for the rest. `variables-admin-content` is the one the issue
 // flags as absent from `hideAllViewers`, so the wrong route there means it is never hidden at all.

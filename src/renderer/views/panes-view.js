@@ -1497,19 +1497,32 @@ window.__sessionDragId = null;
     if (viewObserver) return;
     viewObserver = new MutationObserver((records) => {
       if (!enabled) return;
+      // Once per KIND, from the style it has now. Re-opening a viewer queues two records for one
+      // element, and answering each would render and persist the tree twice for one click.
+      const kinds = new Map();
       for (const rec of records) {
         const kind = watchedKindOf(rec.target);
-        if (!kind) continue;
-        const visible = rec.target.style.display !== 'none';
-        const hasTab = !!PaneTree.leafOfTab(tree, viewTabId(kind, null));
-        if (visible && !hasTab) {
-          openViewTab(kind, {
-            ref: activeSessionId || null,
-            nearSessionId: activeSessionId || null,
-          });
-        } else if (!visible && hasTab) {
-          closeViewTab(kind);
-        }
+        if (kind) kinds.set(kind, rec.target);
+      }
+      const shown = [];
+      for (const [kind, el] of kinds) {
+        const visible = el.style.display !== 'none';
+        // A viewer that is ALREADY adopted still has to come to the front (#618). Re-opening one
+        // produces a `none` → `flex` pair (`hideAllViewers()`, then the viewer's own show), and the
+        // callback runs after both: it reads the display the element has NOW, so the pair reads as
+        // visible. Gated on "has no tab yet" that was neither branch and the click did nothing at all —
+        // the transcript behind the tab was replaced while the pane went on showing whatever tab was
+        // last clicked. `openViewTab` already answers both cases: it focuses an existing tab where the
+        // user put it, and creates one otherwise.
+        if (visible) shown.push(kind);
+        else if (PaneTree.leafOfTab(tree, viewTabId(kind, null))) closeViewTab(kind);
+      }
+      // Opened after the closes, so the viewer that was just shown is the one left in front.
+      for (const kind of shown) {
+        openViewTab(kind, {
+          ref: activeSessionId || null,
+          nearSessionId: activeSessionId || null,
+        });
       }
     });
     for (const [kind, spec] of Object.entries(VIEW_KINDS)) {
