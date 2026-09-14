@@ -57,6 +57,7 @@ function setupFilePanelDom(opts = {}) {
     viewerDestroys: 0,
     openViewTab: [],     // [kind, options]
     closeViewTab: [],
+    rekeyViewRef: [],    // [kind, fromRef, toRef]
     refreshChrome: 0,
     refreshSidebar: 0,
     toasts: [],
@@ -144,6 +145,14 @@ function setupFilePanelDom(opts = {}) {
     closeViewTab: (kind, options) => {
       calls.closeViewTab.push([kind, options]);
       paneTabs.delete(kind + ':' + (options && options.ref));
+    },
+    // A `/clear` moves the session an instanced ref is built on, so its tab is renamed rather than
+    // rebuilt (#619). The real one renames in the tree; this one renames in the set the stub keeps.
+    rekeyViewRef: (kind, fromRef, toRef) => {
+      calls.rekeyViewRef.push([kind, fromRef, toRef]);
+      if (!paneTabs.delete(kind + ':' + fromRef)) return false;
+      paneTabs.add(kind + ':' + toRef);
+      return true;
     },
     hasViewTab: (kind, ref) => paneTabs.has(kind + ':' + ref),
     refreshChrome: () => { calls.refreshChrome++; },
@@ -247,6 +256,13 @@ function setupFilePanelDom(opts = {}) {
     openFileInPanel: (sessionId, filePath) =>
       inCtx(`openFileInPanel(${JSON.stringify(sessionId)}, ${JSON.stringify(filePath)})`),
     state: (sessionId) => inCtx(`filePanelState.get(${JSON.stringify(sessionId)})`),
+    // How an instanced view is addressed since #619: the session, then the file path or the diff id.
+    // Built here rather than imported so the tests pin the SHAPE — a change to it has to be made twice,
+    // deliberately, instead of silently agreeing with itself.
+    ref: (sessionId, thing) => sessionId + '\u0000' + thing,
+    // A `/clear`: the session keeps its panel entries and moves to a new id.
+    rekey: (oldId, newId) =>
+      inCtx(`rekeyFilePanelState(${JSON.stringify(oldId)}, ${JSON.stringify(newId)})`),
     // A tick for the deferred merge-viewer creation (`loadCodeMirrorBundle().then(...)`).
     settle: () => new Promise((r) => setTimeout(r, 0)),
     // A real animation frame, for what the panel defers to one — the terminal re-fit.

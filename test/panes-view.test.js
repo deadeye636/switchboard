@@ -601,6 +601,53 @@ test('switching from one adopted viewer to another leaves the new one in front (
   } finally { h.destroy(); }
 });
 
+// #619: an instanced view's ref carries the session it was opened from, so a `/clear` renames its tab.
+test('re-keying an instanced view renames its tab in place (#619)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.mount('b');
+    h.enable();
+    await h.settle();
+    h.panes.openViewTab('preview', { ref: 'old\u0000/x/notes.md', nearSessionId: 'a' });
+    await h.settle();
+    // The pane DOM is rebuilt on render, so the pane is compared by the tabs it holds, in order.
+    const stripOfActive = () => [...h.document.querySelector('#terminals .session-tab.active')
+      .parentElement.querySelectorAll('.session-tab')].map((t) => t.dataset.tabId);
+    const before = stripOfActive();
+
+    assert.equal(h.panes.rekeyViewRef('preview', 'old\u0000/x/notes.md', 'new\u0000/x/notes.md'), true);
+    await h.settle();
+
+    assert.equal(h.panes.hasViewTab('preview', 'old\u0000/x/notes.md'), false);
+    assert.ok(h.panes.hasViewTab('preview', 'new\u0000/x/notes.md'));
+    const active = h.document.querySelector('#terminals .session-tab.active');
+    assert.equal(active && active.dataset.tabId, 'view:preview:new\u0000/x/notes.md', 'still the tab on top');
+    assert.deepEqual(stripOfActive(),
+      before.map((id) => (id === 'view:preview:old\u0000/x/notes.md' ? 'view:preview:new\u0000/x/notes.md' : id)),
+      'and in the same place in the same strip');
+  } finally { h.destroy(); }
+});
+
+test('re-keying an instanced view onto a ref that already has a tab retires the old one (#619)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('a');
+    h.enable();
+    await h.settle();
+    h.panes.openViewTab('preview', { ref: 'old\u0000/x/notes.md' });
+    h.panes.openViewTab('preview', { ref: 'new\u0000/x/notes.md' });
+    await h.settle();
+
+    assert.equal(h.panes.rekeyViewRef('preview', 'old\u0000/x/notes.md', 'new\u0000/x/notes.md'), true);
+    await h.settle();
+
+    assert.equal(h.panes.hasViewTab('preview', 'old\u0000/x/notes.md'), false);
+    assert.ok(h.panes.hasViewTab('preview', 'new\u0000/x/notes.md'));
+    assert.equal(h.document.querySelectorAll('#terminals .session-tab[data-tab-id^="view:preview:"]').length, 1);
+  } finally { h.destroy(); }
+});
+
 // Closing the tab has to take the route that surface's OWN × takes: `closeAdminView` for the three a
 // sidebar tab drives, the viewer teardown for the rest. `variables-admin-content` is the one the issue
 // flags as absent from `hideAllViewers`, so the wrong route there means it is never hidden at all.

@@ -174,7 +174,7 @@ test('a preview renders through the ViewerPanel, not the diff half', async () =>
     assert.deepEqual(h.calls.viewerOpens, [['notes.md', '/srv/projects/api/notes.md']]);
     assert.equal(h.q('.fp-viewer').style.display, 'flex');
     assert.equal(h.q('.fp-diff').style.display, 'none');
-    assert.equal(h.window.filePanelTabLabel('preview', '/srv/projects/api/notes.md'), 'notes.md');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/srv/projects/api/notes.md')), 'notes.md');
   } finally { h.destroy(); }
 });
 
@@ -209,7 +209,7 @@ test('outside panes mode a second preview takes the first one\'s place (#311)', 
     assert.equal(h.state('s1').currentTab.filePath, '/b.md');
     assert.equal(h.calls.viewerDestroys >= 1, true, 'the replaced preview released its editor');
     assert.equal(h.qa('.fp-content').length, 1, 'one instance in the shell, not two stacked');
-    assert.equal(h.window.filePanelTabLabel('preview', '/a.md'), null, 'and the first one is gone');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/a.md')), null, 'and the first one is gone');
   } finally { h.destroy(); }
 });
 
@@ -228,7 +228,7 @@ test('re-opening the SAME file keeps its instance rather than building another (
     await h.settle();
     assert.equal(h.qa('.fp-content').length, 1);
     assert.equal(h.q('.fp-content'), first, 'the same instance, not a replacement');
-    assert.deepEqual(h.calls.openViewTab.map((c) => c[1].ref), ['/a.md', '/a.md']);
+    assert.deepEqual(h.calls.openViewTab.map((c) => c[1].ref), [h.ref('s1', '/a.md'), h.ref('s1', '/a.md')]);
   } finally { h.destroy(); }
 });
 
@@ -246,11 +246,130 @@ test('panes mode keeps two previews at once, each its own tab (#311)', async () 
 
     // This is the requirement: two files compared side by side, which one element could never do.
     assert.equal(h.qa('.fp-content').length, 2);
-    assert.equal(h.window.filePanelTabLabel('preview', '/a.md'), 'a.md');
-    assert.equal(h.window.filePanelTabLabel('preview', '/b.md'), 'b.md');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/a.md')), 'a.md');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/b.md')), 'b.md');
     assert.deepEqual(h.calls.openViewTab.map((c) => [c[0], c[1].ref]),
-      [['preview', '/a.md'], ['preview', '/b.md']]);
+      [['preview', h.ref('s1', '/a.md')], ['preview', h.ref('s1', '/b.md')]]);
     assert.equal(h.calls.viewerDestroys, 0, 'nothing was torn down to make room');
+  } finally { h.destroy(); }
+});
+
+// ── One file, two sessions — the state #619 changes ──────────────────
+
+test('two sessions showing one file each get their own preview (#619)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.files.set('/shared.md', 'shared');
+    h.switchPanel('s1');
+    await h.openFileInPanel('s1', '/shared.md');
+    await h.settle();
+    h.switchPanel('s2');
+    await h.openFileInPanel('s2', '/shared.md');
+    await h.settle();
+
+    // Keyed on the path alone this was ONE entry: the second open re-targeted the first session's
+    // instance and took its tab with it.
+    assert.equal(h.qa('.fp-content').length, 2, 'one instance per session, not one shared');
+    assert.equal(h.calls.viewerDestroys, 0, 'and the first was not torn down to make room');
+    assert.deepEqual(h.calls.openViewTab.map((c) => [c[0], c[1].ref]),
+      [['preview', h.ref('s1', '/shared.md')], ['preview', h.ref('s2', '/shared.md')]]);
+  } finally { h.destroy(); }
+});
+
+test('closing a shared file goes back to the session it was opened from (#619)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.files.set('/shared.md', 'shared');
+    h.switchPanel('s1');
+    await h.openFileInPanel('s1', '/shared.md');
+    await h.settle();
+    h.switchPanel('s2');
+    await h.openFileInPanel('s2', '/shared.md');
+    await h.settle();
+
+    // This is the answer the pane tree closes on (#388). One entry for both sessions made it the LAST
+    // opener for either preview, so closing s1's landed the user in s2.
+    assert.equal(h.window.filePanelSessionFor('preview', h.ref('s1', '/shared.md')), 's1');
+    assert.equal(h.window.filePanelSessionFor('preview', h.ref('s2', '/shared.md')), 's2');
+  } finally { h.destroy(); }
+});
+
+test('re-opening the same file in the same session still lands on its own tab (#619)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('s1');
+    h.files.set('/a.md', 'a');
+    await h.openFileInPanel('s1', '/a.md');
+    await h.settle();
+    const first = h.q('.fp-content');
+    h.switchPanel('s2');
+    await h.openFileInPanel('s2', '/a.md');
+    await h.settle();
+    h.switchPanel('s1');
+    await h.openFileInPanel('s1', '/a.md');
+    await h.settle();
+
+    // The natural key still holds WITHIN a session — that is the argument the MCP bridge's re-sends
+    // were keyed for, and separating the sessions must not cost it.
+    assert.equal(h.qa('.fp-content').length, 2, 'two instances, not three');
+    assert.equal(h.window.filePanelHostFor('preview', h.ref('s1', '/a.md')), first,
+      's1 kept the instance it had');
+  } finally { h.destroy(); }
+});
+
+test('a re-key moves the ref an instanced view is addressed by (#619)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.switchPanel('old');
+    h.files.set('/a.md', 'a');
+    await h.openFileInPanel('old', '/a.md');
+    await h.settle();
+    assert.ok(h.panesView.hasViewTab('preview', h.ref('old', '/a.md')));
+
+    // A `/clear`: the session moves to a new id, and the ref is built on that id — so the pane tab has
+    // to be renamed with it, or the tree names a ref nothing answers to and the pane draws its empty
+    // state over a preview that is still open.
+    h.rekey('old', 'new');
+
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('new', '/a.md')), 'a.md');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('old', '/a.md')), null);
+    assert.equal(h.window.filePanelSessionFor('preview', h.ref('new', '/a.md')), 'new');
+    assert.deepEqual(h.calls.rekeyViewRef,
+      [['preview', h.ref('old', '/a.md'), h.ref('new', '/a.md')]]);
+    assert.ok(h.panesView.hasViewTab('preview', h.ref('new', '/a.md')), 'the tab was renamed, not rebuilt');
+    assert.equal(h.panesView.hasViewTab('preview', h.ref('old', '/a.md')), false);
+    assert.equal(h.state('new').shownKey, 'preview:' + h.ref('new', '/a.md'), 'the side panel follows it');
+  } finally { h.destroy(); }
+});
+
+test('a re-key onto an id that already shows the file keeps that one (#619)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    h.files.set('/a.md', 'a');
+    h.switchPanel('old');
+    await h.openFileInPanel('old', '/a.md');
+    await h.settle();
+    // The id the session moves onto already holds an entry for the same file in this window.
+    h.switchPanel('new');
+    await h.openFileInPanel('new', '/a.md');
+    await h.settle();
+    const kept = h.window.filePanelHostFor('preview', h.ref('new', '/a.md'));
+    assert.equal(h.qa('.fp-content').length, 2);
+
+    h.rekey('old', 'new');
+
+    // Moving the old entry onto the taken key would overwrite the one there and orphan its instance.
+    assert.equal(h.window.filePanelHostFor('preview', h.ref('new', '/a.md')), kept, 'the new id kept its own');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('old', '/a.md')), null);
+    assert.equal(h.qa('.fp-content').length, 1, 'the retired instance is gone from the DOM');
+    assert.ok(h.calls.viewerDestroys >= 1, 'and released its editor');
+    assert.equal(h.panesView.hasViewTab('preview', h.ref('old', '/a.md')), false);
+    assert.equal(h.calls.closeViewTab.length, 0, 'the tree side is the rename\'s, not a close that moves focus');
   } finally { h.destroy(); }
 });
 
@@ -274,7 +393,7 @@ test('panes mode keeps two diffs at once, and each answers for itself (#311)', a
     assert.deepEqual(h.calls.diffResponses, [['s2', 'diff-2', 'accept', null]]);
 
     // …and the first is still there, still unanswered, still reachable.
-    assert.equal(h.window.filePanelTabLabel('diff', 'diff-1'), 'proposed change');
+    assert.equal(h.window.filePanelTabLabel('diff', h.ref('s1', 'diff-1')), 'proposed change');
     h.qa('.fp-content')[0].querySelector('.file-panel-reject-btn').click();
     assert.deepEqual(h.calls.diffResponses[1], ['s1', 'diff-1', 'reject', null]);
   } finally { h.destroy(); }
@@ -290,10 +409,10 @@ test('closing one diff tab rejects that one and leaves the others alone (#311)',
     await h.settle();
 
     // What the pane tree calls when the user closes that one tab.
-    h.window.filePanelCloseInstance('diff', 'diff-1');
+    h.window.filePanelCloseInstance('diff', h.ref('s1', 'diff-1'));
     assert.deepEqual(h.calls.diffResponses, [['s1', 'diff-1', 'reject', null]]);
     assert.equal(h.qa('.fp-content').length, 1);
-    assert.equal(h.window.filePanelTabLabel('diff', 'diff-2'), 'second');
+    assert.equal(h.window.filePanelTabLabel('diff', h.ref('s1', 'diff-2')), 'second');
   } finally { h.destroy(); }
 });
 
@@ -475,7 +594,7 @@ test('a preview still gets a tab — several files side by side is the point of 
     await h.openFileInPanel('s1', '/a.md');
     await h.settle();
 
-    assert.deepEqual(h.calls.openViewTab.map((c) => [c[0], c[1].ref]), [['preview', '/a.md']],
+    assert.deepEqual(h.calls.openViewTab.map((c) => [c[0], c[1].ref]), [['preview', h.ref('s1', '/a.md')]],
       'only the review lost its tab; looking at a file is not answering one');
   } finally { h.destroy(); }
 });
@@ -527,8 +646,8 @@ test('leaving panes mode collapses to one entry and answers the diffs it drops (
     h.window.filePanelCollapseToOne();
 
     assert.deepEqual(h.calls.diffResponses, [['s1', 'diff-1', 'reject', null]], 'the dropped one is answered');
-    assert.equal(h.window.filePanelTabLabel('diff', 'diff-2'), 'second', 'the shown one survives');
-    assert.equal(h.window.filePanelTabLabel('diff', 'diff-1'), null);
+    assert.equal(h.window.filePanelTabLabel('diff', h.ref('s1', 'diff-2')), 'second', 'the shown one survives');
+    assert.equal(h.window.filePanelTabLabel('diff', h.ref('s1', 'diff-1')), null);
   } finally { h.destroy(); }
 });
 
@@ -545,7 +664,7 @@ test('a re-key moves the open entries onto the new session id (#311)', async () 
     // `close_tab` from the CLI arrives under the NEW id after a /clear. Before this it matched nothing,
     // and the diff stayed open with no way to answer it.
     h.ipc.closeTab('new', 'diff-1');
-    assert.equal(h.window.filePanelTabLabel('diff', 'diff-1'), null, 'the CLI could close it');
+    assert.equal(h.window.filePanelTabLabel('diff', h.ref('new', 'diff-1')), null, 'the CLI could close it');
     assert.deepEqual(h.calls.diffResponses, [], 'and closing on the CLI\'s request answers nothing');
   } finally { h.destroy(); }
 });

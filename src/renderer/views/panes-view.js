@@ -133,7 +133,8 @@ window.__sessionDragId = null;
   };
   const isInstancedKind = (kind) => !!(VIEW_KINDS[kind] && VIEW_KINDS[kind].instanced);
   // A singleton kind has one tab; an instanced one has a tab per thing it shows, so its id carries the
-  // ref — the file path for a preview, the diff id for a diff.
+  // ref. What a ref is made of is `file-panel.js`'s business and is never taken apart here: since #619 it
+  // is the session the view was opened from plus the file path or the diff id.
   const viewTabId = (kind, ref) => (isInstancedKind(kind) ? 'view:' + kind + ':' + String(ref) : 'view:' + kind);
   const isViewTab = (tab) => !!(tab && VIEW_KINDS[tab.kind]);
   // Which views may leave this window (#364), DERIVED rather than listed — a kind may travel exactly
@@ -1440,6 +1441,35 @@ window.__sessionDragId = null;
     render();
     persist();
     showActiveOrPlaceholder();
+  }
+
+  /**
+   * An instanced view's ref changed, and its tab has to be renamed onto it (#619).
+   *
+   * The ref of a preview or a diff carries the session it was opened from, and a `/clear` moves that
+   * session to a new id — so `rekeySession` has a sibling here for the same reason it exists itself: a
+   * tab id is DERIVED from the ref, and left naming the retired one the pane looks up a host nothing
+   * answers to and draws its empty state over a preview that is still open.
+   *
+   * Renamed in place, so the view stays in the pane the user dropped it into. `file-panel.js` owns what
+   * a ref is made of and calls this once it has moved the entry.
+   */
+  function rekeyViewRef(kind, fromRef, toRef) {
+    if (!enabled || !tree || !isInstancedKind(kind) || fromRef === toRef) return false;
+    const fromTabId = viewTabId(kind, fromRef);
+    const leaf = PaneTree.leafOfTab(tree, fromTabId);
+    if (!leaf) return false;
+    const toTabId = viewTabId(kind, toRef);
+    // The target id can already be a tab — the new session had this file open too. Then there is nothing
+    // to rename onto: retire the old tab and leave the one that is there.
+    tree = PaneTree.leafOfTab(tree, toTabId)
+      ? PaneTree.closeTab(tree, leaf.id, fromTabId)
+      : PaneTree.replaceTab(tree, leaf.id, fromTabId, { id: toTabId, kind, ref: toRef });
+    activeLeaf();
+    reportWindowViews();
+    scheduleRender();
+    persist();
+    return true;
   }
 
   // Put a view element back where the HTML had it. Every other display mode looks
@@ -4226,6 +4256,7 @@ window.__sessionDragId = null;
     showActiveOrPlaceholder,
     openViewTab,
     closeViewTab,
+    rekeyViewRef,
     hasViewTab: (kind, ref) => !!(enabled && tree && PaneTree.leafOfTab(tree, viewTabId(kind, ref))),
     splitActivePane,
     closePane,

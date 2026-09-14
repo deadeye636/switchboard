@@ -392,7 +392,8 @@ is how the app loses its only preview panel:**
   the app's single existing element** into the pane and hands it back to the exact slot it came from on
   close. Those MUST be parked at home before a rebuild, or `replaceChildren` destroys them.
 - **Instanced kinds** (`preview`, `diff`, since #311) — one instance per thing shown, built by
-  `file-panel.js` (`createPanelInstance`) and keyed `<kind>:<ref>` (file path / diff id). They have **no
+  `file-panel.js` (`createPanelInstance`) and keyed `<kind>:<ref>` (the session plus the file path / diff
+  id, #619 — panes-view treats a ref as opaque and never takes it apart). They have **no
   home**: created with their tab, destroyed with it, so they must never go through `viewHomes` /
   `releaseViewElement` / `hideViewElement`.
 - **A `diff` has no tab at all since #398.** It rides with its session's tab (`buildPane` asks

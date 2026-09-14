@@ -394,9 +394,15 @@ preview/diff panel beside it (width in `filePanelWidth`).
 element id (`#file-panel-viewer`, `#file-panel-body`, `#diff-title`, …) into `createPanelInstance` — an id
 is unique, so there could only ever be one of each, which IS the symptom. Step 2 made it a registry:
 
-- **`panelTabs`, keyed `<kind>:<ref>`** — the file path for a preview, the diff id for a diff. A natural
-  key, because the MCP bridge re-sends the same file on every session switch and a counter would stack
-  duplicates nobody asked for; re-opening lands on the tab that already has it.
+- **`panelTabs`, keyed `<kind>:<ref>`** — the session the entry was opened from, then the file path for a
+  preview or the diff id for a diff. A natural key, because the MCP bridge re-sends the same file on every
+  session switch and a counter would stack duplicates nobody asked for; re-opening lands on the tab that
+  already has it. The session is part of it since #619: keyed on the path alone, one file was one entry
+  for the whole app, so a second session opening it took over the first one's tab and closing returned
+  to whichever session opened it last. Within one session the key is still natural; across sessions the
+  same file is one instance each, and two of them can diverge — a stale save is refused by the baseline
+  compare in `src/app/safe-write.js`. A `/clear` moves the session id, so the entries are renamed onto
+  the new one and `rekeyViewRef` renames their pane tabs in place.
 - **One model in every display mode.** The mode decides one thing only: outside panes the side panel shows
   one entry per session, so opening closes the previous — which is what tabs and grid always promised. In
   panes nothing closes.

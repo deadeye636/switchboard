@@ -987,7 +987,7 @@ function registerIpc(ipc) {
    * own. That is why this is a message and not a handover, and why it needs none of the
    * release/re-register/adopt ordering a session move does.
    *
-   * `ref` is the instanced kinds' key (#311) — a file path for a preview, a diff id for a diff — and
+   * `ref` is the instanced kinds' key (#311) — the session plus the file path or the diff id (#619) — and
    * is undefined for the singletons. `file` is what a SINGLETON needs instead: the sidebar-driven views
    * have no ref to carry their open file in, so it travels beside the kind or the view arrives empty.
    * Both are passed through untouched — what they mean belongs to the renderer that opens them.

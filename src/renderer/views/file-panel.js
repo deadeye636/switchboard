@@ -23,12 +23,21 @@ let filePanelResizeHandle = null;
 let terminalSplitEl = null;
 let currentPanelSessionId = null;
 
-// Every preview and every diff that is open, keyed by what it shows (#311).
+// Every preview and every diff that is open, keyed by the session it belongs to and what it shows (#311, #619).
 //
-//   key = `<kind>:<ref>`   ref = the file path for a preview, the diff id for a diff
+//   key = `<kind>:<ref>`   ref = the SESSION plus what is shown: the file path for a preview, the diff id for a diff
 //
 // A NATURAL key on purpose: the MCP bridge re-sends the same file on every session switch, so a counter
 // would pile up duplicates nobody asked for. Re-opening the same thing lands on the tab that has it.
+//
+// The session is part of it (#619). Keyed on the path alone, one file was one entry for the whole app: a
+// second session opening it re-targeted the first session's entry and `upsertPanelTab` overwrote
+// `sessionId` with the newcomer, so `filePanelSessionFor` answered with the last opener and closing the
+// preview landed in a session the user had not been in. Two sessions showing one file also shared the
+// single tab that id gave them. Within ONE session the key is still natural, which is where the argument
+// above was made; across sessions it now separates. It costs an editor instance per session showing the
+// same file, and two of them can diverge — a stale writer is refused by the baseline compare in
+// `src/app/safe-write.js` rather than overwriting.
 //
 // One model in every display mode, and the mode decides only one thing: outside panes mode the side panel
 // shows one thing at a time, so opening a preview closes that session's previous one — which is what tabs
@@ -39,6 +48,14 @@ let currentPanelSessionId = null;
 //   `instance` the DOM, from createPanelInstance. `instance.root` IS the element a pane hosts.
 const panelTabs = new Map();
 const tabKey = (kind, ref) => kind + ':' + String(ref);
+// The ref an instanced view is addressed by, everywhere outside this line: the session, then the thing
+// shown. NUL because neither a path nor a diff id can contain one, so the two halves cannot be confused
+// for each other. panes-view puts this straight into its tab id and hands it back through
+// `filePanelHostFor` / `filePanelTabLabel` / `filePanelSessionFor` / `filePanelCloseInstance` — it never
+// takes it apart, so the shape stays this file's business.
+const instancedRef = (sessionId, ref) => String(sessionId) + '\u0000' + String(ref);
+// …and the thing back out of it, for the one caller that has to rebuild a ref onto another session.
+const refThingOf = (ref) => String(ref).slice(String(ref).indexOf('\u0000') + 1);
 const panesActive = () => !!(window.panesView && window.panesView.active());
 // Set while a close is travelling through the pane tree, so panes-view calling back here does not start
 // the same teardown a second time.
@@ -405,8 +422,40 @@ function rekeyFilePanelState(oldId, newId) {
   // answers the bridge — so a `/clear` left every open preview and diff tagged with a session that no
   // longer exists: `close_tab` from the CLI arrives under the NEW id and matched nothing, and closing an
   // entry looked up a state bucket that had already moved.
-  for (const entry of panelTabs.values()) {
-    if (entry.sessionId === oldId) entry.sessionId = newId;
+  //
+  // Since #619 the id is in the KEY as well, so this is a rename rather than a field assignment: the
+  // map entry moves, `shownKey` follows it, and the pane tab — whose id is derived from the ref —
+  // is renamed in place. Without that last step a `/clear` under an open preview leaves the tree naming
+  // a ref nothing answers to, which is `rekeySession`'s problem one view over: the pane finds no host
+  // behind its own active tab.
+  for (const entry of [...panelTabs.values()]) {
+    if (entry.sessionId !== oldId) continue;
+    const oldKey = entry.key;
+    const oldRef = entry.ref;
+    const newRef = instancedRef(newId, refThingOf(oldRef));
+    const newKey = tabKey(entry.kind, newRef);
+    for (const st of filePanelState.values()) if (st.shownKey === oldKey) st.shownKey = newKey;
+    entry.sessionId = newId;
+    const clash = panelTabs.get(newKey);
+    if (clash) {
+      // The new id already shows this — a re-key onto an id that has entries of its own in this window,
+      // the case `rekeySession` guards for its tab too. (Not the bridge: `applyRekey` moves its entry and
+      // announces the fork in the same tick, so a file re-sent under the new id arrives after this.)
+      // Keep the entry that is there, the way `rekeyViewRef` keeps its tab: moving this one onto the key
+      // would overwrite that entry and leave its instance with nobody to destroy it. The tree side is
+      // `rekeyViewRef`'s, hence the close does not go through panes. A colliding unresolved diff is
+      // rejected on the way out like any destroyed one — diff ids are random, so that stays theoretical.
+      const moved = filePanelState.get(newId);
+      if (moved && moved.shownKey === newKey) moved.currentTab = clash.tab;
+      closingThroughPanes = true;
+      try { closePanelTab(oldKey, { keepPanel: true }); } finally { closingThroughPanes = false; }
+    } else {
+      entry.ref = newRef;
+      entry.key = newKey;
+      panelTabs.delete(oldKey);
+      panelTabs.set(newKey, entry);
+    }
+    window.panesView?.rekeyViewRef?.(entry.kind, oldRef, newRef);
   }
 }
 
@@ -445,13 +494,16 @@ function shownEntryFor(sessionId) {
  *
  * Re-targeting rather than replacing is the whole point of the natural key: the same file arriving again
  * keeps its instance, its place in the layout and the pane the user dropped it into.
+ *
+ * `what` is the file path or the diff id; the ref the rest of the app addresses this entry by is that
+ * plus the SESSION (#619), so re-targeting happens within a session and never across two.
  */
-function upsertPanelTab(sessionId, kind, ref, tab) {
+function upsertPanelTab(sessionId, kind, what, tab) {
+  const ref = instancedRef(sessionId, what);
   const key = tabKey(kind, ref);
   const existing = panelTabs.get(key);
   if (existing) {
     destroyTabContent(existing);
-    existing.sessionId = sessionId;
     existing.tab = tab;
     return existing;
   }
@@ -741,7 +793,7 @@ function closeAllDiffs(sessionId) {
 }
 
 function closeDiffByDiffId(sessionId, diffId) {
-  const entry = panelTabs.get(tabKey('diff', diffId));
+  const entry = panelTabs.get(tabKey('diff', instancedRef(sessionId, diffId)));
   if (!entry || entry.sessionId !== sessionId) return;
   closePanelTab(entry.key, { answer: false });
 }
