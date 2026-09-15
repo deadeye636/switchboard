@@ -113,11 +113,18 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
    another `--model`, and a spec kept past it would go on picking its own model's window for every turn that
    follows. Two of 331 measured transcripts changed model between turns with no `/model` in them.
    **The command comes in two forms**, both read, measured on CLI 2.1.272. At an idle prompt it is a user
-   message of command markup, as before. Typed while a turn runs, it is held back until that turn ends and
-   then written as a `system` entry (`subtype: 'local_command'`) carrying the same markup — reader v8 did not
-   see that form at all. Either way the CLI first asks to confirm a switch in a conversation that has a cache
-   ("Switch model? … Yes, switch / No, go back"), and nothing is written until the user says yes. Because a
-   held-back switch is written after the turn that was running, that turn cannot expire it.
+   message of command markup, as before. Typed while a turn runs, it is a `system` entry
+   (`subtype: 'local_command'`) carrying the same markup — reader v8 did not see that form at all. When that
+   entry is written depends on the queue: with nothing queued it was held back until the turn ended, and with
+   a prompt queued behind the turn it was written at once, BETWEEN the first and the last entry of the
+   request that was still streaming. Either way the CLI first asks to confirm a switch in a conversation that
+   has a cache ("Switch model? … Yes, switch / No, go back"), and nothing is written until the user says yes.
+   **Nothing inside the turn the switch was typed in expires it** (reader v10). A spec set while a turn is
+   open — opened by a prompt, a slash command or a request, closed by the CLI's `turn_duration` entry —
+   waits for that turn's end, or for the next prompt or command where no `turn_duration` was written (an
+   interrupted turn writes none). That covers the running request
+   finishing on the old model, its first entry landing after the switch (a long thinking block), and any
+   further request of the same turn. The queued prompt then ran on the new model.
 2. **The variant comes from every spec naming that model, and the larger window wins** (E12). The specs are
    the transcript's and the configured ones: the stored launch `model` option (it reaches the CLI as
    `--model`), `ANTHROPIC_MODEL`, and the settings files (project-local, project, user). The CLI applies them
@@ -203,11 +210,6 @@ the failure #620 was filed about, narrowed to these cases:
 - **A Claude model whose 1M window is opt-in** (Sonnet 4.5/4.6, Opus 4.6) reads as 200k when `[1m]` is named
   nowhere the app can see. A one-off Configure override is not stored, and a `$VAR` reference to one of
   Switchboard's saved variables is not followed. The floor catches the case once a turn passes 200k.
-- **A prompt queued before a held-back `/model` was not measured.** Rule 1 expires a switch once a later
-  turn runs on another model. If the CLI starts a prompt that was queued before the `/model` on the old
-  model, and writes that turn after the switch entry, the switch is dropped: the old model's window then
-  applies until a turn on the new model runs, and after it the configured specs answer (the CLI saved the
-  switch into the user settings). Measured was only one running turn with nothing queued behind it.
 - **Configuration is read as it is NOW, not as it was at launch.** Since E12 a bare spec can no longer take
   away a `[1m]` that any other place still names. What is left: when the only `[1m]` was in Claude's user
   settings, which are global, a `/model` switch typed in another session overwrites it for every session;

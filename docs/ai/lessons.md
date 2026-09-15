@@ -1201,6 +1201,10 @@ the transcript already said the switch was over: a later turn ran on a model the
   session, and it found a second form of the command, a `system` / `local_command` entry, that the reader
   had never looked at. One command can take more than one form in the transcript: measure it typed mid-turn
   as well as at an idle prompt.
+- **And one ordering is not the answer.** The first mid-turn run showed the switch held back until the turn
+  ended, and the gap was written off as closed. With a prompt queued behind the turn, the same command was
+  written at once, between two entries of the request still streaming — the exact case the gap described.
+  When a CLI has a queue, measure with something in it.
 
 ## A MutationObserver reads the state NOW, not the state it was told about (#618)
 

@@ -27,6 +27,13 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   instructions, commands, agents, plugins, hooks, skills and customization directories, including project
   `.claude/` resources when a project is in scope. It deliberately excludes credentials, logs, history,
   transcripts and Claude's main config file, which can carry secrets.
+- Folder trust is `projects.<key>.hasTrustDialogAccepted` in that main config (`<home>/.claude.json`, beside
+  `~/.claude` normally). The key is the directory's real path — a junction resolved, every folder name in
+  its on-disk case — with the drive letter as the session's cwd spelled it, and forward slashes; the CLI
+  looks it up exactly, case included (#627, measured on 2.1.272 on Windows, with a junction on the same
+  drive). The file often holds several spellings of one directory, and only that one key counts for trust.
+  Not measured: a junction to another drive, a `subst` or mapped drive, a UNC path, macOS and Linux. The
+  app keeps the resolved drive when it differs from the spelled one.
 
 ### Not every `user` entry is the user (#495, #229)
 
@@ -643,9 +650,13 @@ is `docs/specs/28-session-health.md`.
   requested model, never the first key.
 - A `/model <spec>` switch typed at an idle prompt is a user entry of command markup with `<command-args>`,
   followed by a `<local-command-stdout>` entry ("Set model to … and saved as your default for new sessions").
-  Typed while a turn runs, the CLI holds it until the turn ends and writes the same two pieces as `system`
-  entries with `subtype: 'local_command'` and a `content` string (the output entry also carries
-  `commandRun: { command, args }`), after that turn's entries (measured on 2.1.272). In a conversation with a
+  Typed while a turn runs, the CLI writes the same two pieces as `system` entries with
+  `subtype: 'local_command'` and a `content` string (the output entry also carries
+  `commandRun: { command, args }`). When it writes them depends on the queue (measured on 2.1.272). With
+  nothing queued, they follow that turn's entries. With a prompt queued (a `queue-operation` `enqueue`
+  entry), they are written at once, between the first and the last entry of the request still streaming.
+  A turn usually ends with a `system` / `turn_duration` entry; an interrupted turn writes none, and some
+  transcripts carry none at all. A streamed request's entries share one `message.id`. In a conversation with a
   cache the CLI asks to confirm the switch first, and writes nothing if the user goes back. The CLI saves
   the choice into the user settings as `model`. A model that changes without `/model` (two of 331 measured
   transcripts, Opus 5 to Opus 4.8) leaves no entry of its own and shows only as the next turn's

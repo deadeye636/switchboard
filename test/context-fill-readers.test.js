@@ -216,6 +216,111 @@ test('Claude: a `/model` held back until the turn ended is read from its system 
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('Claude: the request already running when /model was written does not expire it (queued prompt shape)', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'o.jsonl');
+  // The order CLI 2.1.272 wrote with a prompt queued behind a streaming turn: the switch lands between the
+  // first and the last entry of the request that was running, and both entries share its message id.
+  const streamed = (id, model, cached) => ({ ...turnAt(model, cached), message: { ...turnAt(model, cached).message, id } });
+  const localCommand = (content) => ({ type: 'system', subtype: 'local_command', content, timestamp: '2026-09-15T10:00:02.000Z' });
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('write a story'))
+      + line({ type: 'queue-operation', operation: 'enqueue', content: 'Reply with QUEUED.' })
+      + line(streamed('msg_running', 'claude-opus-4-5-20251101', 35704))
+      + line(localCommand(modelCommand('claude-sonnet-4-5')))
+      + line(localCommand('<local-command-stdout>Set model to `Sonnet 4.5`</local-command-stdout>'))
+      + line(streamed('msg_running', 'claude-opus-4-5-20251101', 35704)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-sonnet-4-5',
+      'the running request finishing on the old model is not a change of model');
+
+    fs.appendFileSync(file, line(claudeUser('Reply with QUEUED.')) + line(streamed('msg_queued', 'claude-sonnet-4-5-20250929', 36936)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-sonnet-4-5', 'the queued turn ran on the new model');
+
+    fs.appendFileSync(file, line(streamed('msg_later', 'claude-opus-5', 50000)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, null, 'a NEW request on another model still expires it');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a switch typed mid-turn waits for the turn to end, even before the running request writes anything', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'p.jsonl');
+  const localCommand = (content) => ({ type: 'system', subtype: 'local_command', content, timestamp: '2026-09-15T10:00:02.000Z' });
+  try {
+    // A long thinking block: the request's first entry is written only after the switch was confirmed.
+    fs.writeFileSync(file,
+      line(claudeUser('think hard about this'))
+      + line(localCommand(modelCommand('claude-sonnet-4-5')))
+      + line(turnAt('claude-opus-4-5-20251101', 40000))
+      + line(turnAt('claude-opus-5', 41000)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-sonnet-4-5',
+      'every request of the running turn, first or further, is still the old turn');
+
+    fs.appendFileSync(file, line({ type: 'system', subtype: 'turn_duration' }) + line(claudeUser('next')) + line(turnAt('claude-opus-5', 42000)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, null, 'after the turn, another model ends it');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: the incremental read keeps a mid-turn switch across an append that splits the turn', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'q.jsonl');
+  const localCommand = (content) => ({ type: 'system', subtype: 'local_command', content, timestamp: '2026-09-15T10:00:02.000Z' });
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('write a story'))
+      + line(turnAt('claude-opus-4-5-20251101', 35704))
+      + line(localCommand(modelCommand('claude-sonnet-4-5'))));
+    const first = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, null);
+    assert.equal(first.session.lastModelSpec, 'claude-sonnet-4-5');
+
+    fs.appendFileSync(file, line(turnAt('claude-opus-4-5-20251101', 35704)) + line({ type: 'system', subtype: 'turn_duration' }));
+    const second = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, first.next);
+    assert.equal(second.session.lastModelSpec, 'claude-sonnet-4-5', 'the running request finishing in the next chunk');
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-sonnet-4-5', 'and the full read agrees');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a turn a slash command started counts as a turn, both ways', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 's.jsonl');
+  const localCommand = (content) => ({ type: 'system', subtype: 'local_command', content, timestamp: '2026-09-15T10:00:02.000Z' });
+  const command = (name) => `<command-name>/${name}</command-name>\n            <command-message>${name}</command-message>\n            <command-args></command-args>`;
+  try {
+    // `/review` starts a turn through an `isMeta` prompt; a switch typed during it waits for its end.
+    fs.writeFileSync(file,
+      line(claudeUser('first')) + line(turnAt('claude-opus-4-5-20251101', 30000)) + line({ type: 'system', subtype: 'turn_duration' })
+      + line(claudeUser(command('review')))
+      + line({ ...claudeUser('Review the current changes.'), isMeta: true })
+      + line(turnAt('claude-opus-4-5-20251101', 31000))
+      + line(localCommand(modelCommand('claude-sonnet-4-5')))
+      + line(turnAt('claude-opus-4-5-20251101', 32000)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-sonnet-4-5');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+
+  const second = tmpFile('ctxfill-claude-', 't.jsonl');
+  try {
+    // No `turn_duration` anywhere: an idle `/model`, then a turn started by `/review` on another model.
+    fs.writeFileSync(second.file,
+      line(claudeUser('first')) + line(turnAt('claude-opus-4-5-20251101', 30000))
+      + line(claudeUser(modelCommand('claude-sonnet-4-5')))
+      + line(claudeUser(command('review')))
+      + line({ ...claudeUser('Review the current changes.'), isMeta: true })
+      + line(turnAt('claude-opus-5', 31000)));
+    assert.equal(claude.readSessionFile(second.file, 'folder', '/some/project').lastModelSpec, null,
+      'the command started a new turn, and that turn ran on another model');
+  } finally { fs.rmSync(second.dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a switch typed at an idle prompt does not wait — the turn before it had ended', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'r.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('first'))
+      + line(turnAt('claude-opus-4-5-20251101', 30000))
+      + line({ type: 'system', subtype: 'turn_duration' })
+      + line(claudeUser(modelCommand('claude-sonnet-4-5')))
+      + line(turnAt('claude-opus-5', 30500)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, null,
+      'no turn was open, so a later request on another model is a change of model');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('Claude: a sidechain entry on another model in the main transcript does not expire the spec', () => {
   const { dir, file } = tmpFile('ctxfill-claude-', 'm.jsonl');
   try {
@@ -254,7 +359,9 @@ test('Claude: the incremental read expires a stale spec the same way a full read
     const first = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, null);
     assert.equal(first.session.lastModelSpec, 'claude-opus-4-6');
 
-    fs.appendFileSync(file, line(turnAt('claude-opus-5', 80000)));
+    // The turn the switch was typed in ends first, as the CLI writes it; only then does a turn on another
+    // model say the switch is over.
+    fs.appendFileSync(file, line({ type: 'system', subtype: 'turn_duration' }) + line(claudeUser('go on')) + line(turnAt('claude-opus-5', 80000)));
     const second = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, first.next);
     assert.equal(second.session.lastModelSpec, null);
     assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, null);

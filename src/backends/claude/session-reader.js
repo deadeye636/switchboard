@@ -28,7 +28,9 @@ const { specNamesModel } = require('./model-windows');
 //       from v7 can still carry a stale spec that picks the wrong window, and only the bump re-reads it.
 //   v9: a `/model` the CLI held back until a turn ended is read too. It is written as a `system` entry
 //       (`subtype: 'local_command'`), not as a user message, and v8 never saw it (measured on CLI 2.1.272).
-const PARSER_SCHEMA_VERSION = 9; // v9: a held-back `/model` switch — #622 follow-up
+//   v10: nothing inside the turn `/model` was typed in expires the switch. With a prompt queued the CLI
+//       writes the switch at once, and the running request's entries land after it.
+const PARSER_SCHEMA_VERSION = 10; // v10: a switch typed mid-turn waits for the turn's end — #622 follow-up
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -293,6 +295,15 @@ function createParseState() {
     // `--model`, changed settings. Kept, the spec would go on picking its own model's window for every later
     // turn. Measured: two of 331 transcripts changed model between turns with no `/model` in them.
     lastModelSpec: null,
+    // Whether a turn is running — opened by a prompt, a slash command or a request, closed by the CLI's
+    // `turn_duration` entry (an interrupted turn writes none, and the next prompt stands in for it) — and
+    // whether the spec was set inside one. A spec set during a turn does not expire before that turn is over:
+    // with a prompt queued the CLI writes `/model` while a request is still streaming, and that request's
+    // last entry, still on the old model, lands AFTER the switch (measured on CLI 2.1.272). Its first entry
+    // can land after it too, and so can any further request of the same turn. None of those is a change of
+    // model. The next prompt or command also ends the wait, for a turn that wrote no `turn_duration`.
+    turnOpen: false,
+    specWaitsForTurnEnd: false,
   };
 }
 
@@ -322,6 +333,19 @@ function modelCommandSpec(text) {
   const args = COMMAND_ARGS.exec(String(text));
   const spec = args ? args[1].trim() : '';
   return /\s/.test(spec) ? null : spec;
+}
+
+/**
+ * Does this user entry START a turn? A prompt somebody typed, or a slash command — a command with no
+ * arguments starts one too (`/review` expands into an `isMeta` prompt the check below skips), and a local
+ * one like `/cost` that starts nothing only ends a wait early, which changes no window. Nothing else the CLI
+ * writes in the user's name counts: not a tool result, not a subagent's line, not injected text, not what a
+ * command printed, not a shell escape. `/model` itself never reaches this — it is the spec, handled first.
+ */
+function startsTurn(entry, text) {
+  if (entry.isSidechain || entry.isMeta || !text) return false;
+  if (isToolResultOnly(entry.message && entry.message.content)) return false;
+  return !/<bash-input>|<bash-stdout>|<local-command-caveat>|<local-command-stdout>/.test(text);
 }
 
 /** Fold one raw JSONL line into the parse state. Malformed lines are skipped:
@@ -357,9 +381,18 @@ function applyEntryLine(st, line) {
     if (input > 0) {
       st.lastInputTokens = input;
       st.lastModel = entry.message.model || null;
-      // A sidechain entry in the main transcript is a subagent's request, not a change of the session's model.
-      if (st.lastModelSpec && st.lastModel && !entry.isSidechain && !specNamesModel(st.lastModelSpec, st.lastModel)) st.lastModelSpec = null;
+      // A sidechain entry in the main transcript is a subagent's request, not a change of the session's model,
+      // and nothing inside the turn the switch was typed in is one either.
+      if (st.lastModelSpec && st.lastModel && !entry.isSidechain && !st.specWaitsForTurnEnd
+        && !specNamesModel(st.lastModelSpec, st.lastModel)) st.lastModelSpec = null;
+      // A request runs inside a turn whatever started it — a prompt this reader did not count as one is still
+      // a running turn, and a `/model` typed during it has to wait like any other.
+      if (!entry.isSidechain) st.turnOpen = true;
     }
+  }
+  if (entry.type === 'system' && entry.subtype === 'turn_duration') {
+    st.turnOpen = false;
+    st.specWaitsForTurnEnd = false;
   }
   if (entry.type === 'user' || entry.type === 'assistant' ||
       (entry.type === 'message' && (entry.role === 'user' || entry.role === 'assistant'))) {
@@ -371,15 +404,16 @@ function applyEntryLine(st, line) {
     st.userMessageCount++;
     st.largestUserPromptWords = Math.max(st.largestUserPromptWords, countWords(text));
     const spec = modelCommandSpec(text);
-    if (spec !== null) st.lastModelSpec = spec || null;
+    if (spec !== null) { st.lastModelSpec = spec || null; st.specWaitsForTurnEnd = st.turnOpen; }
+    else if (startsTurn(entry, text)) { st.turnOpen = true; st.specWaitsForTurnEnd = false; }
   }
-  // The same command in its other form. A `/model` typed while a turn runs is held back until the turn
-  // ends and then written as a system entry carrying the same markup — measured on CLI 2.1.272, where the
-  // same switch typed at an idle prompt is still a user message. Written after the turn, so the turn that
-  // was in flight never expires it.
+  // The same command in its other form. A `/model` typed while a turn runs is written as a system entry
+  // carrying the same markup — measured on CLI 2.1.272, where the same switch typed at an idle prompt is
+  // still a user message. With nothing queued it was held back until the turn ended; with a prompt queued
+  // it was written at once, inside the running turn, which is why it waits for that turn's end.
   if (entry.type === 'system' && entry.subtype === 'local_command' && typeof entry.content === 'string') {
     const spec = modelCommandSpec(entry.content);
-    if (spec !== null) st.lastModelSpec = spec || null;
+    if (spec !== null) { st.lastModelSpec = spec || null; st.specWaitsForTurnEnd = st.turnOpen; }
   }
   if (!st.summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
     // Skip local command messages (! prefix) — use the next real user message
