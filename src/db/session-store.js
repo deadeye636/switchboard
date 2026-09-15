@@ -76,8 +76,9 @@ const stmts = {
       -- imported"), not the "the scanner could not tell" that makes a NULL backendId or costStatus
       -- dangerous. Coalescing would make the mark unremovable if a store were ever re-read (#552).
       importedFrom = excluded.importedFrom,
-      -- NOT coalesced either (#620): these describe the transcript as it reads NOW. A compaction or a
-      -- picker '/model' legitimately takes a value back to 0 or NULL, and a coalesce would keep the stale one.
+      -- NOT coalesced either (#620): these describe the transcript as it reads NOW. A picker '/model', or a
+      -- later turn that expires the spec (#622), legitimately takes a value back to NULL, and a coalesce
+      -- would keep the stale one.
       lastInputTokens = excluded.lastInputTokens,
       lastModel = excluded.lastModel,
       lastModelSpec = excluded.lastModelSpec,

@@ -2,7 +2,7 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Built · **Issue:** #620 · **Independent:** No — the readers of three backends, one migration,
+**Status:** Built · **Issue:** #620, #621, #622 · **Independent:** No — the readers of three backends, one migration,
 a descriptor hook on every backend, the sidebar payload and the renderer's health rule.
 
 ## The problem
@@ -24,6 +24,8 @@ of its window free was flagged Handoff Recommended, and that report is what #620
 - **The old thresholds stay.** On their own they raise Marathon Risk at most; Growing is unchanged.
 - **A session whose backend cannot measure the fill shows no health badge at all**, neither Marathon Risk
   nor Growing. Without the fill, any badge would be the guess #620 complained about.
+- **"No badge" is the healthy state with no reasons** (O4), not a fourth state: every consumer (the sidebar
+  chip and row class, the grid card, the handoff dialog) already drew nothing for healthy.
 - **The fill can be shown as text** in the session row, before the active time ("62 % context · 4h active").
   It is on by default and switchable globally.
 - **There is no per-model override of the window.** Every window the app uses is either reported by a CLI,
@@ -52,8 +54,8 @@ After a compaction the next turn's input drops, measured on Claude (966 912 → 
 | agy | not available: per-generation metadata is an unschema'd protobuf blob | — |
 
 The values are stored in `session_cache` (`lastInputTokens`, `lastModel`, `lastModelSpec`, `lastProvider`,
-`contextWindowReported`). The upsert does not coalesce them, because a compaction or a `/model` picker can
-legitimately take them back to 0 or NULL.
+`contextWindowReported`). The upsert does not coalesce them, because the transcript can legitimately take a
+value back to NULL: a `/model` picker clears `lastModelSpec`, and so does a later turn that expires it (#622).
 
 ## Which window: the `contextWindow` hook
 
@@ -93,7 +95,7 @@ bare spec.
 | `claude-opus-4-5`, `claude-haiku-4-5` | 200 000 | — |
 
 The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-5`, `haiku` → `claude-haiku-4-5`,
-`fable` → `claude-fable-5-1`.
+`fable` → `claude-fable-5-1`. `default` names no model and counts as no spec.
 
 `src/backends/claude/model-windows.js` holds the table and `resolveClaudeWindow`:
 
@@ -102,7 +104,9 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
    23 % of 200 000. An alias only names a family, though: a turn inside that family keeps its own id. A spec
    that yields no window (an unknown alias such as `opusplan`) falls back to the turn's model. A `/model`
    without an argument clears the recorded spec, because the picker's choice is not spelled out in the
-   transcript. **The spec also expires once a later turn runs on a model it does not name** (#622): the switch
+   transcript. **The spec also expires once a later turn with input runs on a model it does not name**, by id
+   or by its family's alias (#622). A sidechain entry in the main transcript is a subagent's request and does
+   not expire it; none of the measured transcripts had one, so that exception is defensive. The switch
    is applied at once, so such a turn means the model changed after it, for example through a resume with
    another `--model`, and a spec kept past it would go on picking its own model's window for every turn that
    follows. Two of 331 measured transcripts changed model between turns with no `/model` in them.
@@ -153,13 +157,17 @@ badge again.
 The hook runs once per row of every sidebar payload. The first version spread `process.env` on every call
 and cost 299 ms against 10 ms for 2 000 rows. It now reads the one variable it needs, memoises the settings
 cascade per project (dated by its oldest file read, five-second TTL), and Pi checks its catalog's TTL before
-resolving its directory: 18.6 ms with the fill against 9.9 ms without, on the same 2 000 rows.
+resolving its directory: 18.6 ms with the fill against 9.9 ms without, on the same 2 000 rows. Those numbers
+were taken before E12 and #621 made the Claude resolver parse every configured spec and build a candidate
+list per row; they have not been re-measured since.
 
 ## What this takes away
 
 - A long session with room left in its window no longer gets Handoff Recommended. Anyone reading the badge
   as "this session is old" sees it less often; Marathon Risk still says that.
 - Hermes and agy sessions lose their health badge and their metrics text in the sidebar.
+- Their health chip was also a click route into the handoff dialog. The sidebar row's handoff button and the
+  command palette still offer it (E7), but a Hermes or agy grid card now has no handoff control of its own.
 
 ## Not taken
 

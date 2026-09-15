@@ -101,7 +101,8 @@ apart, and it sat broken from #193 to #224 because nothing pointed at it.
 
 `PARSER_SCHEMA_VERSION` + `session_cache.parserVersion`. A parser change moves no file's mtime, so
 without this a metrics schema change lands in an empty table and stays there. **Do not add a metrics
-field without bumping.**
+field, or change what an existing one means, without bumping** — #622 changed no column and still had to
+bump Claude's reader, or stored rows kept the stale `lastModelSpec`.
 
 **Bump EVERY parser that writes the field, in the same change as the column** (#620 added the last-turn
 columns and bumped Claude, Codex and Pi together). A parser that is missed leaves its finished sessions

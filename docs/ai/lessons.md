@@ -1167,3 +1167,42 @@ First the user's per-backend variables (an `ANTHROPIC_MODEL=…[1m]` set in Swit
 variables written as `$VAR` references the spawn resolves, then the stored launch `model` option. In each
 case the launched CLI knew it ran at 1M while the view asked about 200k. A question asked with different
 inputs than the thing it describes was given is the same defect as measuring the wrong layer.
+
+## A hedge that ignores rank turns late into never (#621)
+
+E12 stopped taking the first spec that names a model and took the largest window among them, because
+configuration is read as it is now and a bare spec may be stale. The trade was "a badge can be late, never
+false". It had a case where late meant never: `opus[1m]` as a user default counted for a session its
+project pinned to `claude-opus-4-6`, so a 200k session read against 1M for good. The CLI had taken the pin
+over the alias, and the hedge could not know that, because it had thrown rank away.
+
+Both obvious repairs threw rank away as well, and a verifier run showed each one raising a false badge.
+Counting an alias only for the model it resolves to today broke the remap an alias exists for. Setting an
+alias aside for an exact spec anywhere also set aside an alias the CLI had applied above the pin. The rule
+that held asks what the CLI demonstrably overrode: an alias steps aside only for an exact spec that
+outranks it.
+
+**Before shipping a rule change like this, run old against new over the whole input space and explain
+every answer that moved.** It was about a million combinations here, and every changed answer had the one
+shape the fix was for. A handful of hand-picked examples cannot show that.
+
+## A value a reader remembers needs its expiry next to it (#622)
+
+The Claude reader kept "the last `/model` argument" and let it pick the model at once. It had one way to
+clear it (a `/model` with no argument) and none for later evidence. A session that typed
+`/model claude-opus-4-5` and was later resumed on Opus 5 read every following turn against 200k, although
+the transcript already said the switch was over: a later turn ran on a model the spec does not name.
+
+- **Every "last X" a parser keeps says what ends it**, not only what sets it, and later entries that
+  contradict it count.
+- **A changed meaning is a changed field.** No column moved, but stored rows still carried the stale value,
+  and only a `PARSER_SCHEMA_VERSION` bump re-reads a finished session.
+
+## A MutationObserver reads the state NOW, not the state it was told about (#618)
+
+The panes observer decides "shown or hidden" from `rec.target.style.display`. That is the element's
+current style when the callback runs, not its style at the moment of the mutation. Re-opening a viewer
+queues a `none` → `flex` pair, and both records read `flex`, so the hide was never seen. The observer only
+opened a tab when none existed, so a re-open of a viewer that already had a tab did nothing, from #342
+until #618. The #342 click tests missed it because the FIRST open worked. Collapse the records per element
+and decide once from the current state, and click the second open too.
