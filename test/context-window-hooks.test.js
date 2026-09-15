@@ -82,11 +82,54 @@ test('a /model spec in the transcript decides at once, even over the model the l
   assert.deepEqual(r, { windowTokens: 200000, source: 'transcript-spec' });
 });
 
-test('without a transcript spec, the first configured spec naming the SAME model decides the variant', () => {
+test('without a transcript spec, a configured spec naming the SAME model decides the variant', () => {
   const row = { lastInputTokens: 150000, lastModel: 'claude-sonnet-4-5-20250929' };
-  assert.deepEqual(windows.resolveClaudeWindow(row, ['opus[1m]', 'claude-sonnet-4-5[1m]', 'claude-sonnet-4-5']),
-    { windowTokens: 1000000, source: 'configured-spec' }, 'a spec for another model is skipped, the first match wins');
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['opus[1m]', 'claude-sonnet-4-5[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'a spec for another model is skipped');
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['claude-sonnet-4-5']), { windowTokens: 200000, source: 'configured-spec' });
   assert.deepEqual(windows.resolveClaudeWindow(row, []), { windowTokens: 200000, source: 'model' });
+});
+
+// ── E12: of the specs naming one model, the larger window wins ─────────────────────────────────────
+
+test('E12: a bare spec higher in the cascade does not take away an exact [1m] lower down', () => {
+  const row = { lastInputTokens: 170000, lastModel: 'claude-sonnet-4-5' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['sonnet', 'claude-sonnet-4-5', 'claude-sonnet-4-5[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' });
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 170000, lastModel: 'claude-opus-4-6' }, ['opus', 'opus[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'two aliases of the family: the [1m] one wins');
+});
+
+test('E12: a stale /model <id> in the transcript does not outlive a later [1m] launch of the same model', () => {
+  const row = { lastInputTokens: 170000, lastModel: 'claude-sonnet-4-5', lastModelSpec: 'claude-sonnet-4-5' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['claude-sonnet-4-5[1m]']), { windowTokens: 1000000, source: 'configured-spec' });
+  assert.deepEqual(windows.resolveClaudeWindow({ ...row, lastModelSpec: 'claude-sonnet-4-5[1m]' }, ['claude-sonnet-4-5']),
+    { windowTokens: 1000000, source: 'transcript-spec' }, 'and a bare configured spec does not take the transcript\'s [1m] away');
+});
+
+test('E12: a switch to another model keeps E9, and only specs naming THAT model can widen its window', () => {
+  const row = { lastInputTokens: 46370, lastModel: 'claude-opus-5', lastModelSpec: 'claude-opus-4-6' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['claude-opus-4-6[1m]']), { windowTokens: 1000000, source: 'configured-spec' });
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['claude-opus-5[1m]', 'claude-sonnet-4-5[1m]']),
+    { windowTokens: 200000, source: 'transcript-spec' }, 'a [1m] for the turn\'s model or another model changes nothing');
+});
+
+test('E12: a transcript alias matched by family, and a switch before any turn, are widened too', () => {
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 150000, lastModel: 'claude-opus-4-6', lastModelSpec: 'opus' }, ['claude-opus-4-6[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' });
+  assert.deepEqual(windows.resolveClaudeWindow({ lastModelSpec: 'claude-sonnet-4-5' }, ['claude-sonnet-4-5[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'no turn yet: the switch names the model, the configured [1m] its variant');
+  // Known gap in spec 28: the alias names only its family, so it widens a pinned bare id of that family.
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 190000, lastModel: 'claude-opus-4-6' }, ['claude-opus-4-6', 'opus[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' });
+});
+
+test('E12: precedence breaks a tie, and a tie with the switch itself keeps the floor off', () => {
+  const row = { lastInputTokens: 240000, lastModel: 'claude-sonnet-4-5', lastModelSpec: 'claude-sonnet-4-5' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['claude-sonnet-4-5', 'sonnet']),
+    { windowTokens: 200000, source: 'transcript-spec' }, 'every spec says 200k: the CLI\'s own switch stands, 120 %');
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 240000, lastModel: 'claude-sonnet-4-5' }, ['claude-sonnet-4-5', 'sonnet']),
+    { windowTokens: 1000000, source: 'floor' }, 'without the switch the 200k is inferred, so the floor applies');
 });
 
 test('the floor: an inferred 200k window under a turn above 200k means 1M — never against a transcript spec', () => {
@@ -136,22 +179,45 @@ function projectWith(root, files) {
   return dir;
 }
 
-test('Claude hook: env first, then project-local, project and user settings — the first naming the model wins', () => {
+test('Claude hook: launch model, env, project-local, project and user settings are each read', () => {
   withClaudeHome(({ claude, home, project }) => {
-    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ model: 'claude-opus-4-6[1m]' }));
     const row = (projectPath) => ({ projectPath, lastInputTokens: 120000, lastModel: 'claude-opus-4-6' });
     const root = path.dirname(project);
 
-    assert.deepEqual(claude.contextWindow(row(project)), { windowTokens: 1000000, source: 'configured-spec' },
-      'only the user settings name it');
-    assert.deepEqual(claude.contextWindow(row(projectWith(root, { 'settings.json': 'claude-opus-4-6' }))),
-      { windowTokens: 200000, source: 'configured-spec' }, 'project over user');
-    assert.deepEqual(claude.contextWindow(row(projectWith(root, { 'settings.json': 'claude-opus-4-6', 'settings.local.json': 'claude-opus-4-6[1m]' }))),
-      { windowTokens: 1000000, source: 'configured-spec' }, 'project-local over project');
-    assert.deepEqual(claude.contextWindow(row(projectWith(root, { 'settings.local.json': 'claude-opus-4-6[1m]' })), { env: { ANTHROPIC_MODEL: 'claude-opus-4-6' } }),
-      { windowTokens: 200000, source: 'configured-spec' }, 'the session env over every settings file');
-    assert.deepEqual(claude.contextWindow(row(project), { env: { ANTHROPIC_MODEL: '$MODEL' } }),
+    assert.deepEqual(claude.contextWindow(row(project)), { windowTokens: 200000, source: 'model' }, 'nothing names it');
+    assert.deepEqual(claude.contextWindow(row(project), { launchOptions: { model: 'claude-opus-4-6[1m]' } }),
+      { windowTokens: 1000000, source: 'configured-spec' }, 'the stored launch model');
+    assert.deepEqual(claude.contextWindow(row(project), { env: { ANTHROPIC_MODEL: 'claude-opus-4-6[1m]' } }),
+      { windowTokens: 1000000, source: 'configured-spec' }, 'the session env');
+    assert.deepEqual(claude.contextWindow(row(projectWith(root, { 'settings.local.json': 'claude-opus-4-6[1m]' }))),
+      { windowTokens: 1000000, source: 'configured-spec' }, 'project-local settings');
+    assert.deepEqual(claude.contextWindow(row(projectWith(root, { 'settings.json': 'claude-opus-4-6[1m]' }))),
+      { windowTokens: 1000000, source: 'configured-spec' }, 'project settings');
+  });
+  // A home of its own: the user file's answer is cached per file, and the case above already read it absent.
+  withClaudeHome(({ claude, home, project }) => {
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ model: 'claude-opus-4-6[1m]' }));
+    const row = { projectPath: project, lastInputTokens: 120000, lastModel: 'claude-opus-4-6' };
+    assert.deepEqual(claude.contextWindow(row), { windowTokens: 1000000, source: 'configured-spec' }, 'user settings');
+    assert.deepEqual(claude.contextWindow(row, { env: { ANTHROPIC_MODEL: '$MODEL' } }),
       { windowTokens: 1000000, source: 'configured-spec' }, 'an unresolved reference names no model and is skipped');
+  });
+});
+
+test('Claude hook (E12): a bare spec anywhere in the cascade does not outrank a [1m] elsewhere', () => {
+  withClaudeHome(({ claude, home, project }) => {
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ model: 'claude-opus-4-6[1m]' }));
+    const row = (projectPath) => ({ projectPath, lastInputTokens: 170000, lastModel: 'claude-opus-4-6' });
+    const root = path.dirname(project);
+
+    assert.deepEqual(claude.contextWindow(row(projectWith(root, { 'settings.json': 'claude-opus-4-6', 'settings.local.json': 'opus' })),
+      { launchOptions: { model: 'claude-opus-4-6' }, env: { ANTHROPIC_MODEL: 'claude-opus-4-6' } }),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'launch, env and both project files bare; the user file says [1m]');
+  });
+  withClaudeHome(({ claude, home, project }) => {
+    fs.writeFileSync(path.join(home, 'settings.json'), JSON.stringify({ model: 'claude-opus-4-6' }));
+    assert.deepEqual(claude.contextWindow({ projectPath: project, lastInputTokens: 170000, lastModel: 'claude-opus-4-6' }, { launchOptions: { model: 'claude-opus-4-6' } }),
+      { windowTokens: 200000, source: 'configured-spec' }, 'no spec says [1m]: 200k, and still no floor below 200k');
   });
 });
 

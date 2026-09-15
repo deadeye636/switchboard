@@ -97,19 +97,25 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
 
 `src/backends/claude/model-windows.js` holds the table and `resolveClaudeWindow`:
 
-1. **A `/model <spec>` in the transcript decides at once**, even before the new model has run a turn. The
-   CLI applies a switch immediately: right after `/model claude-sonnet-4-5` its status line read 23 % of
-   200 000. An alias only names a family, though: a turn inside that family keeps its own id. A spec that
-   yields no window (an unknown alias such as `opusplan`) falls back to the turn's model. A `/model` without
-   an argument clears the recorded spec, because the picker's choice is not spelled out in the transcript.
-2. **Otherwise the variant comes from the first configured spec naming the turn's model**, in the CLI's own
-   order: the stored launch `model` option (it reaches the CLI as `--model`), then `ANTHROPIC_MODEL`, then
-   the settings files (project-local, project, user). Measured with both set, the CLI ran the turn on the
-   `--model` value. The CLI also saves a `/model` switch into the user settings, so that file follows
-   switches too.
+1. **A `/model <spec>` in the transcript decides the model at once**, even before the new model has run a
+   turn. The CLI applies a switch immediately: right after `/model claude-sonnet-4-5` its status line read
+   23 % of 200 000. An alias only names a family, though: a turn inside that family keeps its own id. A spec
+   that yields no window (an unknown alias such as `opusplan`) falls back to the turn's model. A `/model`
+   without an argument clears the recorded spec, because the picker's choice is not spelled out in the
+   transcript.
+2. **The variant comes from every spec naming that model, and the larger window wins** (E12). The specs are
+   the transcript's and the configured ones: the stored launch `model` option (it reaches the CLI as
+   `--model`), `ANTHROPIC_MODEL`, and the settings files (project-local, project, user). The CLI applies them
+   in that order, and measured with both set it ran the turn on the `--model` value. The app still does not
+   take the first one, because it reads configuration as it is now, not as it was at launch, and a bare spec
+   may be stale: a `/model <id>` typed before a later `[1m]` launch, a bare alias higher in the cascade, a
+   switch another session wrote into the global user settings. Each of those used to read a 1M session
+   against 200k. Taking the larger window can only make a badge late, the same trade as rule 4's unknown
+   model. The order still breaks a tie, and that is what `source` reports.
 3. **Floor:** a turn above 200 000 tokens cannot have run in a 200 000 window, so an inferred 200k becomes
-   1M. The floor is not applied against a transcript spec, unless that spec is an alias of the turn's own
-   family (then the variant was inferred, like a configured one).
+   1M. The floor is not applied when the 200k comes from the CLI's own switch: a transcript spec that names
+   the model outright, by id or by an alias resolving to exactly that id. A transcript alias that only
+   shares the turn's family is inferred like a configured spec, and the floor applies to it.
 4. **Unknowns:** an unknown `claude-*` model counts as 1M. That errs toward a late badge and never a false
    one. A model from another provider (a template pointing the CLI elsewhere) has no window.
 
@@ -163,14 +169,14 @@ the failure #620 was filed about, narrowed to these cases:
 - **A Claude model whose 1M window is opt-in** (Sonnet 4.5/4.6, Opus 4.6) reads as 200k when `[1m]` is named
   nowhere the app can see. A one-off Configure override is not stored, and a `$VAR` reference to one of
   Switchboard's saved variables is not followed. The floor catches the case once a turn passes 200k.
-- **A bare alias higher in the cascade outranks an exact `[1m]` spec lower down**, because the first spec
-  naming the model decides.
-- **A `/model <id>` left in the transcript outlives a later launch with another variant.** The spec in the
-  transcript decides first (E9), so a session that typed `/model claude-sonnet-4-5` and was later resumed
-  with a stored `claude-sonnet-4-5[1m]` still reads 200k.
-- **Configuration is read as it is NOW, not as it was at launch.** Claude's user settings are global and the
-  CLI writes a `/model` switch into them, so a switch typed in one session changes what every other session's
-  cascade reads; a stored launch option changed after a session started applies to it too.
+- **A `/model <spec>` left in the transcript outlives a later launch on ANOTHER model.** The reader keeps the
+  last `/model` in the file whatever ran after it, and the spec picks the model first (E9). A session that
+  typed `/model claude-opus-4-5` (or `/model haiku`) and was later resumed with `--model claude-opus-5` reads
+  its turns against a 200k window. A later launch of the SAME model with `[1m]` is covered by rule 2.
+- **Configuration is read as it is NOW, not as it was at launch.** Since E12 a bare spec can no longer take
+  away a `[1m]` that any other place still names. What is left: when the only `[1m]` was in Claude's user
+  settings, which are global, a `/model` switch typed in another session overwrites it for every session;
+  and a stored launch option changed after a session started applies to it too.
 - **`ANTHROPIC_DEFAULT_*_MODEL`** is not read. The family rule covers the measured case (an alias remapped
   to another model of its family); a remap to another family would not be seen.
 
@@ -179,6 +185,14 @@ The rest err the other way, remove the fill, or are cosmetic:
 - **Model ids in a cloud-provider form** (`us.anthropic.claude-…`) are not `claude-*` ids, so they get no
   window and no badge.
 - **Old `claude-3-*` ids read as 1M** under the unknown-model rule, so their badge comes late.
+- **A `[1m]` that no longer applies still counts** (E12). A session launched with `claude-sonnet-4-5[1m]` that
+  then typed `/model claude-sonnet-4-5` runs at 200k, but the stored launch option still names the 1M
+  variant, so the fill reads against 1M and the badge comes late.
+- **A family alias with `[1m]` widens every model of that family** (E12). An alias names only a family, so
+  `opus[1m]` in the user settings also counts for a session pinned to a bare `claude-opus-4-6`, although the
+  alias itself resolves to `claude-opus-5`, which is 1M anyway. If that session really runs at 200k, its fill
+  reads against 1M, so it never reaches the threshold and the badge never shows. Before E12 the pinned bare
+  spec won when it ranked higher.
 - **The percent is rounded before the compare**, so 79.5 % already counts as 80.
 - **The `/model` picker's transcript form was not measured.** The reader treats any `/model` without an
   argument as clearing the spec.

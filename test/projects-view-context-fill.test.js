@@ -172,7 +172,7 @@ test('the stored launch model reaches the hook: global default, project override
 
       projectBlobs.clear();
       process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-5';
-      assert.equal(buildWith(globalOneM).get('plain').windowTokens, 1000000, 'the launch --model outranks ANTHROPIC_MODEL, as in the CLI');
+      assert.equal(buildWith(globalOneM).get('plain').windowTokens, 1000000, 'a bare ANTHROPIC_MODEL does not take the launch model\'s [1m] away (E12)');
     } finally {
       registry.init({ profiles: { get: () => null, list: () => [] } });
     }

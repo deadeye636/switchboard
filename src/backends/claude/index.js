@@ -472,7 +472,8 @@ function contextWindow(row, opts = {}) {
   const configured = settingsSpecs(row.projectPath);
   // Highest precedence first, the CLI's own order: the `--model` a launch passes (`opts.launchOptions.model`,
   // the stored default for this backend/template in this project — #620, O5), then ANTHROPIC_MODEL, then
-  // the settings files. A value that still holds a `$VAR` reference names no model.
+  // the settings files. Among specs naming one model the larger window wins (E12), so the order only breaks
+  // a tie. A value that still holds a `$VAR` reference names no model.
   const usable = (v) => typeof v === 'string' && v.trim() && !v.includes('$');
   const launchModel = opts && opts.launchOptions && opts.launchOptions.model;
   const specs = [

@@ -92,15 +92,21 @@ function windowFor(model, oneM) {
 /**
  * The window a session's last turn ran against.
  *
- *   row.lastModelSpec   the last `/model <spec>` in the transcript. It decides at once, even over the model
- *                       the last turn ran on, because the CLI applies a switch at once (#620, E9). Two
- *                       limits: an ALIAS only names a family, so a turn inside that family keeps its own id;
- *                       and a spec that yields no window (an alias the table does not know) falls back to
+ *   row.lastModelSpec   the last `/model <spec>` in the transcript. It decides the MODEL at once, even over
+ *                       the model the last turn ran on, because the CLI applies a switch at once (#620, E9).
+ *                       Two limits: an ALIAS only names a family, so a turn inside that family keeps its own
+ *                       id; and a spec that yields no window (an alias the table does not know) falls back to
  *                       the turn's model rather than taking the fill away.
  *   row.lastModel       the model of the last turn with input
- *   configuredSpecs     every other spec that could carry `[1m]`, highest precedence first (the stored
- *                       launch `--model`, the session's ANTHROPIC_MODEL, then the settings cascade); the
- *                       first one naming the turn's model decides the variant
+ *   configuredSpecs     every other spec that could carry `[1m]`, in the CLI's precedence (the stored launch
+ *                       `--model`, the session's ANTHROPIC_MODEL, then the settings cascade)
+ *
+ * The VARIANT is not decided by precedence: of every spec naming that model — the transcript spec and each
+ * configured one — the LARGEST window wins (#620, E12). The app reads configuration as it is now, not as it
+ * was at launch, so a bare spec may be a stale one: a `/model <id>` typed before a later `[1m]` launch, an
+ * alias higher in the cascade, a switch another session wrote into the global user settings. Taking the
+ * larger window can make a badge late, never false — the same trade as an unknown model counting as 1M.
+ * Precedence only breaks a tie, which is what `source` reports.
  *
  * Floor: a turn that sent more than 200 000 tokens cannot have run in a 200 000 window — but only where the
  * variant was inferred (a configured spec, the bare model, or a transcript alias matched by family). A
@@ -120,34 +126,28 @@ function resolveClaudeWindow(row, configuredSpecs = []) {
   // By FAMILY only (an alias whose family the turn's model belongs to): the model is the turn's, so the
   // variant is inferred like a configured spec's — and the floor below still applies to it.
   const byFamily = !!(spec && ranOn && spec.model !== ranOn.model && namesModel(spec, ranOn));
-  if (spec && !byFamily) {
-    const windowTokens = windowFor(spec.model, spec.oneM);
-    if (windowTokens != null) return { windowTokens, source: 'transcript-spec' };
-  }
+  // Otherwise a spec with a window is the CLI's own switch and names the model (E9).
+  const switched = !!(spec && !byFamily && windowFor(spec.model, false) != null);
+  const model = switched ? spec.model : ranOn && ranOn.model;
+  if (!model) return null;
 
-  if (!ranOn) return null;
-  let oneM = false;
-  let source = 'model';
-  if (byFamily) {
-    oneM = spec.oneM;
-    source = 'transcript-spec';
-  } else {
-    for (const raw of configuredSpecs) {
-      const configured = parseSpec(raw);
-      if (namesModel(configured, ranOn)) {
-        oneM = configured.oneM;
-        source = 'configured-spec';
-        break;
-      }
-    }
+  // Every spec naming that model, highest precedence first. `inferred` is false only for the switch itself.
+  const candidates = [];
+  if (switched || byFamily) candidates.push({ oneM: spec.oneM, source: 'transcript-spec', inferred: byFamily });
+  for (const raw of configuredSpecs) {
+    const configured = parseSpec(raw);
+    if (namesModel(configured, { model })) candidates.push({ oneM: configured.oneM, source: 'configured-spec', inferred: true });
   }
-  let windowTokens = windowFor(ranOn.model, oneM);
-  if (windowTokens == null) return null;
-  if (input > BASE_200K && windowTokens < ONE_M) {
-    windowTokens = ONE_M;
-    source = 'floor';
+  let best = null;
+  for (const candidate of candidates) {
+    const windowTokens = windowFor(model, candidate.oneM);
+    if (!best || windowTokens > best.windowTokens) best = { windowTokens, source: candidate.source, inferred: candidate.inferred };
   }
-  return { windowTokens, source };
+  if (!best) best = { windowTokens: windowFor(model, false), source: 'model', inferred: true };
+  if (best.windowTokens == null) return null;
+
+  if (best.inferred && input > BASE_200K && best.windowTokens < ONE_M) return { windowTokens: ONE_M, source: 'floor' };
+  return { windowTokens: best.windowTokens, source: best.source };
 }
 
 module.exports = { WINDOWS, ALIASES, parseSpec, familyOf, windowFor, resolveClaudeWindow };
