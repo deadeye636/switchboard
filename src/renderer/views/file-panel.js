@@ -9,7 +9,8 @@
  *
  * Globals expected: window.api, window.ViewerPanel,
  *   window.createMergeViewer, window.createUnifiedMergeViewer,
- *   window.createViewerToolbar, openSessions (from app.js)
+ *   window.createViewerToolbar, openSessions (from app.js),
+ *   sessionMap (app.js) and cleanDisplayName (utils.js) for a shared file's tab label — both optional
  */
 
 // ── Per-Session State ───────────────────────────────────────────────
@@ -615,11 +616,38 @@ window.filePanelSessionFor = (kind, ref) => {
   return (entry && entry.sessionId) || null;
 };
 
-/** What a pane tab for this entry is called — the file or the diff it shows. */
+/**
+ * What a pane tab for this entry is called — the file or the diff it shows.
+ *
+ * Two sessions showing one file get one instance each (#619), so their tabs carried the same label and the
+ * tab alone did not say whose it was (#626). The session's name is added once another session shows the
+ * same file, the way #349 qualifies two same-named session tabs — only a duplicate pays the width. The pane
+ * tree rebuilds every tab on an open or a close, so the first tab gains and loses the suffix with the second.
+ */
 window.filePanelTabLabel = (kind, ref) => {
   const entry = panelTabs.get(tabKey(kind, ref));
-  return (entry && entry.tab.label) || null;
+  const label = (entry && entry.tab.label) || null;
+  if (!label || !entry.tab.filePath) return label;
+  const others = [];
+  for (const other of panelTabs.values()) {
+    if (other !== entry && other.kind === entry.kind && other.sessionId !== entry.sessionId
+      && other.tab.filePath === entry.tab.filePath) others.push(other);
+  }
+  if (!others.length) return label;
+  let owner = sessionLabelOf(entry.sessionId);
+  // Two sessions with one name (a fork, a shared summary) would still read alike: add the id's start.
+  if (others.some((o) => sessionLabelOf(o.sessionId) === owner)) owner += ` (${String(entry.sessionId).slice(0, 8)})`;
+  return `${label} — ${owner}`;
 };
+
+/** The name a session goes by in a tab, as panes-view spells it for a session tab. */
+function sessionLabelOf(sessionId) {
+  const session = (typeof sessionMap !== 'undefined' && sessionMap.get(sessionId))
+    || (typeof openSessions !== 'undefined' && (openSessions.get(sessionId) || {}).session) || null;
+  const name = (typeof cleanDisplayName === 'function' && session)
+    ? cleanDisplayName(session.name || session.aiTitle || session.summary) : '';
+  return name || String(sessionId || '').slice(0, 8);
+}
 
 /** Closing the pane tab closes the view — panes-view routes here (#311). */
 window.filePanelCloseInstance = (kind, ref) => {

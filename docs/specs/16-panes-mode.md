@@ -401,8 +401,10 @@ is unique, so there could only ever be one of each, which IS the symptom. Step 2
   for the whole app, so a second session opening it took over the first one's tab and closing returned
   to whichever session opened it last. Within one session the key is still natural; across sessions the
   same file is one instance each, and two of them can diverge — a stale save is refused by the baseline
-  compare in `src/app/safe-write.js`. Two sessions showing one file also get two tabs with the same
-  label, and the tab alone does not say whose it is. A `/clear` moves the session id, so the entries are
+  compare in `src/app/safe-write.js`. Two sessions showing one file get two tabs, and
+  since #626 each of them names its session after the file ("notes.md — Refactor auth") for as long as
+  the file is shown by more than one session, the way #349 qualifies two same-named session tabs; two
+  sessions with the same name add the start of their ids. A `/clear` moves the session id, so the entries are
   renamed onto the new one and `rekeyViewRef` renames their pane tabs in place; if the new id already
   shows the same thing, that entry wins and the moved one is closed.
 - **One model in every display mode.** The mode decides one thing only: outside panes the side panel shows

@@ -296,6 +296,52 @@ test('closing a shared file goes back to the session it was opened from (#619)',
   } finally { h.destroy(); }
 });
 
+test('a file two sessions show names the session on each tab, and only while it is shared (#626)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    Object.defineProperty(h.window, 'sessionMap', {
+      value: new Map([['s1', { sessionId: 's1', name: 'Refactor auth' }]]), writable: true, configurable: true,
+    });
+    h.files.set('/shared.md', 'shared');
+    h.files.set('/only.md', 'only');
+    h.switchPanel('s1');
+    await h.openFileInPanel('s1', '/shared.md');
+    await h.openFileInPanel('s1', '/only.md');
+    await h.settle();
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/shared.md')), 'shared.md', 'not shared yet: the plain name');
+
+    h.switchPanel('session-two-id');
+    await h.openFileInPanel('session-two-id', '/shared.md');
+    await h.settle();
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/shared.md')), 'shared.md — Refactor auth');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('session-two-id', '/shared.md')), 'shared.md — session-',
+      'a session with no name yet falls back to its id, as a session tab does');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/only.md')), 'only.md', 'a file only one session shows is left alone');
+
+    h.inCtx(`window.filePanelCloseInstance('preview', ${JSON.stringify(h.ref('session-two-id', '/shared.md'))})`);
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('s1', '/shared.md')), 'shared.md', 'the suffix goes with the second tab');
+  } finally { h.destroy(); }
+});
+
+test('two sessions with the same name add the start of their ids to the shared file\'s tabs (#626)', async () => {
+  const h = setupFilePanelDom({ panes: true });
+  try {
+    h.init();
+    Object.defineProperty(h.window, 'sessionMap', {
+      value: new Map([['aaaaaaaa-1', { name: 'Fix auth' }], ['bbbbbbbb-2', { name: 'Fix auth' }]]), writable: true, configurable: true,
+    });
+    h.files.set('/shared.md', 'shared');
+    for (const id of ['aaaaaaaa-1', 'bbbbbbbb-2']) {
+      h.switchPanel(id);
+      await h.openFileInPanel(id, '/shared.md');
+    }
+    await h.settle();
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('aaaaaaaa-1', '/shared.md')), 'shared.md — Fix auth (aaaaaaaa)');
+    assert.equal(h.window.filePanelTabLabel('preview', h.ref('bbbbbbbb-2', '/shared.md')), 'shared.md — Fix auth (bbbbbbbb)');
+  } finally { h.destroy(); }
+});
+
 test('re-opening the same file in the same session still lands on its own tab (#619)', async () => {
   const h = setupFilePanelDom({ panes: true });
   try {
