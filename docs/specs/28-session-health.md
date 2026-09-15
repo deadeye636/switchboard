@@ -102,7 +102,10 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
    23 % of 200 000. An alias only names a family, though: a turn inside that family keeps its own id. A spec
    that yields no window (an unknown alias such as `opusplan`) falls back to the turn's model. A `/model`
    without an argument clears the recorded spec, because the picker's choice is not spelled out in the
-   transcript.
+   transcript. **The spec also expires once a later turn runs on a model it does not name** (#622): the switch
+   is applied at once, so such a turn means the model changed after it, for example through a resume with
+   another `--model`, and a spec kept past it would go on picking its own model's window for every turn that
+   follows. Two of 331 measured transcripts changed model between turns with no `/model` in them.
 2. **The variant comes from every spec naming that model, and the larger window wins** (E12). The specs are
    the transcript's and the configured ones: the stored launch `model` option (it reaches the CLI as
    `--model`), `ANTHROPIC_MODEL`, and the settings files (project-local, project, user). The CLI applies them
@@ -169,10 +172,12 @@ the failure #620 was filed about, narrowed to these cases:
 - **A Claude model whose 1M window is opt-in** (Sonnet 4.5/4.6, Opus 4.6) reads as 200k when `[1m]` is named
   nowhere the app can see. A one-off Configure override is not stored, and a `$VAR` reference to one of
   Switchboard's saved variables is not followed. The floor catches the case once a turn passes 200k.
-- **A `/model <spec>` left in the transcript outlives a later launch on ANOTHER model.** The reader keeps the
-  last `/model` in the file whatever ran after it, and the spec picks the model first (E9). A session that
-  typed `/model claude-opus-4-5` (or `/model haiku`) and was later resumed with `--model claude-opus-5` reads
-  its turns against a 200k window. A later launch of the SAME model with `[1m]` is covered by rule 2.
+- **A turn that ends after a `/model` on the model before it would expire the switch.** Rule 1 reads any turn
+  on another model as a change after the switch. Whether a turn still in flight can be written after the
+  `/model` entry was not measured. If it can, the spec is dropped: until a turn on the new model runs, the old
+  turn's model and its window apply, so the switch no longer shows at once; after that turn the configured
+  specs answer, which include the user settings the CLI saved the switch into unless something overwrote
+  them since. This one can also go the other way, a late badge after a switch to a smaller window.
 - **Configuration is read as it is NOW, not as it was at launch.** Since E12 a bare spec can no longer take
   away a `[1m]` that any other place still names. What is left: when the only `[1m]` was in Claude's user
   settings, which are global, a `/model` switch typed in another session overwrites it for every session;

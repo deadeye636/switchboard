@@ -81,6 +81,11 @@ function namesModel(spec, ranOn) {
   return !!spec.family && spec.family === familyOf(ranOn.model);
 }
 
+/** The same question for a raw spec and the raw model a transcript reports — what the reader asks (#622). */
+function specNamesModel(spec, model) {
+  return namesModel(parseSpec(spec), parseSpec(model));
+}
+
 /** The window for a canonical model, with or without the `[1m]` variant; null for a non-Claude model. */
 function windowFor(model, oneM) {
   if (typeof model !== 'string' || !model.startsWith('claude-')) return null;
@@ -92,7 +97,8 @@ function windowFor(model, oneM) {
 /**
  * The window a session's last turn ran against.
  *
- *   row.lastModelSpec   the last `/model <spec>` in the transcript. It decides the MODEL at once, even over
+ *   row.lastModelSpec   the last `/model <spec>` in the transcript, unless a later turn ran on a model it does
+ *                       not name (the reader drops it then, #622). It decides the MODEL at once, even over
  *                       the model the last turn ran on, because the CLI applies a switch at once (#620, E9).
  *                       Two limits: an ALIAS only names a family, so a turn inside that family keeps its own
  *                       id; and a spec that yields no window (an alias the table does not know) falls back to
@@ -150,4 +156,4 @@ function resolveClaudeWindow(row, configuredSpecs = []) {
   return { windowTokens: best.windowTokens, source: best.source };
 }
 
-module.exports = { WINDOWS, ALIASES, parseSpec, familyOf, windowFor, resolveClaudeWindow };
+module.exports = { WINDOWS, ALIASES, parseSpec, familyOf, specNamesModel, windowFor, resolveClaudeWindow };

@@ -160,6 +160,86 @@ test('Claude: the incremental read agrees with a full read', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// #622: a `/model` spec that a later turn contradicts must stop picking the window.
+const turnAt = (model, cached) => claudeTurn(model, { input_tokens: 1, cache_read_input_tokens: cached, cache_creation_input_tokens: 0 });
+
+test('Claude: a `/model` spec expires once a later turn ran on a model it does not name (#622)', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'i.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('real prompt'))
+      + line(claudeUser(modelCommand('claude-opus-4-5')))
+      + line(turnAt('claude-opus-4-5', 90000)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-opus-4-5', 'a turn on the named model keeps it');
+
+    // Resumed later with `--model claude-opus-5`: no `/model` in the transcript, the turns say so.
+    fs.appendFileSync(file, line(claudeUser('continue')) + line(turnAt('claude-opus-5', 170000)));
+    const row = claude.readSessionFile(file, 'folder', '/some/project');
+    assert.equal(row.lastModelSpec, null);
+    assert.deepEqual(require('../src/backends/claude/model-windows').resolveClaudeWindow(row),
+      { windowTokens: 1000000, source: 'model' }, '170k on Opus 5 is 17 % of 1M, not 85 % of Opus 4.5\'s 200k');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a switch no turn has followed yet still decides — only a LATER turn expires it (E9)', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'l.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('real prompt'))
+      + line(turnAt('claude-opus-5', 46000))
+      + line(claudeUser(modelCommand('claude-opus-4-5'))));
+    const row = claude.readSessionFile(file, 'folder', '/some/project');
+    assert.equal(row.lastModelSpec, 'claude-opus-4-5', 'the turn on Opus 5 came BEFORE the switch');
+    assert.deepEqual(require('../src/backends/claude/model-windows').resolveClaudeWindow(row),
+      { windowTokens: 200000, source: 'transcript-spec' });
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a sidechain entry on another model in the main transcript does not expire the spec', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'm.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('real prompt'))
+      + line(claudeUser(modelCommand('claude-opus-4-6[1m]')))
+      + line({ ...turnAt('claude-haiku-4-5', 9000), isSidechain: true }));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-opus-4-6[1m]');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a spec is kept for a turn it names by a dated id or by its family, and for turns that are not turns', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'j.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('real prompt'))
+      + line(claudeUser(modelCommand('claude-sonnet-4-5[1m]')))
+      + line(turnAt('claude-sonnet-4-5-20250929', 150000))
+      + line(claudeTurn('claude-haiku-4-5', { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }))
+      + line(claudeTurn('<synthetic>', { input_tokens: 9, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'claude-sonnet-4-5[1m]',
+      'a dated id names the model; a zero-input record and a <synthetic> message say nothing about it');
+
+    fs.appendFileSync(file, line(claudeUser(modelCommand('sonnet[1m]'))) + line(turnAt('claude-sonnet-4-6', 120000)));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, 'sonnet[1m]', 'an alias names its whole family');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: the incremental read expires a stale spec the same way a full read does', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'k.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('real prompt'))
+      + line(claudeUser(modelCommand('claude-opus-4-6')))
+      + line(turnAt('claude-opus-4-6', 60000)));
+    const first = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, null);
+    assert.equal(first.session.lastModelSpec, 'claude-opus-4-6');
+
+    fs.appendFileSync(file, line(turnAt('claude-opus-5', 80000)));
+    const second = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, first.next);
+    assert.equal(second.session.lastModelSpec, null);
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, null);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // ── Codex ──────────────────────────────────────────────────────────────────────────────────────────
 
 const codexHead = (id) => ({ timestamp: '2026-09-15T10:00:00Z', type: 'session_meta', payload: { id, cwd: '/some/project', timestamp: '2026-09-15T10:00:00Z' } });

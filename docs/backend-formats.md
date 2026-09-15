@@ -636,7 +636,9 @@ is `docs/specs/28-session-health.md`.
   writes at session END — 15 of 153 measured transcripts had none, including every running one.
 - A `/model <spec>` switch is a user entry of command markup with `<command-args>`, followed by a
   `<local-command-stdout>` entry ("Set model to … and saved as your default for new sessions"). The CLI saves
-  that choice into the user settings as `model`.
+  that choice into the user settings as `model`. A model that changes without `/model` (two of 331 measured
+  transcripts, Opus 5 to Opus 4.8) leaves no entry of its own and shows only as the next turn's
+  `message.model`, which is why the reader lets a later turn on another model expire the recorded spec (#622).
 - After an auto-compaction (`system` / `compact_boundary`, `compactMetadata.preTokens`) the next turn's input
   drops (966 912 → 77 995 measured).
 - The status-line input carries `context_window.{context_window_size, used_percentage}`. Hooks

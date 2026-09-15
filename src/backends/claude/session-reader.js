@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { sessionProjectPath } = require('../../session/derive-project-path');
+const { specNamesModel } = require('./model-windows');
 
 // Bump on ANY change to what this parser writes into a session row or its metrics. The scan compares
 // this to the version recorded on the cached row (#152) and re-reads the session when they differ —
@@ -23,7 +24,9 @@ const { sessionProjectPath } = require('../../session/derive-project-path');
 //       markup to the session that continues it.
 //   v7: the row carries the LAST turn's context — lastInputTokens, lastModel, lastModelSpec (#620). A
 //       finished session never moves its mtime again, so without the bump it would never get them.
-const PARSER_SCHEMA_VERSION = 7; // v7: the last turn's context — #620
+//   v8: a `/model` spec expires once a later turn ran on a model it does not name (#622). A stored row
+//       from v7 can still carry a stale spec that picks the wrong window, and only the bump re-reads it.
+const PARSER_SCHEMA_VERSION = 8; // v8: a stale `/model` spec expires — #622
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -283,6 +286,10 @@ function createParseState() {
     // CLEARS the value: an older argument would otherwise outlive the switch and still claim `[1m]` for a
     // model the user just picked without it. The CLI saves the picker's choice into its settings, which is
     // where the window is asked once this is null.
+    // It also EXPIRES once a later turn ran on a model it does not name (#622). The CLI applies a switch at
+    // once, so a turn on another model means something changed the model after it: a resume with another
+    // `--model`, changed settings. Kept, the spec would go on picking its own model's window for every later
+    // turn. Measured: two of 331 transcripts changed model between turns with no `/model` in them.
     lastModelSpec: null,
   };
 }
@@ -348,6 +355,8 @@ function applyEntryLine(st, line) {
     if (input > 0) {
       st.lastInputTokens = input;
       st.lastModel = entry.message.model || null;
+      // A sidechain entry in the main transcript is a subagent's request, not a change of the session's model.
+      if (st.lastModelSpec && st.lastModel && !entry.isSidechain && !specNamesModel(st.lastModelSpec, st.lastModel)) st.lastModelSpec = null;
     }
   }
   if (entry.type === 'user' || entry.type === 'assistant' ||

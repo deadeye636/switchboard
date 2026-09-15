@@ -62,6 +62,16 @@ test('a configured alias names its family too: opus[1m] with a turn on claude-op
     { windowTokens: 1000000, source: 'configured-spec' });
 });
 
+test('specNamesModel: the raw spec against the raw model a transcript reports (#622)', () => {
+  assert.equal(windows.specNamesModel('claude-opus-4-6[1m]', 'claude-opus-4-6'), true);
+  assert.equal(windows.specNamesModel('Claude-Sonnet-4-5', 'claude-sonnet-4-5-20250929'), true, 'case and a date suffix are ignored');
+  assert.equal(windows.specNamesModel('opus', 'claude-opus-4-8'), true, 'an alias names its family');
+  assert.equal(windows.specNamesModel('claude-opus-4-5', 'claude-opus-5'), false);
+  assert.equal(windows.specNamesModel('haiku', 'claude-opus-5'), false);
+  assert.equal(windows.specNamesModel('opusplan', 'claude-opus-5'), false, 'an alias the table does not know names nothing');
+  assert.equal(windows.specNamesModel('default', 'claude-opus-5'), false);
+});
+
 test('the table gives the measured windows, and [1m] only where the CLI offers it', () => {
   assert.equal(windows.windowFor('claude-opus-5', false), 1000000);
   assert.equal(windows.windowFor('claude-sonnet-4-5', false), 200000);
