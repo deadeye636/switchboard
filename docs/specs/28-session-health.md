@@ -172,9 +172,15 @@ badge again.
 The hook runs once per row of every sidebar payload. The first version spread `process.env` on every call
 and cost 299 ms against 10 ms for 2 000 rows. It now reads the one variable it needs, memoises the settings
 cascade per project (dated by its oldest file read, five-second TTL), and Pi checks its catalog's TTL before
-resolving its directory: 18.6 ms with the fill against 9.9 ms without, on the same 2 000 rows. Those numbers
-were taken before E12 and #621 made the Claude resolver parse every configured spec and build a candidate
-list per row; they have not been re-measured since.
+resolving its directory: 18.6 ms with the fill against 9.9 ms without, on the same 2 000 rows.
+
+Re-measured after E12 and #621 made the Claude resolver parse every configured spec and build a candidate
+list per row, with a harness closer to a real sidebar: 2 000 Claude rows over 200 registered, existing
+project directories, a third of them with a settings file naming a model, a stored launch model and a
+per-backend `ANTHROPIC_MODEL`. Median of 25 builds: 40–44 ms with the fill against 30–32 ms without, and
+39–41 ms with the resolver as it was before E12 — the change is inside the run-to-run noise. The first build
+of a process, which reads every settings file, took 138–160 ms either way. The absolute numbers are not
+comparable with the first measurement, which ran over fake rows without directories.
 
 ## What this takes away
 
