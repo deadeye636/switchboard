@@ -195,6 +195,27 @@ test('Claude: a switch no turn has followed yet still decides — only a LATER t
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('Claude: a `/model` held back until the turn ended is read from its system entry too', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'n.jsonl');
+  // The shape CLI 2.1.272 wrote for `/model claude-sonnet-4-5` typed while a turn was streaming: the turn
+  // first, then the command and its output as `system` / `local_command` entries.
+  const localCommand = (content) => ({ type: 'system', subtype: 'local_command', content, level: 'info', timestamp: '2026-09-15T10:00:02.000Z' });
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('write a story'))
+      + line(turnAt('claude-opus-4-5-20251101', 35707))
+      + line({ type: 'system', subtype: 'turn_duration', timestamp: '2026-09-15T10:00:02.000Z' })
+      + line(localCommand(modelCommand('claude-sonnet-4-5')))
+      + line(localCommand('<local-command-stdout>Set model to `Sonnet 4.5` and saved as your default for new sessions</local-command-stdout>')));
+    const row = claude.readSessionFile(file, 'folder', '/some/project');
+    assert.equal(row.lastModelSpec, 'claude-sonnet-4-5', 'the output entry beside it is not a command and changes nothing');
+    assert.equal(row.messageCount, 2, 'a system entry is not a message');
+
+    fs.appendFileSync(file, line(localCommand(modelCommand(''))));
+    assert.equal(claude.readSessionFile(file, 'folder', '/some/project').lastModelSpec, null, 'the picker form clears it here too');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('Claude: a sidechain entry on another model in the main transcript does not expire the spec', () => {
   const { dir, file } = tmpFile('ctxfill-claude-', 'm.jsonl');
   try {

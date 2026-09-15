@@ -110,6 +110,12 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
    is applied at once, so such a turn means the model changed after it, for example through a resume with
    another `--model`, and a spec kept past it would go on picking its own model's window for every turn that
    follows. Two of 331 measured transcripts changed model between turns with no `/model` in them.
+   **The command comes in two forms**, both read, measured on CLI 2.1.272. At an idle prompt it is a user
+   message of command markup, as before. Typed while a turn runs, it is held back until that turn ends and
+   then written as a `system` entry (`subtype: 'local_command'`) carrying the same markup — reader v8 did not
+   see that form at all. Either way the CLI first asks to confirm a switch in a conversation that has a cache
+   ("Switch model? … Yes, switch / No, go back"), and nothing is written until the user says yes. Because a
+   held-back switch is written after the turn that was running, that turn cannot expire it.
 2. **The variant comes from every spec naming that model, and the larger window wins** (E12). The specs are
    the transcript's and the configured ones: the stored launch `model` option (it reaches the CLI as
    `--model`), `ANTHROPIC_MODEL`, and the settings files (project-local, project, user). The CLI applies them
@@ -195,12 +201,11 @@ the failure #620 was filed about, narrowed to these cases:
 - **A Claude model whose 1M window is opt-in** (Sonnet 4.5/4.6, Opus 4.6) reads as 200k when `[1m]` is named
   nowhere the app can see. A one-off Configure override is not stored, and a `$VAR` reference to one of
   Switchboard's saved variables is not followed. The floor catches the case once a turn passes 200k.
-- **A turn that ends after a `/model` on the model before it would expire the switch.** Rule 1 reads any turn
-  on another model as a change after the switch. Whether a turn still in flight can be written after the
-  `/model` entry was not measured. If it can, the spec is dropped: until a turn on the new model runs, the old
-  turn's model and its window apply, so the switch no longer shows at once; after that turn the configured
-  specs answer, which include the user settings the CLI saved the switch into unless something overwrote
-  them since. This one can also go the other way, a late badge after a switch to a smaller window.
+- **A prompt queued before a held-back `/model` was not measured.** Rule 1 expires a switch once a later
+  turn runs on another model. If the CLI starts a prompt that was queued before the `/model` on the old
+  model, and writes that turn after the switch entry, the switch is dropped: the old model's window then
+  applies until a turn on the new model runs, and after it the configured specs answer (the CLI saved the
+  switch into the user settings). Measured was only one running turn with nothing queued behind it.
 - **Configuration is read as it is NOW, not as it was at launch.** Since E12 a bare spec can no longer take
   away a `[1m]` that any other place still names. What is left: when the only `[1m]` was in Claude's user
   settings, which are global, a `/model` switch typed in another session overwrites it for every session;
@@ -209,6 +214,9 @@ the failure #620 was filed about, narrowed to these cases:
   `/model <id>` in the transcript the floor does not apply either, so the false badge is not limited to 160k–200k.
 - **`ANTHROPIC_DEFAULT_*_MODEL`** is not read. The family rule covers a remap to another model of the same
   family, as long as no exact spec outranks the alias (#621); a remap to another family would not be seen.
+  The remap itself was measured (CLI 2.1.272): with `ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-4-6`,
+  `--model opus[1m]` ran as `claude-opus-4-6[1m]` at 1 000 000 and `--model opus` as `claude-opus-4-6` at
+  200 000, so an alias's `[1m]` does travel with the remap, which is what the family rule assumes.
 
 The rest err the other way, remove the fill, or are cosmetic:
 

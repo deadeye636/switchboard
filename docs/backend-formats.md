@@ -634,9 +634,13 @@ is `docs/specs/28-session-health.md`.
 - A `<synthetic>` model marks a CLI-side message, not an API call.
 - The variant appears only as a `modelUsage` key (`claude-opus-5[1m]`) in `cost-state` entries, which the CLI
   writes at session END — 15 of 153 measured transcripts had none, including every running one.
-- A `/model <spec>` switch is a user entry of command markup with `<command-args>`, followed by a
-  `<local-command-stdout>` entry ("Set model to … and saved as your default for new sessions"). The CLI saves
-  that choice into the user settings as `model`. A model that changes without `/model` (two of 331 measured
+- A `/model <spec>` switch typed at an idle prompt is a user entry of command markup with `<command-args>`,
+  followed by a `<local-command-stdout>` entry ("Set model to … and saved as your default for new sessions").
+  Typed while a turn runs, the CLI holds it until the turn ends and writes the same two pieces as `system`
+  entries with `subtype: 'local_command'` and a `content` string (the output entry also carries
+  `commandRun: { command, args }`), after that turn's entries (measured on 2.1.272). In a conversation with a
+  cache the CLI asks to confirm the switch first, and writes nothing if the user goes back. The CLI saves
+  the choice into the user settings as `model`. A model that changes without `/model` (two of 331 measured
   transcripts, Opus 5 to Opus 4.8) leaves no entry of its own and shows only as the next turn's
   `message.model`, which is why the reader lets a later turn on another model expire the recorded spec (#622).
 - After an auto-compaction (`system` / `compact_boundary`, `compactMetadata.preTokens`) the next turn's input

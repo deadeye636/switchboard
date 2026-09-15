@@ -26,7 +26,9 @@ const { specNamesModel } = require('./model-windows');
 //       finished session never moves its mtime again, so without the bump it would never get them.
 //   v8: a `/model` spec expires once a later turn ran on a model it does not name (#622). A stored row
 //       from v7 can still carry a stale spec that picks the wrong window, and only the bump re-reads it.
-const PARSER_SCHEMA_VERSION = 8; // v8: a stale `/model` spec expires — #622
+//   v9: a `/model` the CLI held back until a turn ended is read too. It is written as a `system` entry
+//       (`subtype: 'local_command'`), not as a user message, and v8 never saw it (measured on CLI 2.1.272).
+const PARSER_SCHEMA_VERSION = 9; // v9: a held-back `/model` switch — #622 follow-up
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -369,6 +371,14 @@ function applyEntryLine(st, line) {
     st.userMessageCount++;
     st.largestUserPromptWords = Math.max(st.largestUserPromptWords, countWords(text));
     const spec = modelCommandSpec(text);
+    if (spec !== null) st.lastModelSpec = spec || null;
+  }
+  // The same command in its other form. A `/model` typed while a turn runs is held back until the turn
+  // ends and then written as a system entry carrying the same markup — measured on CLI 2.1.272, where the
+  // same switch typed at an idle prompt is still a user message. Written after the turn, so the turn that
+  // was in flight never expires it.
+  if (entry.type === 'system' && entry.subtype === 'local_command' && typeof entry.content === 'string') {
+    const spec = modelCommandSpec(entry.content);
     if (spec !== null) st.lastModelSpec = spec || null;
   }
   if (!st.summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
