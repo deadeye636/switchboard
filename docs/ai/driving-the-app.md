@@ -461,9 +461,11 @@ between (#622 measured `/model` that way). Four things make such a harness measu
    for its own spawns (`src/main.js`); a script does not.
 2. **node-pty here is built for Electron's ABI**, like better-sqlite3. Run the script as
    `ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron <script>.js`, not with plain `node`.
-3. **Spell the cwd exactly as the trust entry is spelled.** Claude keys folder trust in `.claude.json` by the
-   path string, case included: `<drive>:/Work/app` and `<drive>:/work/app` are two entries. A session started under the
-   other spelling shows the trust dialog again, even in a trusted demo project.
+3. **Expect the trust dialog under another spelling.** Claude keys folder trust in `.claude.json` by the real
+   path — links resolved, folder names in their on-disk case — with the drive letter as the cwd spelled it,
+   and looks the key up exactly (#627). A session whose cwd spells the drive letter in upper case, after one that spelled it in lower case, shows the
+   trust dialog again, even in a trusted demo project; the harness has to answer it or start where the
+   trusted key was written.
 4. **A confirmed `/model` changes more than the session.** With a cache in the conversation the CLI asks
    first ("Switch model? … Yes, switch / No, go back"), at an idle prompt and when held back alike, and
    writes nothing until confirmed. A confirmed switch is saved as `model` in the user settings of the home it

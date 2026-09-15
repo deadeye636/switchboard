@@ -269,23 +269,15 @@ const { rewriteTranscript, claudeLine } = require('../rewrite-cwd');
 const projectTrust = {
   get: (projectPath) => {
     try {
-      const map = claudeConfig.getProjectTrustMap();
-      const norm = claudeConfig.normalizeClaudePath(projectPath);
-      return map.has(norm) ? map.get(norm) : null;
+      const answer = claudeConfig.getProjectTrust([projectPath]).get(projectPath);
+      return answer === undefined ? null : answer;
     } catch { return null; }
   },
   // Many projects at once — the Projects admin asks for every row it renders, and `get` reads and parses
-  // the config file each time it is called. The normalisation stays in here: only this backend knows how
-  // its own config spells a path.
+  // the config file each time it is called. Which key the CLI reads stays in here: only this backend knows
+  // how its own config spells a path, and for trust that is the CLI's exact key, not a folded one (#627).
   getMany: (projectPaths) => {
-    const out = new Map();
-    let map;
-    try { map = claudeConfig.getProjectTrustMap(); } catch { return out; }
-    for (const p of projectPaths) {
-      const norm = claudeConfig.normalizeClaudePath(p);
-      out.set(p, map.has(norm) ? map.get(norm) : null);
-    }
-    return out;
+    try { return claudeConfig.getProjectTrust(projectPaths); } catch { return new Map(); }
   },
   set: (projectPath, trusted) => claudeConfig.setProjectTrust(projectPath, trusted),
 };

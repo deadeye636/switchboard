@@ -6,8 +6,9 @@ const path = require('node:path');
 
 const {
   normalizeClaudePath,
+  cliProjectKey,
   claudeConfigPath,
-  getProjectTrustMap,
+  getProjectTrust,
   getProjectClaudeMeta,
   setProjectTrust,
   removeProjectEntry,
@@ -56,7 +57,7 @@ function makeTempConfig(obj) {
   return file;
 }
 
-test('getProjectTrustMap: maps normalized path -> hasTrustDialogAccepted', () => {
+test('getProjectTrust: the entry under the CLI key, false without the flag, null without an entry', () => {
   const file = makeTempConfig({
     userID: 'secret',
     projects: {
@@ -65,10 +66,93 @@ test('getProjectTrustMap: maps normalized path -> hasTrustDialogAccepted', () =>
       '/home/u/c': {},
     },
   });
-  const map = getProjectTrustMap(file);
-  assert.equal(map.get(normalizeClaudePath('/home/u/a')), true);
-  assert.equal(map.get(normalizeClaudePath('/home/u/b')), false);
-  assert.equal(map.get(normalizeClaudePath('/home/u/c')), false);
+  const trust = getProjectTrust(['/home/u/a', '/home/u/b', '/home/u/c', '/home/u/d', '/home/u/a/'], file);
+  assert.equal(trust.get('/home/u/a'), true);
+  assert.equal(trust.get('/home/u/b'), false);
+  assert.equal(trust.get('/home/u/c'), false);
+  assert.equal(trust.get('/home/u/d'), null);
+  assert.equal(trust.get('/home/u/a/'), true, 'a trailing slash is not part of the key');
+});
+
+// #627: measured on Claude Code 2.1.272 — the CLI keys trust by the real path with the drive letter as
+// spelled, and looks it up exactly. Another spelling of the same directory is a key it never reads.
+//
+// Windows paths below are built from a letter and parts: they are invented, and CLAUDE.md rule 6 keeps a
+// drive-letter path out of tracked files even as an example.
+const winPath = (letter, ...parts) => `${letter}:\\${parts.join('\\')}`;
+const keyPath = (letter, ...parts) => `${letter}:/${parts.join('/')}`;
+
+test('cliProjectKey: forward slashes, no trailing slash, the drive letter as spelled', () => {
+  assert.equal(cliProjectKey(winPath('Q', 'Example', 'missing-dir', '')), keyPath('Q', 'Example', 'missing-dir'));
+  assert.equal(cliProjectKey(winPath('q', 'Example', 'missing-dir')), keyPath('q', 'Example', 'missing-dir'));
+  assert.equal(cliProjectKey('/home/u/missing/'), '/home/u/missing');
+  assert.equal(cliProjectKey(''), '');
+  assert.equal(cliProjectKey(null), '');
+});
+
+test('the drive letter goes back as spelled only on the same drive, and a root keeps its slash (#627)', () => {
+  const { _keyFromRealPath: keyOf } = require('../src/backends/claude/config');
+  assert.equal(keyOf(winPath('Q', 'Work', 'Case-Dir'), winPath('q', 'work', 'case-dir')), keyPath('q', 'Work', 'Case-Dir'),
+    'measured: same drive, spelled letter');
+  assert.equal(keyOf(winPath('R', 'Work', 'real'), winPath('Q', 'link')), keyPath('R', 'Work', 'real'),
+    'a junction to another drive keeps the resolved drive');
+  assert.equal(keyOf(winPath('Q', 'real', 'x'), winPath('S', 'x')), keyPath('Q', 'real', 'x'), 'a subst drive resolves to its underlying one');
+  assert.equal(keyOf(winPath('Q', ''), winPath('q', '')), keyPath('q', ''), 'a drive root');
+  assert.equal(keyOf('\\\\host\\share\\p', winPath('Z', 'p')), '//host/share/p', 'a mapped drive resolved to its share');
+});
+
+test('cliProjectKey on Windows: on-disk case and a junction resolved, the spelled drive letter kept (#627)', { skip: process.platform !== 'win32' }, () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-key-')));
+  try {
+    const real = path.join(root, 'Case-Dir');
+    fs.mkdirSync(real);
+    const link = path.join(root, 'link');
+    fs.symlinkSync(real, link, 'junction');
+    const expected = real.replace(/\\/g, '/');
+    const lowerDrive = (s) => s[0].toLowerCase() + s.slice(1);
+
+    assert.equal(cliProjectKey(real.toUpperCase()), expected.slice(0, 1).toUpperCase() + expected.slice(1),
+      'every folder name in its on-disk case');
+    assert.equal(cliProjectKey(lowerDrive(real.toLowerCase())), lowerDrive(expected), 'the drive letter stays as spelled');
+    assert.equal(cliProjectKey(link), expected, 'a junction is keyed by its target');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('renameProjectEntry moves the block to the key the CLI reads, so trust survives a remap (#627)', { skip: process.platform !== 'win32' }, () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-rename-')));
+  try {
+    const target = path.join(root, 'New-Home');
+    fs.mkdirSync(target);
+    const file = makeTempConfig({ projects: { [keyPath('Q', 'Example', 'old-home')]: { hasTrustDialogAccepted: true, foo: 1 } } });
+    // Spelled in another case than the directory is on disk, the way a remap dialog may hand it over.
+    const spelled = target.toLowerCase();
+    assert.equal(renameProjectEntry(winPath('Q', 'Example', 'old-home'), spelled, file).moved, true);
+    const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.deepEqual(Object.keys(after.projects), [cliProjectKey(spelled)]);
+    assert.equal(getProjectTrust([spelled], file).get(spelled), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('getProjectTrust: an entry under another spelling of the directory does not count (#627)', { skip: process.platform !== 'win32' }, () => {
+  const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-trust-')));
+  try {
+    const real = path.join(root, 'Case-Dir');
+    fs.mkdirSync(real);
+    const file = makeTempConfig({ projects: { [real.toLowerCase().replace(/\\/g, '/')]: { hasTrustDialogAccepted: true } } });
+    assert.equal(getProjectTrust([real], file).get(real), null, 'the CLI would show the trust dialog again');
+
+    assert.equal(setProjectTrust(real, true, file).ok, true);
+    const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(after.projects[cliProjectKey(real)].hasTrustDialogAccepted, true, 'written under the key the CLI reads');
+    assert.equal(after.projects[real.toLowerCase().replace(/\\/g, '/')].hasTrustDialogAccepted, true, 'the other spelling is left alone');
+    assert.equal(getProjectTrust([real], file).get(real), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('getProjectClaudeMeta: counts MCP servers / allowedTools, reads cost + tokens', () => {
@@ -128,7 +212,7 @@ test('setProjectTrust: creates a minimal entry when the project is absent', () =
   assert.equal(after.projects['D:/Example/new'].hasTrustDialogAccepted, true);
 });
 
-test('setProjectTrust: matches an existing key regardless of slash/case', () => {
+test('setProjectTrust: matches an existing key regardless of slash direction', () => {
   const file = makeTempConfig({
     projects: { 'D:/Example/switchboard': { hasTrustDialogAccepted: true, foo: 1 } },
   });

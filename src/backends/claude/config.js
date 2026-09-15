@@ -1,9 +1,10 @@
 // Safe read/modify/write access to Claude Code's main config `~/.claude.json`.
 //
 // This file is large (~160 KB) and holds SECRETS (oauthAccount, userID, machineID,
-// token/feature caches). We NEVER dump or log it. We only ever touch the single
-// per-project field `hasTrustDialogAccepted` (the trust gate), preserving every other
-// key/value 1:1 and writing atomically (temp file + rename) with a `.bak` safety copy.
+// token/feature caches). We NEVER dump or log it. We only ever touch the `projects` table —
+// one project's `hasTrustDialogAccepted` (the trust gate), or one project's whole block on a
+// rename or remove — preserving every other key/value 1:1 and writing atomically (temp file +
+// rename) with a `.bak` safety copy.
 //
 // Consumed by the Projects-admin IPC (#32).
 
@@ -42,6 +43,9 @@ function claudeConfigPath() {
 // `projectPath` (may use backslashes on Windows) and `~/.claude.json` `projects`
 // keys (forward-slashes). Strips trailing slashes; lowercases the drive letter, and
 // on Windows the whole path (case-insensitive FS) so casing differences still match.
+// That folds every spelling of a directory into one — right for the info columns and for
+// rename/remove, which describe or clean up all of them. The CLI does NOT look trust up this
+// way; trust goes through `cliProjectKey` below (#627).
 function normalizeClaudePath(p) {
   if (!p) return '';
   let s = String(p).replace(/\\/g, '/').replace(/\/+$/, '');
@@ -62,17 +66,60 @@ function readClaudeConfig(configPath = claudeConfigPath()) {
   }
 }
 
-// Map normalizedPath -> boolean (hasTrustDialogAccepted) for every project entry.
-// `preloadedCfg` (optional) lets callers that need several derived views pass an
-// already-parsed config instead of re-reading the ~160 KB file per helper.
-function getProjectTrustMap(configPath = claudeConfigPath(), preloadedCfg = undefined) {
-  const map = new Map();
-  const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
-  if (!cfg || !cfg.projects || typeof cfg.projects !== 'object') return map;
-  for (const [key, val] of Object.entries(cfg.projects)) {
-    map.set(normalizeClaudePath(key), !!(val && val.hasTrustDialogAccepted));
+/**
+ * The `projects` key the CLI itself reads and writes TRUST under for a session started in `projectPath`
+ * (#627). Not `normalizeClaudePath`: that one folds every spelling of a directory together, which is right
+ * for the info columns and for cleaning up, and wrong for trust, because the CLI looks one key up exactly.
+ *
+ * Measured on Claude Code 2.1.272 on Windows, interactive sessions against an isolated home: the key is the
+ * directory's real path — a junction resolved, every folder name in its on-disk case — with the drive
+ * letter as it was spelled and forward slashes. A cwd with a lower-case drive letter and lower-case folder
+ * names wrote the lower-case drive letter and the on-disk folder names, a later session in the on-disk
+ * spelling with an upper-case drive letter got the trust dialog again, and a junction to that directory was
+ * keyed by its target. That is
+ * `fs.realpathSync.native` with the input's drive letter put back; neither realpath does it alone.
+ *
+ * Only Windows was measured, so elsewhere the key stays the path as spelled, which is what this module did
+ * before. A directory that does not exist is keyed as spelled too: there is nothing to resolve.
+ */
+function cliProjectKey(projectPath) {
+  const spelled = String(projectPath || '');
+  if (!spelled) return '';
+  let real = spelled;
+  if (process.platform === 'win32') {
+    try { real = fs.realpathSync.native(spelled); } catch { /* keyed as spelled */ }
   }
-  return map;
+  return keyFromRealPath(real, spelled);
+}
+
+// The pure half of `cliProjectKey`, apart so it can be tested on any platform. The drive letter goes back as
+// spelled only when the resolved path is on the SAME drive: a junction to another drive, or a `subst` drive,
+// resolves elsewhere, and pasting the spelled letter onto that would name a directory that does not exist.
+// What the CLI keys those as was not measured; the resolved path is the honest guess.
+function keyFromRealPath(real, spelled) {
+  let key = String(real).replace(/\\/g, '/');
+  const spelledDrive = /^([a-zA-Z]):/.exec(String(spelled));
+  const realDrive = /^([a-zA-Z]):/.exec(key);
+  if (spelledDrive && realDrive && spelledDrive[1].toLowerCase() === realDrive[1].toLowerCase()) {
+    key = spelledDrive[1] + key.slice(1);
+  }
+  if (key.length > 1) key = key.replace(/\/+$/, '');
+  return /^[a-zA-Z]:$/.test(key) ? key + '/' : key;   // a drive root keeps its slash: `C:` alone means "the current folder on C:"
+}
+
+// Map projectPath -> hasTrustDialogAccepted as the CLI will read it, or null when the CLI has no entry under
+// that key — an entry under another spelling of the same directory does not count, because the CLI would
+// ask again (#627). `preloadedCfg` (optional) saves re-reading the ~160 KB file.
+function getProjectTrust(projectPaths, configPath = claudeConfigPath(), preloadedCfg = undefined) {
+  const out = new Map();
+  const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
+  const projects = cfg && cfg.projects && typeof cfg.projects === 'object' ? cfg.projects : {};
+  for (const p of projectPaths) {
+    const key = cliProjectKey(p);
+    const entry = Object.prototype.hasOwnProperty.call(projects, key) ? projects[key] : null;
+    out.set(p, entry ? !!entry.hasTrustDialogAccepted : null);
+  }
+  return out;
 }
 
 // Extra read-only per-project meta (MCP count, allowedTools count, last cost, tokens),
@@ -187,14 +234,10 @@ function setProjectTrust(projectPath, trusted, configPath = claudeConfigPath()) 
   if (!projectPath) return { error: 'No project path' };
   return mutateClaudeConfig(configPath, (cfg) => {
     if (!cfg.projects || typeof cfg.projects !== 'object') cfg.projects = {};
-    // Find the existing key that normalizes to our target (preserve its exact form).
-    const target = normalizeClaudePath(projectPath);
-    let key = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === target);
-    if (!key) {
-      // No entry yet: create a minimal one under the forward-slash form Claude uses.
-      key = String(projectPath).replace(/\\/g, '/');
-      cfg.projects[key] = {};
-    }
+    // The key the CLI reads (#627). An entry under another spelling is left alone: the CLI never reads it,
+    // and it may still carry that spelling's MCP servers or cost.
+    const key = cliProjectKey(projectPath);
+    if (!cfg.projects[key] || typeof cfg.projects[key] !== 'object') cfg.projects[key] = {};
     cfg.projects[key].hasTrustDialogAccepted = !!trusted;
     return { result: { ok: true, trusted: !!trusted } };
   });
@@ -232,8 +275,17 @@ function renameProjectEntry(oldPath, newPath, configPath = claudeConfigPath()) {
 
     const srcVal = cfg.projects[srcKey];
     const dstNorm = normalizeClaudePath(newPath);
-    const existingDstKey = Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === dstNorm);
-    const dstKey = existingDstKey || String(newPath).replace(/\\/g, '/');
+    // The key the CLI reads first (#627), so the trust this block carries is still trust after the move;
+    // then an entry under another spelling of the target, as before; a new key is the CLI's.
+    // The SOURCE is still the first spelling that folds to the old path, because after a remap the old
+    // directory is usually gone and its CLI key cannot be resolved. With several spellings of the old path,
+    // the one moved may not be the one that carried trust, and the project then asks for trust again —
+    // the safe direction, never trust the user did not give.
+    const cliKey = cliProjectKey(newPath);
+    const existingDstKey = Object.prototype.hasOwnProperty.call(cfg.projects, cliKey)
+      ? cliKey
+      : Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === dstNorm);
+    const dstKey = existingDstKey || cliKey;
     cfg.projects[dstKey] = existingDstKey ? { ...cfg.projects[existingDstKey], ...srcVal } : srcVal;
     if (dstKey !== srcKey) delete cfg.projects[srcKey];
     return { result: { ok: true, moved: true } };
@@ -243,8 +295,9 @@ function renameProjectEntry(oldPath, newPath, configPath = claudeConfigPath()) {
 module.exports = {
   claudeConfigPath,
   normalizeClaudePath,
+  cliProjectKey,
   readClaudeConfig,
-  getProjectTrustMap,
+  getProjectTrust,
   getProjectClaudeMeta,
   setProjectTrust,
   removeProjectEntry,
@@ -252,5 +305,7 @@ module.exports = {
   // Test-only: the retry against a concurrent writer is the whole point of #533, and the only way to stage
   // one is to write the file from inside a mutation.
   _mutateClaudeConfig: mutateClaudeConfig,
+  // Test-only: the drive-letter rule of `cliProjectKey` without a filesystem behind it (#627).
+  _keyFromRealPath: keyFromRealPath,
   _WRITE_ATTEMPTS: WRITE_ATTEMPTS,
 };
