@@ -29,7 +29,8 @@ const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 // 4 (#193): the session header's `parentSession` is read now. Existing rows were parsed without it and
 // carry no lineage; bumping is what makes them re-read themselves — a parser change moves no mtime.
 // 5 (#407): Pi's id/parentId tree and session_info entries decide the visible branch/title.
-const PARSER_SCHEMA_VERSION = 5;
+// 6 (#620): the row carries the last assistant turn's context — lastInputTokens, lastModel, lastProvider.
+const PARSER_SCHEMA_VERSION = 6;
 
 const FINGERPRINT_BYTES = 64;
 

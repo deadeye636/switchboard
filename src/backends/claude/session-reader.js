@@ -21,7 +21,9 @@ const { sessionProjectPath } = require('../../session/derive-project-path');
 //       Without the bump every already-indexed row keeps the raw `<command-name>` markup, because
 //       folder-parse skips a file whose mtime and parser version both match — and a stale row lends that
 //       markup to the session that continues it.
-const PARSER_SCHEMA_VERSION = 6; // v6: a slash-command opener is not the summary — #229
+//   v7: the row carries the LAST turn's context — lastInputTokens, lastModel, lastModelSpec (#620). A
+//       finished session never moves its mtime again, so without the bump it would never get them.
+const PARSER_SCHEMA_VERSION = 7; // v7: the last turn's context — #620
 
 function contentToText(content) {
   if (typeof content === 'string') return content;

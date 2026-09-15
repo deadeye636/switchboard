@@ -489,6 +489,27 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE session_cache ADD COLUMN importedFrom TEXT'); } catch {}
   },
+
+  // How full a session's context window is (#620). The token columns above are SUMS, and every turn
+  // re-sends the whole cached context, so a sum grows by the window's contents on each turn and says
+  // nothing about the fill. These hold the LAST turn instead: the input it sent, the model it ran on, the
+  // provider where one backend spans several, the last `/model <spec>` a Claude session typed (the only
+  // place `[1m]` appears in its transcript), and the window a CLI reports itself (Codex does).
+  //
+  // Nothing is backfilled here. The three readers that write these columns bump their parser versions in
+  // the same change, and the scan re-reads every session whose recorded version differs.
+  (db) => {
+    const columns = [
+      'ALTER TABLE session_cache ADD COLUMN lastInputTokens INTEGER DEFAULT 0',
+      'ALTER TABLE session_cache ADD COLUMN lastModel TEXT',
+      'ALTER TABLE session_cache ADD COLUMN lastModelSpec TEXT',
+      'ALTER TABLE session_cache ADD COLUMN lastProvider TEXT',
+      'ALTER TABLE session_cache ADD COLUMN contextWindowReported INTEGER',
+    ];
+    for (const sql of columns) {
+      try { db.exec(sql); } catch {}
+    }
+  },
 ];
 
 /**

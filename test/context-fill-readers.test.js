@@ -204,6 +204,21 @@ test('Codex: the incremental read keeps the last value across a resume', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('Codex: the window stored with the fill is the one reported with that same request', () => {
+  const { dir, file } = tmpFile('ctxfill-codex-', 'rollout.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(codexHead('C4')) + line(codexModel('gpt-5.5')) + line(codexPrompt) + line(codexTokens(150000, 258400))
+      // A new model, and a zero-input report carrying ITS window: skipped for the fill, so it must not
+      // lend that window to a figure measured on the previous model.
+      + line(codexModel('gpt-6-astra')) + line(codexTokens(0, 400000)));
+    const row = codex.parseSession({ kind: 'file', path: file });
+    assert.equal(row.lastInputTokens, 150000);
+    assert.equal(row.lastContextWindow, 258400);
+    assert.equal(row.contextWindow, 400000, 'the latest report is still what `contextWindow` says');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('Codex: a model switch after the last report does not relabel that report', () => {
   const { dir, file } = tmpFile('ctxfill-codex-', 'rollout.jsonl');
   try {

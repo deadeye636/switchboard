@@ -34,7 +34,8 @@ const { isTurnEvent } = require('./state');
 //   v4: the title prefers the user's thread name from session_index.jsonl, where there is one (#153)
 //   v5: a rollout written by an internal subagent (guardian review) is not a session at all (#492)
 //   v6: a forked rollout carries its parent (`forked_from_id`), read for lineage (#229)
-const PARSER_SCHEMA_VERSION = 6;
+//   v7: the row carries the last request's context (lastInputTokens, lastModel) and the stored window (#620)
+const PARSER_SCHEMA_VERSION = 7;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -65,6 +66,10 @@ function createParseState() {
     // figure follows (measured), so taking it would read a full window as an empty one.
     lastInputTokens: 0,
     lastModel: null,
+    // …and the window reported WITH that same request. `contextWindow` above is simply the latest report,
+    // and a zero-input report skipped for the fill still updates it — after a model change the two could
+    // then describe different requests.
+    lastContextWindow: 0,
     // rollout tail state for busy/idle (deriveState reads these)
     lastTaskEvent: null, // 'task_started' | one of state.js's TURN_END_EVENTS | null
 
@@ -239,6 +244,8 @@ function applyEntry(st, entry) {
         if (lastInput > 0) {
           st.lastInputTokens = lastInput;
           st.lastModel = st.model;
+          // A report without a window of its own falls back to the last one seen, rather than to none.
+          st.lastContextWindow = typeof info.model_context_window === 'number' ? info.model_context_window : st.contextWindow;
         }
       } else if (isTurnEvent(payload.type)) {
         // Busy/idle signal for deriveState (rollout tail). Which events those are is state.js's to say —
@@ -347,6 +354,7 @@ function buildRow(st, filePath, opts = {}) {
     // The last request's context and the model it ran on (#620).
     lastInputTokens: st.lastInputTokens || 0,
     lastModel: st.lastModel || null,
+    lastContextWindow: st.lastContextWindow || 0,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(st.dailyMetrics),
   };

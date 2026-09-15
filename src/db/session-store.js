@@ -40,9 +40,10 @@ const stmts = {
       backendId, filePath,
       changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId, lineageKind,
       importedFrom,
+      lastInputTokens, lastModel, lastModelSpec, lastProvider, contextWindowReported,
       parserVersion
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -75,6 +76,13 @@ const stmts = {
       -- imported"), not the "the scanner could not tell" that makes a NULL backendId or costStatus
       -- dangerous. Coalescing would make the mark unremovable if a store were ever re-read (#552).
       importedFrom = excluded.importedFrom,
+      -- NOT coalesced either (#620): these describe the transcript as it reads NOW. A compaction or a
+      -- picker '/model' legitimately takes a value back to 0 or NULL, and a coalesce would keep the stale one.
+      lastInputTokens = excluded.lastInputTokens,
+      lastModel = excluded.lastModel,
+      lastModelSpec = excluded.lastModelSpec,
+      lastProvider = excluded.lastProvider,
+      contextWindowReported = excluded.contextWindowReported,
       parserVersion = excluded.parserVersion
   `),
   // Record a /clear child's lineage the moment the live re-key resolves it (#193). Inserts a sparse row if
@@ -240,6 +248,14 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.lineageKind || null,
       // #552 — the tool a session was imported from, as a label. Null for every session nobody imported.
       s.importedFrom || null,
+      // #620 — the last turn's context. `lastContextWindow` is the window a CLI reported WITH that turn
+      // (Codex does); the column says "reported" because the other backends' windows are resolved later
+      // and never stored.
+      Number(s.lastInputTokens) || 0,
+      s.lastModel || null,
+      s.lastModelSpec || null,
+      s.lastProvider || null,
+      Number(s.lastContextWindow) > 0 ? Number(s.lastContextWindow) : null,
       // v14 (#152) — which parser wrote this row. The scan compares it to the parser that would read
       // it now, so a bumped parser re-reads its own sessions instead of leaving stale metrics behind.
       s.parserVersion == null ? null : Number(s.parserVersion)
