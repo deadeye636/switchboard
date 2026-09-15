@@ -37,7 +37,7 @@ table is the fallback and it is binding.
 | the settings screen — a category, a count, a per-backend page, what the search may open | `docs/specs/26-settings-screen.md` (why) + `.claude/rules/renderer.md` (the rule) |
 | the welcome tour — a pane, a control that writes a setting, a figure that follows one | `docs/specs/27-welcome-tour.md` (why) + `test/welcome-tour.test.js` (the guard) |
 | attention — busy/ready, the hooks, a turn that announces nothing | `docs/specs/05-hook-attention-detection.md` (why) + `.claude/rules/main-process.md` (the rule) |
-| session health — the badge, the context fill, a model's context window | `docs/specs/28-session-health.md` (why) + `src/backends/claude/model-windows.js` (the measured table) + `.claude/rules/renderer.md` (the rule) |
+| session health — the badge, the context fill, a model's context window | `docs/specs/28-session-health.md` (why) + `.claude/rules/backends.md` (the `contextWindow` hook) + `src/backends/claude/model-windows.js` (Claude's measured table) + `.claude/rules/renderer.md` (the rule) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |
@@ -57,7 +57,10 @@ table is the fallback and it is binding.
    **synthesised event is not an interaction** (`drive-app.js drag` exists because dispatched
    `DragEvent`s passed a drag that a real mouse could not perform).
 3. **Migrations are append-only.** `migrations.length` IS the schema version; renumbering corrupts
-   user databases.
+   user databases. **And a parser that starts writing a stored field, or changes what one means, bumps its
+   `PARSER_SCHEMA_VERSION`** — every parser that writes it, in the same change. A parser change moves no
+   file's mtime, so without the bump finished sessions keep the old value for good and no test says so
+   (`.claude/rules/db.md`; the constants live in the backend folders, where that rule does not load).
 4. **No new IPC handler in `src/main.js`** — it goes in an `src/app/` module.
    `test/main-no-new-ipc.test.js` will say so.
 5. **No backend id outside its own folder.** A capability that varies per backend is a descriptor
@@ -142,6 +145,9 @@ table is the fallback and it is binding.
     the one answer for handoffs AND plans, relative and absolute, with the escape guard applied. Three
     surfaces name those directories (the handoff prompts, the plan prompt, a saved variable's insert
     template), and a second reading of `eff.handoffDir` is how two of them start naming different ones.
+    **That second reading exists today, in the writer:** `handoffWriteDirName` in `src/app/handoffs.js`
+    reads the setting itself, and where the prompt falls back to the default for an escaping value, the
+    save refuses it. It is a known divergence, not a pattern to copy.
 13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
@@ -227,8 +233,10 @@ table is the fallback and it is binding.
     **`worktreeRootOf` beside it answers "whose sub-unit am I", and since #586 that is what EVERY
     ownership question asks** — the register, the admin rows, the settings cascade, the sidebar's nesting,
     the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather
-    than trusting that list. `parseWorktreePath`'s one-level "who is my parent" survives only as a yes/no
-    "is this a worktree at all"; the sidebar used to ask it for the nesting and no longer does.
+    than trusting that list. `parseWorktreePath`'s one-level parent survives in two places — the
+    visibility walk in `src/index/projects-view.js`, which climbs it a level at a time, and the worktree
+    dirty check in `src/app/vcs.js` — and elsewhere only as a yes/no "is this a worktree at all"; the
+    sidebar used to ask it for the nesting and no longer does.
     **And a worktree is NAMED by `worktreeLabelOf`, never by splitting the path yourself.** It spells
     every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
     nested worktree sits once #586 draws it beside its own parent — six call sites across five files (the
@@ -258,7 +266,8 @@ the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, co
   **comments**. Done → an "Umsetzung" comment (with `git log main` commit refs) + close the issue.
   Open items carry no completion comment.
 - **Labels:** prio `P1`/`P2`/`P3` (open only), type `bug`/`feature`/`port`/`chore`, `source:*`
-  (`jbr`/`brianstanley`/`supacode`/`kreaddis`), `wontfix`. An effort that spans several issues also
+  (`jbr`/`brianstanley`/`supacode`/`kreaddis`/`ivandobsky`), `wontfix`, `blocked-on-upstream` for an item
+  waiting on a third-party fix. An effort that spans several issues also
   carries an **effort label** so its issues stay findable together — `pi-native` is the first, and
   it sits on the runtime-driven Pi backend plus the work it depends on. List the labels rather than
   trusting this line: `gh label list`.
@@ -297,15 +306,16 @@ absent from the installer.
 - `npm test` — `node --test --test-timeout=60000`, with **no path argument**: Node's default discovery
   from the repo root, so a new test file is picked up wherever under `test/` it lands (the old
   `test/*.test.js` glob written here was not what the script runs). No Electron needed. Keep it green
-  (run it for the current pass count — don't trust a number written down here). Wall clock is **half a
-  minute and rising** — 32-36 s measured across two runs — and it is the sum of the whole suite now, not
-  one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest single file
-  (~19.6 s alone), but it stopped setting the wall clock some time ago. Time it rather than believing
+  (run it for the current pass count — don't trust a number written down here). Wall clock is **close to a
+  minute and rising** — 49-54 s measured across two runs (2026-09) — and it is the sum of the whole suite
+  now, not one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest single
+  file (~20 s alone), but it stopped setting the wall clock some time ago. Default discovery also runs every
+  non-test `.js` under `test/` as its own entry — the DOM helpers in `test/helpers/` take about 7 s each. Time it rather than believing
   this line; the point of the number is only that a run of several minutes is wrong.
   That same file has **hung outright** more than once under
   load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
   the script carries `--test-timeout=60000`: a test that stops making progress fails loudly instead. The
-  cap is per TEST, so it does not catch a file that hangs between them; a run past a minute or two is
+  cap is per TEST, so it does not catch a file that hangs between them; a run past two minutes is
   still worth killing and re-running rather than waiting out.
 - `npm run demo:start` — **the default for dev/verify work**: an isolated demo instance against
   seeded stores under `C:\temp\switchboard`. Backend limitations and the explicit read-only usage
