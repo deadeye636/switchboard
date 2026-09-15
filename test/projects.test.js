@@ -1015,7 +1015,7 @@ test('a remap inside one repository keeps the repository trusted (#627)', winOnl
   } finally { t.cleanup(); fs.rmSync(base, { recursive: true, force: true }); }
 });
 
-test('a remap out of a repository trusts the new place and leaves the repository trusted (#627)', winOnly, () => {
+test('a remap out of a repository leaves the repository trusted and grants nothing it did not own (#627)', winOnly, () => {
   const t = makeCtx();
   const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
   const { base, repo, oldPath } = repoFixture(t);
@@ -1023,10 +1023,52 @@ test('a remap out of a repository trusts the new place and leaves the repository
   try {
     withClaudeConfig({ [cliProjectKey(repo)]: { hasTrustDialogAccepted: true } }, (file) => {
       assert.strictEqual(projects.remapProject(oldPath, outside).ok, true);
-      assert.strictEqual(getProjectTrust([outside], file).get(outside), true, 'the trust the project had comes along');
+      assert.notStrictEqual(getProjectTrust([outside], file).get(outside), true,
+        'the project was trusted through the repository, not in its own right — the new place asks');
       assert.strictEqual(getProjectTrust([repo], file).get(repo), true, 'and the root every other checkout shares is not un-trusted');
     });
   } finally { t.cleanup(); fs.rmSync(base, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
+});
+
+test('a remap does not carry trust a project only inherited from a folder above it (#627)', winOnly, () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const holder = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'remap-inh-')));
+  const oldPath = path.join(holder, 'child');
+  fs.mkdirSync(oldPath);
+  const folder = encodeProjectPath(oldPath);
+  fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+  fs.writeFileSync(path.join(t.store, folder, 'a.jsonl'), JSON.stringify({ type: 'user', cwd: oldPath, message: { role: 'user', content: 'x' } }) + '\n');
+  t.setCachedRows([{ sessionId: 'a', folder, projectPath: oldPath, filePath: null, backendId: 'claude' }]);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-inh-new-'));
+  try {
+    withClaudeConfig({ [cliProjectKey(holder)]: { hasTrustDialogAccepted: true } }, (file) => {
+      assert.strictEqual(getProjectTrust([oldPath], file).get(oldPath), true, 'the fixture inherits');
+      assert.strictEqual(projects.remapProject(oldPath, outside).ok, true);
+      assert.notStrictEqual(getProjectTrust([outside], file).get(outside), true, 'the new place asks: the trust belonged to the folder above');
+      assert.strictEqual(getProjectTrust([holder], file).get(holder), true, 'and that folder keeps it');
+    });
+  } finally { t.cleanup(); fs.rmSync(holder, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
+});
+
+test('a remap carries trust a project held in its own right (#627)', winOnly, () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const oldBase = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'remap-own-')));
+  const oldPath = path.join(oldBase, 'plain');
+  fs.mkdirSync(oldPath);
+  const folder = encodeProjectPath(oldPath);
+  fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+  fs.writeFileSync(path.join(t.store, folder, 'a.jsonl'), JSON.stringify({ type: 'user', cwd: oldPath, message: { role: 'user', content: 'x' } }) + '\n');
+  t.setCachedRows([{ sessionId: 'a', folder, projectPath: oldPath, filePath: null, backendId: 'claude' }]);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-own-new-'));
+  try {
+    // The old path's own key: the block move takes it along, and the trust move finds nothing left to do.
+    withClaudeConfig({ [cliProjectKey(oldPath)]: { hasTrustDialogAccepted: true } }, (file) => {
+      assert.strictEqual(projects.remapProject(oldPath, outside).ok, true);
+      assert.strictEqual(getProjectTrust([outside], file).get(outside), true);
+    });
+  } finally { t.cleanup(); fs.rmSync(oldBase, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
 });
 
 test('a remap into another repository never trusts that repository without asking (#627)', winOnly, () => {

@@ -29,22 +29,27 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   transcripts and Claude's main config file, which can carry secrets.
 - Folder trust is `projects.<key>.hasTrustDialogAccepted` in that main config (`<home>/.claude.json`, beside
   `~/.claude` normally). Measured on 2.1.272 on Windows (#627), the key is:
-  - **inside a git repository, its root** — a subdirectory's session wrote the root, and a worktree's
-    session found its MAIN repository's root already trusted;
-  - **outside one, the directory itself** — a trusted parent does not count;
+  - **inside a git repository, its root** — a subdirectory's session wrote the root, a worktree's session
+    found its MAIN repository's root already trusted, and a worktree of a bare repository wrote the bare
+    repository's directory. A submodule keys itself;
+  - **outside one, the directory itself**;
   - in both cases the **real path** (a junction resolved, also one to another drive; every folder name in its
     on-disk case) with the **drive letter as the cwd spelled it** and forward slashes. A `subst` or mapped
-    drive keeps its own letter rather than what it stands for, and a UNC path stays one.
+    drive keeps its own letter rather than what it stands for — also over a repository's subfolder, where
+    the drive's root is the key — and a UNC path stays one.
 
-  The CLI looks the key up exactly, case included, and the file often holds several spellings of one
-  directory. Not measured: submodules, worktrees of a bare repository (the app keys those by themselves), a
-  `subst` drive over a repository subfolder (the app stops its walk at that drive's root), a junction to
-  another drive outside a repository, macOS and Linux.
-  Two consequences for the Projects manager. Trusting a worktree or a subdirectory of a repository trusts
-  the repository's root, and so every other checkout keyed there. And a remap moves a project's own block to
-  the target's own key, never onto a repository root, and the trust move writes only a gate the path owns:
-  it neither un-trusts a root the old path shared with other checkouts nor grants a root the target only
-  sits in — that repository asks for trust itself.
+  How it is **looked up**: exactly, case included, and the file often holds several spellings of one
+  directory. Outside a repository a trusted **ancestor** trusts the directory, and an entry of its own with
+  `false` (the CLI writes one after inheriting) does not stop that. Inside a repository only the root's own
+  entry counts: a repository inside a trusted folder, and a subfolder of it, both asked. Not measured: a
+  junction to another drive outside a repository, macOS and Linux.
+
+  What the Projects manager does with it: a row whose answer is kept elsewhere says so. Granting trust on a
+  subdirectory or worktree row names the repository root it is kept for; removing it asks first, because it
+  reaches every checkout; and a row trusted through a folder above it offers to remove trust THERE, since
+  that is the only change the CLI would notice. A remap moves a project's own block to the target's own key,
+  never onto a repository root, and carries only trust the project held in its own key — never shared or
+  inherited trust, and never into a root the target only sits in.
 
 ### Not every `user` entry is the user (#495, #229)
 

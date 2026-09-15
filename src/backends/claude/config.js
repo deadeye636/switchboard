@@ -73,30 +73,58 @@ function readClaudeConfig(configPath = claudeConfigPath()) {
  *
  * Measured on Claude Code 2.1.272 on Windows, interactive sessions against an isolated home:
  *   - inside a git repository the key is the repository's ROOT, not the directory — a subdirectory's
- *     session wrote the root, and a worktree's session found the MAIN repository's root already trusted;
- *   - outside one it is the directory itself, and a trusted parent does not count;
+ *     session wrote the root, a worktree's session found the MAIN repository's root already trusted, and a
+ *     worktree of a bare repository wrote the bare repository's directory. A submodule keys itself;
+ *   - outside one it is the directory itself;
  *   - either way the path is real — a junction resolved, every folder name in its on-disk case — with the
  *     drive letter as it was spelled and forward slashes. A lower-case drive letter wrote a lower-case key,
  *     and a later session spelled with an upper-case one got the trust dialog again;
  *   - a `subst` or mapped drive is NOT resolved to what it stands for: the key keeps that drive letter. A
  *     UNC path stays a UNC path, and a junction to another drive is keyed on that other drive.
  * `fs.realpathSync.native` resolves drives the CLI keeps, so its answer is re-expressed under the spelled
- * drive where that drive is a substitute.
+ * drive where that drive is a substitute. How the key is LOOKED UP is `describeProjectTrust` below.
  *
  * Only Windows was measured, so elsewhere the key stays the path as spelled, which is what this module did
  * before. A directory that does not exist is keyed as spelled too: there is nothing to resolve.
  */
 function cliProjectKey(projectPath) {
+  return resolveTrustGate(projectPath).key;
+}
+
+// `{ key, dirKey, inRepo }` for one path: the trust key, the directory's own key, and whether a repository
+// decided the key. Fresh from the filesystem on every call.
+function resolveTrustGate(projectPath) {
   const spelled = String(projectPath || '');
-  if (!spelled) return '';
-  if (process.platform !== 'win32') return keyFromRealPath(spelled, spelled);
+  const asSpelled = () => { const k = spelled ? keyFromRealPath(spelled, spelled) : ''; return { key: k, dirKey: k, inRepo: false }; };
+  if (!spelled || process.platform !== 'win32') return asSpelled();
   let real;
-  try { real = fs.realpathSync.native(spelled); } catch { return keyFromRealPath(spelled, spelled); }
+  try { real = fs.realpathSync.native(spelled); } catch { return asSpelled(); }
   const driveRoot = substituteDriveRoot(spelled);
+  const dirKey = keyFromRealPath(real, spelled, driveRoot);
   const root = gitTrustRoot(real, driveRoot);
+  if (!root) return { key: dirKey, dirKey, inRepo: false };
   let rootReal = root;
-  if (root && root !== real) { try { rootReal = fs.realpathSync.native(root); } catch { /* as found */ } }
-  return keyFromRealPath(rootReal || real, spelled, driveRoot);
+  if (root !== real) { try { rootReal = fs.realpathSync.native(root); } catch { /* as found */ } }
+  return { key: keyFromRealPath(rootReal, spelled, driveRoot), dirKey, inRepo: true };
+}
+
+// The same answer, held for a few seconds (#627). The Projects manager asks it for every row it builds, and
+// each answer is a realpath, a stat per ancestor on the way to a `.git`, and a realpath of the drive root:
+// measured over 200 project directories, a third of them repositories, 158–166 ms cold and 0.3 ms held.
+// Only what the manager SHOWS uses it: every write resolves its key fresh, and a remap's decision whether to
+// move trust at all asks fresh too (`describeProjectTrust(..., { fresh: true })`). So a `git init` or a moved
+// folder can make the manager show an old answer for one TTL, and never write or decide on one.
+const TRUST_GATE_TTL_MS = 5000;
+const _trustGateCache = new Map();   // spelled path -> { at, gate }
+function resolveTrustGateCached(projectPath, now = Date.now()) {
+  const hit = _trustGateCache.get(projectPath);
+  if (hit && now - hit.at < TRUST_GATE_TTL_MS) return hit.gate;
+  const gate = resolveTrustGate(projectPath);
+  if (_trustGateCache.size >= 2000) {
+    for (const [p, e] of _trustGateCache) if (now - e.at >= TRUST_GATE_TTL_MS) _trustGateCache.delete(p);
+  }
+  _trustGateCache.set(projectPath, { at: now, gate });
+  return gate;
 }
 
 /**
@@ -127,11 +155,11 @@ function substituteDriveRoot(spelled) {
 
 // The repository a directory belongs to, as the CLI keys trust by it: walk up to the first `.git`. A directory
 // there is the root. A FILE there is a worktree (or a submodule) naming its git dir; a worktree's git dir names
-// the common one in `commondir`, and when that is a `.git` directory the main repository is its parent. A
-// `.git` file without `commondir`, or a common dir that is not `.git` (a bare repository's worktree), keys its
-// own directory — submodules and bare repositories were not measured. The walk does not climb above the root
-// of a substitute drive (`stopAt`): the CLI keeps that drive's letter, so its own walk ends at that drive's
-// root. Null outside any repository. Reads files, runs no git.
+// the common one in `commondir`. When that is a `.git` directory the main repository is its parent; otherwise
+// it is a bare repository, and the bare repository's directory is the key (measured). A `.git` file without
+// `commondir` — a submodule — keys its own directory (measured). The walk does not climb above the root of a
+// substitute drive (`stopAt`): measured, a `subst` drive over a repository's subfolder keyed that drive's root.
+// Null outside any repository. Reads files, runs no git.
 function gitTrustRoot(dir, stopAt = null) {
   const stop = stopAt ? String(stopAt).replace(/[\\/]+$/, '').toLowerCase() : null;
   let cur = dir;
@@ -146,7 +174,7 @@ function gitTrustRoot(dir, stopAt = null) {
         if (named) {
           const gitDir = path.resolve(cur, named[1].trim());
           const commonDir = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
-          if (path.basename(commonDir).toLowerCase() === '.git') return path.dirname(commonDir);
+          return path.basename(commonDir).toLowerCase() === '.git' ? path.dirname(commonDir) : commonDir;
         }
       } catch { /* not a worktree */ }
       return cur;
@@ -182,18 +210,62 @@ function keyFromRealPath(real, spelled, driveRoot = null) {
   return /^[a-zA-Z]:$/.test(key) ? key + '/' : key;   // a drive root keeps its slash: `C:` alone means "the current folder on C:"
 }
 
-// Map projectPath -> hasTrustDialogAccepted as the CLI will read it, or null when the CLI has no entry under
-// that key — an entry under another spelling of the same directory does not count, because the CLI would
-// ask again (#627). `preloadedCfg` (optional) saves re-reading the ~160 KB file.
-function getProjectTrust(projectPaths, configPath = claudeConfigPath(), preloadedCfg = undefined) {
+// The keys a directory's trust is inherited from, nearest first, up to and including the drive root (with its
+// slash) or `/`. A UNC share root (`//host/share`) is the top; `//host` alone is not a directory.
+function ancestorKeys(key) {
+  const out = [];
+  let cur = String(key);
+  for (;;) {
+    if (/^[a-zA-Z]:\/$/.test(cur) || /^\/\/[^/]+\/[^/]+$/.test(cur) || cur === '/') return out;
+    const cut = cur.lastIndexOf('/');
+    if (cut < 0) return out;
+    let parent = cur.slice(0, cut);
+    if (/^[a-zA-Z]:$/.test(parent)) parent += '/';
+    else if (parent === '') parent = '/';
+    if (/^\/\/[^/]*$/.test(parent)) return out;
+    out.push(parent);
+    cur = parent;
+  }
+}
+
+/**
+ * Where each path's trust stands as the CLI will read it (#627):
+ *   `{ trusted, scope, gate }` — `trusted` true, false (an entry without the flag) or null (no entry);
+ *   `scope` 'own' (the path's own key), 'shared' (a repository root the path only sits in: a subdirectory or
+ *   a worktree, so every other checkout keyed there shares it) or 'inherited' (a trusted ancestor);
+ *   `gate` the key that decides, as a path; and for an inherited answer `trustedAbove`, whether a folder
+ *   further up is trusted as well — removing the nearest one then leaves the path trusted through that.
+ *
+ * Measured on 2.1.272 on Windows: outside a repository a trusted ANCESTOR trusts a directory, and an entry
+ * of its own with `false` under it does not stop that; inside one only the root's own entry counts — a
+ * repository inside a trusted folder, and a subfolder of that repository, both got the trust dialog. An
+ * entry under another spelling of the same directory never counts. Elsewhere than Windows nothing is
+ * inherited, as before. `preloadedCfg` (optional) saves re-reading the ~160 KB file.
+ */
+function describeProjectTrust(projectPaths, configPath = claudeConfigPath(), preloadedCfg = undefined, { fresh = false } = {}) {
   const out = new Map();
   const cfg = preloadedCfg !== undefined ? preloadedCfg : readClaudeConfig(configPath);
   const projects = cfg && cfg.projects && typeof cfg.projects === 'object' ? cfg.projects : {};
+  const entryOf = (key) => (Object.prototype.hasOwnProperty.call(projects, key) ? projects[key] : null);
+  const trustedKey = (key) => { const e = entryOf(key); return !!(e && e.hasTrustDialogAccepted); };
+  const now = Date.now();
   for (const p of projectPaths) {
-    const key = cliProjectKey(p);
-    const entry = Object.prototype.hasOwnProperty.call(projects, key) ? projects[key] : null;
-    out.set(p, entry ? !!entry.hasTrustDialogAccepted : null);
+    const gate = fresh ? resolveTrustGate(p) : resolveTrustGateCached(p, now);
+    const scope = gate.key === gate.dirKey ? 'own' : 'shared';
+    const own = entryOf(gate.key);
+    if (own && own.hasTrustDialogAccepted) { out.set(p, { trusted: true, scope, gate: gate.key }); continue; }
+    const trustedAncestors = !gate.inRepo && process.platform === 'win32' ? ancestorKeys(gate.key).filter(trustedKey) : [];
+    out.set(p, trustedAncestors.length
+      ? { trusted: true, scope: 'inherited', gate: trustedAncestors[0], trustedAbove: trustedAncestors.length > 1 }
+      : { trusted: own ? false : null, scope, gate: gate.key });
   }
+  return out;
+}
+
+// Map projectPath -> true / false / null, as `describeProjectTrust` answers it.
+function getProjectTrust(projectPaths, configPath = claudeConfigPath(), preloadedCfg = undefined) {
+  const out = new Map();
+  for (const [p, d] of describeProjectTrust(projectPaths, configPath, preloadedCfg)) out.set(p, d.trusted);
   return out;
 }
 
@@ -376,6 +448,7 @@ module.exports = {
   cliDirKey,
   readClaudeConfig,
   getProjectTrust,
+  describeProjectTrust,
   getProjectClaudeMeta,
   setProjectTrust,
   removeProjectEntry,
@@ -386,5 +459,7 @@ module.exports = {
   // Test-only: the drive-letter rule of `cliProjectKey` without a filesystem behind it (#627).
   _keyFromRealPath: keyFromRealPath,
   _gitTrustRoot: gitTrustRoot,
+  _ancestorKeys: ancestorKeys,
+  _resetTrustGateCache: () => _trustGateCache.clear(),
   _WRITE_ATTEMPTS: WRITE_ATTEMPTS,
 };

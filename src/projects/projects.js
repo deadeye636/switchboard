@@ -1182,7 +1182,19 @@ function getProjectsAdmin() {
     // a config once per project just to draw one table. Which backend that is, is not this file's business.
     const allPaths = rows.map(r => r.projectPath);
     const trustOf = new Map();
+    const trustScopeOf = new Map();
     for (const b of trustBackends) {
+      if (typeof b.projectTrust.describeMany === 'function') {
+        try {
+          const described = b.projectTrust.describeMany(allPaths);
+          trustScopeOf.set(b.id, described);
+          // A description carries the answer too, so the config is not parsed a second time for `getMany`.
+          if (described.size) {
+            trustOf.set(b.id, new Map([...described].map(([p, d]) => [p, d.trusted === undefined ? null : d.trusted])));
+            continue;
+          }
+        } catch { /* the plain answer only */ }
+      }
       if (typeof b.projectTrust.getMany !== 'function') continue;
       try { trustOf.set(b.id, b.projectTrust.getMany(allPaths)); } catch { /* fall back to per-row */ }
     }
@@ -1200,6 +1212,16 @@ function getProjectsAdmin() {
           r.trust[b.id] = batch ? (batch.has(r.projectPath) ? batch.get(r.projectPath) : null)
             : b.projectTrust.get(r.projectPath);
         } catch { r.trust[b.id] = null; }
+      }
+      // Per backend, only where a backend describes it: where that answer is kept (#627) — { scope, gate } with
+      // scope 'own', 'shared' or 'inherited'. The manager warns before a toggle that reaches further than the row.
+      r.trustScope = {};
+      for (const b of trustBackends) {
+        const described = trustScopeOf.get(b.id);
+        if (described && described.has(r.projectPath)) {
+          const { scope, gate, trustedAbove } = described.get(r.projectPath);
+          r.trustScope[b.id] = { scope, gate, trustedAbove: !!trustedAbove };
+        }
       }
 
       r.backends = backendsByPath.get(r.projectPath) || [];

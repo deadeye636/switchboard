@@ -124,6 +124,64 @@ test('cliProjectKey on Windows keys a repository subdirectory by the root, in it
   }
 });
 
+test('ancestorKeys: nearest first, up to the drive root, a share root or `/`', () => {
+  const { _ancestorKeys: up } = require('../src/backends/claude/config');
+  assert.deepEqual(up(keyPath('Q', 'a', 'b')), [keyPath('Q', 'a'), keyPath('Q', '')]);
+  assert.deepEqual(up(keyPath('Q', '')), []);
+  assert.deepEqual(up('//host/share/a/b'), ['//host/share/a', '//host/share']);
+  assert.deepEqual(up('//host/share'), []);
+  assert.deepEqual(up('/home/u/p'), ['/home/u', '/home', '/']);
+});
+
+test('describeProjectTrust elsewhere than Windows inherits nothing and keys the path as spelled (#627)', { skip: process.platform === 'win32' }, () => {
+  const { describeProjectTrust } = require('../src/backends/claude/config');
+  const file = makeTempConfig({ projects: { '/home/u': { hasTrustDialogAccepted: true } } });
+  assert.deepEqual(describeProjectTrust(['/home/u/p'], file).get('/home/u/p'), { trusted: null, scope: 'own', gate: '/home/u/p' });
+});
+
+test('describeProjectTrust says when a folder further up is trusted too (#627)', { skip: process.platform !== 'win32' }, () => {
+  const { describeProjectTrust } = require('../src/backends/claude/config');
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-above-')));
+  try {
+    const outer = path.join(base, 'Outer');
+    const inner = path.join(outer, 'Inner');
+    const leaf = path.join(inner, 'Leaf');
+    fs.mkdirSync(leaf, { recursive: true });
+    const file = makeTempConfig({ projects: { [cliProjectKey(outer)]: { hasTrustDialogAccepted: true }, [cliProjectKey(inner)]: { hasTrustDialogAccepted: true } } });
+    assert.deepEqual(describeProjectTrust([leaf], file).get(leaf),
+      { trusted: true, scope: 'inherited', gate: cliProjectKey(inner), trustedAbove: true });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('describeProjectTrust on Windows: an ancestor trusts a plain folder, never a repository; a worktree shares its root (#627)', { skip: process.platform !== 'win32' }, () => {
+  const { describeProjectTrust, _resetTrustGateCache } = require('../src/backends/claude/config');
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-describe-')));
+  try {
+    const parent = path.join(base, 'Parent-F');
+    const child = path.join(parent, 'Child-G');
+    const repo = path.join(parent, 'Repo-I');
+    const deep = path.join(repo, 'Deep-J');
+    fs.mkdirSync(child, { recursive: true });
+    fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+    fs.mkdirSync(deep);
+    _resetTrustGateCache();
+    const k = (p) => cliProjectKey(p);
+    const file = makeTempConfig({ projects: {
+      [k(parent)]: { hasTrustDialogAccepted: true },
+      [k(child)]: { hasTrustDialogAccepted: false },   // the CLI writes this itself, and it does not stop inheritance
+    } });
+    const d = describeProjectTrust([child, repo, deep, parent], file);
+    assert.deepEqual(d.get(child), { trusted: true, scope: 'inherited', gate: k(parent), trustedAbove: false }, 'measured: the child of a trusted folder');
+    assert.deepEqual(d.get(repo), { trusted: null, scope: 'own', gate: k(repo) }, 'measured: a repository inside a trusted folder asks');
+    assert.deepEqual(d.get(deep), { trusted: null, scope: 'shared', gate: k(repo) }, 'measured: so does its subfolder, keyed by the root');
+    assert.deepEqual(d.get(parent), { trusted: true, scope: 'own', gate: k(parent) });
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('inside a git repository trust is keyed by the root, and a worktree by its main repository (#627)', () => {
   const { _gitTrustRoot: rootOf } = require('../src/backends/claude/config');
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-git-'));
@@ -155,12 +213,12 @@ test('inside a git repository trust is keyed by the root, and a worktree by its 
     const bareWt = path.join(base, 'Bare-Wt');
     fs.mkdirSync(bareWt);
     fs.writeFileSync(path.join(bareWt, '.git'), 'gitdir: ' + path.join(bare, 'worktrees', 'bw') + '\n');
-    assert.equal(rootOf(bareWt), bareWt, 'unmeasured: keyed by itself, never by the folder the bare repository sits in');
+    assert.equal(rootOf(bareWt), bare, 'measured: a bare repository\'s worktree is keyed by the bare repository\'s directory');
     // The walk stops at a substitute drive's root: a `subst` over a repository subfolder keys that drive.
     assert.equal(rootOf(path.join(repo, 'Sub', 'Deeper'), path.join(repo, 'Sub')), null);
     // Outside any repository there is no root — unless the temp directory itself sits inside one.
     const outer = rootOf(base);
-    assert.equal(rootOf(plain), outer, 'measured: a plain directory keys itself, and a parent does not count');
+    assert.equal(rootOf(plain), outer, 'measured: a plain directory is in no repository, so it keys itself');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }

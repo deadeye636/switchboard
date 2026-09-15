@@ -279,6 +279,18 @@ const projectTrust = {
   getMany: (projectPaths) => {
     try { return claudeConfig.getProjectTrust(projectPaths); } catch { return new Map(); }
   },
+  // Where each answer comes from, for a manager that has to say more than yes or no (#627): `{ scope, gate }`
+  // per path — 'own', 'shared' (a repository root other checkouts share) or 'inherited' (a trusted ancestor),
+  // and the path that decides. Neutral words, so the renderer can phrase them without knowing whose they are.
+  describeMany: (projectPaths) => {
+    const out = new Map();
+    try {
+      for (const [p, d] of claudeConfig.describeProjectTrust(projectPaths)) {
+        out.set(p, { trusted: d.trusted, scope: d.scope, gate: d.gate, trustedAbove: !!d.trustedAbove });
+      }
+    } catch { /* no description: the manager shows the plain answer */ }
+    return out;
+  },
   set: (projectPath, trusted) => claudeConfig.setProjectTrust(projectPath, trusted),
   // A remap's trust move, which get-then-set cannot do right for Claude (#627): trust is keyed by a repository's
   // ROOT, so two paths in one repository share a gate, and a gate may be shared with every other checkout of a
@@ -290,8 +302,9 @@ const projectTrust = {
     const oldKey = claudeConfig.cliProjectKey(oldPath);
     const newKey = claudeConfig.cliProjectKey(newPath);
     if (oldKey === newKey) return { ok: true, moved: false };
-    const trust = claudeConfig.getProjectTrust([oldPath]);
-    if (trust.get(oldPath) !== true) return { ok: true, moved: false };
+    // Only trust the old path held in its OWN key travels: inherited or shared trust stays where it was given.
+    const was = claudeConfig.describeProjectTrust([oldPath], undefined, undefined, { fresh: true }).get(oldPath);
+    if (!was || was.trusted !== true || was.scope !== 'own') return { ok: true, moved: false };
     if (newKey !== claudeConfig.cliDirKey(newPath)) return { ok: true, moved: false };
     const granted = claudeConfig.setProjectTrust(newPath, true);
     if (granted && granted.error) return granted;

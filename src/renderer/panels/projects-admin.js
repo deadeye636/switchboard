@@ -84,8 +84,12 @@
       const state = row.trust ? row.trust[b.id] : null;
       const cls = state === true ? 'pa-trust-on' : (state === false ? 'pa-trust-off' : 'pa-trust-na');
       const label = state === true ? 'Trusted' : (state === false ? 'Untrusted' : 'Not asked');
+      // Where the answer is kept, when the backend says it is not this row's own (#627).
+      const described = row.trustScope ? row.trustScope[b.id] : null;
+      const where = !described || described.scope === 'own' || !described.gate ? ''
+        : (described.scope === 'inherited' ? ` (through ${described.gate})` : ` (kept for the repository at ${described.gate})`);
       return `<button class="pa-toggle pa-trust-chip ${cls}" data-action="trust" data-backend="${escapeHtml(b.id)}"`
-        + ` title="${escapeHtml(b.label)}: ${label} — click to toggle">${escapeHtml(monogramOf(b.id))}</button>`;
+        + ` title="${escapeHtml(b.label)}: ${label}${escapeHtml(where)} — click to toggle">${escapeHtml(monogramOf(b.id))}</button>`;
     }).join('');
   }
 
@@ -553,19 +557,66 @@
         if (!bid) return;
         const label = labelOf(bid);
         const next = !(row.trust && row.trust[bid] === true);
+        // Where that backend keeps this answer, when it says (#627). 'shared': a repository root every checkout
+        // of it shares — a subdirectory or a worktree row reaches all of them. 'inherited': a trusted folder
+        // above the project decides, and only removing it THERE changes anything.
+        const described = row.trustScope && row.trustScope[bid];
+        const reach = described && described.scope !== 'own' && described.gate ? described : null;
+        let target = path;
         if (next) {
           // Granting trust bypasses that CLI's own security gate — warn first, and name the CLI.
+          const shared = reach && reach.scope === 'shared';
           const ok = await showControlDialog({
             tone: 'danger',
             title: `Grant trust to this project — for ${label}?`,
-            message: `Trusting a project lets ${label} run its tools, hooks and commands without asking. Only do this for code you know and control. It applies to ${label} alone.`,
-            details: [{ label: 'Project', value: shortName(path) }, { label: 'Backend', value: label }],
+            message: `Trusting a project lets ${label} run its tools, hooks and commands without asking. Only do this for code you know and control. It applies to ${label} alone.`
+              + (shared ? ` ${label} keeps this answer for the whole repository, so every checkout of it is trusted too.` : ''),
+            details: [
+              { label: 'Project', value: shortName(path) },
+              { label: 'Backend', value: label },
+              ...(shared ? [{ label: 'Trust kept for', value: reach.gate }] : []),
+            ],
             confirmLabel: 'Grant trust',
             cancelLabel: 'Cancel',
           });
           if (!ok) return;
+        } else {
+          // Removing trust asks nothing for a project whose answer is its own and nobody else's. It asks when the
+          // answer reaches further than this row — kept for a repository, inherited from a folder above — and
+          // when other rows on this list hang off THIS row's answer (a repository root with worktrees, a trusted
+          // parent folder), so both sides of that link warn alike.
+          const ownGate = described && described.scope === 'own' ? described.gate : null;
+          const dependents = ownGate
+            ? data.filter(r => r !== row && r.trustScope && r.trustScope[bid]
+              && r.trustScope[bid].scope !== 'own' && r.trustScope[bid].gate === ownGate
+              && !r.trustScope[bid].trustedAbove).length   // one trusted further up stays trusted anyway
+            : 0;
+          if (reach || dependents) {
+            const inherited = reach && reach.scope === 'inherited';
+            const also = inherited && reach.trustedAbove
+              ? ` A folder further up is trusted as well, so this project stays trusted through that one.` : '';
+            const message = inherited
+              ? `This project is trusted because a folder above it is. Removing trust there makes ${label} ask again in every folder under it.${also}`
+              : reach
+                ? `${label} keeps this answer for the whole repository. Removing it makes ${label} ask again in every checkout of that repository.`
+                : `${dependents} other ${dependents === 1 ? 'project on this list is' : 'projects on this list are'} trusted through this one. Removing it makes ${label} ask again there too.`;
+            const ok = await showControlDialog({
+              tone: 'warning',
+              title: `Remove trust — for ${label}?`,
+              message,
+              details: [
+                { label: 'Project', value: shortName(path) },
+                { label: 'Backend', value: label },
+                ...(reach ? [{ label: inherited ? 'Trusted through' : 'Trust kept for', value: reach.gate }] : []),
+              ],
+              confirmLabel: inherited ? 'Remove trust there' : 'Remove trust',
+              cancelLabel: 'Cancel',
+            });
+            if (!ok) return;
+            if (inherited) target = reach.gate;
+          }
         }
-        const res = await window.api.setProjectTrust(path, bid, next);
+        const res = await window.api.setProjectTrust(target, bid, next);
         if (res && res.error) { toast('Trust: ' + res.error); return; }
       } else if (action === 'hidden') {
         // Hide means hide now (#167). It used to call removeProject, because the two were the same act.
