@@ -75,6 +75,15 @@ const CATALOG = [
     declaredBy: 'resolveLineage',
   },
   {
+    // #620: what decides "handoff recommended". A backend that cannot say how full the window is shows no
+    // session-health badge at all rather than one guessed from turn counts.
+    id: 'contextFill',
+    group: 'sessions',
+    label: 'How full the context window is',
+    description: 'Tell how much of the model\'s context window the last turn used, which is what recommends a handoff.',
+    declaredBy: 'contextWindow',
+  },
+  {
     id: 'modelList',
     group: 'models',
     label: 'Pick a model from a list',

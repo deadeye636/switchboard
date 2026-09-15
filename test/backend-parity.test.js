@@ -276,6 +276,20 @@ test('every backend declares openedWithCommand — a command string or an honest
   }
 });
 
+// #620: how full a session's context window is decides the health badge, and a backend that cannot say
+// shows none. The backend answers from its own store — a reported window, a catalog, a model table — and a
+// backend that cannot read its last turn declines. What no backend may do is invent a window for a row that
+// names no model, or throw on one.
+test('every backend declares contextWindow — a window or an honest null', () => {
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.contextWindow, 'function',
+      `${id} must declare contextWindow (return null if it cannot read the last turn)`);
+    assert.equal(b.contextWindow(null), null, `${id}.contextWindow(null) must be null, not a throw`);
+    assert.equal(b.contextWindow({}), null, `${id}.contextWindow({}) must be null — a row naming no model has no window`);
+  }
+});
+
 // #211: the Projects admin remaps and deletes a project's transcripts, and they do not all live in
 // Claude's store. It used to reconstruct Claude's path inline (resolveJsonlPath(PROJECTS_DIR, row)) — a
 // backend-specific require in the neutral core. Every backend now answers transcriptPathFor(row): a file

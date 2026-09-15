@@ -29,6 +29,7 @@ const { readFolderSessions } = require('./folder-reader');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { projectShortName } = require('../../session/derive-project-path');
 const { changelogSource } = require('./changelog');
+const modelWindows = require('./model-windows');
 
 // Claude's home directory (~/.claude, or the isolated demo/sandbox home) is the PARENT of its projects
 // store root — always. Deriving it from _roots[0] keeps plans + global memory isolated by the same
@@ -401,6 +402,59 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
   return { removed, failed };
 }
 
+// ── The context window a session's last turn ran against (#620) ──────────────────────────────────────
+//
+// The transcript names the model, never the window, and `[1m]` decides it for some models. So the answer
+// combines the stored last turn (`lastModel`, `lastModelSpec`) with every other spec that can say `[1m]`:
+// `ANTHROPIC_MODEL` in the session's environment, then the CLI's settings cascade — project-local, project,
+// user — which is also where the CLI saves a `/model` choice. The table and the precedence live in
+// `model-windows.js`.
+//
+// Asked once per row whenever the sidebar payload is built, so the settings files are cached for a few
+// seconds rather than read per row; a changed file is picked up on the next expiry.
+const SETTINGS_TTL_MS = 5000;
+const _settingsModelCache = new Map();   // file -> { at, model }
+
+function settingsModel(file) {
+  const now = Date.now();
+  const hit = _settingsModelCache.get(file);
+  if (hit && now - hit.at < SETTINGS_TTL_MS) return hit.model;
+  let model = null;
+  try {
+    // A BOM is legal in a file this app itself wrote back (safe-write keeps the one it found).
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) model = parsed.model.trim();
+  } catch { /* absent or unreadable settings say nothing about the model */ }
+  _settingsModelCache.set(file, { at: now, model });
+  return model;
+}
+
+/**
+ * `{ windowTokens, source }` for a stored row, or null when its model has no known window.
+ * `opts.env` is what the launch layers over this process's environment — the user's per-backend variables,
+ * a template's own bundle — and it is LAYERED here too, never a replacement, so a caller that passes only
+ * its additions does not lose an `ANTHROPIC_MODEL` the process carries.
+ */
+function contextWindow(row, opts = {}) {
+  // A row naming no model has no window, and asking the settings files for it would only cost reads.
+  if (!row || (!row.lastModel && !row.lastModelSpec)) return null;
+  const env = { ...process.env, ...((opts && opts.env) || {}) };
+  const specs = [];
+  // A template's value can still be an unresolved `$VAR` reference; that names no model.
+  if (typeof env.ANTHROPIC_MODEL === 'string' && env.ANTHROPIC_MODEL.trim() && !env.ANTHROPIC_MODEL.includes('$')) {
+    specs.push(env.ANTHROPIC_MODEL.trim());
+  }
+  if (row.projectPath) {
+    for (const name of ['settings.local.json', 'settings.json']) {
+      const m = settingsModel(path.join(row.projectPath, '.claude', name));
+      if (m) specs.push(m);
+    }
+  }
+  const user = settingsModel(path.join(claudeHome(), 'settings.json'));
+  if (user) specs.push(user);
+  return modelWindows.resolveClaudeWindow(row, specs);
+}
+
 module.exports = {
   id: 'claude',
   // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
@@ -419,6 +473,8 @@ module.exports = {
   // hands the answer to the renderer, which borrows the continued session's name while it stands; the
   // grammar behind it is Claude's transcript format and does not leave this folder.
   openedWithCommand: (row) => readerOpenedWithCommand(row && row.summary) || null,
+  // Which context window a stored row's last turn ran against (#620) — see `contextWindow` above.
+  contextWindow,
   projectTrust,
   projectMeta,
   rewriteProjectPath,
@@ -796,6 +852,9 @@ description:
     planDirSetting: 'yes',
     plans: 'yes',
     projectConfig: 'yes',
+    // `limited` (#620): the transcript never says `[1m]`, and for a model whose 1M window is opt-in
+    // (Sonnet 4.5/4.6, Opus 4.6) a session with no `[1m]` spec anywhere reads as its base window.
+    contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, ANTHROPIC_MODEL or its settings' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

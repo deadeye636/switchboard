@@ -233,6 +233,13 @@ module.exports = {
   // message in the old one, so there is no command line to mistake for a prompt here. Declines until a
   // real transcript shows one.
   openedWithCommand: () => null,
+  // The context window (#620): Codex reports it itself with every token_count, and the reader stores the
+  // one reported with the same request as the last input (`contextWindowReported`). The CLI's number wins
+  // over any catalog — it read 258 400 for a family a catalog lists at 272 000.
+  contextWindow: (row) => {
+    const w = row && Number(row.contextWindowReported);
+    return w > 0 ? { windowTokens: w, source: 'cli' } : null;
+  },
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Codex keeps no plans store (#227).
@@ -280,6 +287,7 @@ description:
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
+    contextFill: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

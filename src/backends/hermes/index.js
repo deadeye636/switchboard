@@ -265,6 +265,9 @@ module.exports = {
   // A session's opening slash command (#229): Hermes stores messages as SQLite rows, and no measured
   // session opens with command markup in the message text. Declines until one does.
   openedWithCommand: () => null,
+  // How full the context window is (#620): Hermes stores token TOTALS per session, and `messages.token_count`
+  // was empty in every measured row, so the last turn's input is not in its store. Declines.
+  contextWindow: () => null,
   // Hermes sessions are rows in state.db, not files — there is no transcript path (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Hermes keeps no plans store (#227).
@@ -325,6 +328,7 @@ module.exports = {
     stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
+    contextFill: { state: 'no', note: 'its store keeps token totals per session, not what the last turn sent' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',

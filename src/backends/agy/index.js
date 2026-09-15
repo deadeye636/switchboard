@@ -238,6 +238,9 @@ module.exports = {
   // A session's opening slash command (#229): not measured against a real agy conversation, and its
   // transcript is a protobuf blob rather than lines of markup. Declines on purpose.
   openedWithCommand: () => null,
+  // How full the context window is (#620): its per-generation metadata is an unschema'd protobuf blob, so
+  // no token count can be read out of it without a measured field map. Declines.
+  contextWindow: () => null,
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
@@ -281,6 +284,7 @@ module.exports = {
     stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
+    contextFill: { state: 'no', note: 'its generation metadata is a protobuf blob with no readable token counts' },
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
