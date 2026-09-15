@@ -115,6 +115,14 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
    switch another session wrote into the global user settings. Each of those used to read a 1M session
    against 200k. Taking the larger window can only make a badge late, the same trade as rule 4's unknown
    model. The order still breaks a tie, and that is what `source` reports.
+   **A configured alias that names the model only by its family steps aside when a configured spec naming the
+   model by its exact id outranks it** (#621). An alias names a whole family because it can be remapped inside
+   it, so `opus[1m]` as a user default used to count for a session its launch or project settings pinned to
+   `claude-opus-4-6`, although the alias resolves to `claude-opus-5` today. If that session ran at 200k, its
+   fill read against 1M and its badge never showed. Here rank decides, not staleness: the CLI took the pin
+   above the alias. An alias ABOVE the pin still counts, because the CLI applied it, and a turn on the pinned
+   model under it means the alias was remapped there. An alias with no exact spec above it still counts, and a
+   transcript spec pushes no alias aside. Each of those can only make a badge late.
 3. **Floor:** a turn above 200 000 tokens cannot have run in a 200 000 window, so an inferred 200k becomes
    1M. The floor is not applied when the 200k comes from the CLI's own switch: a transcript spec that names
    the model outright, by id or by an alias resolving to exactly that id. A transcript alias that only
@@ -163,6 +171,13 @@ resolving its directory: 18.6 ms with the fill against 9.9 ms without, on the sa
 - **Estimating Hermes' fill from its cumulative totals** (E6). The difference between two readings of the
   session totals averages every API call in between; with several tool calls per turn it reads too low, so
   Hermes gets no fill rather than a wrong one.
+- **Other rules for a family alias** (#621). Counting an alias only for the model it resolves to today
+  breaks the remap it names a family for: a 1M session under `opus[1m]` remapped to `claude-opus-4-6`, with
+  nothing pinned, would read against 200k. Setting an alias aside for an exact spec ANYWHERE, rank ignored,
+  gave two false badges: an alias above the pin that the CLI applied, and a `/model <id>` in the transcript,
+  where the floor does not help either. Reading `ANTHROPIC_DEFAULT_*_MODEL` would answer the remap directly;
+  it stays a known gap below, because the variable can also live in a settings file's `env` block, which
+  the app does not read for `ANTHROPIC_MODEL` either.
 
 ## Known gaps
 
@@ -181,9 +196,11 @@ the failure #620 was filed about, narrowed to these cases:
 - **Configuration is read as it is NOW, not as it was at launch.** Since E12 a bare spec can no longer take
   away a `[1m]` that any other place still names. What is left: when the only `[1m]` was in Claude's user
   settings, which are global, a `/model` switch typed in another session overwrites it for every session;
-  and a stored launch option changed after a session started applies to it too.
-- **`ANTHROPIC_DEFAULT_*_MODEL`** is not read. The family rule covers the measured case (an alias remapped
-  to another model of its family); a remap to another family would not be seen.
+  and a stored launch option changed after a session started applies to it too. That includes a bare pin
+  added above an alias the session really ran under (#621): rule 2 then sets the alias aside, and with a
+  `/model <id>` in the transcript the floor does not apply either, so the false badge is not limited to 160k–200k.
+- **`ANTHROPIC_DEFAULT_*_MODEL`** is not read. The family rule covers a remap to another model of the same
+  family, as long as no exact spec outranks the alias (#621); a remap to another family would not be seen.
 
 The rest err the other way, remove the fill, or are cosmetic:
 
@@ -193,11 +210,9 @@ The rest err the other way, remove the fill, or are cosmetic:
 - **A `[1m]` that no longer applies still counts** (E12). A session launched with `claude-sonnet-4-5[1m]` that
   then typed `/model claude-sonnet-4-5` runs at 200k, but the stored launch option still names the 1M
   variant, so the fill reads against 1M and the badge comes late.
-- **A family alias with `[1m]` widens every model of that family** (E12). An alias names only a family, so
-  `opus[1m]` in the user settings also counts for a session pinned to a bare `claude-opus-4-6`, although the
-  alias itself resolves to `claude-opus-5`, which is 1M anyway. If that session really runs at 200k, its fill
-  reads against 1M, so it never reaches the threshold and the badge never shows. Before E12 the pinned bare
-  spec won when it ranked higher.
+- **A family alias with `[1m]` still counts where no exact spec outranks it** (#621). A `/model claude-opus-4-6`
+  in the transcript beside a launch option `opus[1m]`, or `opus[1m]` ranked above a bare `claude-opus-4-6`,
+  reads a session that runs at 200k against 1M, and the badge comes late or not at all.
 - **The percent is rounded before the compare**, so 79.5 % already counts as 80.
 - **The `/model` picker's transcript form was not measured.** The reader treats any `/model` without an
   argument as clearing the spec.

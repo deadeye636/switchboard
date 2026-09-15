@@ -114,6 +114,15 @@ function windowFor(model, oneM) {
  * larger window can make a badge late, never false — the same trade as an unknown model counting as 1M.
  * Precedence only breaks a tie, which is what `source` reports.
  *
+ * One exception to "every spec naming that model" (#621): a CONFIGURED alias that names the model only by its
+ * family does not count when a configured spec naming the model by its exact id OUTRANKS it. `opus[1m]` as a
+ * user default says nothing about a session pinned to `claude-opus-4-6` by its launch or project settings —
+ * the CLI took the pin, and the alias resolves to `claude-opus-5` today — and counting it hid that session's
+ * badge for good. Rank decides here, not staleness: an alias ABOVE the pin is what the CLI applied, and a turn
+ * on the pinned model under it means the alias was remapped there, so it still counts. So does an alias with
+ * no exact spec above it, and a transcript spec never pushes one aside. Each of those can only make a badge
+ * late, the E12 direction.
+ *
  * Floor: a turn that sent more than 200 000 tokens cannot have run in a 200 000 window — but only where the
  * variant was inferred (a configured spec, the bare model, or a transcript alias matched by family). A
  * transcript spec naming a model by id is the CLI's own switch, and after `/model` to a 200 000 window the
@@ -140,10 +149,13 @@ function resolveClaudeWindow(row, configuredSpecs = []) {
   // Every spec naming that model, highest precedence first. `inferred` is false only for the switch itself.
   const candidates = [];
   if (switched || byFamily) candidates.push({ oneM: spec.oneM, source: 'transcript-spec', inferred: byFamily });
-  for (const raw of configuredSpecs) {
-    const configured = parseSpec(raw);
-    if (namesModel(configured, { model })) candidates.push({ oneM: configured.oneM, source: 'configured-spec', inferred: true });
-  }
+  const configured = configuredSpecs.map(parseSpec).filter((c) => namesModel(c, { model }));
+  // A configured alias matched by family alone steps aside for an exact id that OUTRANKS it (#621).
+  const firstExact = configured.findIndex((c) => c.model === model);
+  configured.forEach((c, rank) => {
+    if (c.model !== model && firstExact !== -1 && firstExact < rank) return;
+    candidates.push({ oneM: c.oneM, source: 'configured-spec', inferred: true });
+  });
   let best = null;
   for (const candidate of candidates) {
     const windowTokens = windowFor(model, candidate.oneM);

@@ -129,9 +129,41 @@ test('E12: a transcript alias matched by family, and a switch before any turn, a
     { windowTokens: 1000000, source: 'configured-spec' });
   assert.deepEqual(windows.resolveClaudeWindow({ lastModelSpec: 'claude-sonnet-4-5' }, ['claude-sonnet-4-5[1m]']),
     { windowTokens: 1000000, source: 'configured-spec' }, 'no turn yet: the switch names the model, the configured [1m] its variant');
-  // Known gap in spec 28: the alias names only its family, so it widens a pinned bare id of that family.
-  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 190000, lastModel: 'claude-opus-4-6' }, ['claude-opus-4-6', 'opus[1m]']),
-    { windowTokens: 1000000, source: 'configured-spec' });
+});
+
+// ── #621: a configured family alias steps aside for an exact id ────────────────────────────────────
+
+test('#621: a configured alias with [1m] does not widen a model an exact spec ABOVE it pins', () => {
+  const row = { lastInputTokens: 190000, lastModel: 'claude-opus-4-6' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['claude-opus-4-6', 'opus[1m]']),
+    { windowTokens: 200000, source: 'configured-spec' }, 'the pin outranks the user default, which only names the family: 95 %');
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 150000, lastModel: 'claude-sonnet-4-6' }, ['claude-sonnet-4-6-20260101', 'sonnet[1m]']),
+    { windowTokens: 200000, source: 'configured-spec' }, 'a dated pin is exact too');
+});
+
+test('#621: an alias above the pin, or a transcript switch beside it, still counts — late, never false', () => {
+  const row = { lastInputTokens: 190000, lastModel: 'claude-opus-4-6' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['opus[1m]', 'claude-opus-4-6']),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'the CLI applied the alias; a turn on 4-6 under it means a remap');
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 300000, lastModel: 'claude-opus-4-6', lastModelSpec: 'claude-opus-4-6' }, ['opus[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'a transcript switch pushes no configured alias aside');
+});
+
+test('#621: an exact [1m] still wins, and with no exact spec the family alias still counts', () => {
+  const row = { lastInputTokens: 190000, lastModel: 'claude-opus-4-6' };
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['opus', 'claude-opus-4-6', 'claude-opus-4-6[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' }, 'E12 among the exact specs');
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['opus[1m]']), { windowTokens: 1000000, source: 'configured-spec' },
+    'an alias remapped inside its family is still believed when nothing pins the model');
+  assert.deepEqual(windows.resolveClaudeWindow(row, ['opus', 'opus[1m]']), { windowTokens: 1000000, source: 'configured-spec' });
+});
+
+test('#621: a transcript alias matched by the turn\'s family always counts, whatever is pinned', () => {
+  assert.deepEqual(windows.resolveClaudeWindow({ lastInputTokens: 190000, lastModel: 'claude-opus-4-6', lastModelSpec: 'opus[1m]' }, ['claude-opus-4-6']),
+    { windowTokens: 1000000, source: 'transcript-spec' });
+  // An alias resolving to exactly the model is an exact name: `sonnet[1m]` for a switch to claude-sonnet-5.
+  assert.deepEqual(windows.resolveClaudeWindow({ lastModelSpec: 'sonnet' }, ['sonnet[1m]']),
+    { windowTokens: 1000000, source: 'transcript-spec' });
 });
 
 test('E12: precedence breaks a tie, and a tie with the switch itself keeps the floor off', () => {
