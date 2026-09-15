@@ -318,6 +318,14 @@
     // #383 pixel Sessions icon (global only). Default OFF, so an unset key must read false — hence
     // `=== true` rather than the `!== false` the default-on toggles above use.
     const pixelSessionIconValue = !isProject ? current.pixelSessionIcon === true : false;
+    // #620 session health (global only): how full the context window must be before a handoff is
+    // recommended (1..100, default 80 — anything else reads as the default, like session-health.js does),
+    // and whether the fill is shown as text in the session row (default ON, so only an explicit false hides it).
+    const contextFillHandoffPercentValue = (() => {
+      const n = Number(current.contextFillHandoffPercent);
+      return !isProject && Number.isFinite(n) && n >= 1 && n <= 100 ? n : 80;
+    })();
+    const showContextFillValue = !isProject ? current.showContextFill !== false : true;
     const subagentLiveStatusValue = !isProject ? current.subagentLiveStatus !== false : true;
     // Subagent sidebar (#231), gated on the capability (#230): the section is hidden entirely when no
     // launchable backend has subagents, so a Codex-only user sees no subagent controls at all.
@@ -854,7 +862,8 @@
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-        pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
+        pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1286,6 +1295,15 @@
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         settings.pixelSessionIcon = !!settingsViewerBody.querySelector('#sv-pixel-session-icon')?.checked;
+        {
+          // #620. The blob is REPLACED on save, so both keys are always written. A number outside 1–100 is
+          // clamped to the nearest bound (the `min`/`max` attributes do not stop typing); only a value that is
+          // not a number at all falls back to the default.
+          const n = parseInt(settingsViewerBody.querySelector('#sv-context-fill-handoff')?.value, 10);
+          settings.contextFillHandoffPercent = Number.isFinite(n) ? Math.max(1, Math.min(100, n)) : 80;
+          const el = settingsViewerBody.querySelector('#sv-show-context-fill');
+          settings.showContextFill = el ? !!el.checked : showContextFillValue;
+        }
         // The subagent controls are absent when the capability gate hid the section (#230/#231). set-setting
         // REPLACES the blob (no merge), so an omitted key is an ERASED key — a bare `if (el)` would reset a
         // stored preference to its default on the next unrelated Save. Write the remembered value when the

@@ -247,6 +247,33 @@ test('a terminal row gets neither the Fork button nor the explanation', () => {
   } finally { destroy(); }
 });
 
+// --- The metrics text follows a badge OR a shown context fill (#620, E10a) ---
+//
+// getSessionHealth and getQuietDetailParts are stubbed here, so what is asserted is the WIRING: what the row
+// asks for. The label order itself is covered in session-card-details.test.js, the rule in session-health.test.js.
+test('the row asks for its metrics with a badge, or with a measured fill that is shown', () => {
+  const FILL = { usedTokens: 400000, windowTokens: 1000000, percent: 40 };
+  const cases = [
+    { name: 'badge, no fill', health: 'marathon-risk', fill: null, shown: true, metrics: true },
+    { name: 'no badge, fill shown', health: 'healthy', fill: FILL, shown: true, metrics: true },
+    { name: 'no badge, fill switched off', health: 'healthy', fill: FILL, shown: false, metrics: false },
+    { name: 'no badge, no fill (a backend that cannot measure it)', health: 'healthy', fill: null, shown: true, metrics: false },
+  ];
+  for (const c of cases) {
+    const s = setup();
+    try {
+      const calls = [];
+      s.window.getSessionHealth = () => ({ className: 'health-x', label: 'X', state: c.health, reasons: [] });
+      s.window.getQuietDetailParts = (args) => { calls.push(args); return []; };
+      s.window.contextFillShown = () => c.shown;
+      s.build({ ...SESSION, contextFill: c.fill });
+      assert.equal(calls.length, 1, c.name);
+      assert.equal(calls[0].includeMetrics, c.metrics, `${c.name}: includeMetrics`);
+      assert.equal(calls[0].showContextFill, c.shown, `${c.name}: the setting is passed through`);
+    } finally { s.destroy(); }
+  }
+});
+
 // A lineage ancestor renders as a SECOND row for a session that may already have one elsewhere (#288).
 // Two elements carrying `si-<id>` is a duplicate DOM id, and morphdom keys its node matching on exactly
 // that — so the copy must stay anonymous while keeping the data attribute the click routing reads.

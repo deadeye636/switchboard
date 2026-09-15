@@ -249,13 +249,16 @@ function buildSessionItem(session, opts = {}) {
     detailEl.appendChild(stagedChip);
   }
 
+  const showContextFill = typeof contextFillShown === 'function' ? contextFillShown() : true;
   const quietParts = getQuietDetailParts({
     timeLabel: timeStr,
     session,
-    // The metrics ride along with a badge, and with a measured context fill (#620, E10a): the fill text is
-    // one of those metrics, and a session at 40 % has no badge to bring it. A backend that cannot measure
-    // the fill shows neither — no numbers, no hint.
-    includeMetrics: health.state !== 'healthy' || !!session.contextFill,
+    // The metrics ride along with a badge, and with a measured context fill that is shown (#620, E10a): the
+    // fill text is one of those metrics, and a session at 40 % has no badge to bring it. With the fill text
+    // switched off the row is back to "metrics with a badge". A backend that cannot measure the fill shows
+    // neither — no numbers, no hint.
+    includeMetrics: health.state !== 'healthy' || (showContextFill && !!session.contextFill),
+    showContextFill,
   });
   const worktreeLabel = getWorktreeLabel(session);
   if (worktreeLabel) quietParts.push(worktreeLabel);

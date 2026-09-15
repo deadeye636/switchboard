@@ -51,20 +51,33 @@
     return label ? `Worktree ${label}` : '';
   }
 
-  function getSessionMetricLabels(session = {}) {
+  // How full the context window was on the last turn, as its own label (#620): "62 % context". Empty when
+  // the backend could not measure it — the payload then carries no `contextFill`, and a guessed number is
+  // exactly what this feature exists to remove.
+  function contextFillLabel(session = {}) {
+    const fill = session.contextFill;
+    if (!fill || !(numberValue(fill.windowTokens) > 0)) return '';
+    return `${Math.round(numberValue(fill.percent))} % context`;
+  }
+
+  // `showContextFill` is the global setting (default on), passed in by the caller: this file reads no
+  // settings of its own. The fill goes right before the active time, where the owner asked for it.
+  function getSessionMetricLabels(session = {}, { showContextFill = false } = {}) {
     const parts = [];
     if (numberValue(session.userMessageCount)) parts.push(`${formatCompact(session.userMessageCount)} turns`);
     if (numberValue(session.cacheReadTokens)) parts.push(`${formatCompact(session.cacheReadTokens)} cache`);
+    const fill = showContextFill ? contextFillLabel(session) : '';
+    if (fill) parts.push(fill);
     const duration = formatDuration(session.activeMinutes);
     if (duration) parts.push(`${duration} active`);
     return parts;
   }
 
-  function getQuietDetailParts({ timeLabel, session = {}, includeMetrics = false } = {}) {
+  function getQuietDetailParts({ timeLabel, session = {}, includeMetrics = false, showContextFill = false } = {}) {
     const parts = [];
     if (timeLabel) parts.push(String(timeLabel));
     if (numberValue(session.messageCount)) parts.push(`${formatCompact(session.messageCount)} msgs`);
-    if (includeMetrics) parts.push(...getSessionMetricLabels(session));
+    if (includeMetrics) parts.push(...getSessionMetricLabels(session, { showContextFill }));
     return parts;
   }
 
@@ -89,6 +102,7 @@
 
   return {
     getWorktreeLabel,
+    contextFillLabel,
     getSessionMetricLabels,
     getQuietDetailParts,
     getMetricTrafficLevel,

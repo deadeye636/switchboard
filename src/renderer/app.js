@@ -351,6 +351,11 @@ function sessionHealthOptions() {
   return { handoffPercent: appGlobalSettings && appGlobalSettings.contextFillHandoffPercent };
 }
 
+// Whether a session row shows its context fill as text (#620, E4). Default ON: only an explicit false hides it.
+function contextFillShown() {
+  return !(appGlobalSettings && appGlobalSettings.showContextFill === false);
+}
+
 let nextAttentionBinding =
   typeof DEFAULT_NEXT_ATTENTION_BINDING !== 'undefined'
     ? DEFAULT_NEXT_ATTENTION_BINDING
@@ -2230,6 +2235,11 @@ async function reapplyGlobalSettings() {
   vcsChipEnabled = g.vcsChipEnabled !== false;
   vcsShowBadge = g.vcsShowBadge === true;
   refreshSidebar?.();
+  // #620: the handoff threshold and the fill text judge grid cards too. The sidebar rebuilds above; a grid
+  // card only re-reads its health on a status update, which could be 30 s away in an idle window.
+  if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof updateGridCardStatuses === 'function') {
+    updateGridCardStatuses();
+  }
 }
 
 // --- Grid view toggle button (next to resort button in sidebar filters) ---

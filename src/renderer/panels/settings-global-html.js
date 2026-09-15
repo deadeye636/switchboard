@@ -56,7 +56,8 @@
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-      pixelSessionIconValue, projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
+      pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -873,6 +874,30 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-pixel-session-icon" ${pixelSessionIconValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="settings-subhead">Session health</div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Recommend a handoff at context fill (%)</span>${help}</div>
+                    <div class="settings-description">A session shows "Handoff Recommended" once its last turn used this much of the model's context window.</div>
+                    <div class="settings-more">The fill is measured for Claude, Codex and Pi. Hermes and agy record no per-turn context, so their sessions show no health badge at all. Long sessions below the threshold can still show "Marathon Risk" or "Growing".</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-context-fill-handoff" min="1" max="100" value="${contextFillHandoffPercentValue}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Show context fill</span>${help}</div>
+                    <div class="settings-description">Show how full the context window is in the session row, before the active time.</div>
+                    <div class="settings-more">For example "62 % context · 4h active". Only sessions whose backend measures the fill show it.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-show-context-fill" ${showContextFillValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
               </div>

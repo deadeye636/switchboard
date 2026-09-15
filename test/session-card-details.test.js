@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const {
   getWorktreeLabel,
+  contextFillLabel,
   getSessionMetricLabels,
   getQuietDetailParts,
   getMetricTrafficLevel,
@@ -51,6 +52,33 @@ test('getQuietDetailParts combines activity, messages, and metrics as quiet text
     ['2m ago', '15 msgs', '42 turns', '1.8M cache', '5h active'],
   );
   assert.deepEqual(getQuietDetailParts({ timeLabel: 'just now', session: {}, includeMetrics: false }), ['just now']);
+});
+
+// #620: the context fill is shown as text, right before the active time, when the global setting is on.
+const WITH_FILL = {
+  messageCount: 15,
+  userMessageCount: 42,
+  cacheReadTokens: 1_800_000,
+  activeMinutes: 240,
+  contextFill: { usedTokens: 620000, windowTokens: 1_000_000, percent: 62 },
+};
+
+test('the context fill sits right before the active time when it is shown', () => {
+  assert.deepEqual(getSessionMetricLabels(WITH_FILL, { showContextFill: true }), ['42 turns', '1.8M cache', '62 % context', '4h active']);
+  assert.deepEqual(
+    getQuietDetailParts({ timeLabel: '2m ago', session: WITH_FILL, includeMetrics: true, showContextFill: true }),
+    ['2m ago', '15 msgs', '42 turns', '1.8M cache', '62 % context', '4h active'],
+  );
+});
+
+test('the context fill is left out when switched off, or when the backend measured none', () => {
+  assert.deepEqual(getSessionMetricLabels(WITH_FILL, { showContextFill: false }), ['42 turns', '1.8M cache', '4h active']);
+  assert.deepEqual(getSessionMetricLabels(WITH_FILL), ['42 turns', '1.8M cache', '4h active'], 'off unless the caller says on');
+  const unmeasured = { ...WITH_FILL, contextFill: null };
+  assert.deepEqual(getSessionMetricLabels(unmeasured, { showContextFill: true }), ['42 turns', '1.8M cache', '4h active']);
+  assert.equal(contextFillLabel({ contextFill: { usedTokens: 5, windowTokens: 0, percent: 0 } }), '', 'no window, no number');
+  assert.equal(contextFillLabel({ contextFill: { usedTokens: 240000, windowTokens: 200000, percent: 120 } }), '120 % context',
+    'a fill past the window after a switch to a smaller one is shown as it is');
 });
 
 test('getMetricTrafficLevel grades individual metrics independently', () => {

@@ -262,6 +262,8 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
 | `pixelSessionIcon` | Pixel session icon — *Sidebar* | bool | `false` | global |
+| `contextFillHandoffPercent` | Recommend a handoff at context fill (%) — *Session health* | 1–100 | `80` | global |
+| `showContextFill` | Show context fill — *Session health* | bool | `true` | global |
 | `showSubagents` | Show subagents | bool | `true` | global — hidden unless a backend declares `supportsSubagents` |
 | `subagentLiveStatus` | Subagent live status | bool | `true` | global |
 | `subagentLayout` | Subagent row layout | `a` \| `b` \| `c` | `a` | global |
@@ -287,6 +289,16 @@ working and types on a laptop while at least one session is. "Working" is the `b
 terminal sitting at a prompt does not count — over every session the window knows, not only the ones
 open in a tab. It deliberately keeps animating under `prefers-reduced-motion`; the setting is the way
 out. Off by default, and while it is off the pixel element is never built.
+
+`contextFillHandoffPercent` decides "Handoff Recommended" (#620). The badge comes from how full the model's
+context window was on the session's last turn, measured against that model's window; the older
+thresholds (turns, entries, active time, cache reads, largest prompt) raise "Marathon Risk" at most. A
+backend that cannot measure the fill (Hermes and agy today) shows no health badge at all. The settings
+screen clamps what is typed to 1–100; a stored value that is not a number in that range reads as `80`.
+`showContextFill` shows the fill as text before the active time ("62 % context · 4h active"); with it off,
+a session row shows its metrics only alongside a badge, as it did before. The threshold applies live to
+the sidebar and to grid cards; the fill text appears in the sidebar only, because grid cards draw no
+metrics.
 
 `orphanSubagentMaxAgeDays` applies to the "Orphan subagents" group only — a subagent whose parent
 session is gone from the project. Subagents nested under a parent that is merely filtered out are not
