@@ -415,7 +415,7 @@ take over by hiding `#terminal-area`; panes mode keeps that area alive on purpos
 Projects and Variables sat behind the tree for exactly that reason while Activity worked — the only
 difference was being in the table. A new main-area viewer must be added to it.
 
-Four consequences that are easy to break:
+Consequences that are easy to break:
 
 - **`views/panes-view.js` parks every hosted element at home before it rebuilds** `#terminals`.
   Anything still inside the old pane DOM is destroyed by `replaceChildren` — and these are singletons,
@@ -428,6 +428,13 @@ Four consequences that are easy to break:
 - **Only a USER close may run a route.** The `MutationObserver` also fires when the app hides a
   surface to show another one; answering that with the app's close route undoes the switch — clicking
   Projects then Variables left the sidebar on `sessions` with no tab. Hence `closeTheView`.
+- **A shown viewer always comes to the front, even when it already has a tab** (#618). Re-opening one
+  queues a `none` → `flex` pair (`hideAllViewers()`, then its own show), and the callback reads the style
+  the element has NOW, so the pair reads as visible. Gated on "has no tab yet", the click did nothing. The
+  observer answers once per kind, closes before opens, and `openViewTab` focuses an existing tab in the
+  pane the user put it in. **This relies on only a user action writing an inline `display` on a watched
+  host** — a background refresh that did would pull focus away mid-typing. A tab that is not on top is
+  hidden with the `pane-hosted-hidden` class, not with an inline `display`.
 - **A second window shares this origin.** A detached window (#2) must not write the layout, the
   open-sessions restore state, or `gridViewActive` — see `docs/specs/17-detached-windows.md` §4.
 
