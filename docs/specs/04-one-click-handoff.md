@@ -26,6 +26,14 @@
 >
 > Paths spelled `public/…` below predate #214 and are a record of the ground this was designed against;
 > that tree is `src/renderer/` now.
+>
+> **What raises "Handoff Recommended" changed in #620.** It was two crossed length thresholds (turns,
+> entries, active time, cache reads, largest prompt); it is the context fill now — the last turn's input
+> against the model's window, at a global threshold — and a backend that cannot measure the fill shows no
+> badge. The line numbers quoted below for the thresholds no longer apply. `docs/specs/28-session-health.md`
+> is that record. As built, the health reasons appear in the dialog's MESSAGE ("This session is becoming
+> expensive: …"), not as detail rows as step 1 below proposed; the details carry a "Recommendation" row only
+> for a session whose context fill could be measured.
 
 ## Problem & goal
 

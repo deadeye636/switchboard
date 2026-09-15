@@ -55,9 +55,10 @@ so the keys that answer a permission dialog still answer it. The session's row s
 says when something you left in that prompt line is holding it up — send that line and the staged prompt
 follows as its own turn.
 
-**It notices when a session is getting expensive.** Each one is rated Healthy → Growing → Marathon
-Risk → Handoff Recommended from turns, transcript size, active time and cache reads. When it is time,
-a guided handoff asks the agent for a context packet, starts a fresh lean session with it, and
+**It notices when a session's context is filling up.** For Claude, Codex and Pi it measures how much of
+the model's context window the last turn used, shows it in the row ("62 % context"), and recommends a
+handoff from 80 % (adjustable). Long sessions below that are marked Growing or Marathon Risk. When it is
+time, a guided handoff asks the agent for a context packet, starts a fresh lean session with it, and
 switches over.
 
 **Projects are a list you control.** Add them by hand or automatically, hide them, rename them, tag
@@ -110,7 +111,7 @@ chart rather than a row of zeroes.
 - **Usage in the tray** — an optional second tray icon showing one backend's worst usage window as a
   ring or a badge, fixed or rotating through the backends the status bar shows. Off by default, and it
   polls nothing of its own
-- **Session health & handoff** — flags long/expensive sessions; one-click fresh start with a context
+- **Session health & handoff** — flags sessions whose context window is filling up; one-click fresh start with a context
   packet; packets are markdown files in the project, so they are editable, greppable and travel with it.
   A picker hands one to the session you are already in, and writing one is a keyboard route out of that
   session rather than a trip to the sidebar

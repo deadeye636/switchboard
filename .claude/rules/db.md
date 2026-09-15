@@ -103,6 +103,19 @@ apart, and it sat broken from #193 to #224 because nothing pointed at it.
 without this a metrics schema change lands in an empty table and stays there. **Do not add a metrics
 field without bumping.**
 
+**Bump EVERY parser that writes the field, in the same change as the column** (#620 added the last-turn
+columns and bumped Claude, Codex and Pi together). A parser that is missed leaves its finished sessions
+without the field for good. Bumping before the column exists is the other mistake: it re-reads every session
+for a value nothing stores, and the storage step then has to force a second full re-read.
+
+## `projects-view.js` asks descriptor hooks once per ROW
+
+`openedWithCommand` and `contextWindow` run for every session of every sidebar payload, so their per-call
+cost is multiplied by the session count. The first `contextWindow` spread `process.env` per call: 299 ms
+against 10 ms for 2 000 rows. Anything a hook needs from settings or the environment is read once per
+BUILD here and handed in (`backendEnv` resolved per backend, launch options memoised per project owner);
+a hook that reads files caches them. Time a new per-row hook over a few thousand fake rows before trusting it.
+
 ## Which database
 
 `npm start` (dev) → `~/.switchboard-dev/switchboard.db`. Installed app → `~/.switchboard/switchboard.db`.

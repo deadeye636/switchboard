@@ -411,7 +411,7 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 // `/model` choice. The table and the precedence live in `model-windows.js`.
 //
 // Asked once per row whenever the sidebar payload is built, so what the settings cascade says is cached for a
-// few seconds rather than read per row \u2014 keyed per PROJECT plus the user file, because a sidebar holds many
+// few seconds rather than read per row — keyed per PROJECT plus the user file, because a sidebar holds many
 // rows per project and even three path joins per row add up. A changed file is picked up within one TTL of
 // the read that last saw it.
 const SETTINGS_TTL_MS = 5000;
@@ -465,7 +465,7 @@ function contextWindow(row, opts = {}) {
   if (!row || (!row.lastModel && !row.lastModelSpec)) return null;
   // The one variable this reads, taken from the caller's layer first and the process's second. NOT by
   // spreading `process.env`: that object enumerates slowly, and this runs once per row of every sidebar
-  // payload — measured at 300 ms against 7 ms for 2 000 rows when it was spread.
+  // payload — measured at 299 ms against 10 ms for 2 000 rows when it was spread.
   const callerEnv = (opts && opts.env) || {};
   const envModel = Object.prototype.hasOwnProperty.call(callerEnv, 'ANTHROPIC_MODEL')
     ? callerEnv.ANTHROPIC_MODEL : process.env.ANTHROPIC_MODEL;
@@ -882,7 +882,7 @@ description:
     projectConfig: 'yes',
     // `limited` (#620): the transcript never says `[1m]`, and for a model whose 1M window is opt-in
     // (Sonnet 4.5/4.6, Opus 4.6) a session with no `[1m]` spec anywhere reads as its base window.
-    contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, ANTHROPIC_MODEL or its settings' },
+    contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

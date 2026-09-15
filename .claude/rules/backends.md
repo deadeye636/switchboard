@@ -53,7 +53,11 @@ list of pages, and a CLI without a public changelog declares `null`), what a ses
 still all it has said (`openedWithCommand`, #229 — a `/clear` re-keys onto a session whose transcript is
 one line of the CLI's own command markup, and the row it replaces would be titled after the command that
 ended its predecessor; the renderer names such a row after the session it continues and holds no grammar
-of its own), whether it still **owes a turn** it has
+of its own), which **context window** a stored row's last turn ran against (`contextWindow`, #620 — Codex
+reports it, Pi reads its own catalog, Claude resolves `[1m]` from a `/model` spec, the stored launch model,
+`ANTHROPIC_MODEL` and its settings files against a MEASURED table; the core must ask with the user's
+per-backend variables and stored launch options, or a 1M session reads as 200k and raises a false handoff
+badge; Hermes and agy decline and therefore show no health badge — Spec 28), whether it still **owes a turn** it has
 not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
 the core must not believe; Claude reads it out of its own transcript, Pi is told by its binding extension
 and remembers it (#530), and a backend that cannot tell answers `null`, which is **not** the same as

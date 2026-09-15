@@ -100,10 +100,16 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 ### Session health + handoff packets
 `src/renderer/session/session-health.js`
 
-- A health model: **Healthy → Growing → Marathon Risk → Handoff Recommended**,
-  computed from user-turn count, total entries, active time, cache-read tokens,
-  and largest single prompt.
-- Shows *why* a session is flagged (the crossed thresholds) on the health chip.
+- A health model: **Healthy → Growing → Marathon Risk → Handoff Recommended**.
+  Handoff Recommended comes from the **context fill**: the last turn's input
+  against the window of the model it ran on, at a global threshold (default
+  80 %). User turns, entries, active time, cache reads and the largest prompt
+  raise Marathon Risk at most (#620, `docs/specs/28-session-health.md`).
+- The fill is measured for Claude, Codex and Pi and shown as text in the row
+  ("62 % context · 4h active", switchable); Hermes and agy cannot measure it
+  and show no health badge.
+- Shows *why* a session is flagged (the fill first, then the crossed thresholds)
+  in the handoff dialog.
 - `buildHandoffTemplate()` / `buildHandoffRequestPrompt()` generate a structured
   handoff packet so a long/expensive session can be continued cheaply in a fresh
   one. (Wired into one-click handoff — see Wave 2.)
@@ -119,7 +125,7 @@ extracts it into tested pure modules and builds a full supervision UI on top.
 ### Session card details / traffic-light metrics
 `src/renderer/session/session-card-details.js`
 
-- Compact per-session metric labels (turns, cache, active time, message count)
+- Compact per-session metric labels (turns, cache, context fill (#620), active time, message count)
   with **green/amber/red** traffic-light levels for each metric and for
   last-activity age — so an at-risk session reads at a glance.
 - Worktree label extraction for a session working in one — all three conventional layouts and either

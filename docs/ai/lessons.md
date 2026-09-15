@@ -1143,3 +1143,27 @@ through" signal was taken from was wrong three times, and every version was gree
 
 The suite grew by ~40 tests across those rounds and not one of them could see any of it. What found all
 three was the same five minutes in the demo: type into a live session, stage a prompt, watch the row.
+
+## A sum that looked like a measure, and a spread that looked like nothing (#620)
+
+**A total is not a level.** The health badge used cache-read tokens summed over the session as a sign that
+the context was getting large. Every turn re-sends the whole cached context, so the sum grows by the
+window's contents on each turn: on a 1M model it crossed its threshold while the window was 76 % free.
+How full the window is comes from the LAST request's input divided by that model's window. Even "the last
+request" had a trap: Codex reports an input of 0 right after a compaction.
+
+**The window was guessed in three places before it was measured.** The transcript does not carry Claude's
+`[1m]` variant, a catalog (Pi's) gave the `[1m]` value for models whose bare spec runs at 200k, and "new
+models are all 1M" was true for the 5 line and false for Opus 4.6. Two minutes of `claude -p --model <spec>
+--output-format json` per model, reading `modelUsage.contextWindow`, settled every one.
+
+**A hook asked per row pays per row.** The first version of the Claude hook built its environment with
+`{ ...process.env, ...opts.env }`. `process.env` enumerates slowly, and the sidebar payload asks the hook
+once per session: 299 ms for 2 000 rows against 10 ms without it. Nothing in the suite times a payload; a
+throwaway benchmark over fake rows found it before the demo would have. Read the one variable you need.
+
+**And the verifier found the false badge three more times.** The hook was right; what it was ASKED with was not.
+First the user's per-backend variables (an `ANTHROPIC_MODEL=…[1m]` set in Switchboard), then the same
+variables written as `$VAR` references the spawn resolves, then the stored launch `model` option. In each
+case the launched CLI knew it ran at 1M while the view asked about 200k. A question asked with different
+inputs than the thing it describes was given is the same defect as measuring the wrong layer.

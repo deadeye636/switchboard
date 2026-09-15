@@ -621,6 +621,54 @@ cost of agy exposing no stable quota command or local quota file for machine con
 
 ---
 
+## How full the context window is (#620)
+
+What each store says about the LAST turn's input and the window it ran against. Measured on real installs
+and, for Claude, with `claude -p --output-format json` in an isolated home (CLI 2.1.270). The design record
+is `docs/specs/28-session-health.md`.
+
+**Claude.**
+- Every assistant entry carries `message.usage`, and the context that turn sent is
+  `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`. `message.model` is the canonical
+  id, sometimes date-suffixed (`claude-opus-4-5-20251101`), and **never** carries the `[1m]` variant.
+- A `<synthetic>` model marks a CLI-side message, not an API call.
+- The variant appears only as a `modelUsage` key (`claude-opus-5[1m]`) in `cost-state` entries, which the CLI
+  writes at session END — 15 of 153 measured transcripts had none, including every running one.
+- A `/model <spec>` switch is a user entry of command markup with `<command-args>`, followed by a
+  `<local-command-stdout>` entry ("Set model to … and saved as your default for new sessions"). The CLI saves
+  that choice into the user settings as `model`.
+- After an auto-compaction (`system` / `compact_boundary`, `compactMetadata.preTokens`) the next turn's input
+  drops (966 912 → 77 995 measured).
+- The status-line input carries `context_window.{context_window_size, used_percentage}`. Hooks
+  (`UserPromptSubmit`, `Stop`) carry neither the model nor the window. The app reads neither.
+- **The window is not in the store**; the table the app uses is in `src/backends/claude/model-windows.js`,
+  with how it was measured.
+
+**Codex.**
+- Every `event_msg` / `token_count` carries `info.last_token_usage.input_tokens` (the cached part is a subset
+  of it, not added) and `info.model_context_window` (258 400 measured).
+- The first `token_count` after a compaction reports `input_tokens: 0`, and the real figure follows. The
+  model is the latest `turn_context.model`.
+
+**Pi.**
+- Every assistant message carries `provider`, `model` and `usage` (`input`, `cacheRead`, `cacheWrite`). The
+  context sent is their sum.
+- A `compaction` entry carries its own `usage`, which is the summarising call over the pre-compaction
+  context, not a turn. An aborted turn can carry an all-zero usage.
+- The window is in Pi's catalog: `<agent dir>/models-store.json` (`{<provider>: {models: [{id, contextWindow}]}}`)
+  and the user's `models.json` (`{providers: {…}}`).
+
+**Hermes.**
+- `sessions` holds token TOTALS (`input_tokens`, `cache_read_tokens`, …) and `session_model_usage` per model;
+  `messages.token_count` was null in every sampled row, so the last turn's input is not recoverable.
+- Windows exist in `context_length_cache.yaml` and `models_dev_cache.json`, unused for that reason.
+
+**agy.**
+- `gen_metadata` has one row per generation, but its `data` is an unschema'd protobuf blob with no readable
+  token field.
+
+---
+
 ## What each CLI lets the app edit and create (#441)
 
 Declared on the descriptor (`resourceEditing`, `resourceScaffolds`), because the layouts differ and the

@@ -608,6 +608,27 @@ one in the patch, is the #229 trap wearing a different hat — it agrees today a
 Report structural change (a thing that has to appear or disappear) back to the caller and let it rebuild.
 The remaining cost of a full render is #516.
 
+## Session health is a field the core measured, and the callers pass the threshold (#620)
+
+`getSessionHealth(session, options)` decides the badge from `session.contextFill`, which
+`src/index/projects-view.js` stamps from each backend's `contextWindow` answer. Three things about it are
+decisions, and each is easy to undo while "tidying":
+
+- **No `contextFill` means no badge at all** — not Growing, not Marathon Risk. The old length thresholds on
+  their own were exactly what flagged a session with three quarters of its window free, so a backend that
+  cannot measure the fill (Hermes, agy) must not fall back to them. The handoff dialog likewise leaves out
+  its "Recommendation" row for such a session rather than calling it Healthy.
+- **The threshold is passed in, never read here.** `session-health.js` is also loaded by `settings.html`,
+  which has no `appGlobalSettings`, so a global read there fails `test/renderer-no-undef.test.js`.
+  `session-card-details.js` is a UMD module the tests load without app.js, so it takes the fill-text toggle
+  as an argument too. `sessionHealthOptions()` and `contextFillShown()` in `app.js` are the one reader each;
+  every caller (sidebar row, grid card twice, handoff dialog) passes them.
+- **A row's metrics text follows the badge OR a shown fill.** The fill text ("62 % context") is one of those
+  metrics, so gating them on the badge alone would hide the fill for exactly the sessions that are fine.
+
+A setting change reaches the sidebar through `reapplyGlobalSettings`'s `refreshSidebar()`; the grid is
+updated there too, because a card only re-reads its health on a status update. Spec 28 has the rest.
+
 ## The session timeline is READ here, never written (#396)
 
 `session/session-timeline.js` is a read-through **cache** of what the main process holds, not a record.
