@@ -59,6 +59,12 @@ function createParseState() {
     reasoningTokens: 0,
     totalTokens: 0,
     contextWindow: 0,
+    // The context the LAST request sent, and the model current when it was reported (#620). Codex's
+    // `input_tokens` already includes the cached part (`cached_input_tokens` is a subset of it). A report
+    // whose input is zero is skipped: the first `token_count` after a compaction carries 0 and the real
+    // figure follows (measured), so taking it would read a full window as an empty one.
+    lastInputTokens: 0,
+    lastModel: null,
     // rollout tail state for busy/idle (deriveState reads these)
     lastTaskEvent: null, // 'task_started' | one of state.js's TURN_END_EVENTS | null
 
@@ -228,6 +234,12 @@ function applyEntry(st, entry) {
           };
         }
         if (typeof info.model_context_window === 'number') st.contextWindow = info.model_context_window;
+        const last = info.last_token_usage;
+        const lastInput = last && typeof last === 'object' ? Number(last.input_tokens || 0) : 0;
+        if (lastInput > 0) {
+          st.lastInputTokens = lastInput;
+          st.lastModel = st.model;
+        }
       } else if (isTurnEvent(payload.type)) {
         // Busy/idle signal for deriveState (rollout tail). Which events those are is state.js's to say —
         // this used to spell them out, and that is how `turn_aborted` got past it (#511).
@@ -332,6 +344,9 @@ function buildRow(st, filePath, opts = {}) {
     reasoningTokens: st.reasoningTokens,
     totalTokens: st.totalTokens,
     contextWindow: st.contextWindow,
+    // The last request's context and the model it ran on (#620).
+    lastInputTokens: st.lastInputTokens || 0,
+    lastModel: st.lastModel || null,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(st.dailyMetrics),
   };

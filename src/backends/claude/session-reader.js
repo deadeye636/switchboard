@@ -269,7 +269,48 @@ function createParseState() {
     // (#157). Tracked in the parse, so it costs no extra read, and it keeps working on the incremental
     // path: the appended lines are the newest ones.
     lastCwd: null,
+    // The context the LAST turn sent, and the model it ran on (#620). Not a sum: every turn re-sends the
+    // whole cached context, so the totals above grow by the window's contents on each turn and say nothing
+    // about how full the window is. A record whose input is zero is skipped — measured on Codex and Pi
+    // after a compaction and on an aborted turn — or one empty record would read as an empty window.
+    lastInputTokens: 0,
+    lastModel: null,
+    // The argument of the last `/model <spec>` the user typed (#620). `message.model` never carries the
+    // `[1m]` variant, and whether a model runs at 200k or 1M can depend on it; the argument does carry it.
+    // A `/model` WITHOUT an argument opens a picker whose choice this transcript does not spell out, so it
+    // CLEARS the value: an older argument would otherwise outlive the switch and still claim `[1m]` for a
+    // model the user just picked without it. The CLI saves the picker's choice into its settings, which is
+    // where the window is asked once this is null.
+    lastModelSpec: null,
   };
+}
+
+// The model a transcript can name without a real API call behind it — a CLI-side message, not a turn.
+const SYNTHETIC_MODEL = '<synthetic>';
+
+/** What a turn's usage says it SENT: fresh input plus both halves of the prompt cache. */
+function turnInputTokens(usage) {
+  if (!usage || typeof usage !== 'object') return 0;
+  return Number(usage.input_tokens || 0)
+    + Number(usage.cache_read_input_tokens || 0)
+    + Number(usage.cache_creation_input_tokens || 0);
+}
+
+/**
+ * What a `/model` message says about the spec: the argument, '' for `/model` with no argument (the picker),
+ * or null when the message is not a bare `/model` command at all — prose beside the markup makes it a
+ * prompt, and an argument with whitespace in it is not a model spec.
+ */
+function modelCommandSpec(text) {
+  const named = COMMAND_NAME.exec(String(text || ''));
+  if (!named || named[1].trim().replace(/^\//, '') !== 'model') return null;
+  // Markup only. The stdout tags go too, the way `commandOnlyText` strips them, in case a CLI writes the
+  // command and its output into one message.
+  const rest = String(text).replace(COMMAND_TAGS, ' ').replace(STDOUT_TAGS, ' ').replace(/\s+/g, ' ').trim();
+  if (rest) return null;
+  const args = COMMAND_ARGS.exec(String(text));
+  const spec = args ? args[1].trim() : '';
+  return /\s/.test(spec) ? null : spec;
 }
 
 /** Fold one raw JSONL line into the parse state. Malformed lines are skipped:
@@ -300,6 +341,13 @@ function applyEntryLine(st, line) {
   }
   addUsageTotals(st.usageTotals, entry.usage);
   addUsageTotals(st.usageTotals, entry.message?.usage);
+  if (entry.type === 'assistant' && entry.message && entry.message.model !== SYNTHETIC_MODEL) {
+    const input = turnInputTokens(entry.message.usage);
+    if (input > 0) {
+      st.lastInputTokens = input;
+      st.lastModel = entry.message.model || null;
+    }
+  }
   if (entry.type === 'user' || entry.type === 'assistant' ||
       (entry.type === 'message' && (entry.role === 'user' || entry.role === 'assistant'))) {
     st.messageCount++;
@@ -309,6 +357,8 @@ function applyEntryLine(st, line) {
   if (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user')) {
     st.userMessageCount++;
     st.largestUserPromptWords = Math.max(st.largestUserPromptWords, countWords(text));
+    const spec = modelCommandSpec(text);
+    if (spec !== null) st.lastModelSpec = spec || null;
   }
   if (!st.summary && (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user'))) {
     // Skip local command messages (! prefix) — use the next real user message
@@ -399,6 +449,10 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     largestUserPromptWords: st.largestUserPromptWords,
     startedAt: st.startedAt, lastEntryAt: st.lastEntryAt, activeMinutes,
     ...st.usageTotals,
+    // The last turn's context and the model it ran on (#620).
+    lastInputTokens: st.lastInputTokens || 0,
+    lastModel: st.lastModel || null,
+    lastModelSpec: st.lastModelSpec || null,
     // Fork lineage (#193): expose the RAW origin id. The Claude descriptor's resolveLineage turns it into
     // lineageParentId/lineageKind at the neutral sink — the parser does not stamp the shared field itself.
     // `parentSessionId` stays for Claude SUBAGENTS only.

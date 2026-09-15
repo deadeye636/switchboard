@@ -60,6 +60,13 @@ function createParseState() {
     // Busy/idle input (state.js): the last assistant turn's stopReason. Pi emits no OSC and its
     // lifecycle events live only in --mode json, which excludes the TUI (T-6.3).
     lastStopReason: null,
+    // The context the LAST assistant turn on the visible branch sent, and the provider and model it ran on
+    // (#620). Only an assistant message counts: a compaction entry carries the usage of the summarising
+    // call, whose input is the whole context BEFORE the compaction. A zero-input record is skipped — Pi
+    // wrote one on an aborted turn (measured) — so it cannot read as an empty window.
+    lastInputTokens: 0,
+    lastModel: null,
+    lastProvider: null,
     // Raw entries after the session header. Pi JSONL is a TREE, not an append-only linear chat: the last
     // appended entry is the current leaf, and the visible conversation is the parent walk back to root.
     // Keep the parsed entries so buildRow can reconstruct that active branch (and incremental parsing can
@@ -370,6 +377,15 @@ function applyMessageToVisible(st, entry) {
     const bucket = at.date ? metricBucket(st, at, m.model || st.model) : null;
     if (bucket) bucket.messageCount++;
     applyUsageTotals(st, m.usage, bucket);
+    const u = m.usage;
+    const input = u && typeof u === 'object'
+      ? Number(u.input || 0) + Number(u.cacheRead || 0) + Number(u.cacheWrite || 0)
+      : 0;
+    if (input > 0) {
+      st.lastInputTokens = input;
+      st.lastModel = (typeof m.model === 'string' && m.model) || st.model || null;
+      st.lastProvider = (typeof m.provider === 'string' && m.provider) || st.provider || null;
+    }
     st.lastRole = 'assistant';
     return;
   }
@@ -426,6 +442,10 @@ function buildRow(st, filePath, opts = {}) {
     costStatus: visible.hasCost ? 'estimated' : null,
     // Busy/idle input for state.js.
     lastStopReason: visible.lastStopReason,
+    // The last turn's context and where it ran (#620); a window is looked up for exactly this pair.
+    lastInputTokens: visible.lastInputTokens || 0,
+    lastModel: visible.lastModel || null,
+    lastProvider: visible.lastProvider || null,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(visible.dailyMetrics),
   };
