@@ -32,9 +32,11 @@ function readJson(file) {
 }
 
 function catalog() {
-  const dir = trust.agentDir();
   const now = Date.now();
-  if (_cache && _cache.dir === dir && now - _cache.at < TTL_MS) return _cache.windows;
+  // The TTL is checked BEFORE the agent directory is resolved: resolving it reads env variables and joins
+  // paths, and this runs once per row. A changed directory is noticed on the next expiry (tests reset).
+  if (_cache && now - _cache.at < TTL_MS) return _cache.windows;
+  const dir = trust.agentDir();
   const windows = new Map();
   const store = readJson(path.join(dir, 'models-store.json'));
   if (store && typeof store === 'object') {

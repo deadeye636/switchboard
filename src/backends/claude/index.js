@@ -410,23 +410,48 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 // user — which is also where the CLI saves a `/model` choice. The table and the precedence live in
 // `model-windows.js`.
 //
-// Asked once per row whenever the sidebar payload is built, so the settings files are cached for a few
-// seconds rather than read per row; a changed file is picked up on the next expiry.
+// Asked once per row whenever the sidebar payload is built, so what the settings cascade says is cached for a
+// few seconds rather than read per row \u2014 keyed per PROJECT plus the user file, because a sidebar holds many
+// rows per project and even three path joins per row add up. A changed file is picked up within one TTL of
+// the read that last saw it.
 const SETTINGS_TTL_MS = 5000;
 const _settingsModelCache = new Map();   // file -> { at, model }
+const _projectSpecsCache = new Map();    // projectPath|home -> { at, specs }
 
-function settingsModel(file) {
-  const now = Date.now();
+/** `{ model, at }` for one settings file — `at` is when that answer was READ, which a memo must not outlive. */
+function settingsModel(file, now) {
   const hit = _settingsModelCache.get(file);
-  if (hit && now - hit.at < SETTINGS_TTL_MS) return hit.model;
+  if (hit && now - hit.at < SETTINGS_TTL_MS) return hit;
   let model = null;
   try {
     // A BOM is legal in a file this app itself wrote back (safe-write keeps the one it found).
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) model = parsed.model.trim();
   } catch { /* absent or unreadable settings say nothing about the model */ }
-  _settingsModelCache.set(file, { at: now, model });
-  return model;
+  const entry = { model, at: now };
+  _settingsModelCache.set(file, entry);
+  return entry;
+}
+
+/**
+ * The settings cascade's model specs for a project, highest precedence first: local, project, user.
+ * The memo is dated by its OLDEST file answer, not by when it was assembled, so no project keeps a
+ * user-file value longer than one TTL after it was read, and two projects cannot disagree about it for long.
+ */
+function settingsSpecs(projectPath) {
+  const now = Date.now();
+  const home = claudeHome();
+  const key = (projectPath || '') + '\u0000' + home;
+  const hit = _projectSpecsCache.get(key);
+  if (hit && now - hit.at < SETTINGS_TTL_MS) return hit.specs;
+  const files = projectPath
+    ? [path.join(projectPath, '.claude', 'settings.local.json'), path.join(projectPath, '.claude', 'settings.json')]
+    : [];
+  files.push(path.join(home, 'settings.json'));
+  const answers = files.map((file) => settingsModel(file, now));
+  const specs = answers.map((a) => a.model).filter(Boolean);
+  _projectSpecsCache.set(key, { at: Math.min(...answers.map((a) => a.at)), specs });
+  return specs;
 }
 
 /**
@@ -438,20 +463,17 @@ function settingsModel(file) {
 function contextWindow(row, opts = {}) {
   // A row naming no model has no window, and asking the settings files for it would only cost reads.
   if (!row || (!row.lastModel && !row.lastModelSpec)) return null;
-  const env = { ...process.env, ...((opts && opts.env) || {}) };
-  const specs = [];
+  // The one variable this reads, taken from the caller's layer first and the process's second. NOT by
+  // spreading `process.env`: that object enumerates slowly, and this runs once per row of every sidebar
+  // payload — measured at 300 ms against 7 ms for 2 000 rows when it was spread.
+  const callerEnv = (opts && opts.env) || {};
+  const envModel = Object.prototype.hasOwnProperty.call(callerEnv, 'ANTHROPIC_MODEL')
+    ? callerEnv.ANTHROPIC_MODEL : process.env.ANTHROPIC_MODEL;
+  const configured = settingsSpecs(row.projectPath);
   // A template's value can still be an unresolved `$VAR` reference; that names no model.
-  if (typeof env.ANTHROPIC_MODEL === 'string' && env.ANTHROPIC_MODEL.trim() && !env.ANTHROPIC_MODEL.includes('$')) {
-    specs.push(env.ANTHROPIC_MODEL.trim());
-  }
-  if (row.projectPath) {
-    for (const name of ['settings.local.json', 'settings.json']) {
-      const m = settingsModel(path.join(row.projectPath, '.claude', name));
-      if (m) specs.push(m);
-    }
-  }
-  const user = settingsModel(path.join(claudeHome(), 'settings.json'));
-  if (user) specs.push(user);
+  const specs = (typeof envModel === 'string' && envModel.trim() && !envModel.includes('$'))
+    ? [envModel.trim(), ...configured]
+    : configured;
   return modelWindows.resolveClaudeWindow(row, specs);
 }
 

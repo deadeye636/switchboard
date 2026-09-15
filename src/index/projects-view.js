@@ -14,6 +14,8 @@ const registry = require('../projects/project-registry');
 // with (#229). Neutral by construction — the core never reads a transcript format, it asks and passes
 // the answer on.
 const backends = require('../backends');
+// `$VAR` references in the user's per-backend variables, resolved the way the spawn resolves them (#620).
+const { resolveEnv } = require('../backends/env-refs');
 // A row with no explicit backendId predates the multi-LLM era and is Claude by definition — the same
 // named default `index-writes.js` uses to route a row to its descriptor.
 const LEGACY_SESSION_BACKEND = 'claude';
@@ -31,6 +33,7 @@ let getAllMeta, getAllCached, getAllFolderMeta, setFolderMeta;
 // and the reconcile stamps the real path in folder_meta the moment the folder holds a parseable session.
 const _headlessFolders = new Set();
 let getFavoritedProjects, getProjectDisplayNames, getProjectStates;
+let getSetting;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -42,6 +45,7 @@ function init(ctx) {
   getFavoritedProjects = ctx.db.getFavoritedProjects;
   getProjectDisplayNames = ctx.db.getProjectDisplayNames;
   getProjectStates = ctx.db.getProjectStates;
+  getSetting = ctx.db.getSetting;
 }
 
 // The later of two timestamps, either of which may be absent. Compared as dates rather than strings
@@ -65,6 +69,37 @@ function commandOpenerFor(row) {
   const backend = backends.get(row.backendId || LEGACY_SESSION_BACKEND);
   if (!backend || typeof backend.openedWithCommand !== 'function') return null;
   try { return backend.openedWithCommand(row) || null; } catch { return null; }
+}
+
+/**
+ * How full a session's context window was on its last turn, as its own backend measures it — or null (#620).
+ *
+ * The backend answers the window (`contextWindow`); this file only divides. Null is the common answer and a
+ * meaningful one: a backend that cannot read its last turn (Hermes, agy), a model it has no window for, a
+ * subagent row (the badge belongs to the session), and a session whose last turn sent nothing yet — a
+ * `/model` typed before the first prompt has a window and no fill, which is not the same as 0 %.
+ *
+ * `envFor(key)` is the user's per-backend variables from the global settings, resolved once per build. The hook
+ * is asked with them because the launch applies them too (`src/app/terminal/spawn.js`): an
+ * `ANTHROPIC_MODEL=…[1m]` set in Switchboard is what made that session 1M, and asking without it would read
+ * a 1M session against 200k — a false "handoff recommended". A template's variables are its BASE's key,
+ * the same lookup the spawn makes; the template descriptor layers its own bundle on top itself.
+ *
+ * `percent` is NOT capped: after a `/model` switch to a smaller window the fill can pass 100 %, exactly as
+ * the CLI's own status line shows it, and whoever draws or judges it decides what that means.
+ */
+function contextFillFor(row, envFor) {
+  if (!row || row.parentSessionId) return null;
+  const usedTokens = Number(row.lastInputTokens) || 0;
+  if (usedTokens <= 0) return null;
+  const backend = backends.get(row.backendId || LEGACY_SESSION_BACKEND);
+  if (!backend || typeof backend.contextWindow !== 'function') return null;
+  const envKey = backend.isProfile ? (backend.baseId || LEGACY_SESSION_BACKEND) : backend.id;
+  let answer;
+  try { answer = backend.contextWindow(row, { env: envFor(envKey) }); } catch { return null; }
+  const windowTokens = answer ? Number(answer.windowTokens) : 0;
+  if (!(windowTokens > 0)) return null;
+  return { usedTokens, windowTokens, percent: Math.round((usedTokens / windowTokens) * 100) };
 }
 
 function newerOf(a, b) {
@@ -136,6 +171,19 @@ function buildProjectsFromCache(showArchived) {
   // resolve to the same projectPath, so we merge them into a single sidebar group to avoid duplicate-id
   // collisions in the morphdom render. Only insert a project entry once we have a session that survives
   // the archive filter.
+  // The user's per-backend variables, read once per build and resolved once per backend rather than once per
+  // row (#620, see contextFillFor). Resolved like the spawn resolves them: a `$VAR` that names a set variable
+  // becomes its value, one that does not is DROPPED — so the process's own variable shows through, exactly
+  // as it does for the launched CLI. Resolved against this process's environment only; a reference to one of
+  // Switchboard's saved variables is not followed here.
+  const globalSettings = typeof getSetting === 'function' ? getSetting('global') : null;
+  const backendEnvs = (globalSettings && typeof globalSettings === 'object' && globalSettings.backendEnv) || {};
+  const resolvedEnvs = new Map();
+  const envFor = (key) => {
+    if (!resolvedEnvs.has(key)) resolvedEnvs.set(key, resolveEnv(backendEnvs[key] || {}));
+    return resolvedEnvs.get(key);
+  };
+
   const knownIds = new Set();
   const shownIds = new Set();
   for (const row of cachedRows) {
@@ -210,6 +258,9 @@ function buildProjectsFromCache(showArchived) {
       // it reads this string and nothing else. Null for every backend that records no such thing, and
       // for every session that has a prompt of its own.
       openedWithCommand: commandOpenerFor(row),
+      // How full the context window was on the last turn (#620): `{ usedTokens, windowTokens, percent }`
+      // or null. The backend measures, the core divides, the renderer reads a field.
+      contextFill: contextFillFor(row, envFor),
       // Which tool this session was imported from, as a label (#552). Null for everything nobody
       // imported, which is nearly every row. It rides to the sidebar because the same work can be in the
       // list twice — once from the tool's own store, once from the store it was imported into — and this

@@ -233,10 +233,11 @@ function profileToDescriptor(p) {
     openedWithCommand: base ? base.openedWithCommand : undefined,
     // The context window (#620) is the base's answer over the base's rows — with ONE difference a template
     // brings: its own env. A template that sets `ANTHROPIC_MODEL` launches its sessions on that model, so
-    // its bundle is layered over whatever the caller passes, in the order the launch applies them; the base
+    // its bundle is layered over whatever the caller passes, in the order the launch applies them, and its
+    // `$VAR` references are resolved the way the spawn resolves them (an unset one is dropped). The base
     // layers the result over this process's environment itself.
     ...(base && typeof base.contextWindow === 'function'
-      ? { contextWindow: (row, opts = {}) => base.contextWindow(row, { ...opts, env: { ...((opts && opts.env) || {}), ...(p.env || {}) } }) }
+      ? { contextWindow: (row, opts = {}) => base.contextWindow(row, { ...opts, env: p.env ? { ...((opts && opts.env) || {}), ...require('./env-refs').resolveEnv(p.env) } : ((opts && opts.env) || {}) }) }
       : {}),
     // A template's rows are the base's rows in the base's store, so the transcript path and the
     // per-project config/meta are the base's too (#211) — forward both, exactly like rewriteProjectPath
