@@ -395,9 +395,10 @@ test('readMessages returns only real turns, and never throws on a missing sessio
   }
 });
 
-test('a Hermes session reports its user-message count (the handoff nudge depends on it)', () => {
-  // It used to be hardcoded to 0, so session-health could never recommend a handoff for Hermes — the one
-  // backend whose handoff support the readMessages hook was built for.
+test('a Hermes session reports its user-message count', () => {
+  // It used to be hardcoded to 0. The count feeds the session metrics and the handoff prompt's "session
+  // shape"; it no longer decides a health badge — since #620 that comes from the context fill, which
+  // Hermes' store cannot give, so a Hermes session shows none.
   useFixture();
   const row = reader.parseSession({ kind: 'db', sessionId: 'sess-cli-1' });
   assert.ok(row.userMessageCount >= 1, 'counted from the messages table, not assumed');

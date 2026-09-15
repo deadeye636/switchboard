@@ -367,9 +367,9 @@ function parseSession(handle) {
       lastEntryAt,
       activeMinutes,
       messageCount: Number(s.message_count || 0),
-      // Hermes has no user-message column, but the rows are right there. It used to be hardcoded to 0,
-      // which meant the "handoff recommended" nudge (session-health.js needs > 1) could never fire for
-      // the one backend whose handoff support this all exists for.
+      // Hermes has no user-message column, but the rows are right there. It used to be hardcoded to 0.
+      // It feeds the session metrics and the handoff prompt; since #620 it decides no health badge — that
+      // comes from the context fill, which this store cannot give.
       userMessageCount: countUserMessages(db, handle.sessionId),
       largestUserPromptWords: 0,
       slug: null, customTitle: null, aiTitle: null,

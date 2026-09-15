@@ -344,6 +344,13 @@ window._applyTerminalTheme = (themeName) => {
 // Cached copy of the global settings blob, kept in sync with the settings panel.
 // Used for the attention alert sound and the next-attention hotkey binding.
 let appGlobalSettings = {};
+
+// What every caller of `getSessionHealth` passes (#620): the global handoff threshold. One reader of the
+// setting, so the sidebar row, the grid card and the handoff dialog cannot judge one session differently.
+function sessionHealthOptions() {
+  return { handoffPercent: appGlobalSettings && appGlobalSettings.contextFillHandoffPercent };
+}
+
 let nextAttentionBinding =
   typeof DEFAULT_NEXT_ATTENTION_BINDING !== 'undefined'
     ? DEFAULT_NEXT_ATTENTION_BINDING

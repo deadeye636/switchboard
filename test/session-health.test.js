@@ -68,20 +68,24 @@ test('getSessionHealth ignores plain terminal sessions', () => {
   assert.deepEqual(result.reasons, []);
 });
 
-test('getSessionHealth recommends handoff when multiple risk thresholds are crossed', () => {
-  const result = getSessionHealth({
-    sessionId: 'long-session',
-    userMessageCount: 32,
-    messageCount: 320,
-    activeMinutes: 260,
-    cacheReadTokens: 25_000_000,
-    largestUserPromptWords: 2500,
-  });
+// #620: the badge follows how full the context window is. A long session is not, by itself, a reason to
+// hand over — one with 76 % of its window free was flagged by the old two-thresholds rule.
+const fill = (percent, windowTokens = 1_000_000) => ({
+  usedTokens: Math.round((percent / 100) * windowTokens), windowTokens, percent,
+});
+const LONG_SESSION = {
+  userMessageCount: 32,
+  messageCount: 320,
+  activeMinutes: 260,
+  cacheReadTokens: 25_000_000,
+  largestUserPromptWords: 2500,
+};
 
-  assert.equal(result.state, 'handoff-recommended');
-  assert.equal(result.label, 'Handoff Recommended');
+test('every old threshold crossed but a window three quarters free is Marathon Risk at most, never a handoff', () => {
+  const result = getSessionHealth({ sessionId: 'long-session', ...LONG_SESSION, contextFill: fill(24) });
+
+  assert.equal(result.state, 'marathon-risk');
   assert.equal(result.shouldWarn, true);
-  assert.equal(result.tier, 'strong');
   assert.deepEqual(result.reasons.map(reason => reason.key), [
     'user-turns',
     'entries',
@@ -91,42 +95,45 @@ test('getSessionHealth recommends handoff when multiple risk thresholds are cros
   ]);
 });
 
-test('getSessionHealth does not recommend handoff for a single user prompt', () => {
-  const result = getSessionHealth({
-    sessionId: 'single-prompt-long-run',
-    userMessageCount: 1,
-    messageCount: 360,
-    activeMinutes: 300,
-    cacheReadTokens: 25_000_000,
-    largestUserPromptWords: 2500,
-  });
-
-  assert.equal(result.state, 'marathon-risk');
-  assert.equal(result.shouldWarn, true);
-  assert.deepEqual(result.reasons.map(reason => reason.key), [
-    'entries',
-    'active-time',
-    'cache-read',
-    'big-paste',
-  ]);
-});
-
-test('getSessionHealth still recommends handoff for multi-turn risky sessions below the user-turn threshold', () => {
-  const result = getSessionHealth({
-    sessionId: 'multi-turn-risky-run',
-    userMessageCount: 2,
-    messageCount: 360,
-    activeMinutes: 300,
-    cacheReadTokens: 25_000_000,
-  });
+test('a fill at the threshold recommends a handoff, and says so first among the reasons', () => {
+  const result = getSessionHealth({ sessionId: 'full', ...LONG_SESSION, contextFill: fill(80) });
 
   assert.equal(result.state, 'handoff-recommended');
-  assert.equal(result.shouldWarn, true);
-  assert.deepEqual(result.reasons.map(reason => reason.key), [
-    'entries',
-    'active-time',
-    'cache-read',
-  ]);
+  assert.equal(result.label, 'Handoff Recommended');
+  assert.equal(result.tier, 'strong');
+  assert.equal(result.reasons[0].key, 'context-fill');
+  assert.equal(result.reasons[0].label, '80 % of the context window used');
+  assert.equal(result.reasons.length, 6, 'the old reasons still come along as evidence');
+});
+
+test('the fill alone decides a handoff — no minimum number of turns, no other threshold needed', () => {
+  const result = getSessionHealth({ sessionId: 'one-big-prompt', userMessageCount: 1, contextFill: fill(91, 200_000) });
+  assert.equal(result.state, 'handoff-recommended');
+  assert.deepEqual(result.reasons.map(reason => reason.key), ['context-fill']);
+});
+
+test('the threshold is the caller\'s setting, and an invalid one falls back to 80', () => {
+  const session = { sessionId: 's', contextFill: fill(70) };
+  assert.equal(getSessionHealth(session).state, 'healthy', 'default 80: 70 % is below it');
+  assert.equal(getSessionHealth(session, { handoffPercent: 70 }).state, 'handoff-recommended');
+  assert.equal(getSessionHealth(session, { handoffPercent: 0 }).state, 'healthy', 'out of range means the default');
+  assert.equal(getSessionHealth(session, { handoffPercent: 'abc' }).state, 'healthy');
+  assert.equal(getSessionHealth({ sessionId: 's', contextFill: fill(120, 200_000) }).state, 'handoff-recommended',
+    'a fill past the window (after a switch to a smaller one) is past the threshold too');
+});
+
+test('a session whose backend cannot measure the fill gets no badge at all, whatever its old metrics say (E7)', () => {
+  for (const contextFill of [undefined, null, { usedTokens: 5, windowTokens: 0, percent: 0 }]) {
+    const result = getSessionHealth({ sessionId: 'hermes-like', ...LONG_SESSION, contextFill });
+    assert.equal(result.state, 'healthy');
+    assert.equal(result.shouldWarn, false);
+    assert.deepEqual(result.reasons, []);
+  }
+});
+
+test('Growing still comes from the old thresholds for a session that has a fill', () => {
+  const result = getSessionHealth({ sessionId: 'growing', userMessageCount: 22, contextFill: fill(10) });
+  assert.equal(result.state, 'growing');
 });
 
 test('buildHandoffTemplate produces a copyable markdown packet from local facts', () => {

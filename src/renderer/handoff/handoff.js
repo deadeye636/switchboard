@@ -15,7 +15,7 @@
 //   focusedActionSession, sessionMap, openSessions (app.js) at call time.
 
 async function showHandoffPrompt(session) {
-  const health = getSessionHealth(session);
+  const health = getSessionHealth(session, typeof sessionHealthOptions === 'function' ? sessionHealthOptions() : undefined);
   const canAskRunningSession = activePtyIds.has(session.sessionId) && session.type !== 'terminal';
   const project = findProjectForSession(session);
 
@@ -53,7 +53,9 @@ A handoff is a packet that summarises the actual state of the work, written by a
     details: {
       Session: cleanDisplayName(session.name || session.aiTitle || session.summary) || session.sessionId,
       Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
-      Recommendation: health.label,
+      // Only where the health could be measured (#620, E11a). A session whose backend reports no context
+      // fill is not "Healthy" — nobody knows — so the row is left out rather than asserting it.
+      ...(session.contextFill ? { Recommendation: health.label } : {}),
       [actions.producers[0] ? actions.producers[0].label : '']: actions.producers[0] ? actions.producers[0].detail : '',
       [actions.producers[1] ? actions.producers[1].label : '']: actions.producers[1] ? actions.producers[1].detail : '',
     },

@@ -57,7 +57,7 @@ function buildSessionItem(session, opts = {}) {
   const timeStr = formatDate(modified);
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary);
   const status = getSessionStatus(session, getSessionRuntimeState());
-  const health = getSessionHealth(session);
+  const health = getSessionHealth(session, typeof sessionHealthOptions === 'function' ? sessionHealthOptions() : undefined);
   item.classList.add(status.className);
   item.classList.add(health.className);
 
@@ -252,7 +252,10 @@ function buildSessionItem(session, opts = {}) {
   const quietParts = getQuietDetailParts({
     timeLabel: timeStr,
     session,
-    includeMetrics: health.state !== 'healthy',
+    // The metrics ride along with a badge, and with a measured context fill (#620, E10a): the fill text is
+    // one of those metrics, and a session at 40 % has no badge to bring it. A backend that cannot measure
+    // the fill shows neither — no numbers, no hint.
+    includeMetrics: health.state !== 'healthy' || !!session.contextFill,
   });
   const worktreeLabel = getWorktreeLabel(session);
   if (worktreeLabel) quietParts.push(worktreeLabel);

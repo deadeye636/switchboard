@@ -100,14 +100,44 @@
     return checks.filter(check => check.crossed).map(({ key, label }) => ({ key, label }));
   }
 
-  function getSessionHealth(session = {}) {
+  // How full the context window has to be before a handoff is recommended (#620, E1). A GLOBAL setting,
+  // `contextFillHandoffPercent`; anything that is not a percentage in 1..100 falls back to the default.
+  const DEFAULT_CONTEXT_FILL_HANDOFF_PERCENT = 80;
+
+  // The threshold comes in from the CALLER (`sessionHealthOptions()` in app.js reads the setting): this file
+  // is also loaded by settings.html, which has no app settings in scope, so it reads no global of its own.
+  function handoffPercent(options) {
+    const n = Number(options && options.handoffPercent);
+    return Number.isFinite(n) && n >= 1 && n <= 100 ? n : DEFAULT_CONTEXT_FILL_HANDOFF_PERCENT;
+  }
+
+  /**
+   * The health badge of a session (#620).
+   *
+   *   - A session whose backend cannot say how full its context window is gets NO badge (E7): the old
+   *     thresholds alone are exactly what flagged a session with three quarters of its window free.
+   *   - Handoff Recommended comes from the fill alone: the last turn's input against the model's window,
+   *     at or above the global threshold (E1). No minimum number of turns — the fill measures the thing
+   *     a turn count stood in for.
+   *   - The old thresholds stay, and on their own they raise Marathon Risk at most (E2); Growing is unchanged.
+   *
+   * `options.handoffPercent` is the global setting, passed in by the caller; absent or invalid means the default.
+   */
+  function getSessionHealth(session = {}, options = {}) {
     if (session.type === 'terminal') {
+      return { ...HEALTH_STATES.healthy, reasons: [] };
+    }
+    const fill = session.contextFill;
+    if (!fill || !(numberValue(fill.windowTokens) > 0)) {
       return { ...HEALTH_STATES.healthy, reasons: [] };
     }
 
     const reasons = healthReasons(session);
-    const hasEnoughUserTurnsForHandoff = numberValue(session.userMessageCount) > 1;
-    if (hasEnoughUserTurnsForHandoff && reasons.length >= 2) return { ...HEALTH_STATES.handoffRecommended, reasons };
+    const percent = numberValue(fill.percent);
+    if (percent >= handoffPercent(options)) {
+      const fillReason = { key: 'context-fill', label: `${Math.round(percent)} % of the context window used` };
+      return { ...HEALTH_STATES.handoffRecommended, reasons: [fillReason, ...reasons] };
+    }
     if (reasons.length >= 1) return { ...HEALTH_STATES.marathonRisk, reasons };
 
     const growing = (
@@ -384,6 +414,7 @@ Known local context from Switchboard:
 
   return {
     HEALTH_THRESHOLDS,
+    DEFAULT_CONTEXT_FILL_HANDOFF_PERCENT,
     getSessionHealth,
     buildHandoffTemplate,
     buildHandoffRequestPrompt,

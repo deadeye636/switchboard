@@ -83,6 +83,22 @@ function getGridAllowedSessionIds() {
 // The filter chips and the bulk action bar moved to views/grid-bulk-actions.js (#218). The state they
 // read (gridStatusFilter and the three accessors above) stays here: this file owns it, they render it.
 
+// The card's health chip — built in one place because two paths create it: the card build, and the status
+// update for a card built before its session had a badge (#620). The click asks for the session as the
+// sidebar holds it NOW, not the object the chip happened to be created with.
+function createGridHealthChip(sessionId, session, health) {
+  const healthChip = document.createElement('button');
+  healthChip.type = 'button';
+  healthChip.className = `grid-card-health-chip ${health.className}`;
+  healthChip.textContent = health.label;
+  healthChip.title = 'Create handoff';
+  healthChip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    showHandoffPrompt(sessionMap.get(sessionId) || session);
+  });
+  return healthChip;
+}
+
 function wrapInGridCard(sessionId, parent, layout) {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId) || (entry && entry.session);
@@ -92,7 +108,7 @@ function wrapInGridCard(sessionId, parent, layout) {
   const displayName = cleanDisplayName(session.name || session.aiTitle || session.summary) || sessionId;
   const shortProject = session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '';
   const status = getSessionStatus(session, getGridRuntimeState());
-  const health = getSessionHealth(session);
+  const health = getSessionHealth(session, typeof sessionHealthOptions === 'function' ? sessionHealthOptions() : undefined);
 
   // Create card wrapper
   const card = document.createElement('div');
@@ -128,18 +144,7 @@ function wrapInGridCard(sessionId, parent, layout) {
   statusChip.className = `grid-card-status-chip ${status.className}`;
   statusChip.textContent = status.label;
   header.appendChild(statusChip);
-  if (health.state !== 'healthy') {
-    const healthChip = document.createElement('button');
-    healthChip.type = 'button';
-    healthChip.className = `grid-card-health-chip ${health.className}`;
-    healthChip.textContent = health.label;
-    healthChip.title = 'Create handoff';
-    healthChip.addEventListener('click', (e) => {
-      e.stopPropagation();
-      showHandoffPrompt(session);
-    });
-    header.appendChild(healthChip);
-  }
+  if (health.state !== 'healthy') header.appendChild(createGridHealthChip(sessionId, session, health));
   const project = document.createElement('span');
   project.className = 'grid-card-project';
   project.textContent = shortProject;
@@ -464,7 +469,7 @@ function updateGridCardStatuses() {
       continue;
     }
     const status = getSessionStatus(session, runtime);
-    const health = getSessionHealth(session);
+    const health = getSessionHealth(session, typeof sessionHealthOptions === 'function' ? sessionHealthOptions() : undefined);
     // Keep the card title in sync with the live session metadata (user renames,
     // AI titles, /title). Title updates arrive via loadProjects() without a full
     // grid rebuild, so refresh the name in place here rather than leaving it stale.
@@ -496,6 +501,11 @@ function updateGridCardStatuses() {
       healthChip.className = `grid-card-health-chip ${health.className}`;
       healthChip.textContent = health.label;
       healthChip.style.display = health.state === 'healthy' ? 'none' : '';
+    } else if (health.state !== 'healthy' && chip) {
+      // A card built while its session was healthy has no chip to update, and the grid only rebuilds when
+      // its SET of sessions changes — so a running session crossing the handoff threshold, or a lowered
+      // threshold, used to tint the card and never show the chip (#620). Create it where the build puts it.
+      chip.insertAdjacentElement('afterend', createGridHealthChip(sid, session, health));
     }
     const footer = card.querySelector('.grid-card-footer');
     if (footer && footer.children[0]) footer.children[0].textContent = status.label;
