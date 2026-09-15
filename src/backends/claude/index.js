@@ -406,9 +406,9 @@ function deleteSessions(filePaths, { projectsDir } = {}) {
 //
 // The transcript names the model, never the window, and `[1m]` decides it for some models. So the answer
 // combines the stored last turn (`lastModel`, `lastModelSpec`) with every other spec that can say `[1m]`:
-// `ANTHROPIC_MODEL` in the session's environment, then the CLI's settings cascade — project-local, project,
-// user — which is also where the CLI saves a `/model` choice. The table and the precedence live in
-// `model-windows.js`.
+// the stored launch `model` option (passed as `--model`), `ANTHROPIC_MODEL` in the session's environment,
+// then the CLI's settings cascade — project-local, project, user — which is also where the CLI saves a
+// `/model` choice. The table and the precedence live in `model-windows.js`.
 //
 // Asked once per row whenever the sidebar payload is built, so what the settings cascade says is cached for a
 // few seconds rather than read per row \u2014 keyed per PROJECT plus the user file, because a sidebar holds many
@@ -470,10 +470,16 @@ function contextWindow(row, opts = {}) {
   const envModel = Object.prototype.hasOwnProperty.call(callerEnv, 'ANTHROPIC_MODEL')
     ? callerEnv.ANTHROPIC_MODEL : process.env.ANTHROPIC_MODEL;
   const configured = settingsSpecs(row.projectPath);
-  // A template's value can still be an unresolved `$VAR` reference; that names no model.
-  const specs = (typeof envModel === 'string' && envModel.trim() && !envModel.includes('$'))
-    ? [envModel.trim(), ...configured]
-    : configured;
+  // Highest precedence first, the CLI's own order: the `--model` a launch passes (`opts.launchOptions.model`,
+  // the stored default for this backend/template in this project — #620, O5), then ANTHROPIC_MODEL, then
+  // the settings files. A value that still holds a `$VAR` reference names no model.
+  const usable = (v) => typeof v === 'string' && v.trim() && !v.includes('$');
+  const launchModel = opts && opts.launchOptions && opts.launchOptions.model;
+  const specs = [
+    ...(usable(launchModel) ? [launchModel.trim()] : []),
+    ...(usable(envModel) ? [envModel.trim()] : []),
+    ...configured,
+  ];
   return modelWindows.resolveClaudeWindow(row, specs);
 }
 

@@ -98,9 +98,9 @@ function windowFor(model, oneM) {
  *                       and a spec that yields no window (an alias the table does not know) falls back to
  *                       the turn's model rather than taking the fill away.
  *   row.lastModel       the model of the last turn with input
- *   configuredSpecs     every other spec that could carry `[1m]`, highest precedence first (the session's
- *                       ANTHROPIC_MODEL, then the settings cascade); the first one naming the turn's model
- *                       decides the variant
+ *   configuredSpecs     every other spec that could carry `[1m]`, highest precedence first (the stored
+ *                       launch `--model`, the session's ANTHROPIC_MODEL, then the settings cascade); the
+ *                       first one naming the turn's model decides the variant
  *
  * Floor: a turn that sent more than 200 000 tokens cannot have run in a 200 000 window — but only where the
  * variant was inferred (a configured spec, the bare model, or a transcript alias matched by family). A

@@ -130,6 +130,55 @@ test('a template row asks with its BASE backend\'s variables and its own bundle 
   });
 });
 
+test('the stored launch model reaches the hook: global default, project override, template on top (O5)', () => {
+  withIsolatedClaude(() => {
+    const registry = require('../src/backends');
+    const profiles = new Map([
+      ['tmpl-opt', { id: 'tmpl-opt', name: 'Opt', backendId: 'claude', options: { model: 'claude-sonnet-4-5' } }],
+    ]);
+    registry.init({ profiles: { get: (id) => profiles.get(id) || null, list: () => [...profiles.values()] } });
+    const rows = [
+      row('plain', 'claude', { lastInputTokens: 170000, lastModel: 'claude-sonnet-4-5' }),
+      row('tmpl', 'tmpl-opt', { lastInputTokens: 170000, lastModel: 'claude-sonnet-4-5' }),
+    ];
+    const projectBlobs = new Map();
+    const buildWith = (globalSettings) => {
+      view.init({
+        PROJECTS_DIR: '/invented/nowhere', activeSessions: new Map(),
+        db: {
+          getAllMeta: () => new Map(), getAllCached: () => rows, getAllFolderMeta: () => new Map(), setFolderMeta: () => {},
+          getFavoritedProjects: () => new Set(), getProjectDisplayNames: () => new Map(),
+          getProjectStates: () => new Map([[ALPHA, REGISTERED]]),
+          getSetting: (key) => (key === 'global' ? globalSettings : (projectBlobs.get(key) || null)),
+        },
+      });
+      const out = new Map();
+      for (const p of view.buildProjectsFromCache(false)) for (const s of p.sessions) out.set(s.sessionId, s.contextFill);
+      return out;
+    };
+    try {
+      const globalOneM = { backendDefaults: { claude: { model: 'claude-sonnet-4-5[1m]' } } };
+      assert.equal(buildWith(globalOneM).get('plain').windowTokens, 1000000, 'the global default carries [1m]');
+      assert.equal(buildWith(globalOneM).get('tmpl').windowTokens, 200000, 'the template\'s own option is the top layer');
+
+      projectBlobs.set('project:' + ALPHA, { backendDefaults: { claude: { model: 'claude-sonnet-4-5' } } });
+      assert.equal(buildWith(globalOneM).get('plain').windowTokens, 200000, 'the project override wins over the global default');
+
+      // A worktree has no settings of its own: its row reads its PROJECT's override (rule 17).
+      const worktreeRows = [row('in-worktree', 'claude', { lastInputTokens: 170000, lastModel: 'claude-sonnet-4-5', projectPath: ALPHA + '/.claude/worktrees/wt-1' })];
+      rows.push(...worktreeRows);
+      assert.equal(buildWith(globalOneM).get('in-worktree').windowTokens, 200000, 'a worktree session takes its project\'s override');
+      rows.splice(rows.length - worktreeRows.length);
+
+      projectBlobs.clear();
+      process.env.ANTHROPIC_MODEL = 'claude-sonnet-4-5';
+      assert.equal(buildWith(globalOneM).get('plain').windowTokens, 1000000, 'the launch --model outranks ANTHROPIC_MODEL, as in the CLI');
+    } finally {
+      registry.init({ profiles: { get: () => null, list: () => [] } });
+    }
+  });
+});
+
 test('a Pi row carries the fill from Pi\'s catalog', () => {
   const piWindows = require('../src/backends/pi/model-windows');
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pv-ctxfill-pi-'));

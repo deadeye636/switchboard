@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const { encodeProjectPath } = require('../session/encode-project-path');
-const { parseWorktreePath, worktreeRootOf } = require('../shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf, settingsOwnerPath } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
 // The backend registry, for the one question this file asks a descriptor: what did this session OPEN
 // with (#229). Neutral by construction — the core never reads a transcript format, it asks and passes
@@ -88,7 +88,7 @@ function commandOpenerFor(row) {
  * `percent` is NOT capped: after a `/model` switch to a smaller window the fill can pass 100 %, exactly as
  * the CLI's own status line shows it, and whoever draws or judges it decides what that means.
  */
-function contextFillFor(row, envFor) {
+function contextFillFor(row, envFor, launchOptionsFor) {
   if (!row || row.parentSessionId) return null;
   const usedTokens = Number(row.lastInputTokens) || 0;
   if (usedTokens <= 0) return null;
@@ -96,7 +96,9 @@ function contextFillFor(row, envFor) {
   if (!backend || typeof backend.contextWindow !== 'function') return null;
   const envKey = backend.isProfile ? (backend.baseId || LEGACY_SESSION_BACKEND) : backend.id;
   let answer;
-  try { answer = backend.contextWindow(row, { env: envFor(envKey) }); } catch { return null; }
+  try {
+    answer = backend.contextWindow(row, { env: envFor(envKey), launchOptions: launchOptionsFor(row, backend, envKey) });
+  } catch { return null; }
   const windowTokens = answer ? Number(answer.windowTokens) : 0;
   if (!(windowTokens > 0)) return null;
   return { usedTokens, windowTokens, percent: Math.round((usedTokens / windowTokens) * 100) };
@@ -183,6 +185,39 @@ function buildProjectsFromCache(showArchived) {
     if (!resolvedEnvs.has(key)) resolvedEnvs.set(key, resolveEnv(backendEnvs[key] || {}));
     return resolvedEnvs.get(key);
   };
+  // The launch options a session of this backend in this project starts with, as stored (#620, O5) — the
+  // cascade the launch dialog resolves (`storedDefaultsFor` in the renderer): the base backend's global
+  // default, the project's own override, the legacy template entry, then the template record itself. Only
+  // what is stored: a one-off Configure override is not kept anywhere, and that limit is decided (O2).
+  // Memoised per project owner and backend, so a project read is one settings lookup per build.
+  const globalDefaults = (globalSettings && typeof globalSettings === 'object' && globalSettings.backendDefaults) || {};
+  const projectDefaultsByOwner = new Map();
+  const launchOptionsMemo = new Map();
+  const launchOptionsFor = (row, backend, baseKey) => {
+    const owner = row.projectPath ? settingsOwnerPath(row.projectPath) : '';
+    const memoKey = owner + '|' + backend.id;
+    if (launchOptionsMemo.has(memoKey)) return launchOptionsMemo.get(memoKey);
+    if (!projectDefaultsByOwner.has(owner)) {
+      const blob = owner && typeof getSetting === 'function' ? getSetting('project:' + owner) : null;
+      projectDefaultsByOwner.set(owner, (blob && typeof blob === 'object' && blob.backendDefaults) || {});
+    }
+    const projectDefaults = projectDefaultsByOwner.get(owner);
+    const layer = (defaults, id) => {
+      const opts = defaults && defaults[id];
+      if (!opts || typeof opts !== 'object') return {};
+      const out = {};
+      for (const [k, v] of Object.entries(opts)) if (v !== undefined && v !== null) out[k] = v;
+      return out;
+    };
+    const options = {
+      ...layer(globalDefaults, baseKey),
+      ...layer(projectDefaults, baseKey),
+      ...(backend.isProfile ? { ...layer(globalDefaults, backend.id), ...layer(projectDefaults, backend.id) } : {}),
+      ...(backend.isProfile && backend.templateOptions && typeof backend.templateOptions === 'object' ? backend.templateOptions : {}),
+    };
+    launchOptionsMemo.set(memoKey, options);
+    return options;
+  };
 
   const knownIds = new Set();
   const shownIds = new Set();
@@ -260,7 +295,7 @@ function buildProjectsFromCache(showArchived) {
       openedWithCommand: commandOpenerFor(row),
       // How full the context window was on the last turn (#620): `{ usedTokens, windowTokens, percent }`
       // or null. The backend measures, the core divides, the renderer reads a field.
-      contextFill: contextFillFor(row, envFor),
+      contextFill: contextFillFor(row, envFor, launchOptionsFor),
       // Which tool this session was imported from, as a label (#552). Null for everything nobody
       // imported, which is nearly every row. It rides to the sidebar because the same work can be in the
       // list twice — once from the tool's own store, once from the store it was imported into — and this
