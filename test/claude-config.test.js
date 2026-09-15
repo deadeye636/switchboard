@@ -98,7 +98,72 @@ test('the drive letter goes back as spelled only on the same drive, and a root k
     'a junction to another drive keeps the resolved drive');
   assert.equal(keyOf(winPath('Q', 'real', 'x'), winPath('S', 'x')), keyPath('Q', 'real', 'x'), 'a subst drive resolves to its underlying one');
   assert.equal(keyOf(winPath('Q', ''), winPath('q', '')), keyPath('q', ''), 'a drive root');
-  assert.equal(keyOf('\\\\host\\share\\p', winPath('Z', 'p')), '//host/share/p', 'a mapped drive resolved to its share');
+  assert.equal(keyOf('\\\\host\\share\\p', winPath('Z', 'p')), '//host/share/p', 'a UNC path stays one');
+});
+
+test('a subst or mapped drive keeps its own letter, as the CLI keys it (#627)', () => {
+  const { _keyFromRealPath: keyOf } = require('../src/backends/claude/config');
+  // measured: a `subst` drive over a sandbox directory, and a session in a folder on it, wrote that drive's letter
+  assert.equal(keyOf(winPath('Q', 'probe', 'Case-S'), winPath('T', 'Case-S'), winPath('Q', 'probe')), keyPath('T', 'Case-S'));
+  // measured: a drive mapped to a share wrote the drive letter, not the share
+  assert.equal(keyOf('\\\\host\\share\\Work\\Case-M', winPath('Y', 'Work', 'Case-M'), '\\\\host\\share'), keyPath('Y', 'Work', 'Case-M'));
+  assert.equal(keyOf(winPath('Q', 'probe'), winPath('T', ''), winPath('Q', 'probe')), keyPath('T', ''), 'the substitute drive root itself');
+  assert.equal(keyOf(winPath('R', 'elsewhere'), winPath('T', 'link'), winPath('Q', 'probe')), keyPath('R', 'elsewhere'),
+    'a junction out of a substitute drive is keyed where it leads');
+});
+
+test('cliProjectKey on Windows keys a repository subdirectory by the root, in its on-disk case (#627)', { skip: process.platform !== 'win32' }, () => {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-repo-key-')));
+  try {
+    const repo = path.join(base, 'Repo-A');
+    fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'Sub-Dir'));
+    assert.equal(cliProjectKey(path.join(repo, 'Sub-Dir').toUpperCase()), repo.replace(/\\/g, '/').slice(0, 1).toUpperCase() + repo.replace(/\\/g, '/').slice(1));
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('inside a git repository trust is keyed by the root, and a worktree by its main repository (#627)', () => {
+  const { _gitTrustRoot: rootOf } = require('../src/backends/claude/config');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-git-'));
+  try {
+    const repo = path.join(base, 'Repo-A');
+    fs.mkdirSync(path.join(repo, '.git', 'worktrees', 'wt-a'), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'Sub', 'Deeper'), { recursive: true });
+    // What `git worktree add` writes: a `.git` FILE naming the worktree's git dir, and `commondir` in there.
+    const wt = path.join(base, 'Wt-A');
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, '.git'), 'gitdir: ' + path.join(repo, '.git', 'worktrees', 'wt-a').replace(/\\/g, '/') + '\n');
+    fs.writeFileSync(path.join(repo, '.git', 'worktrees', 'wt-a', 'commondir'), '../..\n');
+    // A `.git` file with no `commondir` behind it (a submodule's shape) keys its own directory.
+    const sub = path.join(base, 'Submodule');
+    fs.mkdirSync(path.join(base, 'modules-dir'), { recursive: true });
+    fs.mkdirSync(sub);
+    fs.writeFileSync(path.join(sub, '.git'), 'gitdir: ../modules-dir\n');
+    const plain = path.join(base, 'Plain-B', 'Sub-Dir');
+    fs.mkdirSync(plain, { recursive: true });
+
+    assert.equal(rootOf(repo), repo);
+    assert.equal(rootOf(path.join(repo, 'Sub', 'Deeper')), repo, 'measured: a subdirectory is keyed by the root');
+    assert.equal(rootOf(wt), repo, 'measured: a worktree found its main repository already trusted');
+    assert.equal(rootOf(sub), sub);
+    // A bare repository's worktree: its common dir is not a `.git`, so there is no main checkout to key by.
+    const bare = path.join(base, 'proj.git');
+    fs.mkdirSync(path.join(bare, 'worktrees', 'bw'), { recursive: true });
+    fs.writeFileSync(path.join(bare, 'worktrees', 'bw', 'commondir'), '../..\n');
+    const bareWt = path.join(base, 'Bare-Wt');
+    fs.mkdirSync(bareWt);
+    fs.writeFileSync(path.join(bareWt, '.git'), 'gitdir: ' + path.join(bare, 'worktrees', 'bw') + '\n');
+    assert.equal(rootOf(bareWt), bareWt, 'unmeasured: keyed by itself, never by the folder the bare repository sits in');
+    // The walk stops at a substitute drive's root: a `subst` over a repository subfolder keys that drive.
+    assert.equal(rootOf(path.join(repo, 'Sub', 'Deeper'), path.join(repo, 'Sub')), null);
+    // Outside any repository there is no root — unless the temp directory itself sits inside one.
+    const outer = rootOf(base);
+    assert.equal(rootOf(plain), outer, 'measured: a plain directory keys itself, and a parent does not count');
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
 });
 
 test('cliProjectKey on Windows: on-disk case and a junction resolved, the spelled drive letter kept (#627)', { skip: process.platform !== 'win32' }, () => {

@@ -912,10 +912,16 @@ function remapProject(oldPath, newPath) {
     }
 
     // ...and every backend's per-project trust with it, so a renamed project does not have to be trusted
-    // all over again (#171). A backend whose config move above already carried its trust (Claude) reads as
-    // untrusted at oldPath now, so this is a no-op for it — no id special-case needed.
+    // all over again (#171). No id special-case: a backend either answers get/set, or declares `move`.
+    // A backend whose gates can be shared between paths declares `move` and decides it itself (Claude keys a
+    // repository by its root, #627); get-then-set would un-trust a gate the old path only sits inside.
     for (const backend of listBackendsWithTrust()) {
       try {
+        if (typeof backend.projectTrust.move === 'function') {
+          const res = backend.projectTrust.move(oldPath, newPath);
+          if (res && res.error) ctx.log.warn(`[remap] ${backend.id} trust move failed: ${res.error}`);
+          continue;
+        }
         const was = backend.projectTrust.get(oldPath);
         if (was === true) {
           backend.projectTrust.set(newPath, true);

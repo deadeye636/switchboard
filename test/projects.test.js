@@ -917,6 +917,163 @@ test('a remapped project is not auto-hidden out from under the rename', () => {
   } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
 });
 
+// #627: the whole remap chain for Claude's trust — `projectMeta.rename` moves the `.claude.json` block, then
+// the trust loop asks `projectTrust` at the old path. Both now use the key the CLI reads, so the chain is
+// pinned end to end against a real config file in an isolated Claude home.
+function withClaudeConfig(projectsTable, fn) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-claude-home-'));
+  const saved = process.env.SWITCHBOARD_STORE_CLAUDE;
+  const file = path.join(home, '.claude.json');
+  fs.writeFileSync(file, JSON.stringify({ userID: 'keep', projects: projectsTable }, null, 2));
+  process.env.SWITCHBOARD_STORE_CLAUDE = path.join(home, 'projects');
+  try { return fn(file); } finally {
+    if (saved === undefined) delete process.env.SWITCHBOARD_STORE_CLAUDE; else process.env.SWITCHBOARD_STORE_CLAUDE = saved;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+function remapFixture(t) {
+  // The old directory is gone by the time a project is remapped; the new one exists.
+  const oldPath = path.join(os.tmpdir(), 'remap-gone-' + process.pid + '-' + Date.now());
+  const newDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-new-'));
+  const folder = encodeProjectPath(oldPath);
+  fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+  fs.writeFileSync(path.join(t.store, folder, 'a.jsonl'),
+    JSON.stringify({ type: 'user', cwd: oldPath, message: { role: 'user', content: 'one' } }) + '\n');
+  t.setCachedRows([{ sessionId: 'a', folder, projectPath: oldPath, filePath: null, backendId: 'claude' }]);
+  return { oldPath, newDir };
+}
+
+test('remapProject carries Claude trust to the key the CLI reads at the new path (#627)', () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const { oldPath, newDir } = remapFixture(t);
+  try {
+    withClaudeConfig({ [cliProjectKey(oldPath)]: { hasTrustDialogAccepted: true, mcpServers: { one: {} } } }, (file) => {
+      assert.strictEqual(projects.remapProject(oldPath, newDir).ok, true);
+      const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.deepStrictEqual(Object.keys(after.projects), [cliProjectKey(newDir)], 'one block, under the CLI key');
+      assert.deepStrictEqual(after.projects[cliProjectKey(newDir)].mcpServers, { one: {} }, 'the rest of the block came along');
+      assert.strictEqual(getProjectTrust([newDir], file).get(newDir), true);
+      assert.strictEqual(after.userID, 'keep');
+    });
+  } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
+});
+
+test('remapProject with several spellings of the old path never trusts a spelling that was not trusted (#627)', () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const { oldPath, newDir } = remapFixture(t);
+  try {
+    // The first spelling the fold finds carries no trust; another spelling of the same directory does. With
+    // the old directory gone, which of them the CLI honoured cannot be told any more.
+    const untrusted = cliProjectKey(oldPath);
+    const trustedVariant = untrusted.toUpperCase();
+    withClaudeConfig({ [untrusted]: { allowedTools: ['Read'] }, [trustedVariant]: { hasTrustDialogAccepted: true } }, (file) => {
+      assert.strictEqual(projects.remapProject(oldPath, newDir).ok, true);
+      const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.notStrictEqual(getProjectTrust([newDir], file).get(newDir), true,
+        'the moved block had no trust, and trust is not borrowed from another spelling — the CLI asks again');
+      assert.deepStrictEqual(after.projects[cliProjectKey(newDir)].allowedTools, ['Read'], 'the first spelling moved');
+      if (process.platform === 'win32') {
+        assert.strictEqual(after.projects[trustedVariant].hasTrustDialogAccepted, true, 'the other spelling is left where it was');
+      }
+    });
+  } finally { t.cleanup(); fs.rmSync(newDir, { recursive: true, force: true }); }
+});
+
+// #627 continued: Claude keys trust by a repository's ROOT on Windows, so a remap inside, out of or into a
+// repository must neither un-trust the shared root nor move a block over the root's own entry.
+function repoFixture(t) {
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'remap-repo-')));
+  const repo = path.join(base, 'Repo-R');
+  fs.mkdirSync(path.join(repo, '.git', 'worktrees', 'wt'), { recursive: true });
+  const oldPath = path.join(repo, 'old-dir');
+  fs.mkdirSync(oldPath);
+  const folder = encodeProjectPath(oldPath);
+  fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+  fs.writeFileSync(path.join(t.store, folder, 'a.jsonl'),
+    JSON.stringify({ type: 'user', cwd: oldPath, message: { role: 'user', content: 'one' } }) + '\n');
+  t.setCachedRows([{ sessionId: 'a', folder, projectPath: oldPath, filePath: null, backendId: 'claude' }]);
+  return { base, repo, oldPath };
+}
+
+const winOnly = { skip: process.platform !== 'win32' };
+
+test('a remap inside one repository keeps the repository trusted (#627)', winOnly, () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const { base, repo, oldPath } = repoFixture(t);
+  try {
+    const newDir = path.join(repo, 'new-dir');
+    fs.mkdirSync(newDir);
+    withClaudeConfig({ [cliProjectKey(repo)]: { hasTrustDialogAccepted: true } }, (file) => {
+      assert.strictEqual(projects.remapProject(oldPath, newDir).ok, true);
+      assert.strictEqual(getProjectTrust([repo], file).get(repo), true, 'one gate for both paths: nothing to move, nothing to take away');
+      assert.strictEqual(getProjectTrust([newDir], file).get(newDir), true);
+    });
+  } finally { t.cleanup(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('a remap out of a repository trusts the new place and leaves the repository trusted (#627)', winOnly, () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const { base, repo, oldPath } = repoFixture(t);
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'remap-out-'));
+  try {
+    withClaudeConfig({ [cliProjectKey(repo)]: { hasTrustDialogAccepted: true } }, (file) => {
+      assert.strictEqual(projects.remapProject(oldPath, outside).ok, true);
+      assert.strictEqual(getProjectTrust([outside], file).get(outside), true, 'the trust the project had comes along');
+      assert.strictEqual(getProjectTrust([repo], file).get(repo), true, 'and the root every other checkout shares is not un-trusted');
+    });
+  } finally { t.cleanup(); fs.rmSync(base, { recursive: true, force: true }); fs.rmSync(outside, { recursive: true, force: true }); }
+});
+
+test('a remap into another repository never trusts that repository without asking (#627)', winOnly, () => {
+  const t = makeCtx();
+  const { cliProjectKey, getProjectTrust } = require('../src/backends/claude/config');
+  const { base, repo, oldPath } = repoFixture(t);
+  try {
+    const other = path.join(base, 'Repo-S');
+    fs.mkdirSync(path.join(other, '.git'), { recursive: true });
+    const newDir = path.join(other, 'b');
+    fs.mkdirSync(newDir);
+    withClaudeConfig({ [cliProjectKey(repo)]: { hasTrustDialogAccepted: true } }, (file) => {
+      assert.strictEqual(projects.remapProject(oldPath, newDir).ok, true);
+      assert.notStrictEqual(getProjectTrust([other], file).get(other), true, 'the other repository asks for trust itself');
+      assert.strictEqual(getProjectTrust([repo], file).get(repo), true, 'and the repository left behind keeps its trust');
+    });
+  } finally { t.cleanup(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('a remap into a worktree files the block under the worktree, never over the main repository (#627)', winOnly, () => {
+  const t = makeCtx();
+  const { cliProjectKey, cliDirKey } = require('../src/backends/claude/config');
+  const gone = path.join(os.tmpdir(), 'remap-gone-wt-' + process.pid + '-' + Date.now());
+  const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'remap-wt-')));
+  try {
+    const repo = path.join(base, 'Repo-R');
+    fs.mkdirSync(path.join(repo, '.git', 'worktrees', 'wt'), { recursive: true });
+    const wt = path.join(base, 'Wt');
+    fs.mkdirSync(wt);
+    fs.writeFileSync(path.join(wt, '.git'), 'gitdir: ' + path.join(repo, '.git', 'worktrees', 'wt') + '\n');
+    fs.writeFileSync(path.join(repo, '.git', 'worktrees', 'wt', 'commondir'), '../..\n');
+    const folder = encodeProjectPath(gone);
+    fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+    fs.writeFileSync(path.join(t.store, folder, 'a.jsonl'), JSON.stringify({ type: 'user', cwd: gone, message: { role: 'user', content: 'x' } }) + '\n');
+    t.setCachedRows([{ sessionId: 'a', folder, projectPath: gone, filePath: null, backendId: 'claude' }]);
+
+    const rootBlock = { hasTrustDialogAccepted: true, mcpServers: { rootSrv: {} }, allowedTools: ['Bash'], lastCost: 9 };
+    withClaudeConfig({ [cliProjectKey(repo)]: rootBlock, [cliDirKey(gone)]: { hasTrustDialogAccepted: false, mcpServers: { oldSrv: {} } } }, (file) => {
+      assert.strictEqual(cliProjectKey(wt), cliProjectKey(repo), 'the fixture is a worktree of the repository');
+      assert.strictEqual(projects.remapProject(gone, wt).ok, true);
+      const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.deepStrictEqual(after.projects[cliProjectKey(repo)], rootBlock, 'the main repository\'s block is untouched');
+      assert.deepStrictEqual(after.projects[cliDirKey(wt)].mcpServers, { oldSrv: {} }, 'the moved block sits under the worktree itself');
+    });
+  } finally { t.cleanup(); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 test('remapProject refuses a target that is not a directory, and a project it cannot find', () => {
   const t = makeCtx();
   try {

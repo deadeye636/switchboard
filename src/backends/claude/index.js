@@ -280,6 +280,27 @@ const projectTrust = {
     try { return claudeConfig.getProjectTrust(projectPaths); } catch { return new Map(); }
   },
   set: (projectPath, trusted) => claudeConfig.setProjectTrust(projectPath, trusted),
+  // A remap's trust move, which get-then-set cannot do right for Claude (#627): trust is keyed by a repository's
+  // ROOT, so two paths in one repository share a gate, and a gate may be shared with every other checkout of a
+  // repository. Moving within one gate is nothing to do. Un-trusting a gate the old path only sits inside
+  // would take trust away from everything else keyed there, and granting a gate the new path only sits inside
+  // would trust a whole other repository without the confirmation every other grant asks for — so each side is
+  // written only where the path owns its gate. Where it does not, the new place asks for trust again.
+  move: (oldPath, newPath) => {
+    const oldKey = claudeConfig.cliProjectKey(oldPath);
+    const newKey = claudeConfig.cliProjectKey(newPath);
+    if (oldKey === newKey) return { ok: true, moved: false };
+    const trust = claudeConfig.getProjectTrust([oldPath]);
+    if (trust.get(oldPath) !== true) return { ok: true, moved: false };
+    if (newKey !== claudeConfig.cliDirKey(newPath)) return { ok: true, moved: false };
+    const granted = claudeConfig.setProjectTrust(newPath, true);
+    if (granted && granted.error) return granted;
+    if (oldKey === claudeConfig.cliDirKey(oldPath)) {
+      const revoked = claudeConfig.setProjectTrust(oldPath, false);
+      if (revoked && revoked.error) return revoked;
+    }
+    return { ok: true, moved: true };
+  },
 };
 
 // Per-project META and CONFIG ownership (#211). Claude keeps a projects table in ~/.claude.json —

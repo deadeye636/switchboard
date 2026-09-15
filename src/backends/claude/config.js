@@ -71,13 +71,17 @@ function readClaudeConfig(configPath = claudeConfigPath()) {
  * (#627). Not `normalizeClaudePath`: that one folds every spelling of a directory together, which is right
  * for the info columns and for cleaning up, and wrong for trust, because the CLI looks one key up exactly.
  *
- * Measured on Claude Code 2.1.272 on Windows, interactive sessions against an isolated home: the key is the
- * directory's real path — a junction resolved, every folder name in its on-disk case — with the drive
- * letter as it was spelled and forward slashes. A cwd with a lower-case drive letter and lower-case folder
- * names wrote the lower-case drive letter and the on-disk folder names, a later session in the on-disk
- * spelling with an upper-case drive letter got the trust dialog again, and a junction to that directory was
- * keyed by its target. That is
- * `fs.realpathSync.native` with the input's drive letter put back; neither realpath does it alone.
+ * Measured on Claude Code 2.1.272 on Windows, interactive sessions against an isolated home:
+ *   - inside a git repository the key is the repository's ROOT, not the directory — a subdirectory's
+ *     session wrote the root, and a worktree's session found the MAIN repository's root already trusted;
+ *   - outside one it is the directory itself, and a trusted parent does not count;
+ *   - either way the path is real — a junction resolved, every folder name in its on-disk case — with the
+ *     drive letter as it was spelled and forward slashes. A lower-case drive letter wrote a lower-case key,
+ *     and a later session spelled with an upper-case one got the trust dialog again;
+ *   - a `subst` or mapped drive is NOT resolved to what it stands for: the key keeps that drive letter. A
+ *     UNC path stays a UNC path, and a junction to another drive is keyed on that other drive.
+ * `fs.realpathSync.native` resolves drives the CLI keeps, so its answer is re-expressed under the spelled
+ * drive where that drive is a substitute.
  *
  * Only Windows was measured, so elsewhere the key stays the path as spelled, which is what this module did
  * before. A directory that does not exist is keyed as spelled too: there is nothing to resolve.
@@ -85,20 +89,91 @@ function readClaudeConfig(configPath = claudeConfigPath()) {
 function cliProjectKey(projectPath) {
   const spelled = String(projectPath || '');
   if (!spelled) return '';
-  let real = spelled;
-  if (process.platform === 'win32') {
-    try { real = fs.realpathSync.native(spelled); } catch { /* keyed as spelled */ }
-  }
-  return keyFromRealPath(real, spelled);
+  if (process.platform !== 'win32') return keyFromRealPath(spelled, spelled);
+  let real;
+  try { real = fs.realpathSync.native(spelled); } catch { return keyFromRealPath(spelled, spelled); }
+  const driveRoot = substituteDriveRoot(spelled);
+  const root = gitTrustRoot(real, driveRoot);
+  let rootReal = root;
+  if (root && root !== real) { try { rootReal = fs.realpathSync.native(root); } catch { /* as found */ } }
+  return keyFromRealPath(rootReal || real, spelled, driveRoot);
 }
 
-// The pure half of `cliProjectKey`, apart so it can be tested on any platform. The drive letter goes back as
-// spelled only when the resolved path is on the SAME drive: a junction to another drive, or a `subst` drive,
-// resolves elsewhere, and pasting the spelled letter onto that would name a directory that does not exist.
-// What the CLI keys those as was not measured; the resolved path is the honest guess.
-function keyFromRealPath(real, spelled) {
+/**
+ * The key of the directory ITSELF, spelled the way the CLI spells keys — the same real path and drive rules as
+ * `cliProjectKey`, without climbing to a repository root. What a project's own block in `.claude.json` is
+ * filed under when it is moved (#627): a block moved onto a repository's root would merge over that
+ * repository's MCP servers and allowed tools, and the project's own info columns would no longer find it.
+ */
+function cliDirKey(projectPath) {
+  const spelled = String(projectPath || '');
+  if (!spelled) return '';
+  if (process.platform !== 'win32') return keyFromRealPath(spelled, spelled);
+  let real;
+  try { real = fs.realpathSync.native(spelled); } catch { return keyFromRealPath(spelled, spelled); }
+  return keyFromRealPath(real, spelled, substituteDriveRoot(spelled));
+}
+
+// What a spelled drive letter stands for, when it is a substitute: the real path of that drive's root for a
+// `subst` or a mapped drive, and null for a drive whose root resolves to itself.
+function substituteDriveRoot(spelled) {
+  const drive = /^([a-zA-Z]):/.exec(spelled);
+  if (!drive) return null;
+  try {
+    const rootReal = fs.realpathSync.native(drive[1] + ':\\');
+    return rootReal.replace(/[\\/]+$/, '').toLowerCase() === (drive[1] + ':').toLowerCase() ? null : rootReal;
+  } catch { return null; }
+}
+
+// The repository a directory belongs to, as the CLI keys trust by it: walk up to the first `.git`. A directory
+// there is the root. A FILE there is a worktree (or a submodule) naming its git dir; a worktree's git dir names
+// the common one in `commondir`, and when that is a `.git` directory the main repository is its parent. A
+// `.git` file without `commondir`, or a common dir that is not `.git` (a bare repository's worktree), keys its
+// own directory — submodules and bare repositories were not measured. The walk does not climb above the root
+// of a substitute drive (`stopAt`): the CLI keeps that drive's letter, so its own walk ends at that drive's
+// root. Null outside any repository. Reads files, runs no git.
+function gitTrustRoot(dir, stopAt = null) {
+  const stop = stopAt ? String(stopAt).replace(/[\\/]+$/, '').toLowerCase() : null;
+  let cur = dir;
+  for (;;) {
+    const dotGit = path.join(cur, '.git');
+    let stat = null;
+    try { stat = fs.statSync(dotGit); } catch { /* keep walking */ }
+    if (stat) {
+      if (stat.isDirectory()) return cur;
+      try {
+        const named = /^gitdir:[ \t]*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8'));
+        if (named) {
+          const gitDir = path.resolve(cur, named[1].trim());
+          const commonDir = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
+          if (path.basename(commonDir).toLowerCase() === '.git') return path.dirname(commonDir);
+        }
+      } catch { /* not a worktree */ }
+      return cur;
+    }
+    if (stop && cur.replace(/[\\/]+$/, '').toLowerCase() === stop) return null;
+    const parent = path.dirname(cur);
+    if (parent === cur) return null;
+    cur = parent;
+  }
+}
+
+// The pure half of `cliProjectKey`, apart so it can be tested on any platform.
+//   `real`         the resolved path (a repository root, or the directory itself)
+//   `spelled`      the path as the session's cwd spells it
+//   `driveRoot`    what the spelled drive stands for when it is a `subst` or mapped drive, else null
+// A path under a substitute drive's root is re-expressed under that drive letter, as the CLI keeps it. The
+// drive letter goes back as spelled otherwise only when the resolved path is on the SAME drive: a junction to
+// another drive is keyed on that drive, and pasting the spelled letter onto it would name nothing.
+function keyFromRealPath(real, spelled, driveRoot = null) {
   let key = String(real).replace(/\\/g, '/');
   const spelledDrive = /^([a-zA-Z]):/.exec(String(spelled));
+  if (spelledDrive && driveRoot) {
+    const base = String(driveRoot).replace(/\\/g, '/').replace(/\/+$/, '');
+    if (key.toLowerCase() === base.toLowerCase() || key.toLowerCase().startsWith(base.toLowerCase() + '/')) {
+      key = spelledDrive[1] + ':' + (key.slice(base.length) || '/');
+    }
+  }
   const realDrive = /^([a-zA-Z]):/.exec(key);
   if (spelledDrive && realDrive && spelledDrive[1].toLowerCase() === realDrive[1].toLowerCase()) {
     key = spelledDrive[1] + key.slice(1);
@@ -275,13 +350,15 @@ function renameProjectEntry(oldPath, newPath, configPath = claudeConfigPath()) {
 
     const srcVal = cfg.projects[srcKey];
     const dstNorm = normalizeClaudePath(newPath);
-    // The key the CLI reads first (#627), so the trust this block carries is still trust after the move;
-    // then an entry under another spelling of the target, as before; a new key is the CLI's.
+    // The target's OWN key as the CLI spells keys (#627) — never a repository root the target sits in: moving
+    // the block onto the root would merge over the root's own MCP servers, allowed tools and trust. Outside a
+    // repository this is also the key the CLI reads trust under. Then an entry under another spelling of the
+    // target, as before.
     // The SOURCE is still the first spelling that folds to the old path, because after a remap the old
     // directory is usually gone and its CLI key cannot be resolved. With several spellings of the old path,
     // the one moved may not be the one that carried trust, and the project then asks for trust again —
     // the safe direction, never trust the user did not give.
-    const cliKey = cliProjectKey(newPath);
+    const cliKey = cliDirKey(newPath);
     const existingDstKey = Object.prototype.hasOwnProperty.call(cfg.projects, cliKey)
       ? cliKey
       : Object.keys(cfg.projects).find(k => normalizeClaudePath(k) === dstNorm);
@@ -296,6 +373,7 @@ module.exports = {
   claudeConfigPath,
   normalizeClaudePath,
   cliProjectKey,
+  cliDirKey,
   readClaudeConfig,
   getProjectTrust,
   getProjectClaudeMeta,
@@ -307,5 +385,6 @@ module.exports = {
   _mutateClaudeConfig: mutateClaudeConfig,
   // Test-only: the drive-letter rule of `cliProjectKey` without a filesystem behind it (#627).
   _keyFromRealPath: keyFromRealPath,
+  _gitTrustRoot: gitTrustRoot,
   _WRITE_ATTEMPTS: WRITE_ATTEMPTS,
 };
