@@ -450,6 +450,29 @@ round trip and cannot lie about when it looked.
 For a live session in the **demo** instance, run `npm run demo:auth` first: an isolated home has no
 credentials and has never onboarded (see `docs/demo-env.md`).
 
+## Measuring a CLI outside the app
+
+A transcript format or a dialog is sometimes only answered by driving the CLI itself, with no app in
+between (#622 measured `/model` that way). Four things make such a harness measure the wrong thing:
+
+1. **Strip the Claude session markers from the child's env.** A CLI started from inside a Claude Code
+   session inherits `CLAUDECODE` and `CLAUDE_CODE_*`, and with `CLAUDE_CODE_CHILD_SESSION` it writes no
+   transcript ("Transcript saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker"). The app strips them
+   for its own spawns (`src/main.js`); a script does not.
+2. **node-pty here is built for Electron's ABI**, like better-sqlite3. Run the script as
+   `ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron <script>.js`, not with plain `node`.
+3. **Spell the cwd exactly as the trust entry is spelled.** Claude keys folder trust in `.claude.json` by the
+   path string, case included: `<drive>:/Work/app` and `<drive>:/work/app` are two entries. A session started under the
+   other spelling shows the trust dialog again, even in a trusted demo project.
+4. **A confirmed `/model` changes more than the session.** With a cache in the conversation the CLI asks
+   first ("Switch model? … Yes, switch / No, go back"), at an idle prompt and when held back alike, and
+   writes nothing until confirmed. A confirmed switch is saved as `model` in the user settings of the home it
+   ran under, so every later session there resolves it. Remove it after measuring.
+
+For a one-shot answer `claude -p … --output-format json` is enough: its `modelUsage` names the model a
+request ran on with its `contextWindow`. Read the requested model's key, never the first one — a
+`claude-haiku-4-5` side call sits beside it.
+
 ## Driving a full-UI Axis-B session to test live-id adoption (agy/Codex/Pi)
 
 To reproduce identity adoption and busy/idle for a backend that names its own session (the

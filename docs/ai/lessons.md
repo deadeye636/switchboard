@@ -1197,6 +1197,10 @@ the transcript already said the switch was over: a later turn ran on a model the
   contradict it count.
 - **A changed meaning is a changed field.** No column moved, but stored rows still carried the stale value,
   and only a `PARSER_SCHEMA_VERSION` bump re-reads a finished session.
+- **A gap written down as "not measured" can have a quick answer.** The in-flight case took one interactive
+  session, and it found a second form of the command, a `system` / `local_command` entry, that the reader
+  had never looked at. One command can take more than one form in the transcript: measure it typed mid-turn
+  as well as at an idle prompt.
 
 ## A MutationObserver reads the state NOW, not the state it was told about (#618)
 

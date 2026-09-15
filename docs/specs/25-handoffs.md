@@ -200,6 +200,8 @@ someone's own text and is sent as written.
 that does: the prompt, the plan prompt (spec 20) and a saved variable's insert template all ask it, or they
 would name different directories. A configured path that escapes the project falls back to the default
 rather than being handed to an agent — `path-containment.js`, asked about the directory before any `stat`.
+The save does not ask it yet: `handoffWriteDirName` in `src/app/handoffs.js` reads `handoffDir` itself and
+refuses an escaping value where the prompt falls back to the default (#623).
 
 ## What this does not do
 

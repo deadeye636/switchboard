@@ -286,7 +286,8 @@ Windows, and the refusal reads like a legitimate "not a worktree layout".
 
 What `parseWorktreePath` does **not** answer: it is one level deep by design — "who is my parent", which
 for a nested worktree is another worktree. `worktreeRootOf` beside it answers "whose sub-unit am I" and
-walks to the top, and that is what every ownership question asks (see above).
+walks to the top, and that is what every ownership question asks (see above). The worktree-delete dialog's
+dirty check still passes the one-level parent as a `-C` (#624).
 
 **The three layouts are a LIST, and the pattern is built from it.** `WORKTREE_DIRS` holds them as
 segments; the regex is composed from that list, and `worktreeDirsIn` composes the candidate directories

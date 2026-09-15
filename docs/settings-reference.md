@@ -615,7 +615,9 @@ profile editor's "resolves ✓ / not set ✗" badge asks for presence only; valu
 `ELECTRON_`, `GOOGLE_API_KEY*`, plus `NODE_OPTIONS`, `ORIGINAL_XDG_CURRENT_DESKTOP`, `WT_SESSION` and
 Claude's two AFK variables (an inherited AFK value must not overrule the per-session setting — and since
 the mere presence of `CLAUDE_AFK_TIMEOUT_MS` enables auto-continue, an inherited one would switch it on
-for every session with nothing on screen to say so).
+for every session with nothing on screen to say so), and the four markers a running Claude Code session
+exports into its children: `CLAUDE_CODE_CHILD_SESSION` (inherited, the CLI writes no transcript at all),
+`CLAUDE_CODE_SSE_PORT`, `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE` (#243).
 
 `ELECTRON_NO_ATTACH_CONSOLE` is the one `ELECTRON_` variable that survives that strip, because a value
 you set for it is a decision about your own terminals. Switchboard does not set it for every PTY.
@@ -635,9 +637,8 @@ none of this, because an Electron app running in the foreground there is meant t
 presence rather than value: an empty string counts as set and still suppresses, so anything that wants
 the attach back has to leave the key off entirely.
 
-**A plain terminal** (no backend) gets the same terminal identity, `CLAUDECODE=1`, and a shell shim on
-`ENV`/`BASH_ENV` that intercepts a bare `claude` and points at the sidebar's + button. PowerShell and cmd
-get the equivalent as an init command instead.
+**A plain terminal** (no backend) gets the same terminal identity and `CLAUDECODE=1`, and nothing that
+wraps a command: since #588 it gets one dim notice line in its own buffer instead.
 
 **A headless child** overrides `FORCE_COLOR=0` — it runs headless and ANSI would only pollute the
 captured stderr.

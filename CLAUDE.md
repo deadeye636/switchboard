@@ -147,7 +147,7 @@ table is the fallback and it is binding.
     template), and a second reading of `eff.handoffDir` is how two of them start naming different ones.
     **That second reading exists today, in the writer:** `handoffWriteDirName` in `src/app/handoffs.js`
     reads the setting itself, and where the prompt falls back to the default for an escaping value, the
-    save refuses it. It is a known divergence, not a pattern to copy.
+    save refuses it. It is a known divergence (#623), not a pattern to copy — this note goes when #623 closes.
 13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
@@ -235,7 +235,8 @@ table is the fallback and it is binding.
     the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather
     than trusting that list. `parseWorktreePath`'s one-level parent survives in two places — the
     visibility walk in `src/index/projects-view.js`, which climbs it a level at a time, and the worktree
-    dirty check in `src/app/vcs.js` — and elsewhere only as a yes/no "is this a worktree at all"; the
+    dirty check in `src/app/vcs.js`, which #624 suspects fails once a nested worktree's parent directory is
+    gone — and elsewhere only as a yes/no "is this a worktree at all"; the
     sidebar used to ask it for the nesting and no longer does.
     **And a worktree is NAMED by `worktreeLabelOf`, never by splitting the path yourself.** It spells
     every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
@@ -310,9 +311,10 @@ absent from the installer.
   minute and rising** — 49-54 s measured across two runs (2026-09) — and it is the sum of the whole suite
   now, not one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest single
   file (~20 s alone), but it stopped setting the wall clock some time ago. Default discovery also runs every
-  non-test `.js` under `test/` as its own entry — the DOM helpers in `test/helpers/` take about 7 s each. Time it rather than believing
-  this line; the point of the number is only that a run of several minutes is wrong.
-  That same file has **hung outright** more than once under
+  non-test `.js` under `test/` as its own entry, and the DOM helpers in `test/helpers/` take about 7 s each
+  (#625; update this paragraph when it closes). Time it rather than believing this line; the point of the
+  number is only that a run of several minutes is wrong.
+  `trigger-watcher.test.js` has **hung outright** more than once under
   load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
   the script carries `--test-timeout=60000`: a test that stops making progress fails loudly instead. The
   cap is per TEST, so it does not catch a file that hangs between them; a run past two minutes is

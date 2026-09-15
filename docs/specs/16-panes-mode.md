@@ -406,7 +406,8 @@ is unique, so there could only ever be one of each, which IS the symptom. Step 2
   the file is shown by more than one session, the way #349 qualifies two same-named session tabs; two
   sessions with the same name add the start of their ids. A `/clear` moves the session id, so the entries are
   renamed onto the new one and `rekeyViewRef` renames their pane tabs in place; if the new id already
-  shows the same thing, that entry wins and the moved one is closed.
+  shows the same thing, that entry wins and the moved one is closed. Two spellings of one path (slash
+  direction, drive-letter case) are two files, both for the #619 key and for the #626 label.
 - **One model in every display mode.** The mode decides one thing only: outside panes the side panel shows
   one entry per session, so opening closes the previous — which is what tabs and grid always promised. In
   panes nothing closes.

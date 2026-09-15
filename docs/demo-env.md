@@ -105,6 +105,9 @@ touches nothing real. `test/store-isolation.test.js` is the guard.
 - **One shipped DB migration reads the real `~/.claude/projects`** (`src/db/migrations.js`) to backfill
   project paths. A migration is append-only and must never be edited once shipped, so it stays as it is —
   read-only, and its result is dominated by the `session_cache` rows it seeds from.
+- **A `/model` confirmed in a demo session changes the demo's default.** The CLI saves the choice as `model`
+  in `<demo>/stores/claude/settings.json`, so later demo sessions and the context-fill resolver read it.
+  Remove the key after a measurement.
 
 ## What is seeded
 

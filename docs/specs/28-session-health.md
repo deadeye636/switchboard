@@ -82,7 +82,8 @@ variant does appear in `cost-state` entries, but the CLI writes those at the end
 session is exactly the one the badge is for.
 
 Every window below was measured with `claude -p --model <spec> --output-format json`, reading
-`modelUsage.<model>.contextWindow`, CLI 2.1.270, against an isolated home. No value comes from a catalog.
+`modelUsage.<model>.contextWindow` (the requested model's key: a `claude-haiku-4-5` side call sits beside
+it), CLI 2.1.270, against an isolated home. No value comes from a catalog.
 Pi's catalog lists Sonnet 4.5 and Opus 4.6 at 1M, which is their `[1m]` value and not what the CLI gives the
 bare spec.
 
@@ -100,7 +101,8 @@ The aliases resolved to `opus` → `claude-opus-5`, `sonnet` → `claude-sonnet-
 `src/backends/claude/model-windows.js` holds the table and `resolveClaudeWindow`:
 
 1. **A `/model <spec>` in the transcript decides the model at once**, even before the new model has run a
-   turn. The CLI applies a switch immediately: right after `/model claude-sonnet-4-5` its status line read
+   turn. The CLI applies a switch as soon as it is written (a held-back one after the running turn ends, see
+   below): right after `/model claude-sonnet-4-5` its status line read
    23 % of 200 000. An alias only names a family, though: a turn inside that family keeps its own id. A spec
    that yields no window (an unknown alias such as `opusplan`) falls back to the turn's model. A `/model`
    without an argument clears the recorded spec, because the picker's choice is not spelled out in the

@@ -59,6 +59,10 @@ they typed. Whether a stored row is still only its command is the descriptor's `
 grammar above stays in Claude's folder — `docs/specs/13-session-lineage.md` has what the renderer does
 with the answer.
 
+A command typed while a turn runs is not a user entry: measured for `/model` on 2.1.272, the CLI writes the
+markup and its output as `system` entries with `subtype: 'local_command'` after that turn (see "How full
+the context window is"). Other commands in that form were not measured.
+
 ### The prompt queue is in the transcript (#495)
 
 Type while Claude is working and the prompt is queued rather than sent, and every movement of that queue
@@ -634,6 +638,9 @@ is `docs/specs/28-session-health.md`.
 - A `<synthetic>` model marks a CLI-side message, not an API call.
 - The variant appears only as a `modelUsage` key (`claude-opus-5[1m]`) in `cost-state` entries, which the CLI
   writes at session END — 15 of 153 measured transcripts had none, including every running one.
+- `claude -p … --output-format json` lists a `claude-haiku-4-5` entry in `modelUsage` beside the requested
+  model: a side call the CLI makes, which is not an assistant turn in the transcript. Read the key of the
+  requested model, never the first key.
 - A `/model <spec>` switch typed at an idle prompt is a user entry of command markup with `<command-args>`,
   followed by a `<local-command-stdout>` entry ("Set model to … and saved as your default for new sessions").
   Typed while a turn runs, the CLI holds it until the turn ends and writes the same two pieces as `system`
