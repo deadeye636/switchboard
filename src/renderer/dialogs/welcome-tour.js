@@ -253,10 +253,32 @@
     absolute: 'an absolute path is resolved against each project, so this figure cannot show it',
   };
 
+  // When the two fields have DIFFERENT problems there is one caption and two things to say, so it stops
+  // naming the reason. Taking the first — which is what `plan.why || handoff.why` did — left the second
+  // value silently replaced with nothing on screen about it, a smaller version of the defect this figure
+  // was fixed for. Both rows still draw their own fallback either way.
+  //
+  // "could be drawn" and not "can be used", because the two classes are not the same thing: a value that
+  // leaves the project is one the app will not use, while an absolute one may be perfectly good and is
+  // simply not placeable in a figure with no project behind it. One sentence has to be true of both.
+  const TWO_PROBLEMS = 'neither value could be drawn here — the defaults are shown instead';
+
   function effectiveDirName(value, fallback) {
     const problem = conventionDirNameProblem(value);
-    if (!problem) return { name: (value || '').trim(), why: '' };
-    return { name: fallback, why: DIR_PROBLEM_WORDS[problem] || '' };
+    if (!problem) return { name: (value || '').trim(), why: '', problem: '' };
+    return { name: fallback, why: DIR_PROBLEM_WORDS[problem] || '', problem: DIR_PROBLEM_WORDS[problem] ? problem : '' };
+  }
+
+  /**
+   * One caption for two fields.
+   *
+   * When both fail the same way, or only one fails, that problem's own wording is the honest answer. When
+   * they fail DIFFERENTLY there is no reason that covers both, so it names neither and says only that the
+   * defaults are what is drawn.
+   */
+  function figCaption(plan, handoff) {
+    if (plan.problem && handoff.problem && plan.problem !== handoff.problem) return TWO_PROBLEMS;
+    return plan.why || handoff.why;
   }
 
   function figDirs(planDir, handoffDir) {
@@ -265,7 +287,7 @@
     const handoff = effectiveDirName(handoffDir, '.handoffs');
     const p = esc(plan.name);
     const h = esc(handoff.name);
-    const why = plan.why || handoff.why;
+    const why = figCaption(plan, handoff);
     const line = (y, text, colour) =>
       `<text x="194" y="${y}" font-family="ui-monospace, Consolas, monospace" font-size="12" fill="${colour}">${text}</text>`;
     return `<svg viewBox="0 0 640 200" role="img" aria-label="Where a plan and a handoff are written inside the project">

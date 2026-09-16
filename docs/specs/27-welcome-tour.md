@@ -175,6 +175,13 @@ therefore called `docs/..` "outside the project" when it is the root: three word
 derivation of the rule, and the guard written to refuse one walked straight past it. A blank value is not a
 mistake and keeps the neutral caption — an empty setting simply means the default.
 
+**There are two fields and one caption, and when they fail differently it names neither reason.** It used to
+take the plans field's and say nothing about the handoffs field, which had been replaced just as silently as
+the value the pane was fixed for — the same defect at one quarter the size. The two-problem wording says the
+values could not be *drawn* rather than that they cannot be *used*, because those are not the same claim: a
+path that leaves the project is one the app refuses, while an absolute one may be perfectly good and is only
+unplaceable in a figure with no project behind it. Both rows still draw their own fallback either way.
+
 The field beside the figure goes on showing what was typed, which is what an editor does; the figure is the
 half that promises an outcome, and this is the divergence #623 closed for the handoff save and #630 for the
 plan-convention preview, arriving at the one surface further out that only draws.

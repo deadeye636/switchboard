@@ -51,6 +51,10 @@ const CAP_NEUTRAL = 'both inside the project, both plain Markdown';
 const CAP_ESCAPES = 'outside the project — the default is used instead';
 const CAP_ROOT = 'the project itself — the default is used instead';
 const CAP_ABSOLUTE = 'an absolute path is resolved against each project, so this figure cannot show it';
+// One caption, two answers: when the fields fail for DIFFERENT reasons it stops naming a reason rather
+// than naming one of them. "could be drawn" covers both classes — a value that leaves the project is one
+// the app will not use, an absolute one may be perfectly good and is simply not placeable here.
+const CAP_TWO = 'neither value could be drawn here — the defaults are shown instead';
 
 // The two scripts, read out of index.html so the list cannot drift away from the page. `endsWith` rather
 // than an index: the page's order is asserted separately, and only these two are loaded.
@@ -212,4 +216,44 @@ test('both sides unusable: both rows fall back, and the caption names a problem'
   assert.equal(fig.plan, PLAN_DEFAULT);
   assert.equal(fig.handoff, HANDOFF_DEFAULT);
   assert.equal(fig.caption, CAP_ESCAPES);
+});
+
+// The caption used to be `plan.why || handoff.why`, so with two DIFFERENT problems it announced the plans
+// row's and said nothing at all about the handoffs row — which had been replaced just as silently as the
+// value this whole figure was fixed for. Both rows still fall back; only the wording changes.
+test('two different problems: the caption stops naming one of them (#630)', async () => {
+  // All three unordered pairs, in BOTH orders — six. The ordered half is not decoration: the defect was
+  // that one side won, so a table covering each pair once could have kept the bug for whichever side it
+  // happened to put first.
+  for (const [plan, handoff] of [
+    ['../plans', 'packets/..'],             // escapes + root
+    ['packets/..', '../plans'],             // …and root + escapes
+    ['../plans', '/var/example/packets'],   // escapes + absolute
+    ['/var/example/plans', '../packets'],   // …and absolute + escapes
+    ['packets/..', '/var/example/packets'], // root + absolute
+    ['/var/example/plans', 'packets/..'],   // …and absolute + root
+  ]) {
+    const fig = await draw(plan, handoff);
+    assert.equal(fig.plan, PLAN_DEFAULT, `${plan} + ${handoff}: the plans row falls back`);
+    assert.equal(fig.handoff, HANDOFF_DEFAULT, `${plan} + ${handoff}: the handoffs row falls back too`);
+    assert.equal(fig.caption, CAP_TWO, `${plan} + ${handoff}: one reason must not stand for both`);
+  }
+});
+
+// A blank field is not a problem, so it must not turn a single real problem into the two-problem wording.
+test('a blank field beside a real problem still names that problem (#630)', async () => {
+  // Both sides, because "blank" is the one value that has no problem word and could just as easily have
+  // been read as a second problem — which would have turned every half-filled pane into the two-problem
+  // wording. This one passes against the old code too; it is here so a future `if (plan.problem)` that
+  // forgets the blank case fails by name.
+  for (const [plan, handoff, caption] of [
+    ['', '../packets', CAP_ESCAPES],
+    ['../plans', '', CAP_ESCAPES],
+    ['   ', 'packets/..', CAP_ROOT],
+  ]) {
+    const fig = await draw(plan, handoff);
+    assert.equal(fig.plan, PLAN_DEFAULT, `${plan} + ${handoff}`);
+    assert.equal(fig.handoff, HANDOFF_DEFAULT, `${plan} + ${handoff}`);
+    assert.equal(fig.caption, caption, 'blank is the default, not a second mistake');
+  }
 });
