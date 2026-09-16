@@ -453,7 +453,7 @@ credentials and has never onboarded (see `docs/demo-env.md`).
 ## Measuring a CLI outside the app
 
 A transcript format or a dialog is sometimes only answered by driving the CLI itself, with no app in
-between (#622 measured `/model` that way). Four things make such a harness measure the wrong thing:
+between (#622 measured `/model` that way). Five things make such a harness measure the wrong thing:
 
 1. **Strip the Claude session markers from the child's env.** A CLI started from inside a Claude Code
    session inherits `CLAUDECODE` and `CLAUDE_CODE_*`, and with `CLAUDE_CODE_CHILD_SESSION` it writes no
@@ -463,7 +463,8 @@ between (#622 measured `/model` that way). Four things make such a harness measu
    `ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron <script>.js`, not with plain `node`.
 3. **Expect the trust dialog under another spelling.** Claude keys folder trust in `.claude.json` by the real
    path of the git root, or of the directory outside a repository, with the drive letter as the cwd spelled
-   it, and looks the key up exactly (#627, `docs/backend-formats.md` has the measured rule). A session whose
+   it, and looks the key up exactly — with one exception: outside a repository a trusted folder ABOVE a
+   directory trusts it (#627, `docs/backend-formats.md` has the measured rule). A session whose
    cwd spells the drive letter in upper case, after one that spelled it in lower case, shows the trust
    dialog again, even in a trusted demo project; the harness has to answer it or start where the trusted key
    was written. And a probe directory inside this repository is keyed by the repository's root, so it
@@ -472,7 +473,6 @@ between (#622 measured `/model` that way). Four things make such a harness measu
    first ("Switch model? … Yes, switch / No, go back"), at an idle prompt and when held back alike, and
    writes nothing until confirmed. A confirmed switch is saved as `model` in the user settings of the home it
    ran under, so every later session there resolves it. Remove it after measuring.
-
 5. **A measurement on another platform needs a login there.** The CLI installs in WSL in a minute, but a
    fresh configuration directory asks for a browser login of its own — credentials copied from the demo home
    are not accepted (#628). So a Linux or macOS measurement needs a machine where the CLI is already logged

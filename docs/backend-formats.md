@@ -47,10 +47,18 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   before any of this. Measuring them needs a machine that can log the CLI in on that platform: an attempt in
   WSL got as far as the first-run screens, where the CLI asked for a browser login of its own (#628).
 
+  Resolving that key is a realpath, a stat per ancestor up to a `.git`, and a realpath of the drive root, so
+  the answer is **held for five seconds** for what the manager SHOWS — measured over 200 project directories,
+  a third of them repositories: 158–166 ms cold, 0.3 ms held. Every write resolves its key fresh, and so does
+  a remap's decision whether to move trust at all. A `git init` or a moved folder can therefore make the
+  manager show an old answer for one interval, and can never make it write or decide on one.
+
   What the Projects manager does with it: a row whose answer is kept elsewhere says so. Granting trust on a
   subdirectory or worktree row names the repository root it is kept for; removing it asks first, because it
-  reaches every checkout; and a row trusted through a folder above it offers to remove trust THERE, since
-  that is the only change the CLI would notice. A remap moves a project's own block to the target's own key,
+  reaches every checkout; removing it on a row that owns its gate asks too when other rows on the list are
+  trusted through that gate, and says how many; and a row trusted through a folder above it offers to remove
+  trust THERE, since that is the only change the CLI would notice — naming it when a folder further up would
+  still trust the project. A remap moves a project's own block to the target's own key,
   never onto a repository root, and carries only trust the project held in its own key — never shared or
   inherited trust, and never into a root the target only sits in.
 

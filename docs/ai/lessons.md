@@ -1206,6 +1206,32 @@ the transcript already said the switch was over: a later turn ran on a model the
   written at once, between two entries of the request still streaming — the exact case the gap described.
   When a CLI has a queue, measure with something in it.
 
+## The measurement ran the relation backwards (#627)
+
+The rule under test was "does a trusted folder above a project trust the project". The probe trusted a
+project and then started a session in its parent — which asks whether a trusted CHILD trusts its parent, and
+the answer to that is correctly no. It was written down as a measured negative, in a doc and in an issue
+comment, and undoing it took a second round of measurements, a new inheritance path in the reader, a fourth
+dialog in the manager and a comment that opens by retracting the earlier one.
+
+- **Name the direction in the sentence you are testing.** "A trusts B" and "B trusts A" read alike in a note
+  and are two different runs.
+- **A negative result deserves the harder setup.** The positive case needed one more fresh directory; the
+  negative one was cheap, which is why it was the one that ran.
+- **A "not measured" list is safer than a measured wrong answer.** The honest gaps in the same commit cost
+  nothing to close later; the confident negative had to be retracted in public.
+
+## When the KEY stops being the path you were handed, every get/set pair changes (#627)
+
+Trust is keyed by a repository's root, so one entry answers for every checkout of it. Changing only the key
+derivation left the remap's `get`-then-`set` looking right and being wrong: un-trusting a gate the old path
+only sat inside would have un-trusted every other checkout, and granting one the new path only sits inside
+would have trusted a whole repository with none of the confirmation every other grant asks for. A verifier
+found four such regressions in one flow.
+
+The backend that knows the key rule is the only place that can decide those, so the move became a hook of its
+own rather than two calls in the core — and each case got a test that fails without its guard.
+
 ## A MutationObserver reads the state NOW, not the state it was told about (#618)
 
 The panes observer decides "shown or hidden" from `rec.target.style.display`. That is the element's
