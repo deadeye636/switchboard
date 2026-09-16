@@ -13,12 +13,19 @@
 // a setting falls back to the default instead of being passed on. `path-containment.js` answers that,
 // because a junction is spelled inside a project it is not in (#474).
 //
+// The project ROOT is dropped the same way (#630) — `.`, `./`, `docs/..` and the project's own absolute
+// path all resolve to it. Neither feature means "the whole project is the directory": the handoff write
+// target joins the guard that decides which files the handoff IPC may read and delete, so a `.` there made
+// every `.md` at any depth in the project readable and deletable through it, and the plan-convention setup
+// refuses the root outright because Claude does. Both classes are a setting nothing can act on, which is
+// what the fallback is for.
+//
 // Electron-free and DB-free on purpose: the pure part is `conventionDirs(projectPath, effectiveSettings)`,
 // which `node --test` can call with a plain object.
 'use strict';
 
 const path = require('path');
-const { isAtOrInside } = require('./path-containment');
+const { isInside } = require('./path-containment');
 const { SETTING_DEFAULTS } = require('./settings');
 
 let ctx = null;
@@ -43,12 +50,21 @@ function dirName(projectPath, eff, key) {
   // Asked about the DIRECTORY, and before any stat: it need not exist yet, and a guard placed after one
   // never sees a path that escaped and had nothing at the end of it (#474, #476).
   const resolved = path.resolve(projectPath, name);
-  if (!isAtOrInside(resolved, projectPath)) return fallback;
+  // STRICTLY inside, so the project root itself falls back too (#630). Neither feature means "the whole
+  // project is the directory": the handoff write target is one of the directories the read/delete guard
+  // allows, so a `.` here made every `.md` at any depth in the project deletable through the handoff IPC,
+  // and the plan-convention setup refuses the root outright because Claude does. A setting that names it
+  // is one nothing can use, which is what the fallback is for.
+  if (!isInside(resolved, projectPath)) return fallback;
   // An ABSOLUTE setting that happens to point inside is spelled back out relative (#623). Nothing forbids
   // one, `{handoffDir}` is documented as project-relative, and the absolute form made `handoffPath` the two
   // roots concatenated — which is the prompt naming a directory the save does not write to.
   if (!path.isAbsolute(name)) return name;
-  return path.relative(projectPath, resolved) || '.';
+  // The empty-relative branch cannot fire — `path.relative` returns `''` only for two paths that resolve
+  // to the same string, and the guard above already rejected that. It falls back rather than answering
+  // `.` anyway: a belt that fails toward the project root would hand back exactly the value this guard
+  // was added to refuse.
+  return path.relative(projectPath, resolved) || fallback;
 }
 
 /**

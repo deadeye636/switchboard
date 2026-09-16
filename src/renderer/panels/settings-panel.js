@@ -1027,10 +1027,25 @@
     if (isProject) {
       const planBtn = settingsViewerBody.querySelector('#sv-plan-convention');
       if (planBtn) planBtn.addEventListener('click', async () => {
-        const planDir = (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans';
+        // Only a directory the user actually TYPED is sent (#630). An untouched field still holds the
+        // effective setting, and passing that made the main process treat every setup as a path somebody
+        // had just named: a `planDir` the app cannot use — one that leaves the project, one that names
+        // the root — was refused here while the plan prompt beside it had already replaced it with
+        // `.plans`. That is the divergence #630 closed everywhere else, and this call reopened it.
+        // `defaultValue` is the value the markup was rendered with, so this compares against the seed
+        // rather than against a second reading of the cascade.
+        const planDirInput = settingsViewerBody.querySelector('#sv-plan-dir');
+        // An EMPTIED field is still a change, and it means the default — the same thing Save would store.
+        // Sending nothing there would set up whatever the setting still says, which is the value the user
+        // has just cleared in front of them.
+        const planDirChanged = !!planDirInput
+          && planDirInput.value.trim() !== (planDirInput.defaultValue || '').trim();
+        const typedPlanDir = planDirChanged ? (planDirInput.value.trim() || '.plans') : '';
+        // Left out entirely when nothing was typed, so the main process answers from the setting.
+        const planOpts = typedPlanDir ? { planDir: typedPlanDir, shared: false } : { shared: false };
         let preview = null;
         try {
-          preview = await window.api.planConventionPreview(projectPath, { planDir, shared: false });
+          preview = await window.api.planConventionPreview(projectPath, planOpts);
         } catch (err) {
           showControlMessage({ title: 'Could not check', message: err.message, tone: 'danger' });
           return;
@@ -1056,7 +1071,7 @@
           tone: preview.versioned ? 'warning' : 'default',
         });
         if (!ok) return;
-        const res = await window.api.planConventionApply(projectPath, { planDir, shared: false });
+        const res = await window.api.planConventionApply(projectPath, planOpts);
         if (res && res.ok) {
           showControlToast({ message: `Plans for this project now go to ${res.planDir}`, timeoutMs: 4000 });
         } else {

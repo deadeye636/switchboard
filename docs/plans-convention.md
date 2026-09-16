@@ -10,7 +10,8 @@ expects to find, and what it will set up for you if you ask.
 
 ## One directory per project
 
-Plans belong to the project they are about, in a directory inside it. The default is `.plans/` at the
+Plans belong to the project they are about, in a directory strictly inside it — a whole repository is not a
+plans directory, so the project root itself is not one either. The default is `.plans/` at the
 project root, and it is a dot-directory on purpose: a plan is written by a tool that knows nothing about
 what may not be published, and the bodies are full of absolute paths and machine names. Keeping them out
 of the repository by default is the setting that cannot leak. If you want them tracked, point the setting
@@ -116,3 +117,19 @@ a project on a `subst` drive or behind a junction hits it without anyone doing a
 So Switchboard reports what actually arrived rather than what was configured. A directory that a project
 asked for and that holds no plans is called out above the list. If plans keep appearing in the CLI's own
 home after you set this up, that is what happened.
+
+Switchboard has one silent replacement of its own. A **Plans directory** that leaves the project —
+`../plans` — or that names the project root is not used: the prompt names `.plans`, `{planDir}` resolves to
+`.plans`, and the setup button offers `.plans`, while the settings screen goes on showing the value you
+typed. That is deliberate. The directory an agent is told to write into and the directory the app would
+configure a CLI with have to be the same one, and a single answer for both is the only way to guarantee
+that — but it does mean such a setting can be wrong and still look applied. A path typed into the setup
+button is the opposite case: it is refused with a message rather than replaced, because you named that one
+path and configuring a different one would not be an answer to it. The button tells the two apart by whether
+you changed the field: leave it as you found it and it is your setting, being replaced like everywhere else;
+type into it and it is a path you just named, and you get a message instead of a silent substitution.
+
+If your project was one of the few that had the project root configured, this moved where new plans and
+handoffs go: to `.plans` and `.handoffs`. Documents already lying in the project root stay where they are
+and are still found, because the directories that are READ are a separate setting and a project that keeps
+its documents at the root can say so there.

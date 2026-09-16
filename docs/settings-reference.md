@@ -196,13 +196,19 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 Placeholders: `{goal}` `{project}` `{sessionId}` `{metrics}` `{handoffDir}` `{handoffPath}` `{planDir}`
 `{planPath}` `{today}`, plus `{transcript}` in the read prompt. The `Dir` forms are relative to the
 project, the `Path` forms absolute — including when the setting behind one was written as an absolute
-path inside the project, which is spelled back out relative (#623).
+path somewhere inside the project, which is spelled back out relative (#623). An absolute path that is the
+project root itself is not spelled back out, it is not used at all (#630, below).
 
-`handoffDir` and `planDir` are **not free paths**. A value that leaves the project — `../packets` — is not
-used at all: the directory falls back to the default, silently, so a prompt cannot send an agent outside
-the tree it was opened on. An absolute path inside the project is accepted and shown relative. The folder
-chooser Switchboard offers after a failed handoff write is the one place an outside directory is refused
-rather than replaced, because there you named that one path.
+`handoffDir` and `planDir` are **not free paths**, and two classes of value go unused. One leaves the
+project — `../packets`. The other names the project root itself — `.`, `./`, `docs/..`, or the project's own
+absolute path. Both fall back to the default, silently, so a prompt cannot send an agent outside the tree it
+was opened on and neither feature can claim the whole project as its directory: the handoff save target also
+joins the check that decides which files the handoff commands may read and delete, and that check accepts
+anything below the directory, so a `.` there would put every `.md` in the project within reach of them.
+Claude refuses the root as a plans directory in any case. An absolute
+path pointing somewhere inside the project is accepted and shown relative. The folder chooser Switchboard
+offers after a failed handoff write is the one place an outside directory is refused rather than replaced,
+because there you named that one path.
 
 A prompt that IS a slash command — `/handoff`, `/plan` — runs the CLI's own skill, and the skill decides
 where it writes. Such a prompt is sent with the directory appended on a line of its own, unless it names

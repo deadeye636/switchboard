@@ -140,3 +140,27 @@ regression that will actually happen", which is somebody tidying an asymmetry th
 English, no personal or local identifiers — **including in a fixture and in a test NAME**, which is
 where they hid last time (`test/no-local-paths.test.js` is the mechanism now). A test that needs a path
 invents one.
+
+## A file that passes every test and does not exit is a FAILING FILE
+
+`--test-timeout=60000` catches a test that stops making progress. It does not catch a file whose tests all
+finish and whose process then sits there, because nothing is running to time out — node's runner waits for
+the event loop to drain. The suite reports that as `not ok <n> - test\<file>.test.js` with `# fail 0`, which
+reads like an infrastructure hiccup and is not one.
+
+What causes it here is a module under test that opened something in `init`. `plans-memory.js` starts an
+`fs.watch` on every plans directory the backends it is handed declare — **including Claude's own, which is a
+real directory on the machine running the suite** — and one open watcher keeps the process alive for good.
+The file had been getting away with it by accident: its last test happened to re-initialise with a backend
+list declaring no plans store, and the key change closed the watcher. Adding a test after that one brought
+the watcher back and the file stopped exiting (#630).
+
+So: **a test that calls an `init` hands back what it started**, through the module's own teardown export
+(`stopWatchingPlansDirs` here, exported for the ordered teardown and reused by the test). Do not rely on
+what the last test in the file happens to leave behind — that is a property nobody can see and the next test
+appended to the file silently changes it.
+
+Diagnosing one: run the file alone with a hard `timeout`. Every test prints `ok`, the file then prints
+`not ok` with a duration equal to your timeout, and `process._getActiveHandles()` after the last test names
+what is holding it open. `--test-name-pattern` is no use for bisecting — filtering keeps the process alive
+by itself.

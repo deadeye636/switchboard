@@ -68,8 +68,13 @@ function comparable(p) {
 /**
  * Is `child` the same real path as `parent`, or inside it?
  *
- * The answer most callers want: a project's own root counts as inside itself, because "the handoff
- * directory is the project directory" is a configuration, not an escape.
+ * The answer for a directory somebody NAMED rather than one the app picked: a read candidate out of
+ * `handoffDirNames` or `planDirNames`, and the folder chosen in a picker. Those are somebody saying "look
+ * here" about a folder that already exists, so a project's own root is a strange thing to point at and not
+ * an escape — the `insideProject` docstrings in `src/app/handoffs.js` and `src/app/plans-memory.js` argue
+ * that end. The SETTINGS answer is strict: `convention-dirs.js` refuses a `handoffDir` or `planDir` that
+ * resolves to the project root (#630), so a directory the app chooses to write into never comes through
+ * here at all.
  */
 function isAtOrInside(child, parent) {
   if (blank(child) || blank(parent)) return false;

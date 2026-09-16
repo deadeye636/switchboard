@@ -148,11 +148,20 @@ table is the fallback and it is binding.
     **A fourth surface WRITES, and it had that second reading until #623:** `handoffWriteDirName` in
     `src/app/handoffs.js` read the setting itself, so a `../packets` setting made the prompt say `.handoffs`
     while the Save button refused the packet as outside the project. The handoff half agrees now.
-    **The plans half still does NOT, and that is open (#630):** `planDirFor` and `planConventionPreview` in
-    `src/app/plans-memory.js` read `eff.planDir` themselves, and the preview REFUSES an escaping value while
-    the plan prompt beside it falls back to `.plans` — the same divergence, one setting over.
-    `test/convention-dirs.test.js` sweeps `src/` for a second reading of either key and names the two that
-    are left, so a new one fails by file rather than by review.
+    **The plans half agrees since #630:** `planDirFor` in `src/app/plans-memory.js` asks `conventionDirs`
+    instead of reading `eff.planDir`, so a `planDir` that leaves the project falls back to `.plans` for the
+    convention setup's preview too, where it used to be refused to the user's face while the plan prompt
+    beside it fell back. What the preview still refuses is a directory the CALLER named — and **the renderer
+    decides that by comparing the field to its own `defaultValue`**, because the setup dialog's input is
+    PREFILLED with the effective setting. It used to send that field's value unconditionally, so every
+    setup read as a path somebody had just named and the fallback never ran in the app at all; the
+    divergence survived the first fix and only a reading of the call site found it. That split is the one
+    the handoff writer settled: a setting nobody can use
+    falls back silently, a path the user chose is refused, because they named that one and writing somewhere
+    else would not be an answer to it. **And "inside the project" is now STRICTLY inside**, so a setting
+    naming the root itself falls back as well: neither feature means "the whole project is the directory".
+    `test/convention-dirs.test.js` sweeps `src/` for a second reading of either key, and `SECOND_READERS`
+    there is what is exempt from it, so a new one fails by file rather than by review.
 13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it

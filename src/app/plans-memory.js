@@ -35,6 +35,8 @@ const { isDeletableKind } = require('./backend-resources');
 // Handoff packets are files in the project since #468, and their own module owns where those live. This
 // tab only shows them, beside the project's other agent files.
 const handoffs = require('./handoffs');
+// Where a project keeps its plans — the one answer, shared with the plan prompt (CLAUDE.md reflex 12).
+const { conventionDirs } = require('./convention-dirs');
 
 let ctx = null;
 
@@ -524,6 +526,11 @@ function planDirCandidates(projectPath = null) {
  * its contents are elsewhere, and these are paths the app reads, writes and deletes. One implementation
  * (`path-containment.js`), shared with the handoff directories — two answers to this question is how they
  * drift apart.
+ *
+ * At-or-inside, and wider than the setting on purpose: `convention-dirs.js` refuses the project root for
+ * `planDir` (#630), because that is the directory the convention would point a CLI at. This one answers
+ * about a candidate the read list already names, which is somebody saying "look here" about a folder that
+ * exists. The same split the handoff side carries, for the same reason.
  */
 function insideProject(dir, projectPath) {
   return isAtOrInside(dir, projectPath);
@@ -1112,12 +1119,19 @@ function deleteWorkFile(filePath) {
 // trusting one from the renderer. A dialog that describes one thing and writes another is the failure
 // this shape exists to prevent.
 
-/** The plans directory this project should use: its own setting, else the global default. */
+/**
+ * The plans directory this project should use.
+ *
+ * Asked of `convention-dirs.js` and not of the settings blob (CLAUDE.md reflex 12, #630). It used to read
+ * `eff.planDir` itself, and the two then disagreed about a value that leaves the project: the plan prompt
+ * fell back to `.plans` while the preview below refused the same setting to the user's face. The PURE
+ * function rather than `dirsFor`, because this module already takes the cascade through its own ctx and so
+ * hands over the settings it read itself — the shape `handoffWriteDirName` in `handoffs.js` uses.
+ */
 function planDirFor(projectPath) {
   try {
     const eff = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath) : null;
-    const value = eff && typeof eff.planDir === 'string' ? eff.planDir.trim() : '';
-    return value || '.plans';
+    return conventionDirs(projectPath, eff).planDir || '.plans';
   } catch { return '.plans'; }
 }
 
@@ -1140,6 +1154,12 @@ function planConventionPreview(projectPath, options) {
   const notes = [];
 
   // Strictly inside: the project root is not a plans directory, and Claude refuses it too.
+  //
+  // Since #630 this can only fire for a directory the CALLER named — `opts.planDir`, the path typed into the
+  // setup dialog. A value that came from the setting has already been through `convention-dirs.js` and
+  // cannot escape. That is the same split the handoff writer settled: a setting nobody can use falls back
+  // silently, a path the user chose is refused, because they named that one and writing elsewhere would not
+  // be an answer to it.
   if (!isInside(resolved, projectPath)) {
     return { ok: false, error: 'The plans directory has to be a directory inside the project — Claude refuses anything else.' };
   }

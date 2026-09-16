@@ -25,9 +25,14 @@ always handed over as text),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
 CLAUDE.md reflex 12; the handoff prompts, the plan prompt and a saved variable's insert template all
 ask it, and a second reading of `eff.handoffDir` is how two of them start naming different directories.
+The SURFACES beside those prompts ask it as well — the handoff save since #623, and since #630
+`planDirFor` in `plans-memory.js`, which is where the plan-convention preview gets its default before
+`planConventionApply` writes what the preview computed — so a prompt and the button beside it cannot name
+different directories for the same project.
 It also settles escaping, so a `../packets` setting falls back to the default instead of sending an
-agent outside the tree. Electron-free and DB-free: `conventionDirs(projectPath, effectiveSettings)` is
-callable from `node --test` with a plain object),
+agent outside the tree, and the containment is STRICT: a setting naming the project root falls back
+too, because neither feature means "the whole project is the directory". Electron-free and DB-free:
+`conventionDirs(projectPath, effectiveSettings)` is callable from `node --test` with a plain object),
 `file-access.js` (can this file be WRITTEN — #281; one handler rather than a flag on each of the four
 readers that feed the viewer, three of which return a bare string. A missing file counts as writable
 and so does anything the check cannot answer: a false read-only locks an editable file out of its

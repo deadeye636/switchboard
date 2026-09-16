@@ -237,6 +237,9 @@ project. Still a note rather than a guard, and now a note with a consequence.
   `handoffDir`/`planDir` against the path it is handed, so a packet written from a worktree lands inside
   the worktree — which is what you want. An **absolute** setting is not inside the worktree, so the escape
   guard drops it to the default there: the one case where a worktree does not get its project's answer.
+  Against the PROJECT it is handed, an absolute setting pointing inside is kept and spelled back out
+  relative (#623), except when it names the root itself — that falls back like anything else the feature
+  cannot use (#630).
 - **Visible without sessions (#594).** A sidebar row came from a registration or from a cached session,
   and a worktree has neither: not registered by design, and no session when it is fresh. So there was no
   row and nowhere to click "new session" — the only way to get one was to start a session from outside

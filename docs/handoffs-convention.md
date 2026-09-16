@@ -30,8 +30,10 @@ Two settings under **Handoffs**, both with a global default and a per-project ov
 They are separate on purpose. If the write target were "the first entry of the read list", reordering that
 list would quietly move where future packets land. Both are relative to the project root. A value that
 leaves the project — `../packets` — is not used: the packet goes to `.handoffs` instead, the same directory
-the prompt names. The folder chooser offered after a failed write is the other case, and there an outside
-directory is refused rather than replaced, because you picked that one.
+the prompt names. The project root itself is not a handoff directory either, and falls back the same way:
+the save target is part of what the app will read packets from, so a `.` there would offer every `.md` in
+the project as a handoff. The folder chooser offered after a failed write is the other case, and there an
+outside directory is refused rather than replaced, because you picked that one.
 
 ## The agent is told where the packet goes
 

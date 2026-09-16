@@ -1240,3 +1240,33 @@ queues a `none` → `flex` pair, and both records read `flex`, so the hide was n
 opened a tab when none existed, so a re-open of a viewer that already had a tab did nothing, from #342
 until #618. The #342 click tests missed it because the FIRST open worked. Collapse the records per element
 and decide once from the current state, and click the second open too.
+
+## A setting the feature cannot use falls back; a path the user named is refused (#623, #630)
+
+Two surfaces ask where a project keeps its documents, and for years they disagreed. The handoff prompt
+asked `convention-dirs.js`, which drops a `handoffDir` that leaves the project and names `.handoffs`
+instead; the SAVE read the setting itself and answered "outside its project" for the same value. So an
+agent was told one directory and the button beside it refused that very setting. Nobody noticed, because
+each half is correct read on its own and no test loads both.
+
+What settles it is not "route everything through one module" — that was already the rule, in CLAUDE.md,
+written after the first time. It is the distinction the rule was missing:
+
+- a **setting** the feature cannot use falls back silently. The user is not standing in front of it, there
+  is no question on screen to answer, and the alternative is a prompt that sends an agent outside the tree.
+- a **path the user just named** — the folder chooser after a refused write, the directory typed into the
+  plan-convention dialog — is refused. They picked that one; writing somewhere else is not an answer to it.
+
+Get that backwards in either direction and it looks reasonable. Refusing the setting is what shipped, and
+it made the two halves contradict each other. Falling back on the picked path would silently move a file
+the user had just pointed at.
+
+Three things came out of doing it properly that the issue did not name. The escape guard was only half of
+"unusable": a setting naming the project ROOT passed containment and is nonsense for both features — every
+`.md` in the tree offered as a handoff packet, and a plans directory Claude refuses outright. An absolute
+setting pointing INSIDE the project was handed on as it was and then joined to the root again, so the
+prompt's absolute token was the two roots one after the other. And the same second reading existed one
+setting over, in the plans convention, where the preview refused what the prompt fell back on — found by a
+reader again, not by a test, which is why there is now a sweep of `src/` for either key, with `SECOND_READERS`
+in `test/convention-dirs.test.js` as the only door out of it. An addition to that map is a claim that one
+more surface may answer this question itself, and the claim has been wrong both times it was made.

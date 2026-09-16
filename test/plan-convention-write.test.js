@@ -161,3 +161,63 @@ test('a file that moved between the preview and the write is not overwritten', (
   assert.deepEqual(res.written, [], 'and nothing claims to have been written');
   assert.equal(fs.readFileSync(file, 'utf8'), theirs, "the other writer's file is exactly as they left it");
 });
+
+// `init` starts the plans-directory watch (#452), and it watches whatever plans store the backends it is
+// given declare — including Claude's own, which is a real directory on the machine running this. An open
+// `fs.watch` keeps the process alive, so the file has to hand it back: without this the run reports every
+// test passing and then never exits, which the suite shows as a failing FILE with no failing test in it.
+test.after(() => { try { plansMemory.stopWatchingPlansDirs(); } catch {} });
+
+// #630 — the setup preview used to read `eff.planDir` itself and refuse a value that leaves the project,
+// while the plan prompt beside it (through `convention-dirs.js`) fell back to `.plans` for the same
+// setting. One of the two had to be wrong for every project that configured such a value.
+//
+// The split it settles is the one the handoff writer settled in #623: a SETTING nobody can use falls back
+// silently, a directory the caller NAMED is refused, because they named that one.
+test('a planDir setting that leaves the project falls back, as the plan prompt already says (#630)', () => {
+  const root = project('escaping-setting');
+  plansMemory.init({
+    backends: { list: () => [{ ...claude, status: 'ready' }] },
+    db: {
+      getProjectStates: () => new Map([[root, { registered: true, hidden: false, autoHidden: false }]]),
+      getProjectDisplayNames: () => new Map(),
+    },
+    log: { warn() {}, error() {}, info() {}, debug() {} },
+    activeSessions: new Map(),
+    dataDir: ROOT,
+    effectiveSettings: () => ({ planDir: '../elsewhere' }),
+  });
+
+  const preview = plansMemory.planConventionPreview(root, {});
+  assert.equal(preview.ok, true, preview.error);
+  assert.equal(preview.planDir, '.plans');
+  assert.equal(preview.dir, path.join(root, '.plans'));
+});
+
+test('a directory the caller named is still refused when it leaves the project (#630)', () => {
+  const root = project('picked-outside');
+  const preview = plansMemory.planConventionPreview(root, { planDir: '../elsewhere' });
+  assert.equal(preview.ok, false);
+  assert.match(preview.error, /inside the project/);
+});
+
+// Strictly inside, so the project root is not a plans directory either — Claude refuses it, and a setting
+// naming it is one nothing can use.
+test('a planDir setting naming the project root falls back too (#630)', () => {
+  const root = project('root-setting');
+  plansMemory.init({
+    backends: { list: () => [{ ...claude, status: 'ready' }] },
+    db: {
+      getProjectStates: () => new Map([[root, { registered: true, hidden: false, autoHidden: false }]]),
+      getProjectDisplayNames: () => new Map(),
+    },
+    log: { warn() {}, error() {}, info() {}, debug() {} },
+    activeSessions: new Map(),
+    dataDir: ROOT,
+    effectiveSettings: () => ({ planDir: '.' }),
+  });
+
+  const preview = plansMemory.planConventionPreview(root, {});
+  assert.equal(preview.ok, true, preview.error);
+  assert.equal(preview.planDir, '.plans');
+});

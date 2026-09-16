@@ -125,6 +125,23 @@ than invented here:
 - **An emptied field means the default, not "no directories".** A list that can be emptied is a setting
   that hides every plan the project has, and no error would ever be shown for it.
 
+**A `planDir` the app cannot use falls back silently; a directory somebody typed is refused (#630).** A
+setting that leaves the project, or that names the project root — `.`, `./`, `docs/..`, the project's own
+absolute path — is replaced by `.plans` everywhere it is read: the plan prompt, a saved variable's insert
+template, and since #630 the convention setup's preview as well. Before that the preview was the one
+surface that read the setting itself, so it answered "has to be a directory inside the project" for a value
+the prompt beside it had already quietly replaced — the divergence #623 closed on the handoff side, one
+setting over. What the preview still refuses is a directory the CALLER named — and telling the two apart is
+the renderer's job, because the setup dialog's input is PREFILLED with the effective setting: it sends
+`planDir` only when the field differs from the `defaultValue` the markup was rendered with, and otherwise
+sends nothing and lets the main process answer from the setting. Routing `planDirFor` through
+`conventionDirs` was not enough on its own for exactly that reason — the field's value went out
+unconditionally, so every setup looked like a path somebody had just named and the fallback never ran
+outside the tests. The asymmetry is the whole of it: a setting nobody can use has nothing worth reporting about,
+while a path somebody chose is the thing they asked about, and writing somewhere else would not be an
+answer to it. The root falls back rather than being accepted because Claude refuses it in any case — the
+three refusals above — so taking it would only move the silent failure into the CLI.
+
 
 ## Asking for one, without writing it (#486)
 

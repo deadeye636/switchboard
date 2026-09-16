@@ -21,8 +21,11 @@
 // Both are in the settings cascade, so a project says its own answer without every other project
 // inheriting it, and both are relative to the project root. An escaping `handoffDir` falls BACK to the
 // default rather than being refused (#623) — that is what the prompt already tells the agent, and the save
-// saying otherwise was the divergence. A directory the user picked EXPLICITLY is still refused: they chose
-// that one path, so silently writing somewhere else would be the wrong answer to it. Unlike
+// saying otherwise was the divergence. One naming the project ROOT falls back with it (#630): the write
+// target joins the read/delete GUARD below — `handoffDirs` adds it, `isAllowedHandoffPath` asks about it —
+// so a `.` there made every `.md` at any depth in the project readable and deletable through this module's
+// IPC. A directory the user picked EXPLICITLY is still refused: they chose that one path, so silently
+// writing somewhere else would be the wrong answer to it. Unlike
 // plans there is no CLI to configure and no refusal of one to diagnose: Switchboard writes the handoff
 // itself.
 //
@@ -90,7 +93,8 @@ function handoffDirCandidates(projectPath) {
  * The directory a NEW packet goes into — `convention-dirs.js`'s answer, not a second reading of the setting
  * (#623). It applies the same escape guard as the handoff prompt and a saved variable's insert template, so a
  * `handoffDir` that leaves the project falls back to `.handoffs` everywhere instead of being named by the
- * prompt and refused by the save.
+ * prompt and refused by the save. A value naming the project ROOT falls back too — that guard is strictly
+ * inside since #630, and `insideProject` below says why the read side deliberately stayed wider.
  */
 function handoffWriteDirName(projectPath) {
   try {
@@ -105,6 +109,22 @@ function handoffWriteDirName(projectPath) {
  * The real path of both sides, not the spelled one (#474): a directory that is a junction is spelled
  * inside the project while its contents are somewhere else, and this guards paths the app writes into and
  * deletes from. `path-containment.js` is the one implementation, shared with the plans convention.
+ *
+ * At-or-inside, deliberately WIDER than the write setting. `convention-dirs.js` requires strictly inside,
+ * so `handoffDir` cannot name the project root (#630) — but that is about the directory the app writes into,
+ * and about the guard that write target joins. What passes through here is a READ candidate from
+ * `handoffDirNames` or a directory the user picked, and both are somebody saying "look here" about a folder
+ * that already exists. A list entry of `.` offers the `.md` files lying in the project root as packets, and
+ * only those: the listing reads one directory at a time and never descends. A strange thing to ask for, and
+ * still what was asked for.
+ *
+ * What that does NOT make safe is the guard, and the difference is worth stating because it is the same
+ * argument #630 used against the setting: `handoffDirs` hands every one of these directories to
+ * `isAllowedHandoffPath`, which asks `isInside` and therefore accepts a descendant at ANY depth. So a `.`
+ * in the READ list still reaches every `.md` in the project through `read-handoff` and `delete-handoff`,
+ * even though nothing lists them. That door is left open on purpose — the read list is a list of places to
+ * look, and refusing an entry would be refusing to look where a project says its packets are — but it is a
+ * door, not an oversight, and the next person to widen this should know which half protects what.
  */
 function insideProject(dir, projectPath) {
   return isAtOrInside(dir, projectPath);

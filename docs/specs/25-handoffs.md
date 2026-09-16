@@ -64,7 +64,13 @@ saving — "the write target is the first entry of the read list" — is a trap:
 reading decision, and it would silently move where future packets land.
 
 Both are in the cascade and both are project-relative. A **setting** that escapes the project root falls back
-to the default (#623, below); a directory the user **picked** — the folder chooser offered after a failed
+to the default (#623, below), and so does one that names the root itself — inside means **strictly** inside
+since #630. The reason is the GUARD rather than the listing: `handoffDirs` adds the write target to the set
+`isAllowedHandoffPath` accepts, and that check is a containment test rather than a directory match, so a
+packet directory of `.` made every `.md` at any depth in the project readable and deletable through the
+handoff IPC. The listing itself never descends — it reads one directory at a time — which is why the
+argument has to be made about the guard and not about what a user would see.
+A directory the user **picked** — the folder chooser offered after a failed
 write — is refused instead, because they named that one path and writing somewhere else would not be an
 answer to it.
 
@@ -217,7 +223,10 @@ too: a project that used to keep its rows in the database because the target was
 written out and the table dropped, which is a one-way step.
 An absolute `handoffDir` that points inside the project is legal and is spelled back out relative, so the
 prompt's `{handoffDir}` stays a project-relative token and `{handoffPath}` is not the two roots
-concatenated — the same divergence in the shape #623 first left behind.
+concatenated — the same divergence in the shape #623 first left behind. What "inside" covers narrowed in
+#630: the project's own absolute path, `.`, `./` and `docs/..` all resolve to the root, and the root is not
+a handoff directory, so they fall back to `.handoffs` with the escaping values rather than being spelled
+back out as `.`.
 
 ## What this does not do
 
