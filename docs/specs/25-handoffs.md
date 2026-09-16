@@ -218,7 +218,13 @@ leaving the next one to a reviewer.
 refusal it could act on: the setting was visibly wrong and nothing was written. It now gets a packet in
 `.handoffs` and no word about the setting it configured. That is the right trade for the prompt — an agent
 told one directory while the button uses another is the worse failure — but it is a silent one, and the
-settings screen still shows the escaping value as if it applied. The one-time legacy export inherits it
+settings screen still shows the escaping value as if it applied. **One surface does say so**, and the split
+is worth keeping straight: the welcome tour's figure (#630) draws the directory the app will use and, for a
+value it can classify, names why the typed one was dropped — because a figure promises an outcome. An
+absolute path it reports as unjudgeable instead, since that pane has no project to resolve one against. A
+text input shows what you typed, which is what an editor is for, so the settings screen was deliberately
+left alone.
+The one-time legacy export inherits it
 too: a project that used to keep its rows in the database because the target was refused now has them
 written out and the table dropped, which is a one-way step.
 An absolute `handoffDir` that points inside the project is legal and is spelled back out relative, so the

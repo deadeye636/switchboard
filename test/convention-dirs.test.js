@@ -48,6 +48,28 @@ test('no project — the names still answer, the paths are empty rather than gue
   assert.equal(dirs.planPath, '');
 });
 
+// …and with no project there is nothing to resolve against, so the LEXICAL rule answers — the one the
+// welcome tour draws from. An insert template for a session with no project used to paste `../packets`
+// into a prompt (#630). Nothing else pins the order of those two checks, and getting it wrong is silent.
+test('no project — a name nothing could use still falls back (#630)', () => {
+  for (const name of ['../packets', '..', '.', 'docs/..', '   ']) {
+    assert.equal(conventionDirs(null, { handoffDir: name }).handoffDir, '.handoffs', name);
+  }
+  // An absolute one is NOT judged: it may point inside the project this template is pasted into, and
+  // without a project nothing here can say. It goes through as written.
+  const absolute = path.resolve('/srv/projects/shop/.handoffs');
+  assert.equal(conventionDirs(null, { handoffDir: absolute }).handoffDir, absolute);
+});
+
+// The lexical rule is deliberately NOT asked when there IS a project. It would refuse this, and the
+// filesystem does not: the name climbs out of the project and lands back inside it.
+test('a name that climbs out and back in is decided by the filesystem, not lexically (#630)', () => {
+  const project = path.resolve(ROOT);
+  const name = '../' + path.basename(project) + '/docs/packets';
+  assert.equal(conventionDirs(project, { handoffDir: name }).handoffDir, name,
+    'a lexical veto in front of isInside would have replaced a setting that works');
+});
+
 test('settings that are not settings do not throw', () => {
   assert.equal(conventionDirs(ROOT, null).handoffDir, '.handoffs');
   assert.equal(conventionDirs(ROOT, { handoffDir: 42 }).handoffDir, '.handoffs');

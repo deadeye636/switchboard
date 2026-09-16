@@ -215,3 +215,44 @@ test('the demo seed marks the tour as seen, but only when nobody has answered', 
   assert.match(seed, /welcomeDismissed = true/);
   assert.match(seed, /welcomeDismissed === undefined/);
 });
+
+test('the documents figure draws what the app will use, and asks the shared rule (#630)', () => {
+  // The figure promises "where the next plan and the next handoff will be written, as you type the names",
+  // and it drew the typed name. A value every project replaces — `../plans`, `.` — was therefore drawn as
+  // a directory of `my-project/`, leaving the tour as the one surface still claiming such a setting
+  // applied. It resolves now, and it must resolve through the SHARED rule: this is the fourth surface to
+  // answer "where does a project keep its documents", and the previous three each got it wrong by
+  // answering it themselves (CLAUDE.md reflex 12, #623, #630).
+  const tour = read(TOUR);
+  assert.match(tour, /conventionDirNameProblem\(/,
+    'the figure has to ask the shared rule rather than decide for itself');
+  assert.match(tour, /function effectiveDirName/,
+    'and it draws the effective name, not the typed one');
+
+  // The other direction: no hand-rolled version of the rule beside it. These are the shapes a second copy
+  // would take, and each is what somebody reaches for when the import looks like overkill for a figure.
+  // The `..` ones are not hypothetical — the first version of this figure decided its own wording with a
+  // `..` test and therefore called `docs/..` "outside the project" when it is the root.
+  // The anchors are load-bearing: a rename makes `indexOf` return -1, `slice(-1, …)` yields one character,
+  // and all four shape checks below pass over nothing at all.
+  const from = tour.indexOf('const DIR_PROBLEM_WORDS');
+  const to = tour.indexOf('function figDirs');
+  assert.ok(from >= 0 && to > from, 'the figure was renamed — re-anchor this slice or it checks nothing');
+  const figure = tour.slice(from, to + 2000);
+  for (const shape of [/startsWith\(\s*['"]\.\.['"]/, /\\\.\\\./, /=== *['"]\.['"]/, /indexOf\(\s*['"]\.\.['"]/]) {
+    assert.ok(!shape.test(figure), `the figure re-derives the rule instead of asking it: ${shape}`);
+  }
+
+  // And the rule really is shared — loaded by the page, not required, because the renderer has no require.
+  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
+  assert.match(html, /shared\/convention-dir-name\.js/,
+    'index.html has to load the shared rule or the tour throws on the first keystroke');
+  const app = read('src/app/convention-dirs.js');
+  assert.match(app, /unusableConventionDirName/,
+    'the main process asks the same module, or the two answers can drift apart again');
+  // …and only where it has no project. A lexical veto in front of `isInside` refuses
+  // `../<the project's own name>/.plans`, which climbs out and lands back in, so the filesystem has to
+  // decide alone whenever there is something to ask it about.
+  assert.match(app, /if \(!projectPath\) return unusableConventionDirName/,
+    'the shared rule answers the no-project case, not the case the filesystem can answer');
+});

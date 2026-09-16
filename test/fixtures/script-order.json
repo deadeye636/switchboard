@@ -11,6 +11,7 @@
     "icons.js",
     "preview-kind.js",
     "worktree-path.js",
+    "convention-dir-name.js",
     "format-commands.js",
     "format-toolbar.js",
     "viewer-toolbar.js",

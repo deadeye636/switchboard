@@ -31,7 +31,15 @@ The SURFACES beside those prompts ask it as well — the handoff save since #623
 different directories for the same project.
 It also settles escaping, so a `../packets` setting falls back to the default instead of sending an
 agent outside the tree, and the containment is STRICT: a setting naming the project root falls back
-too, because neither feature means "the whole project is the directory". Electron-free and DB-free:
+too, because neither feature means "the whole project is the directory". The LEXICAL rule moved to
+`src/shared/convention-dir-name.js` since #630, so the welcome tour can answer the same question with no
+project and no filesystem while somebody types into the setting. It is asked here on the **no-project
+path only** — `if (!projectPath) return unusableConventionDirName(name) ? fallback : name` — and
+**never as a pre-check in front of `isInside`**, which was the first version: `../<the project's own
+name>/.plans` climbs out lexically and lands back in on disk, so a lexical veto silently refuses a setting
+that works. An absolute name is not judged there at all, because whether it points inside is a question
+about a project that module does not have.
+Electron-free and DB-free:
 `conventionDirs(projectPath, effectiveSettings)` is callable from `node --test` with a plain object),
 `file-access.js` (can this file be WRITTEN — #281; one handler rather than a flag on each of the four
 readers that feed the viewer, three of which return a bare string. A missing file counts as writable

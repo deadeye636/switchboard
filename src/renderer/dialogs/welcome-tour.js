@@ -237,10 +237,35 @@
       </svg>`;
   }
 
+  // A name the app will not use is drawn as the directory it will use instead (#630). The figure promises
+  // where the next plan and the next handoff go, and `../plans` or `.` is a value every project replaces —
+  // so drawing it as typed made the tour the one surface still claiming the setting applied. The rule is
+  // `unusableConventionDirName` in `src/shared/`, the same function `convention-dirs.js` asks, because a
+  // second copy here is exactly how this divergence keeps coming back (CLAUDE.md reflex 12).
+  // The wording per problem. The shared rule decides WHICH problem — a first attempt tested for `..` here
+  // and called `docs/..` "outside the project" when it is the root, which is what a second derivation of a
+  // rule looks like even when it is three words long.
+  const DIR_PROBLEM_WORDS = {
+    escapes: 'outside the project — the default is used instead',
+    root: 'the project itself — the default is used instead',
+    // The tour has no project, so it genuinely cannot say where an absolute path lands — and a figure that
+    // drew it as a child of `my-project/` would be making exactly the claim this pane was fixed to stop.
+    absolute: 'an absolute path is resolved against each project, so this figure cannot show it',
+  };
+
+  function effectiveDirName(value, fallback) {
+    const problem = conventionDirNameProblem(value);
+    if (!problem) return { name: (value || '').trim(), why: '' };
+    return { name: fallback, why: DIR_PROBLEM_WORDS[problem] || '' };
+  }
+
   function figDirs(planDir, handoffDir) {
     const today = new Date().toISOString().slice(0, 10);
-    const p = esc(planDir || '?');
-    const h = esc(handoffDir || '?');
+    const plan = effectiveDirName(planDir, '.plans');
+    const handoff = effectiveDirName(handoffDir, '.handoffs');
+    const p = esc(plan.name);
+    const h = esc(handoff.name);
+    const why = plan.why || handoff.why;
     const line = (y, text, colour) =>
       `<text x="194" y="${y}" font-family="ui-monospace, Consolas, monospace" font-size="12" fill="${colour}">${text}</text>`;
     return `<svg viewBox="0 0 640 200" role="img" aria-label="Where a plan and a handoff are written inside the project">
@@ -250,7 +275,9 @@
         ${line(100, '│&#160;&#160;└─ ' + today + '-plan.md', '#7a7a90')}
         ${line(126, '└─ ' + h + '/', '#8088ff')}
         ${line(148, '&#160;&#160;&#160;└─ ' + today + '-handoff.md', '#7a7a90')}
-        <text x="320" y="176" font-family="sans-serif" font-size="10" fill="#5a5a70" text-anchor="middle">both inside the project, both plain Markdown</text>
+        <text x="320" y="176" font-family="sans-serif" font-size="10" fill="${why ? '#d8a657' : '#5a5a70'}" text-anchor="middle">${why
+          ? esc(why)
+          : 'both inside the project, both plain Markdown'}</text>
       </svg>`;
   }
 

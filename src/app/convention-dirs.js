@@ -27,6 +27,11 @@
 const path = require('path');
 const { isInside } = require('./path-containment');
 const { SETTING_DEFAULTS } = require('./settings');
+// What a name means with NO project to resolve it against, in `src/shared/` because the welcome tour has
+// to answer the same question — synchronously, before any project exists (#630). Used only on that path:
+// where there is a project the filesystem decides alone, and that module's header says why a lexical veto
+// in front of it is wrong.
+const { unusableConventionDirName } = require('../shared/convention-dir-name');
 
 let ctx = null;
 
@@ -46,7 +51,11 @@ function dirName(projectPath, eff, key) {
   const fallback = defaultName(key);
   const raw = eff && typeof eff[key] === 'string' ? eff[key].trim() : '';
   const name = raw || fallback;
-  if (!projectPath) return name;
+  // With no project there is nothing to resolve against, so the lexical rule answers — the same one the
+  // welcome tour draws from. It is NOT asked when there IS a project: `../<the project's own name>/.plans`
+  // climbs out and lands back in, and a lexical veto in front of `isInside` would refuse a setting that
+  // works on disk.
+  if (!projectPath) return unusableConventionDirName(name) ? fallback : name;
   // Asked about the DIRECTORY, and before any stat: it need not exist yet, and a guard placed after one
   // never sees a path that escaped and had nothing at the end of it (#474, #476).
   const resolved = path.resolve(projectPath, name);

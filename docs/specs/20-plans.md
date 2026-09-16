@@ -128,7 +128,7 @@ than invented here:
 **A `planDir` the app cannot use falls back silently; a directory somebody typed is refused (#630).** A
 setting that leaves the project, or that names the project root — `.`, `./`, `docs/..`, the project's own
 absolute path — is replaced by `.plans` everywhere it is read: the plan prompt, a saved variable's insert
-template, and since #630 the convention setup's preview as well. Before that the preview was the one
+template, and since #630 the convention setup's preview and the welcome tour's figure as well. Before that the preview was the one
 surface that read the setting itself, so it answered "has to be a directory inside the project" for a value
 the prompt beside it had already quietly replaced — the divergence #623 closed on the handoff side, one
 setting over. What the preview still refuses is a directory the CALLER named — and telling the two apart is

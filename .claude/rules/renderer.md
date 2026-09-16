@@ -661,4 +661,13 @@ The modules **both processes load** — `attention-source`, `custom-launchers`, 
 preview in main must compute with the same code the insert runs in the renderer; two copies would be
 a bug factory. `worktree-path` is what that reads like when it is ignored: the pairing that decides
 "is this a worktree, and of what" existed four times, three of them forward-slash-only, and the
-sidebar's nesting therefore never ran on Windows at all. **Nothing else belongs here.**
+sidebar's nesting therefore never ran on Windows at all. `convention-dir-name` (#630) is the second
+worked example: the welcome tour draws where the next plan and the next handoff will land, synchronously
+on every keystroke, with no project to ask about and nothing to stat — so it cannot reach
+`src/app/convention-dirs.js`, and a copy of the rule beside the figure would have made it one more
+surface deciding for itself where a project keeps its documents (CLAUDE.md reflex 12). Only the LEXICAL
+rule moved — what a name means with nothing to resolve it against — and main asks it on the one path where
+it has no project either, never in front of the filesystem check. **A three-word copy is still a copy:** the
+figure decided its own wording with a `..` test and therefore called `docs/..` "outside the project" when it
+is the root, and the source guard written to refuse a second derivation did not match three characters.
+**Nothing else belongs here.**

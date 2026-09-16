@@ -137,6 +137,48 @@ is changed.
 is inside it, and one click on the dialog's padding or on a figure moves `activeElement` off — after
 which Escape reached the app's own handlers instead, and the tour had no keyboard dismissal at all.
 
+### D11 — a figure draws what the app will DO with the value, not the value (#630)
+
+The Documents pane's figure is a project tree showing where the next plan and the next handoff will be
+written, and it redraws on every keystroke in the two path fields. It drew the name as typed. But
+`planDir` and `handoffDir` are not free paths: a value that leaves the project (`../plans`) or that names
+the project root (`.`, `docs/..`) is replaced by the default everywhere it is read — so the figure drew
+`../plans/` as a real directory of `my-project/`, a tree no project will ever have, under a caption
+promising that is where the file goes. D7 says a picture that has to answer to a number cannot be a
+screenshot; this is the same obligation one step on. A figure that follows a control has to draw the
+outcome, or it is a picture of the setting rather than of the app.
+
+**It cannot ask the main process for that outcome.** `src/app/convention-dirs.js` is the one answer to
+where a project keeps its documents (CLAUDE.md reflex 12), and it needs both a project and the
+filesystem: it decides "inside" against the REAL path of either side, because a junction is spelled
+inside a project it is not in (#474). The tour has neither. It edits the GLOBAL setting, before any
+project exists, and it redraws synchronously while somebody is typing — a round trip per keystroke would
+be the wrong shape even if there were a project to ask about.
+
+So the **lexical** rule moved to `src/shared/convention-dir-name.js`, which both processes load:
+`conventionDirNameProblem(name)` says what a name means with nothing to resolve it against — blank,
+climbing out, resolving to the project root, or absolute. `convention-dirs.js` asks it on the one path
+where it has no project either, and **not** as a pre-check in front of the filesystem: a first version did
+that and it refuses `../<the project's own name>/.plans`, which climbs out lexically and lands back inside
+on disk. Where there is a project, `isInside` decides alone.
+
+**An absolute path is reported as unjudgeable rather than guessed at**, and the tour prints that. One
+pointing inside its project is legal and is spelled back out relative (#623), and whether it points inside
+is a question about a project this pane does not have — so the figure says an absolute path is resolved
+per project and cannot be drawn here. It used to draw it as a child of `my-project/` under the neutral
+caption, which is the same defect as `../plans`, surviving for one input class after the first fix.
+
+Otherwise the figure draws the fallback and names which mistake it was, in an amber caption — "outside the
+project" or "the project itself", because those read as two different things to whoever typed one. **The
+wording is the tour's, the classification is not.** The first version tested for `..` beside the figure and
+therefore called `docs/..` "outside the project" when it is the root: three words long and still a second
+derivation of the rule, and the guard written to refuse one walked straight past it. A blank value is not a
+mistake and keeps the neutral caption — an empty setting simply means the default.
+
+The field beside the figure goes on showing what was typed, which is what an editor does; the figure is the
+half that promises an outcome, and this is the divergence #623 closed for the handoff save and #630 for the
+plan-convention preview, arriving at the one surface further out that only draws.
+
 ## The trigger
 
 The flag's **absence** is the trigger, so **every existing installation sees the tour once** after

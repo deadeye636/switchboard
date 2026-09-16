@@ -35,6 +35,11 @@ the save target is part of what the app will read packets from, so a `.` there w
 the project as a handoff. The folder chooser offered after a failed write is the other case, and there an
 outside directory is refused rather than replaced, because you picked that one.
 
+The welcome tour is the one place that says any of this while you type: its Documents pane draws the tree
+these settings produce, and a value that will not be used is drawn as the directory that will be, with the
+reason beside it. An absolute path it does not guess at — the tour runs before there is a project to resolve
+one against. The settings screen keeps showing what you typed, because that is what a text field is for.
+
 ## The agent is told where the packet goes
 
 Switchboard asks an agent for a handoff by typing a prompt into it, and that prompt can name the save

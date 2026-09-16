@@ -129,6 +129,12 @@ path and configuring a different one would not be an answer to it. The button te
 you changed the field: leave it as you found it and it is your setting, being replaced like everywhere else;
 type into it and it is a path you just named, and you get a message instead of a silent substitution.
 
+The welcome tour is the one place that says it while you type. Its Documents pane draws the project tree
+these two settings produce, and a value it cannot use is drawn as the directory that will be used instead,
+with the reason beside it — outside the project, or the project itself. An absolute path it does not guess
+at: the tour runs before there is a project, so it says so rather than drawing one. The settings screen
+keeps showing what you typed, because that is what a text field is for.
+
 If your project was one of the few that had the project root configured, this moved where new plans and
 handoffs go: to `.plans` and `.handoffs`. Documents already lying in the project root stay where they are
 and are still found, because the directories that are READ are a separate setting and a project that keeps
