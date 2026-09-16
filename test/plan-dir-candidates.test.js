@@ -18,6 +18,16 @@ const path = require('node:path');
 const plansMemory = require('../src/app/plans-memory');
 
 const ROOT = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-plandirs-')));
+
+// `init` starts an `fs.watch` on every plans directory the backends it is handed declare, and an open
+// watcher keeps the process alive after the last test — the run then reports every test passing and the
+// FILE failing, with nothing in it to look at (#630). What this file hands `init` declares no such
+// directory today, so nothing is open; that is a property of the fixture, not of the file, and the next
+// test appended here changes it silently. So it hands the watch back either way.
+//
+// Registered BEFORE the tree is removed, because node runs after-hooks in registration order and Windows
+// refuses to delete a directory something still has an open watch on.
+test.after(() => { try { plansMemory.stopWatchingPlansDirs(); } catch {} });
 test.after(() => { try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {} });
 
 function project(name, dirs) {

@@ -19,6 +19,13 @@ const path = require('node:path');
 const expand = require('../src/backends/resource-expand');
 const plansMemory = require('../src/app/plans-memory');
 
+// `init` starts an `fs.watch` on every plans directory the backends it is handed declare, and an open
+// watcher keeps the process alive after the last test — the run then reports every test passing and the
+// FILE failing, with nothing in it to look at (#630). The setup below hands `init` an empty backend list
+// today, so nothing is open; that is a property of the fixture, not of the file, and the next test
+// appended here changes it silently. So it hands the watch back either way.
+test.after(() => { try { plansMemory.stopWatchingPlansDirs(); } catch {} });
+
 function tmpdir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }

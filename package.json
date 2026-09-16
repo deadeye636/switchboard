@@ -12,7 +12,7 @@
     "demo:start": "node scripts/demo-start.js",
     "demo:seed": "node scripts/seed-demo.js",
     "demo:auth": "node scripts/demo-auth.js",
-    "test": "node --test --test-timeout=60000 \"test/**/*.test.js\"",
+    "test": "node --test --test-timeout=120000 \"test/**/*.test.js\"",
     "electron": "electron .",
     "stop:dev": "node scripts/stop-dev.js",
     "bundle": "node scripts/bundle.js",

@@ -162,6 +162,16 @@ table is the fallback and it is binding.
     naming the root itself falls back as well: neither feature means "the whole project is the directory".
     `test/convention-dirs.test.js` sweeps `src/` for a second reading of either key, and `SECOND_READERS`
     there is what is exempt from it, so a new one fails by file rather than by review.
+    **A surface that only DRAWS the answer is one of them too (#630):** the welcome tour's Documents pane
+    figures where the next plan and the next handoff will land as you type the names, and it drew the name
+    as typed — so `../plans` appeared as a real directory of the project under a caption promising the file
+    goes there. It cannot ask `conventionDirs`: it edits the GLOBAL setting before any project exists and
+    redraws synchronously on every keystroke, with nothing to stat. The LEXICAL rule therefore lives in
+    `src/shared/convention-dir-name.js`, which both processes load — and `conventionDirs` asks it only where
+    it has no project either, **never as a pre-check in front of `isInside`**: `../<the project's own
+    name>/.plans` climbs out lexically and lands back in on disk. A copy of that rule beside the figure
+    would have been this same divergence one surface further out, and a three-word copy is still one — the
+    figure's own `..` test called `docs/..` "outside the project" when it is the root.
 13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
@@ -319,7 +329,7 @@ absent from the installer.
 
 ## Commands
 
-- `npm test` — `node --test --test-timeout=60000 "test/**/*.test.js"`: the glob is **recursive**, so a new
+- `npm test` — `node --test --test-timeout=120000 "test/**/*.test.js"`: the glob is **recursive**, so a new
   test file is picked up wherever under `test/` it lands, and only a test file is. Node's default discovery
   ran every `.js` under `test/` as an entry of its own, including the DOM helpers, which cost about 10 s each
   and could fail a run that had no failing test in it (#625). No Electron needed. Keep it green (run it for
@@ -330,9 +340,13 @@ absent from the installer.
   believing this line; the point of the number is only that a run of several minutes is wrong.
   `trigger-watcher.test.js` has **hung outright** more than once under
   load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
-  the script carries `--test-timeout=60000`: a test that stops making progress fails loudly instead. The
-  cap is per TEST, so it does not catch a file that hangs between them; a run past two minutes is
-  still worth killing and re-running rather than waiting out.
+  the script carries a timeout at all: a test that stops making progress fails loudly instead.
+  **The cap is per TEST, and node applies it to each FILE too** — which is why it is 120 s and not tighter.
+  `panes-view.test.js` holds 206 tests, each fast, and the file takes 41 s under the suite's own
+  concurrency; at 60 s another agent session on the machine was enough to cancel it, and a cancelled file
+  prints `not ok … # fail 0`, which reads like nothing at all
+  (`.claude/rules/guards-and-scripts.md` has both causes of that line and how to tell them apart).
+  A run past three minutes is still worth killing and re-running rather than waiting out.
 - `npm run demo:start` — **the default for dev/verify work**: an isolated demo instance against
   seeded stores under `C:\temp\switchboard`. Backend limitations and the explicit read-only usage
   exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds

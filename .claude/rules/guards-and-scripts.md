@@ -141,12 +141,29 @@ English, no personal or local identifiers — **including in a fixture and in a 
 where they hid last time (`test/no-local-paths.test.js` is the mechanism now). A test that needs a path
 invents one.
 
-## A file that passes every test and does not exit is a FAILING FILE
+## `not ok - test\<file>.test.js` with `# fail 0` has TWO causes, and they print the same thing
 
-`--test-timeout=60000` catches a test that stops making progress. It does not catch a file whose tests all
-finish and whose process then sits there, because nothing is running to time out — node's runner waits for
-the event loop to drain. The suite reports that as `not ok <n> - test\<file>.test.js` with `# fail 0`, which
-reads like an infrastructure hiccup and is not one.
+Node wraps each file as a test of its own, and `--test-timeout` applies to that wrapper as well as to the
+tests inside it. So the whole file can be cancelled for two quite different reasons, and the four lines it
+prints — `failureType: 'testTimeoutFailure'`, `# fail 0`, `# cancelled 1`, a duration equal to the cap — are
+byte-identical in both. Neither reads like a defect, and the first instinct is to call it an infrastructure
+hiccup. It is not.
+
+- **The file leaks a handle.** Its tests all finish and the process then sits there, because nothing is
+  running to time out and the runner waits for the event loop to drain.
+- **The file is simply slow.** It makes progress the whole time and runs past the cap.
+
+**The distinguisher is the subtest list, and it is the only one.** A leaker reports every one of its tests
+as `ok` and then stalls; a slow file reports a truncated list. That is the first thing to look at, before
+any theory about what is open — measured after this paragraph's first version asserted the leak as the
+cause and sent a whole investigation after one that did not exist (#630). `panes-view.test.js` was the slow
+case: 206 tests in one file, 13-20 s alone and **41 s under the suite's own 20-way concurrency**, against a
+60 s cap. Another agent session on the machine is enough to push it over.
+
+So measure the file's wall clock before anything else, and remember the number is not the one you get by
+running it alone.
+
+### The leaking half
 
 What causes it here is a module under test that opened something in `init`. `plans-memory.js` starts an
 `fs.watch` on every plans directory the backends it is handed declare — **including Claude's own, which is a
@@ -164,3 +181,16 @@ Diagnosing one: run the file alone with a hard `timeout`. Every test prints `ok`
 `not ok` with a duration equal to your timeout, and `process._getActiveHandles()` after the last test names
 what is holding it open. `--test-name-pattern` is no use for bisecting — filtering keeps the process alive
 by itself.
+
+`test/npm-test-script.test.js` carries the static half of this: it derives every module under `src/` that
+calls `fs.watch`, derives each one's teardown from its own exports, and fails by name on a test file that
+starts one and never hands it back. It has no exemption list and nothing to put in one. Its limit is in its
+header — `fs.watch` and nothing else, because a timer here is covered by the `unref()` discipline in `src/`
+and a worker, a socket or a child process is not covered at all.
+
+### The slow half
+
+Nothing guards it. One file sits at roughly 70 % of the cap under real load, and the three ways out all
+cost something: split the file, raise the cap, or accept the risk. Raising the cap is what happened at
+#630 — the timeout is per TEST, so it buys a slow file room while a genuinely stuck test still fails, just
+later. `CLAUDE.md` carries the number and the reason; when you change it, change it there too.

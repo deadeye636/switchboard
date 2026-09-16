@@ -683,7 +683,7 @@ notice, because those were explicit configuration choices.
 | — | …and `scripts/demo-content.js`, which seeds the demo's **DB-only** content: project display names, project + session tags, tasks, and a synthetic activity history for the Stats page. Same guard, and idempotent **per block**. |
 | `npm run demo:seed` | Seed the demo layout without launching |
 | `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
-| `npm test` | `node --test --test-timeout=60000 "test/**/*.test.js"` — recursive, test files only, no Electron needed |
+| `npm test` | `node --test --test-timeout=120000 "test/**/*.test.js"` — recursive, test files only, no Electron needed. The timeout is per TEST and node applies it to each FILE as well, which is why it is not tighter — see CLAUDE.md |
 | `npm run electron` | `electron .` and nothing else — skips the build-info stamp and all three bundles. Faster iteration once one of the start scripts has produced them; wrong as a first run, because the bundles it needs will not exist |
 | `npm run stop:dev` | Stop **this checkout's** dev Electron processes (never the installed app) |
 | `node scripts/build-and-verify.js [electron-builder args]` | The build wrapper every build script goes through (#484). Stamps, bundles, runs electron-builder with whatever arguments it was given, keeps the exit code, moves every FILE in `dist/` older than the run into `dist/previous/` (nothing is deleted; directories stay), and ends with either the artifact path plus the commit or a line naming the failure. A failure before electron-builder starts moves nothing |
