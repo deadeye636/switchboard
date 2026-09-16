@@ -48,10 +48,10 @@ A fix confirmed under `npm start` is confirmed in the **dev** database only.
 ## Tests
 
 ```bash
-npm test             # node --test, discovered from the repo root — no Electron needed
+npm test             # node --test over test/**/*.test.js — no Electron needed
 ```
 
-Takes well under a minute, and that is the whole suite rather than one slow file.
+Takes about a minute, and that is the whole suite rather than one slow file.
 `trigger-watcher.test.js` uses real `fs.watch` and timers and is the slowest single file at roughly
 twenty seconds, but the rest of the suite now outlasts it. Time your own run instead of trusting the
 number here — it is only meant to tell you that several minutes means something is stuck.

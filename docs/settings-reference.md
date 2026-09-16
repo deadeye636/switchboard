@@ -195,7 +195,14 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 
 Placeholders: `{goal}` `{project}` `{sessionId}` `{metrics}` `{handoffDir}` `{handoffPath}` `{planDir}`
 `{planPath}` `{today}`, plus `{transcript}` in the read prompt. The `Dir` forms are relative to the
-project, the `Path` forms absolute.
+project, the `Path` forms absolute — including when the setting behind one was written as an absolute
+path inside the project, which is spelled back out relative (#623).
+
+`handoffDir` and `planDir` are **not free paths**. A value that leaves the project — `../packets` — is not
+used at all: the directory falls back to the default, silently, so a prompt cannot send an agent outside
+the tree it was opened on. An absolute path inside the project is accepted and shown relative. The folder
+chooser Switchboard offers after a failed handoff write is the one place an outside directory is refused
+rather than replaced, because there you named that one path.
 
 A prompt that IS a slash command — `/handoff`, `/plan` — runs the CLI's own skill, and the skill decides
 where it writes. Such a prompt is sent with the directory appended on a line of its own, unless it names
@@ -670,7 +677,7 @@ notice, because those were explicit configuration choices.
 | — | …and `scripts/demo-content.js`, which seeds the demo's **DB-only** content: project display names, project + session tags, tasks, and a synthetic activity history for the Stats page. Same guard, and idempotent **per block**. |
 | `npm run demo:seed` | Seed the demo layout without launching |
 | `npm run demo:auth` | Copy your existing CLI logins into the demo home once, so a **live** demo session can run (`-- --force` overwrites). `demo:start` never touches real credential files itself. |
-| `npm test` | `node --test --test-timeout=60000`, discovered from the repo root — no path argument, no Electron needed |
+| `npm test` | `node --test --test-timeout=60000 "test/**/*.test.js"` — recursive, test files only, no Electron needed |
 | `npm run electron` | `electron .` and nothing else — skips the build-info stamp and all three bundles. Faster iteration once one of the start scripts has produced them; wrong as a first run, because the bundles it needs will not exist |
 | `npm run stop:dev` | Stop **this checkout's** dev Electron processes (never the installed app) |
 | `node scripts/build-and-verify.js [electron-builder args]` | The build wrapper every build script goes through (#484). Stamps, bundles, runs electron-builder with whatever arguments it was given, keeps the exit code, moves every FILE in `dist/` older than the run into `dist/previous/` (nothing is deleted; directories stay), and ends with either the artifact path plus the commit or a line naming the failure. A failure before electron-builder starts moves nothing |

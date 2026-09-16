@@ -145,9 +145,14 @@ table is the fallback and it is binding.
     the one answer for handoffs AND plans, relative and absolute, with the escape guard applied. Three
     surfaces name those directories (the handoff prompts, the plan prompt, a saved variable's insert
     template), and a second reading of `eff.handoffDir` is how two of them start naming different ones.
-    **That second reading exists today, in the writer:** `handoffWriteDirName` in `src/app/handoffs.js`
-    reads the setting itself, and where the prompt falls back to the default for an escaping value, the
-    save refuses it. It is a known divergence (#623), not a pattern to copy — this note goes when #623 closes.
+    **A fourth surface WRITES, and it had that second reading until #623:** `handoffWriteDirName` in
+    `src/app/handoffs.js` read the setting itself, so a `../packets` setting made the prompt say `.handoffs`
+    while the Save button refused the packet as outside the project. The handoff half agrees now.
+    **The plans half still does NOT, and that is open (#630):** `planDirFor` and `planConventionPreview` in
+    `src/app/plans-memory.js` read `eff.planDir` themselves, and the preview REFUSES an escaping value while
+    the plan prompt beside it falls back to `.plans` — the same divergence, one setting over.
+    `test/convention-dirs.test.js` sweeps `src/` for a second reading of either key and names the two that
+    are left, so a new one fails by file rather than by review.
 13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
@@ -233,10 +238,11 @@ table is the fallback and it is binding.
     **`worktreeRootOf` beside it answers "whose sub-unit am I", and since #586 that is what EVERY
     ownership question asks** — the register, the admin rows, the settings cascade, the sidebar's nesting,
     the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather
-    than trusting that list. `parseWorktreePath`'s one-level parent survives in two places — the
-    visibility walk in `src/index/projects-view.js`, which climbs it a level at a time, and the worktree
-    dirty check in `src/app/vcs.js`, which #624 suspects fails once a nested worktree's parent directory is
-    gone — and elsewhere only as a yes/no "is this a worktree at all"; the
+    than trusting that list. `parseWorktreePath`'s one-level parent survives in one place — the
+    visibility walk in `src/index/projects-view.js`, which climbs it a level at a time — and elsewhere only
+    as a yes/no "is this a worktree at all". The worktree dirty check in `src/app/vcs.js` used to hand that
+    parent to `git` as a first `-C` and stopped at #624: a second absolute `-C` replaces the first, so the
+    parent bought nothing and failed the whole call once it was gone. The
     sidebar used to ask it for the nesting and no longer does.
     **And a worktree is NAMED by `worktreeLabelOf`, never by splitting the path yourself.** It spells
     every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
@@ -304,16 +310,15 @@ absent from the installer.
 
 ## Commands
 
-- `npm test` — `node --test --test-timeout=60000`, with **no path argument**: Node's default discovery
-  from the repo root, so a new test file is picked up wherever under `test/` it lands (the old
-  `test/*.test.js` glob written here was not what the script runs). No Electron needed. Keep it green
-  (run it for the current pass count — don't trust a number written down here). Wall clock is **close to a
-  minute and rising** — 49-54 s measured across two runs (2026-09) — and it is the sum of the whole suite
-  now, not one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest single
-  file (~20 s alone), but it stopped setting the wall clock some time ago. Default discovery also runs every
-  non-test `.js` under `test/` as its own entry, and the DOM helpers in `test/helpers/` take about 7 s each
-  (#625; update this paragraph when it closes). Time it rather than believing this line; the point of the
-  number is only that a run of several minutes is wrong.
+- `npm test` — `node --test --test-timeout=60000 "test/**/*.test.js"`: the glob is **recursive**, so a new
+  test file is picked up wherever under `test/` it lands, and only a test file is. Node's default discovery
+  ran every `.js` under `test/` as an entry of its own, including the DOM helpers, which cost about 10 s each
+  and could fail a run that had no failing test in it (#625). No Electron needed. Keep it green (run it for
+  the current pass count — don't trust a number written down here). Wall clock is **around a minute** —
+  48-70 s measured (2026-09), and it moves with what else is running on the machine. It is the sum of the
+  whole suite, not one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest
+  single file (~20 s alone), but it stopped setting the wall clock some time ago. Time it rather than
+  believing this line; the point of the number is only that a run of several minutes is wrong.
   `trigger-watcher.test.js` has **hung outright** more than once under
   load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
   the script carries `--test-timeout=60000`: a test that stops making progress fails loudly instead. The
