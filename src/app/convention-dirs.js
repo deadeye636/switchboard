@@ -42,7 +42,13 @@ function dirName(projectPath, eff, key) {
   if (!projectPath) return name;
   // Asked about the DIRECTORY, and before any stat: it need not exist yet, and a guard placed after one
   // never sees a path that escaped and had nothing at the end of it (#474, #476).
-  return isAtOrInside(path.resolve(projectPath, name), projectPath) ? name : fallback;
+  const resolved = path.resolve(projectPath, name);
+  if (!isAtOrInside(resolved, projectPath)) return fallback;
+  // An ABSOLUTE setting that happens to point inside is spelled back out relative (#623). Nothing forbids
+  // one, `{handoffDir}` is documented as project-relative, and the absolute form made `handoffPath` the two
+  // roots concatenated — which is the prompt naming a directory the save does not write to.
+  if (!path.isAbsolute(name)) return name;
+  return path.relative(projectPath, resolved) || '.';
 }
 
 /**
@@ -61,8 +67,8 @@ function conventionDirs(projectPath, eff) {
   return {
     handoffDir,
     planDir,
-    handoffPath: root ? path.join(root, handoffDir) : '',
-    planPath: root ? path.join(root, planDir) : '',
+    handoffPath: root ? path.resolve(root, handoffDir) : '',
+    planPath: root ? path.resolve(root, planDir) : '',
   };
 }
 

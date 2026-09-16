@@ -63,8 +63,10 @@ stops declaring the table, and the app-level step above empties it.
 saving — "the write target is the first entry of the read list" — is a trap: reordering a list is a
 reading decision, and it would silently move where future packets land.
 
-Both are in the cascade, both are project-relative, and a path that escapes the project root is refused
-wherever it comes from, including the folder picker offered after a failed write.
+Both are in the cascade and both are project-relative. A **setting** that escapes the project root falls back
+to the default (#623, below); a directory the user **picked** — the folder chooser offered after a failed
+write — is refused instead, because they named that one path and writing somewhere else would not be an
+answer to it.
 
 **In a WORKTREE that relativity is the whole behaviour, and it is the one place a worktree does not get
 its project's answer.** A worktree reads its project's settings (#593), so it inherits the *name* —
@@ -200,8 +202,22 @@ someone's own text and is sent as written.
 that does: the prompt, the plan prompt (spec 20) and a saved variable's insert template all ask it, or they
 would name different directories. A configured path that escapes the project falls back to the default
 rather than being handed to an agent — `path-containment.js`, asked about the directory before any `stat`.
-The save does not ask it yet: `handoffWriteDirName` in `src/app/handoffs.js` reads `handoffDir` itself and
-refuses an escaping value where the prompt falls back to the default (#623).
+The save asks it too (#623). It used to read `handoffDir` itself and refuse an escaping value, while the
+prompt beside it fell back to the default — so an agent was told to write into `.handoffs` and the Save
+button answered "outside the project" for the same setting. Both now get the same directory from the same
+function, and `test/convention-dirs.test.js` sweeps `src/` for a third reading of either key rather than
+leaving the next one to a reviewer.
+
+**What the fallback takes away, said out loud.** Before #623 a project whose `handoffDir` escaped got a
+refusal it could act on: the setting was visibly wrong and nothing was written. It now gets a packet in
+`.handoffs` and no word about the setting it configured. That is the right trade for the prompt — an agent
+told one directory while the button uses another is the worse failure — but it is a silent one, and the
+settings screen still shows the escaping value as if it applied. The one-time legacy export inherits it
+too: a project that used to keep its rows in the database because the target was refused now has them
+written out and the table dropped, which is a one-way step.
+An absolute `handoffDir` that points inside the project is legal and is spelled back out relative, so the
+prompt's `{handoffDir}` stays a project-relative token and `{handoffPath}` is not the two roots
+concatenated — the same divergence in the shape #623 first left behind.
 
 ## What this does not do
 

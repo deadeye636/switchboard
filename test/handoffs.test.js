@@ -118,6 +118,25 @@ test('a directory outside the project is refused, whoever picked it', () => {
   fs.rmSync(project, { recursive: true, force: true });
 });
 
+test('a handoffDir that leaves the project falls back to .handoffs, as the prompt already says (#623)', () => {
+  // The writer used to read the setting itself and refuse this value, while the handoff prompt and a saved
+  // variable's insert template — both `convention-dirs.js` — named `.handoffs` for the same project.
+  // The project sits in a container of its own, so "nothing was written beside it" is a question about
+  // this test's own directory rather than about whatever else the machine keeps in its temp folder.
+  const container = tempProject('sb-handoff-escape-');
+  const project = path.join(container, 'shop');
+  fs.mkdirSync(project);
+  const { ctx } = contextFor(project, { settings: { handoffDir: '../packets' } });
+  handoffs.init(ctx);
+
+  const res = handoffs.saveHandoff({ projectPath: project, label: 'Escape', content: 'body' });
+  assert.equal(res.ok, true, res.error);
+  assert.ok(res.filePath.startsWith(path.join(project, '.handoffs') + path.sep), res.filePath);
+  assert.deepEqual(fs.readdirSync(container), ['shop'], 'nothing was written beside the project');
+  assert.equal(handoffs.getHandoffs(project).length, 1, 'and the app reads it back from there');
+  fs.rmSync(container, { recursive: true, force: true });
+});
+
 test('a path outside a handoff directory can be neither read nor deleted', () => {
   const project = tempProject('sb-handoff-guard-');
   const stray = path.join(project, 'README.md');

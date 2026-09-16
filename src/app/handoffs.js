@@ -19,7 +19,10 @@
 //                      where future packets land.
 //
 // Both are in the settings cascade, so a project says its own answer without every other project
-// inheriting it, and both are relative to the project root — a path that escapes it is refused. Unlike
+// inheriting it, and both are relative to the project root. An escaping `handoffDir` falls BACK to the
+// default rather than being refused (#623) — that is what the prompt already tells the agent, and the save
+// saying otherwise was the divergence. A directory the user picked EXPLICITLY is still refused: they chose
+// that one path, so silently writing somewhere else would be the wrong answer to it. Unlike
 // plans there is no CLI to configure and no refusal of one to diagnose: Switchboard writes the handoff
 // itself.
 //
@@ -36,6 +39,9 @@ const { readableError } = require('./readable-error');
 const { writeTextFile } = require('./safe-write');
 const { ignoreWarning } = require('./vcs-ignore');
 const { isAtOrInside, isInside } = require('./path-containment');
+// The one answer to where a project keeps its handoffs (CLAUDE.md reflex 12). The PURE function, so this
+// module depends on that module's rules and not on its wiring — it hands over the cascade it read itself.
+const { conventionDirs } = require('./convention-dirs');
 
 let ctx = null;
 
@@ -80,12 +86,16 @@ function handoffDirCandidates(projectPath) {
   } catch { return DEFAULT_DIR_NAMES; }
 }
 
-/** The directory a NEW packet goes into. One name, from the cascade. */
+/**
+ * The directory a NEW packet goes into — `convention-dirs.js`'s answer, not a second reading of the setting
+ * (#623). It applies the same escape guard as the handoff prompt and a saved variable's insert template, so a
+ * `handoffDir` that leaves the project falls back to `.handoffs` everywhere instead of being named by the
+ * prompt and refused by the save.
+ */
 function handoffWriteDirName(projectPath) {
   try {
     const eff = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath || null) : null;
-    const value = (eff && typeof eff.handoffDir === 'string') ? eff.handoffDir.trim() : '';
-    return value || DEFAULT_WRITE_DIR;
+    return conventionDirs(projectPath, eff).handoffDir || DEFAULT_WRITE_DIR;
   } catch { return DEFAULT_WRITE_DIR; }
 }
 
