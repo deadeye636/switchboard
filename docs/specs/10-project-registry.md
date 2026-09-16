@@ -287,7 +287,10 @@ Windows, and the refusal reads like a legitimate "not a worktree layout".
 What `parseWorktreePath` does **not** answer: it is one level deep by design — "who is my parent", which
 for a nested worktree is another worktree. `worktreeRootOf` beside it answers "whose sub-unit am I" and
 walks to the top, and that is what every ownership question asks (see above). The worktree-delete dialog's
-dirty check still passes the one-level parent as a `-C` (#624).
+dirty check used to hand that one-level parent to `git` as a first `-C` (#624). It no longer does: a second
+absolute `-C` replaces the first, so the parent only added a chdir that can fail — and it does, with
+`fatal: cannot change to '<parent>'`, exit 128, whenever a nested worktree's parent directory has been
+removed while the checkout it names is still there.
 
 **The three layouts are a LIST, and the pattern is built from it.** `WORKTREE_DIRS` holds them as
 segments; the regex is composed from that list, and `worktreeDirsIn` composes the candidate directories
@@ -447,6 +450,20 @@ the pairing over the whole set. Two cases force that second pass: a worktree kno
 config arrives with nothing filled in, and a config-only PROJECT is a row a cached worktree can now group
 under. A reader who fills it in once, in the builder, gets a flat unglyphed row for the first case and a
 missed grouping for the second. That pass has no test — there is no harness for the config-only branch.
+
+### The trust column says how far a toggle reaches (#627)
+
+A backend may keep one project's trust answer somewhere else: Claude keys a repository by its root, so a
+worktree and a subdirectory share the repository's gate, and outside a repository a trusted folder above a
+project decides for it. A chip that only said yes or no therefore hid what a click would do.
+
+`projectTrust.describeMany` answers that in neutral words — `own`, `shared`, `inherited`, plus the gate —
+the payload stamps it per row as `trustScope`, and the manager warns before any toggle that reaches further
+than the row: granting on a shared row names the gate, removing on a shared row names every checkout,
+removing on a row that others on the list hang off says how many they are, and removing on an inherited row
+offers to remove trust at the folder that decides, which is the only change the CLI would notice. The
+measured rule behind all of it is in `docs/backend-formats.md`; the manager holds no backend's key rule, and
+neither does this spec.
 
 **Two things were left unresolved on a worktree row when #595 shipped, and both were settled afterwards.**
 

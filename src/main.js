@@ -643,15 +643,24 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
       execFile('git', args, (err, _stdout, stderr) => callback(err, stderr));
     }
 
+    // What a failed removal may say to the user (#624). git names the directories it worked on — "fatal:
+    // validation failed, cannot remove working tree: …" — and the renderer puts this answer straight into a
+    // dialog, so the raw text goes to the log and the user gets a sentence. The same rule as the dirty check
+    // in `src/app/vcs.js` above it, and `.claude/rules/main-process.md` has the why.
+    const removalFailed = (err, stderr) => {
+      log.warn('[worktree] delete failed: ' + String(stderr || (err && err.message) || err).trim());
+      return { ok: false, error: 'git could not delete this worktree — see the log for what it said.' };
+    };
+
     runRemove(false, (err, stderr) => {
       if (err && /locked/i.test(stderr || err.message || '')) {
         // Retry with double force for locked worktrees
         runRemove(true, (err2, stderr2) => {
-          if (err2) return resolve({ ok: false, error: (stderr2 || err2.message || String(err2)).trim() });
+          if (err2) return resolve(removalFailed(err2, stderr2));
           afterRemove();
         });
       } else if (err) {
-        return resolve({ ok: false, error: (stderr || err.message || String(err)).trim() });
+        return resolve(removalFailed(err, stderr));
       } else {
         afterRemove();
       }

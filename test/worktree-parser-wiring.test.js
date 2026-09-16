@@ -49,6 +49,27 @@ test('main.js hands the parser over, so the handler has one at run time (#582)',
     + 'reference to it is a startup crash the test suite cannot see');
 });
 
+test('the dirty check runs git in the worktree alone, and keeps git\'s own words off the screen (#624)', () => {
+  // The handler, not the poller: both run git in this file, and only this one answers the delete dialog.
+  const handler = VCS.slice(VCS.indexOf("ipc.handle('worktree-status'"));
+  assert.ok(handler, 'the handler is in this file');
+  const call = /execFile\('git',\s*\[([^\]]*)\]/.exec(handler);
+  assert.ok(call, 'the handler still runs git through execFile');
+  const args = call[1];
+  assert.match(args, /'-C',\s*normalizedPath/, 'the worktree is where git runs');
+  assert.equal((args.match(/'-C'/g) || []).length, 1,
+    'one -C: a second absolute one replaces the first, so the parent one only added a chdir that can fail '
+    + 'on its own while changing nothing about where git ends up');
+  assert.ok(!/parentPath/.test(handler), 'the handler has no use for the parent any more');
+
+  const failure = /if \(err\) \{([\s\S]*?)\n\s*\}/.exec(handler);
+  assert.ok(failure, 'the handler still answers a failed git call');
+  assert.ok(!/error:[\s(]*stderr/.test(failure[1]),
+    'git names the directory it failed on and the delete dialog prints the answer verbatim, so stderr goes '
+    + 'to the log and the user gets a sentence');
+  assert.match(failure[1], /ctx\.log/, 'and the raw text is logged instead of dropped');
+});
+
 test('the stripper is doing its job, so a comment cannot satisfy these checks', () => {
   // A positive control. Without it, a stripper that returned an empty string would let every "must not
   // contain" assertion above pass while reading nothing at all.

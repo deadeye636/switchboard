@@ -34,7 +34,23 @@ const SRC = path.join(__dirname, '..', 'src');
  *
  * The file is scanned as a whole for SPLIT, line by line for the other two, so a report can name a line.
  */
-const FIELD = /(?<![.\w'"])(?:error|reason|message)\s*:\s*(?:`[^`]*\$\{\s*)?(?:String\(\s*)?\b(?:err|error|e|ex|_err|msg)\b(?:\s*&&\s*\b(?:err|error|e|ex|_err|msg)\b)?\s*(?:\.(?:message|error))?\s*(?:\)|\}|,|\?|$)/;
+// The identifiers a caught failure travels under, `stderr` included: a child process says what went wrong
+// there, and it names the paths it worked on just as an errno does.
+// A trailing digit counts: a retry names its second attempt's failure `err2`, and that is the same text.
+const CAUGHT = '(?:err|error|e|ex|_err|msg|stderr)\\d*';
+// `\(?` and the `||` chain are what #624 added: `error: (stderr || err.message || String(err)).trim()` walked
+// straight past a pattern that wanted the identifier directly after the colon — three live leaks did.
+// The trailing `.trim()` is part of the value, not of the wrapper: `error: stderr.trim()` has no parenthesis
+// for the chain above to close on, and it leaks exactly as much.
+const CAUGHT_VALUE = `(?:String\\(\\s*)?\\b${CAUGHT}\\b(?:\\s*\\.(?:message|error|stack))?\\s*\\)?(?:\\s*\\.\\w+\\(\\s*\\))*`;
+// And the most idiomatic spelling of all ends in a fallback that is NOT a caught value:
+// `error: err.message || 'unknown'`. Only a STRING literal is allowed to close the chain — widening it to
+// any expression makes `err && err.code ? err.code : '…'`, which words its own sentence, a false positive.
+const LITERAL_FALLBACK = "(?:'[^']*'|\"[^\"]*\"|`[^`]*`)";
+const FIELD = new RegExp(
+  `(?<![.\\w'"])(?:error|reason|message)\\s*:\\s*\\(?\\s*(?:\`[^\`]*\\$\\{\\s*)?${CAUGHT_VALUE}`
+  + `(?:\\s*(?:&&|\\|\\|)\\s*(?:${CAUGHT_VALUE}|${LITERAL_FALLBACK}))*\\s*(?:\\)|\\}|,|\\?|$)`,
+);
 const JOINED = /(?:\+\s*|\$\{\s*)\b(?:err|error|e|ex|_err|msg)\b\s*(?:&&\s*\b(?:err|error|e|ex|_err|msg)\b\s*)?\.(?:message|stack|error)\b/;
 const SPLIT = /(?<![.\w'"])(?:error|reason|message)\s*:\s*\r?\n\s*\b(?:err|error|e|ex|_err|msg)\b\s*(?:&&[^\n]*)?\.(?:message|error)\b/;
 
@@ -52,6 +68,10 @@ const ALLOWED = {
   'workers/search-query.js':
     'A worker answering its own client over postMessage. The message is logged by the index layer and '
     + 'never rendered — the search UI reports "no results", not a reason.',
+  'workers/index-worker.js':
+    'The same shape as the search worker above: it answers its own client over postMessage, and '
+    + '`src/index/index-worker-client.js` logs the message and resolves the request with nothing. No window '
+    + 'ever sees it. Found when #624 widened the pattern to the parenthesised `||` chain.',
   'db/compact.js':
     'Its result never reaches a window. `src/app/db-upkeep.js` is the only reader and it builds a log '
     + 'line out of it, so the SQLite message is already where a dropped message would have been sent.',
@@ -133,6 +153,17 @@ test('the patterns catch what they were written for', () => {
     'return { ok: false, error: String(err) };',
     'catch (e) { return { ok: false, error: e.message }; }',
     'return { ok: false, message: `could not write: ${err.message}` };',
+    // FIELD, parenthesised with an `||` chain — three live leaks wore this, and the pattern walked past all
+    // three until #624: a child process's stderr names the paths it worked on as surely as an errno does.
+    'return resolve({ ok: false, error: (stderr || err.message || String(err)).trim() });',
+    'return resolve({ ok: false, error: (err.message || String(err)).trim() });',
+    'return { ok: false, error: (stderr2 || err2.message).trim() };',
+    // A `.trim()` with no wrapper to close on, and a chain ending in a written fallback. Both were holes
+    // until an adversarial re-read of the widened pattern went looking for them (#624).
+    'return { ok: false, error: stderr.trim() };',
+    "return { ok: false, error: err.message || 'unknown' };",
+    "return { ok: false, error: (stderr || 'git failed').trim() };",
+    'return { ok: false, error: err.toString() };',
     // JOINED — no field colon anywhere, which is why the first guard could not see them
     "sendStatus('Scan failed: ' + msg.error, 'error');",
     "sendStatus('Worker error: ' + err.message, 'error');",

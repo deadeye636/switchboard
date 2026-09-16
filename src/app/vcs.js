@@ -490,7 +490,11 @@ function registerIpc(ipc) {
       execFile(provider.bin, provider.diffArgs({ path: rel, staged: req.staged === true }), {
         cwd, timeout: STATUS_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024,
       }, (err, stdout) => {
-        if (err) return resolve({ ok: false, error: (err.message || String(err)).trim() });
+        if (err) {
+          // The spawn message carries the command line, and the command line carries the file's path (#624).
+          ctx.log && ctx.log.warn && ctx.log.warn('[vcs] diff failed: ' + String((err && err.message) || err).trim());
+          return resolve({ ok: false, error: 'git could not produce this diff — see the log for what it said.' });
+        }
         resolve({ ok: true, text: stdout });
       });
     });
@@ -516,10 +520,22 @@ function registerIpc(ipc) {
       const normalizedPath = worktreePath.replace(/[\\/]$/, '');
       const parsed = ctx.parseWorktreePath ? ctx.parseWorktreePath(normalizedPath) : null;
       if (!parsed) return resolve({ ok: false, error: 'Path does not match a recognized worktree layout' });
-      const parentRepo = parsed.parentPath;
-      execFile('git', ['--no-optional-locks', '-C', parentRepo, '-C', normalizedPath, 'status', '--porcelain'],
+      // The worktree alone (#624). The parent used to be a first `-C`, inherited from the `worktree remove`
+      // call this handler was cut from — where git really does have to run in the repository, because the
+      // worktree's own directory may already be gone. For `status` it is dead weight: a second absolute `-C`
+      // replaces the first, so the command ends up in the worktree either way, and git finds the repository
+      // from there. What it added was a second CHDIR that can fail on its own — measured, `-C <gone> -C <ok>`
+      // dies with "fatal: cannot change to …". #624 suspected a nested worktree could hit that; it cannot,
+      // because all three layouts put a worktree INSIDE its parent, so the parent is there whenever the
+      // worktree is. The chdir goes anyway: a step that can only fail is not worth keeping for nothing.
+      execFile('git', ['--no-optional-locks', '-C', normalizedPath, 'status', '--porcelain'],
         { windowsHide: true }, (err, stdout, stderr) => {
-          if (err) return resolve({ ok: false, error: (stderr || err.message || String(err)).trim() });
+          if (err) {
+            // git names the directory it failed on, and the dialog puts this straight on screen — so the
+            // path goes to the log and the user gets a sentence (`.claude/rules/main-process.md`, #444).
+            ctx.log && ctx.log.warn && ctx.log.warn('[vcs] worktree status failed: ' + String(stderr || (err && err.message) || err).trim());
+            return resolve({ ok: false, error: 'git could not read this worktree — see the log for what it said.' });
+          }
           const dirty = stdout.split('\n').map(l => l.trimEnd()).filter(Boolean);
           resolve({ ok: true, dirty, total: dirty.length });
         });

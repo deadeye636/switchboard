@@ -952,8 +952,11 @@ async function showDeleteWorktreeDialog(name, worktreePath) {
     statusPromise.then((status) => {
       if (!overlay.isConnected) return; // dialog already closed
       if (!status || !status.ok) {
-        const errMsg = (status && status.error) ? escapeHtml(status.error) : 'Unknown error';
-        statusEl.innerHTML = `<span class="dwt-error">Unable to read worktree status: ${errMsg}</span>`;
+        // The handler words its own failures now (#624), so the sentence is shown as it comes rather than
+        // introduced a second time — "Unable to read worktree status: git could not read this worktree" said
+        // one thing twice. A refusal with no message at all still needs the introduction.
+        const errMsg = (status && status.error) ? escapeHtml(status.error) : '';
+        statusEl.innerHTML = `<span class="dwt-error">${errMsg || 'Unable to read worktree status.'}</span>`;
         return;
       }
       if (status.total === 0) {
