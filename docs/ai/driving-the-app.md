@@ -473,6 +473,11 @@ between (#622 measured `/model` that way). Four things make such a harness measu
    writes nothing until confirmed. A confirmed switch is saved as `model` in the user settings of the home it
    ran under, so every later session there resolves it. Remove it after measuring.
 
+5. **A measurement on another platform needs a login there.** The CLI installs in WSL in a minute, but a
+   fresh configuration directory asks for a browser login of its own — credentials copied from the demo home
+   are not accepted (#628). So a Linux or macOS measurement needs a machine where the CLI is already logged
+   in, and the Windows answers stay Windows answers.
+
 For a one-shot answer `claude -p … --output-format json` is enough: its `modelUsage` names the model a
 request ran on with its `contextWindow`. Read the requested model's key, never the first one — a
 `claude-haiku-4-5` side call sits beside it.

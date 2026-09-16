@@ -33,16 +33,19 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
     found its MAIN repository's root already trusted, and a worktree of a bare repository wrote the bare
     repository's directory. A submodule keys itself;
   - **outside one, the directory itself**;
-  - in both cases the **real path** (a junction resolved, also one to another drive; every folder name in its
-    on-disk case) with the **drive letter as the cwd spelled it** and forward slashes. A `subst` or mapped
-    drive keeps its own letter rather than what it stands for — also over a repository's subfolder, where
-    the drive's root is the key — and a UNC path stays one.
+  - in both cases the **real path** with the **drive letter as the cwd spelled it** and forward slashes: a
+    junction is resolved, whether it leads into a repository on another drive or to a plain folder there, and
+    every folder name is in its on-disk case. A `subst` or mapped drive keeps its own letter rather than what
+    it stands for — also over a repository's subfolder, where the drive's root is the key — and a UNC path
+    stays one.
 
   How it is **looked up**: exactly, case included, and the file often holds several spellings of one
   directory. Outside a repository a trusted **ancestor** trusts the directory, and an entry of its own with
   `false` (the CLI writes one after inheriting) does not stop that. Inside a repository only the root's own
-  entry counts: a repository inside a trusted folder, and a subfolder of it, both asked. Not measured: a
-  junction to another drive outside a repository, macOS and Linux.
+  entry counts: a repository inside a trusted folder, and a subfolder of it, both asked. **macOS and Linux are
+  not measured**, and the app keys a path there as it is spelled and inherits nothing, which is what it did
+  before any of this. Measuring them needs a machine that can log the CLI in on that platform: an attempt in
+  WSL got as far as the first-run screens, where the CLI asked for a browser login of its own (#628).
 
   What the Projects manager does with it: a row whose answer is kept elsewhere says so. Granting trust on a
   subdirectory or worktree row names the repository root it is kept for; removing it asks first, because it
