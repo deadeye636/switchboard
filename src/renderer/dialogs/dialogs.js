@@ -540,17 +540,71 @@ async function showNewSessionPopover(project, anchorEl) {
   customCmdBtn.onclick = () => { popover.remove(); showCustomCommandDialog(project); };
   popover.appendChild(customCmdBtn);
 
-  // Saved launchers (T-3.10) — the effective global ⊕ project list for THIS project.
-  for (const launcher of launchers) {
-    const btn = document.createElement('button');
-    btn.className = 'popover-option popover-option-terminal popover-option-launcher';
-    btn.innerHTML = (launcher.runMode === 'external' ? EXTERNAL_TERMINAL_POPOVER_ICON : TERMINAL_POPOVER_ICON)
-      + `<span class="popover-option-text">${escapeHtml(launcher.name)}</span>`;
-    btn.title = launcher.runMode === 'external'
-      ? `${launcher.command} — runs in an external window (not monitored)`
-      : `${launcher.command} — runs in a terminal tab`;
-    btn.onclick = () => { popover.remove(); runCustomLauncher(project, launcher); };
-    popover.appendChild(btn);
+  // Saved launchers (T-3.10) — the effective global ⊕ project list for THIS project, behind ONE entry
+  // (#616). Printed inline they pushed everything under them — File Explorer included — towards the
+  // bottom of a short window, and the list grows with every tool a project saves.
+  //
+  // The flyout is the pattern `terminal/terminal-context-menu.js` already carries, and its
+  // `openSubmenu`/`closeSubmenu` own the geometry: fixed positioning, flip left at the right edge,
+  // shift up off the bottom. Both files are index.html-only and the call happens on hover, so the
+  // reference resolves at call time whatever the tag order is. A copy of that clamping here is how the
+  // two menus would start opening in different directions.
+  //
+  // No entry when there is nothing under it — the same rule the group labels above follow.
+  if (launchers.length) {
+    const parent = document.createElement('div');
+    parent.className = 'popover-option popover-option-terminal has-submenu';
+    parent.tabIndex = 0;
+    parent.setAttribute('role', 'button');
+    parent.setAttribute('aria-haspopup', 'true');
+    parent.setAttribute('aria-expanded', 'false');
+    parent.title = 'Commands saved under Settings → Custom launchers';
+
+    const label = document.createElement('span');
+    label.className = 'popover-submenu-label';
+    label.innerHTML = TERMINAL_POPOVER_ICON + '<span class="popover-option-text">Custom commands</span>';
+    const arrow = document.createElement('span');
+    arrow.className = 'submenu-arrow';
+    arrow.textContent = '›';
+    parent.appendChild(label);
+    parent.appendChild(arrow);
+
+    const sub = document.createElement('div');
+    sub.className = 'popover-submenu';
+    for (const launcher of launchers) {
+      const btn = document.createElement('button');
+      btn.className = 'popover-option popover-option-terminal popover-option-launcher';
+      btn.innerHTML = (launcher.runMode === 'external' ? EXTERNAL_TERMINAL_POPOVER_ICON : TERMINAL_POPOVER_ICON)
+        + `<span class="popover-option-text">${escapeHtml(launcher.name)}</span>`;
+      btn.title = launcher.runMode === 'external'
+        ? `${launcher.command} — runs in an external window (not monitored)`
+        : `${launcher.command} — runs in a terminal tab`;
+      btn.onclick = () => { popover.remove(); runCustomLauncher(project, launcher); };
+      sub.appendChild(btn);
+    }
+    parent.appendChild(sub);
+
+    // `role="button"` promises an activation, so the row answers Enter and Space as well as the
+    // pointer — a row that says it is a button and does nothing when pressed is the worse half of
+    // having the role at all. `aria-expanded` is written on every open and close, by all three paths.
+    // NOTE for the VS Code section (#616 step 2): `closeSubmenu` resets nested `.terminal-context-submenu`
+    // elements only, so a flyout nested inside THIS one would not be reset and would reappear unhovered.
+    const openFlyout = () => { openSubmenu(parent, sub); parent.setAttribute('aria-expanded', 'true'); };
+    const closeFlyout = () => { closeSubmenu(sub); parent.setAttribute('aria-expanded', 'false'); };
+    parent.addEventListener('mouseenter', openFlyout);
+    parent.addEventListener('focusin', openFlyout);
+    parent.addEventListener('mouseleave', closeFlyout);
+    parent.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        openFlyout();
+        const first = sub.querySelector('.popover-option');
+        if (first) first.focus();
+      } else if (e.key === 'Escape') {
+        closeFlyout();
+      }
+    });
+    popover.appendChild(parent);
   }
 
   // Open the project directory in the OS file explorer.

@@ -7160,20 +7160,29 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 .terminal-selection-bar-btn:hover { background: rgba(97,175,239,0.16); color: #61afef; }
 .terminal-selection-bar-btn svg { display: block; }
 
-/* Nested flyout submenus (Variables ▸ scope ▸ items) in the terminal menu. */
-.terminal-context-menu .has-submenu {
+/* Nested flyout submenus (Variables ▸ scope ▸ items) in the terminal menu — and since #616 the
+   launch popover's Custom commands entry, which opens the same way. The rules are unscoped for that
+   reason: a `.terminal-context-menu`-prefixed copy beside them is two flyouts that drift apart. */
+.has-submenu {
   position: relative;
   justify-content: space-between;
   gap: 12px;
   cursor: default;
 }
-.terminal-context-menu .has-submenu:hover,
-.terminal-context-menu .has-submenu:focus-within {
+.has-submenu:hover,
+.has-submenu:focus-within {
   background: rgba(255,255,255,0.06);
   color: #d0d0e8;
 }
-.terminal-context-menu .submenu-arrow { opacity: 0.55; font-size: 15px; line-height: 1; }
-.terminal-context-submenu {
+.submenu-arrow { opacity: 0.55; font-size: 15px; line-height: 1; flex-shrink: 0; }
+/* The launch popover's row carries an icon beside its label, so the label is its own flex box. */
+.popover-submenu-label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* …and it is a Terminal-group row, so it keeps that group's green hover rather than the neutral one
+   the rule above gives every flyout parent. */
+.popover-option-terminal.has-submenu:hover,
+.popover-option-terminal.has-submenu:focus-within { background: rgba(62,207,90,0.08); }
+.terminal-context-submenu,
+.popover-submenu {
   position: fixed;
   display: none;
   background: #1e1e2a;

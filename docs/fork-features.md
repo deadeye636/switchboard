@@ -395,7 +395,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   blank). Secrets are `$VAR` references resolved at spawn and never written to disk; a literal key is
   refused, and a profile that would send your Anthropic key to a third-party endpoint is blocked.
 - **Custom launchers (Tier-3)** — any command or script as a saved launcher (in-app monitored tab or
-  detached window), global template ⊕ per-project override.
+  detached window), global template ⊕ per-project override. The launch menu offers them behind one
+  **Custom commands** entry, so a project's tools cannot push the rest of the menu off a short window;
+  the entry is absent while nothing is saved.
 - **Identity, resume and fork done honestly** — a backend that names its own sessions (Codex, Hermes,
   Pi) has its id adopted, so one session is one row; resume reapplies the recorded backend and never
   falls back to Claude; Fork is only offered where the backend can actually fork.
