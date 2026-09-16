@@ -250,7 +250,7 @@
     root: 'the project itself — the default is used instead',
     // The tour has no project, so it genuinely cannot say where an absolute path lands — and a figure that
     // drew it as a child of `my-project/` would be making exactly the claim this pane was fixed to stop.
-    absolute: 'an absolute path is resolved against each project, so this figure cannot show it',
+    absolute: 'an absolute path is resolved per project, so it cannot be drawn here',
   };
 
   // When the two fields have DIFFERENT problems there is one caption and two things to say, so it stops

@@ -50,7 +50,73 @@ const HANDOFF_DEFAULT = '.handoffs';
 const CAP_NEUTRAL = 'both inside the project, both plain Markdown';
 const CAP_ESCAPES = 'outside the project — the default is used instead';
 const CAP_ROOT = 'the project itself — the default is used instead';
-const CAP_ABSOLUTE = 'an absolute path is resolved against each project, so this figure cannot show it';
+const CAP_ABSOLUTE = 'an absolute path is resolved per project, so it cannot be drawn here';
+
+// --- How wide a caption may be -----------------------------------------------------------------------
+//
+// The caption is centred at x=320 inside the figure's box, which spans 150 to 490 — 340 px. A longer one
+// is not clipped; it hangs out of the drawn card on both sides, which reads as a mistake rather than as a
+// limit. The absolute wording shipped at 345.7 px and did exactly that, after its CONTENT was already
+// green here.
+//
+// jsdom lays out no text, so `getComputedTextLength` does not exist in this file and the width is summed
+// from glyph advances instead. A character count was tried first and is not good enough: it permits
+// 340/72 = 4.72 px per character while the captions in use measure 4.20 to 4.57, so an ordinary caption of
+// 70 characters that happens to capitalise a word — `Markdown documents — Switchboard makes the missing
+// folders when needed`, 349.6 px — passes a count and overflows the box.
+//
+// The table is Helvetica/Arial advance widths in units of 1/1000 em, which is what `font-family="sans-serif"`
+// resolves to on the machine this was measured on. It reproduces every in-app `getComputedTextLength()`
+// reading to within 0.1 px, and the calibration test below pins three of those readings so the table
+// cannot drift away from the font. **A platform whose `sans-serif` is a wider face — DejaVu Sans is the
+// usual Linux default — measures wider than this**, which is why the budget keeps a margin rather than
+// using the whole box.
+const GLYPH_W = (() => {
+  const w = {
+    ' ': 278, '!': 278, '"': 355, '#': 556, $: 556, '%': 889, '&': 667, "'": 191, '(': 333, ')': 333,
+    '*': 389, '+': 584, ',': 278, '-': 333, '.': 278, '/': 278, ':': 278, ';': 278, '<': 584, '=': 584,
+    '>': 584, '?': 556, '@': 1015, '[': 278, '\\': 278, ']': 278, '^': 469, _: 556, '`': 333, '{': 334,
+    '|': 260, '}': 334, '~': 584, '—': 1000, '–': 556,
+    A: 667, B: 667, C: 722, D: 722, E: 667, F: 611, G: 778, H: 722, I: 278, J: 500, K: 667, L: 556, M: 833,
+    N: 722, O: 778, P: 667, Q: 778, R: 722, S: 667, T: 611, U: 722, V: 667, W: 944, X: 667, Y: 667, Z: 611,
+    a: 556, b: 556, c: 500, d: 556, e: 556, f: 278, g: 556, h: 556, i: 222, j: 222, k: 500, l: 222, m: 833,
+    n: 556, o: 556, p: 556, q: 556, r: 333, s: 500, t: 278, u: 556, v: 500, w: 722, x: 500, y: 500, z: 500,
+  };
+  for (const d of '0123456789') w[d] = 556;
+  return w;
+})();
+
+// The figure's own font size, and its box, read out of the source rather than written down — narrow the
+// rect and this guard tightens with it instead of passing over an overflow that now exists.
+const TOUR_SRC = fs.readFileSync(path.join(REN, 'dialogs', 'welcome-tour.js'), 'utf8');
+const FIGURE_BOX_PX = (() => {
+  const fig = TOUR_SRC.slice(TOUR_SRC.indexOf('function figDirs'));
+  const rect = /<rect x="(\d+)"[^>]*width="(\d+)"/.exec(fig);
+  assert.ok(rect, 'figDirs() no longer draws a <rect> with an x and a width — re-read the box from it');
+  return Number(rect[2]);
+})();
+const CAPTION_FONT_PX = (() => {
+  const fig = TOUR_SRC.slice(TOUR_SRC.indexOf('function figDirs'));
+  const size = /text-anchor="middle"/.test(fig) && /font-size="(\d+(?:\.\d+)?)"[^>]*text-anchor="middle"/.exec(fig);
+  assert.ok(size, 'the caption is no longer a centred <text> with a font-size — re-read it from figDirs()');
+  return Number(size[1]);
+})();
+
+/** The rendered width of a caption, in the figure's own user units. */
+function captionWidth(text) {
+  let units = 0;
+  for (const ch of text) {
+    const w = GLYPH_W[ch];
+    assert.ok(w !== undefined, `the width table has no entry for ${JSON.stringify(ch)} — add it, measured, `
+      + 'or this guard silently under-measures the caption that introduced it');
+    units += w;
+  }
+  return (units / 1000) * CAPTION_FONT_PX;
+}
+
+// Nine tenths of the box. The margin is not a hedge about the arithmetic — that is exact — but about the
+// face: `sans-serif` is whatever the machine resolves it to, and a wider one eats the difference.
+const CAPTION_BUDGET_PX = FIGURE_BOX_PX * 0.9;
 // One caption, two answers: when the fields fail for DIFFERENT reasons it stops naming a reason rather
 // than naming one of them. "could be drawn" covers both classes — a value that leaves the project is one
 // the app will not use, an absolute one may be perfectly good and is simply not placeable here.
@@ -144,7 +210,21 @@ async function draw(planDir, handoffDir) {
     assert.ok(hit, `the tree must draw a ${prefix} row`);
     return hit.slice(prefix.length, -1);
   };
-  return { plan: branch('├─ '), handoff: branch('└─ '), caption: lines[lines.length - 1] };
+  const caption = lines[lines.length - 1];
+  const drawn = { plan: branch('├─ '), handoff: branch('└─ '), caption };
+  // Measured LAST, after the structural reads above, so a caption that is merely too wide cannot mask a
+  // tree that is wrong — the cosmetic assert would otherwise fail first in every test in this file.
+  //
+  // Every caption anything here renders is measured, so this costs no list: a wording nobody has written
+  // yet is covered on the day a test draws it.
+  const width = captionWidth(caption);
+  assert.ok(width <= CAPTION_BUDGET_PX,
+    `the caption measures ${width.toFixed(1)} px and the budget is ${CAPTION_BUDGET_PX.toFixed(1)}: `
+    + `"${caption}". It is centred in the figure's ${FIGURE_BOX_PX} px box, so a longer one hangs out of `
+    + 'the drawn card on both sides — not clipped, which is why nothing else notices. Shorten it, or widen '
+    + `the rect in figDirs() and this budget follows. The last tenth of the ${FIGURE_BOX_PX} px is not room: `
+    + 'it is held back because `sans-serif` is a different face on another machine');
+  return drawn;
 }
 
 test('an ordinary relative name is drawn as typed, with nothing to warn about', async () => {
@@ -255,5 +335,87 @@ test('a blank field beside a real problem still names that problem (#630)', asyn
     assert.equal(fig.plan, PLAN_DEFAULT, `${plan} + ${handoff}`);
     assert.equal(fig.handoff, HANDOFF_DEFAULT, `${plan} + ${handoff}`);
     assert.equal(fig.caption, caption, 'blank is the default, not a second mistake');
+  }
+});
+
+// The five captions the pane can produce, read OUT of the tour rather than trusted from the constants
+// above. Those constants are a deliberate second copy — the wording is what a person reads, so changing it
+// should take two edits and one look — and this is what stops the copy from being the only record: a sixth
+// caption, or a reworded one, fails here by name instead of going unmeasured.
+function captionsInSource() {
+  const from = TOUR_SRC.indexOf('const DIR_PROBLEM_WORDS');
+  assert.ok(from >= 0, 'DIR_PROBLEM_WORDS was renamed — re-anchor this read');
+  // …to the END of figDirs, which is the first closing brace at its own indentation. The first `}` after
+  // the function keyword is inside it, and stopping there cuts the neutral caption out of the region —
+  // which the count below reported rather than letting it pass as "four is all there is".
+  const figDirs = TOUR_SRC.indexOf('function figDirs');
+  const endOfFigDirs = TOUR_SRC.indexOf('\n  }', figDirs);
+  assert.ok(figDirs > 0 && endOfFigDirs > figDirs, 'figDirs() moved or changed shape — re-anchor this read');
+  const region = TOUR_SRC.slice(from, endOfFigDirs);
+  // A caption is a quoted sentence: it starts lower-case, runs to at least 25 characters, and carries no
+  // code. The exclusions are what keeps an apostrophe in a nearby COMMENT from pairing with the next one
+  // and dragging half the module in as a "caption" — which is exactly what the first version of this read
+  // did, and the count assertion below is what caught it.
+  return [...new Set(
+    [...region.matchAll(/'([a-z][^'\n{}();]{24,})'/g)].map(m => m[1]).filter(t => t.includes(' ')),
+  )];
+}
+
+/**
+ * How many problems the pane has wording for, counted from the KEYS rather than from the sentences.
+ *
+ * The pattern above wants a lower-case sentence with no punctuation that could be code, so a sixth caption
+ * that opens with a capital, or carries a bracket or a semicolon, is not recognised as one — the count
+ * stays at five, every constant is still present, and that caption is measured nowhere. The keys cannot
+ * hide the same way: a sixth problem adds one, whatever its wording looks like.
+ */
+function problemKeysInSource() {
+  const from = TOUR_SRC.indexOf('const DIR_PROBLEM_WORDS');
+  const block = TOUR_SRC.slice(from, TOUR_SRC.indexOf('\n  };', from));
+  return [...block.matchAll(/^\s{4}([a-z]\w*):/gm)].map(m => m[1]);
+}
+
+// A budget only means something if something has crossed it, and every caption in the tree passes today.
+// This is the one that did: the absolute wording as it shipped, which measured 345.7 px in a 340 px box in
+// a running instance.
+test('the caption budget is one the wording that overflowed would have failed (#630)', () => {
+  const overflowed = 'an absolute path is resolved against each project, so this figure cannot show it';
+  const width = captionWidth(overflowed);
+  assert.ok(width > CAPTION_BUDGET_PX,
+    `the retired wording measures ${width.toFixed(1)} px and this budget of ${CAPTION_BUDGET_PX.toFixed(1)} `
+    + 'now passes it, so the check no longer catches the caption it was written for. Re-measure in a '
+    + 'running instance rather than raising the number until the tree is green');
+
+  // …and the width table has to agree with the font, or every number above is arithmetic about nothing.
+  // These three were read with `getComputedTextLength()` in a running instance; the table reproduces them
+  // to a tenth of a pixel, and a change to it that stops doing so fails here.
+  for (const [text, measured] of [
+    ['an absolute path is resolved against each project, so this figure cannot show it', 345.7],
+    ['an absolute path is resolved per project, so it cannot be drawn here', 297.9],
+    ['neither value could be drawn here — the defaults are shown instead', 301.8],
+  ]) {
+    const delta = Math.abs(captionWidth(text) - measured);
+    assert.ok(delta < 0.5, `the table puts "${text}" at ${captionWidth(text).toFixed(1)} px against `
+      + `${measured} px measured in the app — it no longer describes the font the figure draws in`);
+  }
+
+  // …and it is not so tight that a caption in use fails it, which would make it a tripwire on wording
+  // rather than a guard on overflow. The list is read out of the tour, so a sixth one is included here.
+  // Both counts, because each can miss what the other cannot: the sentences catch a reworded caption, the
+  // keys catch a sixth problem whose wording this pattern does not recognise as a caption.
+  const keys = problemKeysInSource();
+  assert.deepEqual(keys.sort(), ['absolute', 'escapes', 'root'],
+    `DIR_PROBLEM_WORDS names ${keys.length} problems, not the three this file measures — a new one needs a `
+    + 'caption constant here and a case in the tests above, or it goes out unmeasured');
+  const captions = captionsInSource();
+  assert.equal(captions.length, 5, `expected the pane's five captions, read ${captions.length}: `
+    + JSON.stringify(captions));
+  for (const cap of [CAP_NEUTRAL, CAP_ESCAPES, CAP_ROOT, CAP_ABSOLUTE, CAP_TWO]) {
+    assert.ok(captions.includes(cap), `"${cap}" is no longer one of the captions the tour can draw — the `
+      + 'constants in this file have drifted away from DIR_PROBLEM_WORDS');
+  }
+  for (const cap of captions) {
+    const w = captionWidth(cap);
+    assert.ok(w <= CAPTION_BUDGET_PX, `"${cap}" measures ${w.toFixed(1)} px, over the budget`);
   }
 });

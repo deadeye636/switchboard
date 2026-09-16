@@ -175,6 +175,20 @@ therefore called `docs/..` "outside the project" when it is the root: three word
 derivation of the rule, and the guard written to refuse one walked straight past it. A blank value is not a
 mistake and keeps the neutral caption — an empty setting simply means the default.
 
+**The caption has 340 px and no more.** It is centred inside the figure's box, so a longer one hangs out of
+the panel on both sides rather than being clipped — which reads as a mistake and not as a limit. The
+absolute wording shipped at 345.7 px and did exactly that, measured in a running instance after the tests
+were already green about its content. `test/welcome-tour-documents-figure.test.js` now measures every
+caption it renders. jsdom lays out no text, so `getComputedTextLength` does not exist there and the width
+is summed from a table of glyph advances instead — which reproduces the readings taken in the app to a
+tenth of a pixel, and three of those readings are pinned in the same file so the table cannot drift away
+from the font. A character count was tried first and is not good enough: it permits a wider average than
+any caption in use actually has, so a caption that capitalises a word passes it and still overflows.
+
+The box is read out of `figDirs()` rather than written down here, and the budget keeps a tenth of it in
+reserve for one thing the measurement cannot settle: `sans-serif` is whatever the machine resolves it to,
+and a platform whose default is a wider face draws all of this wider.
+
 **There are two fields and one caption, and when they fail differently it names neither reason.** It used to
 take the plans field's and say nothing about the handoffs field, which had been replaced just as silently as
 the value the pane was fixed for — the same defect at one quarter the size. The two-problem wording says the
