@@ -342,9 +342,12 @@ absent from the installer.
   load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
   the script carries a timeout at all: a test that stops making progress fails loudly instead.
   **The cap is per TEST, and node applies it to each FILE too** — which is why it is 120 s and not tighter.
-  `panes-view.test.js` holds 206 tests, each fast, and the file takes 41 s under the suite's own
+  `panes-view.test.js` held 206 tests, each fast, and the file took 41 s under the suite's own
   concurrency; at 60 s another agent session on the machine was enough to cancel it, and a cancelled file
-  prints `not ok … # fail 0`, which reads like nothing at all
+  prints `not ok … # fail 0`, which reads like nothing at all. It has since been split by subject into
+  `panes-view` / `-tabs` / `-views` / `-drag`, because node parallelises across FILES and not within one,
+  and `test/npm-test-script.test.js` projects the cost of a jsdom file so the drift back shows up there
+  instead of in a red run under load
   (`.claude/rules/guards-and-scripts.md` has both causes of that line and how to tell them apart).
   A run past three minutes is still worth killing and re-running rather than waiting out.
 - `npm run demo:start` — **the default for dev/verify work**: an isolated demo instance against

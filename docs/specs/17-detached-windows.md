@@ -457,7 +457,9 @@ are there too: the window list and its `current` marking, main → detached, det
 detached, a window closing with several sessions, a move onto the window a session is already in, and
 the refusals that are left. Since #332 that includes the dormant moves in both directions, and that
 moving one spawns nothing; the renderer's half of that decision — which window can *show* a dormant
-session — is in `test/panes-view.test.js` (`openDormantTab`), because it is a pane-tree question.
+session — is in `test/panes-view-views.test.js` (`openDormantTab`), because it is a pane-tree question.
+The tab it produces is pinned in `test/panes-view-tabs.test.js` beside the other tab-strip behaviour;
+the split of #630 put the two halves in different files and neither is the whole answer on its own.
 
 Since #370 it also pins the window that holds no session: the URL it is given, that it is listed and
 hit-tested and torn down like any other, that it survives its last session leaving while a view is
@@ -469,7 +471,7 @@ show. Since #378, the held-back window: not opened in grid, still saved afterwar
 a window with sessions unaffected either way, both grid spellings, the double-append on the macOS
 `activate` path — and the guard that pins main's copy of those spellings to the renderer's.
 
-The two renderer halves of §2e are in `test/panes-view.test.js`: that `{kind: 'window'}` places
+The two renderer halves of §2e are in `test/panes-view-drag.test.js`: that `{kind: 'window'}` places
 nothing rather than addressing a leaf id of `undefined`, and that it clears a pane hint left over from
 the pointer's last position. The frame itself is `shell/detach-window.js` and was checked in a running
 instance — a real probe round trip into a second window in grid mode — because a hint nobody has seen

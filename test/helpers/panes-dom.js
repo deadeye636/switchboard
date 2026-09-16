@@ -12,6 +12,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const assert = require('node:assert/strict');
 const { JSDOM } = require('jsdom');
 
 const SRC_DIR = path.join(__dirname, '..', '..', 'src');
@@ -370,4 +371,115 @@ function setupPanesDom(opts = {}) {
   };
 }
 
-module.exports = { setupPanesDom };
+// --- Arrangements and readers shared by more than one of the panes-view test files ---------------
+//
+// These were plain top-level helpers in test/panes-view.test.js until that file was split by subject
+// into four (#630). Each one is used from at least two of the four, so it lives here rather than in
+// four copies that drift apart. A helper only one file needs stayed in that file.
+
+// A pane of its own holding `ids`, so `closePane` has something to close that is not the last pane.
+async function paneWith(h, ids, opts = {}) {
+  h.mount('keep-me');
+  h.enable(opts);
+  await h.settle();
+  h.panes.splitActivePane('right');
+  for (const id of ids) { h.mount(id, opts.mountAs || {}); h.panes.show(id); }
+  await h.settle();
+  const paneId = h.document.querySelector(`.session-tab[data-session-id="${ids[0]}"]`).closest('.pane').dataset.paneId;
+  return paneId;
+}
+
+// A signature of the whole arrangement: which panes exist, what they hold, and their shares. Zoom is
+// a view state, so all of it has to come back byte-identical.
+const layoutSignature = (h) => [...h.document.querySelectorAll('.pane')].map((p) => [
+  p.dataset.paneId,
+  [...p.querySelectorAll('.session-tab')].map((t) => t.dataset.tabId).join(','),
+  p.style.flexGrow,
+].join('|')).join(' / ');
+
+// Two panes side by side, one session each.
+async function twoPanes(h) {
+  h.mount('a');
+  h.enable();
+  await h.settle();
+  h.panes.splitActivePane('right');
+  await h.open('b');
+}
+
+// Two panes side by side with a sash between them, and the gesture started on that sash.
+async function startDrag(h) {
+  h.mount('s1');
+  h.mount('s2');
+  h.enable();
+  await h.settle();
+  h.panes.splitActivePane('right');
+  h.panes.show('s2');
+  await h.settle();
+  const sash = h.document.querySelector('.pane-sash');
+  assert.ok(sash, 'a split produced a sash to drag');
+  h.pointer(sash, 'pointerdown', { x: 500, y: 400 });
+  assert.equal(h.document.body.classList.contains('pane-sashing'), true, 'the drag is running');
+  return sash;
+}
+
+// The session block, as detach-window.js contributes it (#327). The harness does not load that file,
+// so without this the pane menu would be asserted against a renderer missing half of it.
+function stubWindowItems(h) {
+  h.window.appendWindowItems = (sessionId, addItem) => {
+    const anchor = addItem('Move to new window', () => {}, { disabled: !sessionId });
+    addItem('Move to “Notes”', () => {}, { before: anchor.nextSibling });
+  };
+}
+
+const menuGroups = (h) => [...h.document.querySelectorAll('.session-tab-menu-label')].map((el) => el.textContent);
+const menuItem = (h, label) => [...h.document.querySelectorAll('.session-tab-menu-item')]
+  .find((b) => b.textContent === label);
+
+// A `dragend` as the browser reports one. `screen` is where the pointer was when the drag ended;
+// `dropEffect` is what the drop target (if any) accepted.
+function dragEndAt(h, el, { screenX, screenY, dropEffect = 'none' }) {
+  const ev = new h.window.MouseEvent('dragend', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'screenX', { value: screenX });
+  Object.defineProperty(ev, 'screenY', { value: screenY });
+  Object.defineProperty(ev, 'dataTransfer', { value: { dropEffect } });
+  el.dispatchEvent(ev);
+}
+
+// The window box the tear-off measures against. jsdom reports 1024×768 at 0/0 by default; naming it
+// here is what lets a test say "outside" and mean it.
+function windowBox(h, { x = 0, y = 0, width = 1000, height = 800 } = {}) {
+  for (const [k, v] of Object.entries({ screenX: x, screenY: y, outerWidth: width, outerHeight: height })) {
+    Object.defineProperty(h.window, k, { value: v, configurable: true });
+  }
+}
+
+// jsdom lays nothing out — every rect is 0x0, so a point would hit every element at once. These
+// stubs are the geometry the answer is about: an area, a strip along its top, a body under it.
+function stubPaneGeometry(h, { x = 0, y = 0, width = 800, height = 600, stripHeight = 30 } = {}) {
+  const rect = (l, t, w, ht) => () => ({
+    left: l, top: t, width: w, height: ht, right: l + w, bottom: t + ht, x: l, y: t,
+  });
+  const area = h.document.querySelector('#terminals').firstElementChild;
+  area.getBoundingClientRect = rect(x, y, width, height);
+  for (const pane of h.document.querySelectorAll('#terminals .pane')) {
+    pane.getBoundingClientRect = rect(x, y, width, height);
+    const strip = pane.querySelector('.pane-strip');
+    if (strip) strip.getBoundingClientRect = rect(x, y, width, stripHeight);
+    const body = pane.querySelector('.pane-body');
+    if (body) body.getBoundingClientRect = rect(x, y + stripHeight, width, height - stripHeight);
+  }
+}
+
+module.exports = {
+  setupPanesDom,
+  paneWith,
+  layoutSignature,
+  twoPanes,
+  startDrag,
+  stubWindowItems,
+  menuGroups,
+  menuItem,
+  dragEndAt,
+  windowBox,
+  stubPaneGeometry,
+};

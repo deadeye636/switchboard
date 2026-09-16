@@ -190,7 +190,31 @@ and a worker, a socket or a child process is not covered at all.
 
 ### The slow half
 
-Nothing guards it. One file sits at roughly 70 % of the cap under real load, and the three ways out all
-cost something: split the file, raise the cap, or accept the risk. Raising the cap is what happened at
-#630 — the timeout is per TEST, so it buys a slow file room while a genuinely stuck test still fails, just
-later. `CLAUDE.md` carries the number and the reason; when you change it, change it there too.
+The three ways out all cost something: split the file, raise the cap, or accept the risk. Raising the cap
+is what happened first at #630 — the timeout is per TEST, so it buys a slow file room while a genuinely
+stuck test still fails, just later. `CLAUDE.md` carries the number and the reason; when you change it,
+change it there too. Splitting is what actually moves the wall clock, because node parallelises across
+FILES and not within one: `panes-view.test.js` became `panes-view` / `-tabs` / `-views` / `-drag`, by
+subject, and the four run in the time the slowest of them takes.
+
+`test/npm-test-script.test.js` guards the drift back. It is a **projection, not a timing run**: the tests a
+covered file registers, times a recorded per-build cost, times a concurrency penalty derived from the pair of
+measurements at #630 (16.8 s alone, 41 s under the suite's own concurrency), against a sixteenth of the cap.
+A harness is any file under `test/helpers/` that builds a `new JSDOM` and exports one `setup*`, and its
+covered files are whatever requires it — both derived, no list. **A jsdom-building helper that does not
+offer exactly one `setup*` FAILS the guard rather than dropping out of it**, and that is deliberate: a
+harness falling out silently takes every file it covers with it, and the guard's own backstops stay green
+because the other harness keeps the counts non-zero. So a new helper whose entry point is called `makeDom`
+meets a red guard with the alternative in the message — name it `setup*`, or teach the scan which export is
+the way in. The `setup*` convention exists nowhere else; this is the file that made it one. The small fraction is deliberate and the
+reasoning sits beside the constant: the projection counts builds only, about a third of the real cost, so a
+budget near the cap would have passed the very file this catches.
+
+**Its per-build cost is RECORDED, and the first version's live measurement is why.** That one was careful —
+nine builds, median, taken before any test file was loaded — and it still failed on its first full `npm test`
+while passing alone, because inside the suite twenty files are building jsdom worlds at once. A guard that is
+red only under the load it exists to reason about teaches people to re-run until it is green, which is worse
+than not having it. So the only variable input is the test count, which is deterministic, and what that gives
+up is written in the guard's header: a harness that gets slower is invisible until somebody re-measures.
+The other thing worth knowing here: the band between today's largest covered file and the file that went red
+is a factor of three, so re-calibrate rather than nudge the number if a split lands in between.
