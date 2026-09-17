@@ -115,9 +115,42 @@ function bindingFlags(backend) {
   }
 }
 
+/**
+ * The per-spawn prompt templates some backends hand their CLI (#569). Same shape as `bindingFlags`
+ * above and here for the same reason: it is a real flag on a real command line, and a flag a hook emits
+ * is invisible to a derivation that only runs `buildLaunch` — which is exactly how `--extension` hid
+ * until the binding hook was added to this file.
+ *
+ * `dirs` is what `src/app/convention-dirs.js` answers for a project. The names below are the settings'
+ * own defaults, so the audit exercises the path a real launch takes rather than a refusal.
+ */
+function promptTemplateFlags(backend) {
+  if (typeof backend.buildPromptTemplates !== 'function') return [];
+  let dir = null;
+  try {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-flag-audit-'));
+    const built = backend.buildPromptTemplates({
+      dir,
+      tag: 'FLAG-AUDIT',
+      dirs: { handoffDir: '.handoffs', planDir: '.plans' },
+      options: {},
+    });
+    if (!built) return [];
+    if (built.cleanup && typeof backend.releasePromptTemplates === 'function') {
+      try { backend.releasePromptTemplates(built.cleanup); } catch { /* the temp dir goes anyway */ }
+    }
+    return flagsIn(built.args);
+  } catch {
+    // Same reasoning as the binding above: something we could not build asserts nothing about its flags.
+    return [];
+  } finally {
+    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  }
+}
+
 /** Every flag this backend can put on its CLI's command line, derived — not written down. */
 function managedFlags(backend, opts) {
-  const flags = new Set(bindingFlags(backend));
+  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend)]);
   for (const variant of launchVariants(backend, opts)) {
     let launch;
     try { launch = backend.buildLaunch(variant); } catch { continue; }

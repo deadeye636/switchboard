@@ -440,7 +440,7 @@ own `config.toml`.)
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
-| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
 
@@ -455,6 +455,15 @@ looser policy than either. The alternative was a session that dies at spawn. The
 the new value, and it does not run again once a scope is corrected. It leaves `profiles.json` alone while that
 file holds template records this app could not load, because a template save rewrites the file from what was
 loaded — correcting one template that way would erase the records nobody has been told about.
+
+**`conventionPrompts` offers this app's document conventions inside a Pi session**, as `/handoff` and
+`/plan`, carrying the handoff and plan directories that apply to the session's own project. It is on by
+default, and it writes nothing into Pi's configuration: each spawn gets a directory of its own under the
+app's data folder, passed with `--prompt-template` and removed when the session ends. Two consequences
+worth knowing before you look for a way to edit the text. **A template of your own wins** — a `plan.md`
+in Pi's own prompts directory, or in a trusted project's, takes precedence over the one Switchboard
+passes, which is the intended way to replace it. And **a Pi session started outside Switchboard has
+neither command**, because nothing was written anywhere for it to find.
 
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
 answered its own `AskUserQuestion` dialog after 60 seconds; the field's `0` sent a sentinel meaning

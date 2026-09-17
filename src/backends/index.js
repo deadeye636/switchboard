@@ -192,6 +192,15 @@ function profileToDescriptor(p) {
     ...(base && typeof base.buildLiveBinding === 'function' ? { buildLiveBinding: base.buildLiveBinding } : {}),
     ...(base && typeof base.releaseLiveBinding === 'function' ? { releaseLiveBinding: base.releaseLiveBinding } : {}),
     ...(base && typeof base.readTurnQueue === 'function' ? { readTurnQueue: base.readTurnQueue } : {}),
+    // The document conventions offered inside the session (#569), forwarded for the same reason as the
+    // binding above: a template is the SAME binary over the same store, started the same way, and the
+    // conventions belong to the project rather than to which profile launched it. A template without
+    // them would answer `/plan` in one tab and not in the next, with nothing on screen saying why.
+    // The pair travels together — the release hook alone would leak a directory per spawn, the build
+    // hook alone would never clean one up.
+    providesPromptTemplates: base ? base.providesPromptTemplates === true : false,
+    ...(base && typeof base.buildPromptTemplates === 'function' ? { buildPromptTemplates: base.buildPromptTemplates } : {}),
+    ...(base && typeof base.releasePromptTemplates === 'function' ? { releasePromptTemplates: base.releasePromptTemplates } : {}),
     // …and the WRITER, where the base has one (#605). Pi is told its queue depth by push and remembers it
     // for the pull the core makes (#530), and main looks that writer up by the row's backendId. So a
     // template got the reader and not the recorder: the extension reported, nothing kept it, and

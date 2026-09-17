@@ -39,6 +39,11 @@ const { readableError } = require('../readable-error');
 // Only for `stopTargetFor` — the one answer to "may this owner's process be ended" (#607), shared so
 // this refusal and the poller's published entries cannot offer different buttons for the same owner.
 const liveOwners = require('../live-owners');
+// The ONE answer to "where does this project keep its handoffs and its plans" (CLAUDE.md reflex 12).
+// Asked here so a backend that offers those conventions inside its own session names the same
+// directories the handoff prompt and the plan prompt do — a second reading of the setting is how two
+// surfaces start naming different ones.
+const conventionDirs = require('../convention-dirs');
 const { conptyBuildHint } = require('./conpty');
 
 let ctx = null;
@@ -229,6 +234,42 @@ function liveOwnerMessage(owner) {
     + 'is now — or resume anyway if you know it is free.';
 }
 
+/**
+ * What a spawn-applied option resolves to for THIS backend, in THIS project (#569).
+ *
+ * `global → project → session`, read for whichever backend is being spawned. **The id is not a backend
+ * id in the core** — it comes off the descriptor the core was handed, so this file still knows none by
+ * name. The hand-spelled `backendDefaults.claude` further down is the older shape and is deliberately
+ * NOT migrated here: that would change live Claude launch behaviour inside a change about Pi.
+ *
+ * **It is a BACKSTOP, not the cascade's main road.** Every in-app launch path resolves the options in
+ * the renderer and sends them, so `sessionOptions` normally carries the answer already and wins here.
+ * What this covers is the path that sends nothing — a restore whose option lookup failed — where the
+ * alternative is a session launched as though nobody had ever set anything. It does not reach a
+ * template's own stored options, which is why it cannot replace that resolution.
+ *
+ * The defaults themselves are not merged in: a `configFields` default describes what the CLI does
+ * anyway and is never sent, so "nobody said anything" has to stay distinguishable from "somebody chose
+ * this". A backend reading its own option therefore tests for the value it does not want, not for the
+ * value it does.
+ *
+ * The project blob is addressed through `settingsOwnerPath`, so a worktree resolves to its project and
+ * gets the same answer every other option does (reflex 17).
+ */
+function spawnOptionsFor(backend, projectPath, sessionOptions) {
+  // An Axis-A template's OWN options live in its template record; its global and project layers live
+  // under the BASE's id, because a template borrows the base's binary and the base's settings page. So
+  // the id to look under is `baseId` where there is one — reading `backendDefaults[<templateId>]` would
+  // answer `{}` for a user who switched the option off for the backend itself.
+  const id = backend && (backend.baseId || backend.id);
+  if (!id) return { ...(sessionOptions || {}) };
+  const g = ((ctx.getSetting('global') || {}).backendDefaults || {})[id] || {};
+  const p = projectPath
+    ? (((ctx.getSetting('project:' + settingsOwnerPath(projectPath)) || {}).backendDefaults || {})[id] || {})
+    : {};
+  return { ...g, ...p, ...(sessionOptions || {}) };
+}
+
 /** The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. */
 async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   if (!ctx.getMainWindow()) return { ok: false, error: 'no window' };
@@ -413,6 +454,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // Whether this spawn actually got the live-binding argument appended (#305). Declared here beside the
   // cleanup because both are decided inside the backend block below and read when the session is built.
   let liveBound = false;
+  // #569: what a backend wrote so this session can offer the app's document conventions as commands of
+  // its own. Same lifetime as the binding above — built in the backend block, removed on exit.
+  let promptTemplateCleanup = null;
   try {
     if (isPlainTerminal) {
       // Plain terminal: an interactive login shell, and nothing wrapped inside it (#588).
@@ -689,6 +733,40 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // #569: the app's document conventions, offered as commands inside the session itself.
+      //
+      // The same neutral shape as the block above, for the same reason: the core says WHERE a
+      // per-spawn file may go and WHICH directories this project uses, and the backend decides what to
+      // write, what to call it and which flag carries it. Nothing here names a backend or an option
+      // key — a spawn-applied option is read inside the backend that declared it, which is what lets
+      // `appliedBy` on the field be the truthful declaration rather than a way around the guard.
+      //
+      // Best-effort throughout, and a failure is never a launch failure: a backend may decline, the
+      // convention directories may be unusable, the write may fail. All of them mean the session
+      // starts without the commands, which is exactly what every session did before this existed.
+      if (backend.providesPromptTemplates === true && typeof backend.buildPromptTemplates === 'function') {
+        try {
+          const dirs = conventionDirs.dirsFor(projectPath || null);
+          const built = backend.buildPromptTemplates({
+            dir: ctx.promptTemplateDir,
+            tag: terminalTag,
+            dirs,
+            options: spawnOptionsFor(backend, projectPath, sessionOptions),
+            log: ctx.log,
+          });
+          if (built && Array.isArray(built.args) && built.args.length) {
+            launch.args = [...launch.args, ...built.args];
+            // Keep the RELEASE, not the descriptor — the exit handler runs where `backend` is out of
+            // scope, and the reasoning at the live-binding block above applies here unchanged.
+            promptTemplateCleanup = built.cleanup && typeof backend.releasePromptTemplates === 'function'
+              ? (log) => backend.releasePromptTemplates(built.cleanup, log)
+              : null;
+          }
+        } catch (err) {
+          ctx.log.warn(`[prompt-templates] session=${sessionId} could not set up: ${err.message}`);
+        }
+      }
+
       // How this backend wants to be spawned (00 §4). Claude runs as a shell-quoted command string
       // (today's path). An Axis-B binary may ask for ARGV mode instead: Codex is happiest with clean
       // execFile-style argv, and Windows shell quoting mangles it.
@@ -849,6 +927,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
     }
   } catch (err) {
+    // Whatever the backend allocated for this spawn is released HERE, because nothing else will: the
+    // session object below is never built, so the PTY-exit handler that normally releases them has no
+    // session to run against. The boot sweep would eventually collect the leftovers, but "eventually,
+    // at the next start" is not cleanup for a failure the user can repeat by pressing the button again.
+    try { if (typeof promptTemplateCleanup === 'function') promptTemplateCleanup(ctx.log); } catch { /* best effort */ }
+    try { if (typeof liveBindingCleanup === 'function') liveBindingCleanup(ctx.log); } catch { /* best effort */ }
     // The message names the shell and its arguments, which is a path under the user's home as often
     // as not (#457). The detail goes to the log; the terminal gets a sentence.
     return { ok: false, error: readableError(err, 'The terminal could not be started.', ctx && ctx.log) };
@@ -899,6 +983,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // the new id, and the terminal keeps the same tag through every clear.
     _terminalTag: terminalTag,
     _liveBindingCleanup: liveBindingCleanup,
+    // #569: and whatever the backend wrote so this session could offer the document conventions.
+    _promptTemplateCleanup: promptTemplateCleanup,
     // #305: did the live binding reach this spawn's argv? A backend that CANNOT report is answered by
     // its `supportsLiveRebinding` capability; this answers the other half — one that can, and did not.
     _liveBound: liveBound,
@@ -1262,6 +1348,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       if (typeof session._liveBindingCleanup === 'function') session._liveBindingCleanup(ctx.log);
     } catch (err) {
       ctx.log.debug(`[clear-bind] cleanup failed for session=${realId}: ${err.message}`);
+    }
+    // #569: and the per-spawn prompt templates. Its own try, because a failure here must not stop the
+    // binding's cleanup from having run — they are two independent things the backend allocated.
+    try {
+      if (typeof session._promptTemplateCleanup === 'function') session._promptTemplateCleanup(ctx.log);
+    } catch (err) {
+      ctx.log.debug(`[prompt-templates] cleanup failed for session=${realId}: ${err.message}`);
     }
     // Wipe this session's secret-ref temp files (default on; the prompt that used
     // them is done). Quit/startup wipe still covers the setting-off case.

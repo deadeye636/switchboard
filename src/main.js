@@ -2235,6 +2235,10 @@ spawn.init({
   // #223 live re-binding: where a backend may put its per-spawn binding file (userData — never the
   // user's own CLI config), the URL its hook posts to, and the way to forget a dead terminal's claim.
   bindingDir: path.join(app.getPath('userData'), 'clear-bindings'),
+  // #569: and where a backend may put the per-spawn prompt templates that let a session offer this
+  // app's document conventions as commands of its own. A directory of its own, NOT `clear-bindings`:
+  // two features sweeping one directory is how one deletes the other's file.
+  promptTemplateDir: path.join(app.getPath('userData'), 'prompt-templates'),
   clearBindUrl: hooks.clearBindUrl,
   // #303: and the URL its ordinary turn hooks re-state "this terminal is that session" on.
   sessionBindUrl: hooks.sessionBindUrl,
@@ -2322,6 +2326,19 @@ const lifecycleCtx = {
       try { fs.unlinkSync(path.join(dir, name)); removed++; } catch { /* in use or already gone */ }
     }
     if (removed) log.info(`[clear-bind] swept ${removed} leftover binding file(s)`);
+  },
+  // #569: the same sweep for the per-spawn prompt-template directories. These are DIRECTORIES, not
+  // files, so the removal is recursive — and it is the same reasoning as above: the PTY exit handler
+  // removes one, and a crash or a force-kill (`npm run stop:dev` is one) never reaches that handler.
+  cleanupPromptTemplates: () => {
+    const dir = path.join(app.getPath('userData'), 'prompt-templates');
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { return; }   // never created: nothing to do
+    let removed = 0;
+    for (const name of names) {
+      try { fs.rmSync(path.join(dir, name), { recursive: true, force: true }); removed++; } catch { /* in use or already gone */ }
+    }
+    if (removed) log.info(`[prompt-templates] swept ${removed} leftover template directory/ies`);
   },
   migrateClaudeLaunchDefaults,
   migrateRetiredChoices,

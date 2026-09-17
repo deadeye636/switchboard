@@ -26,6 +26,7 @@ const { execFile, execFileSync } = require('child_process');
 const parser = require('./parser');
 const trust = require('./trust');
 const liveBinding = require('./live-binding');
+const promptTemplates = require('./prompt-templates');
 const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
@@ -100,6 +101,12 @@ const configFields = [
     description: 'Comma-separated tool names to disable. Applies to built-in, extension and custom tools.' },
   { id: 'noTools', label: 'Disable tools', type: 'toggle', default: false,
     description: 'Start Pi with all tools disabled by default (`--no-tools`).' },
+  // Applied at the spawn site rather than in `buildLaunch`, because the flag names a directory that has
+  // to be WRITTEN first — `appliedBy` says which hook does it, so the guard can check that hook exists
+  // and that this backend really reads the option, instead of demanding the core name it (#569).
+  { id: 'conventionPrompts', label: 'Handoff and plan commands', type: 'toggle', default: true,
+    appliesAt: 'spawn', appliedBy: 'buildPromptTemplates',
+    description: 'Offer /handoff and /plan inside the session, carrying this project\'s own document directories. A template of your own with the same name takes precedence over the one Switchboard passes.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',
@@ -426,6 +433,20 @@ module.exports = {
   supportsLiveRebinding: true,
   buildLiveBinding: ({ dir, tag, sessionUrl, log } = {}) => liveBinding.writeBindingExtension({ dir, tag, sessionUrl, log }),
   releaseLiveBinding: (file, log) => liveBinding.removeBindingExtension(file, log),
+  // The app's handoff and plan conventions, offered inside the session as `/handoff` and `/plan` (#569).
+  //
+  // Pi takes `--prompt-template <path>` for exactly this, so the app passes a directory it made for
+  // this one spawn rather than writing into `~/.pi/agent/prompts/`. A template the USER keeps wins over
+  // ours by Pi's own precedence, which is the intended answer to "I want a different /plan".
+  //
+  // The pair is declared together because `test/backend-parity.test.js` says a hook that allocates and
+  // a hook that releases arrive in the same commit — the live-binding pair above is the precedent, and
+  // the reason is the same: the release is kept, not the descriptor, because the exit handler runs
+  // where this object is out of scope.
+  providesPromptTemplates: true,
+  buildPromptTemplates: ({ dir, tag, dirs, options, log } = {}) =>
+    promptTemplates.writePromptTemplates({ dir, tag, dirs, options, log }),
+  releasePromptTemplates: (dir, log) => promptTemplates.removePromptTemplates(dir, log),
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //

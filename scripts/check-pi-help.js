@@ -31,7 +31,10 @@ const AUDITED_EXCLUDED = new Set([
   '--no-extensions',
   '--skill',
   '--no-skills',
-  '--prompt-template',
+  // `--prompt-template` was here and is NOT any more: #569 sends it on every Pi spawn, out of the
+  // per-spawn directory `buildPromptTemplates` writes, so it is audited by derivation like every other
+  // flag this app really sends. Its negative stays excluded — we never disable Pi's own discovery, and
+  // a user's template of the same name is meant to win over ours.
   '--no-prompt-templates',
   '--theme',
   '--no-themes',

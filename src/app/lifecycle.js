@@ -92,6 +92,9 @@ function start(ctx) {
     // one file per session would then accumulate for the life of the install. Harmless individually (the
     // CLI that read it is long gone), which is exactly why nothing would ever notice the pile.
     try { ctx.cleanupClearBindings(); } catch {}
+    // And the per-spawn prompt templates (#569), for the same reason and with the same failure mode:
+    // one directory per session, individually harmless, and nothing would ever notice the pile.
+    try { ctx.cleanupPromptTemplates(); } catch {}
     // One-time: Claude's launch options move from the settings root into backendDefaults.claude.
     // Runs before any window reads settings, so the panel never sees the half-migrated shape.
     try { ctx.migrateClaudeLaunchDefaults(); } catch (err) {

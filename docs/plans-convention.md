@@ -79,8 +79,8 @@ Switchboard knows which case a project is in and says so rather than assuming.
 
 ## For the CLIs that have no plan mode
 
-Codex, Hermes and Pi write no plan documents. For them this convention can only be carried by
-instructions — a line in the project's `AGENTS.md` or `CLAUDE.md` reaches all of them and costs nothing:
+Codex, Hermes and Pi write no plan documents. For them this convention is carried by instructions — a
+line in the project's `AGENTS.md` or `CLAUDE.md` reaches all of them and costs nothing:
 
 ```markdown
 Plan documents go in `.plans/` in this project. Start each one with a `# heading` and a
@@ -89,6 +89,15 @@ Plan documents go in `.plans/` in this project. Start each one with a `# heading
 
 That is a suggestion the model can ignore, which is the honest limit of the approach. Claude is the one
 case where the directory is enforced rather than suggested, because it has a setting for it.
+
+**Pi has a third way, and in a Pi session it is the one to reach for.** A Pi session Switchboard starts
+offers `/plan` as a command of its own, carrying this convention and this project's own directory in
+full — not a suggestion in a file the model may or may not weigh, but the text it receives when you ask
+for it by name. The same goes for `/handoff`. It is on by default and switchable under the Pi backend's
+settings, and a template of your own with the same name takes precedence over the one Switchboard
+passes. The limit is the mirror of the instruction line's: it reaches only a session this app started,
+where a line in `AGENTS.md` reaches every Pi run anywhere. Both are worth having, for different moments.
+[`docs/specs/29-agent-side-conventions.md`](specs/29-agent-side-conventions.md) has the reasoning.
 
 ## Asking for one
 

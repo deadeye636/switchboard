@@ -13,6 +13,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
+const { stripComments } = require('./helpers/strip-comments');
+
 const claude = require('../src/backends/claude');
 const codex = require('../src/backends/codex');
 const agy = require('../src/backends/agy');
@@ -96,16 +98,85 @@ for (const backend of BACKENDS) {
     }
   });
 
-  // A spawn-applied option is not a free pass: main.js really has to read it, or it is still a dead
+  // A spawn-applied option is not a free pass: something really has to read it, or it is still a dead
   // control — just one whose deadness we wrote down.
+  //
+  // There are TWO ways to be really applied, and the second exists because the first quietly rewarded a
+  // rule violation (#569). Demanding the option id appear in `spawn.js` is satisfied by the core naming
+  // the option — and the only way the core can name one backend's option is to know that backend, which
+  // `.claude/rules/backends.md` spends a section forbidding. `src/app/terminal/spawn.js` still reads
+  // `backendDefaults.claude` by hand for exactly this, and that is the shape a new option must NOT copy.
+  //
+  //   1. **Named in `spawn.js`** — the older shape. Still accepted; Claude's three options use it.
+  //   2. **`appliedBy: '<hook>'`** — the core calls a descriptor hook and passes the resolved options
+  //      through, naming neither the backend nor the key. Three things are then true or the control is
+  //      dead anyway: the descriptor really declares that hook, `spawn.js` really calls it, and a file
+  //      in the backend's own folder OTHER THAN the one declaring `configFields` really reads the
+  //      option id. A hook that exists but ignores the option is the same dead control, and an option
+  //      read in a folder with no hook to reach it never runs.
+  //
+  // **The exclusion is what makes the third one a check at all.** A field list is source like anything
+  // else, so a scan of the whole folder finds the option id inside the very declaration it is
+  // examining, and any field at all passes — measured with a `{ appliesAt: 'spawn', appliedBy: <a real
+  // hook> }` entry nothing anywhere reads. The declaring file is found by its own `configFields = [` /
+  // `configFields: [` rather than by name, so a backend that moves its fields into a module of their
+  // own is still measured; when no file declares them the check says so and fails, because it can no
+  // longer tell a reader of the option from the declaration of it.
+  //
+  // Both sides are read with their prose dropped (`test/helpers/strip-comments.js`, CLAUDE.md reflex
+  // 14). `spawn.js` carries a comment block beside the call naming the hook, and a hook or an option id
+  // that exists only in a comment is exactly the dead control this test is here to refuse (#570).
   test(`${backend.id}: a spawn-applied option is actually applied at the spawn site`, () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
     const spawnFields = backend.configFields.filter(f => f.appliesAt === 'spawn');
     if (!spawnFields.length) return;
-    const mainSrc = require('node:fs').readFileSync(
-      require('node:path').join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
+    const spawnSrc = stripComments(fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8'));
+
+    // A field list, however a backend spells it: `const configFields = [` or `configFields: [`.
+    const DECLARES_FIELDS = /\bconfigFields\s*[:=]\s*\[/;
+
+    // Every `.js` under this backend's own folder, so the check follows a split into a new module —
+    // split into the file(s) that DECLARE the fields and the rest, which are the only ones that can
+    // answer "something reads this option".
+    const folderSource = (id) => {
+      const dir = path.join(__dirname, '..', 'src', 'backends', id);
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch { return { declaring: [], readers: '' }; }
+      const declaring = [];
+      const readers = [];
+      for (const name of names.filter(n => n.endsWith('.js'))) {
+        let src = '';
+        try { src = stripComments(fs.readFileSync(path.join(dir, name), 'utf8')); } catch { continue; }
+        if (DECLARES_FIELDS.test(src)) declaring.push(name);
+        else readers.push(src);
+      }
+      return { declaring, readers: readers.join('\n') };
+    };
+
+    const folderId = backend.baseId || backend.id;
+    const folder = folderSource(folderId);
+
     for (const f of spawnFields) {
-      assert.ok(mainSrc.includes(f.id),
-        `${backend.id}.${f.id} claims to be applied at the spawn site, but app/terminal/spawn.js never mentions it`);
+      if (f.appliedBy) {
+        assert.equal(typeof backend[f.appliedBy], 'function',
+          `${backend.id}.${f.id} says it is applied by ${f.appliedBy}, but the descriptor declares no such hook`);
+        assert.ok(spawnSrc.includes(f.appliedBy),
+          `${backend.id}.${f.id} names ${f.appliedBy}, but app/terminal/spawn.js never calls that hook`);
+        assert.ok(folder.declaring.length,
+          `${backend.id}: no file in src/backends/${folderId}/ declares configFields, so this check cannot ` +
+          `tell a file that READS ${f.id} from the one that declares it — name the declaring file so it ` +
+          'can be left out of the scan again');
+        assert.ok(folder.readers.includes(f.id),
+          `${backend.id}.${f.id} is applied through ${f.appliedBy}, but no file in src/backends/${folderId}/ ` +
+          `besides ${folder.declaring.join(', ')} reads the option — the hook would ignore it, which is the ` +
+          'same dead control as a field that reaches no argv');
+        continue;
+      }
+      assert.ok(spawnSrc.includes(f.id),
+        `${backend.id}.${f.id} claims to be applied at the spawn site, but app/terminal/spawn.js never mentions it. ` +
+        "If the core should not name it, declare appliedBy: '<descriptor hook>' instead.");
     }
   });
 

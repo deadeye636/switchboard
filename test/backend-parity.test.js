@@ -11,6 +11,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const { stripComments } = require('./helpers/strip-comments');
+
 const backends = require('../src/backends');
 const codexState = require('../src/backends/codex/state');
 
@@ -135,24 +137,64 @@ test('listSubagents returns null when there is nothing to watch', () => {
   }
 });
 
-// #223: a backend that can re-identify a LIVE session mid-flight (Claude's /clear mints a new id while the
-// PTY keeps running; Codex's /new is the same shape) declares it and implements the pair the spawn path
-// uses. The symmetric half matters as much: a backend that cannot must carry NEITHER function, or the core
-// cannot tell "declines" from "half-implemented" — and a half-implemented binding would leave temp files
-// nobody releases.
-test('a backend that re-identifies live sessions implements the pair — one that cannot carries neither', () => {
-  const PAIR = ['buildLiveBinding', 'releaseLiveBinding'];
-  for (const b of READY) {
-    if (b.supportsLiveRebinding === true) {
-      for (const fn of PAIR) {
-        assert.equal(typeof b[fn], 'function', `${b.id} claims live rebinding — it must implement ${fn}`);
-      }
-    } else {
-      for (const fn of PAIR) {
-        assert.equal(b[fn], undefined, `${b.id} does not claim live rebinding — it must not implement ${fn}`);
+// A capability the core reaches through a PAIR of hooks — one that allocates something per spawn, one that
+// releases it again — is all-or-nothing. A backend that claims the capability and carries half of it leaves
+// files nobody removes; one that carries a hook without claiming the capability cannot be told from a
+// backend that has simply not got round to it, and the core has no way to ask.
+//
+// **This table is a SECOND COPY** of what the descriptors declare in `src/backends/*/index.js` (and of the
+// passthrough in `src/backends/index.js`, which forwards these hooks to a profile). Nothing registers a
+// hook pair, so a third one means a row here — and the test below derives the pairs back out of the
+// descriptors so a missing row fails by name instead of being covered by nobody.
+//
+//   #223 — a backend that re-identifies a LIVE session mid-flight (Claude's /clear mints a new id while
+//     the PTY keeps running; Codex's /new is the same shape) writes a binding file per spawn.
+//   #569 — a backend that offers the app's document conventions as commands inside the session writes a
+//     directory of prompt templates per spawn.
+const HOOK_PAIRS = [
+  { flag: 'supportsLiveRebinding', pair: ['buildLiveBinding', 'releaseLiveBinding'], what: 'live rebinding' },
+  { flag: 'providesPromptTemplates', pair: ['buildPromptTemplates', 'releasePromptTemplates'], what: 'prompt templates' },
+];
+
+test('a backend that claims a paired capability implements the pair — one that cannot carries neither', () => {
+  for (const { flag, pair, what } of HOOK_PAIRS) {
+    for (const b of READY) {
+      if (b[flag] === true) {
+        for (const fn of pair) {
+          assert.equal(typeof b[fn], 'function', `${b.id} claims ${what} (${flag}) — it must implement ${fn}`);
+        }
+      } else {
+        for (const fn of pair) {
+          assert.equal(b[fn], undefined, `${b.id} does not claim ${what} (${flag}) — it must not implement ${fn}`);
+        }
       }
     }
   }
+});
+
+// The other direction (`.claude/rules/guards-and-scripts.md`: an entry carries its reason and the list is
+// checked BOTH ways). A hook pair a backend grows without a row above would otherwise be guarded by nobody,
+// and the table would read as coverage. Derived from the descriptors' own source with its prose dropped
+// (CLAUDE.md reflex 14) — a pair named only in a comment is not a pair anything calls.
+test('every build*/release* hook pair a descriptor declares has a row in HOOK_PAIRS', () => {
+  const known = new Set(HOOK_PAIRS.map(p => p.pair[0]));
+  const dir = path.join(__dirname, '..', 'src', 'backends');
+  let seen = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    let src;
+    try { src = stripComments(fs.readFileSync(path.join(dir, entry.name, 'index.js'), 'utf8')); } catch { continue; }
+    for (const m of src.matchAll(/\bbuild([A-Z][A-Za-z0-9]*)\s*[:(]/g)) {
+      const noun = m[1];
+      if (!new RegExp(`\\brelease${noun}\\b`).test(src)) continue;
+      seen++;
+      assert.ok(known.has(`build${noun}`),
+        `src/backends/${entry.name}/index.js declares build${noun}/release${noun}, which no HOOK_PAIRS row ` +
+        'names — add the row with the capability flag that gates it, or the pair is guarded by nothing');
+    }
+  }
+  // …and a derivation that finds nothing is not coverage. The pairs that exist today.
+  assert.ok(seen >= HOOK_PAIRS.length, `expected each of the ${HOOK_PAIRS.length} known pairs to be found in a descriptor`);
 });
 
 // The binding must never be able to break a launch: no URL (server not up yet), no directory, no tag — all
@@ -166,6 +208,21 @@ test('buildLiveBinding declines rather than throwing when it cannot bind', () =>
     // And releasing something that was never created is a no-op, not a throw.
     assert.doesNotThrow(() => b.releaseLiveBinding(null));
     assert.doesNotThrow(() => b.releaseLiveBinding(path.join(os.tmpdir(), 'switchboard-no-such-binding.json')));
+  }
+});
+
+// #569 — the same rule for the second pair, and for the same reason: the templates are a convenience, and a
+// launch must never fail over one. No directory, no tag, no convention directories all mean "no templates",
+// which is what every session did before this existed.
+test('buildPromptTemplates declines rather than throwing when it cannot write', () => {
+  for (const b of READY) {
+    if (b.providesPromptTemplates !== true) continue;
+    assert.equal(b.buildPromptTemplates({}), null, `${b.id}: no inputs must mean no templates`);
+    assert.equal(b.buildPromptTemplates({ tag: 't' }), null, `${b.id}: no dir must mean no templates`);
+    assert.equal(b.buildPromptTemplates({ dir: os.tmpdir() }), null, `${b.id}: no tag must mean no templates`);
+    // And releasing something that was never created is a no-op, not a throw.
+    assert.doesNotThrow(() => b.releasePromptTemplates(null));
+    assert.doesNotThrow(() => b.releasePromptTemplates(path.join(os.tmpdir(), 'switchboard-no-such-templates')));
   }
 });
 

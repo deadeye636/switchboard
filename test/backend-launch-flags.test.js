@@ -253,6 +253,10 @@ test('the derivation sees every flag a launch can carry, not only the declared o
   assert.ok(claudeFlags.includes('--permission-mode') && claudeFlags.includes('--dangerously-skip-permissions'));
 
   assert.ok(managedFlags(pi).includes('--extension'), 'Pi hands its CLI a generated extension per spawn');
+  // #569 added a second hook that emits a flag no `configFields` entry spells, derived the same way: the
+  // per-spawn prompt-template directory. Without this the derivation could stop seeing it and every check
+  // built on the managed set would go quiet — which is the hole `--extension` sat in until #548.
+  assert.ok(managedFlags(pi).includes('--prompt-template'), 'Pi hands its CLI a generated prompt-template directory per spawn');
 });
 
 test('a flag a help line only MENTIONS is not a flag the CLI advertises (#548)', () => {
