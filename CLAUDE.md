@@ -49,20 +49,34 @@ table is the fallback and it is binding.
 
 ## The reflexes (these bite everywhere)
 
+### 1. Commit after the behaviour is confirmed
+
 1. **Commit only after the behaviour is confirmed**, not when tests pass. Green tests are not a green
    light — see `docs/ai/lessons.md` for the four that shipped green and broke on first click.
+
+### 2. On a renderer change the click is the test
+
 2. **On any renderer change the click IS the test.** `node scripts/drive-app.js console` catches the
    `ReferenceError` the suite cannot see. Two ways to check the wrong thing: a **renderer reload does
    not reload `src/app/**`** (restart the app, or you are reading the previous main process), and a
    **synthesised event is not an interaction** (`drive-app.js drag` exists because dispatched
    `DragEvent`s passed a drag that a real mouse could not perform).
+
+### 3. Migrations are append-only; parsers bump their schema version
+
 3. **Migrations are append-only.** `migrations.length` IS the schema version; renumbering corrupts
    user databases. **And a parser that starts writing a stored field, or changes what one means, bumps its
    `PARSER_SCHEMA_VERSION`** — every parser that writes it, in the same change. A parser change moves no
    file's mtime, so without the bump finished sessions keep the old value for good and no test says so
    (`.claude/rules/db.md`; the constants live in the backend folders, where that rule does not load).
+
+### 4. No new IPC handler in src/main.js
+
 4. **No new IPC handler in `src/main.js`** — it goes in an `src/app/` module.
    `test/main-no-new-ipc.test.js` will say so.
+
+### 5. No backend id or backend format outside its own folder
+
 5. **No backend id outside its own folder.** A capability that varies per backend is a descriptor
    hook, never a `switch (backendId)` in the core, and never `|| 'claude'` as a live launch target.
    **One exception, and it is live code today**: a NULL `backendId` on a row written before #161 WAS a
@@ -80,6 +94,9 @@ table is the fallback and it is binding.
    answers it — `openedWithCommand` on the descriptor, stamped onto the payload by the core, read in the
    renderer as a plain field. Ask which store the answer comes out of: if it is one CLI's, the renderer
    may hold the answer and never the derivation.
+
+### 6. No personal or local identifiers
+
 6. **No personal or local identifiers. Anywhere that leaves this machine.** No personal name, email,
    machine or account name, and **no real path** — that includes a bare drive letter and folder
    (`<drive>:\<your-folder>\…`), not only a home directory. Use `~`, `<project>`, `<user>`, or an
@@ -89,6 +106,9 @@ table is the fallback and it is binding.
    git history and issue **edit history** are world-readable and effectively permanent, so a deletion
    afterwards un-publishes nothing. **The check happens before you write, because there is no
    afterwards** — a rewrite of public history is not on the table for a stray path.
+
+### 7. English in every artifact
+
 7. **English. Every artifact in the previous rule, same list — one recorded exception, below.** Not
    "commits and UI text" — docs, specs, rules, test names, handoffs and issue comments too.
    `docs/build-windows.md`
@@ -121,10 +141,19 @@ table is the fallback and it is binding.
    sees it, and the user-directory alternative then begins with an escape PCRE rejects. It reported a
    clean tree while sixty fixtures named a real folder. A recommended command nobody runs is a guess; one
    that errors out is worse, because its silence reads as a pass.
+
+### 8. A new renderer control reuses existing styling
+
 8. **A new control in the renderer inherits NO styling** — reuse an existing class, never ship a bare
    `<button>`.
+
+### 9. Settings changes go into docs/settings-reference.md
+
 9. **A setting added/renamed/re-scoped/re-defaulted → `docs/settings-reference.md`.** Same for a new
    `SWITCHBOARD_*` env var or script.
+
+### 10. Prefer execFile, and close a probe's stdin
+
 10. **Prefer `execFile`** over shell string interpolation for any external process — and a probe that
     only READS a CLI's output must close the child's stdin, or a CLI that reads standard input hangs until
     the timeout. `spawnSync`/`execFileSync` take a `stdio` option for that; **`execFile` silently ignores
@@ -132,6 +161,9 @@ table is the fallback and it is binding.
     does **not** move: its scope stays `src/backends/**`, so a probe outside that folder closes its own
     stdin locally — `src/app/terminal/shell-profiles.js` does (#541); the `git` calls in `src/app/vcs.js`
     and `src/main.js` still do not, and `.claude/rules/main-process.md` says why they were left.
+
+### 11. Never fs.writeFileSync a file a CLI reads
+
 11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
     compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
     is impossible, and the file's own line endings and BOM kept.
@@ -141,6 +173,9 @@ table is the fallback and it is binding.
     append-aware and per-line instead, and it still imports `renameWithRetry` from `safe-write.js` rather
     than growing a second copy of the Windows retry. It does not generalise: a new writer goes through
     `writeTextFile`.
+
+### 12. One answer for where a project keeps its documents
+
 12. **Never ask the settings blob where a project keeps its documents** — `src/app/convention-dirs.js` is
     the one answer for handoffs AND plans, relative and absolute, with the escape guard applied. Three
     surfaces name those directories (the handoff prompts, the plan prompt, a saved variable's insert
@@ -172,11 +207,17 @@ table is the fallback and it is binding.
     name>/.plans` climbs out lexically and lands back in on disk. A copy of that rule beside the figure
     would have been this same divergence one surface further out, and a three-word copy is still one — the
     figure's own `..` test called `docs/..` "outside the project" when it is the root.
+
+### 13. Path containment is decided on real paths
+
 13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
     is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
     inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
     about the DIRECTORY where the file may not exist yet, and **before** the `stat` — a guard placed after
     one never sees a path that escaped and had nothing at the end of it (#474, #476).
+
+### 14. Never strip comments with a pair of regexes
+
 14. **Never strip comments with a pair of regexes** — a test that answers a question about code by reading
     it as text calls `test/helpers/strip-comments.js`, which scans once and knows whether it stands in
     code, a string, a template, a regex or a comment. A line pass plus a block pass loses real code in
@@ -185,6 +226,9 @@ table is the fallback and it is binding.
     `test/` or `scripts/` and has no exemption list — keep it that way (#554, `docs/ai/lessons.md`). It is
     `scripts/**` a guard reads as often as `src/**`, and a help check read raw counted a flag named in a
     comment as audited (#570).
+
+### 15. Shared working tree: no git stash, reset, checkout or branch switch
+
 15. **This working tree is shared. Never `git stash`, `git reset`, or `git checkout --`.** Several agent
     sessions and the worktrees under `.claude/worktrees/` run against this checkout at once, and they
     share the object store and the index. A stash takes another session's uncommitted work with it and
@@ -207,6 +251,9 @@ table is the fallback and it is binding.
     **And commit with explicit pathspecs** — `git commit <path> <path>`, never `git add -A` / `git add .`
     / `git commit -a`. The index is shared too, so a blanket add sweeps up whatever a parallel session
     happens to have staged and puts it in your commit under your message.
+
+### 16. An issue is not law
+
 16. **An issue is not law — check it against the concept before you build it.** An issue records what
     someone wanted, and believed was the cause, on the day it was written; the tree has moved since and
     the issue has not. Three things to settle first, and none of them is optional because the issue is
@@ -244,6 +291,8 @@ table is the fallback and it is binding.
     Stop only where a new flow appears, where the premise is demonstrably wrong, or where the call is
     plainly the owner's — and closing an issue as "does not fit" is a legitimate result, with the reason
     in a comment.
+
+### 17. Never assemble project:<path> by hand
 
 17. **Never assemble `project:<path>` by hand** — `settingsOwnerPath` (`src/shared/worktree-path.js`) is
     the one answer to "whose settings apply here", and a **worktree resolves to its project**: it is a
