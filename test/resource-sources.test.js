@@ -353,8 +353,13 @@ test('the spawn path resolves against the session\'s working directory and place
   const templates = src.indexOf('backend.buildPromptTemplates(');
   assert.ok(shared > 0 && templates > 0 && shared < templates, 'shared resources come before the templates');
   const call = src.slice(shared, src.indexOf('});', shared));
-  // The launch's env is what a source expands its MCP definitions against (#633).
-  assert.match(call, /resourceSources\.resolve\(\{ target: backend, sourceId, projectPath: projectPath \|\| null, options, env: \{ \.\.\.process\.env, \.\.\.\(launch\.env \|\| \{\}\) \} \}\)/);
+  // The session's RESOLVED env is what a source expands its MCP definitions against (#633): Pi's own bundle
+  // carries `$OPENAI_API_KEY` references, and handed over unresolved they stood in for the key itself.
+  assert.match(call, /resourceSources\.resolve\(\{ target: backend, sourceId, projectPath: projectPath \|\| null, options, env: quietSessionEnv\(\) \}\)/);
+  const quiet = src.slice(src.indexOf('const quietSessionEnv'), src.indexOf('};', src.indexOf('const quietSessionEnv')));
+  assert.match(quiet, /envLayers\(\)/, 'the same layers the PTY env is built from');
+  assert.match(quiet, /resolveSpawnEnv\([^)]*noticeMissing: false/, 'resolved, and without a second notice');
+  assert.equal((src.match(/backendEnv \|\| \{\}/g) || []).length, 1, 'one reading of the user\'s backend variables');
   assert.doesNotMatch(call, /settingsOwnerPath/);
   // The options are the CASCADED ones: the global and project settings are where `resourcesFrom` is set, and
   // the raw session options would silently drop both.

@@ -130,19 +130,29 @@ test('merge-setting scrubs the renderer-supplied partial too, and keeps the merg
 // template that was chosen deliberately. Getting this backwards would let a global variable silently
 // override the template the user picked by name.
 test('the spawn merges backend env BETWEEN the backend and the template', () => {
-  const at = SPAWN.indexOf('const allEnv = (ctx.getSetting(\'global\') || {}).backendEnv || {};');
-  assert.notEqual(at, -1, 'the merge must still be in spawn.js');
-  const block = SPAWN.slice(at, SPAWN.indexOf('\n      }', at));
-
+  // The layers are split in ONE place (`envLayers`, #633), because the resources hook needs the same env
+  // before the PTY env is assembled.
+  const layersAt = SPAWN.indexOf('const envLayers = () => {');
+  assert.notEqual(layersAt, -1, 'the layering must still be in spawn.js');
+  const layers = SPAWN.slice(layersAt, SPAWN.indexOf('\n      };', layersAt));
+  assert.match(layers, /const allEnv = \(ctx\.getSetting\('global'\) \|\| \{\}\)\.backendEnv \|\| \{\};/);
   // The template's own keys are lifted back out of launch.env first...
-  assert.match(block, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,
+  assert.match(layers, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,
     'or the user\'s backend variables would land on top of the template');
+  assert.match(layers, /userEnv: allEnv\[baseId\] \|\| \{\}/);
+
+  // The PTY env's own use of the layers — the one that says what is missing, unlike the quiet copy the
+  // resources hook gets (`quietSessionEnv`), which reads the same layers first.
+  const at = SPAWN.lastIndexOf('const { baseEnv, userEnv, templateEnv } = envLayers();');
+  assert.notEqual(at, -1, 'the PTY env must be built from those layers');
+  assert.ok(SPAWN.indexOf('Object.assign(ptyEnv, ctx.resolveSpawnEnv({', at) > at, 'and that use is the PTY env');
+  const block = SPAWN.slice(at, SPAWN.indexOf('\n      }', at));
   // ...then the backend defaults are resolved quietly, because Codex/Pi may authenticate from their
   // own login stores and missing built-in API-key refs are not enough to warn the user.
   assert.match(block, /const resolvedBaseEnv = ctx\.resolveSpawnEnv\(baseEnv, backend\.label \|\| backend\.id, sessionId, \{\s*noticeMissing: false,/s,
     'backend-owned default auth refs should not raise a session notice when absent');
   // ...and then the template is re-applied last, so it still wins.
-  const order = block.indexOf('...resolvedBaseEnv') < block.indexOf('...(allEnv[baseId] || {})')
-    && block.indexOf('...(allEnv[baseId] || {})') < block.indexOf('...templateEnv');
+  const order = block.indexOf('...resolvedBaseEnv') < block.indexOf('...userEnv')
+    && block.indexOf('...userEnv') < block.indexOf('...templateEnv');
   assert.equal(order, true, 'backend -> user\'s backend env -> template');
 });

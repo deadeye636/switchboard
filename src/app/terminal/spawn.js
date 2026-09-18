@@ -776,6 +776,26 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // Placed BEFORE the #569 templates so any flag it adds precedes theirs on the command line — Pi keeps
       // the first of two equal names. Best-effort: a failure means the session starts without these, which
       // is what every session did before they existed.
+      //
+      // The session's env layers, least specific first: the backend's own bundle with the template's keys
+      // lifted out, the user's variables for that backend, the template's bundle (the long comment where the
+      // PTY env is assembled below says why in that order). One function, because the resources hook needs
+      // the same env before the spawn assembles it: a source expands `${VAR}` in an MCP server against it
+      // (#633), and a second copy of this layering is how the two would drift.
+      const envLayers = () => {
+        const allEnv = (ctx.getSetting('global') || {}).backendEnv || {};
+        const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
+        const templateEnv = backend.isProfile ? (backend.templateEnv || {}) : {};
+        const baseEnv = { ...(launch.env || {}) };
+        for (const key of Object.keys(templateEnv)) delete baseEnv[key];
+        return { baseEnv, userEnv: allEnv[baseId] || {}, templateEnv };
+      };
+      // The same env, resolved and without a word: its missing references are said once, by the spawn below.
+      const quietSessionEnv = () => {
+        const { baseEnv, userEnv, templateEnv } = envLayers();
+        const quiet = (env) => ctx.resolveSpawnEnv(env, backend.label || backend.id, sessionId, { noticeMissing: false });
+        return { ...process.env, ...quiet({ ...quiet(baseEnv), ...userEnv, ...templateEnv }) };
+      };
       if (backend.providesSessionResources === true && typeof backend.buildSessionResources === 'function') {
         try {
           const options = spawnOptionsFor(backend, projectPath, sessionOptions);
@@ -783,9 +803,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             dir: ctx.bindingDir,
             tag: terminalTag,
             options,
-            // The env a source expands its definitions against (`${VAR}` in an MCP server): this process's, with
-            // the launch's own variables over it. Its `$VAR` references are resolved further down, not here.
-            resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options, env: { ...process.env, ...(launch.env || {}) } }),
+            // The env a source expands its definitions against (`${VAR}` in an MCP server): the session's own,
+            // resolved — an unresolved `$OPENAI_API_KEY` reference would otherwise stand in for the key.
+            resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options, env: quietSessionEnv() }),
             log: ctx.log,
           });
           if (built && Array.isArray(built.args) && built.args.length) {
@@ -974,12 +994,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       //
       // `$VAR` refs are resolved here, at spawn, and never written to disk (§5.2).
       {
-        const allEnv = (ctx.getSetting('global') || {}).backendEnv || {};
-        const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
-        const templateEnv = backend.isProfile ? (backend.templateEnv || {}) : {};
-
-        const baseEnv = { ...(launch.env || {}) };
-        for (const key of Object.keys(templateEnv)) delete baseEnv[key];
+        const { baseEnv, userEnv, templateEnv } = envLayers();
 
         // Backend-owned default auth refs are opportunistic: Codex/Pi may already be logged in through
         // their own stores, so a missing host key must not raise a session warning. User backendEnv and
@@ -992,7 +1007,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         // and "OPENAI_API_KEY is not set" without saying WHOSE is a riddle (#169).
         Object.assign(ptyEnv, ctx.resolveSpawnEnv({
           ...resolvedBaseEnv,
-          ...(allEnv[baseId] || {}),
+          ...userEnv,
           ...templateEnv,
         }, backend.label || backend.id, sessionId));
       }
