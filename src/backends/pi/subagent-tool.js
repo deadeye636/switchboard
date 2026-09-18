@@ -168,6 +168,40 @@ function mapSourceAgent(frontmatter, dialect, toolForWord, defaults, entriesOf) 
   return { tools, dropped, refused: null, model: named && !inheritsModel ? named : undefined, inheritsModel };
 }
 
+/**
+ * Which model a source agent's `model:` name means HERE (#639, E4 as changed by the review). Pi resolves a
+ * `--model` itself, and when nothing matches in a provider it falls back to a substring match across EVERY
+ * provider (`resolveCliModel`, 0.84.4) — measured: `sonnet` under an OpenAI session picked an amazon-bedrock
+ * model and failed on credentials. So the name is looked up only among the models available from the
+ * PARENT session's provider, and the child is handed the exact `provider/id`. Exact id first; then every id
+ * containing the name, preferring one without a date suffix, highest version first. No match: the
+ * session's own model, and a note saying so — never another provider.
+ *
+ * `parent` is `{ provider, id }` or null, `available` the models Pi can use (`ctx.modelRegistry.getAvailable()`).
+ * Answers `{ model, fellBack, note }`: `model` is `provider/id` or undefined when there is no parent to use.
+ * A plain function, written into the extension with `toString()` and called by the tests directly.
+ */
+function pickSourceModel(name, parent, available) {
+  const own = parent && parent.provider && parent.id ? parent.provider + '/' + parent.id : undefined;
+  const fallBack = (why) => ({ model: own, fellBack: true, note: why + (own ? '; uses the session\'s model ' + own : '') });
+  if (!parent || !parent.provider) return fallBack(name + ' could not be looked up without a session model');
+  let wanted = String(name || '').trim().toLowerCase();
+  const prefix = String(parent.provider).toLowerCase() + '/';
+  if (wanted.startsWith(prefix)) wanted = wanted.slice(prefix.length);
+  if (!wanted || wanted.includes('/')) return fallBack(name + ' is not a model of ' + parent.provider);
+  const candidates = (Array.isArray(available) ? available : [])
+    .filter((m) => m && m.provider === parent.provider && typeof m.id === 'string');
+  const exact = candidates.find((m) => m.id.toLowerCase() === wanted);
+  if (exact) return { model: exact.provider + '/' + exact.id, fellBack: false, note: name + ' is ' + exact.provider + '/' + exact.id };
+  const matches = candidates.filter((m) => m.id.toLowerCase().includes(wanted));
+  if (!matches.length) return fallBack(name + ' is not available from ' + parent.provider);
+  const dated = (id) => /-\d{8}$/.test(id);
+  matches.sort((a, b) => (dated(a.id) === dated(b.id) ? 0 : dated(a.id) ? 1 : -1)
+    || b.id.localeCompare(a.id, undefined, { numeric: true }));
+  const pick = matches[0];
+  return { model: pick.provider + '/' + pick.id, fellBack: false, note: name + ' resolved to ' + pick.provider + '/' + pick.id };
+}
+
 // The extension, as TypeScript Pi loads directly. What varies per spawn — the agents directory and another
 // CLI's agent directories with their dialect — is written as JSON literals, so no text a user typed can
 // close a string and become code.
@@ -200,6 +234,7 @@ const TOOL_FOR_WORD: any = ${JSON.stringify(TOOL_FOR_WORD)};
 const DEFAULT_TOOLS: string[] = ${JSON.stringify(DEFAULT_TOOLS)};
 const agentToolEntries = (${permissionEntries.toString()});
 const mapSourceAgent = (${mapSourceAgent.toString()});
+const pickSourceModel = (${pickSourceModel.toString()});
 
 function agentsDir(cwd: string): string {
   if (!AGENTS_DIR) return path.join(getAgentDir(), "agents");
@@ -280,12 +315,26 @@ function allAgents(cwd: string): any[] {
   return out;
 }
 
+// Which model a call runs on, and whether it gets the session's thinking level. Pi's own agents are left as
+// they are written (#641 decides about them); a source agent's name is resolved within the session's
+// provider, and "inherit" or no name means the session's model.
+function agentModel(agent: any, ctx: any): { model?: string; thinking: boolean; note: string } {
+  const parent = ctx && ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : null;
+  const own = parent ? parent.provider + "/" + parent.id : undefined;
+  if (agent.origin !== "source") return { model: agent.model || own, thinking: !agent.model, note: "" };
+  if (!agent.model) return { model: own, thinking: true, note: agent.inheritsModel ? "inherit: the session's model" : "the session's model" };
+  let available: any[] = [];
+  try { available = ctx && ctx.modelRegistry ? ctx.modelRegistry.getAvailable() : []; } catch { available = []; }
+  const r = pickSourceModel(agent.model, parent, available);
+  return { model: r.model, thinking: r.fellBack, note: r.note };
+}
+
 // What was done to a source agent's tools, in one line — for the question before the call and for its result.
-function mappingLine(agent: any): string {
+function mappingLine(agent: any, modelNote?: string): string {
   if (!agent || agent.origin !== "source") return "";
   const left = (agent.dropped || []).map((d: any) => d.name + " (" + d.why + ")").join(", ");
   const tools = agent.tools ? (agent.tools.length ? agent.tools.join(", ") : "none") : "the default tools";
-  const model = agent.inheritsModel ? "the session's (inherit)" : (agent.model ? agent.model + " as written" : "the session's");
+  const model = modelNote || (agent.inheritsModel ? "inherit: the session's model" : (agent.model || "the session's model"));
   return "Taken over from another CLI: tools " + tools + "; model " + model + "." + (left ? " Left out: " + left + "." : "");
 }
 
@@ -349,7 +398,7 @@ function stop(proc: any) {
 // The answer is { text, key, refused }: the key names the agent AND where it came from, so "allow for this
 // session" given to one agent cannot carry over to a different agent that later answers to the same name;
 // "refused" says the call will be refused anyway, so nobody is asked to allow what cannot run.
-function describeAgent(cwd: string, name: string): any {
+function describeAgent(cwd: string, name: string, ctx?: any): any {
   const agent = allAgents(cwd).find((a) => a.name === name);
   if (!agent) return { text: "Unknown agent \\"" + name + "\\" — the call will fail without running anything.", key: "", refused: true };
   if (agent.refused) {
@@ -357,7 +406,7 @@ function describeAgent(cwd: string, name: string): any {
   }
   const model = agent.model || (agent.inheritsModel ? "the session's (the file says inherit)" : "the session's");
   const what = agent.origin === "source"
-    ? mappingLine(agent)
+    ? mappingLine(agent, agentModel(agent, ctx).note)
     : "Agent " + agent.name + " · tools: " + (agent.tools ? agent.tools.join(", ") : "Pi's default tools") + " · model: " + model + ".";
   return {
     text: (agent.origin === "source" ? "Agent " + agent.name + ". " : "") + what + " Nothing the agent runs is asked about separately.",
@@ -411,10 +460,10 @@ function registerSubagent(pi: any) {
       }
 
       const args: string[] = ["--mode", "json", "-p", "--no-session"];
-      const parentModel = ctx && ctx.model ? ctx.model.provider + "/" + ctx.model.id : undefined;
-      const model = agent.model || parentModel;
+      const chosen = agentModel(agent, ctx);
+      const model = chosen.model;
       if (model) args.push("--model", model);
-      if (!agent.model && ctx && ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
+      if (chosen.thinking && ctx && ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
       if (agent.tools) args.push("--tools", agent.tools.join(","));
       for (const flag of process.argv.slice(2)) if (INHERITED_FLAGS.has(flag)) args.push(flag);
 
@@ -493,9 +542,9 @@ function registerSubagent(pi: any) {
 
         // The usage so far travels with the abort: a run cancelled because it got away is the one whose cost
         // most needs saying.
-        if (aborted) throw new Error("Subagent was aborted. " + usageLine(agent.name, usage, usedModel) + (mappingLine(agent) ? " [" + mappingLine(agent) + "]" : ""));
-        const summary = usageLine(agent.name, usage, usedModel) + (mappingLine(agent) ? "\\n[" + mappingLine(agent) + "]" : "");
-        const details = { agent: agent.name, origin: agent.origin, tools: agent.tools, dropped: agent.dropped || [], usage: { ...usage }, model: usedModel, exitCode, stopReason };
+        if (aborted) throw new Error("Subagent was aborted. " + usageLine(agent.name, usage, usedModel) + (mappingLine(agent, chosen.note) ? " [" + mappingLine(agent, chosen.note) + "]" : ""));
+        const summary = usageLine(agent.name, usage, usedModel) + (mappingLine(agent, chosen.note) ? "\\n[" + mappingLine(agent, chosen.note) + "]" : "");
+        const details = { agent: agent.name, origin: agent.origin, tools: agent.tools, modelNote: chosen.note, dropped: agent.dropped || [], usage: { ...usage }, model: usedModel, exitCode, stopReason };
         const failed = exitCode !== 0 || stopReason === "error" || stopReason === "aborted";
         if (failed) {
           const why = errorMessage || stderr.trim() || finalText(messages) || "(no output)";
@@ -520,6 +569,7 @@ function extensionSource({ agentsDir, sourceAgents } = {}) {
 }
 
 module.exports = {
+  pickSourceModel,
   TOOL_FOR_WORD,
   DEFAULT_TOOLS,
   mapSourceAgent,

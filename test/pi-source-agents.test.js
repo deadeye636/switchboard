@@ -220,3 +220,49 @@ test('a project\'s own defaultTools only narrows: an untrusted project cannot wi
   const { describe } = runSection({ piAgents: path.join(root, 'none'), sources: [{ path: src, scope: 'global', dialect: claudeDialect() }], agentDir });
   assert.match(describe(project, 'nogrep').text, /tools read;/, 'the global list, minus the denied tool — the project\'s wider list adds nothing');
 });
+
+// ── Step 3: a source agent's model, within the session's provider only ────────────────────────────────
+
+const AVAILABLE = [
+  { provider: 'anthropic', id: 'claude-sonnet-4-5' },
+  { provider: 'anthropic', id: 'claude-sonnet-4-5-20250929' },
+  { provider: 'anthropic', id: 'claude-sonnet-4-6' },
+  { provider: 'anthropic', id: 'claude-sonnet-5' },
+  { provider: 'openai-codex', id: 'gpt-5.6-sol' },
+  { provider: 'amazon-bedrock', id: 'anthropic.claude-sonnet-4-5' },
+];
+
+test('a model name resolves within the session\'s provider: exact first, then the newest undated match', () => {
+  const anthropic = { provider: 'anthropic', id: 'claude-opus-5' };
+  assert.equal(subagentTool.pickSourceModel('sonnet', anthropic, AVAILABLE).model, 'anthropic/claude-sonnet-5');
+  assert.equal(subagentTool.pickSourceModel('claude-sonnet-4-5', anthropic, AVAILABLE).model, 'anthropic/claude-sonnet-4-5', 'an exact id wins over its dated twin');
+  assert.equal(subagentTool.pickSourceModel('anthropic/claude-sonnet-4-6', anthropic, AVAILABLE).model, 'anthropic/claude-sonnet-4-6');
+  assert.equal(subagentTool.pickSourceModel('SONNET-4-5-2025', anthropic, AVAILABLE).model, 'anthropic/claude-sonnet-4-5-20250929', 'a dated id when only it matches');
+});
+
+test('a model name never lands on another provider: the session\'s model instead, with a note', () => {
+  const codex = { provider: 'openai-codex', id: 'gpt-5.6-sol' };
+  for (const name of ['sonnet', 'anthropic/claude-sonnet-5', 'claude-sonnet-4-5']) {
+    const r = subagentTool.pickSourceModel(name, codex, AVAILABLE);
+    assert.equal(r.model, 'openai-codex/gpt-5.6-sol', name);
+    assert.equal(r.fellBack, true, name);
+    assert.match(r.note, /uses the session's model openai-codex\/gpt-5\.6-sol/, name);
+  }
+  const none = subagentTool.pickSourceModel('sonnet', null, AVAILABLE);
+  assert.equal(none.model, undefined, 'no session model: nothing is invented');
+  assert.equal(subagentTool.pickSourceModel('sonnet', { provider: 'anthropic', id: 'x' }, 'not a list').fellBack, true);
+});
+
+test('the section: the question names the model that will run, resolved from the call\'s own session', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-639f-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const src = path.join(root, 'claude', 'agents');
+  writeAgent(src, 'son.md', { name: 'son', description: 'x', tools: 'Read', model: 'sonnet' });
+  writeAgent(src, 'inh.md', { name: 'inh', description: 'x', tools: 'Read', model: 'inherit' });
+  const { describe } = runSection({ piAgents: path.join(root, 'none'), sources: [{ path: src, scope: 'global', dialect: claudeDialect() }] });
+  const ctx = (provider, id) => ({ model: { provider, id }, modelRegistry: { getAvailable: () => AVAILABLE } });
+  assert.match(describe(root, 'son', ctx('anthropic', 'claude-opus-5')).text, /model sonnet resolved to anthropic\/claude-sonnet-5/);
+  assert.match(describe(root, 'son', ctx('openai-codex', 'gpt-5.6-sol')).text, /sonnet is not available from openai-codex; uses the session's model/);
+  assert.doesNotMatch(describe(root, 'son', ctx('openai-codex', 'gpt-5.6-sol')).text, /bedrock/);
+  assert.match(describe(root, 'inh', ctx('openai-codex', 'gpt-5.6-sol')).text, /model inherit: the session's model/);
+});

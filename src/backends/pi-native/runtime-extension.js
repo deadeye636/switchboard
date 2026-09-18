@@ -132,7 +132,7 @@ function extensionSource({ gate = true } = {}) {
     + `      const g: any = globalThis;\n`
     + `      const describe = g[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})];\n`
     + `      if (tool === "subagent" && typeof describe === "function") {\n`
-    + `        const d = describe(ctx?.cwd || process.cwd(), String(event?.input?.agent || ""));\n`
+    + `        const d = describe(ctx?.cwd || process.cwd(), String(event?.input?.agent || ""), ctx);\n`
     + `        if (d && typeof d === "object") {\n`
     + `          detail = String(d.text || "");\n`
     + `          if (d.key) key = "subagent:" + String(d.key);\n`

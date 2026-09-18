@@ -960,7 +960,7 @@ description:
     resourceDepth: 'yes',
     resourceWrite: 'yes',
     skillInvoke: 'yes',
-    resourcesFrom: { state: 'no', note: 'it offers its skills and commands to another CLI; it takes none over' },
+    resourcesFrom: { state: 'no', note: 'it offers its skills, commands and agents to another CLI; it takes none over' },
     planDirSetting: 'yes',
     plans: 'yes',
     projectConfig: 'yes',
