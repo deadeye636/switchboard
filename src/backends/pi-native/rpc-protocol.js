@@ -159,7 +159,9 @@ function createDecoder() {
                 toolCallId: approval.id,
                 method: 'select',
                 title: '',
-                message: '',
+                // What the call allows beyond its own input, where the gate could say (a delegation's agent:
+                // its tools and model). Plain text for the card; empty for every other tool.
+                message: approval.detail || '',
                 options: [],
                 answers: { once: CHOICES.once, session: CHOICES.session, refuse: CHOICES.refuse },
               },

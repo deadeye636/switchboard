@@ -11,7 +11,7 @@
 //     the terminal backend drove — they share one store. Measured on Pi 0.84.4: `appendEntry` before the
 //     first message is held and written with it, so a session nobody wrote to leaves no transcript and no
 //     orphaned marker.
-//   * ASKS before `bash`, `powershell`, `edit` and `write` (step C of #568), unless the `approvalGate` option is off. Pi
+//   * ASKS before `bash`, `powershell`, `edit`, `write` and the app's `subagent` tool (step C of #568, #634), unless the `approvalGate` option is off. Pi
 //     has no approval of its own: its project trust decides what is LOADED, and an enabled tool then runs
 //     unasked. The question is Pi's own `ctx.ui.select`, which RPC mode turns into an `extension_ui_request`
 //     the app answers — no side channel. Its title is a line for the app, not for a person (see
@@ -48,11 +48,27 @@ const OPTION_ID = 'approvalGate';
 // The tools that change something outside the conversation. `read`, `grep`, `find` and `ls` only look.
 // `powershell` is Pi's built-in shell for Windows: off by default, but the `tools` option can enable it, and
 // a shell that runs unasked beside one that asks is the gap this gate exists to close.
-const GATED_TOOLS = ['bash', 'powershell', 'edit', 'write'];
+//
+// `subagent` is the app's own tool (#634, `../pi/subagent-tool.js`), and it is gated for a reason none of the
+// others has: it starts a second Pi that does NOT load this extension, so the child's own bash, edit and
+// write would never reach a question. One question per delegation is therefore the only one there is — it
+// is asked about the call itself, with the agent and the task on screen. Listed whether or not the tool is
+// switched on; a name nobody registered never fires.
+const GATED_TOOLS = ['bash', 'powershell', 'edit', 'write', 'subagent'];
+
+// Where the subagent extension publishes a one-line description of the agent a call names — its tools and
+// its model — so the question about a delegation can say what it allows. The call's own input shows only
+// the agent's NAME and the task, and an agent without a `tools` line runs with Pi's default tools, which is
+// exactly what a person deciding has to see. A registry symbol, because the two files are separate per-spawn
+// extensions in one Pi process and neither knows the other's path; absent, the question goes without it.
+const { DESCRIBE_KEY } = require('../pi/subagent-tool');
+// The description is text for a person and travels in the question's title, so it is held to a line.
+const DETAIL_CAP = 400;
 
 // What the question starts with, so the protocol decoder can tell OUR question from any other extension's
-// dialog and draw it as an approval. After the prefix: JSON `{ tool, id }` — the tool call's own id, which
-// is how the app finds the call it is about in the conversation it already holds.
+// dialog and draw it as an approval. After the prefix: JSON `{ tool, id, detail }` — the tool call's own id,
+// which is how the app finds the call it is about in the conversation it already holds, and a line the call
+// itself does not carry (a delegation's agent, see DESCRIBE_KEY), empty for every other tool.
 const APPROVAL_PREFIX = 'switchboard-approval:';
 
 // The three answers, in the order they are offered. The app answers with one of these strings.
@@ -85,9 +101,15 @@ function extensionSource({ gate = true } = {}) {
     + `  pi.on("tool_call", async (event: any, ctx: any) => {\n`
     + `    const tool = String(event?.toolName || "");\n`
     + `    if (!gated.has(tool) || allowed.has(tool)) return;\n`
+    + `    let detail = "";\n`
+    + `    try {\n`
+    + `      const g: any = globalThis;\n`
+    + `      const describe = g[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})];\n`
+    + `      if (tool === "subagent" && typeof describe === "function") detail = String(describe(ctx?.cwd || process.cwd(), String(event?.input?.agent || "")) || "");\n`
+    + `    } catch {}\n`
     + `    let choice: any;\n`
     + `    try {\n`
-    + `      choice = await ctx.ui.select(${JSON.stringify(APPROVAL_PREFIX)} + JSON.stringify({ tool, id: event?.toolCallId || null }),\n`
+    + `      choice = await ctx.ui.select(${JSON.stringify(APPROVAL_PREFIX)} + JSON.stringify({ tool, id: event?.toolCallId || null, detail }),\n`
     + `        ${JSON.stringify([CHOICES.once, CHOICES.session, CHOICES.refuse])}, { signal: ctx?.signal });\n`
     + `    } catch { choice = undefined; }\n`
     + `    if (choice === ${JSON.stringify(CHOICES.session)}) { allowed.add(tool); return; }\n`
@@ -124,13 +146,16 @@ function removeRuntimeExtension(file, log) {
   catch (err) { if (log && typeof log.warn === 'function') log.warn(`[pi-native] cleanup failed: ${err.message}`); }
 }
 
-// What an ask's title says, if it is our approval question: `{ tool, id }`, else null.
+// What an ask's title says, if it is our approval question: `{ tool, id, detail }`, else null. `detail` is
+// '' for every tool but a delegation, and for one whose agent could not be described.
 function parseApprovalTitle(title) {
   const s = String(title == null ? '' : title);
   if (!s.startsWith(APPROVAL_PREFIX)) return null;
   try {
     const v = JSON.parse(s.slice(APPROVAL_PREFIX.length));
-    return v && typeof v.tool === 'string' ? { tool: v.tool, id: typeof v.id === 'string' ? v.id : null } : null;
+    if (!v || typeof v.tool !== 'string') return null;
+    const detail = typeof v.detail === 'string' ? v.detail.replace(/\s+/g, ' ').trim().slice(0, DETAIL_CAP) : '';
+    return { tool: v.tool, id: typeof v.id === 'string' ? v.id : null, detail };
   } catch { return null; }
 }
 

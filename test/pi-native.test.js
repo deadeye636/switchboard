@@ -214,7 +214,7 @@ test('the approval gate: on by default for bash/edit/write, gone when the option
 
 test('our approval question is recognised by its title and drawn as an approval, any other select is not', () => {
   const title = runtimeExtension.APPROVAL_PREFIX + JSON.stringify({ tool: 'bash', id: 'call_1|fc_2' });
-  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2' });
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2', detail: '' });
   assert.equal(runtimeExtension.parseApprovalTitle('Allow bash?'), null);
   assert.equal(runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX + '{broken'), null);
 
@@ -247,13 +247,13 @@ test('the approval option is declared, applied through the runtime extension, an
 // The generated extension RUN, not read: its annotations dropped and its export turned into a function, then
 // handed a fake `pi`. What decides safety is behaviour — a cancel, a throw and an unknown answer must block —
 // and a substring check cannot see that.
-function loadExtension(options) {
+function loadExtension(options, globals = {}) {
   const vm = require('node:vm');
   const js = runtimeExtension.extensionSource(options)
     .replace(/: any/g, '').replace(/new Set<string>\(\)/g, 'new Set()')
     .replace('export default function', 'module.exports = function');
   const mod = { exports: null };
-  vm.runInNewContext(js, { module: mod, JSON });
+  vm.runInNewContext(js, { module: mod, JSON, ...globals });
   const handlers = {};
   const appended = [];
   mod.exports({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: (t, d) => appended.push([t, d]) });
@@ -278,6 +278,26 @@ test('the running gate: only an explicit allow lets a gated call through, and th
   assert.equal(await call('powershell', async () => { asked++; return undefined; }), undefined, 'allowed for the session');
   assert.equal(asked, 0);
   assert.equal((await call('edit', async () => undefined)).block, true, 'the session allowance is per tool');
+});
+
+// #634: a delegation's question carries what the agent may do, asked of the subagent extension through the
+// registry symbol at the moment of the call — and a missing or throwing describer leaves the question standing.
+test('the running gate: a subagent question carries the agent description, and only that tool asks for one', async () => {
+  const { DESCRIBE_KEY } = require('../src/backends/pi/subagent-tool');
+  const seen = [];
+  const describer = (cwd, name) => { seen.push([cwd, name]); return 'Agent ' + name + ' · tools: ls'; };
+  const { handlers } = loadExtension({ gate: true }, { [Symbol.for(DESCRIBE_KEY)]: describer });
+  const titles = [];
+  const select = async (title) => { titles.push(title); return runtimeExtension.CHOICES.once; };
+  await handlers.tool_call({ toolName: 'subagent', toolCallId: 's1', input: { agent: 'counter', task: 't' } }, { ui: { select }, cwd: '<project>' });
+  await handlers.tool_call({ toolName: 'bash', toolCallId: 'b1', input: { command: 'ls' } }, { ui: { select }, cwd: '<project>' });
+  assert.deepEqual(seen, [['<project>', 'counter']], 'asked once, for the delegation only');
+  assert.equal(runtimeExtension.parseApprovalTitle(titles[0]).detail, 'Agent counter · tools: ls');
+  assert.equal(runtimeExtension.parseApprovalTitle(titles[1]).detail, '');
+
+  const bare = loadExtension({ gate: true }, { [Symbol.for(DESCRIBE_KEY)]: () => { throw new Error('boom'); } });
+  const blocked = await bare.handlers.tool_call({ toolName: 'subagent', toolCallId: 's2', input: { agent: 'x' } }, { ui: { select: async () => undefined }, cwd: '<project>' });
+  assert.equal(blocked.block, true, 'a describer that throws still leaves a question, and no answer still blocks');
 });
 
 test('the running marker: appended once, not again for a session that carries it', async () => {

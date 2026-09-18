@@ -156,9 +156,23 @@ without asking. A conversation the app draws looks supervised, and a session tha
 is the worse failure, so this backend asks before `bash`, `powershell` (Pi's built-in Windows shell, off
 unless the `tools` option enables it), `edit` and `write`. It never asks before the read-only tools. The `approvalGate` option switches it off, and it is **on** by default.
 
+It also asks before the app's own `subagent` tool (#634), for a reason the others do not share. That tool
+starts a second Pi, spawned by the subagent extension, and the child loads neither per-spawn extension, so
+nothing it runs ever reaches a question. The delegation is therefore the only call there is to ask about.
+The view shows the agent and the task from the call, and one more line the call does not carry: the agent's
+tools and model. An agent file without a `tools` line runs with Pi's default tools, `bash`, `edit` and
+`write` among them, and that is what a person deciding has to see. The line comes from the subagent
+extension, which publishes a describer under a registry symbol (`DESCRIBE_KEY` in
+`src/backends/pi/subagent-tool.js`); the gate asks it at the moment of the call and adds the answer to the
+question's title as `detail`. Without it the question still stands, only without the line. An allow covers
+whatever the agent's tools then do. **Allow for this session is per tool name**, as for every gated tool,
+so for `subagent` it allows every later delegation in the session, to any agent and with any task, and
+none of them asks again. The child's cost line is part of the tool's result text, so the view shows it as
+ordinary tool output.
+
 The question comes from the per-spawn extension, not from the app. A `tool_call` handler calls Pi's own
 `ctx.ui.select`, which RPC mode turns into an `extension_ui_request`. The select's title is a line for
-the app, not for a person: a prefix plus `{ tool, id }`, which the decoder recognises and turns into an
+the app, not for a person: a prefix plus `{ tool, id, detail }`, which the decoder recognises and turns into an
 `ask` of kind `approval`. The view draws the call that question is about, found by its id in the
 conversation it already holds, through the viewer's own tool renderer: the command, the diff, the
 content. It offers three answers:

@@ -351,6 +351,14 @@ function createConversationView(getSession, container) {
         if (shown) { shown.classList.add('conversation-approval-call'); card.appendChild(shown); }
       } catch { /* the question still stands without its picture */ }
     }
+    // What the call allows that its input does not show, when the backend could say — plain text, drawn as
+    // the ask's own message line.
+    if (request.message) {
+      const detail = document.createElement('div');
+      detail.className = 'conversation-ask-message';
+      detail.textContent = request.message;
+      card.appendChild(detail);
+    }
     const note = document.createElement('div');
     note.className = 'conversation-ask-message conversation-approval-note';
     note.textContent = 'Asked by Switchboard inside this session. A convenience, not a security boundary: '

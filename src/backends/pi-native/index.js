@@ -30,20 +30,15 @@ const runtimeExtension = require('./runtime-extension');
 //   `models`   — the Ctrl+P cycle list is a TUI key binding; nothing here presses it.
 //   `useTheme` — Pi's theme colours its TUI; this backend draws with the app's own styles.
 const TUI_ONLY = new Set(['models', 'useTheme']);
-// Not offered HERE yet (#634, step 1 of 2). The subagent tool starts a child Pi that does not get this
-// backend's extension, so the approval gate below would never see the child's commands and file changes.
-// Until the gate asks about the `subagent` call itself, this backend neither forwards the tool's hooks nor
-// shows its fields — a control that did nothing here would be the worse half.
-const NOT_YET = new Set(['subagentTool', 'subagentAgentsDir']);
 const configFields = [
-  ...pi.configFields.filter(f => !TUI_ONLY.has(f.id) && !NOT_YET.has(f.id)),
+  ...pi.configFields.filter(f => !TUI_ONLY.has(f.id)),
   // Step C of #568. Pi asks nothing before a tool runs; this backend's own extension does, because a
   // conversation drawn by the app looks supervised, and one that only LOOKS supervised is the worse
   // failure. Applied through the runtime extension (`./runtime-extension.js` reads the option), so the
   // core names neither the key nor the backend.
   { id: 'approvalGate', label: 'Ask before commands and file changes', type: 'toggle', default: true,
     appliesAt: 'spawn', appliedBy: 'buildRuntimeExtension',
-    description: 'Every bash or PowerShell command, file edit and file write waits for your answer: allow once, allow for '
+    description: 'Every bash or PowerShell command, file edit, file write and subagent run waits for your answer: allow once, allow for '
       + 'the rest of this session, or refuse. A convenience, not a security boundary — the check runs inside '
       + 'the agent\'s own process, and a Pi started outside Switchboard asks nothing.' },
 ];
@@ -124,6 +119,14 @@ module.exports = {
   providesPromptTemplates: pi.providesPromptTemplates,
   buildPromptTemplates: pi.buildPromptTemplates,
   releasePromptTemplates: pi.releasePromptTemplates,
+  // The subagent tool (#634) is the same extension over RPC. Its child is a second Pi that does not load
+  // this backend's runtime extension, so the approval gate cannot reach the child's own calls — which is
+  // why `subagent` is one of GATED_TOOLS (`./runtime-extension.js`): the delegation itself is asked about.
+  // Its cost line is part of the tool's result text, so the conversation view shows it as tool output
+  // without knowing the tool.
+  providesSubagentTool: pi.providesSubagentTool,
+  buildSubagentTool: pi.buildSubagentTool,
+  releaseSubagentTool: pi.releaseSubagentTool,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.
   resolveLineage: pi.resolveLineage,
   openedWithCommand: pi.openedWithCommand,

@@ -55,6 +55,9 @@ const path = require('path');
 // are on the `backendDefaults.pi` cascade; `subagentTool` is OFF unless somebody switched it on, because a
 // tool that starts model sessions nobody typed is not something to switch on for anyone.
 const OPTION_ID = 'subagentTool';
+// The registry symbol the generated extension publishes its agent description under, for the runtime-driven
+// backend's approval gate (`../pi-native/runtime-extension.js`), which reads the key from here.
+const DESCRIBE_KEY = 'switchboard.subagent.describe';
 const DIR_OPTION_ID = 'subagentAgentsDir';
 
 // The child's answer, capped the way the example caps a parallel task's: a child that dumps a large file
@@ -182,6 +185,17 @@ function stop(proc: any) {
   try { proc.kill("SIGTERM"); } catch {}
   setTimeout(() => { try { if (proc.exitCode === null) proc.kill("SIGKILL"); } catch {} }, 5000);
 }
+
+// What the agent behind a call may do, in one line, for whoever asks before the call runs. Published under a
+// registry symbol rather than imported, because the asker is another per-spawn extension in this same Pi
+// process (the runtime-driven backend's approval gate) and neither file knows the other's path.
+function describeAgent(cwd: string, name: string): string {
+  const agent = loadAgents(agentsDir(cwd)).find((a) => a.name === name);
+  if (!agent) return "Unknown agent \\"" + name + "\\" — the call will fail without running anything.";
+  return "Agent " + agent.name + " · tools: " + (agent.tools ? agent.tools.join(", ") : "Pi's default tools")
+    + " · model: " + (agent.model || "the session's") + ". Nothing the agent runs is asked about separately.";
+}
+(globalThis as any)[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})] = describeAgent;
 
 export default function (pi: any) {
   const listed = loadAgents(agentsDir(process.cwd()));
@@ -352,6 +366,7 @@ function removeSubagentExtension(file, log) {
 module.exports = {
   OPTION_ID,
   DIR_OPTION_ID,
+  DESCRIBE_KEY,
   extensionSource,
   writeSubagentExtension,
   removeSubagentExtension,

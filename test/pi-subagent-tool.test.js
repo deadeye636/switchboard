@@ -109,16 +109,54 @@ test('the remover deletes only a file this module named', () => {
   }
 });
 
-test('pi declares both fields as spawn-applied and off; pi-native does not offer them yet', () => {
+test('pi declares both fields as spawn-applied and off', () => {
   const byId = Object.fromEntries(pi.configFields.map(f => [f.id, f]));
   assert.equal(byId.subagentTool.default, false);
   assert.equal(byId.subagentTool.appliedBy, 'buildSubagentTool');
   assert.equal(byId.subagentAgentsDir.appliedBy, 'buildSubagentTool');
   assert.equal(byId.subagentAgentsDir.requires, 'subagentTool');
-  // Step 1 of #634: the native backend's approval gate does not yet see a child's calls, so it neither
-  // shows the fields nor carries the hooks. Step 2 lifts both together.
+});
+
+// Step 2 of #634. The native backend offers the tool only together with a question about it: its child is a
+// second Pi without the runtime extension, so the delegation is the one call the gate can ever see. The
+// fields, the hooks and the gated name travel as one — a control without the question is what this pins.
+test('pi-native offers the tool, and its approval gate asks about every delegation', () => {
   const nativeIds = piNative.configFields.map(f => f.id);
-  assert.ok(!nativeIds.includes('subagentTool'));
-  assert.ok(!nativeIds.includes('subagentAgentsDir'));
-  assert.notEqual(piNative.providesSubagentTool, true);
+  assert.ok(nativeIds.includes('subagentTool'));
+  assert.ok(nativeIds.includes('subagentAgentsDir'));
+  assert.equal(piNative.providesSubagentTool, true);
+  assert.equal(piNative.buildSubagentTool, pi.buildSubagentTool);
+  assert.equal(piNative.releaseSubagentTool, pi.releaseSubagentTool);
+
+  const runtimeExtension = require('../src/backends/pi-native/runtime-extension');
+  assert.ok(runtimeExtension.GATED_TOOLS.includes('subagent'));
+  // The tool's own name, spelled once in the generated extension; the gate must name the same one.
+  assert.match(subagentTool.extensionSource({}), /name: "subagent"/);
+});
+
+// F1 of the step-2 review: the question about a delegation says what the agent may do. The subagent extension
+// publishes a describer under a registry symbol and the gate reads the same key — both generated sources have
+// to spell it, or the question silently goes without the line.
+test('the delegation question carries the agent description through the approval title', () => {
+  const runtimeExtension = require('../src/backends/pi-native/runtime-extension');
+  const key = JSON.stringify(subagentTool.DESCRIBE_KEY);
+  assert.ok(subagentTool.extensionSource({}).includes(`Symbol.for(${key})] = describeAgent`));
+  assert.ok(runtimeExtension.extensionSource({ gate: true }).includes(`Symbol.for(${key})]`));
+
+  const title = runtimeExtension.APPROVAL_PREFIX
+    + JSON.stringify({ tool: 'subagent', id: 'c1', detail: 'Agent counter · tools: ls, read\n· model: x' });
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(title),
+    { tool: 'subagent', id: 'c1', detail: 'Agent counter · tools: ls, read · model: x' });
+  // An old-shape title (no detail) still parses, with an empty line rather than a missing field.
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX + '{"tool":"bash","id":"c2"}'),
+    { tool: 'bash', id: 'c2', detail: '' });
+  // …and it is held to one capped line.
+  const long = runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX
+    + JSON.stringify({ tool: 'subagent', id: 'c3', detail: 'x'.repeat(5000) }));
+  assert.ok(long.detail.length <= 400);
+});
+
+test('the approvalGate setting says it asks before a subagent run', () => {
+  const gate = piNative.configFields.find(f => f.id === 'approvalGate');
+  assert.match(gate.description, /subagent/);
 });

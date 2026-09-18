@@ -441,7 +441,7 @@ own `config.toml`.)
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
-| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, and `subagentTool` / `subagentAgentsDir`, which it does not offer yet (#634: its approval gate would not see the child's calls), plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
+| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
 
@@ -485,9 +485,16 @@ so a run told not to trust the project does not trust it one process down. Three
 - **Pi's own example extension clashes with it.** If you linked Pi's `examples/extensions/subagent` into
   your extensions directory, both register a tool called `subagent`. Pi reports the clash as an extension error and decides by its load order which one the session gets, so switch one of them off.
 
-**`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit` or `write`** (the
-`pi-native` backend). Each call waits for an answer in the conversation: allow once, allow for the rest of the session,
-or refuse. It is on by default. It is a convenience and not a security boundary: the check runs inside the
+Both Pi backends offer it. In `pi-native`, unless `approvalGate` is off, the approval gate below asks
+before every delegation and names the agent's tools and model beside the task, because it cannot ask
+about anything the child does: the child is a second Pi without this app's extension, so allowing a
+delegation allows whatever the agent's own tools then do. **Allow for this session** on a delegation
+allows every later one in the session, to any agent, without asking again. With `approvalGate` off,
+delegations run unasked. The terminal backend asks about nothing, delegations included.
+
+**`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit`, `write` or
+`subagent`** (the `pi-native` backend). Each call waits for an answer in the conversation: allow once, allow
+for the rest of the session, or refuse. It is on by default. It is a convenience and not a security boundary: the check runs inside the
 agent's own process, and a Pi started outside Switchboard asks nothing.
 
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI

@@ -369,8 +369,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says
   what the run cost. The tool is passed as a per-spawn extension, so nothing is installed into Pi's own
-  configuration. It is off by default, and the terminal backend has it first: `Pi (native)` gets it once
-  its approval question covers the call. Settings: [`settings-reference.md`](settings-reference.md).
+  configuration. It is off by default. Both Pi backends offer it, and `Pi (native)` asks before a
+  delegation unless `approvalGate` is off or delegations were allowed for the session, naming the agent's
+  tools and model, because the child runs
+  without the app's approval question. Settings: [`settings-reference.md`](settings-reference.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
   `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a
   SQLite DB, read via an exporter like Hermes) **or** `{kind:'db'}` handles (Hermes keeps its sessions
