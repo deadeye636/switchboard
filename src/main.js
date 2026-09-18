@@ -24,6 +24,7 @@ const { isSuccessfulUsage, cachedUsageIsFresh, touchProbeAttempt, withMainProces
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
 const backends = require('./backends');
+const resourceSources = require('./app/resource-sources');
 const sessionBackends = require('./session/session-backends');
 const profiles = require('./backends/profiles');
 const backendCapabilities = require('./backends/capabilities');
@@ -1698,7 +1699,11 @@ ipcMain.handle('backends-list', () => {
     backends: backends.list().map(b => ({
       id: b.id, label: b.label, description: b.description || null, tier: b.tier, axis: b.axis, status: b.status,
       enabled: !!b.enabled, isProfile: !!b.isProfile, icon: b.icon || null,
-      monogram: b.monogram || null, colour: b.colour || null, configFields: b.configFields || [],
+      monogram: b.monogram || null, colour: b.colour || null,
+      // A field may say where its choices come from instead of listing them (#632: "Resources from" lists
+      // other backends, which its own folder cannot name). Filled here, once, so every form that reads the
+      // fields — settings, Configure, the template editor, the tour — gets the same list.
+      configFields: resourceSources.projectFields(b),
       // Bare PageUp/PageDown either reach this backend's TUI or scroll xterm's viewport. The renderer
       // applies the declaration without naming a backend; unknown values conservatively reach the PTY.
       pageKeyTarget: b.pageKeyTarget || 'pty',
@@ -2134,6 +2139,11 @@ backendResources.init({
   invalidateFts: (kind) => plansMemory.invalidateFtsSignature(kind),
 });
 backendResources.registerIpc(ipcMain);
+// #632: which of another backend's resources a session takes over — the choices of "Resources from" (read
+// by `backends-list` above) and the settings screen's preview of what a launch would get. Required at the
+// top, beside the registry, because that handler reads it.
+resourceSources.init({ backends });
+resourceSources.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 
 // Set once quit begins so a still-pending debounced flush (or a late worker

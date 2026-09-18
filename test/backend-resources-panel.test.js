@@ -342,3 +342,177 @@ test('the reason a failure carries is never a raw filesystem error', async () =>
     assert.ok(!line.textContent.includes(PROJECT_PATH));
   } finally { ctx.dom.window.close(); }
 });
+
+// --- #632 step 4: "Resources from" — a stored value nobody offers, and the preview under the select -----
+
+function sourceBackend() {
+  return {
+    backends: [{
+      id: 'tgt', label: 'Target CLI', status: 'ready', available: true, resourceDiscovery: false,
+      configFields: [
+        { id: 'from', label: 'Resources from', type: 'select', choices: ['', 'src'], choiceLabels: { '': 'None', src: 'Source CLI' }, default: '', sourcePreview: true },
+        { id: 'trustRun', label: 'Trust', type: 'select', choices: ['', 'yes'], default: '' },
+      ],
+    }],
+    defaultLaunchTarget: 'tgt',
+  };
+}
+
+function withPreview(ctx, answer) {
+  const calls = [];
+  ctx.window.api.backends.list = async () => sourceBackend();
+  ctx.window.api.backends.previewSharedResources = async (req) => { calls.push(req); return answer(req); };
+  return calls;
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function openPreview(ctx) {
+  const d = ctx.root.querySelector('details.backend-source-preview');
+  d.open = true;
+  d.dispatchEvent(new ctx.window.Event('toggle'));
+  return d;
+}
+
+test('a stored value the select does not offer is shown as not available, not as its first choice', async () => {
+  const ctx = setup();
+  try {
+    ctx.window.api.backends.list = async () => sourceBackend();
+    await mountPanel(ctx, { settings: { backendDefaults: { tgt: { from: 'gone' } } } });
+    const select = ctx.root.querySelector('select[data-opt="from"]');
+    assert.equal(select.value, 'gone', 'the value a launch would get is the one shown');
+    assert.match(select.selectedOptions[0].textContent, /gone \(not available\)/);
+    assert.equal(ctx.root.querySelector('select[data-opt="trustRun"]').options.length, 2, 'a known value adds nothing');
+  } finally { ctx.dom.window.close(); }
+});
+
+test('the preview sits under a field the core marked, starts closed and reads nothing until opened', async () => {
+  const ctx = setup();
+  try {
+    const calls = withPreview(ctx, () => ({ ok: true, source: null, skills: [], commands: [], dropped: [] }));
+    await mountPanel(ctx);
+    const previews = ctx.root.querySelectorAll('details.backend-source-preview');
+    assert.equal(previews.length, 1, 'only under the marked field');
+    assert.equal(previews[0].open, false);
+    assert.equal(previews[0].dataset.lazy, '1', 'the settings search must not force it open');
+    await tick();
+    assert.deepEqual(calls, []);
+    openPreview(ctx);
+    await tick();
+    assert.equal(calls.length, 1);
+    assert.match(previews[0].textContent, /Nothing is taken over/);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('the preview asks with the project and the cascaded options, and lists what is taken and what is dropped', async () => {
+  const ctx = setup();
+  try {
+    const calls = withPreview(ctx, () => ({
+      ok: true, source: 'src', sourceLabel: 'Source CLI',
+      skills: [{ path: '<home>/src/skills', scope: 'global' }],
+      commands: [{ path: '<home>/src/commands', scope: 'global' }],
+      dropped: [{ path: '<project>/.src/skills', kind: 'skill', scope: 'project', reason: 'untrusted-project' }],
+    }));
+    await mountPanel(ctx, {
+      settings: { backendDefaults: { tgt: { trustRun: 'yes' } } },
+      globalDefaults: { tgt: { from: 'src' } },
+    });
+    openPreview(ctx);
+    await tick();
+    // Compared as JSON: the request is built in the window's realm, so its prototypes are not this one's.
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
+      backendId: 'tgt', sourceId: 'src', projectPath: PROJECT_PATH,
+      options: { from: 'src', trustRun: 'yes' },
+    }, 'global ⊕ project, the way a launch reads them');
+    const text = ctx.root.querySelector('.backend-source-preview-list').textContent;
+    assert.match(text, /From Source CLI/);
+    assert.match(text, /<home>\/src\/skills/);
+    assert.match(text, /<home>\/src\/commands/);
+    assert.match(text, /not passed: the project is not trusted/);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('an open preview follows the select, and an override handed back follows the global value again', async () => {
+  const ctx = setup();
+  try {
+    const calls = withPreview(ctx, (req) => ({ ok: true, source: req.sourceId || null, skills: [], commands: [], dropped: [] }));
+    await mountPanel(ctx, { globalDefaults: { tgt: { from: 'src' } } });
+    openPreview(ctx);
+    await tick();
+    assert.equal(calls[0].sourceId, 'src', 'inherited from global');
+
+    const cb = ctx.root.querySelector('.backend-inherit-cb[data-opt="from"]');
+    cb.checked = false;
+    cb.dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+    const select = ctx.root.querySelector('select[data-opt="from"]');
+    select.value = '';
+    select.dispatchEvent(new ctx.window.Event('input', { bubbles: true }));
+    select.dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+    await tick();
+    assert.equal(calls[calls.length - 1].sourceId, '', 'the unsaved choice is what the preview shows');
+
+    cb.checked = true;
+    cb.dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+    await tick();
+    assert.equal(calls[calls.length - 1].sourceId, 'src', 'handed back, it follows the global default');
+  } finally { ctx.dom.window.close(); }
+});
+
+test('the global page offers the preview too, without a project', async () => {
+  const ctx = setup();
+  try {
+    const calls = withPreview(ctx, () => ({ ok: true, source: 'src', sourceLabel: 'Source CLI', skills: [], commands: [], dropped: [] }));
+    await mountPanel(ctx, {
+      isProject: false, projectPath: null,
+      fieldValue: (id, fallback) => (id === 'backendDefaults' ? { tgt: { from: 'src' } } : fallback),
+    });
+    ctx.root.querySelector('.backend-gear[data-id="tgt"]').click();
+    await tick();
+    openPreview(ctx);
+    await tick();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].projectPath, null);
+    assert.equal(calls[0].sourceId, 'src');
+    assert.match(ctx.root.querySelector('.backend-source-preview-list').textContent, /listed on that project's settings/);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('a template pane gets no preview: its launch reads layers this page does not assemble', async () => {
+  const ctx = setup();
+  try {
+    const list = sourceBackend();
+    list.backends.push({ ...list.backends[0], id: 'tpl', label: 'A template', isProfile: true });
+    withPreview(ctx, () => ({ ok: true, source: null, skills: [], commands: [], dropped: [] }));
+    ctx.window.api.backends.list = async () => list;
+    ctx.window.api.profiles.list = async () => ({ profiles: [{ id: 'tpl', name: 'A template', backendId: 'tgt' }] });
+    await mountPanel(ctx);
+    const previews = [...ctx.root.querySelectorAll('details.backend-source-preview')].map(d => d.dataset.previewBackend);
+    assert.ok(ctx.root.querySelector('section.settings-cat[data-cat="backend:tpl"] select[data-opt="from"]'), 'the template pane is there, with the select');
+    assert.deepEqual(previews, ['tgt']);
+  } finally { ctx.dom.window.close(); }
+});
+
+test('a preview closed again is not re-read on every change, and reads afresh when reopened', async () => {
+  const ctx = setup();
+  try {
+    const calls = withPreview(ctx, (req) => ({ ok: true, source: req.sourceId || null, skills: [], commands: [], dropped: [] }));
+    await mountPanel(ctx);
+    const d = openPreview(ctx);
+    await tick();
+    assert.equal(calls.length, 1);
+    d.open = false;
+    const cb = ctx.root.querySelector('.backend-inherit-cb[data-opt="from"]');
+    cb.checked = false;
+    cb.dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+    const select = ctx.root.querySelector('select[data-opt="from"]');
+    select.value = 'src';
+    select.dispatchEvent(new ctx.window.Event('input', { bubbles: true }));
+    select.dispatchEvent(new ctx.window.Event('change', { bubbles: true }));
+    await tick();
+    assert.equal(calls.length, 1, 'nobody is looking, so nothing is asked');
+    openPreview(ctx);
+    await tick();
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].sourceId, 'src', 'and it shows the choice made while it was closed');
+  } finally { ctx.dom.window.close(); }
+});

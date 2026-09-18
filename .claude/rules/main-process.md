@@ -129,6 +129,10 @@ unchanged; the backend's `rpc` half turns lines into the app's own ops and back,
 backend and reads no format. Its busy/idle goes through `hooks.deliverBindSignal`, the same delivery a
 terminal's binding extension gets — a second copy of that path is how the two would start to disagree
 about when a session is finished),
+`resource-sources.js` (which of ANOTHER backend's skills and commands a session takes over — #632,
+"Resources from"; the one answer the spawn path and the settings preview both ask, so they cannot disagree.
+It also fills the choices of a `configFields` select that declares `choicesFrom: 'sharedResourceSources'`,
+at the `backends-list` projection, because a backend's own folder cannot name the other backends),
 `clipboard-insert.js` (what the system clipboard hands a `{clipboard}` insert — #491; the paste/drop
 ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
 bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the
@@ -459,6 +463,7 @@ line there, in the same commit.
 | What a running session can be asked to run | `src/app/skills.js` |
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
+| Which of another backend's skills and commands a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

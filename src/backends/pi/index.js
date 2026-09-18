@@ -120,10 +120,12 @@ const configFields = [
     description: 'Directory holding the agent definitions (`.md` files with `name`, `description` and optional `tools` and `model` in the frontmatter). Empty = Pi\'s own `agents` directory under its agent directory. A relative path is taken from the project.' },
   // #632: take over another backend's skills and commands. ONE source at a time — two
   // would collide by name and nobody could tell which one ran. The choices are the backends that offer
-  // something, which only the core can list without naming them here; until the settings screen fills
-  // them in (step 4 of #632), the one choice is "None". Applied through `buildSessionResources`, which
-  // reads this key itself (`./session-resources.js`).
+  // something, which only the core can list without naming them here — so the field declares where its
+  // choices come from and the core appends one per source to the "None" declared here
+  // (`src/app/resource-sources.js`, `projectFields`). Applied through `buildSessionResources`, which reads
+  // this key itself (`./session-resources.js`).
   { id: 'resourcesFrom', label: 'Resources from', type: 'select', choices: [''],
+    choicesFrom: 'sharedResourceSources',
     choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
     appliesAt: 'spawn', appliedBy: 'buildSessionResources',
     description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Hooks, MCP servers and agents do not come along.' },

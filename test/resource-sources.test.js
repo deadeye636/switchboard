@@ -374,3 +374,92 @@ test('after the shared-resources await, a quit or a second open of the same sess
   assert.match(after, /if \(ctx\.getAppQuitting\(\)\) \{\s*releaseSpawnAllocations\(\);\s*return/);
   assert.match(after, /ctx\.activeSessions\.get\(sessionId\)[\s\S]*releaseSpawnAllocations\(\);\s*return openTerminal\(/);
 });
+
+// ── Step 4: the select's choices and the settings preview ──────────────────────────────────────────
+
+test('a select declaring choicesFrom gets one choice per source after its own, labelled by the source', () => {
+  const target = withRegistry();
+  target.configFields = [
+    { id: 'other', type: 'select', choices: ['x'], default: 'x' },
+    { id: 'from', type: 'select', choices: [''], choicesFrom: resourceSources.SOURCE_CHOICES, choiceLabels: { '': 'None' }, default: '' },
+  ];
+  const fields = resourceSources.projectFields(target);
+  assert.equal(fields[0], target.configFields[0], 'a field that asks for nothing is passed through untouched');
+  assert.deepEqual(fields[1].choices, ['', 'src-a', 'src-b']);
+  assert.deepEqual(fields[1].choiceLabels, { '': 'None', 'src-a': 'SRC-A', 'src-b': 'SRC-B' });
+  assert.equal(fields[1].sourcePreview, true, 'the settings screen learns to offer the preview from the core');
+  assert.deepEqual(target.configFields[1].choices, [''], 'the descriptor itself is not mutated');
+  assert.ok(fields[1].choices.includes(fields[1].default), 'the default stays one of the choices');
+});
+
+test('a target whose fields ask for nothing gets its own array back, and a target that accepts nothing gets no sources', () => {
+  const target = withRegistry();
+  target.configFields = [{ id: 'a', type: 'text', default: '' }];
+  assert.equal(resourceSources.projectFields(target), target.configFields);
+  const src = { id: 'src-a', configFields: [{ id: 'from', type: 'select', choices: [''], choicesFrom: resourceSources.SOURCE_CHOICES, default: '' }] };
+  assert.deepEqual(resourceSources.projectFields(src)[0].choices, [''], 'no accepted kinds, no sources to list');
+});
+
+test('the real Pi fields list Claude, Codex and Antigravity as sources, on both Pi backends', () => {
+  resourceSources.init({ backends });
+  for (const id of ['pi', 'pi-native']) {
+    const field = resourceSources.projectFields(backends.get(id)).find((f) => f.id === 'resourcesFrom');
+    assert.ok(field, id);
+    assert.deepEqual([...field.choices].sort(), ['', 'agy', 'claude', 'codex'], id);
+    assert.equal(field.sourcePreview, true, id);
+    for (const c of field.choices) assert.ok(field.choiceLabels[c], `${id}: "${c}" has a label`);
+  }
+});
+
+test('the preview resolves the named source with the options it is handed, and names the source', async () => {
+  const target = withRegistry();
+  let seen = null;
+  target.trustsProjectResources = (arg) => { seen = arg; return arg.options.approval === 'approve'; };
+  const r = await resourceSources.preview({ backendId: 'tgt', sourceId: 'src-a', projectPath: '<project>', options: { approval: 'approve' } });
+  assert.equal(r.ok, true);
+  assert.equal(r.sourceLabel, 'SRC-A');
+  assert.deepEqual(r.skills.map((s) => s.scope), ['global', 'project']);
+  assert.deepEqual(seen, { projectPath: '<project>', options: { approval: 'approve' } });
+});
+
+test('the preview takes its window-side input apart: no nested options, no non-string ids', async () => {
+  const target = withRegistry();
+  let seen = null;
+  target.trustsProjectResources = (arg) => { seen = arg; return false; };
+  const r = await resourceSources.preview({
+    backendId: 'tgt', sourceId: 'src-a', projectPath: '<project>',
+    options: { approval: 'approve', nested: { a: 1 }, list: [1], fn: null },
+  });
+  assert.deepEqual(seen.options, { approval: 'approve', fn: null });
+  assert.equal(r.ok, true);
+  assert.deepEqual((await resourceSources.preview({ backendId: 42 })).ok, false);
+  assert.deepEqual((await resourceSources.preview({ backendId: 'nope' })).ok, false);
+  const none = await resourceSources.preview({ backendId: 'tgt', sourceId: { id: 'src-a' } });
+  assert.equal(none.source, null, 'a source that is not a string is no source');
+  assert.equal(none.sourceLabel, null);
+});
+
+test('the preview without a project lists only the global directories', async () => {
+  withRegistry({ trusted: true });
+  const r = await resourceSources.preview({ backendId: 'tgt', sourceId: 'src-a', projectPath: null });
+  assert.deepEqual([...r.skills, ...r.commands].map((x) => x.scope).filter((s) => s !== 'global'), []);
+});
+
+test('the preview is registered as an IPC handler', async () => {
+  withRegistry();
+  const handlers = new Map();
+  resourceSources.registerIpc({ handle: (name, fn) => handlers.set(name, fn) });
+  assert.deepEqual([...handlers.keys()], ['resource-sources-preview']);
+  const r = await handlers.get('resource-sources-preview')(null, { backendId: 'tgt', sourceId: '' });
+  assert.equal(r.ok, true);
+  assert.equal(r.source, null);
+});
+
+test('a select whose target has no source to offer is not marked for a preview', () => {
+  const target = withRegistry();
+  resourceSources.init({ backends: stubRegistry([target]) });
+  target.configFields = [{ id: 'from', type: 'select', choices: [''], choicesFrom: resourceSources.SOURCE_CHOICES, default: '' }];
+  const [field] = resourceSources.projectFields(target);
+  assert.deepEqual(field.choices, ['']);
+  assert.equal(field.sourcePreview, false);
+});

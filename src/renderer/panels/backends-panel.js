@@ -164,8 +164,13 @@
     if (field.type === 'select') {
       const choices = Array.isArray(field.choices) ? field.choices : [];
       const labels = field.choiceLabels || {};   // a bare id like "acceptEdits" is not a UI label
+      // A stored value the field does not offer — an import, a hand edit, a source that is gone — is shown
+      // as what it is (#632). Without it the select falls back to its first choice, which reads as a choice
+      // somebody made while the stored value is still the one a launch gets.
+      const unknown = value !== undefined && value !== null && !choices.some(c => String(c) === String(value));
       return `<select class="settings-select backend-default-input" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="select" id="${esc(name)}" ${dis}>
         ${choices.map(c => `<option value="${esc(c)}" ${String(value) === String(c) ? 'selected' : ''}>${esc(labels[c] || c)}</option>`).join('')}
+        ${unknown ? `<option value="${esc(value)}" selected>${esc(`${value} (not available)`)}</option>` : ''}
       </select>`;
     }
     const type = field.type === 'number' ? 'number' : 'text';
@@ -221,7 +226,7 @@
     // not print it. Same call as #211 made for `projectMeta`, one hook along.
     if (backend.isProfile) return '';
     return `
-      <details class="settings-adv backend-resources" data-resources-for="${esc(backend.id)}">
+      <details class="settings-adv backend-resources" data-lazy="1" data-resources-for="${esc(backend.id)}">
         <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>${esc(title || 'Resources')}</summary>
         <div class="backend-env-hint">Everything this backend discovers, read-only. Skills, rules and commands are edited in <b>Agent Files</b>; plugins, packages and themes are listed only here, because no text editor opens a directory — <b>Open</b> hands one to the system.</div>
         ${projectPath ? `<div class="backend-env-hint backend-resources-project">Project-scoped rows come from <code>${esc(projectPath)}</code>.</div>` : ''}
@@ -272,6 +277,99 @@
         if (!d.open || d.dataset.loaded === '1') return;
         d.dataset.loaded = '1';
         loadResources(root, d.dataset.resourcesFor, projectPath || null);
+      });
+    });
+  }
+
+  // What a session would take over from another backend (#632, "Resources from"). A field the core marked
+  // `sourcePreview` gets this disclosure under it; the panel never learns which field or which backend that
+  // is. Closed, and read when opened, for the same reason the resources list is (#472): it lists another
+  // backend's directories. Once open it follows the select — and anything else on the page for this backend,
+  // because whether a project's directories are passed can depend on another of its options.
+  function sourcePreviewShell(backend, field) {
+    if (!field || !field.sourcePreview) return '';
+    // A template launches with its base's layers AND its own options, which this page does not assemble —
+    // a preview here would describe a launch that never happens. Same refusal as `resourcesShell`.
+    if (backend.isProfile) return '';
+    return `
+      <details class="settings-adv backend-source-preview" data-lazy="1" data-preview-backend="${esc(backend.id)}" data-preview-opt="${esc(field.id)}">
+        <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>What a session would take over</summary>
+        <div class="backend-env-hint">Read from the chosen backend's own directories each time a session starts, so this list follows them. A project's own directories are passed only when ${esc(backend.label)} trusts the project. Where ${esc(backend.label)} already has a skill or command of the same name, its own wins; that is only known once the session runs.</div>
+        <div class="backend-source-preview-list"><div class="settings-hint">Loading…</div></div>
+      </details>`;
+  }
+
+  const DROP_REASONS = {
+    'untrusted-project': 'not passed: the project is not trusted for this launch',
+    'no-command-dialect': 'not passed: that backend\'s commands cannot be read here',
+  };
+
+  function renderSourcePreview(result, projectPath) {
+    if (!result || result.ok === false) {
+      return `<div class="settings-hint">Could not read what would be taken over${result && result.reason ? ': ' + esc(result.reason) : '.'}</div>`;
+    }
+    if (!result.source) return '<div class="settings-hint">Nothing is taken over. The session gets only its own skills and commands.</div>';
+    const row = (kind, r, note) => `
+      <div class="settings-more open backend-source-preview-row">
+        <span class="backend-pill">${esc(kind)}</span>
+        <span class="backend-pill ${r.scope === 'project' ? 'scope-project' : ''}">${esc(r.scope || 'global')}</span>
+        <code>${esc(r.path)}</code>${note ? ` <span class="backend-source-preview-note">${esc(note)}</span>` : ''}
+      </div>`;
+    const taken = [
+      ...(result.skills || []).map(r => row('skill', r)),
+      ...(result.commands || []).map(r => row('command', r)),
+    ];
+    const dropped = (result.dropped || []).map(d => row(d.kind || 'resource', d, DROP_REASONS[d.reason] || `not passed: ${d.reason}`));
+    const from = result.sourceLabel || result.source;
+    return [
+      taken.length
+        ? `<div class="backend-env-hint">From ${esc(from)}:</div>${taken.join('')}`
+        : `<div class="settings-hint">${esc(from)} has nothing this session could take over${projectPath ? ' in this project' : ''}.</div>`,
+      dropped.join(''),
+      projectPath ? '' : '<div class="backend-env-hint">A project\'s own directories are listed on that project\'s settings.</div>',
+    ].join('');
+  }
+
+  // `optionsFor(backendId)` answers what a launch from this scope would read for that backend — the same
+  // cascade the spawn path applies — so the preview's trust answer is the launch's, saved or not yet.
+  async function loadSourcePreview(details, projectPath, optionsFor) {
+    const list = details.querySelector('.backend-source-preview-list');
+    if (!list || !window.api?.backends?.previewSharedResources) return;
+    const backendId = details.dataset.previewBackend;
+    const options = optionsFor(backendId) || {};
+    const sourceId = options[details.dataset.previewOpt];
+    // The newest request wins: a select changed twice in quick succession must not end on the first answer.
+    const seq = String((Number(details.dataset.seq) || 0) + 1);
+    details.dataset.seq = seq;
+    let result;
+    try {
+      result = await window.api.backends.previewSharedResources({
+        backendId, sourceId: typeof sourceId === 'string' ? sourceId : '', projectPath: projectPath || null, options,
+      });
+    } catch { result = { ok: false, reason: 'Switchboard could not reach the backend list.' }; }
+    if (details.dataset.seq !== seq) return;
+    list.innerHTML = renderSourcePreview(result, projectPath || null);
+  }
+
+  // Bound AFTER the page's own `change` listener, so a changed option is already recorded when this reads it.
+  function bindSourcePreviews(root, projectPath, optionsFor) {
+    const previews = root.querySelectorAll('details.backend-source-preview');
+    if (!previews.length) return;
+    previews.forEach(d => {
+      d.addEventListener('toggle', () => {
+        if (!d.open || d.dataset.loaded === '1') return;
+        d.dataset.loaded = '1';
+        loadSourcePreview(d, projectPath, optionsFor);
+      });
+    });
+    root.addEventListener('change', (e) => {
+      const t = e.target;
+      const bid = t && t.dataset && t.dataset.backend;
+      if (!bid || !t.classList || !(t.classList.contains('backend-default-input') || t.classList.contains('backend-inherit-cb'))) return;
+      root.querySelectorAll(`details.backend-source-preview[data-preview-backend="${CSS.escape(bid)}"]`).forEach(d => {
+        // A closed one is re-read when it opens again, not on every change while nobody looks at it.
+        if (d.open && d.dataset.loaded === '1') loadSourcePreview(d, projectPath, optionsFor);
+        else if (!d.open) delete d.dataset.loaded;
       });
     });
   }
@@ -395,7 +493,7 @@
             <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session in this project without opening its configure dialog.`)}</div>
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, !overridden)}</div>
-        </div>`;
+        </div>${sourcePreviewShell(backend, f)}`;
     }).join('');
 
     // No disclosure around it any more (#490): the pane IS the disclosure, and the "N overrides" marker
@@ -476,7 +574,7 @@
             ${f.more ? `<div class="settings-more">${esc(f.more)}</div>` : ''}
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled || !set)}</div>
-        </div>`;
+        </div>${disabled ? '' : sourcePreviewShell(backend, f)}`;
     }).join('');
 
     return `
@@ -1231,6 +1329,9 @@
         }
         recordDefault(e.target);
       });
+      // A launch here reads global ⊕ this project's own overrides — what the spawn path reads.
+      bindSourcePreviews(box, ctx.projectPath || null,
+        (bid) => ({ ...(inheritedDefaults[bid] || {}), ...(mergedOwnDefaults()[bid] || {}) }));
       root.replaceChildren(box);
       paintIcons(box);
       if (typeof ctx.onBackendPanes === 'function') {
@@ -1456,6 +1557,7 @@
         recordDefault(e.target);
         recordPromptOverride(e.target);
       });
+      bindSourcePreviews(page, null, (bid) => ({ ...(mergedDefaults()[bid] || {}) }));
     }
 
     box.addEventListener('focusin', (e) => {

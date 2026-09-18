@@ -518,8 +518,9 @@
           // ready backend now has a pane in the project scope, so force-opening them all would turn the
           // first keystroke into a filesystem walk per backend — the cost #472 removed, coming back through
           // the search box #490 added. One already read has nothing left to pay, so it opens like the rest;
-          // one that has not been looked at stays closed and is not searched.
-          if (!d.classList.contains('backend-resources') || d.dataset.loaded === '1') d.open = true;
+          // one that has not been looked at stays closed and is not searched. `data-lazy` is how a disclosure
+          // says it costs a read to open; the "Resources from" preview (#632) is the second one.
+          if (d.dataset.lazy !== '1' || d.dataset.loaded === '1') d.open = true;
         });
         let any = false;
         cats().forEach(cat => {

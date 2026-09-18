@@ -128,4 +128,70 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
   return out;
 }
 
-module.exports = { init, sourcesFor, resolve };
+// The token a `select` field declares INSTEAD of listing its choices (#632 step 4). Its choices are the
+// backends this one may take resources from, and the backend's own folder cannot spell those without naming
+// other backends — so the field says where its choices come from, and the core fills them in where every
+// form reads the fields from (`backends-list`). Not dynamic at run time: which backends offer something is
+// fixed for the life of the process, and enabling one does not matter (owner decision S1).
+const SOURCE_CHOICES = 'sharedResourceSources';
+
+/**
+ * A descriptor's `configFields` as the forms should see them: a field declaring
+ * `choicesFrom: 'sharedResourceSources'` gets one choice per source `sourcesFor` lists, labelled with the
+ * source's own label, after the choices it declared itself (its "None"). It is also marked `sourcePreview`,
+ * which is what tells the settings screen to offer the preview below it without knowing the field's id.
+ * Every other field is returned as it is, and so is the array when no field asks.
+ */
+function projectFields(targetOrId) {
+  const target = asDescriptor(targetOrId);
+  const fields = target && Array.isArray(target.configFields) ? target.configFields : [];
+  if (!fields.some((f) => f && f.choicesFrom === SOURCE_CHOICES)) return fields;
+  const sources = sourcesFor(target);
+  return fields.map((f) => {
+    if (!f || f.choicesFrom !== SOURCE_CHOICES) return f;
+    const choices = Array.isArray(f.choices) ? [...f.choices] : [];
+    const choiceLabels = { ...(f.choiceLabels || {}) };
+    for (const s of sources) {
+      if (!choices.includes(s.id)) choices.push(s.id);
+      if (!Object.prototype.hasOwnProperty.call(choiceLabels, s.id)) choiceLabels[s.id] = s.label;
+    }
+    // A preview of "nothing can be taken over" is no preview; the marker follows whether there is a source.
+    return { ...f, choices, choiceLabels, sourcePreview: sources.length > 0 };
+  });
+}
+
+/**
+ * What the settings screen shows under the select: `resolve` for the backend on that page, the source the
+ * select names now (saved or not) and the options the page shows for that backend, so the trust answer is
+ * the one a launch from that scope would get. `projectPath` is null on the global page, where only the
+ * source's global directories exist to list.
+ *
+ * Its input comes from a window, so it is taken apart rather than passed on: strings are strings, and the
+ * options are a flat object of primitives. The paths it answers with are the ones `listResources` names —
+ * the same rows the Resources disclosure on that page already shows.
+ */
+async function preview({ backendId, sourceId, projectPath, options } = {}) {
+  const target = typeof backendId === 'string' && backendId ? asDescriptor(backendId) : null;
+  if (!target) return { ok: false, reason: 'That backend is not known.' };
+  const flat = {};
+  if (options && typeof options === 'object' && !Array.isArray(options)) {
+    for (const [k, v] of Object.entries(options)) {
+      if (v === null || ['string', 'number', 'boolean'].includes(typeof v)) flat[k] = v;
+    }
+  }
+  const source = typeof sourceId === 'string' ? sourceId : '';
+  const result = await resolve({
+    target,
+    sourceId: source,
+    projectPath: typeof projectPath === 'string' && projectPath ? projectPath : null,
+    options: flat,
+  });
+  const described = source ? sourcesFor(target).find((s) => s.id === source) : null;
+  return { ...result, sourceLabel: described ? described.label : null };
+}
+
+function registerIpc(ipc) {
+  ipc.handle('resource-sources-preview', (_event, request) => preview(request || {}));
+}
+
+module.exports = { init, registerIpc, sourcesFor, resolve, projectFields, preview, SOURCE_CHOICES };

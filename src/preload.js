@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('api', {
     createResource: (backendId, options) => ipcRenderer.invoke('backend-create-resource', backendId, options),
     deleteResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-delete-resource', backendId, resourcePath, projectPath ?? null),
     openResource: (backendId, resourcePath, projectPath) => ipcRenderer.invoke('backend-open-resource', backendId, resourcePath, projectPath),
+    // #632: what a launch of `backendId` would take over from `sourceId` — `{ backendId, sourceId, projectPath, options }`.
+    previewSharedResources: (request) => ipcRenderer.invoke('resource-sources-preview', request),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },
   sessionBackends: {
