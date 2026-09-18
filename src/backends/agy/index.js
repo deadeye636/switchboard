@@ -294,6 +294,7 @@ module.exports = {
     resourceDepth: 'yes',
     resourceWrite: 'yes',
     skillInvoke: { state: 'no', note: 'it names no way to run a skill from its prompt, so a picked skill is inserted as a reference' },
+    resourcesFrom: { state: 'no', note: 'it offers its skills to another CLI; it takes none over' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',

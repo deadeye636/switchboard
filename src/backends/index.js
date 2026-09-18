@@ -315,6 +315,7 @@ function profileToDescriptor(p) {
     // not forwarded — see NOT_INHERITED in test/template-descriptor-shape.test.js.
     ...(base && Array.isArray(base.acceptsSharedResources) ? { acceptsSharedResources: base.acceptsSharedResources } : {}),
     ...(base && typeof base.trustsProjectResources === 'function' ? { trustsProjectResources: base.trustsProjectResources } : {}),
+    ...(base && typeof base.buildSharedResources === 'function' ? { buildSharedResources: base.buildSharedResources } : {}),
     // Is something OUTSIDE Switchboard already running this session (#172, #607)? The answer comes from
     // asking the BASE's CLI about its own sessions, and a template's sessions are in that same store
     // under that same CLI — so the question applies unchanged (#605). `app/live-owners.js` selects the

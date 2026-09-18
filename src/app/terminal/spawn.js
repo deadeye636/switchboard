@@ -44,6 +44,7 @@ const liveOwners = require('../live-owners');
 // directories the handoff prompt and the plan prompt do — a second reading of the setting is how two
 // surfaces start naming different ones.
 const conventionDirs = require('../convention-dirs');
+const resourceSources = require('../resource-sources');
 const { conptyBuildHint } = require('./conpty');
 
 let ctx = null;
@@ -757,6 +758,50 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           }
         } catch (err) {
           ctx.log.warn(`[clear-bind] session=${sessionId} could not set up: ${err.message}`);
+        }
+      }
+
+      // #632: another backend's skills in this session ("Resources from"). The core resolves what the
+      // chosen source offers for THIS launch (`../resource-sources.js`) and hands the resolver to the
+      // backend, which reads its own option to learn the source and decides how its CLI is given the
+      // result — so nothing here names a backend or an option key. `projectPath` is the session's working
+      // directory, which is also where the CLI checks trust: for a worktree that is the worktree itself,
+      // not the project whose settings apply, and the two must not be mixed.
+      //
+      // Placed BEFORE the #569 templates so any flag it adds precedes theirs on the command line — Pi keeps
+      // the first of two equal names. Best-effort: a failure means the session starts without the source's
+      // resources, which is what every session did before this existed.
+      if (Array.isArray(backend.acceptsSharedResources) && typeof backend.buildSharedResources === 'function') {
+        try {
+          const options = spawnOptionsFor(backend, projectPath, sessionOptions);
+          const built = await backend.buildSharedResources({
+            options,
+            resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options }),
+            log: ctx.log,
+          });
+          if (built && Array.isArray(built.args) && built.args.length) {
+            launch.args = [...launch.args, ...built.args];
+          }
+          if (built && built.source) {
+            ctx.log.info(`[shared-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.dropped || []).length} dropped`);
+            for (const d of built.dropped || []) ctx.log.debug(`[shared-resources] session=${sessionId} dropped ${d.kind} (${d.scope}, ${d.reason})`);
+          }
+        } catch (err) {
+          ctx.log.warn(`[shared-resources] session=${sessionId} could not set up: ${err.message}`);
+        }
+        // The await above can take real disk time, and the world may have moved meanwhile. A quit that
+        // began has already collected the pids it will stop, so a process spawned now would outlive the
+        // app; and a second open of this same session may have registered it, so spawning again would
+        // give it two processes. Either way, give back what this call allocated — and in the second case
+        // take the reattach path the other open already made possible.
+        if (ctx.getAppQuitting()) {
+          releaseSpawnAllocations();
+          return { ok: false, error: 'The app is quitting.' };
+        }
+        const raced = ctx.activeSessions.get(sessionId);
+        if (raced && !raced.exited) {
+          releaseSpawnAllocations();
+          return openTerminal(sessionId, projectPath, isNew, sessionOptions);
         }
       }
 

@@ -243,3 +243,76 @@ test('Pi\'s saved trust decides when the run does not override it, and "no decis
   assert.equal(pi.trustsProjectResources({ projectPath: refusedDir, options: { approval: 'approve' } }), true,
     'the run override wins over a saved no, as it does in Pi');
 });
+
+// ── Step 2: Pi turns the resolved skills into flags ─────────────────────────────────────────────────
+
+test('Pi hands a source\'s skill directories over as --skill, in order, and reports commands as not yet passed', async () => {
+  const pi = backends.get('pi');
+  const resolved = {
+    ok: true,
+    skills: [{ path: '<home>/a/skills', scope: 'global' }, { path: '<project>/.a/skills', scope: 'project' }],
+    commands: [{ path: '<home>/a/commands', scope: 'global', dialect: {} }],
+    dropped: [{ path: '<project>/.a/commands', kind: 'command', scope: 'project', reason: 'untrusted-project' }],
+  };
+  let asked = null;
+  const built = await pi.buildSharedResources({
+    options: { resourcesFrom: 'src-a' },
+    resolveSource: async (id) => { asked = id; return resolved; },
+  });
+  assert.equal(asked, 'src-a');
+  assert.deepEqual(built.args, ['--skill', '<home>/a/skills', '--skill', '<project>/.a/skills']);
+  assert.deepEqual(built.dropped.map((d) => d.reason), ['untrusted-project', 'not-yet-supported']);
+});
+
+test('Pi passes nothing when no source is chosen or the source answers nothing', async () => {
+  const pi = backends.get('pi');
+  let called = false;
+  assert.equal(pi.buildSharedResources({ options: {}, resolveSource: () => { called = true; } }), null);
+  assert.equal(pi.buildSharedResources({ options: { resourcesFrom: '  ' }, resolveSource: () => { called = true; } }), null);
+  assert.equal(called, false, 'no source, no listing');
+  assert.equal(await pi.buildSharedResources({ options: { resourcesFrom: 'x' }, resolveSource: async () => ({ ok: false }) }), null);
+});
+
+test('pi-native and a template on Pi carry the same hook, and the flag audit derives --skill from it', () => {
+  const pi = backends.get('pi');
+  assert.equal(backends.get('pi-native').buildSharedResources, pi.buildSharedResources);
+  const tpl = backends.profileToDescriptor({ id: 'tpl-pi', name: 'A template', backendId: 'pi' });
+  assert.equal(tpl.buildSharedResources, pi.buildSharedResources);
+  assert.deepEqual(tpl.acceptsSharedResources, pi.acceptsSharedResources);
+  const { managedFlags } = require('../scripts/managed-flags');
+  assert.ok(managedFlags(pi).includes('--skill'), 'Pi can send --skill, so its help check audits it');
+  assert.ok(managedFlags(backends.get('pi-native')).includes('--skill'));
+});
+
+test('the spawn path resolves against the session\'s working directory and places the flags before the #569 templates', () => {
+  // A source check (node-pty loads at require time, so there is no seam to call): what it pins is the
+  // regression that will happen — the block moved below the templates, or handed the settings owner's path.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { stripComments } = require('./helpers/strip-comments');
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8'));
+  const shared = src.indexOf('backend.buildSharedResources(');
+  const templates = src.indexOf('backend.buildPromptTemplates(');
+  assert.ok(shared > 0 && templates > 0 && shared < templates, 'shared resources come before the templates');
+  const call = src.slice(shared, src.indexOf('});', shared));
+  assert.match(call, /resourceSources\.resolve\(\{ target: backend, sourceId, projectPath: projectPath \|\| null, options \}\)/);
+  assert.doesNotMatch(call, /settingsOwnerPath/);
+  // The options are the CASCADED ones: the global and project settings are where `resourcesFrom` is set, and
+  // the raw session options would silently drop both.
+  const block = src.slice(src.lastIndexOf('if (Array.isArray(backend.acceptsSharedResources)', shared), shared);
+  assert.match(block, /const options = spawnOptionsFor\(backend, projectPath, sessionOptions\)/);
+});
+
+test('after the shared-resources await, a quit or a second open of the same session stops this spawn', () => {
+  // The first await on a Pi spawn before the session is registered. A quit that began meanwhile has already
+  // collected its pids, and a racing open may have registered the session — spawning anyway orphans a
+  // process or doubles one. Source check, for the reason given above.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { stripComments } = require('./helpers/strip-comments');
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8'));
+  const start = src.indexOf('backend.buildSharedResources(');
+  const after = src.slice(start, src.indexOf('backend.buildPromptTemplates(', start));
+  assert.match(after, /if \(ctx\.getAppQuitting\(\)\) \{\s*releaseSpawnAllocations\(\);\s*return/);
+  assert.match(after, /ctx\.activeSessions\.get\(sessionId\)[\s\S]*releaseSpawnAllocations\(\);\s*return openTerminal\(/);
+});

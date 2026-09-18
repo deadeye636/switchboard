@@ -148,9 +148,35 @@ function promptTemplateFlags(backend) {
   }
 }
 
+/**
+ * Another backend's resources, handed over per spawn (#632). The same reason as the two above: the hook
+ * emits a real flag no `buildLaunch` run can show. The resolver is a stand-in answering one directory of
+ * each kind the target accepts, synchronously, so the hook answers synchronously too.
+ */
+function sharedResourceFlags(backend) {
+  if (typeof backend.buildSharedResources !== 'function' || !Array.isArray(backend.acceptsSharedResources)) return [];
+  const field = (backend.configFields || []).find((f) => f.appliedBy === 'buildSharedResources');
+  if (!field) return [];
+  try {
+    const built = backend.buildSharedResources({
+      options: { [field.id]: 'flag-audit-source' },
+      resolveSource: (sourceId) => ({
+        ok: true,
+        source: sourceId,
+        skills: [{ path: 'flag-audit-skills', scope: 'global' }],
+        commands: [{ path: 'flag-audit-commands', scope: 'global', dialect: {} }],
+        dropped: [],
+      }),
+    });
+    return built ? flagsIn(built.args) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Every flag this backend can put on its CLI's command line, derived — not written down. */
 function managedFlags(backend, opts) {
-  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend)]);
+  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend), ...sharedResourceFlags(backend)]);
   for (const variant of launchVariants(backend, opts)) {
     let launch;
     try { launch = backend.buildLaunch(variant); } catch { continue; }

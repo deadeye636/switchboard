@@ -334,6 +334,7 @@ module.exports = {
     resourceDepth: 'yes',
     resourceWrite: 'yes',
     skillInvoke: 'yes',
+    resourcesFrom: { state: 'no', note: 'it neither offers its resources to another CLI nor takes any over' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',

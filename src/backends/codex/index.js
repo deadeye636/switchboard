@@ -295,6 +295,7 @@ description:
     resourceDepth: 'yes',
     resourceWrite: 'yes',
     skillInvoke: { state: 'no', note: 'it lists skills but its command palette does not offer them' },
+    resourcesFrom: { state: 'no', note: 'it offers its skills to another CLI; it takes none over' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all yet' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',

@@ -143,6 +143,7 @@ module.exports = {
   sharedResources: pi.sharedResources,
   acceptsSharedResources: pi.acceptsSharedResources,
   trustsProjectResources: pi.trustsProjectResources,
+  buildSharedResources: pi.buildSharedResources,
   caveat: pi.caveat,
   capabilities,
   configFields,

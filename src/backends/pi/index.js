@@ -28,6 +28,7 @@ const trust = require('./trust');
 const liveBinding = require('./live-binding');
 const promptTemplates = require('./prompt-templates');
 const subagentTool = require('./subagent-tool');
+const sharedResourceFlags = require('./shared-resources');
 const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
@@ -118,6 +119,15 @@ const configFields = [
   { id: 'subagentAgentsDir', label: 'Subagent definitions', type: 'text', default: '',
     appliesAt: 'spawn', appliedBy: 'buildSubagentTool', requires: 'subagentTool',
     description: 'Directory holding the agent definitions (`.md` files with `name`, `description` and optional `tools` and `model` in the frontmatter). Empty = Pi\'s own `agents` directory under its agent directory. A relative path is taken from the project.' },
+  // #632: take over another backend's skills (and, from step 3, its commands). ONE source at a time — two
+  // would collide by name and nobody could tell which one ran. The choices are the backends that offer
+  // something, which only the core can list without naming them here; until the settings screen fills
+  // them in (step 4 of #632), the one choice is "None". Applied through `buildSharedResources`, which
+  // reads this key itself (`./shared-resources.js`).
+  { id: 'resourcesFrom', label: 'Resources from', type: 'select', choices: [''],
+    choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
+    appliesAt: 'spawn', appliedBy: 'buildSharedResources',
+    description: 'Also offer the skills you keep for another CLI in this session. Pi\'s own skills still load, and one of its own wins over a source\'s skill of the same name. A project\'s own directories are passed only when Pi trusts the project. Hooks, MCP servers and agents do not come along.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',
@@ -531,6 +541,7 @@ module.exports = {
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },
     skillInvoke: 'yes',
+    resourcesFrom: { state: 'limited', note: 'skills so far; commands follow' },
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
@@ -612,6 +623,9 @@ description:
     if (!projectPath) return false;
     try { return trust.get(projectPath) === true; } catch { return false; }
   },
+  // What the resolved source becomes on Pi's command line (`./shared-resources.js`). Async: the core hands
+  // in its resolver, and listing a source's directories may touch the disk.
+  buildSharedResources: (ctx) => sharedResourceFlags.buildSharedResources(ctx),
 
   sessionsRoot,
   setRoot,

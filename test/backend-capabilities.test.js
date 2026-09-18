@@ -24,7 +24,7 @@ const PINNED = {
     modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
     viewportPaging: 'limited',
   },
   codex: {
@@ -33,7 +33,7 @@ const PINNED = {
     modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
   hermes: {
@@ -50,7 +50,7 @@ const PINNED = {
     // listing alone is the cheap half, and it is declared `limited` with a note, never a bare `yes`.
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
-    resourceDiscovery: 'limited', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'limited', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
   pi: {
@@ -61,7 +61,7 @@ const PINNED = {
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
     // whose extension never reported has no answer at all rather than an empty one.
     queuedTurn: 'limited', quota: 'no',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'limited', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
   // Pi driven over its RPC mode (#568). Every answer that is about the BINARY or its store is Pi's; the three
@@ -73,7 +73,7 @@ const PINNED = {
     modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'limited', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'no',
   },
   agy: {
@@ -82,7 +82,7 @@ const PINNED = {
     modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'yes',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
 };

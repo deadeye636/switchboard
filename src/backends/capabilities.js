@@ -178,6 +178,13 @@ const CATALOG = [
     declaredBy: 'skillInvocation',
   },
   {
+    id: 'resourcesFrom',
+    group: 'resources',
+    label: "Use another CLI's skills and commands",
+    description: 'Can be pointed at another backend, so the skills and commands you keep for that CLI are offered in this one too (#632).',
+    declaredBy: 'buildSharedResources',
+  },
+  {
     id: 'plans',
     group: 'resources',
     label: 'Plan documents',
