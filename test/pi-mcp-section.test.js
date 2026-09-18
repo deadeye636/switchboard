@@ -314,3 +314,14 @@ test('the MCP section compiles beside the subagent and command sections, with on
   for (const call of ['registerSubagent(pi);', 'registerSourceCommands(pi);', 'registerMcpServers(pi);']) assert.ok(text.includes(call), call);
   require('esbuild').transformSync(text, { loader: 'ts', format: 'cjs', target: 'node20' });
 });
+
+test('every tool name carries the prefix the pi-native gate matches, and the section describes what it registered', async (t) => {
+  assert.ok(mcp.mcpToolName('a', 'b').startsWith(mcp.TOOL_PREFIX));
+  const file = serverFile(t);
+  const run = runSection({ servers: [{ name: 'demo', command: process.execPath, args: [file], env: {} }] });
+  await run.rt.start();
+  const describe = vm.runInContext('globalThis', run.context)[Symbol.for(mcp.DESCRIBE_KEY)];
+  assert.equal(describe('mcp__demo__echo'), 'Tool echo of the MCP server demo, taken over from another CLI: Echo text');
+  assert.equal(describe('bash'), '');
+  run.rt.shutdown();
+});

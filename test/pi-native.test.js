@@ -361,3 +361,31 @@ test('the running gate: a command\'s own allowance is not the agent\'s bash, and
   // …and another command is asked about too.
   assert.equal(await askGate('bash', 'ls', { ui: { select: select(undefined) } }, { key: 'command:other', by: '/other' }), false);
 });
+
+// #633 (M5): every MCP tool taken over from another CLI is asked about, per TOOL, with the line the MCP section
+// of the resources extension publishes about it. Its name only carries the prefix; the section says what it is.
+test('the running gate: an MCP tool is asked about, per tool, with the MCP section\'s line about it', async () => {
+  const { DESCRIBE_KEY, TOOL_PREFIX } = require('../src/backends/pi/mcp-section');
+  assert.equal(runtimeExtension.MCP_TOOL_PREFIX, TOOL_PREFIX);
+  const describer = (name) => (name === 'mcp__files__read' ? 'Tool read of the MCP server files, taken over from another CLI.' : '');
+  const { handlers } = loadExtension({ gate: true }, { [Symbol.for(DESCRIBE_KEY)]: describer });
+  const titles = [];
+  let answer = runtimeExtension.CHOICES.session;
+  const call = (toolName) => handlers.tool_call({ toolName, toolCallId: 'm1', input: {} },
+    { ui: { select: async (title) => { titles.push(title); return answer; } }, cwd: '<project>' });
+  assert.equal(await call('mcp__files__read'), undefined, 'allowed for the session');
+  const asked = runtimeExtension.parseApprovalTitle(titles[0]);
+  assert.equal(asked.tool, 'mcp__files__read');
+  assert.equal(asked.detail, 'Tool read of the MCP server files, taken over from another CLI.');
+  answer = undefined;
+  assert.equal(await call('mcp__files__read'), undefined, 'the same tool runs without asking again');
+  assert.equal(titles.length, 1);
+  assert.equal((await call('mcp__files__write')).block, true, 'another MCP tool is asked about, and no answer blocks');
+  assert.equal(titles.length, 2);
+  assert.equal(runtimeExtension.parseApprovalTitle(titles[1]).detail, '', 'a tool the section does not know goes without a line');
+  const bare = loadExtension({ gate: true });
+  const blocked = await bare.handlers.tool_call({ toolName: 'mcp__x__y', toolCallId: 'm2', input: {} }, { ui: { select: async () => undefined } });
+  assert.equal(blocked.block, true, 'without the section, still asked, and no answer still blocks');
+  const off = loadExtension({ gate: false });
+  assert.equal(off.handlers.tool_call, undefined, 'the gate switched off asks about nothing');
+});

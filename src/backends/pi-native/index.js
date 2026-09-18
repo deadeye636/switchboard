@@ -38,7 +38,7 @@ const configFields = [
   // core names neither the key nor the backend.
   { id: 'approvalGate', label: 'Ask before commands and file changes', type: 'toggle', default: true,
     appliesAt: 'spawn', appliedBy: 'buildRuntimeExtension',
-    description: 'Every bash or PowerShell command, file edit, file write and subagent run waits for your answer: allow once, allow for '
+    description: 'Every bash or PowerShell command, file edit, file write, subagent run and MCP tool call waits for your answer: allow once, allow for '
       + 'the rest of this session, or refuse. A convenience, not a security boundary — the check runs inside '
       + 'the agent\'s own process, and a Pi started outside Switchboard asks nothing.' },
 ];

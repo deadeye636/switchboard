@@ -11,7 +11,8 @@
 //     the terminal backend drove — they share one store. Measured on Pi 0.84.4: `appendEntry` before the
 //     first message is held and written with it, so a session nobody wrote to leaves no transcript and no
 //     orphaned marker.
-//   * ASKS before `bash`, `powershell`, `edit`, `write` and the app's `subagent` tool (step C of #568, #634), unless the `approvalGate` option is off. Pi
+//   * ASKS before `bash`, `powershell`, `edit`, `write`, the app's `subagent` tool (step C of #568, #634) and every MCP
+//     tool taken over from another CLI (#633), unless the `approvalGate` option is off. Pi
 //     has no approval of its own: its project trust decides what is LOADED, and an enabled tool then runs
 //     unasked. The question is Pi's own `ctx.ui.select`, which RPC mode turns into an `extension_ui_request`
 //     the app answers — no side channel. Its title is a line for the app, not for a person (see
@@ -74,6 +75,10 @@ const { DESCRIBE_KEY } = require('../pi/subagent-tool');
 // resources extension asks through this symbol instead; absent (gate off, or the terminal backend), it asks
 // nobody, which is what the file's own permission already decided.
 const { APPROVAL_ASK_KEY } = require('../pi/command-bridge');
+// #633 (M5): every tool the MCP section of the resources extension registers, matched by its prefix. An MCP
+// tool can do anything its server does, and a `readOnlyHint` is only the server's own claim, so none is waved
+// through. "Allow for this session" is per TOOL; the line describing it comes from that section.
+const { TOOL_PREFIX: MCP_TOOL_PREFIX, DESCRIBE_KEY: MCP_DESCRIBE_KEY } = require('../pi/mcp-section');
 // The description is text for a person and travels in the question's title, so it is held to a line.
 const DETAIL_CAP = 400;
 
@@ -125,13 +130,16 @@ function extensionSource({ gate = true } = {}) {
     + `  g0[Symbol.for(${JSON.stringify(APPROVAL_ASK_KEY)})] = (tool: string, detail: string, ctx: any, opts: any) => ask(tool, String((opts && opts.key) || tool), null, String(detail || ""), ctx, String((opts && opts.by) || ""));\n`
     + `  pi.on("tool_call", async (event: any, ctx: any) => {\n`
     + `    const tool = String(event?.toolName || "");\n`
-    + `    if (!gated.has(tool)) return;\n`
+    + `    const mcp = tool.startsWith(${JSON.stringify(MCP_TOOL_PREFIX)});\n`
+    + `    if (!gated.has(tool) && !mcp) return;\n`
     + `    let key = tool === "subagent" ? "subagent:" + String(event?.input?.agent || "") : tool;\n`
     + `    let detail = "";\n`
     + `    let refused = false;\n`
     + `    try {\n`
     + `      const g: any = globalThis;\n`
     + `      const describe = g[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})];\n`
+    + `      const describeMcp = g[Symbol.for(${JSON.stringify(MCP_DESCRIBE_KEY)})];\n`
+    + `      if (mcp && typeof describeMcp === "function") detail = String(describeMcp(tool) || "");\n`
     + `      if (tool === "subagent" && typeof describe === "function") {\n`
     + `        const d = describe(ctx?.cwd || process.cwd(), String(event?.input?.agent || ""), ctx);\n`
     + `        if (d && typeof d === "object") {\n`
@@ -195,6 +203,6 @@ function parseApprovalTitle(title) {
 }
 
 module.exports = {
-  TRANSPORT, OPTION_ID, GATED_TOOLS, CHOICES, APPROVAL_PREFIX,
+  TRANSPORT, OPTION_ID, GATED_TOOLS, MCP_TOOL_PREFIX, CHOICES, APPROVAL_PREFIX,
   writeRuntimeExtension, removeRuntimeExtension, extensionSource, parseApprovalTitle,
 };

@@ -31,6 +31,13 @@ const HANDSHAKE_TIMEOUT_MS = 30000;
 // What one tool result may put in front of the model, in characters of text.
 const OUTPUT_CAP = 50 * 1024;
 const STDERR_CAP = 8 * 1024;
+// What every tool this section registers is called by, and the one thing pi-native's approval gate matches
+// on (#633, M5): an MCP tool can do anything its server does, and whether it only reads is the server's claim.
+const TOOL_PREFIX = 'mcp__';
+// Where the section publishes a line about one of its tools, for the gate's question — the tool NAME is
+// cleaned and cut, so it cannot be taken apart into server and tool again. The same registry-symbol shape
+// as the subagent describer (`./subagent-tool.js`): two per-spawn extensions in one process.
+const DESCRIBE_KEY = 'switchboard.mcp.describe';
 
 // Pi's tool name for one MCP tool. A plain function, written into the section with `toString()`, so the tests
 // call the same implementation.
@@ -100,7 +107,7 @@ const mcpContent = (${mcpContent.toString()});
 const MCP_STATE: any = (() => {
   const key = Symbol.for("switchboard.pi.mcp");
   const g: any = globalThis as any;
-  if (!g[key]) g[key] = { servers: null, clients: new Map(), generation: 0, exitHooked: false };
+  if (!g[key]) g[key] = { servers: null, clients: new Map(), generation: 0, exitHooked: false, described: new Map() };
   const state = g[key];
   // Read once, and gone from the environment before Pi starts anything. A later evaluation finds the
   // variable deleted and keeps the list it already has.
@@ -110,8 +117,17 @@ const MCP_STATE: any = (() => {
     try { const v = JSON.parse(raw); state.servers = Array.isArray(v) ? v : []; } catch { state.servers = []; }
   }
   if (!Array.isArray(state.servers)) state.servers = [];
+  if (!state.described) state.described = new Map();
   return state;
 })();
+
+// One line about a tool of this section, for whoever asks before it runs (pi-native's gate); '' for a name
+// this section never registered.
+(globalThis as any)[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})] = (name: string): string => {
+  const d = MCP_STATE.described.get(String(name));
+  if (!d) return "";
+  return "Tool " + d.tool + " of the MCP server " + d.server + ", taken over from another CLI" + (d.description ? ": " + d.description : ".");
+};
 
 class McpClient {
   name: string;
@@ -270,6 +286,7 @@ function mcpRegisterTools(pi: any, registered: Map<string, string>, server: stri
       continue;
     }
     registered.set(name, key);
+    MCP_STATE.described.set(name, { server, tool: t.name, description: String(t.description || "").replace(/\\s+/g, " ").trim().slice(0, 200) });
     const toolName = t.name;
     const schema = t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} };
     pi.registerTool({
@@ -334,7 +351,8 @@ function registerMcpServers(pi: any) {
   if (!servers.length) return;
   if (!MCP_STATE.exitHooked) { MCP_STATE.exitHooked = true; process.once("exit", mcpStopAll); }
   const registered = new Map<string, string>();
-  pi.on("session_shutdown", () => { MCP_STATE.generation++; mcpStopAll(); });
+  // The lines about the tools go with the servers: the next session registers and describes its own.
+  pi.on("session_shutdown", () => { MCP_STATE.generation++; mcpStopAll(); MCP_STATE.described.clear(); });
   pi.on("session_start", async (_event: any, ctx: any) => {
     // A new generation: anything still starting for an earlier session registers nothing, stops nothing but
     // its own client, and says nothing into this one.
@@ -380,4 +398,4 @@ function registerMcpServers(pi: any) {
 `;
 }
 
-module.exports = { ENV_KEY, START_CAP_MS, OUTPUT_CAP, IMPORTS, mcpSection, mcpToolName, mcpContent, envFor };
+module.exports = { ENV_KEY, TOOL_PREFIX, DESCRIBE_KEY, START_CAP_MS, OUTPUT_CAP, IMPORTS, mcpSection, mcpToolName, mcpContent, envFor };
