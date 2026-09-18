@@ -244,6 +244,10 @@ module.exports = {
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
+  // What another backend may take over from this one (#632): the global skills directory (#611). Its
+  // folder shape is inferred from plugin bundles (see `./resources.js`), not yet from a hand-made skill,
+  // and the listing names no commands, so there is no command dialect to declare.
+  sharedResources: { sources: ['skills-directory'], commandDialect: null },
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // agy lists markdown instructions and a JSON settings file; nothing else is offered for editing (#441).
   resourceEditing: { extensions: ['.md', '.markdown', '.json'] },

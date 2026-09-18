@@ -97,6 +97,21 @@ test('every backend declares supportsSubagents — and only Claude has them toda
   }
 });
 
+// #632: whether a backend OFFERS its resources to another ("Resources from") is declared the same way —
+// an object naming its listing sources, or an explicit null. A missing key would make "declines" and
+// "forgot" the same answer, and a named source that the listing never emits is checked in
+// test/resource-sources.test.js.
+test('every backend declares sharedResources — an object naming listing sources, or null to decline', () => {
+  for (const b of READY) {
+    const d = backends.get(b.id);
+    assert.ok(Object.prototype.hasOwnProperty.call(d, 'sharedResources'), `${b.id} must state sharedResources`);
+    const shared = d.sharedResources;
+    if (shared === null) continue;
+    assert.ok(Array.isArray(shared.sources) && shared.sources.length, `${b.id}: sharedResources.sources must name something`);
+    assert.equal(typeof d.listResources, 'function', `${b.id} offers resources it has no listing for`);
+  }
+});
+
 // #235: declaring supportsSubagents (#230) was only half the seam. A backend that HAS subagents must also
 // say how they are found, named and described, because the core stopped walking Claude's
 // `<folder>/<parent>/subagents/` and stopped minting `sub:<parent>:<agent>` itself. The rule is symmetric,

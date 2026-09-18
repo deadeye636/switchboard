@@ -594,6 +594,25 @@ description:
   // Pi's project trust lives in its own `trust.json` (#406), separate from the sessions store.
   projectTrust: { get: trust.get, getMany: trust.getMany, set: trust.set },
 
+  // #632: Pi TAKES OVER another backend's resources ("Resources from"); it offers none of its own to
+  // anybody, so it declares no `sharedResources`. What it can take: skills (`--skill`, which Pi reads in
+  // the same SKILL.md shape the others write) and commands (expanded by its per-spawn extension, because
+  // `--prompt-template` leaves `` !`…` `` and `@file` as text — measured, spec 30).
+  sharedResources: null,
+  acceptsSharedResources: ['skill', 'command'],
+  // Whether this launch may be handed a source's PROJECT-scope directories (owner decision E1). A path on
+  // Pi's command line is loaded whether or not the project is trusted, so passing one would read the
+  // project's instructions before anybody trusted it; the question is therefore answered the way Pi would
+  // answer it for its own project resources: this run's override first, then the saved decision. No saved
+  // decision is NOT trust — Pi would ask, and an unasked yes is the thing E1 refuses.
+  trustsProjectResources: ({ projectPath, options } = {}) => {
+    const approval = options && options.approval;
+    if (approval === 'approve') return true;
+    if (approval === 'no-approve') return false;
+    if (!projectPath) return false;
+    try { return trust.get(projectPath) === true; } catch { return false; }
+  },
+
   sessionsRoot,
   setRoot,
   _resetToolchainCache,

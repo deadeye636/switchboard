@@ -139,6 +139,10 @@ module.exports = {
   rewriteProjectPath: pi.rewriteProjectPath,
   deleteSessions: pi.deleteSessions,
   projectTrust: pi.projectTrust,
+  // #632: the same binary takes over the same resources, and the same trust rule decides the project half.
+  sharedResources: pi.sharedResources,
+  acceptsSharedResources: pi.acceptsSharedResources,
+  trustsProjectResources: pi.trustsProjectResources,
   caveat: pi.caveat,
   capabilities,
   configFields,

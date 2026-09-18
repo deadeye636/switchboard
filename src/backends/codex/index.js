@@ -247,6 +247,9 @@ module.exports = {
   // Codex's per-project instruction file is AGENTS.md (#227). It used to be read under Claude's branch in
   // the core, so a Codex project's own file was attributed to Claude; now Codex declares it.
   listResources: resources.createListResources({ codexHome }),
+  // What another backend may take over from this one (#632): its own skills directory. Plugin skills stay
+  // out (E5, later), and the listing names no commands, so there is no command dialect to declare.
+  sharedResources: { sources: ['skills-directory'], commandDialect: null },
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // Codex keeps its config in TOML and its prompts in markdown (#441). Nothing executable.
   resourceEditing: { extensions: ['.md', '.markdown', '.toml', '.json'] },

@@ -310,6 +310,11 @@ function profileToDescriptor(p) {
     // `projects.js` filters `launchable()`, which contains templates, so a remap carried the trust for
     // every built-in backend and silently not for a template.
     ...(base && base.projectTrust ? { projectTrust: base.projectTrust } : {}),
+    // #632: a template on Pi launches Pi, so it takes over another backend's resources exactly as its base
+    // does, and the same trust rule decides the project half. What a backend OFFERS (`sharedResources`) is
+    // not forwarded — see NOT_INHERITED in test/template-descriptor-shape.test.js.
+    ...(base && Array.isArray(base.acceptsSharedResources) ? { acceptsSharedResources: base.acceptsSharedResources } : {}),
+    ...(base && typeof base.trustsProjectResources === 'function' ? { trustsProjectResources: base.trustsProjectResources } : {}),
     // Is something OUTSIDE Switchboard already running this session (#172, #607)? The answer comes from
     // asking the BASE's CLI about its own sessions, and a template's sessions are in that same store
     // under that same CLI — so the question applies unchanged (#605). `app/live-owners.js` selects the

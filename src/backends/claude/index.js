@@ -760,6 +760,28 @@ module.exports = {
     return plugin ? `/${plugin}:${name}` : '/' + name;
   },
   listResources: resources.createListResources({ claudeHome }),
+  // What another backend may take over from this one (#632) — "Resources from: Claude" on a Pi session.
+  //
+  // `sources` names the listing entries by their `source`, so a plugin's skills (`plugin-skills:<name>`)
+  // stay out without the core knowing what a plugin is: they tend to lean on tools and MCP servers the
+  // other CLI does not have (owner decision E5, later). Agents are left to #639.
+  //
+  // `commandDialect` is DATA, not code, because the expansion runs inside the other CLI's process, where
+  // no descriptor function can be called. It describes what a command file of Claude's means beyond plain
+  // text, and a target that expands commands itself reads it:
+  //   - `$ARGUMENTS` is everything typed after the command, `$1`, `$2`, … one word each;
+  //   - `` !`cmd` `` is replaced by the command's output — but Claude runs it ONLY when the file's
+  //     `allowed-tools` frontmatter permits a `Bash(…)` call covering it, and so must the target (O4);
+  //   - `@path` is replaced by that file's content, relative to the project.
+  sharedResources: {
+    sources: ['skills-directory', 'project-skills', 'commands-directory', 'project-commands'],
+    commandDialect: {
+      allArguments: '$ARGUMENTS',
+      positionalArguments: true,
+      inlineShell: { open: '!`', close: '`', permissionKey: 'allowed-tools', permissionTool: 'Bash' },
+      fileReference: '@',
+    },
+  },
   // One level into a listed directory (#440) — the shared walker, this backend's rules.
   expandResource: resources.expandResource,
   // What the app may write back (#441). Markdown for skills, commands, agents and instruction files;

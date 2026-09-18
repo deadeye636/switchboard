@@ -352,6 +352,9 @@ module.exports = {
    */
   skillInvocation: ({ name }) => (name ? '/' + name : null),
   listResources: resources.listResources,
+  // #632 offers another backend's resources to Pi, and the owner named Claude, Codex and Antigravity as
+  // the sources. Hermes has skills too; it declines until somebody asks for it, rather than by accident.
+  sharedResources: null,
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // Hermes' own settings are `config.yaml` (#441). Its hooks are arbitrary files and stay out — a hook
   // is something that RUNS, and this is an editor for what a CLI reads.
