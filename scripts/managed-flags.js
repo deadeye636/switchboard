@@ -174,6 +174,7 @@ function sessionResourceFlags(backend) {
         source: sourceId,
         skills: accepts.includes('skill') ? [{ path: 'flag-audit-skills', scope: 'global' }] : [],
         commands: accepts.includes('command') ? [{ path: 'flag-audit-commands', scope: 'global', dialect: {} }] : [],
+        agents: accepts.includes('agent') ? [{ path: 'flag-audit-agents', scope: 'global', dialect: {} }] : [],
         dropped: [],
       }),
     });

@@ -18,7 +18,11 @@
 //     APPROVAL_PREFIX); the app draws the question itself. "Allow for this session" is remembered in this
 //     process only, per tool, so it ends with the session; anything lasting is the setting. For `subagent`
 //     it is per AGENT (#634): the question named one agent's tools, and allowing a different agent — maybe
-//     one with more tools — on the strength of it would allow more than was shown. The question is
+//     one with more tools — on the strength of it would allow more than was shown. Since #639 the key also
+//     says where the agent came from (Pi's own, or taken over from another CLI), and a delegation the tool
+//     would refuse anyway (an unknown agent, or a taken-over one none of whose tools Pi has) is BLOCKED here
+//     without a question — blocked, not waved through, because the tool reads the agent files again when it
+//     runs and a file written in the same batch of calls could make it runnable in between. The question is
 //     handed the run's abort signal: Pi's `abort` waits for the run to go idle, and a handler still waiting
 //     on an answer would hold that forever — with the signal, Stop resolves the question to "no" and the
 //     call is blocked, which is also what every answer that is not an explicit allow does.
@@ -121,14 +125,23 @@ function extensionSource({ gate = true } = {}) {
     + `  pi.on("tool_call", async (event: any, ctx: any) => {\n`
     + `    const tool = String(event?.toolName || "");\n`
     + `    if (!gated.has(tool)) return;\n`
-    + `    const key = tool === "subagent" ? "subagent:" + String(event?.input?.agent || "") : tool;\n`
-    + `    if (allowed.has(key)) return;\n`
+    + `    let key = tool === "subagent" ? "subagent:" + String(event?.input?.agent || "") : tool;\n`
     + `    let detail = "";\n`
+    + `    let refused = false;\n`
     + `    try {\n`
     + `      const g: any = globalThis;\n`
     + `      const describe = g[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})];\n`
-    + `      if (tool === "subagent" && typeof describe === "function") detail = String(describe(ctx?.cwd || process.cwd(), String(event?.input?.agent || "")) || "");\n`
+    + `      if (tool === "subagent" && typeof describe === "function") {\n`
+    + `        const d = describe(ctx?.cwd || process.cwd(), String(event?.input?.agent || ""));\n`
+    + `        if (d && typeof d === "object") {\n`
+    + `          detail = String(d.text || "");\n`
+    + `          if (d.key) key = "subagent:" + String(d.key);\n`
+    + `          refused = d.refused === true;\n`
+    + `        } else detail = String(d || "");\n`
+    + `      }\n`
     + `    } catch {}\n`
+    + `    if (refused) return { block: true, reason: detail || "This delegation cannot run." };\n`
+    + `    if (allowed.has(key)) return;\n`
     + `    if (await ask(tool, key, event?.toolCallId || null, detail, ctx, "")) return;\n`
     + `    return { block: true, reason: "The user did not allow this " + tool + " call." };\n`
     + `  });\n`;

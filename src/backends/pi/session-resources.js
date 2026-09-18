@@ -10,7 +10,8 @@
 //         first of two equal names — so a skill of the user's own Pi setup wins over the source's;
 //       · commands become a section of the per-spawn extension (`./command-bridge.js`), because
 //         `--prompt-template` would leave their `` !`…` `` and `@file` as text (measured);
-//   - the `subagent` tool (#634), another section of that same extension, when its option is on.
+//   - the `subagent` tool (#634), another section of that same extension, when its option is on — and with
+//     it the source's agents (#639), whose tools and model the section maps through the source's dialect.
 //
 // The options are read HERE, not in the core: which of this backend's options name a source or switch the
 // tool on is this backend's declaration (`appliedBy` on each field).
@@ -22,7 +23,7 @@ const resourcesExtension = require('./resources-extension');
 const SOURCE_OPTION_ID = 'resourcesFrom';
 
 /**
- * `{ args, cleanup, source, skills, commands, dropped }` for this launch, or null when there is nothing
+ * `{ args, cleanup, source, skills, commands, agents, dropped }` for this launch, or null when there is nothing
  * to give.
  *
  * `resolveSource(sourceId)` is the core's resolver, bound to this target, project and options. The answer
@@ -43,6 +44,7 @@ function buildSessionResources({ dir, tag, options, resolveSource, log } = {}) {
 function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
   let skills = [];
   let commands = [];
+  let agents = [];
   let dropped = [];
   if (sourceId) {
     if (!resolved || resolved.ok === false) {
@@ -50,25 +52,37 @@ function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
     } else {
       skills = resolved.skills || [];
       commands = resolved.commands || [];
+      agents = resolved.agents || [];
       dropped = [...(resolved.dropped || [])];
     }
   }
+  // A source's agents run through the subagent tool (#639), and the core only hands them over while that tool
+  // is on (`declinesSharedResource`). Should an answer carry agents anyway, they are reported, not run.
+  if (agents.length && !subagent) {
+    for (const a of agents) dropped.push({ path: a.path, kind: 'agent', scope: a.scope, reason: 'target-declined' });
+    agents = [];
+  }
+  // Project agents before global ones, as the source CLI itself ranks them; the section keeps the first name.
+  agents = [...agents].sort((a, b) => (a.scope === 'project' ? 0 : 1) - (b.scope === 'project' ? 0 : 1));
+  const section = subagent ? { ...subagent, sourceAgents: agents } : null;
   const args = [];
   for (const skill of skills) args.push('--skill', skill.path);
   let cleanup = null;
-  if (subagent || commands.length) {
-    const written = resourcesExtension.writeResourcesExtension({ dir, tag, subagent, commands, log });
+  if (section || commands.length) {
+    const written = resourcesExtension.writeResourcesExtension({ dir, tag, subagent: section, commands, log });
     if (written) {
       args.push('--extension', written.file);
       cleanup = written.file;
-    } else if (commands.length) {
-      // No file, no commands — said, rather than a session that silently lacks them.
+    } else if (commands.length || agents.length) {
+      // No file, no commands and no agents — said, rather than a session that silently lacks them.
       for (const c of commands) dropped.push({ path: c.path, kind: 'command', scope: c.scope, reason: 'extension-not-written' });
+      for (const a of agents) dropped.push({ path: a.path, kind: 'agent', scope: a.scope, reason: 'extension-not-written' });
       commands = [];
+      agents = [];
     }
   }
-  if (!args.length) return sourceId ? { args, cleanup: null, source: sourceId, skills, commands, dropped } : null;
-  return { args, cleanup, source: sourceId || null, skills, commands, dropped, subagent: !!subagent };
+  if (!args.length) return sourceId ? { args, cleanup: null, source: sourceId, skills, commands, agents, dropped } : null;
+  return { args, cleanup, source: sourceId || null, skills, commands, agents, dropped, subagent: !!subagent };
 }
 
 function releaseSessionResources(file, log) {

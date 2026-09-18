@@ -55,6 +55,10 @@
 const os = require('os');
 const path = require('path');
 
+// The splitter for a frontmatter tool list — commas, but not inside parentheses (`Tool(a, b)`).
+// The command bridge reads `allowed-tools` with it; an agent's `tools` line has the same shape.
+const { permissionEntries } = require('./command-bridge');
+
 // The options this module reads — HERE and nowhere else, so the core names neither key (reflex 5). Both
 // are on the `backendDefaults.pi` cascade; `subagentTool` is OFF unless somebody switched it on, because a
 // tool that starts model sessions nobody typed is not something to switch on for anyone.
@@ -79,8 +83,94 @@ function agentsDirFrom(options) {
   return raw;
 }
 
-// The extension, as TypeScript Pi loads directly. The one value that varies per spawn is the agents
-// directory, written as a JSON literal so no text a user typed can close a string and become code.
+// ── Another CLI's agents (#639) ────────────────────────────────────────────────────────────────────────
+//
+// A source's agent file names the SOURCE's tools. They reach Pi through the neutral words of
+// `../tool-vocabulary.js`: the source's dialect maps its names onto words, and this table says which of Pi's
+// own tools does each word. A word missing here is a tool Pi cannot give an agent.
+const TOOL_FOR_WORD = Object.freeze({
+  read: 'read',
+  write: 'write',
+  edit: 'edit',
+  'search-text': 'grep',
+  'find-files': 'find',
+  'list-dir': 'ls',
+  shell: 'bash',
+});
+
+// The tools a Pi child gets when it is given no `--tools`: Pi's built-in default (0.84.4). A `defaultTools`
+// setting of the user's own changes that default; the generated section reads it (`piDefaultTools`) where it
+// matters — an agent with no `tools` line but a `disallowedTools` one, whose list has to be spelled out.
+const DEFAULT_TOOLS = Object.freeze(['read', 'bash', 'edit', 'write']);
+
+/**
+ * What a source agent may use in Pi, from its frontmatter and the source's `agentDialect`.
+ * Answers `{ tools, dropped, refused, model, inheritsModel }`:
+ *   - `tools` — Pi tool names, or undefined for "Pi's default tools" (the agent has no tools line and
+ *     nothing is taken away);
+ *   - `dropped` — `[{ name, why }]`, entries that have no counterpart in Pi or restrict a tool to a pattern:
+ *     the child runs without this app's approval gate, so a restriction it cannot enforce is left out rather
+ *     than widened into the whole tool;
+ *   - `refused` — a sentence when nothing the agent may use is left, else null;
+ *   - `model` — the model the file names, or undefined; `inheritsModel` — the file says "use the caller's".
+ * A plain function with no closure: it is written into the generated extension with `toString()` and called
+ * by the tests directly — one implementation, not two. `entriesOf` splits a tools value into entries.
+ */
+function mapSourceAgent(frontmatter, dialect, toolForWord, defaults, entriesOf) {
+  const fm = frontmatter || {};
+  const d = dialect || {};
+  // A dialect that does not say where an agent lists its tools, or what they are called, cannot be mapped —
+  // and "no tools line" would then read as "every default tool". Refuse instead of guessing.
+  if (!d.toolsKey || !d.toolWords || typeof d.toolWords !== 'object') {
+    return { tools: [], dropped: [], refused: 'its CLI does not say how an agent names its tools', model: undefined, inheritsModel: false };
+  }
+  const words = d.toolWords;
+  const open = d.argumentOpen || '(';
+  const own = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+  const lookup = (entry) => {
+    const at = entry.indexOf(open);
+    const name = (at >= 0 ? entry.slice(0, at) : entry).trim();
+    const word = own(words, name) ? words[name] : null;
+    return { name, restricted: at >= 0, target: word && own(toolForWord, word) ? toolForWord[word] : null };
+  };
+  const dropped = [];
+  let tools;
+  const listed = fm[d.toolsKey];
+  const blank = listed === undefined || listed === null || (typeof listed === 'string' && !listed.trim());
+  if (!blank) {
+    tools = [];
+    for (const entry of entriesOf(listed)) {
+      const m = lookup(entry);
+      if (m.restricted) { dropped.push({ name: entry, why: 'restricted to a pattern the child cannot enforce' }); continue; }
+      if (!m.target) { dropped.push({ name: entry, why: 'no counterpart here' }); continue; }
+      if (!tools.includes(m.target)) tools.push(m.target);
+    }
+    if (!tools.length) {
+      return { tools, dropped, refused: 'none of its tools can run here', model: undefined, inheritsModel: false };
+    }
+  }
+  // A denied entry takes its WHOLE tool away, restricted or not: a pattern cannot be enforced in the child,
+  // and taking away more than was asked is the side that cannot surprise anyone.
+  const denied = [];
+  for (const entry of (d.disallowedToolsKey ? entriesOf(fm[d.disallowedToolsKey]) : [])) {
+    const m = lookup(entry);
+    if (!m.target) { dropped.push({ name: entry, why: 'denied, but not a tool this mapping knows — nothing taken away for it' }); continue; }
+    if (!denied.includes(m.target)) denied.push(m.target);
+  }
+  if (denied.length) {
+    tools = (tools || defaults.slice()).filter((t) => !denied.includes(t));
+    if (!tools.length) {
+      return { tools, dropped, refused: 'every tool it may use is also denied to it', model: undefined, inheritsModel: false };
+    }
+  }
+  const named = d.modelKey && typeof fm[d.modelKey] === 'string' ? fm[d.modelKey].trim() : '';
+  const inheritsModel = !!named && !!d.inheritModel && named === d.inheritModel;
+  return { tools, dropped, refused: null, model: named && !inheritsModel ? named : undefined, inheritsModel };
+}
+
+// The extension, as TypeScript Pi loads directly. What varies per spawn — the agents directory and another
+// CLI's agent directories with their dialect — is written as JSON literals, so no text a user typed can
+// close a string and become code.
 //
 // The body below avoids template literals on purpose: it is itself inside one here, and a `${` in it
 // would be interpolated by THIS file rather than written out.
@@ -96,10 +186,20 @@ const IMPORTS = [
 ];
 
 /** The tool as a section: its helpers and `registerSubagent(pi)`, without imports or a default export. */
-function subagentSection({ agentsDir } = {}) {
+function subagentSection({ agentsDir, sourceAgents = [] } = {}) {
+  // Only what the section needs of each source directory, in the order it is searched (project first).
+  const sources = (Array.isArray(sourceAgents) ? sourceAgents : [])
+    .filter((a) => a && typeof a.path === 'string' && a.path)
+    .map((a) => ({ path: a.path, scope: a.scope === 'project' ? 'project' : 'global', dialect: a.dialect || {} }));
   return `// A lean subagent tool in the shape of Pi's own example extension (examples/extensions/subagent, MIT).
 const AGENTS_DIR: string = ${JSON.stringify(agentsDir || '')};
 const OUTPUT_CAP = ${OUTPUT_CAP};
+// Another CLI's agent directories (#639), searched after Pi's own; each carries the dialect its files are in.
+const SOURCE_AGENTS: any[] = ${JSON.stringify(sources)};
+const TOOL_FOR_WORD: any = ${JSON.stringify(TOOL_FOR_WORD)};
+const DEFAULT_TOOLS: string[] = ${JSON.stringify(DEFAULT_TOOLS)};
+const agentToolEntries = (${permissionEntries.toString()});
+const mapSourceAgent = (${mapSourceAgent.toString()});
 
 function agentsDir(cwd: string): string {
   if (!AGENTS_DIR) return path.join(getAgentDir(), "agents");
@@ -131,9 +231,62 @@ function loadAgents(dir: string): any[] {
       tools: toolList(fm.tools),
       model: typeof fm.model === "string" ? fm.model : undefined,
       systemPrompt: String((parsed && parsed.body) || ""),
+      frontmatter: fm,
     });
   }
   return agents;
+}
+
+// The tools a child gets without --tools: Pi's defaultTools setting, else Pi's built-in default. Needed only
+// where an agent's list has to be spelled out to take a denied tool away — spelling out the built-in default
+// there could give MORE than the user's own setting allows. The project's .pi/settings.json counts only as a
+// NARROWING: Pi ignores it in a project it does not trust, and this code does not know the trust answer, so
+// it takes the tools both lists allow. That is never wider than either, and in a trusted project whose own
+// list is wider it gives less than Pi would, which is the side that cannot surprise anyone.
+function piDefaultTools(cwd: string): string[] {
+  const read = (file: string): string[] | undefined => {
+    try {
+      const v = JSON.parse(fs.readFileSync(file, "utf-8"));
+      return v && Array.isArray(v.defaultTools) ? v.defaultTools.filter((t: any) => typeof t === "string") : undefined;
+    } catch { return undefined; }
+  };
+  const base = read(path.join(getAgentDir(), "settings.json")) || DEFAULT_TOOLS.slice();
+  const project = read(path.join(cwd || process.cwd(), ".pi", "settings.json"));
+  return project ? base.filter((t) => project.includes(t)) : base;
+}
+
+// Every agent this session can run, in the order a name is looked up: Pi's own directory first, then another
+// CLI's (#639), project before global. The first agent of a name wins, as for skills and commands, so an agent
+// the user keeps for Pi is never replaced by a source's. A source agent's tools and model are mapped from its
+// own dialect; Pi's own agents are taken as they are written. ONE loader for the tool description, the call
+// and the approval question, so the three cannot disagree about which agent a name means.
+function allAgents(cwd: string): any[] {
+  const out: any[] = [];
+  const seen = new Set<string>();
+  for (const a of loadAgents(agentsDir(cwd))) {
+    if (seen.has(a.name)) continue;
+    seen.add(a.name);
+    out.push({ ...a, origin: "pi", scope: "" });
+  }
+  const defaults = piDefaultTools(cwd);
+  for (const src of SOURCE_AGENTS) {
+    for (const a of loadAgents(src.path)) {
+      if (seen.has(a.name)) continue;
+      seen.add(a.name);
+      const m = mapSourceAgent(a.frontmatter, src.dialect, TOOL_FOR_WORD, defaults, agentToolEntries);
+      out.push({ ...a, origin: "source", scope: src.scope, tools: m.tools, model: m.model, inheritsModel: m.inheritsModel, dropped: m.dropped, refused: m.refused });
+    }
+  }
+  return out;
+}
+
+// What was done to a source agent's tools, in one line — for the question before the call and for its result.
+function mappingLine(agent: any): string {
+  if (!agent || agent.origin !== "source") return "";
+  const left = (agent.dropped || []).map((d: any) => d.name + " (" + d.why + ")").join(", ");
+  const tools = agent.tools ? (agent.tools.length ? agent.tools.join(", ") : "none") : "the default tools";
+  const model = agent.inheritsModel ? "the session's (inherit)" : (agent.model ? agent.model + " as written" : "the session's");
+  return "Taken over from another CLI: tools " + tools + "; model " + model + "." + (left ? " Left out: " + left + "." : "");
 }
 
 function piInvocation(args: string[]): { command: string; args: string[] } {
@@ -192,16 +345,30 @@ function stop(proc: any) {
 // What the agent behind a call may do, in one line, for whoever asks before the call runs. Published under a
 // registry symbol rather than imported, because the asker is another per-spawn extension in this same Pi
 // process (the runtime-driven backend's approval gate) and neither file knows the other's path.
-function describeAgent(cwd: string, name: string): string {
-  const agent = loadAgents(agentsDir(cwd)).find((a) => a.name === name);
-  if (!agent) return "Unknown agent \\"" + name + "\\" — the call will fail without running anything.";
-  return "Agent " + agent.name + " · tools: " + (agent.tools ? agent.tools.join(", ") : "Pi's default tools")
-    + " · model: " + (agent.model || "the session's") + ". Nothing the agent runs is asked about separately.";
+//
+// The answer is { text, key, refused }: the key names the agent AND where it came from, so "allow for this
+// session" given to one agent cannot carry over to a different agent that later answers to the same name;
+// "refused" says the call will be refused anyway, so nobody is asked to allow what cannot run.
+function describeAgent(cwd: string, name: string): any {
+  const agent = allAgents(cwd).find((a) => a.name === name);
+  if (!agent) return { text: "Unknown agent \\"" + name + "\\" — the call will fail without running anything.", key: "", refused: true };
+  if (agent.refused) {
+    return { text: "Agent " + agent.name + " will be refused: " + agent.refused + ". " + mappingLine(agent), key: agent.origin + ":" + (agent.scope || "") + ":" + agent.name, refused: true };
+  }
+  const model = agent.model || (agent.inheritsModel ? "the session's (the file says inherit)" : "the session's");
+  const what = agent.origin === "source"
+    ? mappingLine(agent)
+    : "Agent " + agent.name + " · tools: " + (agent.tools ? agent.tools.join(", ") : "Pi's default tools") + " · model: " + model + ".";
+  return {
+    text: (agent.origin === "source" ? "Agent " + agent.name + ". " : "") + what + " Nothing the agent runs is asked about separately.",
+    key: agent.origin + ":" + (agent.scope || "") + ":" + agent.name,
+    refused: false,
+  };
 }
 (globalThis as any)[Symbol.for(${JSON.stringify(DESCRIBE_KEY)})] = describeAgent;
 
 function registerSubagent(pi: any) {
-  const listed = loadAgents(agentsDir(process.cwd()));
+  const listed = allAgents(process.cwd()).filter((a) => !a.refused);
   const names = listed.map((a) => a.name + " (" + a.description + ")").join("; ");
   pi.registerTool({
     name: "subagent",
@@ -224,13 +391,21 @@ function registerSubagent(pi: any) {
 
     async execute(_id: string, params: any, signal: AbortSignal | undefined, onUpdate: any, ctx: any) {
       const cwd = (ctx && ctx.cwd) || process.cwd();
-      const agents = loadAgents(agentsDir(cwd));
+      const agents = allAgents(cwd);
       const agent = agents.find((a) => a.name === params.agent);
       if (!agent) {
-        const available = agents.map((a) => '"' + a.name + '"').join(", ") || "none";
+        const available = agents.filter((a) => !a.refused).map((a) => '"' + a.name + '"').join(", ") || "none";
         return {
           content: [{ type: "text", text: 'Unknown agent "' + params.agent + '". Available agents: ' + available + "." }],
-          details: { agent: params.agent, available: agents.map((a) => a.name) },
+          details: { agent: params.agent, available: agents.filter((a) => !a.refused).map((a) => a.name) },
+          isError: true,
+        };
+      }
+
+      if (agent.refused) {
+        return {
+          content: [{ type: "text", text: "Agent " + agent.name + " cannot run here: " + agent.refused + ". " + mappingLine(agent) }],
+          details: { agent: agent.name, origin: agent.origin, dropped: agent.dropped || [], refused: agent.refused },
           isError: true,
         };
       }
@@ -256,7 +431,7 @@ function registerSubagent(pi: any) {
         try {
           onUpdate({
             content: [{ type: "text", text: (finalText(messages) || "(running...)") + "\\n" + usageLine(agent.name, usage, usedModel) }],
-            details: { agent: agent.name, usage: { ...usage }, model: usedModel, running: true },
+            details: { agent: agent.name, origin: agent.origin, usage: { ...usage }, model: usedModel, running: true },
           });
         } catch {}
       };
@@ -318,9 +493,9 @@ function registerSubagent(pi: any) {
 
         // The usage so far travels with the abort: a run cancelled because it got away is the one whose cost
         // most needs saying.
-        if (aborted) throw new Error("Subagent was aborted. " + usageLine(agent.name, usage, usedModel));
-        const summary = usageLine(agent.name, usage, usedModel);
-        const details = { agent: agent.name, usage: { ...usage }, model: usedModel, exitCode, stopReason };
+        if (aborted) throw new Error("Subagent was aborted. " + usageLine(agent.name, usage, usedModel) + (mappingLine(agent) ? " [" + mappingLine(agent) + "]" : ""));
+        const summary = usageLine(agent.name, usage, usedModel) + (mappingLine(agent) ? "\\n[" + mappingLine(agent) + "]" : "");
+        const details = { agent: agent.name, origin: agent.origin, tools: agent.tools, dropped: agent.dropped || [], usage: { ...usage }, model: usedModel, exitCode, stopReason };
         const failed = exitCode !== 0 || stopReason === "error" || stopReason === "aborted";
         if (failed) {
           const why = errorMessage || stderr.trim() || finalText(messages) || "(no output)";
@@ -337,14 +512,17 @@ function registerSubagent(pi: any) {
 }
 
 // The tool on its own, as one extension file — the section with its imports and a default export.
-function extensionSource({ agentsDir } = {}) {
+function extensionSource({ agentsDir, sourceAgents } = {}) {
   return '// Generated by Switchboard for one Pi spawn. Safe to delete.\n'
     + IMPORTS.join('\n') + '\n\n'
-    + subagentSection({ agentsDir })
+    + subagentSection({ agentsDir, sourceAgents })
     + '\nexport default function (pi: any) {\n  registerSubagent(pi);\n}\n';
 }
 
 module.exports = {
+  TOOL_FOR_WORD,
+  DEFAULT_TOOLS,
+  mapSourceAgent,
   OPTION_ID,
   DIR_OPTION_ID,
   DESCRIBE_KEY,

@@ -791,7 +791,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             ? (log) => backend.releaseSessionResources(built.cleanup, log)
             : null;
           if (built && built.source) {
-            ctx.log.info(`[session-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.commands || []).length} command dir(s), ${(built.dropped || []).length} dropped`);
+            ctx.log.info(`[session-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.commands || []).length} command dir(s), ${(built.agents || []).length} agent dir(s), ${(built.dropped || []).length} dropped`);
             for (const d of built.dropped || []) ctx.log.debug(`[session-resources] session=${sessionId} dropped ${d.kind} (${d.scope}, ${d.reason})`);
           }
           if (built && built.subagent) ctx.log.info(`[session-resources] session=${sessionId} subagent tool offered via ${backend.id}`);

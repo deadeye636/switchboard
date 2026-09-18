@@ -45,7 +45,7 @@ function mergeImports(lines) {
 
 /**
  * The extension's text for these sections, or '' when there is nothing to give.
- * `subagent`: `{ agentsDir }` or null. `commands`: the core's resolved command directories, or [].
+ * `subagent`: `{ agentsDir, sourceAgents }` or null (`sourceAgents`: another CLI's agent directories, #639). `commands`: the core's resolved command directories, or [].
  */
 function extensionSource({ subagent = null, commands = [] } = {}) {
   const imports = [];
