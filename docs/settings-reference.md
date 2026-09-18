@@ -481,6 +481,7 @@ so a run told not to trust the project does not trust it one process down. Three
   `tools` and `model`; the body becomes the agent's
   system prompt. Empty means the `agents` directory under Pi's own agent directory. A relative path is
   taken from the project. An agent without a `model` runs on the session's model and thinking level.
+  With `resourcesFrom` set, the source's agents are offered too, after these (below).
 - **A tool allowlist has to name it.** Pi's `tools` field restricts extension tools too, so with an
   allowlist set, `subagent` is only there if the list includes it.
 - **Pi's own example extension clashes with it.** If you linked Pi's `examples/extensions/subagent` into
@@ -490,12 +491,14 @@ Both Pi backends offer it. In `pi-native`, unless `approvalGate` is off, the app
 before every delegation and names the agent's tools and model beside the task, because it cannot ask
 about anything the child does: the child is a second Pi without this app's extension, so allowing a
 delegation allows whatever the agent's own tools then do. **Allow for this session** on a delegation
-allows later delegations to the same agent without asking again; another agent is asked about. With `approvalGate` off,
+allows later delegations to the same agent without asking again; another agent is asked about, and so is
+an agent of the same name from another place. A delegation the tool would refuse (an unknown agent, or a
+taken-over one with nothing it may use) is blocked without a question. With `approvalGate` off,
 delegations run unasked. The terminal backend asks about nothing, delegations included.
 
-**`resourcesFrom` gives a Pi session another CLI's skills and commands** (#632, spec 31). Its choices
-are `None (Pi's own)` and every built-in backend that offers something: Claude Code (skills and commands),
-Codex and Antigravity CLI (skills). Pi's backend folder does not list them. The field declares
+**`resourcesFrom` gives a Pi session another CLI's skills, commands and agents** (#632, #639, spec 31). Its
+choices are `None (Pi's own)` and every built-in backend that offers something: Claude Code (skills,
+commands and agents), Codex and Antigravity CLI (skills). Pi's backend folder does not list them. The field declares
 `choicesFrom: 'sharedResourceSources'` and the core fills the choices in, and a backend that is switched off
 is still offered, because only its files are read. It cascades like any launch option, one source per
 level. The default `''` is Pi as it was before. A source adds to what Pi already has, and what Pi has keeps
@@ -509,14 +512,23 @@ name replaces:
   A command whose name Pi already has is skipped, except the app's own `/handoff` and `/plan`, which a
   source's command replaces. In `pi-native` the approval gate also asks before a permitted shell line, and
   "Allow for this session" there covers that command only.
+- **Agents** are offered through the `subagent` tool and only while `subagentTool` is on; the source does not
+  switch the tool on. Pi's own agents come first, then the source's project agents, then its global ones,
+  and the first of a name wins. Tools are mapped (`Read`, `Glob`, `Bash` become `read`, `find`, `bash`).
+  A tool Pi has no counterpart for, or an entry restricted to a pattern such as `Bash(git status:*)`, is left
+  out and named. `disallowedTools` takes whole tools away, starting from your own `defaultTools`. An agent
+  left with nothing it may use is refused. `model: inherit` or no model means the session's model. Any
+  other name is looked up among the models of the session's own provider only, and without a match the
+  agent runs on the session's model. The question and the result say which tools and which model it got.
 - **A project's own directories** are passed only when Pi trusts the project: `approval` for this run
   first, then Pi's saved trust. No saved decision means no. Global directories are always passed.
-- **Not included:** hooks (#635), MCP servers (#633), agents (#639) and plugin skills. Of a command's
+- **Not included:** hooks (#635), MCP servers (#633) and plugin skills. Of a command's
   frontmatter, only `allowed-tools` changes what it does. `description` and `argument-hint` describe it,
   and `model` is not applied.
 
 The settings screen shows under the select what a launch from that scope would get. It lists the
-directories and the ones left out with their reason, and it reads them only when opened. A stored value no
+directories and the ones left out with their reason, and it reads them only when opened. It lists agent
+directories, not agents, so the tools an agent loses show only when it is called. A stored value no
 backend offers any more is shown as `<value> (not available)` instead of as the first choice. Known limits:
 Pi's `shellPath` setting is not used for a command's shell lines (Windows without Git Bash answers
 `[shell unavailable: …]`), a line gets 30 seconds, and `@docs/$1.md` is not expanded, by design.

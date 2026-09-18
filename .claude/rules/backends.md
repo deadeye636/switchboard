@@ -63,9 +63,11 @@ not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt sti
 the core must not believe; Claude reads it out of its own transcript, Pi is told by its binding extension
 and remembers it (#530), and a backend that cannot tell answers `null`, which is **not** the same as
 "nothing is queued"), which of its resources ANOTHER backend may take over and which it takes itself
-(`sharedResources` — the `source` rows that may leave it plus a `commandDialect` as DATA, because the
-target expands commands in its own process — against `acceptsSharedResources` + `trustsProjectResources`,
-#632; `src/app/resource-sources.js` is the one resolver, asked by the spawn and by the settings preview,
+(`sharedResources` — the `source` rows that may leave it plus a `commandDialect` and an `agentDialect` as
+DATA, because the target reads those files in its own process — against `acceptsSharedResources` +
+`trustsProjectResources` + the optional per-launch `declinesSharedResource`, #632/#639; an agent's TOOLS
+meet in the neutral words of `src/backends/tool-vocabulary.js`, the source mapping its names onto them and
+the target declaring its own, so neither folder spells the other's tools; `src/app/resource-sources.js` is the one resolver, asked by the spawn and by the settings preview,
 spec 31), and its CLI home variable (`cliHomeEnv`, #241).
 
 ## A directory is listed; `expandResource` reads it (#440)

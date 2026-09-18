@@ -1,4 +1,4 @@
-# 31 — Resources from: a Pi session takes over another CLI's skills and commands
+# 31 — Resources from: a Pi session takes over another CLI's skills, commands and agents
 
 Issue #632. The core half is `src/app/resource-sources.js`, the Pi half is `src/backends/pi/session-resources.js`
 with the per-spawn extension in `src/backends/pi/resources-extension.js` and the command bridge in
@@ -10,7 +10,7 @@ with the per-spawn extension in `src/backends/pi/resources-extension.js` and the
 Someone who has spent a year collecting skills and slash commands for Claude Code loses all of them the day
 they start a session in Pi, even when Pi runs the same model. The owner's goal for this issue and the ones
 after it: switching a session from Claude or Codex to Pi must not lose the user's setup. #632 covers the
-content, skills and commands, and adds the one setting the later parts attach to.
+content, skills and commands, and adds the one setting the later parts attach to; #639 adds agents.
 
 That setting is **Resources from**, a select on the Pi backends: `None (Pi's own)`, Claude Code, Codex,
 Antigravity CLI. It cascades like every launch option, so a project can pick a different source than the
@@ -36,7 +36,7 @@ All of them the owner's, 2026-09-18.
 | O3 | Commands are taken over, and their `` !`…` `` and `@file` work. | Measured: handed to Pi as `--prompt-template`, both stay literal text. See "Commands". |
 | O4 | An inline shell line runs only where the command file's own permission allows it, by the source CLI's rule. | That is what the source CLI does, and the rule belongs to the source: Codex and agy declare no commands at all. |
 | O5 | **One** per-spawn resources extension carries everything taken from the source. The `subagent` tool (#634) is folded into it as a section. | One file and one release per spawn. MCP (#633) and hooks (#635) attach as further sections, not as new hook pairs. |
-| O6 | Agents are not part of this issue. | Measured below; a Claude agent's tools and model do not map onto Pi's without a translation. That is #639. |
+| O6 | Agents were split off to #639. | Measured below; a Claude agent's tools and model do not map onto Pi's without a translation. #639 has since built it, see "Agents". |
 | F3 | In `pi-native`, the approval gate asks before a **permitted** inline shell line. | A conversation with the gate on must not run a shell command nobody was asked about. |
 | N1 | "Allow for this session" on such a line is per **command**, never the agent's `bash` tool. | Sharing the key would let a harmless `git status` in the user's own command unlock arbitrary agent bash. |
 
@@ -51,19 +51,21 @@ The settings screen (step 4) added two:
 
 No backend is named in the core, and no source's format is spelled in Pi's folder.
 
-- **A source** declares `sharedResources: { sources, commandDialect }`. `sources` names which of its
-  `listResources` rows may leave it, by their `source` key, so plugin rows stay out without the core knowing
-  what a plugin is. `commandDialect` describes its command files as data (below), because they are expanded
-  inside Pi's process, where no descriptor function can be called. Claude offers skills and commands, Codex
-  and agy skills only; Hermes and Pi declare `null`.
+- **A source** declares `sharedResources: { sources, commandDialect, agentDialect }`. `sources` names which
+  of its `listResources` rows may leave it, by their `source` key, so plugin rows stay out without the core
+  knowing what a plugin is. The two dialects describe its command and agent files as data (below), because
+  those are read inside Pi's process, where no descriptor function can be called. Claude offers skills,
+  commands and agents, Codex and agy skills only; Hermes and Pi declare `null`.
 - **A target** declares `acceptsSharedResources` (the kinds it can take) and `trustsProjectResources`
-  (E1), and implements the hook pair `buildSessionResources` / `releaseSessionResources`.
+  (E1), and implements the hook pair `buildSessionResources` / `releaseSessionResources`. It may also
+  declare `declinesSharedResource({ kind, scope, options })`, for a kind it accepts but not with this
+  launch's options, with a note of its own (#639: Pi declines agents while its subagent tool is off).
 - **The core** (`resource-sources.js`) has two answers. `sourcesFor(target)` lists the built-in backends
   that offer something, not the target itself and not a template, because a template reads its base's store
   and would offer the same directories twice. `resolve({ target, sourceId, projectPath, options })` lists
-  the source's rows, keeps the declared sources of the kinds the target takes, drops project rows unless the
-  target trusts the project, and reports each of those drops with its reason, as well as a command dropped
-  because its source declares no dialect. Rows the source never offers (plugins, agents, settings) and kinds
+  the source's rows, keeps the declared sources of the kinds the target takes, drops project rows the target
+  does not trust and any row of a kind the target declines for this launch, and reports each of those drops
+  with its reason, as well as a command or an agent dropped because its source declares no dialect for it. Rows the source never offers (plugins, settings) and kinds
   the target does not take are left out without a report, because nothing was going to be passed there. The
   spawn path and the settings preview both ask `resolve`, so they cannot disagree.
 - **The spawn** (`src/app/terminal/spawn.js`) awaits `buildSessionResources` with the cascaded options and
@@ -108,6 +110,46 @@ source command itself (`pi.registerCommand`) and expands it before sending it as
 The matching rules are Claude's `commandDialect` in `src/backends/claude/index.js`. Pi's extension carries
 them out and knows no syntax of its own.
 
+## Agents (#639)
+
+With the subagent tool on (`subagentTool`, #634), a source's agents can be delegated to like Pi's own. The
+source only adds a directory; it never switches the tool on, because the tool starts model sessions with a
+cost of their own. With the tool off, the preview shows the agent directories as not passed and says why.
+
+- **One loader, one order.** Pi's own agents directory (or `subagentAgentsDir`) comes first, then the
+  source's project agents, then its global ones, and the first agent of a name wins. The tool description,
+  the call and the approval question all ask the same loader, so they cannot disagree about which agent a
+  name means. Pi's own agents are used as they are written.
+- **Tools through a neutral vocabulary** (`src/backends/tool-vocabulary.js`). The source maps its names onto
+  words such as `read`, `find-files` and `shell` (`agentDialect.toolWords`), and Pi declares which of its
+  tools does each word (`TOOL_FOR_WORD` in `src/backends/pi/subagent-tool.js`). Neither side names the
+  other's tools. The issue proposed that Claude's descriptor name Pi's tools, which is CLAUDE.md reflex 5
+  the other way round.
+- **Nothing is widened.** A tool with no counterpart (`WebFetch`, `Task`, `mcp__…`) is left out and named.
+  An entry restricted to a pattern (`Bash(git status:*)`) is left out as well, because the child runs without
+  this app's gate and could not enforce the restriction. `disallowedTools` takes whole tools away, from the
+  user's own `defaultTools` when the agent has no `tools` line. A project's `defaultTools` can only narrow
+  that list, because Pi ignores it in a project it does not trust and this code does not know the answer.
+  A dialect that does not say how agents name their tools refuses instead of granting the defaults.
+- **An agent left with nothing it may use is refused** and not offered. In `pi-native` the gate blocks
+  such a delegation without asking. It is not waved through, because the tool reads the agent files again
+  when it runs, and a file written in the same batch of calls could make the agent runnable in between.
+- **The model stays with the session's provider.** `inherit`, or no model at all, is the session's model
+  and thinking level. Any other name is looked up only among the models the session's provider offers
+  (`ctx.modelRegistry.getAvailable()`): an exact id first, then the highest-sorting id containing the name,
+  preferring one without a date suffix. The child is handed that exact `provider/id`. With no match the agent runs on the
+  session's model, and the question and the result say so. Pi's own resolver would have searched every
+  provider (measured: `sonnet` under an OpenAI session picked an amazon-bedrock model). Pi's own agents keep
+  Pi's rule; whether they should change is #641.
+- **The question (in `pi-native`) and the result say what was done**: the tools the agent got, the model it runs on and why,
+  and every entry left out with its reason. "Allow for this session" is keyed by the agent's origin, scope
+  and name, so an allow cannot pass to a different agent that later answers to the same name.
+
+Click-tested in `pi-native` with Claude as source, on an OpenAI session: a Claude agent with
+`tools: Read, Glob, Bash` and `model: sonnet` ran with `read, find, bash` on the session's model and
+followed its own system prompt. A call to an agent with only `WebFetch` was blocked with its reason, and
+nobody was asked.
+
 ## Measured
 
 Against Pi 0.84.4, in the isolated demo.
@@ -120,7 +162,7 @@ Against Pi 0.84.4, in the isolated demo.
 - A Claude agent run as a Pi child: `tools: Read, Glob, Bash` gives the child **no** tools, without an error,
   because Pi looks tool names up exactly and drops unknown ones. `model: inherit` fails the child at once.
   `model: sonnet` resolved to a model of an unrelated provider by substring match. All three are why agents
-  are #639 and not part of this issue.
+  were split off to #639; "Agents" above is how that was built.
 
 Click-tested: in `pi-native` with Claude as source, a command with two arguments (one quoted) expanded
 them, a permitted `echo` ran after the gate asked, and a `whoami` the file did not permit was refused with a
@@ -130,13 +172,13 @@ commands came from one extension.
 
 ## What comes along and what does not
 
-Comes along: skills, and commands with arguments, file references and permitted shell lines.
+Comes along: skills; commands with arguments, file references and permitted shell lines; and, while the
+subagent tool is on, agents with the tools Pi has a counterpart for (#639).
 
 Does not, and says so in the option's own text:
 
 - Hooks: #635, as a section of the same extension.
 - MCP servers: #633. Pi has no MCP client of its own.
-- Agents: #639, with a tool and model mapping declared by the source.
 - Plugin skills: later (E5).
 - Anything tied to the source CLI's own tools. Of a command's frontmatter, `allowed-tools` decides its
   shell lines and `description` and `argument-hint` describe it; nothing else changes what it does, and
@@ -154,4 +196,10 @@ Does not, and says so in the option's own text:
   skills to measure.
 - **Codex skills may carry Codex-only instructions.** Pi reads them as they are, and they fail the way they
   would in any CLI other than Codex. They are documented, not filtered.
-- **A name Pi already has** is only known once the session runs, so the settings preview cannot show it.
+- **A name Pi already has** is only known once the session runs, so the settings preview cannot show it. The
+  same goes for the tools an agent loses: the preview lists agent directories, not agents.
+- **Nested agent folders are not read.** The subagent tool's loader reads one level of `agents/`; whether Claude reads
+  deeper was not measured.
+- **An agent file edited during a session** is read again at each call, so it can gain tools after an
+  "Allow for this session" was given for it, and a session model switched with Ctrl+P can resolve its model
+  differently at the next call. The key names the agent, not its contents or its model (as in #634).

@@ -380,7 +380,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   line runs only where the command file's `allowed-tools` permits it, and `Pi (native)` asks first unless `approvalGate` is off. Pi's
   own skills and commands win by name (only the app's own `/handoff` and `/plan` give way to a source's), and a project's own directories are passed only when Pi trusts the
   project. The settings screen fills the choices from the backends that offer something and previews what a
-  launch would get. Hooks, MCP servers and agents do not come along yet (#635, #633, #639). Spec:
+  launch would get. **Agents (#639)** come along while the subagent tool is on: their tools are mapped through
+  a neutral vocabulary, anything Pi has no counterpart for or cannot enforce is left out and named, an agent
+  left with nothing is refused, and a model name is resolved within the session's own provider, never
+  another. Hooks and MCP servers do not come along yet (#635, #633). Spec:
   [`specs/31-resources-from.md`](specs/31-resources-from.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
   `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a

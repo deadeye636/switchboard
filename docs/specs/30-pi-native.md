@@ -170,7 +170,9 @@ whatever the agent's tools then do. **Allow for this session is per agent for `s
 other gated tool keeps it per tool name: the question named one agent's tools, and allowing a different
 agent — possibly one with more tools — on the strength of it would allow more than was shown. Later
 delegations to the same agent, with any task, then run without asking; another agent is asked about
-again. The key is the agent's NAME, so the promise has a limit: an agent file edited mid-session to carry
+again. Since #639 the key also carries where the agent came from (Pi's own directory, or a source's project
+or global agents), and a delegation the tool would refuse anyway is blocked without a question. The key
+names the agent, not its file, so the promise has a limit: an agent file edited mid-session to carry
 more tools, or created for a name that was allowed while it did not exist yet, runs under the earlier
 allow. The convenience-not-boundary line covers that; keying on the description as well would re-ask after
 every edit to the agent. Decided by the owner over a setting for it, because the settings that exist already cover the
@@ -235,10 +237,10 @@ scrollback, the exit banner, the launch-error writes (`writeEntryError`). The vi
 deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
 terminal-key tests check that.
 
-## Another CLI's skills and commands
+## Another CLI's skills, commands and agents
 
-Both Pi backends can take over another CLI's skills and commands through the `resourcesFrom` setting
-(#632). How that works, and what does not come along (hooks, MCP servers, agents), is in spec 31, "What
+Both Pi backends can take over another CLI's skills, commands and agents through the `resourcesFrom`
+setting (#632, #639). How that works, and what does not come along (hooks, MCP servers), is in spec 31, "What
 comes along and what does not". The one part specific to this backend is the question before a command's
 shell line, described under Approvals above.
 
