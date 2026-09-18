@@ -58,7 +58,7 @@ const OPTION_ID = 'approvalGate';
 // switched on; a name nobody registered never fires.
 const GATED_TOOLS = ['bash', 'powershell', 'edit', 'write', 'subagent'];
 
-// Where the subagent extension publishes a one-line description of the agent a call names — its tools and
+// Where the subagent section of the resources extension (#632) publishes a one-line description of the agent a call names — its tools and
 // its model — so the question about a delegation can say what it allows. The call's own input shows only
 // the agent's NAME and the task, and an agent without a `tools` line runs with Pi's default tools, which is
 // exactly what a person deciding has to see. A registry symbol, because the two files are separate per-spawn
