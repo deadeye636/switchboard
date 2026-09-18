@@ -373,6 +373,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   delegation unless `approvalGate` is off or that agent was allowed for the session, naming the agent's
   tools and model, because the child runs
   without the app's approval question. Settings: [`settings-reference.md`](settings-reference.md).
+- **Resources from (#632)** — switching a session from Claude or Codex to Pi used to leave the user's setup
+  behind. The `resourcesFrom` setting on both Pi backends names one source (Claude Code, Codex or the
+  Antigravity CLI), and a Pi session then gets that CLI's skills as `--skill` directories and its commands
+  through the session's resources extension, which expands arguments, `@file` and inline shell lines. A shell
+  line runs only where the command file's `allowed-tools` permits it, and `Pi (native)` asks first unless `approvalGate` is off. Pi's
+  own skills and commands win by name (only the app's own `/handoff` and `/plan` give way to a source's), and a project's own directories are passed only when Pi trusts the
+  project. The settings screen fills the choices from the backends that offer something and previews what a
+  launch would get. Hooks, MCP servers and agents do not come along yet (#635, #633, #639). Spec:
+  [`specs/31-resources-from.md`](specs/31-resources-from.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
   `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a
   SQLite DB, read via an exporter like Hermes) **or** `{kind:'db'}` handles (Hermes keeps its sessions

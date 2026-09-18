@@ -157,12 +157,13 @@ is the worse failure, so this backend asks before `bash`, `powershell` (Pi's bui
 unless the `tools` option enables it), `edit` and `write`. It never asks before the read-only tools. The `approvalGate` option switches it off, and it is **on** by default.
 
 It also asks before the app's own `subagent` tool (#634), for a reason the others do not share. That tool
-starts a second Pi, spawned by the subagent extension, and the child loads neither per-spawn extension, so
+starts a second Pi, spawned by the subagent section of the per-spawn resources extension (spec 31), and the
+child loads neither per-spawn extension, so
 nothing it runs ever reaches a question. The delegation is therefore the only call there is to ask about.
 The view shows the agent and the task from the call, and one more line the call does not carry: the agent's
 tools and model. An agent file without a `tools` line runs with Pi's default tools, `bash`, `edit` and
-`write` among them, and that is what a person deciding has to see. The line comes from the subagent
-extension, which publishes a describer under a registry symbol (`DESCRIBE_KEY` in
+`write` among them, and that is what a person deciding has to see. The line comes from that subagent
+section, which publishes a describer under a registry symbol (`DESCRIBE_KEY` in
 `src/backends/pi/subagent-tool.js`); the gate asks it at the moment of the call and adds the answer to the
 question's title as `detail`. Without it the question still stands, only without the line. An allow covers
 whatever the agent's tools then do. **Allow for this session is per agent for `subagent`**, where every
@@ -178,17 +179,26 @@ ordinary tool output.
 
 The question comes from the per-spawn extension, not from the app. A `tool_call` handler calls Pi's own
 `ctx.ui.select`, which RPC mode turns into an `extension_ui_request`. The select's title is a line for
-the app, not for a person: a prefix plus `{ tool, id, detail }`, which the decoder recognises and turns into an
+the app, not for a person: a prefix plus `{ tool, id, detail, by }`, which the decoder recognises and turns into an
 `ask` of kind `approval`. The view draws the call that question is about, found by its id in the
 conversation it already holds, through the viewer's own tool renderer: the command, the diff, the
 content. It offers three answers:
 
 - **Allow once**
-- **Allow for this session**: remembered per tool (per agent for `subagent`), in the extension, for the
-  life of the process.
+- **Allow for this session**: remembered per tool (per agent for `subagent`, per command for a command's
+  shell line), in the extension, for the life of the process.
   Anything lasting is the setting, where it stays visible and can be taken back.
 - **Refuse**: the call is blocked with a reason the agent reads ("The user did not allow this bash
   call.") and answers.
+
+**A command taken over from another CLI asks too** (#632, spec 31). Its inline shell lines run inside the
+resources extension and never go through a tool, so no `tool_call` sees them. Where the gate is on, it
+publishes its question under a registry symbol (`Symbol.for('switchboard.approval.ask')`), and the command
+bridge asks it before running a line the command file permits. A line the file does not permit is refused
+before it gets that far, so nobody is asked about it. The title carries `by`, and the view says "Your command
+/x wants to run a shell line" instead of naming an agent tool. Allow for this session is keyed to that one
+command (`command:<name>`) and never to `bash`, because a harmless `git status` in the user's own command must
+not unlock the agent's shell. With the gate off, and in terminal Pi, the file's own permission decides alone.
 
 Anything that is not an explicit allow blocks: a dismissed question, one that threw, an answer the
 extension does not recognise. The question is handed the run's abort signal. Pi's `abort` waits for the
@@ -224,6 +234,13 @@ scrollback, the exit banner, the launch-error writes (`writeEntryError`). The vi
 `backends-list` carries `transport` to the renderer. `pageKeyTarget` and `newlineKeySequence` are
 deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
 terminal-key tests check that.
+
+## Another CLI's skills and commands
+
+Both Pi backends can take over another CLI's skills and commands through the `resourcesFrom` setting
+(#632). How that works, and what does not come along (hooks, MCP servers, agents), is in spec 31, "What
+comes along and what does not". The one part specific to this backend is the question before a command's
+shell line, described under Approvals above.
 
 ## Known gaps
 

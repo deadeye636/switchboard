@@ -440,7 +440,7 @@ own `config.toml`.)
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
-| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 | `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
@@ -471,7 +471,8 @@ defined as a markdown file, and that agent runs as a separate Pi process with a 
 a second model session with its own cost; the turns, tokens, cost and model of the run are added to the
 tool result, so they show in the session. It is off by default. Like `conventionPrompts` it writes nothing
 into Pi's configuration: each spawn gets one extension file under the app's data folder, passed with
-`--extension` and removed when the session ends. The child runs without a session file, so it never
+`--extension` and removed when the session ends. That file is the session's one resources extension, and
+the commands taken over through `resourcesFrom` (below) are a section of the same file. The child runs without a session file, so it never
 appears in the sidebar. The child shares the session's `approval`, `offline` and `noContextFiles` choices,
 so a run told not to trust the project does not trust it one process down. Three things to know:
 
@@ -492,8 +493,37 @@ delegation allows whatever the agent's own tools then do. **Allow for this sessi
 allows later delegations to the same agent without asking again; another agent is asked about. With `approvalGate` off,
 delegations run unasked. The terminal backend asks about nothing, delegations included.
 
+**`resourcesFrom` gives a Pi session another CLI's skills and commands** (#632, spec 31). Its choices
+are `None (Pi's own)` and every built-in backend that offers something: Claude Code (skills and commands),
+Codex and Antigravity CLI (skills). Pi's backend folder does not list them. The field declares
+`choicesFrom: 'sharedResourceSources'` and the core fills the choices in, and a backend that is switched off
+is still offered, because only its files are read. It cascades like any launch option, one source per
+level. The default `''` is Pi as it was before. A source adds to what Pi already has, and what Pi has keeps
+its name; the one exception is the app's own `/handoff` and `/plan`, which a source's command of that
+name replaces:
+
+- **Skills** go to Pi as `--skill <dir>`. A Pi skill of the same name wins.
+- **Commands** are registered by the session's resources extension and expanded there: `$ARGUMENTS` and
+  `$1…`, `@file` from the command file's own text, and an inline shell line only where the file's
+  `allowed-tools` permits it by Claude's rule. A line that chains, pipes or redirects needs the bare `Bash`.
+  A command whose name Pi already has is skipped, except the app's own `/handoff` and `/plan`, which a
+  source's command replaces. In `pi-native` the approval gate also asks before a permitted shell line, and
+  "Allow for this session" there covers that command only.
+- **A project's own directories** are passed only when Pi trusts the project: `approval` for this run
+  first, then Pi's saved trust. No saved decision means no. Global directories are always passed.
+- **Not included:** hooks (#635), MCP servers (#633), agents (#639) and plugin skills. Of a command's
+  frontmatter, only `allowed-tools` changes what it does. `description` and `argument-hint` describe it,
+  and `model` is not applied.
+
+The settings screen shows under the select what a launch from that scope would get. It lists the
+directories and the ones left out with their reason, and it reads them only when opened. A stored value no
+backend offers any more is shown as `<value> (not available)` instead of as the first choice. Known limits:
+Pi's `shellPath` setting is not used for a command's shell lines (Windows without Git Bash answers
+`[shell unavailable: …]`), a line gets 30 seconds, and `@docs/$1.md` is not expanded, by design.
+
 **`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit`, `write` or
-`subagent`** (the `pi-native` backend). Each call waits for an answer in the conversation: allow once, allow
+`subagent`** (the `pi-native` backend), and before a permitted shell line of a command taken over through
+`resourcesFrom`. Each call waits for an answer in the conversation: allow once, allow
 for the rest of the session, or refuse. It is on by default. It is a convenience and not a security boundary: the check runs inside the
 agent's own process, and a Pi started outside Switchboard asks nothing.
 

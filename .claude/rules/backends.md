@@ -62,7 +62,11 @@ badge; Hermes and agy decline and therefore show no health badge — Spec 28), w
 not announced (`readTurnQueue`, #495 — a `Stop` that arrives with a prompt still queued is a `Stop`
 the core must not believe; Claude reads it out of its own transcript, Pi is told by its binding extension
 and remembers it (#530), and a backend that cannot tell answers `null`, which is **not** the same as
-"nothing is queued"), and its CLI home variable (`cliHomeEnv`, #241).
+"nothing is queued"), which of its resources ANOTHER backend may take over and which it takes itself
+(`sharedResources` — the `source` rows that may leave it plus a `commandDialect` as DATA, because the
+target expands commands in its own process — against `acceptsSharedResources` + `trustsProjectResources`,
+#632; `src/app/resource-sources.js` is the one resolver, asked by the spawn and by the settings preview,
+spec 31), and its CLI home variable (`cliHomeEnv`, #241).
 
 ## A directory is listed; `expandResource` reads it (#440)
 
@@ -418,6 +422,22 @@ core names no event of it. Its per-spawn extension is a hook pair on the descrip
 the way the binding and the templates are, so a spawn-applied option (`approvalGate`) can name it in
 `appliedBy`. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
 to read them, and the terminal-key tests check the absence.
+
+**A new per-spawn feature is a SECTION, not a hook pair (#632).** Everything a Pi session is GIVEN goes
+into the resources extension (`src/backends/pi/resources-extension.js`), built through
+`providesSessionResources` + `buildSessionResources` / `releaseSessionResources`. It sits beside the
+extensions that make the app's own seams work (the live binding in terminal Pi, the runtime extension
+above in `pi-native`) and the #569 template directory, and it is not one of those. The resources extension
+composes sections: the `subagent` tool (#634) and the commands taken over from another backend
+(`command-bridge.js`), each exporting its imports and its source text, and the composer merges them into
+one `pi-resources-<tag>.ts`. MCP (#633) and hooks (#635) go in as further sections of that file. Another
+hook pair would be another file per spawn, another release on exit and another place to forget the quit
+re-check after the await, which the spawn path already carries once.
+
+**A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
+backend's own folder cannot list other backends (reflex 5), so the core fills the choices at the
+`backends-list` projection (`resource-sources.projectFields`) and every form reads the same list. A new
+token there is core vocabulary. Add it to that module, never as a backend id in a descriptor.
 
 ## "Is something else already running this session?" is THREE hooks (#172, #607)
 

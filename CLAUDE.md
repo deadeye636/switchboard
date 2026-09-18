@@ -39,6 +39,7 @@ table is the fallback and it is binding.
 | attention — busy/ready, the hooks, a turn that announces nothing | `docs/specs/05-hook-attention-detection.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | session health — the badge, the context fill, a model's context window | `docs/specs/28-session-health.md` (why) + `.claude/rules/backends.md` (the `contextWindow` hook) + `src/backends/claude/model-windows.js` (Claude's measured table) + `.claude/rules/renderer.md` (the rule) |
 | a session with no terminal — a backend driven over a pipe, the conversation view | `docs/specs/30-pi-native.md` (why) + `.claude/rules/backends.md` (the driver/owner rule) + `.claude/rules/renderer.md` (the terminal-less entry) |
+| "Resources from" — a Pi session taking over another CLI's skills and commands, a per-spawn extension section, a select whose choices the core fills | `docs/specs/31-resources-from.md` (why) + `.claude/rules/backends.md` (the declarations, sections not hook pairs) + `src/app/resource-sources.js` (the one resolver) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |

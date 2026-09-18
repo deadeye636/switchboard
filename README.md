@@ -109,6 +109,11 @@ chart rather than a row of zeroes.
 - **Subagents for Pi** — an opt-in `subagent` tool that hands one task to an agent from a markdown
   definition, run as a separate Pi process with a fresh context; the result says what it cost.
   → [`docs/settings-reference.md`](docs/settings-reference.md)
+- **Another CLI's skills and commands in Pi** — pick a source under *Resources from* and a Pi session gets
+  that CLI's skills and slash commands beside its own. Arguments and `@file` work, and a command's shell
+  lines run where its `allowed-tools` allows them. A project's own directories come along only when Pi
+  trusts the project, and settings shows what a session would take over.
+  → [`docs/specs/31-resources-from.md`](docs/specs/31-resources-from.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey
