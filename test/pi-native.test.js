@@ -255,8 +255,10 @@ function loadExtension(options, globals = {}) {
   mod.exports = mod.exports.default;
   const handlers = {};
   const appended = [];
-  mod.exports({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: (t, d) => appended.push([t, d]) });
-  return { handlers, appended };
+  const commands = {};
+  mod.exports({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: (t, d) => appended.push([t, d]),
+    registerCommand: (name, def) => { commands[name] = def; } });
+  return { handlers, appended, commands };
 }
 
 test('the running gate: only an explicit allow lets a gated call through, and the question gets the abort signal', async () => {

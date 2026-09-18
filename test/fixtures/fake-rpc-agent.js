@@ -3,6 +3,8 @@
 // framing and the exit path are exercised against a real child process rather than a mock of one.
 'use strict';
 
+const { ASK_PREFIX, DISMISS_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
+
 const SESSION_ID = 'fake-session';
 const messages = [];
 let buf = '';
@@ -41,10 +43,31 @@ process.stdin.on('data', (chunk) => {
       case 'get_messages':
         out({ id: cmd.id, type: 'response', command: 'get_messages', success: true, data: { messages } });
         break;
+      case 'get_commands':
+        out({ id: cmd.id, type: 'response', command: 'get_commands', success: true, data: { commands: [
+          { name: 'model', description: 'Switch the model', source: 'extension' },
+          { name: COMPLETE_COMMAND, description: 'internal', source: 'extension' },
+          { name: 'fix-tests', description: 'Fix failing tests', source: 'prompt', location: 'project' },
+          { name: 'skill:search', description: 'Search the web', source: 'skill' },
+        ] } });
+        break;
       case 'prompt':
+        if (cmd.message.startsWith('/' + COMPLETE_COMMAND + ' ')) {
+          // As measured: the extension command says its answer, THEN Pi answers the prompt.
+          const req = JSON.parse(cmd.message.slice(COMPLETE_COMMAND.length + 2));
+          out({ type: 'extension_ui_request', id: 'c-' + req.token, method: 'notify', message: COMPLETIONS_PREFIX + JSON.stringify({ token: req.token, items: [{ value: 'openai-codex/gpt-5.6-sol', description: 'GPT 5.6 (current)' }] }) });
+          out({ id: cmd.id, type: 'response', command: 'prompt', success: true });
+          break;
+        }
         out({ id: cmd.id, type: 'response', command: 'prompt', success: true });
         if (cmd.message === 'ask me') {
           out({ type: 'extension_ui_request', id: 'q1', method: 'select', title: 'Allow bash?', options: ['Allow once', 'Refuse'] });
+        } else if (cmd.message === 'command ask') {
+          // A question one of pi-native's own commands asks (#642): outside any run, and marked as such.
+          out({ type: 'extension_ui_request', id: 'c1', method: 'select', title: ASK_PREFIX + JSON.stringify({ title: 'Pick', token: 't1' }), options: ['a', 'b'] });
+        } else if (cmd.message === 'take it back') {
+          // Pi stopped waiting on that question (a login's browser callback won), and the command says so.
+          out({ type: 'extension_ui_request', id: 'n1', method: 'notify', message: DISMISS_PREFIX + JSON.stringify({ token: 't1' }) });
         } else {
           turn(cmd.message);
         }

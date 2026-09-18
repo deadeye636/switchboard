@@ -134,6 +134,12 @@ about when a session is finished),
 except in how an MCP definition's `${VAR}` expands, against the session's environment at spawn and the app's in the preview.
 It also fills the choices of a `configFields` select that declares `choicesFrom: 'sharedResourceSources'`,
 at the `backends-list` projection, because a backend's own folder cannot name the other backends),
+`path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
+`readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
+measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it
+reads it, never descends into a link, refuses an `.asar` segment before resolving, and skips what
+`build-dirs.js` names; no IPC of its own — `agent-rpc.js`
+answers `agent-paths` with it against the session's working directory),
 `clipboard-insert.js` (what the system clipboard hands a `{clipboard}` insert — #491; the paste/drop
 ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
 bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the

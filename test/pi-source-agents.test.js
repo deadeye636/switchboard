@@ -151,7 +151,7 @@ function loadGate(globals) {
   const mod = { exports: {} };
   vm.runInNewContext(code, { module: mod, exports: mod.exports, JSON, ...globals });
   const handlers = {};
-  mod.exports.default({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: () => {} });
+  mod.exports.default({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: () => {}, registerCommand: () => {} });
   return handlers;
 }
 

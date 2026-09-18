@@ -204,6 +204,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/projects-admin.js': [],
   'src/renderer/session/session-health.js': [],
   'src/renderer/session/live-session-rows.js': [],
+  'src/renderer/session/composer-completion.js': [],
   'src/renderer/session/conversation-view.js': [],
   'src/renderer/views/stats-view.js': [],
   'src/renderer/terminal/palette-core.js': [],

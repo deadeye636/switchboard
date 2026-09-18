@@ -115,6 +115,48 @@ test('a question blocks until answered: it is reported as waiting, answered once
   await until(() => h.sent.some(m => m.op && m.op.op === 'append' && /answered Allow once/.test(JSON.stringify(m.op.entry))));
 });
 
+// #642: a question one of pi-native's own commands asks belongs to the command, not to a run. Pi keeps waiting
+// on it across a run that starts and settles meanwhile, so the app must too — and when Pi takes it back
+// itself, the app closes it and the session stops waiting.
+test('a command\'s question outlives a run, and closes when the runtime takes it back', async (t) => {
+  const h = harness();
+  t.after(() => h.proc.kill());
+  await until(() => h.rekeys.length === 1);
+  await agentRpc.sendTurn('fake-session', { text: 'command ask', mode: 'prompt' });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'ask'));
+  await agentRpc.sendTurn('fake-session', { text: 'hello', mode: 'prompt' });
+  await until(() => h.signals.some(s => s.kind === 'idle'));
+  assert.equal((await agentRpc.attach('fake-session')).asks.length, 1, 'the run settling left it open');
+  assert.equal(h.signals[h.signals.length - 1].kind, 'waiting', 'and the session is still waiting on the user');
+  assert.ok(!h.sent.some(m => m.op && m.op.op === 'answered'));
+
+  await agentRpc.sendTurn('fake-session', { text: 'take it back', mode: 'prompt' });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'answered' && m.op.id === 'c1'));
+  assert.equal((await agentRpc.attach('fake-session')).asks.length, 0);
+  assert.equal(h.signals[h.signals.length - 1].kind, 'idle');
+  assert.equal(agentRpc.answerAsk('fake-session', 'c1', { value: 'a' }).ok, false, 'a question taken back cannot be answered');
+});
+
+// #643: the input's autocomplete asks the session through the backend's own protocol half — the command list
+// in the app's words, one command's arguments (answered beside the prompt response), and the project's files.
+test('the autocomplete: commands, a command\'s arguments, and paths inside the session\'s project', async (t) => {
+  const h = harness();
+  t.after(() => h.proc.kill());
+  await until(() => h.rekeys.length === 1);
+  const listed = await agentRpc.listCommands('fake-session');
+  assert.equal(listed.ok, true);
+  assert.deepEqual(listed.commands.map(c => [c.name, c.kind, c.arguments]), [
+    ['model', 'command', true], ['fix-tests', 'template', false], ['skill:search', 'skill', false],
+  ], 'the internal completion command is not offered');
+  const args = await agentRpc.completeArguments('fake-session', 'model');
+  assert.deepEqual(args, { ok: true, items: [{ value: 'openai-codex/gpt-5.6-sol', description: 'GPT 5.6 (current)' }] });
+  assert.ok(!h.sent.some(m => m.op && m.op.op === 'notice'), 'the answer is not drawn as a notice');
+  const paths = await agentRpc.completeSessionPaths('fake-session', 'fixtures/fake-rpc');
+  assert.deepEqual(paths.items, [{ value: 'fixtures/fake-rpc-agent.js', dir: false }], 'relative to the session\'s own directory');
+  assert.deepEqual((await agentRpc.completeSessionPaths('fake-session', '../')).items, [], 'nothing outside it');
+  assert.equal((await agentRpc.listCommands('nobody')).ok, false);
+});
+
 test('a carriage return inside a bracketed paste is text: a pasted CRLF block is one turn', async (t) => {
   const h = harness();
   t.after(() => h.proc.kill());

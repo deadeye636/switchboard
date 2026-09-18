@@ -26,6 +26,7 @@
 
 const { spawn: spawnChild, execFile } = require('child_process');
 const crypto = require('crypto');
+const { completePaths } = require('./path-completion');
 
 let ctx = null;
 
@@ -116,6 +117,7 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
     rpc,
     child,
     label: label || 'The agent',
+    cwd,                     // the session's project: what an `@` in its input completes against
     decoder: rpc.createDecoder(),
     pending: new Map(),      // request id -> { resolve, timer }
     asks: new Map(),         // request id -> the ask the renderer has not answered yet
@@ -188,10 +190,15 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
   state.report = report;
 
   // Questions Pi stopped waiting on — a run that settled, a process that ended — are closed here too, or
-  // every later mount would draw a dialog nobody can answer any more.
-  function dropAsks() {
-    for (const id of state.asks.keys()) sendOp(state, { op: 'answered', id });
-    state.asks.clear();
+  // every later mount would draw a dialog nobody can answer any more. A `lasting` question belongs to
+  // something outside the run (a command the user typed) and Pi keeps waiting on it, so a settled run leaves
+  // it open; only the process ending takes it.
+  function dropAsks({ keepLasting = false } = {}) {
+    for (const [id, request] of state.asks) {
+      if (keepLasting && request && request.lasting) continue;
+      sendOp(state, { op: 'answered', id });
+      state.asks.delete(id);
+    }
   }
 
   function handleOp(op) {
@@ -212,7 +219,12 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
         // `turn_start` because an RPC `agent_start` IS a turn beginning — the one fact that releases a
         // held "finished" (#495) — and only the start says so, never the settle.
         report(op.busy ? 'busy' : 'idle', op.busy ? { turn_start: true } : undefined);
-        if (!op.busy) dropAsks();
+        if (!op.busy) {
+          dropAsks({ keepLasting: true });
+          // Still waiting on a question that outlived the run: the session is waiting on the user, not idle.
+          const open = state.asks.values().next().value;
+          if (open) report('waiting', { prompt_kind: open.method });
+        }
         sendOp(state, op);
         if (!op.busy) followIdentity();
         return;
@@ -228,6 +240,15 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
         // the same edge a terminal's binding posts for an extension's prompt (#529).
         report('waiting', { prompt_kind: op.request.method });
         sendOp(state, op);
+        return;
+      case 'answered':
+        // The runtime stopped waiting on a question by itself (a login whose browser callback won). Only a
+        // question still open is closed, and the session leaves "waiting" the way `answerAsk` lets it go.
+        if (!state.asks.has(op.id)) return;
+        state.asks.delete(op.id);
+        flushPartial();
+        sendOp(state, op);
+        if (!state.asks.size) report(state.busy ? 'busy' : 'idle');
         return;
       default:
         flushPartial();
@@ -389,6 +410,41 @@ async function abortTurn(sessionId) {
   return res && res.success !== false ? { ok: true } : { ok: false, error: 'The session did not stop.' };
 }
 
+// --- the input's autocomplete (#643) ---
+
+// What a `/` can complete to: the backend's own list, in the app's words (`{ name, description, kind,
+// arguments }`). A backend that declares no such command answers an empty list, not an error.
+async function listCommands(sessionId) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (typeof state.rpc.commandsCommand !== 'function' || typeof state.rpc.commandsFromResponse !== 'function') return { ok: true, commands: [] };
+  const res = await state.request(state.rpc.commandsCommand);
+  if (!res || res.success === false) return { ok: false, error: 'The session did not answer.' };
+  return { ok: true, commands: state.rpc.commandsFromResponse(res) };
+}
+
+// What one command takes as an argument: `{ value, description }` rows. The backend's answer arrives beside
+// the response to its request, and its decoder holds it under the token the request carried.
+async function completeArguments(sessionId, command) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (typeof state.rpc.argumentsCommand !== 'function' || typeof state.decoder.takeCompletions !== 'function') return { ok: true, items: [] };
+  const token = crypto.randomUUID();
+  const res = await state.request((id) => state.rpc.argumentsCommand(id, { command: String(command || ''), token }));
+  const items = state.decoder.takeCompletions(token);
+  if (!res || res.success === false) return { ok: false, error: 'The session did not answer.' };
+  return { ok: true, items: Array.isArray(items) ? items : [] };
+}
+
+// What an `@` can complete to: the files of the session's own project, never outside it (./path-completion.js).
+async function completeSessionPaths(sessionId, prefix) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  let items = [];
+  try { items = await completePaths(state.cwd, String(prefix == null ? '' : prefix)); } catch { items = []; }
+  return { ok: true, items };
+}
+
 function answerAsk(sessionId, requestId, answer) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
@@ -410,11 +466,14 @@ function registerIpc(ipc) {
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
   ipc.handle('agent-abort', (_event, sessionId) => abortTurn(sessionId));
   ipc.handle('agent-answer', (_event, sessionId, requestId, answer) => answerAsk(sessionId, requestId, answer));
+  ipc.handle('agent-commands', (_event, sessionId) => listCommands(sessionId));
+  ipc.handle('agent-arguments', (_event, sessionId, command) => completeArguments(sessionId, command));
+  ipc.handle('agent-paths', (_event, sessionId, prefix) => completeSessionPaths(sessionId, prefix));
 }
 
 module.exports = {
   init, registerIpc, start,
   // For the tests, which drive a fake child through the same functions the IPC calls.
-  attach, sendTurn, abortTurn, answerAsk,
+  attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS,
 };

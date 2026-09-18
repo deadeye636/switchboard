@@ -315,6 +315,10 @@ contextBridge.exposeInMainWorld('api', {
     send: (id, payload) => ipcRenderer.invoke('agent-send', id, payload),
     abort: (id) => ipcRenderer.invoke('agent-abort', id),
     answer: (id, requestId, answer) => ipcRenderer.invoke('agent-answer', id, requestId, answer),
+    // The input's autocomplete (#643): what a `/` completes to, one command's arguments, and an `@` path.
+    commands: (id) => ipcRenderer.invoke('agent-commands', id),
+    arguments: (id, command) => ipcRenderer.invoke('agent-arguments', id, command),
+    paths: (id, prefix) => ipcRenderer.invoke('agent-paths', id, prefix),
   },
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)

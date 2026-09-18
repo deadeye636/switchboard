@@ -364,7 +364,12 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   and before `bash`, `powershell`, `edit`, `write`, a delegation to the `subagent` tool, a taken-over
   command's shell line or a taken-over MCP tool runs, the call is shown with its command or diff and waits for
   allow once, allow for the session, or refuse. Its sessions stay Pi's rows. A marker in the
-  transcript says how a session was driven, and the row reopens there. Spec:
+  transcript says how a session was driven, and the row reopens there. **Pi's own commands (#642, #643)**:
+  `/login` (subscription or API key), `/logout`, `/model`, `/thinking` and `/compact` work in the text field.
+  The questions they ask appear as cards in the conversation. Pi's other terminal commands say where the
+  function lives instead of going to the model as a prompt. The text field completes as you type: `/` lists
+  Pi's commands, prompt templates and skills, `/model`, `/thinking`, `/login` and `/logout` list their
+  arguments, and `@` lists the project's files. Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent

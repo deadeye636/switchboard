@@ -23,8 +23,9 @@
 //
 // Free globals it reads at CALL time (none at parse time except `window.api`): renderJsonlEntry,
 // buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
-// (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), and the
-// four palette openers (terminal/*-palette.js).
+// (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
+// four palette openers (terminal/*-palette.js), and createComposerCompletion (session/composer-completion.js,
+// read when a view is built).
 
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
@@ -82,7 +83,7 @@ function createConversationView(getSession, container) {
   input.className = 'conversation-input';
   input.rows = 3;
   const mod = (typeof isMac !== 'undefined' && isMac) ? 'Cmd' : 'Ctrl';
-  input.placeholder = `Message the agent — Enter sends, Shift+Enter adds a line, ${mod}+Enter steers a running turn, Esc stops it`;
+  input.placeholder = `Message the agent — / for commands, @ for files. Enter sends, Shift+Enter adds a line, ${mod}+Enter steers a running turn, Esc stops it`;
   const actions = document.createElement('div');
   actions.className = 'conversation-composer-actions';
   const makeButton = (label, title, onClick) => {
@@ -100,6 +101,15 @@ function createConversationView(getSession, container) {
   const stopBtn = makeButton('Stop', 'Stop the running turn (Esc)', () => stop());
   composer.appendChild(input);
   composer.appendChild(actions);
+  // `/` commands, their arguments and `@` paths (#643, session/composer-completion.js). What it offers is the
+  // backend's answer through main; the session id is read at call time, because a re-key moves it.
+  const completion = typeof createComposerCompletion === 'function'
+    ? createComposerCompletion(input, composer, {
+      commands: async () => { const r = await window.api.agent.commands(getSession().sessionId); return r && r.ok ? r.commands : []; },
+      arguments: async (command) => { const r = await window.api.agent.arguments(getSession().sessionId, command); return r && r.ok ? r.items : []; },
+      paths: async (prefix) => { const r = await window.api.agent.paths(getSession().sessionId, prefix); return r && r.ok ? r.items : []; },
+    })
+    : null;
 
   container.appendChild(log);
   container.appendChild(composer);
@@ -267,6 +277,9 @@ function createConversationView(getSession, container) {
     // An input method composing a character owns Enter and Escape until it is done (229 is Chromium's
     // composition keyCode, the same guard palette-core.js carries).
     if (e.isComposing || e.keyCode === 229) return;
+    // An open suggestion list takes the arrows, Tab, Enter and Escape first — Escape then closes the list
+    // rather than stopping the running turn.
+    if (completion && completion.handleKey(e)) return;
     if (typeof matchShortcut === 'function' && typeof appShortcuts !== 'undefined') {
       const macNow = typeof isMac !== 'undefined' && isMac;
       for (const [id, opener] of Object.entries(PALETTES)) {
@@ -313,10 +326,29 @@ function createConversationView(getSession, container) {
     status.classList.toggle('busy', !!view.busy && !view.exited);
   }
 
-  function notice(level, text) {
+  // `links` are pages to open — a login page is several hundred characters of query string, so it is a button
+  // that hands the address to the OS browser rather than text to copy. Only http(s): main refuses anything else.
+  function notice(level, text, links) {
     const div = document.createElement('div');
     div.className = 'jsonl-entry jsonl-meta-entry conversation-notice conversation-notice-' + (level || 'info');
-    div.textContent = String(text || '');
+    const line = document.createElement('div');
+    line.textContent = String(text || '');
+    div.appendChild(line);
+    const pages = Array.isArray(links) ? links.filter(l => l && /^https?:\/\//i.test(String(l.url || ''))) : [];
+    if (pages.length) {
+      const actions = document.createElement('div');
+      actions.className = 'conversation-ask-actions';
+      for (const l of pages) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'new-session-secondary-btn';
+        b.textContent = String(l.label || 'Open the page');
+        try { b.title = new URL(String(l.url)).host; } catch { /* the label says enough */ }
+        b.addEventListener('click', () => { window.api.openExternal(String(l.url)); });
+        actions.appendChild(b);
+      }
+      div.appendChild(actions);
+    }
     log.insertBefore(div, partialEl);
   }
 
@@ -413,10 +445,10 @@ function createConversationView(getSession, container) {
     const actions = document.createElement('div');
     actions.className = 'conversation-ask-actions';
     const answer = (payload) => {
-      for (const b of card.querySelectorAll('button, textarea')) b.disabled = true;
+      for (const b of card.querySelectorAll('button, textarea, input')) b.disabled = true;
       window.api.agent.answer(view.session.sessionId, request.id, payload).then((res) => {
         if (!res || !res.ok) {
-          for (const b of card.querySelectorAll('button, textarea')) b.disabled = false;
+          for (const b of card.querySelectorAll('button, textarea, input')) b.disabled = false;
           notice('error', (res && res.error) || 'The answer did not reach the session.');
         }
       });
@@ -436,9 +468,20 @@ function createConversationView(getSession, container) {
       button('Yes', { confirmed: true }, true);
       button('No', { confirmed: false });
     } else {
-      const field = document.createElement('textarea');
+      // A secret (an API key) goes in a masked one-line field: it is on screen while the user decides, and
+      // somebody may be looking over their shoulder. It is never kept here — the answer goes straight out.
+      const field = document.createElement(request.secret ? 'input' : 'textarea');
       field.className = 'conversation-ask-input';
-      field.rows = request.method === 'editor' ? 6 : 1;
+      if (request.secret) {
+        field.type = 'password';
+        field.autocomplete = 'off';
+        field.spellcheck = false;
+        field.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); if (!field.disabled) answer({ value: field.value }); }
+        });
+      } else {
+        field.rows = request.method === 'editor' ? 6 : 1;
+      }
       field.placeholder = request.placeholder || '';
       field.value = request.prefill || '';
       card.appendChild(field);
@@ -474,7 +517,7 @@ function createConversationView(getSession, container) {
         break;
       case 'busy': view.busy = !!op.busy; if (!view.busy) { view.tools.clear(); renderActivity(); } renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
-      case 'notice': notice(op.level, op.text); break;
+      case 'notice': notice(op.level, op.text, op.links); break;
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);

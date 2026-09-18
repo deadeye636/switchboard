@@ -10,8 +10,13 @@
 //   { op: 'tool', id, status, output }  a tool call's execution: running / done / error, live output
 //   { op: 'busy', busy }             the agent started or settled
 //   { op: 'queue', steering, followUp }  what is waiting to be delivered
-//   { op: 'notice', level, text }    something the user should read that is not a turn
-//   { op: 'ask', request }           the agent (an extension) is waiting on a decision — step C of #568
+//   { op: 'notice', level, text, links? }  something the user should read that is not a turn; `links` are
+//                                    pages to open (`[{ url, label }]`, a login page — #642)
+//   { op: 'ask', request }           the agent (an extension) is waiting on a decision — step C of #568;
+//                                    `request.secret` asks for a masked field (an API key, #642);
+//                                    `request.lasting` says it belongs to a command, not to a run, so a run
+//                                    settling does not end it
+//   { op: 'answered', id }           the runtime stopped waiting on a question without an answer from us
 //
 // Entries are the same neutral shape the Message History viewer already draws, produced by Pi's own
 // normaliser (`../pi/transcript-view.js`), so a live session and its history look the same and there is
@@ -32,6 +37,7 @@
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
+const { parseLink, parseAskTitle, parseDismiss, parseCompletions, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
 function entriesFor(message) {
@@ -62,6 +68,14 @@ const DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor']);
  */
 function createDecoder() {
   let partial = null;   // { role: 'assistant', content: [], timestamp }
+  // A question a session command asked (`./session-commands.js`) -> the request id it went out under, so Pi
+  // saying it stopped waiting on it can close the card for it. An entry left behind by a question the
+  // user answered names a request that is already closed, so it is harmless; the map is only bounded.
+  const questionTokens = new Map();
+  // Answers to argument-completion requests (`argumentsCommand`), by the token the request carried. The
+  // answer arrives as a notice BEFORE Pi's response to the request, so the core reads it here when the
+  // response lands. Taken once; bounded in case a request's reader has already given up.
+  const completions = new Map();
 
   const partialOp = () => ({ op: 'partial', entry: partial ? (entriesFor(partial)[0] || null) : null });
 
@@ -134,7 +148,11 @@ function createDecoder() {
         return [{ op: 'notice', level: 'info', text: 'Compacting the conversation…' }];
       case 'compaction_end':
         if (msg.aborted) return [{ op: 'notice', level: 'info', text: 'Compaction stopped.' }];
-        if (!msg.result) return [{ op: 'notice', level: 'error', text: `Compaction failed${msg.errorMessage ? ': ' + msg.errorMessage : '.'}` }];
+        if (!msg.result) {
+          // Pi's own message already says so ("Compaction failed: Nothing to compact…"), measured on 0.84.4.
+          const why = String(msg.errorMessage || '');
+          return [{ op: 'notice', level: 'error', text: !why ? 'Compaction failed.' : /^compaction failed/i.test(why) ? why : `Compaction failed: ${why}` }];
+        }
         return [{ op: 'notice', level: 'info', text: 'Conversation compacted.' }];
       case 'auto_retry_start':
         return [{ op: 'notice', level: 'warning', text: `Retrying (${msg.attempt}/${msg.maxAttempts}) after: ${msg.errorMessage || 'an error'}` }];
@@ -169,6 +187,29 @@ function createDecoder() {
               },
             }];
           }
+          // A session command's own question (`./session-commands.js`): its real title, whether the field is
+          // a secret (an API key is drawn masked), and the token Pi's "stopped waiting" notice will name. It is
+          // `lasting`: it belongs to a command, not to a run, so a run settling does not end it — Pi keeps
+          // waiting on it until it is answered, dismissed or taken back.
+          const own = msg.method === 'select' || msg.method === 'input' ? parseAskTitle(msg.title) : null;
+          if (own) {
+            if (questionTokens.size > 64) questionTokens.clear();   // a bound, not a cache: a login asks a few
+            questionTokens.set(own.token, String(msg.id));
+            return [{
+              op: 'ask',
+              request: {
+                id: String(msg.id),
+                method: msg.method,
+                title: own.title,
+                message: '',
+                options: msg.method === 'select' && Array.isArray(msg.options) ? msg.options.map(String) : [],
+                placeholder: msg.placeholder || '',
+                prefill: '',
+                secret: msg.method === 'input' && own.secret,
+                lasting: true,
+              },
+            }];
+          }
           return [{
             op: 'ask',
             request: {
@@ -183,7 +224,27 @@ function createDecoder() {
           }];
         }
         if (msg.method === 'notify' && msg.message) {
+          // Pi stopped waiting on a session command's question (its login's browser callback won the race):
+          // RPC mode tells the client nothing of its own, so the card is closed on this word instead.
+          const answered = parseCompletions(msg.message);
+          if (answered) {
+            if (completions.size > 16) completions.clear();
+            completions.set(answered.token, answered.items);
+            return [];
+          }
+          const token = parseDismiss(msg.message);
+          if (token) {
+            const id = questionTokens.get(token);
+            questionTokens.delete(token);
+            return id ? [{ op: 'answered', id }] : [];
+          }
           const level = msg.notifyType === 'error' || msg.notifyType === 'warning' ? msg.notifyType : 'info';
+          // A page to open — a login page, a device-code page. Drawn with a button rather than as the URL.
+          const link = parseLink(msg.message);
+          if (link) {
+            if (!link.url) return link.text ? [{ op: 'notice', level, text: link.text }] : [];
+            return [{ op: 'notice', level, text: link.text, links: [{ url: link.url, label: link.label }] }];
+          }
           return [{ op: 'notice', level, text: String(msg.message) }];
         }
         return [];
@@ -193,7 +254,13 @@ function createDecoder() {
     }
   }
 
-  return { decode, currentPartial: () => (partial ? (entriesFor(partial)[0] || null) : null) };
+  function takeCompletions(token) {
+    const items = completions.get(String(token));
+    completions.delete(String(token));
+    return items || null;
+  }
+
+  return { decode, takeCompletions, currentPartial: () => (partial ? (entriesFor(partial)[0] || null) : null) };
 }
 
 // --- commands ---
@@ -210,6 +277,38 @@ function sendCommand({ id, text, mode, busy } = {}) {
 }
 
 const abortCommand = (id) => ({ id, type: 'abort' });
+const commandsCommand = (id) => ({ id, type: 'get_commands' });
+
+// What a `/` in the input can complete to (A1): Pi's own list of extension commands, prompt templates and
+// skills, in the app's words. `kind` is `command`, `template` or `skill`; `arguments` says the app may ask
+// for the argument's completions too (A2) — only while the internal command that answers is registered, or
+// the app's question would reach the model as a prompt. That command is not offered, and neither are the
+// lines standing in for Pi's terminal-only commands: they only say the thing is not here.
+const KINDS = { extension: 'command', prompt: 'template', skill: 'skill' };
+function commandsFromResponse(response) {
+  const list = response && response.data && response.data.commands;
+  if (!Array.isArray(list)) return [];
+  const answers = list.some(c => c && c.source === 'extension' && c.name === COMPLETE_COMMAND);
+  const out = [];
+  for (const c of list) {
+    if (!c || typeof c.name !== 'string' || !c.name || c.name === COMPLETE_COMMAND) continue;
+    if (c.source === 'extension' && Object.prototype.hasOwnProperty.call(TUI_ONLY, c.name)) continue;
+    out.push({
+      name: c.name,
+      description: typeof c.description === 'string' ? c.description.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
+      kind: KINDS[c.source] || 'command',
+      arguments: answers && c.source === 'extension' && ARGUMENT_COMMANDS.includes(c.name),
+    });
+  }
+  return out;
+}
+
+// Ask the session what one command takes as an argument. A prompt that runs the extension's internal
+// command: Pi runs an extension command at once, even while a turn is streaming, and it reaches neither the
+// model nor the transcript. The answer is read with `decoder.takeCompletions(token)`.
+function argumentsCommand(id, { command, token } = {}) {
+  return { id, type: 'prompt', message: `/${COMPLETE_COMMAND} ${JSON.stringify({ command: String(command || ''), token: String(token || '') })}` };
+}
 const stateCommand = (id) => ({ id, type: 'get_state' });
 const messagesCommand = (id) => ({ id, type: 'get_messages' });
 
@@ -241,6 +340,9 @@ module.exports = {
   createDecoder,
   sendCommand,
   abortCommand,
+  commandsCommand,
+  commandsFromResponse,
+  argumentsCommand,
   stateCommand,
   messagesCommand,
   answerCommand,

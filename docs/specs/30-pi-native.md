@@ -104,7 +104,8 @@ nothing is reordered.
   view holds what arrives while it waits and replays only what is newer. Without that, a turn that
   finished while a view was mounting was drawn and then wiped by the reset.
 - **Questions Pi stopped waiting on** (a run that settled, a process that ended) are closed on the main
-  side too, or every later mount would draw a dialog nobody can answer.
+  side too, or every later mount would draw a dialog nobody can answer. A question one of the session
+  commands asked is the exception: Pi keeps waiting on it across a run (see "Pi's own commands").
 - **Fork and resume guards** ask the store's owner. `pi-native` has no `liveRefFor` of its own, so
   `backends.recordOwnerOf` hands the question to Pi. Without it a native session could be forked before
   Pi had written it, into a child that dies at once.
@@ -243,6 +244,106 @@ scrollback, the exit banner, the launch-error writes (`writeEntryError`). The vi
 deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
 terminal-key tests check that.
 
+## Pi's own commands (#642, #643)
+
+`/login`, `/model`, `/compact` and the rest are commands of Pi's terminal interface. Over RPC a line that
+starts with `/` is looked up only among extension commands, prompt templates and skills. Measured on Pi
+0.84.4, `/login` and `/model` went to the model as plain text, and each cost a turn in which the model read
+files and guessed at what was meant.
+
+The runtime extension therefore registers them (`src/backends/pi-native/session-commands.js`), whether
+the approval gate is on or not:
+
+| Command | What it does here |
+|---|---|
+| `/login [provider]` | Asks for subscription or API key, then the provider, and runs Pi's own login. A subscription login shows the login page as a button, plus a field for the redirect URL. An API key is typed into a masked field. |
+| `/logout [provider]` | Removes a login or an API key that `/login` saved. Environment variables and `models.json` stay as they are, as in Pi. |
+| `/model [name]` | Switches the model for this session only. A name picks directly, several matches are offered, and a long list asks for the provider first. Nothing is written to Pi's settings, so the model the app launches with stays the app's setting. |
+| `/thinking [level]` | Sets the thinking level and reads back what Pi applied, since a model that offers fewer levels is clamped. |
+| `/compact [instructions]` | Runs Pi's compaction. While a turn is running it refuses and says so, and Pi's own compaction events say how it went. |
+
+The rest of Pi's terminal commands (`/tree`, `/export`, `/new`, `/settings` …) answer with a line saying
+where that function lives in the app, or that it is not offered yet. The list is `TUI_ONLY` in that file.
+Registering those names changes one thing: a prompt template or another extension's command with the same
+name used to run over RPC and now gets the line instead, and a command taken over from another CLI under such
+a name is skipped. That is the precedence Pi's terminal interface already has.
+
+Five things decide how it is built:
+
+- **The login uses a field Pi does not document.** `ctx.modelRegistry` is the documented read-only facade.
+  The `ModelRuntime` behind it, with `login`, `logout` and `listCredentials`, is its `runtime` field,
+  private in Pi's types and public at run time. The command checks for it, and where a Pi version lacks it
+  the message sends the user to `/login` in the terminal backend, which writes the same `auth.json`.
+- **The commands are registered at load, not at `session_start`.** A built-in of Pi's terminal interface
+  wins over an extension command or a template with the same name. The command bridge registers another
+  CLI's commands at `session_start` and skips a name Pi already has, so registering ours first gives the
+  same precedence here. Two extensions registering one name would have Pi rename both (`name:1`, `name:2`),
+  and then `/name` would reach neither.
+- **A handler returns at once and its command runs on.** Pi sends its response to `prompt` only when the
+  handler has returned (measured), and `agent-rpc.js` gives up on a response after 20 seconds. A login
+  waits minutes on the user, and without this the view reported that the message never arrived.
+- **A question Pi takes back has to be closed by us.** An OAuth login races the pasted redirect URL
+  against Pi's own loopback callback. When the browser wins, Pi aborts the prompt, and RPC mode resolves
+  the question locally without telling the client. So the command says so itself with a marker notice,
+  the decoder turns that into `answered`, and `agent-rpc.js` closes the question and lets the session
+  leave "waiting". Measured by calling the loopback port directly: the card closes, and the failed token
+  exchange is reported in one line.
+- **A command's question outlives a run.** `agent-rpc.js` drops every open question when a run settles,
+  because a tool call's question ends with its run. A command's question does not: Pi keeps waiting on it
+  with no timeout. Dropped, the card would be gone while Pi still held the provider's credential queue, and
+  every later `/login` to that provider would hang with nothing on screen. Such a question arrives marked
+  `lasting`, a settled run leaves it open and the session stays "waiting". Only an answer, a dismissal, Pi
+  taking it back or the process ending closes it.
+
+Three markers carry what `ctx.ui` has no field for. A notice can carry a page to open, a question can be
+masked and named, and a notice can say Pi stopped waiting on a question. They are decoded in
+`rpc-protocol.js`, and the renderer only gets plain fields: `links` on a notice, `secret` and `lasting` on an
+ask.
+The page opens through the existing `open-external` handler, which accepts only http(s). What Pi says about
+a failure is passed on in one line, except where it could name a local path: an errno error is named by its
+code, which Pi sometimes leaves only in the text (`describeFailure`).
+
+## The input completes as you type (#643)
+
+The text field offers what a CLI's own prompt offers. The text before the caret decides what
+(`src/renderer/session/composer-completion.js`):
+
+| Typed | Offered | Where the list comes from |
+|---|---|---|
+| `/` and a name, at the start of the field | Pi's commands, prompt templates and skills, including the commands taken over from another CLI | Pi's RPC `get_commands`, turned into `{ name, description, kind, arguments }` by `rpc-protocol.js` |
+| `/model `, `/thinking `, `/login `, `/logout ` and the start of an argument | that command's arguments: available models, thinking levels, providers, saved logins | a command of the runtime extension (below) |
+| `@` at the start of a word, also after a command (`/skill:review @src/`) | the project's files and directories | `src/app/path-completion.js` |
+
+The list uses the palette's rows. Arrow keys move through it, Tab or Enter takes a row, Escape closes it.
+While the list is open, those keys are the list's. Escape therefore closes a suggestion and does not stop a
+running turn, and the next Escape does. Taking a command that has arguments opens its argument list straight
+away, and taking a directory opens its contents. A row is taken only while the text before the caret still
+asks what the list answered: the caret can move with a click or Home without any input event, and writing
+the row where the list was opened would cut the text apart. A list that only repeats what is typed stays
+closed, so Enter sends. The lines that stand in for Pi's terminal-only commands are not offered, since they
+only say the command is not available here.
+
+Pi's commands can declare `getArgumentCompletions`, but only its terminal interface reads it, and RPC has no
+command for it. So the runtime extension registers one more command, `switchboard-complete`. The app sends it
+with the command it wants the arguments of and a token. Pi runs an extension command at once, even while a turn
+is streaming, and the command reaches neither the model nor the transcript. The command answers with a
+marked notice before Pi's response to the prompt. The decoder keeps that answer under its token and never
+draws it, and `agent-rpc.js` collects it when the response arrives. The command list leaves this command out,
+and it marks a command as having arguments only while this command is registered. Otherwise the app's
+question would reach the model as a prompt.
+
+An `@` path is completed in main against the session's working directory, with asynchronous reads only, so
+a large project does not hold up the main process. A prefix with a `/` lists that directory, the way a shell
+completes. A bare name is searched for across the project in a walk that yields between directories and
+checks a budget of entries and time for every entry. A finished walk is kept for a few seconds while the
+user types, and one that ran out of budget only briefly. The directory a prefix names is checked with
+`isAtOrInside` on real paths before it is read, so `@../` and a link pointing out answer nothing. The walk
+names a link as what it points at but never descends into it. A prefix running through an `.asar` is refused
+before its path is resolved, because statting one holds it open for the life of the process
+(`build-dirs.js`). Build output, dependencies and VCS stores are skipped, and hidden entries are offered only
+when the typed part starts with a dot. A path with a space is written `@"…"`, and completion carries on
+inside the open quote.
+
 ## Another CLI's skills, commands, agents and MCP servers
 
 Both Pi backends can take over another CLI's skills, commands, agents and MCP servers through the
@@ -255,9 +356,15 @@ questions before a command's shell line and before an MCP tool, described under 
 - **Detach and the grid** (E3) — #636.
 - **The command palette's insert entries** (run a skill, insert a plan, a handoff, a variable) ask for a
   terminal and are absent for such a session; the keyboard chords in the text field work — #637.
-- **No login of its own.** `pi-native` runs the installed `pi` with the same agent directory, so it uses the
-  logins in Pi's own `auth.json`. Log in once through the terminal Pi backend (`/login`); a lapsed login
-  shows as an error notice in the conversation. Whether `/login` works over RPC was not measured.
+- **The login rests on an undocumented field** (see "Pi's own commands"). A Pi that drops it gets a
+  message pointing at the terminal backend's `/login` instead of a login.
+- **A device-code login cannot be cancelled from the view.** It asks no question, only polls, so there is no
+  card to dismiss. It ends when the code expires or the session is stopped.
+- **A login is ended by its card, not by Stop.** Esc and Stop abort a run, and a login is not one. A second
+  `/login` to a provider whose first login is still open waits behind it in Pi's queue and shows no card
+  until the first one ends. Dismissing the open card ends it.
+- **Session statistics, fork/clone/tree, export, `!cmd` and reload** are not built yet. Each of those
+  commands answers with a line instead (#643).
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:

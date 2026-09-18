@@ -97,6 +97,10 @@ module.exports = {
     createDecoder: protocol.createDecoder,
     sendCommand: protocol.sendCommand,
     abortCommand: protocol.abortCommand,
+    // The input's autocomplete (#643): the commands a `/` can complete to, and one command's arguments.
+    commandsCommand: protocol.commandsCommand,
+    commandsFromResponse: protocol.commandsFromResponse,
+    argumentsCommand: protocol.argumentsCommand,
     stateCommand: protocol.stateCommand,
     messagesCommand: protocol.messagesCommand,
     answerCommand: protocol.answerCommand,

@@ -173,3 +173,40 @@ test('an approval is drawn with the call it is about, answers with the value it 
   assert.equal(h.entry.element.querySelector('.conversation-approval'), null);
   assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Working/);
 });
+
+// #642: a login asks for an API key in a masked one-line field, answered with Enter or OK, and locked while the
+// answer is on its way so a second Enter does not answer twice.
+test('a secret question is a masked field that answers once with Enter', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push([req, a]); return new Promise(() => {}); };
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'k1', method: 'input', title: 'Enter Groq API key', message: '', options: [], placeholder: '', prefill: '', secret: true } });
+  const field = h.entry.element.querySelector('.conversation-ask input.conversation-ask-input');
+  assert.ok(field, 'an input, not a textarea');
+  assert.equal(field.type, 'password');
+  field.value = 'sk-test';
+  field.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  assert.equal(field.disabled, true, 'locked while the answer is on its way');
+  field.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  assert.equal(JSON.stringify(answers), JSON.stringify([['k1', { value: 'sk-test' }]]));
+
+  h.entry.conversation.apply({ op: 'ask', seq: 2, request: { id: 'k2', method: 'input', title: 'Name?', message: '', options: [], placeholder: '', prefill: '' } });
+  assert.ok(h.entry.element.querySelector('.conversation-ask textarea.conversation-ask-input'), 'an ordinary question keeps its text area');
+});
+
+test('a notice with a page to open draws a button that hands a web address to the browser, and nothing else', () => {
+  const h = setup();
+  const opened = [];
+  h.w.api.openExternal = (u) => { opened.push(u); return Promise.resolve(); };
+  h.entry.conversation.apply({ op: 'notice', seq: 1, level: 'info', text: 'Log in.', links: [
+    { url: 'https://example.test/authorize?x=1', label: 'Open the login page' },
+    { url: 'file:///etc/passwd', label: 'Not this' },
+  ] });
+  const notice = [...h.entry.element.querySelectorAll('.conversation-notice')].pop();
+  assert.match(notice.textContent, /Log in\./);
+  const buttons = [...notice.querySelectorAll('button')];
+  assert.deepEqual(buttons.map(b => b.textContent), ['Open the login page']);
+  assert.ok(buttons[0].classList.contains('new-session-secondary-btn'), 'a styled control');
+  buttons[0].click();
+  assert.deepEqual(opened, ['https://example.test/authorize?x=1']);
+});
