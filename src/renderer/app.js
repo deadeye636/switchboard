@@ -336,7 +336,7 @@ window._applyTerminalTheme = (themeName) => {
   currentThemeName = themeName;
   TERMINAL_THEME = getTerminalTheme();
   for (const [, entry] of openSessions) {
-    entry.terminal.options.theme = TERMINAL_THEME;
+    if (entry.terminal) entry.terminal.options.theme = TERMINAL_THEME;   // a conversation view (#568) has none
     entry.element.style.backgroundColor = TERMINAL_THEME.background;
   }
 };
@@ -1521,7 +1521,7 @@ async function launchNewSession(project, sessionOptions, seedText) {
   // Open terminal in main process with session options
   const result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
   if (!result.ok) {
-    entry.terminal.write(`\r\nError: ${result.error}\r\n`);
+    writeEntryError(entry, result.error);
     entry.closed = true;
     // The launch that would have cleared this never happened. Left behind, the pending entry keeps the
     // row sorting and grouping as if it were starting, forever — while its chip reads Exited (#255).
@@ -1532,6 +1532,7 @@ async function launchNewSession(project, sessionOptions, seedText) {
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   syncPtySize(sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
+  attachEntrySurface(entry); // a session with no terminal loads its conversation instead (#568)
   showSession(sessionId);
   pollActiveSessions();
 
@@ -1563,21 +1564,36 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel,
   const MAX_WAIT_MS = 12000 + graceMs;
   const startedAt = Date.now();
   let seeded = false;
+  // The ENTRY, not the id, is what is followed. A backend that names its own session can re-key it while
+  // this waits — the runtime-driven Pi does within seconds of starting (#568) — and the re-key moves this
+  // same object under the new id. Looking the launch id up again would find nothing and drop the seed.
+  const launchedEntry = openSessions.get(sessionId) || null;
+  const currentEntry = () => {
+    const byId = openSessions.get(sessionId);
+    if (byId) return byId;
+    if (!launchedEntry) return null;
+    for (const e of openSessions.values()) if (e === launchedEntry) return e;
+    return null;
+  };
 
   function attempt() {
     if (seeded) return;
-    const entry = openSessions.get(sessionId);
+    const entry = currentEntry();
     if (!entry || entry.closed) return; // session closed before it was ready
+    const liveId = (entry.session && entry.session.sessionId) || sessionId;
 
     const elapsed = Date.now() - startedAt;
     if (elapsed < graceMs) { setTimeout(attempt, POLL_MS); return; }   // it cannot listen yet
 
-    const last = lastActivityTime.get(sessionId);
+    // A session driven over a pipe (#568) has no screen to settle and queues what it is sent until it can
+    // read it — so it is seeded at once rather than after a quiet spell that never comes.
+    const pipe = !!entry.conversation;
+    const last = lastActivityTime.get(liveId);
     const quietFor = last ? Date.now() - last.getTime() : Infinity;
     const settled = last && quietFor >= SETTLE_MS;
     const timedOut = elapsed >= MAX_WAIT_MS;
 
-    if (settled || timedOut) {
+    if (pipe || settled || timedOut) {
       seeded = true;
       // Bracketed paste keeps the multi-line text intact, then SUBMIT.
       //
@@ -1588,11 +1604,11 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel,
       // Through the renderer's one input seam (`shell/prompt-staging.js`), like every writer of a
       // session's stdin: this chunk ENDS in the submit, so it leaves the prompt line clean, and a
       // staged prompt must not be held behind text that was sent before anyone could look at it.
-      sendSessionInput(sessionId, `\x1b[200~${seedText}\x1b[201~\r`);
+      sendSessionInput(liveId, `\x1b[200~${seedText}\x1b[201~\r`);
       // Main cannot see this one: from its side a seeded session is a session that received input. So
       // it is NOTED rather than recorded here — main still writes it, and every window still hears it.
       window.api.noteTimelineEvent(
-        sessionId, 'started',
+        liveId, 'started',
         timelineLabel || 'Handoff seeded',
         timelineNote || 'Seeded fresh session with the handoff packet.',
       );
@@ -1838,7 +1854,7 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   const spawnOptions = ignoreLiveOwner ? { ...(resumeOptions || {}), ignoreLiveOwner: true } : resumeOptions;
   const result = await window.api.openTerminal(sessionId, projectPath, false, spawnOptions);
   if (!result.ok) {
-    entry.terminal.write(`\r\nError: ${result.error}\r\n`);
+    writeEntryError(entry, result.error);
     entry.closed = true;
     if (show) showSession(sessionId);
     // A session something else is running is not a failure to report and forget (#172): the CLI names a
@@ -1851,6 +1867,7 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   syncPtySize(sessionId); // push real dimensions to the (re)spawned/reattached PTY (#81)
+  attachEntrySurface(entry); // …or, with no terminal, its conversation so far (#568)
   if (show) showSession(sessionId);
   // The rows behind a fold nobody opened are not built (#516), and a session BEHIND one can be opened
   // without ever passing a render — from the palette, a bookmark, a direct call. Session cycling and the
@@ -1918,10 +1935,11 @@ async function attachRunningSession(session) {
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
   if (!result || !result.ok) {
-    if (result && result.error) entry.terminal.write(`\r\nError: ${result.error}\r\n`);
+    if (result && result.error) writeEntryError(entry, result.error);
     entry.closed = true;
     return false;
   }
+  attachEntrySurface(entry);
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
   syncPtySize(sessionId); // see openSession (#81)
   return true;

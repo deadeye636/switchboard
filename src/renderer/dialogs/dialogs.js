@@ -673,7 +673,7 @@ async function launchTerminalSession(project, launcher = null) {
   if (launcher) sessionOptions.launcher = launcher;
   const result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions);
   if (!result.ok) {
-    entry.terminal.write(`\r\nError: ${result.error}\r\n`);
+    writeEntryError(entry, result.error);
     entry.closed = true;
     pendingSessions.delete(sessionId); // else the row sorts as starting forever while its chip says Exited (#255)
     showSession(sessionId); // surface the failure instead of leaving it in an invisible terminal (issue #78)

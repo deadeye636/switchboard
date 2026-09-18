@@ -64,6 +64,18 @@ const PINNED = {
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
+  // Pi driven over its RPC mode (#568). Every answer that is about the BINARY or its store is Pi's; the three
+  // that differ are about how it is driven — no terminal to page, no binding extension to re-key through, and
+  // a queue it hears about on its own pipe while the turn-hold still reads the terminal backend's record.
+  'pi-native': {
+    fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
+    contextFill: 'limited',
+    modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
+    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
+    queuedTurn: 'limited', quota: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    viewportPaging: 'no',
+  },
   agy: {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)

@@ -6,6 +6,8 @@
 // or renderer what a Pi role is.
 'use strict';
 
+const { TRANSPORT_MARKER_TYPE } = require('./transport-marker');
+
 function activeEntries(entries) {
   const list = Array.isArray(entries) ? entries : [];
   const header = list.find(e => e && e.type === 'session') || null;
@@ -140,6 +142,9 @@ function normalizeEntry(entry) {
       if (entry.display === false) return null;
       return metaEntry(entry, `Extension message${entry.customType ? `: ${entry.customType}` : ''}`, textFromContent(entry.content));
     case 'custom':
+      // The runtime-driven backend's marker (#568) is bookkeeping for the index, not something that
+      // happened in the conversation — and it would appear once in every session that backend ran.
+      if (entry.customType === TRANSPORT_MARKER_TYPE) return null;
       return metaEntry(entry, `Extension data${entry.customType ? `: ${entry.customType}` : ''}`, JSON.stringify(entry.data || {}, null, 2));
     case 'label':
       return metaEntry(entry, 'Label', entry.label || 'cleared', entry.targetId ? `on ${entry.targetId}` : '');

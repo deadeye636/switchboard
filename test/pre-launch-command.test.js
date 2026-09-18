@@ -22,6 +22,12 @@ const MAIN = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal'
 test('every backend offers a pre-launch command', () => {
   for (const b of backends.list()) {
     if (b.status !== 'ready') continue;
+    // A backend driven over a pipe (#568) has no shell to put a prefix in front of, so it is the one that
+    // must NOT offer it — a control that promises a shell start and refuses every launch that uses it.
+    if (b.transport) {
+      assert.ok(!(b.configFields || []).some(f => f.id === 'preLaunchCmd'), `${b.id} runs without a shell`);
+      continue;
+    }
     const field = (b.configFields || []).find(f => f.id === 'preLaunchCmd');
     assert.ok(field, `${b.id} does not offer a pre-launch command — it is not a Claude thing`);
     assert.equal(field.appliesAt, 'spawn',

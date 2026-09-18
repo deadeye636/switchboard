@@ -92,6 +92,7 @@
     "stats-view.js",
     "subagent-live.js",
     "jsonl-viewer.js",
+    "conversation-view.js",
     "dialogs.js",
     "welcome-tour.js",
     "handoff.js",

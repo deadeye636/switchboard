@@ -92,6 +92,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/convention-dirs.js     where a project keeps its handoffs and its plans
   src/app/skills.js              what a running session can be asked to run
   src/app/terminal/images.js     images pasted or dropped into a terminal
+  src/app/agent-rpc.js           a session driven over a runtime protocol instead of a terminal
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

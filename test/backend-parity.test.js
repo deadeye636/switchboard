@@ -24,7 +24,11 @@ const codexState = require('../src/backends/codex/state');
 const READY = backends.list().filter(b => b.status === 'ready' && !b.isProfile);
 // File-mode backends (own transcript files) owe the incremental-parse contract; a db-backed one (Hermes,
 // `transcriptAccess: 'export'`) does not, it only versions its parser.
-const FILE_MODE = READY.filter(b => b.transcriptAccess === 'file');
+//
+// A backend that DRIVES another backend's transcripts (`transcriptsOf`, #568) reads them through that owner,
+// so the owner carries the contract; the drive-only backend has no parser of its own on purpose (see the
+// test below, which is what stops it from growing one).
+const FILE_MODE = READY.filter(b => b.transcriptAccess === 'file' && !b.transcriptsOf);
 
 test('model-discovery fields are backed by a backend-owned listModels hook', () => {
   for (const b of READY) {
@@ -459,6 +463,30 @@ test('every backend that names its own sessions implements ALL THREE identity ho
     if (!names) continue;
     assert.equal(typeof b.liveRefFor, 'function', `${id} adopts ids, so it needs liveRefFor (resume)`);
     assert.equal(typeof b.liveState, 'function', `${id} needs liveState`);
+  }
+});
+
+// #568: two backends over one store cannot both own its rows. The one that only DRIVES the binary names the
+// owner, and declares nothing that would make it a second reader of that store: no discovery (the scan
+// would reconcile it and flip every row's backend on each pass), no parser, and none of the live-record
+// hooks (adopt.js would claim a record for it by birth time, and a file-tail liveState would compete with
+// the edges its own pipe reports). It is driven over a transport, so it says which.
+test('a backend that drives another backend\'s transcripts owns none of them', () => {
+  const driving = READY.filter(b => b.transcriptsOf);
+  assert.ok(driving.length >= 1, 'the runtime-driven Pi is registered (#568)');
+  for (const b of driving) {
+    const owner = READY.find(o => o.id === b.transcriptsOf);
+    assert.ok(owner, `${b.id}: transcriptsOf names '${b.transcriptsOf}', which is not a ready backend`);
+    assert.ok(!owner.transcriptsOf, `${b.id}: its owner must own its transcripts, not drive someone else's`);
+    assert.equal(typeof b.transport, 'string', `${b.id}: a backend that only drives a binary says over what`);
+    for (const hook of ['discoverSessions', 'parseSession', 'parseSessionIncremental', 'watchTargets',
+      'matchLiveSession', 'liveRefFor', 'liveState']) {
+      assert.equal(b[hook], undefined, `${b.id}: must not declare ${hook} — the rows are ${owner.id}'s`);
+    }
+    // The rows it opens are the owner's rows, so the questions asked of a row get the owner's answers.
+    for (const hook of ['transcriptPathFor', 'resolveLineage', 'contextWindow', 'deleteSessions', 'rewriteProjectPath']) {
+      assert.equal(b[hook], owner[hook], `${b.id}: ${hook} must be ${owner.id}'s own, not a copy`);
+    }
   }
 });
 

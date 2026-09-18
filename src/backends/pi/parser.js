@@ -23,6 +23,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
+const { transportFromEntry } = require('./transport-marker');
 
 //   v2: the parse state carries per-(date, model) metrics (#154)
 //   v3: per-(date, HOUR, model), bucketed in LOCAL time, with cost booked on the turn that spent it (#159)
@@ -30,7 +31,9 @@ const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 // carry no lineage; bumping is what makes them re-read themselves — a parser change moves no mtime.
 // 5 (#407): Pi's id/parentId tree and session_info entries decide the visible branch/title.
 // 6 (#620): the row carries the last assistant turn's context — lastInputTokens, lastModel, lastProvider.
-const PARSER_SCHEMA_VERSION = 6;
+// 7 (#568): the row carries `transport` — how the session was last driven, from the marker entry the
+// runtime-driven backend writes (./transport-marker.js). Existing rows were read without it.
+const PARSER_SCHEMA_VERSION = 7;
 
 const FINGERPRINT_BYTES = 64;
 
@@ -74,6 +77,9 @@ function createParseState() {
     // append to it) without teaching the core any Pi format.
     entries: [],
     sessionName: null,
+    // How the session was last driven (#568), from a marker entry — null for every session the terminal
+    // backend ran. A session-level fact, so it is read off every entry rather than off the visible branch.
+    transport: null,
 
     // Per-(date, hour, model) metrics -> session_metrics -> the Stats charts (#154, #159). Pi reports
     // usage AND cost per ASSISTANT MESSAGE, with a timestamp on the entry, so its buckets are exact —
@@ -204,6 +210,11 @@ function applyEntry(st, entry) {
       st.sessionName = typeof entry.name === 'string' && entry.name.trim() ? entry.name.trim() : null;
       break;
     }
+    case 'custom': {
+      const transport = transportFromEntry(entry);
+      if (transport) st.transport = transport;
+      break;
+    }
     case 'message': {
       const m = entry.message;
       if (!m || typeof m !== 'object') break;
@@ -317,6 +328,7 @@ function visibleState(st) {
   out.parentSessionPath = st.parentSessionPath;
   out.startedAt = st.startedAt;
   out.lastEntryAt = st.lastEntryAt;
+  out.transport = st.transport;
   const pathEntries = activeEntries(st.entries);
 
   for (const entry of pathEntries) {
@@ -447,6 +459,8 @@ function buildRow(st, filePath, opts = {}) {
     lastInputTokens: visible.lastInputTokens || 0,
     lastModel: visible.lastModel || null,
     lastProvider: visible.lastProvider || null,
+    // How the session was last driven (#568). The registry's `openerFor` reads it; the row stays Pi's.
+    transport: visible.transport || null,
     // Feeds session_metrics -> the Stats heatmap / daily bars / per-model tokens (#154).
     dailyMetrics: Object.values(visible.dailyMetrics),
   };

@@ -180,84 +180,10 @@ function handleHookRequest(req, res, token = attentionHookToken) {
             ctx.log.warn(`[session-bind] could not follow terminal=${tag.slice(0, 8)}: ${err.message}`);
           }
         }
-        // Some backends can also report a neutral lifecycle edge on the same terminal binding. The route
-        // still knows nothing about WHICH backend sent it; it only trusts the per-spawn URL+token and the
-        // session id reported by the terminal-bound extension. What the edge MEANS is decided in
-        // `shared/attention-source.js`, the same place every other source is decided.
-        const bindSignal = sessionId
-          ? attentionSource.classifyAttentionSignal({ source: 'bind', payload: hook })
-          : null;
-        // BEFORE anything is delivered: what the binding says about a prompt still WAITING (#530). It is
-        // passed on untouched — what it means, and whether the backend can answer at all, is that
-        // backend's business, and this route stays unable to name one. It has to be recorded first,
-        // because the `idle` edge below is decided on it: a hold that asked before the report landed
-        // would read the state from one event ago.
-        if (sessionId && typeof hook.pending === 'boolean' && typeof ctx.noteTurnQueue === 'function') {
-          try {
-            ctx.noteTurnQueue(sessionId, {
-              pending: hook.pending,
-              kind: bindSignal ? bindSignal.kind : null,
-              // Only a real turn START proves a queued prompt ran. The binding posts `busy` for the end
-              // of a UI prompt too (#529), and taking that as a started turn would release a hold that
-              // was right — so the extension says which one this is rather than the kind being read for
-              // something it does not mean.
-              turnStart: hook.turn_start === true,
-            });
-          } catch (err) {
-            ctx.log.warn(`[session-bind] queue state not recorded: ${err.message}`);
-          }
-        }
-
-        if (bindSignal) {
-          // `needs-attention` from a binding is a CLI blocked on a question mid-turn (#529): it is
-          // attention AND it is the end of being busy. The classifier states the second half as `busy`,
-          // because it cannot be derived from `kind` — "the agent asked something" says nothing about
-          // whether it is still working, and only this source knows that it is not.
-          const busy = typeof bindSignal.busy === 'boolean' ? bindSignal.busy : bindSignal.kind === 'busy';
-          const deliver = () => {
-            const mainWindow = ctx.getMainWindow();
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              // Third arg = exact backend lifecycle edge. Renderer keeps OSC/store guesses from clearing a
-              // Ready row, but a terminal-bound lifecycle hook is the user's new turn and must clear it.
-              mainWindow.webContents.send('cli-busy-state', sessionId, busy, true);
-              if (bindSignal.kind === 'needs-attention') {
-                mainWindow.webContents.send('attention-signal', {
-                  sessionId,
-                  kind: bindSignal.kind,
-                  reason: bindSignal.reason,
-                  source: bindSignal.source,
-                  agentId: null,
-                  agentType: null,
-                });
-                ctx.log.info(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} reason="${bindSignal.reason}"`);
-              }
-            }
-            if (ctx.sendTimelineSignal) {
-              // `busy` travels on this channel too, and it is load-bearing (#529). The window that RENDERS
-              // a session receives only this one, and its half of the engine has nothing to do with an
-              // attention signal it may not raise — so without the activity edge it kept the spinner
-              // turning behind a flag it cannot see, which is exactly the state the waiting signal removes.
-              ctx.sendTimelineSignal(sessionId, {
-                kind: bindSignal.kind,
-                source: bindSignal.source,
-                reason: bindSignal.reason,
-                ...(typeof bindSignal.busy === 'boolean' ? { busy: bindSignal.busy } : {}),
-              });
-            }
-          };
-
-          // An `idle` edge is this backend saying "the agent finished", and it is exactly as untrustworthy
-          // as Claude's `Stop` (#495): a prompt queued mid-turn is not announced again, so delivering it
-          // would leave the session on Ready through the work that follows. Same shape as the attention
-          // hook's below, and the reason `readTurnQueue` exists for Pi at all (#530) — without this the
-          // descriptor answers a question nobody asks.
-          if (bindSignal.kind === 'idle' && ctx.holdReady) {
-            if (!ctx.holdReady(sessionId, deliver)) deliver();
-          } else {
-            if (ctx.cancelHeldReady) ctx.cancelHeldReady(sessionId);
-            deliver();
-          }
-        }
+        // What the binding says about the session's lifecycle goes through the same function every other
+        // producer of such an edge uses — the runtime-driven backend reads the same facts off its own pipe
+        // (#568) and must not get a second, subtly different delivery.
+        deliverBindSignal(sessionId, hook);
 
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end('{}');
@@ -327,6 +253,99 @@ function handleHookRequest(req, res, token = attentionHookToken) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end('{}');
   });
+}
+
+/**
+ * Deliver one lifecycle report about a session: busy, idle, or waiting on the user (#303, #529, #530).
+ *
+ * The session-bind route calls this with what a terminal's binding extension POSTed; `src/app/agent-rpc.js`
+ * calls it with what a runtime-driven session said on its own pipe (#568). Both are the same kind of fact —
+ * a backend stating its own state exactly — so they take one path: the queue report first, then the
+ * classification, then the turn-hold, then the three deliveries. A second copy of this is how the two would
+ * start to disagree about when a session counts as finished.
+ *
+ * `hook` is the binding's own shape: `{ kind: 'busy'|'idle'|'waiting', pending?, turn_start?, prompt_kind? }`.
+ */
+function deliverBindSignal(sessionId, hook) {
+  if (!sessionId || !hook) return;
+  // Some backends can also report a neutral lifecycle edge on the same terminal binding. The route
+  // still knows nothing about WHICH backend sent it; it only trusts the per-spawn URL+token and the
+  // session id reported by the terminal-bound extension. What the edge MEANS is decided in
+  // `shared/attention-source.js`, the same place every other source is decided.
+  const bindSignal = sessionId
+    ? attentionSource.classifyAttentionSignal({ source: 'bind', payload: hook })
+    : null;
+  // BEFORE anything is delivered: what the binding says about a prompt still WAITING (#530). It is
+  // passed on untouched — what it means, and whether the backend can answer at all, is that
+  // backend's business, and this route stays unable to name one. It has to be recorded first,
+  // because the `idle` edge below is decided on it: a hold that asked before the report landed
+  // would read the state from one event ago.
+  if (sessionId && typeof hook.pending === 'boolean' && typeof ctx.noteTurnQueue === 'function') {
+    try {
+      ctx.noteTurnQueue(sessionId, {
+        pending: hook.pending,
+        kind: bindSignal ? bindSignal.kind : null,
+        // Only a real turn START proves a queued prompt ran. The binding posts `busy` for the end
+        // of a UI prompt too (#529), and taking that as a started turn would release a hold that
+        // was right — so the extension says which one this is rather than the kind being read for
+        // something it does not mean.
+        turnStart: hook.turn_start === true,
+      });
+    } catch (err) {
+      ctx.log.warn(`[session-bind] queue state not recorded: ${err.message}`);
+    }
+  }
+
+  if (bindSignal) {
+    // `needs-attention` from a binding is a CLI blocked on a question mid-turn (#529): it is
+    // attention AND it is the end of being busy. The classifier states the second half as `busy`,
+    // because it cannot be derived from `kind` — "the agent asked something" says nothing about
+    // whether it is still working, and only this source knows that it is not.
+    const busy = typeof bindSignal.busy === 'boolean' ? bindSignal.busy : bindSignal.kind === 'busy';
+    const deliver = () => {
+      const mainWindow = ctx.getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        // Third arg = exact backend lifecycle edge. Renderer keeps OSC/store guesses from clearing a
+        // Ready row, but a terminal-bound lifecycle hook is the user's new turn and must clear it.
+        mainWindow.webContents.send('cli-busy-state', sessionId, busy, true);
+        if (bindSignal.kind === 'needs-attention') {
+          mainWindow.webContents.send('attention-signal', {
+            sessionId,
+            kind: bindSignal.kind,
+            reason: bindSignal.reason,
+            source: bindSignal.source,
+            agentId: null,
+            agentType: null,
+          });
+          ctx.log.info(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} reason="${bindSignal.reason}"`);
+        }
+      }
+      if (ctx.sendTimelineSignal) {
+        // `busy` travels on this channel too, and it is load-bearing (#529). The window that RENDERS
+        // a session receives only this one, and its half of the engine has nothing to do with an
+        // attention signal it may not raise — so without the activity edge it kept the spinner
+        // turning behind a flag it cannot see, which is exactly the state the waiting signal removes.
+        ctx.sendTimelineSignal(sessionId, {
+          kind: bindSignal.kind,
+          source: bindSignal.source,
+          reason: bindSignal.reason,
+          ...(typeof bindSignal.busy === 'boolean' ? { busy: bindSignal.busy } : {}),
+        });
+      }
+    };
+
+    // An `idle` edge is this backend saying "the agent finished", and it is exactly as untrustworthy
+    // as Claude's `Stop` (#495): a prompt queued mid-turn is not announced again, so delivering it
+    // would leave the session on Ready through the work that follows. Same shape as the attention
+    // hook's in `handleHookRequest`, and the reason `readTurnQueue` exists for Pi at all (#530) — without this the
+    // descriptor answers a question nobody asks.
+    if (bindSignal.kind === 'idle' && ctx.holdReady) {
+      if (!ctx.holdReady(sessionId, deliver)) deliver();
+    } else {
+      if (ctx.cancelHeldReady) ctx.cancelHeldReady(sessionId);
+      deliver();
+    }
+  }
 }
 
 /**
@@ -534,6 +553,7 @@ function registerIpc(ipc) {
 module.exports = {
   init,
   registerIpc,
+  deliverBindSignal,
   startAttentionHookServer,
   removeClaudeAttentionHook,
   attentionHooksEnabled,

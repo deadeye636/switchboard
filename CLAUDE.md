@@ -38,6 +38,7 @@ table is the fallback and it is binding.
 | the welcome tour — a pane, a control that writes a setting, a figure that follows one | `docs/specs/27-welcome-tour.md` (why) + `test/welcome-tour.test.js` (the guard) |
 | attention — busy/ready, the hooks, a turn that announces nothing | `docs/specs/05-hook-attention-detection.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | session health — the badge, the context fill, a model's context window | `docs/specs/28-session-health.md` (why) + `.claude/rules/backends.md` (the `contextWindow` hook) + `src/backends/claude/model-windows.js` (Claude's measured table) + `.claude/rules/renderer.md` (the rule) |
+| a session with no terminal — a backend driven over a pipe, the conversation view | `docs/specs/30-pi-native.md` (why) + `.claude/rules/backends.md` (the driver/owner rule) + `.claude/rules/renderer.md` (the terminal-less entry) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
 | running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |

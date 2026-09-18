@@ -457,6 +457,15 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // #569: what a backend wrote so this session can offer the app's document conventions as commands of
   // its own. Same lifetime as the binding above — built in the backend block, removed on exit.
   let promptTemplateCleanup = null;
+  // #568: what a runtime-driven backend wrote for this spawn (its per-spawn extension). Same lifetime again.
+  let runtimeCleanup = null;
+  // Everything the backend allocated above, released in one place — by the catch below and by the refusals
+  // inside the backend branch that return rather than throw.
+  const releaseSpawnAllocations = () => {
+    try { if (typeof runtimeCleanup === 'function') runtimeCleanup(ctx.log); } catch { /* best effort */ }
+    try { if (typeof promptTemplateCleanup === 'function') promptTemplateCleanup(ctx.log); } catch { /* best effort */ }
+    try { if (typeof liveBindingCleanup === 'function') liveBindingCleanup(ctx.log); } catch { /* best effort */ }
+  };
   try {
     if (isPlainTerminal) {
       // Plain terminal: an interactive login shell, and nothing wrapped inside it (#588).
@@ -549,10 +558,22 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           // `backend.id`, which for a profile launch is the profile id), and the template may since have
           // been deleted. The cache's backendId is the BASE backend the transcript was actually written
           // by, so this heals a deleted-template session onto its real base binary instead of Claude.
-          if (!recorded || !ctx.backends.get(recorded.backendId)) {
+          //
+          // …and ALSO when the overlay names a backend that only DRIVES another's transcripts and is switched
+          // off (#568). The launch record keeps `pi-native` for every session it ran, and a record alone would
+          // refuse the resume with "disabled" — while the row belongs to Pi, which can open it in a terminal.
+          const recordedBackend = recorded ? ctx.backends.get(recorded.backendId) : null;
+          const driverOff = !!(recordedBackend && recordedBackend.transcriptsOf
+            && typeof ctx.backends.isLaunchable === 'function' && !ctx.backends.isLaunchable(recordedBackend.id));
+          if (!recorded || !recordedBackend || driverOff) {
             try {
               const row = ctx.getCachedSession(lookupId);
-              if (row && row.backendId) recorded = { backendId: row.backendId, profileId: null };
+              // The backend that OPENS the row, which is its owner unless a sibling drove it over another
+              // transport (#568) — the same answer the sidebar payload carries, from the same function.
+              if (row && row.backendId) {
+                const opener = typeof ctx.backends.openerFor === 'function' ? ctx.backends.openerFor(row) : row.backendId;
+                recorded = { backendId: opener || row.backendId, profileId: null };
+              }
             } catch { /* cache unavailable -> fall through to the claude default */ }
           }
         }
@@ -618,9 +639,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // Forking an id the backend never issued produces a dead tab ("No session found"). It happens with
       // every backend that names its own sessions: until it has written its store record we only hold OUR
       // id, which means nothing to it. Refuse with a sentence instead of spawning.
-      if (sessionOptions?.forkFrom && typeof backend.liveRefFor === 'function') {
+      // Asked of the descriptor that keeps the RECORD — the backend itself, or the owner of the transcripts a
+      // driving backend runs (#568); without that a native Pi session could be forked before Pi named it.
+      const recordOwner = typeof ctx.backends.recordOwnerOf === 'function' ? ctx.backends.recordOwnerOf(backend) : backend;
+      if (sessionOptions?.forkFrom && recordOwner && typeof recordOwner.liveRefFor === 'function') {
         let known = null;
-        try { known = backend.liveRefFor(sessionOptions.forkFrom); } catch { known = null; }
+        try { known = recordOwner.liveRefFor(sessionOptions.forkFrom); } catch { known = null; }
         if (!known) {
           return {
             ok: false,
@@ -640,9 +664,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // right now", and a store that a CLI update moved or rewrote answers "no" for sessions that were
       // perfectly real — refusing there would lock the user out of every session of that backend at once.
       // So drop the `-r` and let it start fresh, with a sentence saying so.
-      if (!isNew && !sessionOptions?.forkFrom && typeof backend.liveRefFor === 'function') {
+      if (!isNew && !sessionOptions?.forkFrom && recordOwner && typeof recordOwner.liveRefFor === 'function') {
         let known = null;
-        try { known = backend.liveRefFor(sessionId); } catch { known = null; }
+        try { known = recordOwner.liveRefFor(sessionId); } catch { known = null; }
         if (!known) {
           resumeUnknown = true;
           resumeUnknownLabel = backend.label || backend.id;
@@ -787,7 +811,15 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // the same `quoteArgvForShell` Claude has always used.
       const preLaunchCmd = String(sessionOptions?.preLaunchCmd || '').trim();
       if (preLaunchCmd && /[\r\n]/.test(preLaunchCmd)) {
+        releaseSpawnAllocations();
         return { ok: false, error: 'The pre-launch command must not contain newlines.' };
+      }
+      // A backend driven over a pipe has no shell to put a prefix in front of (#568), and silently dropping
+      // one the user set would start the CLI without the environment they asked for.
+      if (backend.transport && preLaunchCmd) {
+        releaseSpawnAllocations();
+        return { ok: false, error: `${backend.label || backend.id} runs without a terminal, so a pre-launch `
+          + "command has nowhere to run. Clear it in this backend's launch options." };
       }
 
       const useArgvSpawn = !!argvExe && !preLaunchCmd;
@@ -916,7 +948,41 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         useConptyDll,
       };
 
-      if (useArgvSpawn) {
+      if (backend.transport && backend.rpc) {
+        // #568: a backend that is DRIVEN rather than watched. No PTY — a child process on a pipe, wrapped by
+        // `src/app/agent-rpc.js` to answer what `session.pty` is asked, so the stop, the quit, the re-key and
+        // the exit handler below run unchanged. It has to be a real executable: there is no shell to resolve
+        // an npm shim, which is why the backend's launch names one.
+        if (!argvExe) {
+          releaseSpawnAllocations();
+          return { ok: false, error: `${backend.label || backend.id} could not be started: its executable was not found.` };
+        }
+        // The backend's per-spawn extension, where it has one — the same shape as the binding and the
+        // templates above, with the same rule: best-effort, and never a launch failure.
+        try {
+          const built = typeof backend.rpc.prepare === 'function'
+            ? backend.rpc.prepare({ dir: ctx.bindingDir, tag: terminalTag, options: spawnOptionsFor(backend, projectPath, sessionOptions), log: ctx.log })
+            : null;
+          if (built && Array.isArray(built.args) && built.args.length) {
+            launch.args = [...launch.args, ...built.args];
+            runtimeCleanup = built.cleanup && typeof backend.rpc.release === 'function'
+              ? (log) => backend.rpc.release(built.cleanup, log)
+              : null;
+          }
+        } catch (err) {
+          ctx.log.warn(`[agent-rpc] session=${sessionId} runtime extension not set up: ${err.message}`);
+        }
+        ctx.log.info(`[spawn] backend=${backend.id} mode=${backend.transport} cmd=${argvExe} args=${JSON.stringify(launch.args)}`);
+        ptyProcess = ctx.startAgentProcess({
+          tag: terminalTag,
+          rpc: backend.rpc,
+          command: argvExe,
+          args: launch.args,
+          cwd: projectPath,
+          env: ptyEnv,
+          label: backend.label || backend.id,
+        });
+      } else if (useArgvSpawn) {
         // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the
         // arguments. Codex asks for this because Windows shell quoting mangles its argv.
         ctx.log.info(`[spawn] backend=${backend.id} mode=argv cmd=${argvExe} args=${JSON.stringify(launch.args)}`);
@@ -931,8 +997,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // session object below is never built, so the PTY-exit handler that normally releases them has no
     // session to run against. The boot sweep would eventually collect the leftovers, but "eventually,
     // at the next start" is not cleanup for a failure the user can repeat by pressing the button again.
-    try { if (typeof promptTemplateCleanup === 'function') promptTemplateCleanup(ctx.log); } catch { /* best effort */ }
-    try { if (typeof liveBindingCleanup === 'function') liveBindingCleanup(ctx.log); } catch { /* best effort */ }
+    releaseSpawnAllocations();
     // The message names the shell and its arguments, which is a path under the user's home as often
     // as not (#457). The detail goes to the log; the terminal gets a sentence.
     return { ok: false, error: readableError(err, 'The terminal could not be started.', ctx && ctx.log) };
@@ -985,6 +1050,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     _liveBindingCleanup: liveBindingCleanup,
     // #569: and whatever the backend wrote so this session could offer the document conventions.
     _promptTemplateCleanup: promptTemplateCleanup,
+    // #568: and what a runtime-driven backend wrote for this spawn.
+    _runtimeCleanup: runtimeCleanup,
+    // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
+    transport: (launchBackend && launchBackend.transport) || null,
     // #305: did the live binding reach this spawn's argv? A backend that CANNOT report is answered by
     // its `supportsLiveRebinding` capability; this answers the other half — one that can, and did not.
     _liveBound: liveBound,
@@ -1008,7 +1077,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // empty prompt where a conversation was expected reads as the app having lost their history. Yellow,
   // not dim: this is a thing that happened TO them, unlike the startup hint above. It goes through the
   // buffer for the same reason — a detach/reattach must not lose it.
-  if (resumeUnknown) {
+  if (resumeUnknown && typeof ptyProcess.notice === 'function') {
+    // A session without a terminal (#568) says it in its conversation view; there is no buffer to write.
+    ptyProcess.notice('warning', `${resumeUnknownLabel} has no record of this session — started a new one instead`);
+  } else if (resumeUnknown) {
     const notice = `\x1b[33m── ${resumeUnknownLabel} has no record of this session — started a new one instead ──\x1b[0m\r\n`;
     session.outputBuffer.push(notice);
     session.outputBufferSize += notice.length;
@@ -1355,6 +1427,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       if (typeof session._promptTemplateCleanup === 'function') session._promptTemplateCleanup(ctx.log);
     } catch (err) {
       ctx.log.debug(`[prompt-templates] cleanup failed for session=${realId}: ${err.message}`);
+    }
+    // #568: and the runtime-driven backend's extension, on its own try for the same reason.
+    try {
+      if (typeof session._runtimeCleanup === 'function') session._runtimeCleanup(ctx.log);
+    } catch (err) {
+      ctx.log.debug(`[agent-rpc] cleanup failed for session=${realId}: ${err.message}`);
     }
     // Wipe this session's secret-ref temp files (default on; the prompt that used
     // them is done). Quit/startup wipe still covers the setting-off case.

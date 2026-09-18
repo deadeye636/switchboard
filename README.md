@@ -101,6 +101,10 @@ chart rather than a row of zeroes.
   Each declares its own launch options, and the settings UI is generated from that declaration.
   **Profiles** point the Claude binary at another endpoint (DeepSeek, GLM, OpenRouter…); keys stay
   `$VAR` references, resolved at launch, never written to disk. → [`docs/multi-llm.md`](docs/multi-llm.md)
+- **Pi without a terminal** — a second Pi backend that drives Pi over its RPC mode and draws the
+  conversation itself: streamed replies, tool calls with their output, questions the agent is waiting
+  on. Its sessions are ordinary Pi sessions and reopen where they were driven.
+  → [`docs/specs/30-pi-native.md`](docs/specs/30-pi-native.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey

@@ -2973,6 +2973,69 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   outline-offset: -2px;
 }
 
+/* ---- A session with no terminal (#568): the conversation view sits in the terminal's slot and takes its
+   visibility from the same `.visible` class. The entries themselves are the Message History's (.jsonl-*),
+   drawn by the same renderer, so only what a LIVE session adds is styled here. */
+.terminal-container.conversation-container.visible {
+  display: flex;
+  flex-direction: column;
+}
+.conversation-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 16px;
+}
+.conversation-log::-webkit-scrollbar { width: 5px; }
+.conversation-log::-webkit-scrollbar-track { background: transparent; }
+.conversation-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+.conversation-status {
+  flex: none;
+  min-height: 20px;
+  padding: 4px 16px;
+  font-size: 12px;
+  color: #7a7a90;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.conversation-status.busy { color: #b0b0d0; }
+.conversation-streaming { opacity: 0.9; }
+.conversation-tool-output {
+  margin: 4px 0 0;
+  max-height: 14em;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.3);
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  color: #a0a0b8;
+}
+.conversation-notice-error { color: #f0a0a0; }
+.conversation-notice-warning { color: #e0c080; }
+.conversation-ask {
+  margin: 8px 0;
+  border: 1px solid rgba(128, 136, 255, 0.45);
+  background: rgba(128, 136, 255, 0.08);
+}
+.conversation-ask-title { font-weight: 600; color: #e0e0f0; }
+.conversation-ask-message { margin-top: 4px; color: #b0b0c8; white-space: pre-wrap; }
+.conversation-ask-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.conversation-ask-primary { border-color: rgba(128, 136, 255, 0.6); }
+.conversation-ask-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  background: rgba(0,0,0,0.3);
+  color: #d0d0e0;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
 /* ==== "This session is asking you something" — the terminal's own attention caption (#615) ====
 
    ONE pseudo-element, and that is the requirement rather than a style choice. FitAddon proposes a row

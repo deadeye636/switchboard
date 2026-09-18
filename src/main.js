@@ -1706,6 +1706,9 @@ ipcMain.handle('backends-list', () => {
       // No fallback: a backend that declares none gets an inert chord rather than one that submits a
       // half-written prompt through some other CLI's sequence.
       newlineKeySequence: b.newlineKeySequence || null,
+      // How the session is driven (#568): absent for a CLI in a PTY, the transport's name for one driven
+      // over a pipe. The renderer mounts a conversation view instead of a terminal on it, naming no backend.
+      transport: b.transport || null,
       modelDiscovery: typeof b.listModels === 'function',
       resourceDiscovery: typeof b.listResources === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable
@@ -1776,10 +1779,12 @@ ipcMain.handle('backend-can-fork', (_event, sessionId) => {
   if (backend.supportsFork !== true) {
     return { ok: false, reason: `${backend.label || backend.id} cannot fork a session.` };
   }
-  // A backend that names its own sessions must actually HAVE this one in its store.
-  if (typeof backend.liveRefFor === 'function') {
+  // A backend that names its own sessions must actually HAVE this one in its store — asked of whoever keeps
+  // that store, which for a backend that only drives another's binary is the owner (#568).
+  const recordOwner = backends.recordOwnerOf(backend);
+  if (recordOwner && typeof recordOwner.liveRefFor === 'function') {
     let known = null;
-    try { known = backend.liveRefFor(sessionId); } catch { known = null; }
+    try { known = recordOwner.liveRefFor(sessionId); } catch { known = null; }
     if (!known) {
       return {
         ok: false,
@@ -2193,6 +2198,23 @@ const { startBackendWatchers, stopBackendWatchers } = watchStores;
 // The crossroads of the nine: it mutates watch/adopt.js's live maps on exit, calls variables.js's secret
 // cleanup, asks settings.js for the cascade. Everything main.js still owns goes in as a reference or a
 // getter — never a captured value.
+// #568: a session DRIVEN over a runtime protocol rather than watched in a PTY. The pipe, the ops it turns
+// into and the IPC the conversation view talks to; spawn.js hands it the child and gets back a PTY-shaped
+// process, so the stop, the quit and the re-key paths never learn there are two kinds of session.
+const agentRpc = require('./app/agent-rpc');
+agentRpc.init({
+  getMainWindow: () => mainWindow,
+  windowForSession: (sessionId) => detach.windowForSession(sessionId),
+  activeSessions,
+  getAppQuitting: () => appQuitting,
+  // The re-key every live binding goes through, lazily for the same reason as the hook server's above.
+  adoptSessionId: (tag, id) => sessionTransitions.adoptSessionId(tag, id),
+  // …and the one delivery of a backend's own busy/idle/waiting report.
+  deliverBindSignal: (sessionId, hook) => hooks.deliverBindSignal(sessionId, hook),
+  log,
+});
+agentRpc.registerIpc(ipcMain);
+
 const spawn = require('./app/terminal/spawn');
 spawn.init({
   getMainWindow: () => mainWindow,
@@ -2243,6 +2265,8 @@ spawn.init({
   // #303: and the URL its ordinary turn hooks re-state "this terminal is that session" on.
   sessionBindUrl: hooks.sessionBindUrl,
   forgetClearClaims: (tag) => clearClaims.forgetTag(tag),
+  // #568: the pipe a backend with a `transport` runs on instead of a PTY.
+  startAgentProcess: (opts) => agentRpc.start(opts),
   log,
 });
 spawn.registerIpc(ipcMain);

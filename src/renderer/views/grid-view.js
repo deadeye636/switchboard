@@ -69,6 +69,8 @@ function getGridOpenSessions() {
   const sessions = [];
   for (const [sid, entry] of openSessions) {
     if (entry.closed) continue;
+    // A session without a terminal (#568) has no card yet — plan E3 of that issue, a follow-up of its own.
+    if (entry.conversation) continue;
     const session = sessionMap.get(sid) || entry.session;
     if (session) sessions.push(session);
   }
@@ -411,7 +413,7 @@ function focusGridCard(sessionId) {
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   const entry = openSessions.get(sessionId);
-  if (entry) entry.terminal.focus();
+  if (entry && entry.terminal) entry.terminal.focus();
 }
 
 // The set of session ids the grid should currently render, in sidebar order.
@@ -419,7 +421,7 @@ function focusGridCard(sessionId) {
 function gridDesiredSids() {
   const openSet = new Set();
   for (const [sid, entry] of openSessions) {
-    if (!entry.closed) openSet.add(sid);
+    if (!entry.closed && !entry.conversation) openSet.add(sid);   // no card for a terminal-less session (#568)
   }
   const allowedSet = getGridAllowedSessionIds();
   const ids = [];
@@ -594,10 +596,15 @@ function showGridView(opts) {
   // Switch #terminals to grid layout
   terminalsEl.classList.add('grid-layout');
 
+  // A session without a terminal (#568) gets no card for now — say so rather than leave it missing.
+  if ([...openSessions.values()].some(e => e && e.conversation && !e.closed)) {
+    window.showControlToast?.({ message: 'Sessions without a terminal are not shown in the grid yet', timeoutMs: 3000 });
+  }
+
   // Collect open (non-closed) session IDs
   const openSet = new Set();
   for (const [sid, entry] of openSessions) {
-    if (!entry.closed) openSet.add(sid);
+    if (!entry.closed && !entry.conversation) openSet.add(sid);   // no card for a terminal-less session (#568)
   }
   let allowedSet = getGridAllowedSessionIds();
   if (gridStatusFilter !== 'all' && allowedSet.size === 0) {
@@ -652,7 +659,7 @@ function showGridView(opts) {
   for (const sid of sessionIds) {
     const entry = openSessions.get(sid);
     if (!entry) continue;
-    entry.terminal.options.scrollback = SCROLLBACK_GRID;
+    if (entry.terminal) entry.terminal.options.scrollback = SCROLLBACK_GRID;
     fitAndScroll(entry);
   }
   // Focus active or first (deferred so fitAndScroll's rAF runs first).
@@ -782,7 +789,7 @@ function hideGridView() {
   // grid closes and would otherwise stay silently capped at the thumbnail
   // budget until individually shown.
   for (const entry of openSessions.values()) {
-    if (!entry.closed) entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
+    if (!entry.closed && entry.terminal) entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
   }
   unwrapGridCards();
   terminalsEl.classList.remove('grid-layout');

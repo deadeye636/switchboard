@@ -10,7 +10,10 @@ const ROOT = path.join(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const SRC = read('src/renderer/terminal/terminal-manager.js');
 const MAIN = read('src/main.js');
-const BACKENDS = require('../src/backends').list().filter(b => b.status === 'ready' && !b.isProfile);
+// A backend with no terminal (#568, `transport`) has no composer these bytes could reach — its text field is
+// the app's own. It is checked the other way instead, below: it must not declare an answer nobody reads.
+const BACKENDS = require('../src/backends').list().filter(b => b.status === 'ready' && !b.isProfile && !b.transport);
+const TERMINAL_LESS = require('../src/backends').list().filter(b => b.status === 'ready' && !b.isProfile && b.transport);
 const { handleTerminalNewlineKeyEvent } = require('../src/renderer/terminal/newline-key-routing');
 
 function enterEvent(overrides = {}) {
@@ -53,6 +56,13 @@ test('every backend explicitly declares the newline sequence its composer reads'
     assert.equal(typeof backend.newlineKeySequence, 'string',
       `${backend.id}: newlineKeySequence must be the sequence measured against this CLI`);
     assert.ok(backend.newlineKeySequence.length > 0, `${backend.id}: an empty sequence sends nothing`);
+  }
+});
+
+test('a backend without a terminal declares no newline sequence', () => {
+  for (const backend of TERMINAL_LESS) {
+    assert.equal(backend.newlineKeySequence, undefined,
+      `${backend.id}: runs without a terminal — a sequence here would be an answer to a question nobody asks`);
   }
 });
 

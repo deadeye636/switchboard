@@ -510,6 +510,15 @@ const migrations = [
       try { db.exec(sql); } catch {}
     }
   },
+
+  // How a session was last DRIVEN (#568). Two backends run Pi — one in a terminal, one over its RPC mode —
+  // and they share one store, so a row keeps the backend that owns the transcript and records the transport
+  // here. `backends.openerFor(row)` turns it into the backend that opens the row. NULL is every session a
+  // terminal ran, which is every session before this column existed. Pi's parser bumps its version in the
+  // same change, so its rows re-read themselves; nothing is backfilled here.
+  (db) => {
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN transport TEXT'); } catch {}
+  },
 ];
 
 /**

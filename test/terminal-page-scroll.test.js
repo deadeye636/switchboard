@@ -10,7 +10,10 @@ const ROOT = path.join(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const SRC = read('src/renderer/terminal/terminal-manager.js');
 const MAIN = read('src/main.js');
-const BACKENDS = require('../src/backends').list().filter(b => b.status === 'ready' && !b.isProfile);
+// A backend with no terminal (#568, `transport`) has no viewport and no TUI for the keys to reach; its
+// conversation view scrolls like any page. Checked the other way below: it declares no target at all.
+const BACKENDS = require('../src/backends').list().filter(b => b.status === 'ready' && !b.isProfile && !b.transport);
+const TERMINAL_LESS = require('../src/backends').list().filter(b => b.status === 'ready' && !b.isProfile && b.transport);
 const { handleTerminalPageKeyEvent } = require('../src/renderer/terminal/page-key-routing');
 
 function pageEvent(key, overrides = {}) {
@@ -63,6 +66,13 @@ test('every backend explicitly owns its bare page-key target', () => {
   for (const backend of BACKENDS) {
     assert.ok(['pty', 'viewport'].includes(backend.pageKeyTarget),
       `${backend.id}: pageKeyTarget must explicitly be "pty" or "viewport"`);
+  }
+});
+
+test('a backend without a terminal declares no page-key target', () => {
+  for (const backend of TERMINAL_LESS) {
+    assert.equal(backend.pageKeyTarget, undefined,
+      `${backend.id}: runs without a terminal — a page-key target here would be read by an xterm it never mounts`);
   }
 });
 

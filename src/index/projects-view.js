@@ -274,7 +274,12 @@ function buildProjectsFromCache(showArchived) {
       // Authoritative backend provenance (§5.7) — drives the sidebar's provider badge. A row written
       // before the multi-LLM columns existed (NULL) is Claude by definition. (The row's filePath is NOT
       // sent: it would bloat every sidebar paint.)
-      backendId: row.backendId || 'claude',
+      //
+      // It is the backend that OPENS the row, which is its owner except where a sibling drove the session
+      // over another transport (#568) — `openerFor` decides, and answers the owner for every row that
+      // carries no transport, which is nearly all of them. The renderer resolves badge, surface and resume
+      // from this one field; the database keeps the owner, because the scan reconciles by owner.
+      backendId: row.transport ? backends.openerFor(row) : (row.backendId || 'claude'),
       // v12 cost + lineage (T-5.5). Null on every token-only backend. `costStatus` says whether the
       // figure is an estimate or a settled amount. `lineageParentId` is a backend's OWN parent link
       // (Hermes' parent_session_id), deliberately separate from `parentSessionId` = Claude subagent.

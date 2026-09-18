@@ -358,6 +358,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   **Pi** run side by side in one sidebar, one FTS index, one launch menu and one stats view. A backend is a folder under `backends/`
   with a single descriptor; the registry, scanner, watcher, launch menu, settings page, Configure
   dialog, badge, search, stats and resume all derive from it.
+- **Pi driven through its runtime (#568)** — `Pi (native)` starts `pi --mode rpc` instead of Pi's TUI and
+  draws the conversation from its events: the turn being streamed, tool calls and their output, and
+  questions an extension is waiting on. It has no terminal. Its sessions stay Pi's rows. A marker in the
+  transcript says how a session was driven, and the row reopens there. Spec:
+  [`specs/30-pi-native.md`](specs/30-pi-native.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
   `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a
   SQLite DB, read via an exporter like Hermes) **or** `{kind:'db'}` handles (Hermes keeps its sessions

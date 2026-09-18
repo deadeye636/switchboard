@@ -72,6 +72,12 @@ const ALLOWED = {
     'The same shape as the search worker above: it answers its own client over postMessage, and '
     + '`src/index/index-worker-client.js` logs the message and resolves the request with nothing. No window '
     + 'ever sees it. Found when #624 widened the pattern to the parenthesised `||` chain.',
+  'backends/pi-native/rpc-protocol.js':
+    'The `message` it passes on is the text of a dialog an extension OPENED for the user (Pi\'s RPC '
+    + '`extension_ui_request`) — written to be read, not a caught error. The one caught-error field Pi sends, '
+    + '`extension_error.error`, is deliberately not passed on. The file also passes on `errorMessage` and '
+    + '`finalError`: those are the PROVIDER\'s answer to a model call (an HTTP status and its body — measured: a '
+    + 'lapsed OAuth refresh, an exhausted account), which is what the user has to read to act, not a local error.',
   'db/compact.js':
     'Its result never reaches a window. `src/app/db-upkeep.js` is the only reader and it builds a log '
     + 'line out of it, so the SQLite message is already where a dropped message would have been sent.',

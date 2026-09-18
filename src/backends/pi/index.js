@@ -37,6 +37,8 @@ const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
 const { changelogSource } = require('./changelog');
 const modelWindows = require('./model-windows');
+// How to start Pi without a shell — shared with the runtime-driven backend (#568), so it is not a key here.
+const { piExecCommand } = require('./exec-command');
 
 // A Pi transcript's filename, from the module that also reads a session id out of one (#530). One pattern,
 // not two that agree until somebody edits one of them — the rationale is over there with it.
@@ -154,16 +156,6 @@ function parseModelList(output) {
     models.push({ id: `${provider}/${model}`, label: `${provider}/${model}` });
   }
   return models;
-}
-
-function piExecCommand() {
-  const exe = findExecutable();
-  if (!exe) return { command: 'pi', args: [] };
-  if (process.platform === 'win32' && /\.cmd$/i.test(exe)) {
-    const cli = path.join(path.dirname(exe), 'node_modules', '@earendil-works', 'pi-coding-agent', 'dist', 'cli.js');
-    return { command: 'node', args: [cli] };
-  }
-  return { command: exe, args: [] };
 }
 
 function listModels({ search } = {}) {

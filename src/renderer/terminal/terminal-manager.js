@@ -437,6 +437,7 @@ function repairTerminalScreen(entry) {
 // Fit terminal to container, clamping rows to the container's true content-box
 // height to avoid bottom-row clipping (see clampRowsToContentBox above).
 function safeFit(entry) {
+  if (!entry || !entry.terminal) return; // a conversation view (#568) has nothing to fit
   const el = entry.element; // .terminal-container
   // A hidden container (display:none, height 0) can never be measured: proposeDimensions
   // returns nothing and the retry loop below would spin its ~30-frame budget for nothing,
@@ -745,6 +746,7 @@ function scheduleGhostHeal(entry) {
 
 // Defers to requestAnimationFrame so the container has dimensions.
 function fitAndScroll(entry) {
+  if (!entry || !entry.terminal) return; // a conversation view (#568) scrolls itself
   const wasAtBottom = isAtBottom(entry.terminal);
   requestAnimationFrame(() => {
     safeFit(entry);
@@ -775,6 +777,7 @@ function clampTerminalFontSize(n) {
 
 function applyTerminalFontToAll() {
   for (const [, entry] of openSessions) {
+    if (!entry.terminal) continue; // a conversation view (#568) draws with the app's own fonts
     entry.terminal.options.fontSize = terminalFontSize;
     entry.terminal.options.fontFamily = terminalFontFamily;
     safeFit(entry); // hidden terminals bail early (safeFit's 0-size guard); their next show refits them
@@ -1000,7 +1003,7 @@ function setTerminalMouseReporting(mode) {
   }
   const forceSelect = terminalMouseMode === 'select';
   for (const [, entry] of openSessions) {
-    applyTerminalSelectionOverride(entry.terminal, forceSelect);
+    if (entry.terminal) applyTerminalSelectionOverride(entry.terminal, forceSelect);
   }
 }
 
@@ -1115,7 +1118,7 @@ function drainReplayBuffer(sessionId) {
     return;
   }
   const entry = openSessions.get(sessionId);
-  if (!entry) {
+  if (!entry || !entry.terminal) {
     rawReplayBuffers.delete(sessionId);
     return;
   }
@@ -1222,8 +1225,8 @@ function flushTerminalBuffer(sessionId) {
   terminalWriteBuffers.delete(sessionId);
 
   const entry = openSessions.get(sessionId);
-  if (!entry) {
-    // Session closed with a flush still queued — drop the bytes but ack them so
+  if (!entry || !entry.terminal) {
+    // Session closed with a flush still queued (or a conversation view, #568, which takes no bytes) — drop the bytes but ack them so
     // flow control can't hold the PTY paused (this flush can race ahead of the
     // flowState cleanup in destroySession).
     flowTrackParsed(sessionId, buf.chunks.reduce((s, c) => s + c.length, 0));
@@ -1368,6 +1371,12 @@ const SCROLLBACK_GRID = 1000;    // grid card (thumbnail)
 // Create an xterm instance, wire up IPC, and register in openSessions.
 // Returns the entry. Does NOT make it visible or fit it — call showSession() for that.
 function createTerminalEntry(session, opts = {}) {
+  // A session driven over a pipe has no terminal at all (#568). Every launch path comes through here, so this
+  // is the one place that decides which of the two surfaces a session gets — `session/conversation-view.js`.
+  if (typeof sessionHasNoTerminal === 'function' && sessionHasNoTerminal(session)
+      && typeof createConversationEntry === 'function') {
+    return createConversationEntry(session);
+  }
   const { sessionId } = session;
   const container = document.createElement('div');
   container.className = 'terminal-container';
@@ -1726,6 +1735,21 @@ function restoreTerminalWebgl(sessionId) {
   if (entry) loadTerminalWebgl(entry);
 }
 
+// A launch that failed says so where the session is shown: in its terminal, or — for a session driven
+// without one (#568) — in its conversation view. The one place both shapes are answered, so the launch
+// paths in app.js and dialogs.js do not each learn that there are two.
+function writeEntryError(entry, text) {
+  if (!entry) return;
+  if (entry.terminal) { try { entry.terminal.write(`\r\nError: ${text}\r\n`); } catch { /* disposed */ } return; }
+  if (entry.conversation) entry.conversation.notice('error', text);
+}
+
+// A session without a terminal loads what it has said so far once its process is up (#568). No-op for a
+// terminal, which gets its history as bytes from the PTY replay instead.
+function attachEntrySurface(entry) {
+  if (entry && entry.conversation) entry.conversation.attach();
+}
+
 // Push the terminal's CURRENT dimensions to the PTY. The PTY spawns at a fixed
 // 120x30 while xterm fits asynchronously; a resize event fired before the spawn
 // finished is dropped in main (no session entry yet), and once xterm already
@@ -1783,7 +1807,9 @@ function destroySession(sessionId) {
   // cleanup needed for those. The DnD/search-bar listeners live on
   // entry.element, which is removed below and garbage-collected once the
   // entry leaves openSessions/gridCards.
-  entry.terminal.dispose();
+  // A conversation view (#568) has no xterm to dispose; its element goes with the one below.
+  if (entry.terminal) entry.terminal.dispose();
+  if (entry.conversation && typeof entry.conversation.dispose === 'function') entry.conversation.dispose();
   entry.element.remove();
   openSessions.delete(sessionId);
   const li = lruOrder.indexOf(sessionId);
@@ -1837,7 +1863,7 @@ function showSession(sessionId) {
     // tabs. Clicking a terminal tab would then delete the Messages tab beside it —
     // and a pane holding only that viewer would collapse, losing the split (#310).
     // Showing a session parks the viewer behind its tab; it does not dismiss it.
-    if (entry) {
+    if (entry && entry.terminal) {
       entry.terminal.options.scrollback = SCROLLBACK_SINGLE;
       // No restoreTerminalWebgl here: since #320 the renderer is a property of the LAYOUT, not of
       // which session is focused, and `show()` always schedules a render that applies the policy.
@@ -1878,7 +1904,12 @@ function showSession(sessionId) {
     placeholder.style.display = 'none';
     hidePlanViewer();
     if (session) showTerminalHeader(session);
-    if (entry) {
+    if (entry && !entry.terminal) {
+      // A conversation view (#568): reveal it, nothing to fit, repaint or replay.
+      document.querySelectorAll('.terminal-container.visible').forEach(c => c.classList.remove('visible'));
+      entry.element.classList.add('visible');
+      if (entry.conversation) entry.conversation.focus();
+    } else if (entry) {
       // Restore the full scrollback budget for the focused terminal (the grid
       // may have trimmed it — see showGridView). Growing the limit is lossless.
       entry.terminal.options.scrollback = SCROLLBACK_SINGLE;

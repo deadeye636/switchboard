@@ -400,6 +400,22 @@ then the template is the only entry that can still answer for that CLI. Its call
 **The test to apply when you forward a hook**: does any consumer of it take a LIST? Then it goes through
 `oneAskerPerCli` in the same commit.
 
+## A backend can DRIVE another backend's binary without owning its rows (#568)
+
+`pi-native` runs Pi over its RPC mode (`transport: 'rpc'`) and declares `transcriptsOf: 'pi'`. It declares
+no discovery, no parser and none of the live-record hooks — two backends over one store cannot both own a
+row, and the scan's delete-diff is per `backendId`, so a row stamped with the driver's id would outlive its
+transcript. The row stays the owner's; the owner's parser records HOW it was driven (`row.transport`, from a
+marker the driver's per-spawn extension writes), and `backends.openerFor(row)` is the one answer to which
+backend OPENS it — the sidebar payload and the spawn path's cache fallback both ask it. A driver that is
+switched off hands the row back to the owner. `test/backend-parity.test.js` pins that shape, spec 30 has
+the reasoning.
+
+A descriptor with `transport` spawns on a pipe (`src/app/agent-rpc.js`), and its `rpc` half is where the
+protocol lives: it turns the CLI's lines into the app's own ops and the app's requests into lines. The
+core names no event of it. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
+to read them, and the terminal-key tests check the absence.
+
 ## "Is something else already running this session?" is THREE hooks (#172, #607)
 
 `liveOwnersCached()` reads a cache and **never spawns**; `refreshLiveOwners()` is the one that costs a

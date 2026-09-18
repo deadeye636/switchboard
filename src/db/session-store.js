@@ -41,9 +41,10 @@ const stmts = {
       changeMarker, estimatedCostUsd, actualCostUsd, costStatus, lineageParentId, lineageKind,
       importedFrom,
       lastInputTokens, lastModel, lastModelSpec, lastProvider, contextWindowReported,
+      transport,
       parserVersion
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -84,6 +85,9 @@ const stmts = {
       lastModelSpec = excluded.lastModelSpec,
       lastProvider = excluded.lastProvider,
       contextWindowReported = excluded.contextWindowReported,
+      -- NOT coalesced (#568): the column mirrors the transcript. The marker is never removed, so this only
+      -- goes back to NULL if the transcript itself was rewritten without it — and then that is the truth.
+      transport = excluded.transport,
       parserVersion = excluded.parserVersion
   `),
   // Record a /clear child's lineage the moment the live re-key resolves it (#193). Inserts a sparse row if
@@ -257,6 +261,8 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       s.lastModelSpec || null,
       s.lastProvider || null,
       Number(s.lastContextWindow) > 0 ? Number(s.lastContextWindow) : null,
+      // #568 — how the session was last driven, from the backend's own transcript. Null for nearly all.
+      s.transport || null,
       // v14 (#152) — which parser wrote this row. The scan compares it to the parser that would read
       // it now, so a bumped parser re-reads its own sessions instead of leaving stale metrics behind.
       s.parserVersion == null ? null : Number(s.parserVersion)

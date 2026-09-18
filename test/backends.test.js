@@ -144,7 +144,7 @@ test('registry: a planned dummy refuses to launch', () => {
 
 test('registry: list() includes claude + the other built-in binaries', () => {
   const ids = backends.list().map(d => d.id).sort();
-  assert.deepStrictEqual(ids, ['agy', 'claude', 'codex', 'hermes', 'pi']);
+  assert.deepStrictEqual(ids, ['agy', 'claude', 'codex', 'hermes', 'pi', 'pi-native']);
 });
 
 // --- T-2.1: unified list (built-ins ∪ user profiles), enabled flags, default launch target.

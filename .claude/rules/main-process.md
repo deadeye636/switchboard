@@ -123,6 +123,12 @@ above cost ~92 µs a call against ~0.7 µs for the string compare they replaced,
 decision about writing somewhere and is not affordable per session row — a sidebar rebuild measured 16 ms
 with the memo and 311 ms without it. A stale key costs a regrouping; a stale guard costs an escape, so the
 guards keep asking the disk), 
+`agent-rpc.js` (a session DRIVEN over a runtime protocol instead of watched in a PTY — #568; the child on a
+pipe, wrapped to answer what `session.pty` is asked so stop, quit, re-key and the exit handler run
+unchanged; the backend's `rpc` half turns lines into the app's own ops and back, so this module names no
+backend and reads no format. Its busy/idle goes through `hooks.deliverBindSignal`, the same delivery a
+terminal's binding extension gets — a second copy of that path is how the two would start to disagree
+about when a session is finished),
 `clipboard-insert.js` (what the system clipboard hands a `{clipboard}` insert — #491; the paste/drop
 ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
 bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the
@@ -367,6 +373,7 @@ A session can live in a window of its own. `app/detach.js` owns the map and answ
 | `terminal-data` | the bytes belong to the terminal showing them |
 | `mcp-open-diff` / `mcp-open-file` / `mcp-close-tab` / `mcp-close-all-diffs` (#393) | a review opens where the user is looking and is answered in the terminal underneath it |
 | `timeline-signal` (#395) | that window's own timeline and status — **record-only by contract** |
+| `agent-event` (#568) | a runtime-driven session's ops are its conversation — the same bytes-belong-to-the-view reason as `terminal-data` |
 
 Everything else — `cli-busy-state`, `terminal-notification`, `attention-signal`, `session-forked`,
 `process-exited` for the sidebar's copy — goes to the **main window**, because that is where the
@@ -451,6 +458,7 @@ line there, in the same commit.
 | Where a project keeps its handoffs and its plans | `src/app/convention-dirs.js` |
 | What a running session can be asked to run | `src/app/skills.js` |
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
+| A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

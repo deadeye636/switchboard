@@ -62,6 +62,9 @@ const UNIVERSAL_FIELDS = [
 /** A descriptor as the app sees it: its own options, plus the ones Switchboard adds to every backend. */
 function withUniversalFields(descriptor) {
   const own = Array.isArray(descriptor.configFields) ? descriptor.configFields : [];
+  // A backend driven over a pipe (#568) has no shell to put a pre-launch command in front of, so the field
+  // would be a control that promises a shell start and then refuses every launch that uses it.
+  if (descriptor.transport) return descriptor;
   const missing = UNIVERSAL_FIELDS.filter(u => !own.some(f => f.id === u.id));
   if (!missing.length) return descriptor;
   return { ...descriptor, configFields: [...own, ...missing] };
@@ -218,6 +221,11 @@ function profileToDescriptor(p) {
     ...(base && base.deleteBlockedReason ? { deleteBlockedReason: base.deleteBlockedReason } : {}),
     ...(base && typeof base.normalizeTranscriptEntries === 'function'
       ? { normalizeTranscriptEntries: base.normalizeTranscriptEntries } : {}),
+    // HOW the base is driven (#568). A template on the runtime-driven Pi borrows its launch, and that
+    // launch is `--mode rpc` — spawned into a PTY it would print JSON at a terminal nobody can use. So the
+    // transport and the protocol half that drives it travel with the launch they belong to.
+    ...(base && base.transport ? { transport: base.transport } : {}),
+    ...(base && base.rpc ? { rpc: base.rpc } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);
@@ -321,6 +329,46 @@ function get(id) {
     if (p) return profileToDescriptor(p);
   }
   return null;
+}
+
+/**
+ * Which backend OPENS a stored row (#568).
+ *
+ * A row's `backendId` says whose transcript it is, and that stays true however the session was driven: the
+ * scan reconciles per backend, so the owner is the one that can find the row again. Two backends can drive
+ * one binary, though — Pi in a terminal and Pi over its RPC mode — and a session the second one drove should
+ * open there again. The owner's parser records how it was driven (`row.transport`); a backend that declares
+ * `transcriptsOf: <owner>` and the same `transport` claims such a row.
+ *
+ * Only a backend that could LAUNCH claims it. Switched off, the row goes back to its owner, which runs the
+ * same binary over the same transcript — the session opens in a terminal instead of not opening at all.
+ * Cheap on purpose: `projects-view.js` asks once per row, and only a row that carries a transport gets past
+ * the first line.
+ */
+function openerFor(row) {
+  const owner = row && row.backendId;
+  if (!owner) return owner || null;
+  const transport = row.transport;
+  if (!transport) return owner;
+  const enabledMap = (_getGlobalSettings() || {}).backendEnabled || {};
+  for (const b of registry.values()) {
+    if (b.transcriptsOf === owner && b.transport === transport && b.status === 'ready' && isEnabled(b, enabledMap)) {
+      return b.id;
+    }
+  }
+  return owner;
+}
+
+/**
+ * Which descriptor can answer questions about a session's RECORD in the store — `liveRefFor` above all
+ * (#568). Normally the backend itself. A backend that only drives another's binary (`transcriptsOf`) keeps
+ * no record of its own, so the owner answers: whether Pi has written a session yet is Pi's store's answer
+ * however the session was driven. Without this the fork and resume guards simply did not run for it.
+ */
+function recordOwnerOf(b) {
+  if (!b) return null;
+  if (typeof b.liveRefFor === 'function' || !b.transcriptsOf) return b;
+  return registry.get(b.transcriptsOf) || b;
 }
 
 function has(id) {
@@ -527,12 +575,15 @@ function _seedDefaults() {
   register(require('./agy'));
   register(require('./hermes'));   // Phase 5 — the first non-file (SQLite) backend
   register(require('./pi'));       // Phase 6 — file mode again, the payoff of the abstraction
+  // #568 — the same binary over its RPC mode. After `pi` on purpose: it forwards that descriptor's store
+  // and format answers, and it sits beside it in Settings > Backends.
+  register(require('./pi-native'));
 }
 
 _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, profileToDescriptor,
+  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, openerFor, recordOwnerOf, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };

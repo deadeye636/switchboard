@@ -57,6 +57,11 @@ const NOT_INHERITED = {
   conversationsRoot: 'the base\'s own store path helper',
   dbPath: 'the base\'s own store path helper',
   findExecutable: 'a backend module\'s own binary lookup, not a hook the core calls',
+  // #568. A template runs its base's binary under its own id and its sessions carry that id through the
+  // launch overlay. Claiming the owner's rows as well would put two claimants on one row for
+  // `backends.openerFor`, which takes the first — so which one opened a session would depend on
+  // registration order.
+  transcriptsOf: 'a template is launched by name; claiming the owner\'s marked rows too would make two backends answer openerFor for one row',
   _parseModelList: 'private to the backend module',
   _resetToolchainCache: 'private to the backend module (a test seam)',
   _toolchainCacheState: 'private to the backend module (a test seam)',

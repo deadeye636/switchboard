@@ -894,7 +894,8 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
   // status-tick re-render breaks keyboard navigation / a11y (issue #78).
   const sidebarFocused = ae && ae.closest && ae.closest('#sidebar');
   if (activeSessionId && openSessions.has(activeSessionId) && !isUserTyping && !sidebarFocused) {
-    openSessions.get(activeSessionId).terminal.focus();
+    const focusEntry = openSessions.get(activeSessionId);
+    if (focusEntry.terminal) focusEntry.terminal.focus();
   }
 }
 

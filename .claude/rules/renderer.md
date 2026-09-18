@@ -185,6 +185,16 @@ kept a Running that had already been retracted. `onProcessExited` deletes the id
 `confirmAndStopSession` already did for a user stop. This is not a second reading: the poll still owns
 the set and replaces it wholesale on the next tick, which is what heals a relaunch.
 
+## An `openSessions` entry may have NO terminal (#568)
+
+A session whose backend declares `transport` is mounted by `createConversationEntry`
+(`session/conversation-view.js`), reached through `createTerminalEntry` so every launch path gets it.
+The entry carries `terminal: null`, `fitAddon: null` and `conversation`. **Every site that touches
+`entry.terminal` checks it first** — fit, repaint, WebGL, font, theme, focus, scrollback, the exit
+banner — and a launch error is written through `writeEntryError`, not `entry.terminal.write`. A new
+site that reaches for the xterm without asking crashes on exactly the sessions nobody tests by hand.
+Such a session gets no grid card and is not detached (spec 30, E3); both refusals say so.
+
 ## A working backend is the control, not the thing to normalize away
 
 When a request says a terminal interaction already works in one backend, write the behaviour matrix

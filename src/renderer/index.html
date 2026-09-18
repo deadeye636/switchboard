@@ -304,6 +304,8 @@
   <!-- subagent-live.js (pure source-aware edge rules) must load before jsonl-viewer.js. -->
   <script src="session/subagent-live.js"></script>
   <script src="jsonl/jsonl-viewer.js"></script>
+  <!-- #568: the surface of a session with no terminal — draws through jsonl-viewer.js's entry renderer. -->
+  <script src="session/conversation-view.js"></script>
   <script src="dialogs/dialogs.js"></script>
   <script src="dialogs/welcome-tour.js"></script>
   <script src="handoff/handoff.js"></script>

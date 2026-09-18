@@ -306,6 +306,15 @@ contextBridge.exposeInMainWorld('api', {
   redrawTerminal: (id) => ipcRenderer.send('terminal-redraw', id),
   closeTerminal: (id) => ipcRenderer.send('close-terminal', id),
 
+  // A session driven over a runtime protocol instead of a terminal (#568) — what the conversation view asks
+  // of `src/app/agent-rpc.js`. `attach` answers the conversation so far; the other three act on the session.
+  agent: {
+    attach: (id) => ipcRenderer.invoke('agent-attach', id),
+    send: (id, payload) => ipcRenderer.invoke('agent-send', id, payload),
+    abort: (id) => ipcRenderer.invoke('agent-abort', id),
+    answer: (id, requestId, answer) => ipcRenderer.invoke('agent-answer', id, requestId, answer),
+  },
+
   // Native notifications, dock/taskbar badge, tray (Spec 01)
   notify: (payload) => ipcRenderer.send('notify', payload),
   setBadge: (count) => ipcRenderer.send('set-badge', count),
@@ -322,6 +331,10 @@ contextBridge.exposeInMainWorld('api', {
   // Listeners (main → renderer)
   onTerminalData: (callback) => {
     ipcRenderer.on('terminal-data', (_event, sessionId, data) => callback(sessionId, data));
+  },
+  // #568: what a runtime-driven session said, as the app's own ops — routed like `terminal-data`.
+  onAgentEvent: (callback) => {
+    ipcRenderer.on('agent-event', (_event, sessionId, op) => callback(sessionId, op));
   },
   onSessionDetected: (callback) => {
     ipcRenderer.on('session-detected', (_event, tempId, realId) => callback(tempId, realId));

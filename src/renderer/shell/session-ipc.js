@@ -288,7 +288,11 @@ window.api.onProcessExited((sessionId, exitCode) => {
     // Without this, a fast-failing pre-launch command would tear down the
     // terminal before the user could read the error. Skip it for a deliberate
     // stop/archive — the "re-click to relaunch" hint is misleading there.
-    if (!userStopped) {
+    if (entry.conversation) {
+      // A session without a terminal (#568) says it ended in its own view, and the view stops showing it
+      // as working — there is no banner to write and no PTY behind it any more.
+      entry.conversation.markExited(userStopped ? 0 : exitCode);
+    } else if (!userStopped) {
       try {
         const colour = exitCode === 0 ? '\x1b[2m' : '\x1b[33m';
         entry.terminal.write(
