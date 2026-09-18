@@ -353,7 +353,8 @@ test('the spawn path resolves against the session\'s working directory and place
   const templates = src.indexOf('backend.buildPromptTemplates(');
   assert.ok(shared > 0 && templates > 0 && shared < templates, 'shared resources come before the templates');
   const call = src.slice(shared, src.indexOf('});', shared));
-  assert.match(call, /resourceSources\.resolve\(\{ target: backend, sourceId, projectPath: projectPath \|\| null, options \}\)/);
+  // The launch's env is what a source expands its MCP definitions against (#633).
+  assert.match(call, /resourceSources\.resolve\(\{ target: backend, sourceId, projectPath: projectPath \|\| null, options, env: \{ \.\.\.process\.env, \.\.\.\(launch\.env \|\| \{\}\) \} \}\)/);
   assert.doesNotMatch(call, /settingsOwnerPath/);
   // The options are the CASCADED ones: the global and project settings are where `resourcesFrom` is set, and
   // the raw session options would silently drop both.

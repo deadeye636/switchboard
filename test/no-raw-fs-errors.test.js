@@ -65,6 +65,11 @@ const NOT_A_LEAK = /^\s*(?:\/\/|\*)|(?:\blog\.\w+\(|\bconsole\.\w+\(|\bctx\.log\
  * reported as a stale exemption — the list is not allowed to outlive what it covers.
  */
 const ALLOWED = {
+  'backends/pi/mcp-section.js':
+    'Generated code that runs inside Pi, not in this app (#633): the text is an MCP server\'s JSON-RPC error, '
+    + 'a spawn error of Node\'s or the tail of the server\'s stderr, and it goes to the model as a tool result '
+    + 'or to the Pi session as a notice. It can name a path, but it never crosses IPC and no window of this '
+    + 'app renders it; the user who reads it is the one whose server it is.',
   'workers/search-query.js':
     'A worker answering its own client over postMessage. The message is logged by the index layer and '
     + 'never rendered — the search UI reports "no results", not a reason.',

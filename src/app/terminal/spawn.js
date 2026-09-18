@@ -462,6 +462,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   let runtimeCleanup = null;
   // #632/#634: what a backend wrote so this session gets its resources and tools. Same lifetime again.
   let sessionResourcesCleanup = null;
+  // What the resources hook adds to the session's environment (#633: the MCP server list). Merged into the
+  // env LAST and unresolved, because it is data for the backend's own extension, not a `$VAR` template.
+  let sessionResourcesEnv = null;
   // Everything the backend allocated above, released in one place — by the catch below and by the refusals
   // inside the backend branch that return rather than throw.
   const releaseSpawnAllocations = () => {
@@ -780,18 +783,21 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             dir: ctx.bindingDir,
             tag: terminalTag,
             options,
-            resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options }),
+            // The env a source expands its definitions against (`${VAR}` in an MCP server): this process's, with
+            // the launch's own variables over it. Its `$VAR` references are resolved further down, not here.
+            resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options, env: { ...process.env, ...(launch.env || {}) } }),
             log: ctx.log,
           });
           if (built && Array.isArray(built.args) && built.args.length) {
             launch.args = [...launch.args, ...built.args];
           }
+          sessionResourcesEnv = built && built.env && typeof built.env === 'object' ? built.env : null;
           // Keep the RELEASE, not the descriptor — the exit handler runs where `backend` is out of scope.
           sessionResourcesCleanup = built && built.cleanup && typeof backend.releaseSessionResources === 'function'
             ? (log) => backend.releaseSessionResources(built.cleanup, log)
             : null;
           if (built && built.source) {
-            ctx.log.info(`[session-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.commands || []).length} command dir(s), ${(built.agents || []).length} agent dir(s), ${(built.dropped || []).length} dropped`);
+            ctx.log.info(`[session-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.commands || []).length} command dir(s), ${(built.agents || []).length} agent dir(s), ${(built.mcpServers || []).length} MCP server(s), ${(built.dropped || []).length} dropped`);
             for (const d of built.dropped || []) ctx.log.debug(`[session-resources] session=${sessionId} dropped ${d.kind} (${d.scope}, ${d.reason})`);
           }
           if (built && built.subagent) ctx.log.info(`[session-resources] session=${sessionId} subagent tool offered via ${backend.id}`);
@@ -990,6 +996,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           ...templateEnv,
         }, backend.label || backend.id, sessionId));
       }
+      if (sessionResourcesEnv) Object.assign(ptyEnv, sessionResourcesEnv);
       const effectiveProfileId = sessionOptions?.profileId != null ? sessionOptions.profileId : (recorded?.profileId || null);
       ctx.sessionBackends.record(sessionId, backend.id, effectiveProfileId);
 
