@@ -128,7 +128,7 @@ const configFields = [
     choicesFrom: 'sharedResourceSources',
     choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
     appliesAt: 'spawn', appliedBy: 'buildSessionResources',
-    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Hooks, MCP servers and agents do not come along.' },
+    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Hooks and MCP servers do not come along.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',
@@ -612,7 +612,10 @@ description:
   // the same SKILL.md shape the others write) and commands (expanded by its per-spawn extension, because
   // `--prompt-template` leaves `` !`…` `` and `@file` as text — measured, spec 30).
   sharedResources: null,
-  acceptsSharedResources: ['skill', 'command'],
+  // Agents (#639) run through the `subagent` tool, so they are taken only while that tool is on — the
+  // per-launch half is `declinesSharedResource`, which the core asks beside the trust question.
+  acceptsSharedResources: ['skill', 'command', 'agent'],
+  declinesSharedResource: (ctx) => sessionResources.declinesSharedResource(ctx),
   // Whether this launch may be handed a source's PROJECT-scope directories (owner decision E1). A path on
   // Pi's command line is loaded whether or not the project is trusted, so passing one would read the
   // project's instructions before anybody trusted it; the question is therefore answered the way Pi would

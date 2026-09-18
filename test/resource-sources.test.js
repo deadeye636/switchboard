@@ -112,7 +112,7 @@ test('commands from a source without a dialect are dropped, not passed as plain 
 test('no source means nothing to hand over; an unknown or silent source is refused', async () => {
   withRegistry();
   const none = await resourceSources.resolve({ target: 'tgt', sourceId: '' });
-  assert.deepEqual(none, { ok: true, source: null, skills: [], commands: [], dropped: [] });
+  assert.deepEqual(none, { ok: true, source: null, skills: [], commands: [], agents: [], dropped: [] });
   for (const id of ['silent', 'planned', 'tpl', 'nope', 'tgt']) {
     const r = await resourceSources.resolve({ target: 'tgt', sourceId: id });
     assert.equal(r.ok, false, id);
@@ -141,7 +141,7 @@ test('a source whose listing throws or fails answers ok:false with nothing, neve
 // Without this, renaming `project-skills` in a backend's resources.js would drop the project half silently
 // and every other test here would stay green. Each listing is built over a throwaway home and project that
 // hold every directory the backend knows, so what it emits is exactly what it can emit.
-test('every source a backend offers is emitted by its own listing, as a skill or a command', (t) => {
+test('every source a backend offers is emitted by its own listing, as a skill, a command or an agent', (t) => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -168,7 +168,7 @@ test('every source a backend offers is emitted by its own listing, as a skill or
     for (const source of backends.get(b.id).sharedResources.sources) {
       const row = emitted.find((r) => r.source === source);
       assert.ok(row, `${b.id} offers '${source}', which its listing never emits`);
-      assert.ok(['skill', 'command'].includes(row.kind), `${b.id} '${source}' is a ${row.kind}`);
+      assert.ok(['skill', 'command', 'agent'].includes(row.kind), `${b.id} '${source}' is a ${row.kind}`);
     }
   }
 });
@@ -196,10 +196,10 @@ test('the owner\'s three sources offer skills; only Claude declares a command di
   assert.equal(byId('hermes'), null);
 });
 
-test('both Pi backends take skills and commands, and offer Claude, Codex and Antigravity as sources', () => {
+test('both Pi backends take skills, commands and agents, and offer Claude, Codex and Antigravity as sources', () => {
   resourceSources.init({ backends });
   for (const id of ['pi', 'pi-native']) {
-    assert.deepEqual(backends.get(id).acceptsSharedResources, ['skill', 'command'], id);
+    assert.deepEqual(backends.get(id).acceptsSharedResources, ['skill', 'command', 'agent'], id);
     assert.deepEqual(resourceSources.sourcesFor(id).map((s) => s.id).sort(), ['agy', 'claude', 'codex'], id);
   }
   assert.deepEqual(resourceSources.sourcesFor('claude'), [], 'Claude takes nothing over');
@@ -462,4 +462,77 @@ test('a select whose target has no source to offer is not marked for a preview',
   const [field] = resourceSources.projectFields(target);
   assert.deepEqual(field.choices, ['']);
   assert.equal(field.sourcePreview, false);
+});
+
+// ── #639: agents, and a kind the target declines for this launch ────────────────────────────────────
+
+const AGENT_DIALECT = { toolsKey: 'tools', toolWords: { Read: 'read' } };
+
+function withAgents({ trusted = true, decline = null, dialect = AGENT_DIALECT } = {}) {
+  const target = {
+    id: 'tgt', status: 'ready', sharedResources: null,
+    acceptsSharedResources: ['skill', 'command', 'agent'],
+    trustsProjectResources: () => trusted,
+  };
+  if (decline) target.declinesSharedResource = decline;
+  const a = source('src-a', rows, {
+    sources: ['skills-directory', 'agents-directory'],
+    commandDialect: null,
+    agentDialect: dialect,
+  });
+  resourceSources.init({ backends: stubRegistry([target, a]) });
+  return target;
+}
+
+test('an agent directory is handed over with the source\'s agent dialect', async () => {
+  withAgents();
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.deepEqual(r.agents, [{ path: '<home>/src-a/agents', scope: 'global', dialect: AGENT_DIALECT }]);
+});
+
+test('agents of a source without an agent dialect are dropped with a reason, not guessed at', async () => {
+  withAgents({ dialect: null });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.deepEqual(r.agents, []);
+  assert.deepEqual(r.dropped.map((d) => [d.kind, d.reason]), [['agent', 'no-agent-dialect']]);
+});
+
+test('a kind the target declines for this launch is dropped with the target\'s own note, asked once per kind and scope', async () => {
+  const asked = [];
+  withAgents({
+    decline: (arg) => { asked.push([arg.kind, arg.scope, arg.options.flag]); return arg.kind === 'agent' ? { reason: 'target-declined', note: 'not now' } : null; },
+  });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a', options: { flag: 1 } });
+  assert.deepEqual(r.agents, []);
+  assert.deepEqual(r.skills.map((s) => s.path), ['<home>/src-a/skills']);
+  assert.deepEqual(r.dropped, [{ path: '<home>/src-a/agents', kind: 'agent', scope: 'global', reason: 'target-declined', note: 'not now' }]);
+  assert.deepEqual(asked, [['skill', 'global', 1], ['agent', 'global', 1]]);
+});
+
+test('a declining hook that throws or answers nonsense takes nothing away', async () => {
+  for (const decline of [() => { throw new Error('boom'); }, () => ({ reason: '' }), () => 'no']) {
+    withAgents({ decline });
+    const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+    assert.equal(r.agents.length, 1);
+    assert.deepEqual(r.dropped, []);
+  }
+});
+
+test('Pi declines a source\'s agents while its subagent tool is off, and takes them when it is on', () => {
+  for (const id of ['pi', 'pi-native']) {
+    const b = backends.get(id);
+    const off = b.declinesSharedResource({ kind: 'agent', scope: 'global', options: {} });
+    assert.equal(off.reason, 'target-declined', id);
+    assert.match(off.note, /subagent tool is off/, id);
+    assert.equal(b.declinesSharedResource({ kind: 'agent', scope: 'global', options: { subagentTool: true } }), null, id);
+    assert.equal(b.declinesSharedResource({ kind: 'skill', scope: 'global', options: {} }), null, `${id}: skills are never declined`);
+  }
+});
+
+test('Claude offers its agent directories with an agent dialect; Codex and agy offer none', () => {
+  const claude = backends.get('claude').sharedResources;
+  assert.ok(claude.sources.includes('agents-directory'));
+  assert.ok(claude.sources.includes('project-agents'));
+  assert.equal(claude.agentDialect.inheritModel, 'inherit');
+  for (const id of ['codex', 'agy']) assert.equal(backends.get(id).sharedResources.agentDialect, undefined, id);
 });

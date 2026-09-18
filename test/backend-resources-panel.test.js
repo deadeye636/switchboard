@@ -516,3 +516,21 @@ test('a preview closed again is not re-read on every change, and reads afresh wh
     assert.equal(calls[1].sourceId, 'src', 'and it shows the choice made while it was closed');
   } finally { ctx.dom.window.close(); }
 });
+
+test('#639: the preview lists agent directories, and a drop the target declined carries the target\'s own sentence', async () => {
+  const ctx = setup();
+  try {
+    withPreview(ctx, () => ({
+      ok: true, source: 'src', sourceLabel: 'Source CLI', skills: [], commands: [],
+      agents: [{ path: '<home>/src/agents', scope: 'global' }],
+      dropped: [{ path: '<home>/src/more-agents', kind: 'agent', scope: 'global', reason: 'target-declined', note: 'not passed: the subagent tool is off' }],
+    }));
+    await mountPanel(ctx, { globalDefaults: { tgt: { from: 'src' } } });
+    openPreview(ctx);
+    await tick();
+    const text = ctx.root.querySelector('.backend-source-preview-list').textContent.replace(/\s+/g, ' ');
+    assert.match(text, /agent global <home>\/src\/agents/);
+    assert.match(text, /not passed: the subagent tool is off/);
+    assert.doesNotMatch(text, /target-declined/, 'a reason code is not shown to the user');
+  } finally { ctx.dom.window.close(); }
+});

@@ -777,8 +777,35 @@ module.exports = {
   //   - `@path` is replaced by that file's content, relative to the project;
   //   - a file in a subdirectory keeps its own name — the folder only labels it (`commands/fe/x.md` is
   //     `/x`, described as "(fe)"), and `description` / `argument-hint` describe it.
+  //
+  // `agentDialect` (#639) is the same kind of data for an agent file (`agents/*.md`), read by a target that
+  // runs agents itself:
+  //   - `tools` lists what the agent may use, `disallowedTools` what it may not; either entry may carry an
+  //     argument in parentheses (`Bash(git:*)`), which RESTRICTS the tool — a target that cannot enforce
+  //     the restriction must drop the entry rather than hand out the unrestricted tool;
+  //   - `toolWords` maps each tool name onto the neutral vocabulary (`../tool-vocabulary.js`), never onto
+  //     another CLI's names; a name not in it has no counterpart elsewhere (`WebFetch`, `Task`, `mcp__…`);
+  //   - an agent with no `tools` line may use every tool; `model: inherit` means the calling session's model.
   sharedResources: {
-    sources: ['skills-directory', 'project-skills', 'commands-directory', 'project-commands'],
+    sources: ['skills-directory', 'project-skills', 'commands-directory', 'project-commands', 'agents-directory', 'project-agents'],
+    agentDialect: {
+      toolsKey: 'tools',
+      disallowedToolsKey: 'disallowedTools',
+      modelKey: 'model',
+      inheritModel: 'inherit',
+      argumentOpen: '(',
+      argumentClose: ')',
+      toolWords: {
+        Read: 'read',
+        Write: 'write',
+        Edit: 'edit',
+        MultiEdit: 'edit',
+        Grep: 'search-text',
+        Glob: 'find-files',
+        LS: 'list-dir',
+        Bash: 'shell',
+      },
+    },
     commandDialect: {
       allArguments: '$ARGUMENTS',
       positionalArguments: true,

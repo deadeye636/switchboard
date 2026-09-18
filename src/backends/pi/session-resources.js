@@ -75,4 +75,17 @@ function releaseSessionResources(file, log) {
   resourcesExtension.removeResourcesExtension(file, log);
 }
 
-module.exports = { SOURCE_OPTION_ID, buildSessionResources, releaseSessionResources };
+/**
+ * Which kind Pi accepts in general but not with THIS launch's options (#639) — asked by the core's
+ * resolver for the spawn and for the settings preview alike. A source's agents run only through the
+ * `subagent` tool, and that tool is off unless somebody switched it on: switching a source on does not
+ * switch on a tool that starts model sessions nobody typed. Null means "taken".
+ */
+function declinesSharedResource({ kind, options } = {}) {
+  if (kind === 'agent' && !(options && options[subagentTool.OPTION_ID] === true)) {
+    return { reason: 'target-declined', note: 'not passed: the subagent tool is off' };
+  }
+  return null;
+}
+
+module.exports = { SOURCE_OPTION_ID, buildSessionResources, releaseSessionResources, declinesSharedResource };

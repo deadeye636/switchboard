@@ -315,6 +315,9 @@ function profileToDescriptor(p) {
     // not forwarded — see NOT_INHERITED in test/template-descriptor-shape.test.js.
     ...(base && Array.isArray(base.acceptsSharedResources) ? { acceptsSharedResources: base.acceptsSharedResources } : {}),
     ...(base && typeof base.trustsProjectResources === 'function' ? { trustsProjectResources: base.trustsProjectResources } : {}),
+    // #639: which accepted kind this launch declines (a source's agents while the subagent tool is off). The
+    // template's options carry that switch the same way the base's do.
+    ...(base && typeof base.declinesSharedResource === 'function' ? { declinesSharedResource: base.declinesSharedResource } : {}),
     // Is something OUTSIDE Switchboard already running this session (#172, #607)? The answer comes from
     // asking the BASE's CLI about its own sessions, and a template's sessions are in that same store
     // under that same CLI — so the question applies unchanged (#605). `app/live-owners.js` selects the

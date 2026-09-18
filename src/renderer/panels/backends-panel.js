@@ -294,7 +294,7 @@
     return `
       <details class="settings-adv backend-source-preview" data-lazy="1" data-preview-backend="${esc(backend.id)}" data-preview-opt="${esc(field.id)}">
         <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>What a session would take over</summary>
-        <div class="backend-env-hint">Read from the chosen backend's own directories each time a session starts, so this list follows them. A project's own directories are passed only when ${esc(backend.label)} trusts the project. Where ${esc(backend.label)} already has a skill or command of the same name, its own wins; that is only known once the session runs.</div>
+        <div class="backend-env-hint">Read from the chosen backend's own directories each time a session starts, so this list follows them. A project's own directories are passed only when ${esc(backend.label)} trusts the project. Where ${esc(backend.label)} already has a skill, command or agent of the same name, its own wins; that, and which of an agent's tools are left out, is only known once the session runs.</div>
         <div class="backend-source-preview-list"><div class="settings-hint">Loading…</div></div>
       </details>`;
   }
@@ -302,13 +302,14 @@
   const DROP_REASONS = {
     'untrusted-project': 'not passed: the project is not trusted for this launch',
     'no-command-dialect': 'not passed: that backend\'s commands cannot be read here',
+    'no-agent-dialect': 'not passed: that backend\'s agents cannot be read here',
   };
 
   function renderSourcePreview(result, projectPath) {
     if (!result || result.ok === false) {
       return `<div class="settings-hint">Could not read what would be taken over${result && result.reason ? ': ' + esc(result.reason) : '.'}</div>`;
     }
-    if (!result.source) return '<div class="settings-hint">Nothing is taken over. The session gets only its own skills and commands.</div>';
+    if (!result.source) return '<div class="settings-hint">Nothing is taken over. The session gets only its own skills, commands and agents.</div>';
     const row = (kind, r, note) => `
       <div class="settings-more open backend-source-preview-row">
         <span class="backend-pill">${esc(kind)}</span>
@@ -318,8 +319,12 @@
     const taken = [
       ...(result.skills || []).map(r => row('skill', r)),
       ...(result.commands || []).map(r => row('command', r)),
+      ...(result.agents || []).map(r => row('agent', r)),
     ];
-    const dropped = (result.dropped || []).map(d => row(d.kind || 'resource', d, DROP_REASONS[d.reason] || `not passed: ${d.reason}`));
+    // A reason the core words is looked up here; one the TARGET gave (#639, e.g. "the subagent tool is off")
+    // arrives with its own sentence, because this panel may not name the option that decided it.
+    const dropped = (result.dropped || []).map(d => row(d.kind || 'resource', d,
+      DROP_REASONS[d.reason] || d.note || `not passed: ${d.reason}`));
     const from = result.sourceLabel || result.source;
     return [
       taken.length

@@ -7,10 +7,11 @@
 //
 // NEUTRAL BY CONSTRUCTION. No backend is named here:
 //   - a SOURCE declares `sharedResources` — which of its `listResources` rows may leave it, by `source`,
-//     plus a `commandDialect` describing its command files (data, because the target expands them inside
-//     its own process);
-//   - a TARGET declares `acceptsSharedResources` (the kinds it can take) and `trustsProjectResources`
-//     (whether this launch may be handed a source's project-scope directories — owner decision E1).
+//     plus a `commandDialect` and an `agentDialect` describing its command and agent files (data, because
+//     the target reads them inside its own process);
+//   - a TARGET declares `acceptsSharedResources` (the kinds it can take), `trustsProjectResources`
+//     (whether this launch may be handed a source's project-scope directories — owner decision E1) and,
+//     optionally, `declinesSharedResource` (a kind it accepts but not with this launch's options, #639).
 // A backend that declares `sharedResources: null` and no accepted kinds is neither, and the settings screen
 // shows it no choice. Every built-in declares the first explicitly (test/backend-parity.test.js).
 //
@@ -71,15 +72,17 @@ function sourcesFor(targetOrId) {
 /**
  * What a launch of `target` in `projectPath` would take over from `sourceId`.
  *
- * Returns `{ ok, source, skills, commands, dropped }`:
+ * Returns `{ ok, source, skills, commands, agents, dropped }`:
  *   - `skills`   — `[{ path, scope }]`, directories in the source's own layout;
  *   - `commands` — `[{ path, scope, dialect }]`, directories of command files and how to read them;
- *   - `dropped`  — `[{ path, kind, scope, reason }]`, what the source has but this launch does not get,
- *                  so the preview can say so instead of leaving it out silently.
+ *   - `agents`   — `[{ path, scope, dialect }]`, directories of agent files and how to read them (#639);
+ *   - `dropped`  — `[{ path, kind, scope, reason, note? }]`, what the source has but this launch does not
+ *                  get, so the preview can say so instead of leaving it out silently. `note` is the
+ *                  target's own sentence where the TARGET declined the kind (`declinesSharedResource`).
  * An empty or unknown source is not an error: it answers with nothing to hand over.
  */
 async function resolve({ target: targetOrId, sourceId, projectPath = null, options = {} } = {}) {
-  const empty = { ok: true, source: null, skills: [], commands: [], dropped: [] };
+  const empty = { ok: true, source: null, skills: [], commands: [], agents: [], dropped: [] };
   const target = asDescriptor(targetOrId);
   const kinds = acceptedKinds(target);
   if (!sourceId || !kinds.length) return empty;
@@ -106,13 +109,40 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
     try { projectTrusted = target.trustsProjectResources({ projectPath, options }) === true; } catch { projectTrusted = false; }
   }
 
-  const out = { ok: true, source: sourceId, skills: [], commands: [], dropped: [] };
+  // Whether the target takes a kind it ACCEPTS depends on this launch's options too (#639): Pi runs a source's
+  // agents only through its subagent tool, which is off unless somebody switched it on. `acceptsSharedResources`
+  // stays a fixed list — the source list and the capability row read it as one — and this optional hook
+  // says per launch "not this time", with a note the settings preview shows as it is, because the preview
+  // cannot name the option that decided it. Asked once per kind and scope.
+  const declined = new Map();
+  const declineFor = (kind, scope) => {
+    const key = `${kind}|${scope}`;
+    if (declined.has(key)) return declined.get(key);
+    let answer = null;
+    if (typeof target.declinesSharedResource === 'function') {
+      try {
+        const a = target.declinesSharedResource({ kind, scope, options });
+        if (a && typeof a === 'object' && typeof a.reason === 'string' && a.reason) {
+          answer = { reason: a.reason, note: typeof a.note === 'string' ? a.note : null };
+        }
+      } catch { answer = null; }
+    }
+    declined.set(key, answer);
+    return answer;
+  };
+
+  const out = { ok: true, source: sourceId, skills: [], commands: [], agents: [], dropped: [] };
   for (const row of listed.resources) {
     if (!row || !row.path || !sources.has(row.source)) continue;
     if (!kinds.includes(row.kind)) continue;
     const scope = row.scope === 'project' ? 'project' : 'global';
     if (scope === 'project' && !projectTrusted) {
       out.dropped.push({ path: row.path, kind: row.kind, scope, reason: 'untrusted-project' });
+      continue;
+    }
+    const declines = declineFor(row.kind, scope);
+    if (declines) {
+      out.dropped.push({ path: row.path, kind: row.kind, scope, reason: declines.reason, note: declines.note });
       continue;
     }
     if (row.kind === 'skill') {
@@ -123,6 +153,14 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
         continue;
       }
       out.commands.push({ path: row.path, scope, dialect: shared.commandDialect });
+    } else if (row.kind === 'agent') {
+      // An agent file names its source's tools and models; without the dialect that says what they mean,
+      // the target could only guess — and the measured guess is a child with no tools at all (#639).
+      if (!shared.agentDialect) {
+        out.dropped.push({ path: row.path, kind: row.kind, scope, reason: 'no-agent-dialect' });
+        continue;
+      }
+      out.agents.push({ path: row.path, scope, dialect: shared.agentDialect });
     }
   }
   return out;
