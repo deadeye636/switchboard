@@ -960,13 +960,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         // The backend's per-spawn extension, where it has one — the same shape as the binding and the
         // templates above, with the same rule: best-effort, and never a launch failure.
         try {
-          const built = typeof backend.rpc.prepare === 'function'
-            ? backend.rpc.prepare({ dir: ctx.bindingDir, tag: terminalTag, options: spawnOptionsFor(backend, projectPath, sessionOptions), log: ctx.log })
+          const built = backend.providesRuntimeExtension === true && typeof backend.buildRuntimeExtension === 'function'
+            ? backend.buildRuntimeExtension({ dir: ctx.bindingDir, tag: terminalTag, options: spawnOptionsFor(backend, projectPath, sessionOptions), log: ctx.log })
             : null;
           if (built && Array.isArray(built.args) && built.args.length) {
             launch.args = [...launch.args, ...built.args];
-            runtimeCleanup = built.cleanup && typeof backend.rpc.release === 'function'
-              ? (log) => backend.rpc.release(built.cleanup, log)
+            runtimeCleanup = built.cleanup && typeof backend.releaseRuntimeExtension === 'function'
+              ? (log) => backend.releaseRuntimeExtension(built.cleanup, log)
               : null;
           }
         } catch (err) {

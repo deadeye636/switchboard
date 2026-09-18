@@ -30,7 +30,18 @@ const runtimeExtension = require('./runtime-extension');
 //   `models`   — the Ctrl+P cycle list is a TUI key binding; nothing here presses it.
 //   `useTheme` — Pi's theme colours its TUI; this backend draws with the app's own styles.
 const TUI_ONLY = new Set(['models', 'useTheme']);
-const configFields = pi.configFields.filter(f => !TUI_ONLY.has(f.id));
+const configFields = [
+  ...pi.configFields.filter(f => !TUI_ONLY.has(f.id)),
+  // Step C of #568. Pi asks nothing before a tool runs; this backend's own extension does, because a
+  // conversation drawn by the app looks supervised, and one that only LOOKS supervised is the worse
+  // failure. Applied through the runtime extension (`./runtime-extension.js` reads the option), so the
+  // core names neither the key nor the backend.
+  { id: 'approvalGate', label: 'Ask before commands and file changes', type: 'toggle', default: true,
+    appliesAt: 'spawn', appliedBy: 'buildRuntimeExtension',
+    description: 'Every bash or PowerShell command, file edit and file write waits for your answer: allow once, allow for '
+      + 'the rest of this session, or refuse. A convenience, not a security boundary — the check runs inside '
+      + 'the agent\'s own process, and a Pi started outside Switchboard asks nothing.' },
+];
 
 function stripTuiOnly(options) {
   const out = { ...(options || {}) };
@@ -83,8 +94,6 @@ module.exports = {
   // The protocol half the core drives. Everything in it speaks Pi on one side and the app's own vocabulary
   // on the other — see `./rpc-protocol.js` for the ops.
   rpc: {
-    prepare: ({ dir, tag, log } = {}) => runtimeExtension.writeRuntimeExtension({ dir, tag, log }),
-    release: (file, log) => runtimeExtension.removeRuntimeExtension(file, log),
     createDecoder: protocol.createDecoder,
     sendCommand: protocol.sendCommand,
     abortCommand: protocol.abortCommand,
@@ -94,6 +103,12 @@ module.exports = {
     sessionIdFromState: protocol.sessionIdFromState,
     entriesFromMessages: protocol.entriesFromMessages,
   },
+  // The per-spawn extension: the transport marker, and the approval gate (`./runtime-extension.js`). A pair,
+  // like the binding and the templates: the release is kept by the core for the exit handler.
+  providesRuntimeExtension: true,
+  buildRuntimeExtension: ({ dir, tag, options, log } = {}) =>
+    runtimeExtension.writeRuntimeExtension({ dir, tag, options, log }),
+  releaseRuntimeExtension: (file, log) => runtimeExtension.removeRuntimeExtension(file, log),
   cliHomeEnv: pi.cliHomeEnv,
   changelogSource: null,   // the same CLI as `pi`, which already names its changelog — asking twice lists it twice
   supportsFork: true,      // `pi --mode rpc --fork <id>` — the flag is Pi's, not the mode's

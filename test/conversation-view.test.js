@@ -148,3 +148,28 @@ test('ops arriving while a view mounts are replayed after the snapshot — only 
   assert.match(drawn[0], /old/);
   assert.match(drawn[1], /new/);
 });
+
+test('an approval is drawn with the call it is about, answers with the value it was given, and holds the status', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push([req, a]); return Promise.resolve({ ok: true }); };
+  // The call as the viewer draws it; the stub stands in for jsonl-viewer's renderer.
+  vm.runInContext("function renderToolUse(b) { const d = document.createElement('div'); d.className = 'tool'; d.textContent = b.name + ': ' + b.input.command; return d; }", h.w);
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'busy', busy: true, seq: 1 });
+  conv.apply({ op: 'append', seq: 2, entry: { type: 'message', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'rm -rf build' } }] } } });
+  conv.apply({ op: 'tool', id: 'c1', status: 'running', output: '', seq: 3 });
+  conv.apply({ op: 'ask', seq: 4, request: { id: 'q1', kind: 'approval', tool: 'bash', toolCallId: 'c1', answers: { once: 'A1', session: 'A2', refuse: 'A3' } } });
+  const card = h.entry.element.querySelector('.conversation-approval');
+  assert.ok(card);
+  assert.match(card.textContent, /rm -rf build/, 'the command is on the card');
+  assert.match(card.textContent, /not a security boundary/);
+  assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Waiting for your answer/);
+  assert.match(h.entry.element.querySelector('.conversation-activity').textContent, /Waiting for your approval/);
+  [...card.querySelectorAll('button')].find(b => b.textContent === 'Allow for this session').click();
+  await h.settle();
+  assert.equal(JSON.stringify(answers), JSON.stringify([['q1', { value: 'A2' }]]));   // built in the page's realm
+  conv.apply({ op: 'answered', id: 'q1', seq: 5 });
+  assert.equal(h.entry.element.querySelector('.conversation-approval'), null);
+  assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Working/);
+});

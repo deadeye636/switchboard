@@ -43,19 +43,69 @@ function textFromContent(content) {
   }).filter(Boolean).join('\n');
 }
 
+// Pi's built-in tools, in the vocabulary the viewer has renderers for (#568, step C): a command as a
+// command block, an edit as a diff, a write with its content. The viewer's names happen to be the ones
+// another CLI uses; what matters is that the answer is given HERE, in Pi's folder, from Pi's own argument
+// shapes (measured in Pi 0.84.4's tool schemas) — the renderer learns no Pi tool. A tool this does not know
+// keeps its own name and arguments and is drawn as generic JSON, which is what every tool got before.
+const EDIT_SEPARATOR = '…';
+// Pi accepts an edit's replacements in more than one shape and normalises them before it runs the tool
+// (`prepareEditArguments` in Pi 0.84.4's edit tool): a JSON STRING some models send instead of an array, a
+// single object instead of a one-element array, and the legacy top-level `oldText`/`newText`. The transcript
+// keeps what the model sent, so the same normalisation happens here — an approval card for an edit is
+// exactly where a missing diff hurts.
+function editList(a) {
+  let edits = a.edits;
+  if (typeof edits === 'string') { try { edits = JSON.parse(edits); } catch { edits = null; } }
+  const one = (e) => e && typeof e === 'object' && typeof e.oldText === 'string' && typeof e.newText === 'string';
+  if (one(edits)) edits = [edits];
+  const list = Array.isArray(edits) ? edits.slice() : [];
+  if (typeof a.oldText === 'string' && typeof a.newText === 'string') list.push({ oldText: a.oldText, newText: a.newText });
+  return list;
+}
+
+const PI_TOOLS = {
+  bash: (a) => ({ name: 'Bash', input: { command: a.command || '', timeout: a.timeout } }),
+  // Pi's Windows shell takes the same arguments as its bash tool.
+  powershell: (a) => ({ name: 'Bash', input: { command: a.command || '', timeout: a.timeout } }),
+  read: (a) => ({ name: 'Read', input: { file_path: a.path || '', offset: a.offset, limit: a.limit } }),
+  write: (a) => ({ name: 'Write', input: { file_path: a.path || '', content: typeof a.content === 'string' ? a.content : '' } }),
+  // One call may carry several replacements; they are drawn as one diff with a marker line between them.
+  edit: (a) => {
+    const edits = editList(a);
+    if (!edits.length) return null;
+    return {
+      name: 'Edit',
+      input: {
+        file_path: a.path || '',
+        old_string: edits.map(e => String((e && e.oldText) || '')).join(`\n${EDIT_SEPARATOR}\n`),
+        new_string: edits.map(e => String((e && e.newText) || '')).join(`\n${EDIT_SEPARATOR}\n`),
+      },
+    };
+  },
+  grep: (a) => ({ name: 'Grep', input: { pattern: a.pattern || '', path: a.path || '' } }),
+  find: (a) => ({ name: 'Glob', input: { pattern: a.pattern || '', path: a.path || '' } }),
+};
+
+function toolUse(block) {
+  const args = block.arguments && typeof block.arguments === 'object' ? block.arguments : {};
+  const mapped = !args._partial && PI_TOOLS[block.name] ? PI_TOOLS[block.name](args) : null;
+  // An optional argument Pi did not send stays absent rather than arriving as `undefined`.
+  if (mapped) for (const k of Object.keys(mapped.input)) if (mapped.input[k] === undefined) delete mapped.input[k];
+  return {
+    type: 'tool_use',
+    id: block.id,
+    name: mapped ? mapped.name : (block.name || 'unknown'),
+    input: mapped ? mapped.input : args,
+  };
+}
+
 function contentBlocks(content) {
   if (typeof content === 'string') return [{ type: 'text', text: content }];
   if (!Array.isArray(content)) return [];
   return content.map((block) => {
     if (!block || typeof block !== 'object') return null;
-    if (block.type === 'toolCall') {
-      return {
-        type: 'tool_use',
-        id: block.id,
-        name: block.name || 'unknown',
-        input: block.arguments || {},
-      };
-    }
+    if (block.type === 'toolCall') return toolUse(block);
     if (block.type === 'image' && block.data) {
       return { type: 'image', source: { data: block.data, media_type: block.mimeType || 'image/png' } };
     }

@@ -413,7 +413,10 @@ the reasoning.
 
 A descriptor with `transport` spawns on a pipe (`src/app/agent-rpc.js`), and its `rpc` half is where the
 protocol lives: it turns the CLI's lines into the app's own ops and the app's requests into lines. The
-core names no event of it. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
+core names no event of it. Its per-spawn extension is a hook pair on the descriptor
+(`providesRuntimeExtension` + `buildRuntimeExtension` / `releaseRuntimeExtension`), called from `spawn.js`
+the way the binding and the templates are, so a spawn-applied option (`approvalGate`) can name it in
+`appliedBy`. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
 to read them, and the terminal-key tests check the absence.
 
 ## "Is something else already running this session?" is THREE hooks (#172, #607)

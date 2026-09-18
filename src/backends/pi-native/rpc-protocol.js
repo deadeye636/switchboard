@@ -31,6 +31,7 @@
 'use strict';
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
+const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
 function entriesFor(message) {
@@ -145,6 +146,25 @@ function createDecoder() {
         return [{ op: 'notice', level: 'error', text: `An extension failed while handling ${msg.event || 'an event'}.` }];
       case 'extension_ui_request': {
         if (DIALOG_METHODS.has(msg.method)) {
+          // OUR approval question (./runtime-extension.js) is drawn as an approval: the app shows the call
+          // it is about, from the conversation it already holds, and answers with one of three values.
+          const approval = msg.method === 'select' ? parseApprovalTitle(msg.title) : null;
+          if (approval) {
+            return [{
+              op: 'ask',
+              request: {
+                id: String(msg.id),
+                kind: 'approval',
+                tool: approval.tool,
+                toolCallId: approval.id,
+                method: 'select',
+                title: '',
+                message: '',
+                options: [],
+                answers: { once: CHOICES.once, session: CHOICES.session, refuse: CHOICES.refuse },
+              },
+            }];
+          }
           return [{
             op: 'ask',
             request: {

@@ -441,7 +441,7 @@ own `config.toml`.)
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
-| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal. Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
+| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
 
@@ -465,6 +465,11 @@ worth knowing before you look for a way to edit the text. **A template of your o
 in Pi's own prompts directory, or in a trusted project's, takes precedence over the one Switchboard
 passes, which is the intended way to replace it. And **a Pi session started outside Switchboard has
 neither command**, because nothing was written anywhere for it to find.
+
+**`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit` or `write`** (the
+`pi-native` backend). Each call waits for an answer in the conversation: allow once, allow for the rest of the session,
+or refuse. It is on by default. It is a convenience and not a security boundary: the check runs inside the
+agent's own process, and a Pi started outside Switchboard asks nothing.
 
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
 answered its own `AskUserQuestion` dialog after 60 seconds; the field's `0` sent a sentinel meaning

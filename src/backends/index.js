@@ -226,6 +226,11 @@ function profileToDescriptor(p) {
     // transport and the protocol half that drives it travel with the launch they belong to.
     ...(base && base.transport ? { transport: base.transport } : {}),
     ...(base && base.rpc ? { rpc: base.rpc } : {}),
+    // …and its per-spawn extension, the pair together (the marker, and the approval gate a template's
+    // sessions need exactly as much as the base's).
+    providesRuntimeExtension: base ? base.providesRuntimeExtension === true : false,
+    ...(base && typeof base.buildRuntimeExtension === 'function' ? { buildRuntimeExtension: base.buildRuntimeExtension } : {}),
+    ...(base && typeof base.releaseRuntimeExtension === 'function' ? { releaseRuntimeExtension: base.releaseRuntimeExtension } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);

@@ -22,7 +22,7 @@
 // entry for a conversation before it reaches for a PTY.
 //
 // Free globals it reads at CALL time (none at parse time except `window.api`): renderJsonlEntry,
-// buildToolResultMap, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
+// buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), and the
 // four palette openers (terminal/*-palette.js).
 
@@ -113,6 +113,7 @@ function createConversationView(getSession, container) {
     partial: null,
     tools: new Map(),        // tool call id -> { status, output }
     asks: new Map(),         // request id -> card element
+    approvals: new Map(),    // tool call id -> request id, while an approval for that call is open
     busy: false,
     queue: { steering: [], followUp: [] },
     exited: false,
@@ -183,7 +184,10 @@ function createConversationView(getSession, container) {
       const row = document.createElement('div');
       row.className = 'jsonl-entry jsonl-meta-entry conversation-tool-running';
       const head = document.createElement('div');
-      head.textContent = `Running ${conversationToolName(view, id)}…`;
+      // A call held by an approval question is not running yet, whatever the protocol says (spec 30).
+      head.textContent = view.approvals.has(id)
+        ? `Waiting for your approval to run ${conversationToolName(view, id)}`
+        : `Running ${conversationToolName(view, id)}…`;
       row.appendChild(head);
       const lines = String(t.output || '').split('\n');
       const tail = lines.slice(-CONVERSATION_TOOL_TAIL_LINES).join('\n').trim();
@@ -300,6 +304,8 @@ function createConversationView(getSession, container) {
     renderComposer();
     const parts = [];
     if (view.exited) parts.push('Session ended.');
+    // A session held by a question is waiting on the reader, not working — the same line the inbox draws.
+    else if (view.asks.size) parts.push('Waiting for your answer');
     else if (view.busy) parts.push('Working…');
     const waiting = view.queue.steering.length + view.queue.followUp.length;
     if (waiting) parts.push(`${waiting} message${waiting === 1 ? '' : 's'} waiting`);
@@ -316,8 +322,71 @@ function createConversationView(getSession, container) {
 
   // A question an extension is waiting on. The session stays blocked until it is answered, so it is drawn in
   // the conversation, where the user is looking, and cannot be dismissed by a stray click.
+  function findToolUse(id) {
+    if (!id) return null;
+    const lists = [view.entries, view.partial ? [view.partial] : []];
+    for (const list of lists) {
+      for (const entry of list) {
+        const blocks = entry && entry.message && Array.isArray(entry.message.content) ? entry.message.content : [];
+        for (const b of blocks) if (b && b.type === 'tool_use' && b.id === id) return b;
+      }
+    }
+    return null;
+  }
+
+  // The session's own extension asking before a tool that changes something runs (step C of #568). Drawn
+  // with the call it is about — the command, the diff, the content — through the viewer's own tool
+  // renderer, because "allow bash?" without the command is not a question anybody can answer.
+  function renderApproval(request) {
+    const card = document.createElement('div');
+    card.className = 'jsonl-entry conversation-ask conversation-approval';
+    const title = document.createElement('div');
+    title.className = 'conversation-ask-title';
+    title.textContent = `The agent wants to run ${request.tool}`;
+    card.appendChild(title);
+    const block = findToolUse(request.toolCallId);
+    if (block && typeof renderToolUse === 'function') {
+      try {
+        const shown = renderToolUse(block);
+        if (shown) { shown.classList.add('conversation-approval-call'); card.appendChild(shown); }
+      } catch { /* the question still stands without its picture */ }
+    }
+    const note = document.createElement('div');
+    note.className = 'conversation-ask-message conversation-approval-note';
+    note.textContent = 'Asked by Switchboard inside this session. A convenience, not a security boundary: '
+      + 'the same agent started outside Switchboard asks nothing.';
+    card.appendChild(note);
+    const actions = document.createElement('div');
+    actions.className = 'conversation-ask-actions';
+    const answers = request.answers || {};
+    const answer = (value) => {
+      for (const b of card.querySelectorAll('button')) b.disabled = true;
+      window.api.agent.answer(view.session.sessionId, request.id, { value }).then((res) => {
+        if (!res || !res.ok) {
+          for (const b of card.querySelectorAll('button')) b.disabled = false;
+          notice('error', (res && res.error) || 'The answer did not reach the session.');
+        }
+      });
+    };
+    for (const [key, label, primary] of [['once', 'Allow once', true], ['session', 'Allow for this session'], ['refuse', 'Refuse']]) {
+      if (!answers[key]) continue;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'new-session-secondary-btn' + (primary ? ' conversation-ask-primary' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => answer(answers[key]));
+      actions.appendChild(b);
+    }
+    card.appendChild(actions);
+    view.asks.set(request.id, card);
+    if (request.toolCallId) view.approvals.set(request.toolCallId, request.id);
+    log.insertBefore(card, partialEl);
+    renderActivity();
+  }
+
   function renderAsk(request) {
     if (!request || view.asks.has(request.id)) return;
+    if (request.kind === 'approval') { renderApproval(request); return; }
     const card = document.createElement('div');
     card.className = 'jsonl-entry conversation-ask';
     const title = document.createElement('div');
@@ -395,10 +464,13 @@ function createConversationView(getSession, container) {
       case 'busy': view.busy = !!op.busy; if (!view.busy) { view.tools.clear(); renderActivity(); } renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
       case 'notice': notice(op.level, op.text); break;
-      case 'ask': renderAsk(op.request); break;
+      case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);
         if (card) { card.remove(); view.asks.delete(op.id); }
+        for (const [callId, reqId] of view.approvals) if (reqId === op.id) view.approvals.delete(callId);
+        renderActivity();
+        renderStatus();
         break;
       }
       default: return;
@@ -440,6 +512,7 @@ function createConversationView(getSession, container) {
     renderActivity();
     for (const card of view.asks.values()) card.remove();
     view.asks.clear();
+    view.approvals.clear();
     notice(exitCode ? 'error' : 'info', exitCode ? `The session ended (exit code ${exitCode}).` : 'The session ended.');
     renderStatus();
   }

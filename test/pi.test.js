@@ -109,6 +109,8 @@ test('Pi transcript view normalizes active-branch tools, bash and metadata witho
     'message', 'message', 'message', 'local-command', 'custom-title', 'transcript-meta', 'transcript-meta',
   ]);
   assert.strictEqual(out[1].message.content[1].type, 'tool_use');
+  // Pi's `bash` in the viewer's vocabulary, so it is drawn as a command block rather than as JSON (#568).
+  assert.strictEqual(out[1].message.content[1].name, 'Bash');
   assert.deepStrictEqual(out[1].message.content[1].input, { command: 'pwd' });
   assert.strictEqual(out[2].message.content[0].type, 'tool_result');
   assert.strictEqual(out[2].message.content[0].tool_use_id, 'call-1');

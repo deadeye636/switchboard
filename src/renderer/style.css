@@ -3049,6 +3049,11 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 .conversation-ask-message { margin-top: 4px; color: #b0b0c8; white-space: pre-wrap; }
 .conversation-ask-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .conversation-ask-primary { border-color: rgba(128, 136, 255, 0.6); }
+/* An approval (#568 step C) is a decision about something that changes files or runs a command — amber
+   rather than the question blue, and the call it is about drawn inside it. */
+.conversation-approval { border-color: rgba(224, 160, 64, 0.55); background: rgba(224, 160, 64, 0.07); }
+.conversation-approval-call { margin-top: 8px; }
+.conversation-approval-note { font-size: 12px; color: #8a8aa0; }
 .conversation-ask-input {
   width: 100%;
   box-sizing: border-box;

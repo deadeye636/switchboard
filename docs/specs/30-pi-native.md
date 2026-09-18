@@ -149,6 +149,49 @@ would have gone down the pipe as keystrokes with no Enter after them, and waited
 What goes into the pipe directly — the seed, a staged prompt, the trigger watcher — still takes the PTY
 path (`write()`), and that path treats text plus a carriage return as a turn.
 
+## Approvals and tool rendering (step C)
+
+Pi has no approval step. Its project trust decides what gets **loaded**, and an enabled tool then runs
+without asking. A conversation the app draws looks supervised, and a session that only looks supervised
+is the worse failure, so this backend asks before `bash`, `powershell` (Pi's built-in Windows shell, off
+unless the `tools` option enables it), `edit` and `write`. It never asks before the read-only tools. The `approvalGate` option switches it off, and it is **on** by default.
+
+The question comes from the per-spawn extension, not from the app. A `tool_call` handler calls Pi's own
+`ctx.ui.select`, which RPC mode turns into an `extension_ui_request`. The select's title is a line for
+the app, not for a person: a prefix plus `{ tool, id }`, which the decoder recognises and turns into an
+`ask` of kind `approval`. The view draws the call that question is about, found by its id in the
+conversation it already holds, through the viewer's own tool renderer: the command, the diff, the
+content. It offers three answers:
+
+- **Allow once**
+- **Allow for this session**: remembered per tool, in the extension, for the life of the process.
+  Anything lasting is the setting, where it stays visible and can be taken back.
+- **Refuse**: the call is blocked with a reason the agent reads ("The user did not allow this bash
+  call.") and answers.
+
+Anything that is not an explicit allow blocks: a dismissed question, one that threw, an answer the
+extension does not recognise. The question is handed the run's abort signal. Pi's `abort` waits for the
+run to go idle, and a handler still waiting on an answer would hold it forever. With the signal, Stop
+resolves the open question to "no" and the call is blocked.
+
+While the question is open the status line says it is waiting for an answer, and the tool's activity
+line says it waits for approval, not that it runs. Both the dialog and the setting say what the gate is
+not. **It is a convenience, not a security boundary.** It runs inside the agent's own process, a Pi
+started outside the app does not have it, and a tool an extension registers under another name is not
+covered.
+
+Measured in the demo: Refuse blocked the call and the agent reported that it had not run. Allow for this
+session asked once, and a second `bash` call in the next turn ran without a question. With the option off
+there was no question, and the command ran.
+
+**Tool calls are drawn as what they are**, for this backend and in the Message History of the terminal
+backend. Pi's normaliser maps its built-in tools onto the vocabulary the viewer has renderers for:
+`bash` and `powershell` to a command block, `edit` to a diff (several replacements in one call are one diff
+with a marker line between them, and the other argument shapes Pi itself accepts are normalised the way
+Pi does it), `write` to its content, `read`, `grep` and `find` to their one-line summaries. The
+mapping is Pi's own answer, from its own argument shapes, so the renderer learns no Pi tool. A tool it
+does not know is still drawn as JSON.
+
 ## The renderer
 
 `createTerminalEntry` is the one place every launch path goes through, and it hands a session whose
@@ -170,5 +213,3 @@ terminal-key tests check that.
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:
   it was not driven over RPC.
-- **Tool calls are drawn generically.** Pi's tool names are lowercase (`bash`, `edit`, `write`) and the
-  viewer's rich renderers are keyed on Claude's.

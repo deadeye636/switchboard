@@ -158,6 +158,7 @@ test('listSubagents returns null when there is nothing to watch', () => {
 const HOOK_PAIRS = [
   { flag: 'supportsLiveRebinding', pair: ['buildLiveBinding', 'releaseLiveBinding'], what: 'live rebinding' },
   { flag: 'providesPromptTemplates', pair: ['buildPromptTemplates', 'releasePromptTemplates'], what: 'prompt templates' },
+  { flag: 'providesRuntimeExtension', pair: ['buildRuntimeExtension', 'releaseRuntimeExtension'], what: 'a runtime extension (#568)' },
 ];
 
 test('a backend that claims a paired capability implements the pair — one that cannot carries neither', () => {

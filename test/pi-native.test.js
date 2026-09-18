@@ -191,3 +191,119 @@ test('the launch is Pi\'s own, over RPC, without a shell and without the TUI-onl
   assert.equal(launch.spawnMode, 'argv');
   assert.ok(!d.configFields.some(f => f.id === 'models' || f.id === 'useTheme'));
 });
+
+test('the approval gate: on by default for bash/edit/write, gone when the option says no (#568 step C)', () => {
+  const on = runtimeExtension.extensionSource({ gate: true });
+  assert.ok(on.includes('pi.on("tool_call"'));
+  assert.ok(on.includes(JSON.stringify(runtimeExtension.GATED_TOOLS)));
+  assert.ok(on.includes(runtimeExtension.APPROVAL_PREFIX));
+  for (const label of Object.values(runtimeExtension.CHOICES)) assert.ok(on.includes(JSON.stringify(label)));
+  const off = runtimeExtension.extensionSource({ gate: false });
+  assert.ok(!off.includes('tool_call'), 'switched off, nothing asks');
+  assert.ok(off.includes('appendEntry'), 'the marker is written either way');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-native-gate-'));
+  try {
+    const read = (options) => fs.readFileSync(runtimeExtension.writeRuntimeExtension({ dir, tag: 't1', options }).cleanup, 'utf8');
+    assert.ok(read({}).includes('tool_call'), 'nobody said anything means ON');
+    assert.ok(!read({ approvalGate: false }).includes('tool_call'));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('our approval question is recognised by its title and drawn as an approval, any other select is not', () => {
+  const title = runtimeExtension.APPROVAL_PREFIX + JSON.stringify({ tool: 'bash', id: 'call_1|fc_2' });
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2' });
+  assert.equal(runtimeExtension.parseApprovalTitle('Allow bash?'), null);
+  assert.equal(runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX + '{broken'), null);
+
+  const d = protocol.createDecoder();
+  const [ask] = d.decode({ type: 'extension_ui_request', id: 'q1', method: 'select', title,
+    options: Object.values(runtimeExtension.CHOICES) });
+  assert.equal(ask.request.kind, 'approval');
+  assert.equal(ask.request.tool, 'bash');
+  assert.equal(ask.request.toolCallId, 'call_1|fc_2');
+  assert.deepEqual(ask.request.answers, {
+    once: runtimeExtension.CHOICES.once, session: runtimeExtension.CHOICES.session, refuse: runtimeExtension.CHOICES.refuse,
+  });
+  const [plain] = d.decode({ type: 'extension_ui_request', id: 'q2', method: 'select', title: 'Pick', options: ['a'] });
+  assert.equal(plain.request.kind, undefined);
+});
+
+test('the approval option is declared, applied through the runtime extension, and forwarded to templates', () => {
+  const d = backends.get('pi-native');
+  const f = d.configFields.find(x => x.id === 'approvalGate');
+  assert.ok(f, 'a user can switch it off');
+  assert.equal(f.default, true);
+  assert.equal(f.appliesAt, 'spawn');
+  assert.equal(f.appliedBy, 'buildRuntimeExtension');
+  assert.match(f.description, /not a security boundary/, 'the setting says what it is not');
+  const tpl = backends.profileToDescriptor({ id: 't', name: 'T', backendId: 'pi-native' });
+  assert.equal(typeof tpl.buildRuntimeExtension, 'function');
+  assert.equal(tpl.transport, 'rpc');
+});
+
+// The generated extension RUN, not read: its annotations dropped and its export turned into a function, then
+// handed a fake `pi`. What decides safety is behaviour — a cancel, a throw and an unknown answer must block —
+// and a substring check cannot see that.
+function loadExtension(options) {
+  const vm = require('node:vm');
+  const js = runtimeExtension.extensionSource(options)
+    .replace(/: any/g, '').replace(/new Set<string>\(\)/g, 'new Set()')
+    .replace('export default function', 'module.exports = function');
+  const mod = { exports: null };
+  vm.runInNewContext(js, { module: mod, JSON });
+  const handlers = {};
+  const appended = [];
+  mod.exports({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: (t, d) => appended.push([t, d]) });
+  return { handlers, appended };
+}
+
+test('the running gate: only an explicit allow lets a gated call through, and the question gets the abort signal', async () => {
+  const { handlers } = loadExtension({ gate: true });
+  const call = async (toolName, select) => handlers.tool_call({ toolName, toolCallId: 'c1' }, { ui: { select }, signal: 'SIG' });
+  let seenOpts = null;
+  const blockedOn = async (answer) => call('bash', async (_t, _o, opts) => { seenOpts = opts; if (answer instanceof Error) throw answer; return answer; });
+  assert.equal((await blockedOn(undefined)).block, true, 'a dismissed question blocks');
+  assert.equal(seenOpts.signal, 'SIG', 'Stop can end the question');
+  assert.equal((await blockedOn(new Error('ui gone'))).block, true, 'a question that threw blocks');
+  assert.equal((await blockedOn('something else')).block, true, 'an answer it does not know blocks');
+  assert.equal((await blockedOn(runtimeExtension.CHOICES.refuse)).block, true);
+  assert.equal(await blockedOn(runtimeExtension.CHOICES.once), undefined, 'allow once runs it');
+  let asked = 0;
+  assert.equal(await call('read', async () => { asked++; }), undefined);
+  assert.equal(asked, 0, 'a read-only tool is never asked about');
+  assert.equal(await call('powershell', async () => runtimeExtension.CHOICES.session), undefined);
+  assert.equal(await call('powershell', async () => { asked++; return undefined; }), undefined, 'allowed for the session');
+  assert.equal(asked, 0);
+  assert.equal((await call('edit', async () => undefined)).block, true, 'the session allowance is per tool');
+});
+
+test('the running marker: appended once, not again for a session that carries it', async () => {
+  const { handlers, appended } = loadExtension({ gate: false });
+  assert.equal(handlers.tool_call, undefined, 'the gate is off, nothing asks');
+  await handlers.session_start({}, { sessionManager: { getEntries: () => [] } });
+  assert.equal(appended.length, 1);
+  await handlers.session_start({}, { sessionManager: { getEntries: () => [{ type: 'custom', customType: TRANSPORT_MARKER_TYPE, data: { transport: 'rpc' } }] } });
+  assert.equal(appended.length, 1);
+});
+
+test('every edit shape Pi itself accepts is drawn as a diff', () => {
+  const draw = (args) => normalizeTranscriptEntries([{ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'e', name: 'edit', arguments: { path: 'a.js', ...args } }] } }])[0].message.content[0];
+  const one = { oldText: 'x', newText: 'y' };
+  for (const [label, args] of [
+    ['an array', { edits: [one] }],
+    ['a JSON string', { edits: JSON.stringify([one]) }],
+    ['a single object', { edits: one }],
+    ['the legacy top-level pair', { oldText: 'x', newText: 'y' }],
+  ]) {
+    const b = draw(args);
+    assert.equal(b.name, 'Edit', label);
+    assert.equal(b.input.old_string, 'x', label);
+    assert.equal(b.input.new_string, 'y', label);
+  }
+  assert.equal(draw({ edits: 'not json' }).name, 'edit', 'a shape nobody can read stays generic');
+  const ps = normalizeTranscriptEntries([{ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'p', name: 'powershell', arguments: { command: 'dir' } }] } }])[0].message.content[0];
+  assert.deepEqual([ps.name, ps.input.command], ['Bash', 'dir']);
+});
