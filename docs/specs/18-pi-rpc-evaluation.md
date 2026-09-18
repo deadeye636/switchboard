@@ -1,6 +1,6 @@
 # 18 — Pi RPC runtime evaluation
 
-Status: evaluated in #413; no runtime switch was shipped. Keep Pi on the PTY/TUI path for now and track any future RPC runtime as a separate feature.
+Status: evaluated in #413 and **superseded by spec 30**. The RPC runtime this document advised against for #413 was built later as a second backend, `pi-native` (#568), beside the PTY one rather than in its place, which is the shape recommended under "Follow-up shape". Read the rest as the record of why it waited.
 
 ## Context
 
@@ -21,7 +21,7 @@ Do not replace or shadow the Pi PTY integration with RPC yet. RPC is promising f
 
 ## Follow-up shape
 
-**It was revisited: #568** carries that direction (effort label `pi-native`, with #569/#571/#572 under it),
-and #530 renegotiated the RPC question separately. Read those before this document's conclusion.
+**It was revisited and built: #568** (spec 30) is the runtime-driven backend, and the work around it carries the
+effort label `pi-native` (`gh issue list --label pi-native`). #530 renegotiated the RPC question separately.
 
 If this is revisited, open a new design/feature issue for an optional structured runtime capability. The first milestone should be a prototype behind a backend descriptor hook, with no replacement of the existing PTY path until launch/resume/fork, transcript indexing and state reporting match the current behavior.

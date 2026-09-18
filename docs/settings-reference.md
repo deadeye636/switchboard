@@ -441,7 +441,7 @@ own `config.toml`.)
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
-| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
+| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30). It has no login of its own: it uses Pi's saved logins, so log in once through the terminal Pi backend (`/login`) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
 
@@ -469,7 +469,7 @@ neither command**, because nothing was written anywhere for it to find.
 **`subagentTool` gives a Pi session a `subagent` tool** (#634). The model can hand one task to an agent
 defined as a markdown file, and that agent runs as a separate Pi process with a fresh context. Each run is
 a second model session with its own cost; the turns, tokens, cost and model of the run are added to the
-tool result, so they show in the session. It is off by default. Like `conventionPrompts` it writes nothing
+tool result, so they show in the session. The child's answer is cut at 50 KB. It is off by default. Like `conventionPrompts` it writes nothing
 into Pi's configuration: each spawn gets one extension file under the app's data folder, passed with
 `--extension` and removed when the session ends. That file is the session's one resources extension, and
 the commands taken over through `resourcesFrom` (below) are a section of the same file. The child runs without a session file, so it never
@@ -508,7 +508,8 @@ name replaces:
 - **Skills** go to Pi as `--skill <dir>`. A Pi skill of the same name wins.
 - **Commands** are registered by the session's resources extension and expanded there: `$ARGUMENTS` and
   `$1…`, `@file` from the command file's own text, and an inline shell line only where the file's
-  `allowed-tools` permits it by Claude's rule. A line that chains, pipes or redirects needs the bare `Bash`.
+  `allowed-tools` permits it by Claude's rule. A line that chains, pipes, redirects or substitutes (`$(`) needs the bare `Bash`. A line's output is
+  cut at 64 KB.
   A command whose name Pi already has is skipped, except the app's own `/handoff` and `/plan`, which a
   source's command replaces. In `pi-native` the approval gate also asks before a permitted shell line, and
   "Allow for this session" there covers that command only.
@@ -529,7 +530,8 @@ name replaces:
 The settings screen shows under the select what a launch from that scope would get. It lists the
 directories and the ones left out with their reason, and it reads them only when opened. It lists agent
 directories, not agents, so the tools an agent loses show only when it is called. A stored value no
-backend offers any more is shown as `<value> (not available)` instead of as the first choice. Known limits:
+backend offers any more is shown there as `<value> (not available)` instead of as the first choice; the
+Configure dialog does not do this yet and still shows its first choice. Known limits:
 Pi's `shellPath` setting is not used for a command's shell lines (Windows without Git Bash answers
 `[shell unavailable: …]`), a line gets 30 seconds, and `@docs/$1.md` is not expanded, by design.
 

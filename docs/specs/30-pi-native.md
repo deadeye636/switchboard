@@ -75,8 +75,8 @@ reaches this backend without knowing what it is.
 ### What crosses to the renderer
 
 The backend's `rpc` half (`src/backends/pi-native/rpc-protocol.js`) turns Pi's lines into the app's own
-ops: `reset`, `append`, `partial`, `tool`, `busy`, `queue`, `notice`, `ask`, `answered`. The core moves them
-on one channel, `agent-event`, routed to the window that renders the session. Nothing outside the backend
+ops: `reset`, `append`, `partial`, `tool`, `busy`, `queue`, `notice`, `ask`. The core adds `answered` itself,
+when a question is answered or closed after a settle or an exit, and moves them all on one channel, `agent-event`, routed to the window that renders the session. Nothing outside the backend
 folder knows a Pi event name.
 
 Entries have the shape the Message History viewer already draws, produced by Pi's own normaliser
@@ -110,6 +110,8 @@ nothing is reordered.
   Pi had written it, into a child that dies at once.
 
 ## Measured, and what each measurement changed
+
+Everything here was measured against Pi 0.84.4. Later Pi versions were not re-measured.
 
 - A failed model call is not an error response. It arrives as an assistant turn with
   `stopReason: 'error'` and an `errorMessage`, which covers both a lapsed login and an exhausted account.
@@ -246,9 +248,12 @@ shell line, described under Approvals above.
 
 ## Known gaps
 
-- **Detach and the grid** (E3).
+- **Detach and the grid** (E3) — #636.
 - **The command palette's insert entries** (run a skill, insert a plan, a handoff, a variable) ask for a
-  terminal and are absent for such a session; the keyboard chords in the text field work.
+  terminal and are absent for such a session; the keyboard chords in the text field work — #637.
+- **No login of its own.** `pi-native` runs the installed `pi` with the same agent directory, so it uses the
+  logins in Pi's own `auth.json`. Log in once through the terminal Pi backend (`/login`); a lapsed login
+  shows as an error notice in the conversation. Whether `/login` works over RPC was not measured.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:

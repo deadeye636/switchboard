@@ -92,6 +92,20 @@ is resolved from your environment at launch and never written to disk. Pasting a
 A profile that points at a third-party endpoint while still inheriting your Anthropic key is blocked
 outright — that combination would send your key to someone else.
 
+## Pi: without a terminal, and with another CLI's setup
+
+Pi comes as two backends. **Pi** runs Pi's own terminal interface. **Pi (native)** drives the same `pi`
+over its RPC mode and draws the conversation itself: streamed replies, tool calls with their output and
+diffs, and a question before it runs a command, changes a file or delegates to an agent. Its sessions are
+ordinary Pi sessions. It has no login of its own, so log in once through the Pi backend (`/login`). Details:
+[`specs/30-pi-native.md`](specs/30-pi-native.md).
+
+**Resources from** on either Pi backend brings the setup you keep for another CLI along: its skills, its
+slash commands and, with the subagent tool switched on, its agents. Pi's own still come first, and a
+project's own directories are passed only when Pi trusts the project. The settings page shows what a
+session would take over. Details: [`specs/31-resources-from.md`](specs/31-resources-from.md), and every
+option in [`settings-reference.md`](settings-reference.md).
+
 ## Handoffs across backends
 
 A **handoff** is a packet that summarises the actual state of the work — written by an agent, reviewed by

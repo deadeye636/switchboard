@@ -80,10 +80,11 @@ function cliHomeEnv() {
 //   `--api-key` — it would put a raw key on the COMMAND LINE, where every process listing on the machine
 //     can read it. Pi reads its key from the environment; a template's env bundle ($VAR, resolved at
 //     spawn, never written to disk) is the route for that, and the only one we will offer.
-//   `--mode json|rpc`, `--print` — non-interactive modes; we run Pi in a terminal.
+//   `--mode json`, `--print` — non-interactive modes; this backend runs Pi in a terminal. (`--mode rpc` is the
+//     transport of the separate runtime-driven backend, `../pi-native/`.)
 //   `--session-dir`, `--no-session`, `--session*` — they move or suppress the session store we watch.
-//   `--extension` — owned by buildLiveBinding for Switchboard's per-spawn extension; arbitrary extension
-//     paths remain a future UI design, not a free text argv injection here.
+//   `--extension` — only for the extensions Switchboard generates per spawn (the live binding, the resources
+//     extension); arbitrary extension paths remain a future UI design, not a free text argv injection here.
 const configFields = [
   { id: 'model', label: 'Model', type: 'text', default: '', modelDiscovery: true,
     description: 'Model pattern or id — supports "provider/id" and an optional ":<thinking>" suffix.' },
@@ -610,7 +611,7 @@ description:
   // #632: Pi TAKES OVER another backend's resources ("Resources from"); it offers none of its own to
   // anybody, so it declares no `sharedResources`. What it can take: skills (`--skill`, which Pi reads in
   // the same SKILL.md shape the others write) and commands (expanded by its per-spawn extension, because
-  // `--prompt-template` leaves `` !`…` `` and `@file` as text — measured, spec 30).
+  // `--prompt-template` leaves `` !`…` `` and `@file` as text — measured, spec 31).
   sharedResources: null,
   // Agents (#639) run through the `subagent` tool, so they are taken only while that tool is on — the
   // per-launch half is `declinesSharedResource`, which the core asks beside the trust question.

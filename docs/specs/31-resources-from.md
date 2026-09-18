@@ -91,8 +91,9 @@ source command itself (`pi.registerCommand`) and expands it before sending it as
 
 - **Registered at `session_start`**, when Pi's own templates are known. Extension commands are dispatched
   before templates, so registering a name Pi already has would shadow the user's own template. Such a name
-  is skipped and reported. The one exception is the app's own per-spawn templates (#569): a source's
-  `/handoff` is the user's, and it wins over the app's.
+  is skipped and reported. The one exception is the app's own per-spawn templates (#569), recognised by the
+  prefix of the per-spawn directory they are passed from (`pi-prompts-`): a source's `/handoff` is the
+  user's, and it wins over the app's. A registered command shows in RPC `get_commands` like one of Pi's own.
 - **A subdirectory labels a command and does not rename it.** `commands/fe/x.md` is `/x`, described as
   "(fe)". `description` and `argument-hint` from the frontmatter become its description.
 - **On use the file is read again**, so an edit takes effect without a restart. The expansion works on the
@@ -136,7 +137,8 @@ cost of their own. With the tool off, the preview shows the agent directories as
   when it runs, and a file written in the same batch of calls could make the agent runnable in between.
 - **The model stays with the session's provider.** `inherit`, or no model at all, is the session's model
   and thinking level. Any other name is looked up only among the models the session's provider offers
-  (`ctx.modelRegistry.getAvailable()`): an exact id first, then the highest-sorting id containing the name,
+  (`ctx.modelRegistry.getAvailable()`, which lists only providers with a login, so the pick never lands on
+  a model the user cannot reach): an exact id first, then the highest-sorting id containing the name,
   preferring one without a date suffix. The child is handed that exact `provider/id`. With no match the agent runs on the
   session's model, and the question and the result say so. Pi's own resolver would have searched every
   provider (measured: `sonnet` under an OpenAI session picked an amazon-bedrock model). Pi's own agents keep
@@ -152,7 +154,7 @@ nobody was asked.
 
 ## Measured
 
-Against Pi 0.84.4, in the isolated demo.
+Against Pi 0.84.4, in the isolated demo. Later Pi versions were not re-measured.
 
 - A Claude skill via `--skill` works: `/skill:<name>` expanded and the model followed it.
 - A Claude command via `--prompt-template`: frontmatter accepted, `$ARGUMENTS` and `$1` expand, `!` and `@`
@@ -196,6 +198,12 @@ Does not, and says so in the option's own text:
   skills to measure.
 - **Codex skills may carry Codex-only instructions.** Pi reads them as they are, and they fail the way they
   would in any CLI other than Codex. They are documented, not filtered.
+- **The settings screen has three small cuts, left on purpose.** A backend that is switched off shows no
+  preview on its global page, where every control is disabled anyway. An empty stored value is shown as a
+  blank "(not available)". And the Configure dialog, unlike the settings screen, still falls back to the
+  first choice for a stored value it does not offer.
+- **A session with no model gives a source agent no `--model`**, so Pi picks its own default. A running
+  session always has a model, so this is theoretical, and it was true before #639 as well.
 - **A name Pi already has** is only known once the session runs, so the settings preview cannot show it. The
   same goes for the tools an agent loses: the preview lists agent directories, not agents.
 - **Nested agent folders are not read.** The subagent tool's loader reads one level of `agents/`; whether Claude reads

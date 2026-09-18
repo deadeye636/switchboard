@@ -112,6 +112,26 @@ supposed to face. When a file is read BOTH ways on purpose, say which half each 
 code: the flags come from the stripped source, the exclusion reasons from the prose, because the reason
 genuinely IS a comment and a sibling test asserts it exists.
 
+## Code this app GENERATES is tested by running it
+
+Pi's per-spawn extensions (`src/backends/pi/*-extension.js`, `subagent-tool.js`, `command-bridge.js`,
+`src/backends/pi-native/runtime-extension.js`) are TypeScript written out of a JavaScript template literal.
+Reading that text proves nothing about what it does, so the tests compile it with **esbuild** and run it in
+a `vm` context against a fake `pi` (`test/pi-native.test.js`, `test/pi-command-bridge.test.js`,
+`test/pi-source-agents.test.js`). A regex that dropped `: any` broke on the first other annotation, which is
+why the compiler does it. What else to keep in mind when writing one:
+
+- **A timer in generated code is cleared and `unref`'d**, or the test file (and Pi) waits it out.
+- **A backtick or a `${` inside the template, comments included, ends or interpolates the literal.** The
+  file then fails to load at all, or writes this file's values into the generated one.
+- **Logic the generated code needs is a plain function written in with `toString()`** (`planCommand`,
+  `mapSourceAgent`, `pickSourceModel`), so the tests call the same implementation directly. No closure and
+  no TypeScript in it.
+- **Two guards read the generated TEXT**: `execFile(` may not appear in it (`test/cli-probe.test.js`) and
+  `'subagents'` is a guarded token (`test/backend-path-neutrality.test.js`).
+- **A value built in the vm's realm is not `deepStrictEqual` to one built here**: the prototypes differ.
+  Compare through `JSON.parse(JSON.stringify(...))`. A jsdom window is the same case.
+
 ## A source check is a legitimate answer when there is no seam
 
 `node-pty` is required at module load; `test/spawn-first-resize.test.js` therefore reads

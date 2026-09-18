@@ -361,7 +361,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Pi driven through its runtime (#568)** — `Pi (native)` starts `pi --mode rpc` instead of Pi's TUI and
   draws the conversation from its events: the turn being streamed, tool calls and their output, and
   questions an extension is waiting on. It has no terminal. A text field sends, queues and steers turns,
-  and before `bash`, `edit` or `write` runs, the call is shown with its command or diff and waits for
+  and before `bash`, `powershell`, `edit`, `write`, a delegation to the `subagent` tool or a taken-over
+  command's shell line runs, the call is shown with its command or diff and waits for
   allow once, allow for the session, or refuse. Its sessions stay Pi's rows. A marker in the
   transcript says how a session was driven, and the row reopens there. Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).

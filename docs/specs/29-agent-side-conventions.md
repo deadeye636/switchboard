@@ -133,6 +133,6 @@ declares that hook, `spawn.js` really calls it, and the backend's own folder rea
 - **Nothing offers the templates to a Pi session the app did not start.** Accepted with the flag
   route; if it turns out to matter, writing into Pi's home is the route that was not taken and this
   chapter records what it would cost.
-- **The runtime-driven backend of #568 gets this for free or not at all.** It spawns a process too,
-  so the same flag reaches it — but it is its own extension host and may prefer to supply the
-  templates in process. Nothing here assumes either.
+- **The runtime-driven backend of #568 got this for free.** It spawns a process too, so the same flag
+  reaches it, and Pi expands a template before it sends a `prompt` over RPC (spec 30). `pi-native` forwards
+  the hook trio unchanged.

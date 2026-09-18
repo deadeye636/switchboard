@@ -78,9 +78,10 @@ const { APPROVAL_ASK_KEY } = require('../pi/command-bridge');
 const DETAIL_CAP = 400;
 
 // What the question starts with, so the protocol decoder can tell OUR question from any other extension's
-// dialog and draw it as an approval. After the prefix: JSON `{ tool, id, detail }` — the tool call's own id,
+// dialog and draw it as an approval. After the prefix: JSON `{ tool, id, detail, by }` — the tool call's own id,
 // which is how the app finds the call it is about in the conversation it already holds, and a line the call
-// itself does not carry (a delegation's agent, see DESCRIBE_KEY), empty for every other tool.
+// itself does not carry (a delegation's agent, see DESCRIBE_KEY), empty for every other tool. `by` names who
+// asks when it is not the agent's own tool call (a taken-over command's shell line, #632).
 const APPROVAL_PREFIX = 'switchboard-approval:';
 
 // The three answers, in the order they are offered. The app answers with one of these strings.

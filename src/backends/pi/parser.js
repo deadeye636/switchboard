@@ -31,7 +31,7 @@ const { transportFromEntry } = require('./transport-marker');
 // carry no lineage; bumping is what makes them re-read themselves — a parser change moves no mtime.
 // 5 (#407): Pi's id/parentId tree and session_info entries decide the visible branch/title.
 // 6 (#620): the row carries the last assistant turn's context — lastInputTokens, lastModel, lastProvider.
-// 7 (#568): the row carries `transport` — how the session was last driven, from the marker entry the
+// 7 (#568): the row carries `transport` — whether the session was ever driven over RPC, from the marker entry the
 // runtime-driven backend writes (./transport-marker.js). Existing rows were read without it.
 const PARSER_SCHEMA_VERSION = 7;
 
