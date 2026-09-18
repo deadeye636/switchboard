@@ -21,6 +21,7 @@ const subagentTool = require('./subagent-tool');
 const resourcesExtension = require('./resources-extension');
 
 const SOURCE_OPTION_ID = 'resourcesFrom';
+const MCP_OPTION_ID = 'mcpServers';
 
 /**
  * `{ args, cleanup, source, skills, commands, agents, dropped }` for this launch, or null when there is nothing
@@ -99,7 +100,12 @@ function declinesSharedResource({ kind, options } = {}) {
   if (kind === 'agent' && !(options && options[subagentTool.OPTION_ID] === true)) {
     return { reason: 'target-declined', note: 'not passed: the subagent tool is off' };
   }
+  // The same for a source's MCP servers (#633): choosing a source does not start processes by itself. Their
+  // own toggle does, and it is off unless somebody switched it on.
+  if (kind === 'mcp-server' && !(options && options[MCP_OPTION_ID] === true)) {
+    return { reason: 'target-declined', note: 'not started: MCP servers from the source are off' };
+  }
   return null;
 }
 
-module.exports = { SOURCE_OPTION_ID, buildSessionResources, releaseSessionResources, declinesSharedResource };
+module.exports = { SOURCE_OPTION_ID, MCP_OPTION_ID, buildSessionResources, releaseSessionResources, declinesSharedResource };

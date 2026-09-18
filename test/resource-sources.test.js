@@ -112,7 +112,7 @@ test('commands from a source without a dialect are dropped, not passed as plain 
 test('no source means nothing to hand over; an unknown or silent source is refused', async () => {
   withRegistry();
   const none = await resourceSources.resolve({ target: 'tgt', sourceId: '' });
-  assert.deepEqual(none, { ok: true, source: null, skills: [], commands: [], agents: [], dropped: [] });
+  assert.deepEqual(none, { ok: true, source: null, skills: [], commands: [], agents: [], mcpServers: [], dropped: [] });
   for (const id of ['silent', 'planned', 'tpl', 'nope', 'tgt']) {
     const r = await resourceSources.resolve({ target: 'tgt', sourceId: id });
     assert.equal(r.ok, false, id);
@@ -196,10 +196,10 @@ test('the owner\'s three sources offer skills; only Claude declares a command di
   assert.equal(byId('hermes'), null);
 });
 
-test('both Pi backends take skills, commands and agents, and offer Claude, Codex and Antigravity as sources', () => {
+test('both Pi backends take skills, commands, agents and MCP servers, and offer Claude, Codex and Antigravity as sources', () => {
   resourceSources.init({ backends });
   for (const id of ['pi', 'pi-native']) {
-    assert.deepEqual(backends.get(id).acceptsSharedResources, ['skill', 'command', 'agent'], id);
+    assert.deepEqual(backends.get(id).acceptsSharedResources, ['skill', 'command', 'agent', 'mcp-server'], id);
     assert.deepEqual(resourceSources.sourcesFor(id).map((s) => s.id).sort(), ['agy', 'claude', 'codex'], id);
   }
   assert.deepEqual(resourceSources.sourcesFor('claude'), [], 'Claude takes nothing over');
@@ -535,4 +535,145 @@ test('Claude offers its agent directories with an agent dialect; Codex and agy o
   assert.ok(claude.sources.includes('project-agents'));
   assert.equal(claude.agentDialect.inheritModel, 'inherit');
   for (const id of ['codex', 'agy']) assert.equal(backends.get(id).sharedResources.agentDialect, undefined, id);
+});
+
+// ── #633: MCP servers, which a source answers through its own hook ─────────────────────────────────
+
+function withMcp({ trusted = true, decline = null, servers, throws = false, accepts = ['skill', 'mcp-server'] } = {}) {
+  const target = {
+    id: 'tgt', status: 'ready', sharedResources: null,
+    acceptsSharedResources: accepts,
+    trustsProjectResources: () => trusted,
+  };
+  if (decline) target.declinesSharedResource = decline;
+  const a = source('src-a', rows, { sources: ['skills-directory'], commandDialect: null });
+  const asked = [];
+  a.listSharedMcpServers = (arg) => {
+    asked.push(arg);
+    if (throws) throw new Error('boom');
+    return { ok: true, servers };
+  };
+  resourceSources.init({ backends: stubRegistry([target, a]) });
+  return asked;
+}
+
+const stdio = (name, extra = {}) => ({
+  name, scope: 'global', origin: 'user', path: '<home>/src-a.json', transport: 'stdio',
+  command: 'node', args: ['server.js'], env: { TOKEN: 'secret' }, ...extra,
+});
+
+test('a stdio MCP server is handed over with its command, arguments and env, and the source is asked with the project', async () => {
+  const asked = withMcp({ servers: [stdio('one')] });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a', projectPath: '<project>' });
+  assert.deepEqual(r.mcpServers, [{
+    name: 'one', scope: 'global', origin: 'user', path: '<home>/src-a.json', command: 'node', args: ['server.js'], env: { TOKEN: 'secret' },
+  }]);
+  assert.equal(asked[0].projectPath, '<project>');
+});
+
+test('MCP servers are dropped with a reason: other transports, untrusted project, no command, a missing variable', async () => {
+  withMcp({
+    trusted: false,
+    servers: [
+      { name: 'remote', scope: 'global', origin: 'user', path: '<home>/src-a.json', transport: 'http' },
+      stdio('repo', { scope: 'project', origin: 'project', path: '<project>/.mcp.json', approved: true }),
+      stdio('empty', { command: '' }),
+      stdio('needs', { missingEnv: ['API_KEY'] }),
+    ],
+  });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a', projectPath: '<project>' });
+  assert.deepEqual(r.mcpServers, []);
+  assert.deepEqual(r.dropped.filter((d) => d.kind === 'mcp-server').map((d) => [d.name, d.reason]), [
+    ['remote', 'transport-unsupported'], ['repo', 'untrusted-project'], ['empty', 'no-command'], ['needs', 'missing-env'],
+  ]);
+  assert.match(r.dropped.find((d) => d.name === 'needs').note, /API_KEY/);
+});
+
+test('a project MCP server needs both the target\'s trust and the source\'s approval', async () => {
+  withMcp({
+    servers: [
+      stdio('ok', { scope: 'project', origin: 'project', approved: true }),
+      stdio('pending', { scope: 'project', origin: 'project', approved: false }),
+    ],
+  });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a', projectPath: '<project>' });
+  assert.deepEqual(r.mcpServers.map((s) => s.name), ['ok']);
+  assert.deepEqual(r.dropped.map((d) => [d.name, d.reason]), [['pending', 'not-approved']]);
+});
+
+test('the first row of an MCP server name decides, even when that row cannot be started', async () => {
+  withMcp({
+    servers: [
+      { name: 'dup', scope: 'global', origin: 'local', path: '<home>/src-a.json', transport: 'http' },
+      stdio('dup'),
+      stdio('solo', { origin: 'local' }),
+      stdio('solo'),
+    ],
+  });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.deepEqual(r.mcpServers.map((s) => [s.name, s.origin]), [['solo', 'local']]);
+  assert.deepEqual(r.dropped.map((d) => [d.name, d.reason]), [['dup', 'transport-unsupported'], ['dup', 'shadowed'], ['solo', 'shadowed']]);
+});
+
+test('a target that declines every MCP server for this launch costs no read of the source, and says so once', async () => {
+  const asked = withMcp({ servers: [stdio('one')], decline: ({ kind }) => (kind === 'mcp-server' ? { reason: 'target-declined', note: 'off' } : null) });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.equal(asked.length, 0);
+  assert.deepEqual(r.mcpServers, []);
+  assert.deepEqual(r.dropped.map((d) => [d.kind, d.name, d.reason, d.note]), [['mcp-server', null, 'target-declined', 'off']]);
+});
+
+test('a decline for one scope only is reported per server, before any detail of its definition', async () => {
+  withMcp({
+    servers: [stdio('repo', { scope: 'project', origin: 'project', missingEnv: ['X'] }), stdio('mine')],
+    decline: ({ kind, scope }) => (kind === 'mcp-server' && scope === 'project' ? { reason: 'target-declined', note: 'no project servers' } : null),
+  });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a', projectPath: '<project>' });
+  assert.deepEqual(r.mcpServers.map((s) => s.name), ['mine']);
+  assert.deepEqual(r.dropped.map((d) => [d.name, d.reason, d.note]), [['repo', 'target-declined', 'no project servers']]);
+});
+
+test('the launch\'s environment is what the source expands against; without one, this process\'s', async () => {
+  const asked = withMcp({ servers: [] });
+  await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a', env: { ONLY_HERE: '1' } });
+  await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.deepEqual(asked[0].env, { ONLY_HERE: '1' });
+  assert.equal(asked[1].env, process.env);
+});
+
+test('a throwing source gives no MCP servers and takes nothing else away', async () => {
+  let r;
+  withMcp({ servers: [stdio('one')], throws: true });
+  r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.mcpServers, []);
+  assert.deepEqual(r.skills.map((s) => s.path), ['<home>/src-a/skills']);
+});
+
+test('a target that does not accept MCP servers never asks the source for them', async () => {
+  const asked = withMcp({ servers: [stdio('one')], accepts: ['skill'] });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.equal(asked.length, 0);
+  assert.deepEqual(r.mcpServers, []);
+});
+
+test('the settings preview never carries an MCP server\'s env or arguments', async () => {
+  withMcp({ servers: [stdio('one', { args: ['--token', 'abc'] })], accepts: ['mcp-server'] });
+  const p = await resourceSources.preview({ backendId: 'tgt', sourceId: 'src-a', projectPath: null, options: {} });
+  assert.deepEqual(p.mcpServers, [{ name: 'one', scope: 'global', origin: 'user', path: '<home>/src-a.json', command: 'node' }]);
+  const text = JSON.stringify(p);
+  assert.ok(!text.includes('secret') && !text.includes('abc'), text);
+});
+
+test('Pi takes a source\'s MCP servers only while "MCP servers from the source" is on; only Claude answers them', () => {
+  for (const id of ['pi', 'pi-native']) {
+    const b = backends.get(id);
+    const off = b.declinesSharedResource({ kind: 'mcp-server', scope: 'global', options: {} });
+    assert.equal(off.reason, 'target-declined', id);
+    assert.match(off.note, /MCP servers/, id);
+    assert.equal(b.declinesSharedResource({ kind: 'mcp-server', scope: 'global', options: { mcpServers: true } }), null, id);
+    assert.ok(b.configFields.some((f) => f.id === 'mcpServers' && f.default === false && f.appliedBy === 'buildSessionResources'), id);
+  }
+  assert.equal(typeof backends.get('claude').listSharedMcpServers, 'function');
+  for (const id of ['codex', 'agy', 'hermes']) assert.equal(backends.get(id).listSharedMcpServers, undefined, id);
 });

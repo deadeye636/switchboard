@@ -21,6 +21,7 @@ const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, reso
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
+const mcpServers = require('./mcp-servers');
 const plugins = require('./plugins');
 // Who is holding a session right now (#172) — the CLI is the only one that knows.
 const liveAgents = require('./live-agents');
@@ -816,6 +817,10 @@ module.exports = {
       argumentHintKey: 'argument-hint',
     },
   },
+  // The MCP servers another backend may take over (#633). Not a `sources` row: a server is an entry in a
+  // config file, not a directory, and reading Claude's three places for them — with the approval a
+  // `.mcp.json` server needs — is this folder's logic. Neutral rows, `./mcp-servers.js` says which.
+  listSharedMcpServers: mcpServers.createListSharedMcpServers({ claudeHome }),
   // One level into a listed directory (#440) — the shared walker, this backend's rules.
   expandResource: resources.expandResource,
   // What the app may write back (#441). Markdown for skills, commands, agents and instruction files;

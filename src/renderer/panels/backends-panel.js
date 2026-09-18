@@ -303,6 +303,11 @@
     'untrusted-project': 'not passed: the project is not trusted for this launch',
     'no-command-dialect': 'not passed: that backend\'s commands cannot be read here',
     'no-agent-dialect': 'not passed: that backend\'s agents cannot be read here',
+    // #633 — why one of the source's MCP servers is not started.
+    'transport-unsupported': 'not started: only servers run as a local process (stdio) come along',
+    'not-approved': 'not started: this project server has not been approved in that CLI',
+    'shadowed': 'not started: a server of the same name comes first in that CLI',
+    'no-command': 'not started: no command to run',
   };
 
   function renderSourcePreview(result, projectPath) {
@@ -310,20 +315,26 @@
       return `<div class="settings-hint">Could not read what would be taken over${result && result.reason ? ': ' + esc(result.reason) : '.'}</div>`;
     }
     if (!result.source) return '<div class="settings-hint">Nothing is taken over. The session gets only its own skills, commands and agents.</div>';
+    // An MCP server (#633) is an entry in a config file, not a directory: it is shown by its NAME (and the
+    // command it starts), under the source's own word for where it is configured, with the file as tooltip.
+    // A row with neither is about the whole kind (every MCP server, when the launch takes none of them).
+    const label = (r) => (r.name ? (r.command ? `${r.name} (${r.command})` : r.name) : (r.path || ''));
     const row = (kind, r, note) => `
       <div class="settings-more open backend-source-preview-row">
         <span class="backend-pill">${esc(kind)}</span>
-        <span class="backend-pill ${r.scope === 'project' ? 'scope-project' : ''}">${esc(r.scope || 'global')}</span>
-        <code>${esc(r.path)}</code>${note ? ` <span class="backend-source-preview-note">${esc(note)}</span>` : ''}
+        <span class="backend-pill ${r.scope === 'project' ? 'scope-project' : ''}">${esc(r.origin || r.scope || 'global')}</span>
+        ${label(r) ? `<code${r.name && r.path ? ` title="${esc(r.path)}"` : ''}>${esc(label(r))}</code>` : ''}${note ? ` <span class="backend-source-preview-note">${esc(note)}</span>` : ''}
       </div>`;
+    const kindLabel = (kind) => (kind === 'mcp-server' ? 'mcp server' : kind);
     const taken = [
       ...(result.skills || []).map(r => row('skill', r)),
       ...(result.commands || []).map(r => row('command', r)),
       ...(result.agents || []).map(r => row('agent', r)),
+      ...(result.mcpServers || []).map(r => row(kindLabel('mcp-server'), r)),
     ];
     // A reason the core words is looked up here; one the TARGET gave (#639, e.g. "the subagent tool is off")
     // arrives with its own sentence, because this panel may not name the option that decided it.
-    const dropped = (result.dropped || []).map(d => row(d.kind || 'resource', d,
+    const dropped = (result.dropped || []).map(d => row(kindLabel(d.kind || 'resource'), d,
       DROP_REASONS[d.reason] || d.note || `not passed: ${d.reason}`));
     const from = result.sourceLabel || result.source;
     return [

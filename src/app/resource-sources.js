@@ -8,7 +8,8 @@
 // NEUTRAL BY CONSTRUCTION. No backend is named here:
 //   - a SOURCE declares `sharedResources` — which of its `listResources` rows may leave it, by `source`,
 //     plus a `commandDialect` and an `agentDialect` describing its command and agent files (data, because
-//     the target reads them inside its own process);
+//     the target reads them inside its own process), and optionally `listSharedMcpServers` — its MCP servers
+//     as neutral rows, since those are entries in its config files rather than listing rows (#633);
 //   - a TARGET declares `acceptsSharedResources` (the kinds it can take), `trustsProjectResources`
 //     (whether this launch may be handed a source's project-scope directories — owner decision E1) and,
 //     optionally, `declinesSharedResource` (a kind it accepts but not with this launch's options, #639).
@@ -72,17 +73,21 @@ function sourcesFor(targetOrId) {
 /**
  * What a launch of `target` in `projectPath` would take over from `sourceId`.
  *
- * Returns `{ ok, source, skills, commands, agents, dropped }`:
+ * Returns `{ ok, source, skills, commands, agents, mcpServers, dropped }`:
  *   - `skills`   — `[{ path, scope }]`, directories in the source's own layout;
  *   - `commands` — `[{ path, scope, dialect }]`, directories of command files and how to read them;
  *   - `agents`   — `[{ path, scope, dialect }]`, directories of agent files and how to read them (#639);
+ *   - `mcpServers` — `[{ name, scope, origin, path, command, args, env }]`, stdio MCP servers to start (#633).
+ *                  `env` routinely carries tokens: it is for the spawn path, and `preview` strips it;
  *   - `dropped`  — `[{ path, kind, scope, reason, note? }]`, what the source has but this launch does not
  *                  get, so the preview can say so instead of leaving it out silently. `note` is the
  *                  target's own sentence where the TARGET declined the kind (`declinesSharedResource`).
  * An empty or unknown source is not an error: it answers with nothing to hand over.
  */
-async function resolve({ target: targetOrId, sourceId, projectPath = null, options = {} } = {}) {
-  const empty = { ok: true, source: null, skills: [], commands: [], agents: [], dropped: [] };
+// `env` is the environment the launch will run with, which a source expands its MCP definitions against
+// (`${VAR}`); the preview has no launch and uses this process's own.
+async function resolve({ target: targetOrId, sourceId, projectPath = null, options = {}, env = null } = {}) {
+  const empty = { ok: true, source: null, skills: [], commands: [], agents: [], mcpServers: [], dropped: [] };
   const target = asDescriptor(targetOrId);
   const kinds = acceptedKinds(target);
   if (!sourceId || !kinds.length) return empty;
@@ -131,7 +136,7 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
     return answer;
   };
 
-  const out = { ok: true, source: sourceId, skills: [], commands: [], agents: [], dropped: [] };
+  const out = { ok: true, source: sourceId, skills: [], commands: [], agents: [], mcpServers: [], dropped: [] };
   for (const row of listed.resources) {
     if (!row || !row.path || !sources.has(row.source)) continue;
     if (!kinds.includes(row.kind)) continue;
@@ -163,7 +168,59 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
       out.agents.push({ path: row.path, scope, dialect: shared.agentDialect });
     }
   }
+  if (kinds.includes(MCP_KIND) && typeof source.listSharedMcpServers === 'function') {
+    takeMcpServers({ source, projectPath, projectTrusted, declineFor, env, out });
+  }
   return out;
+}
+
+// What a target calls an MCP server when it accepts one — core vocabulary, like 'skill' and 'command'.
+const MCP_KIND = 'mcp-server';
+
+/**
+ * A source's MCP servers (#633). They are entries in the source's config files rather than listing rows, so
+ * the source answers through its own hook (`listSharedMcpServers`), in its own precedence order; the rules
+ * applied here are the launch's: stdio only (owner decision, MVP), a project's own servers only when the
+ * target trusts the project AND the source's user approved them. The FIRST row of a name decides, usable or
+ * not: the source CLI would run that definition and no other, so falling through to a lower one of the same
+ * name would start a server the source never runs.
+ * What is left out is reported with the reason, as for every other kind.
+ */
+function takeMcpServers({ source, projectPath, projectTrusted, declineFor, env, out }) {
+  // A target that declines every MCP server for this launch (a switch that is off) costs no file read: the
+  // source's config can be large, a spawn pays for this on every launch, and the answer is one line anyway.
+  const globalDecline = declineFor(MCP_KIND, 'global');
+  const projectDecline = declineFor(MCP_KIND, 'project');
+  if (globalDecline && projectDecline) {
+    out.dropped.push({ path: null, name: null, kind: MCP_KIND, scope: 'global', reason: globalDecline.reason, note: globalDecline.note });
+    return;
+  }
+  let listed;
+  try { listed = source.listSharedMcpServers({ projectPath: projectPath || null, env: env || process.env }); } catch { listed = null; }
+  if (!listed || listed.ok === false || !Array.isArray(listed.servers)) return;
+  const seen = new Set();
+  for (const s of listed.servers) {
+    if (!s || typeof s.name !== 'string' || !s.name) continue;
+    const scope = s.scope === 'project' ? 'project' : 'global';
+    const drop = (reason, note) => out.dropped.push({
+      path: s.path || null, name: s.name, origin: s.origin || null, kind: MCP_KIND, scope, reason, ...(note ? { note } : {}),
+    });
+    if (seen.has(s.name)) { drop('shadowed'); continue; }
+    seen.add(s.name);
+    // The launch's own "no" first: a server that would not start anyway is described by that, not by a
+    // detail of its definition nobody needs to fix.
+    const declines = scope === 'project' ? projectDecline : globalDecline;
+    if (declines) { drop(declines.reason, declines.note); continue; }
+    if (s.transport !== 'stdio') { drop('transport-unsupported'); continue; }
+    if (scope === 'project' && !projectTrusted) { drop('untrusted-project'); continue; }
+    if (s.approved === false) { drop('not-approved'); continue; }
+    if (Array.isArray(s.missingEnv) && s.missingEnv.length) { drop('missing-env', `not started: ${s.missingEnv.join(', ')} has no value`); continue; }
+    if (typeof s.command !== 'string' || !s.command) { drop('no-command'); continue; }
+    out.mcpServers.push({
+      name: s.name, scope, origin: s.origin || null, path: s.path || null,
+      command: s.command, args: Array.isArray(s.args) ? s.args.map(String) : [], env: s.env && typeof s.env === 'object' ? { ...s.env } : {},
+    });
+  }
 }
 
 // The token a `select` field declares INSTEAD of listing its choices (#632 step 4). Its choices are the
@@ -225,7 +282,9 @@ async function preview({ backendId, sourceId, projectPath, options } = {}) {
     options: flat,
   });
   const described = source ? sourcesFor(target).find((s) => s.id === source) : null;
-  return { ...result, sourceLabel: described ? described.label : null };
+  // A server's env and arguments can carry tokens, and this answer goes to a window: name and command only.
+  const mcpServers = (result.mcpServers || []).map((s) => ({ name: s.name, scope: s.scope, origin: s.origin, path: s.path, command: s.command }));
+  return { ...result, mcpServers, sourceLabel: described ? described.label : null };
 }
 
 function registerIpc(ipc) {

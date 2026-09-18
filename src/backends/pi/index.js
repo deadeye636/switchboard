@@ -129,7 +129,13 @@ const configFields = [
     choicesFrom: 'sharedResourceSources',
     choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
     appliesAt: 'spawn', appliedBy: 'buildSessionResources',
-    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Hooks and MCP servers do not come along.' },
+    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Its MCP servers come along only while "MCP servers from the source" is on. Hooks do not come along.' },
+  // #633: start the source's MCP servers and offer their tools. OFF by default — every server is a process
+  // started on the user's behalf, and the setting nobody should acquire by upgrading. Read by
+  // `buildSessionResources` (`./session-resources.js`), like the source itself.
+  { id: 'mcpServers', label: 'MCP servers from the source', type: 'toggle', default: false,
+    appliesAt: 'spawn', appliedBy: 'buildSessionResources',
+    description: 'Start the MCP servers the chosen source has configured and offer their tools in this session. Only servers started as a local process (stdio) come along. A project\'s own servers come along only when Pi trusts the project and you approved them in that CLI. In the terminal backend nothing asks before an MCP tool runs.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',
@@ -615,7 +621,9 @@ description:
   sharedResources: null,
   // Agents (#639) run through the `subagent` tool, so they are taken only while that tool is on — the
   // per-launch half is `declinesSharedResource`, which the core asks beside the trust question.
-  acceptsSharedResources: ['skill', 'command', 'agent'],
+  // MCP servers (#633) are started by a section of the same per-spawn extension, and only while their own
+  // toggle is on — the same per-launch hook answers for them.
+  acceptsSharedResources: ['skill', 'command', 'agent', 'mcp-server'],
   declinesSharedResource: (ctx) => sessionResources.declinesSharedResource(ctx),
   // Whether this launch may be handed a source's PROJECT-scope directories (owner decision E1). A path on
   // Pi's command line is loaded whether or not the project is trusted, so passing one would read the

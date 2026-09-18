@@ -47,6 +47,7 @@ const NOT_INHERITED = {
   integrations: 'the attention-hooks toggle writes one shared ~/.claude/settings.json; a per-template switch would be a second control over one file',
   endpointEnv: 'names the variable a template EXISTS to set; its own values are templateEnv',
   sharedResources: '#632 — src/app/resource-sources.js offers only built-in backends as a source, because a template reads its base\'s store and would offer the same directories a second time under another name',
+  listSharedMcpServers: '#633 — the MCP half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
 
   // Store internals and root setters. Not descriptor hooks the core dispatches on — main.js sets the
   // roots on the base descriptor, and a template writes into that same store.
