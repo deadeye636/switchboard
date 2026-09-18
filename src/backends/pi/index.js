@@ -135,7 +135,7 @@ const configFields = [
   // `buildSessionResources` (`./session-resources.js`), like the source itself.
   { id: 'mcpServers', label: 'MCP servers from the source', type: 'toggle', default: false,
     appliesAt: 'spawn', appliedBy: 'buildSessionResources',
-    description: 'Start the MCP servers the chosen source has configured and offer their tools in this session. Only servers started as a local process (stdio) come along. A project\'s own servers come along only when Pi trusts the project and you approved them in that CLI. In the terminal backend nothing asks before an MCP tool runs, and in the runtime-driven one only while "Ask before commands and file changes" is on.' },
+    description: 'Start the MCP servers the chosen source has configured and offer their tools in this session. Only servers started as a local process (stdio) come along. A project\'s own servers come along only when Pi trusts the project and you approved them in that CLI. In the terminal backend nothing asks before an MCP tool runs, and in the runtime-driven one only while "Ask before commands, file changes and MCP tools" is on.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',

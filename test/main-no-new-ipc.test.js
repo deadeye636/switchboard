@@ -93,7 +93,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/skills.js              what a running session can be asked to run
   src/app/terminal/images.js     images pasted or dropped into a terminal
   src/app/agent-rpc.js           a session driven over a runtime protocol instead of a terminal
-  src/app/resource-sources.js    which of another backend's skills and commands a session takes over
+  src/app/resource-sources.js    which of another backend's skills, commands, agents and MCP servers a session takes over
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

@@ -36,7 +36,7 @@ const configFields = [
   // conversation drawn by the app looks supervised, and one that only LOOKS supervised is the worse
   // failure. Applied through the runtime extension (`./runtime-extension.js` reads the option), so the
   // core names neither the key nor the backend.
-  { id: 'approvalGate', label: 'Ask before commands and file changes', type: 'toggle', default: true,
+  { id: 'approvalGate', label: 'Ask before commands, file changes and MCP tools', type: 'toggle', default: true,
     appliesAt: 'spawn', appliedBy: 'buildRuntimeExtension',
     description: 'Every bash or PowerShell command, file edit, file write, subagent run and MCP tool call waits for your answer: allow once, allow for '
       + 'the rest of this session, or refuse. A convenience, not a security boundary — the check runs inside '

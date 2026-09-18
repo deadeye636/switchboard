@@ -158,6 +158,10 @@ without asking. A conversation the app draws looks supervised, and a session tha
 is the worse failure, so this backend asks before `bash`, `powershell` (Pi's built-in Windows shell, off
 unless the `tools` option enables it), `edit` and `write`. It never asks before the read-only tools. The `approvalGate` option switches it off, and it is **on** by default.
 
+It also asks before every MCP tool taken over from another CLI (#633, spec 31), matched by the `mcp__`
+prefix. Whether such a tool only reads is its server's claim, so none is waved through, and "Allow for this
+session" covers one tool. A tool of the user's own whose name starts with `mcp__` is asked about as well.
+
 It also asks before the app's own `subagent` tool (#634), for a reason the others do not share. That tool
 starts a second Pi, spawned by the subagent section of the per-spawn resources extension (spec 31), and the
 child loads neither per-spawn extension, so
@@ -239,12 +243,12 @@ scrollback, the exit banner, the launch-error writes (`writeEntryError`). The vi
 deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
 terminal-key tests check that.
 
-## Another CLI's skills, commands and agents
+## Another CLI's skills, commands, agents and MCP servers
 
-Both Pi backends can take over another CLI's skills, commands and agents through the `resourcesFrom`
-setting (#632, #639). How that works, and what does not come along (hooks, MCP servers), is in spec 31, "What
-comes along and what does not". The one part specific to this backend is the question before a command's
-shell line, described under Approvals above.
+Both Pi backends can take over another CLI's skills, commands, agents and MCP servers through the
+`resourcesFrom` setting (#632, #639, #633). How that works, and what does not come along (hooks, servers other
+than stdio), is in spec 31, "What comes along and what does not". The parts specific to this backend are the
+questions before a command's shell line and before an MCP tool, described under Approvals above.
 
 ## Known gaps
 

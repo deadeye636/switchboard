@@ -440,7 +440,7 @@ own `config.toml`.)
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
-| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `mcpServers` (**off**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 | `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30). It has no login of its own: it uses Pi's saved logins, so log in once through the terminal Pi backend (`/login`) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
@@ -496,9 +496,9 @@ an agent of the same name from another place. A delegation the tool would refuse
 taken-over one with nothing it may use) is blocked without a question. With `approvalGate` off,
 delegations run unasked. The terminal backend asks about nothing, delegations included.
 
-**`resourcesFrom` gives a Pi session another CLI's skills, commands and agents** (#632, #639, spec 31). Its
+**`resourcesFrom` gives a Pi session another CLI's skills, commands, agents and MCP servers** (#632, #639, #633, spec 31). Its
 choices are `None (Pi's own)` and every built-in backend that offers something: Claude Code (skills,
-commands and agents), Codex and Antigravity CLI (skills). Pi's backend folder does not list them. The field declares
+commands, agents and MCP servers), Codex and Antigravity CLI (skills). Pi's backend folder does not list them. The field declares
 `choicesFrom: 'sharedResourceSources'` and the core fills the choices in, and a backend that is switched off
 is still offered, because only its files are read. It cascades like any launch option, one source per
 level. The default `''` is Pi as it was before. A source adds to what Pi already has, and what Pi has keeps
@@ -523,7 +523,8 @@ name replaces:
   agent runs on the session's model. The question and the result say which tools and which model it got.
 - **A project's own directories** are passed only when Pi trusts the project: `approval` for this run
   first, then Pi's saved trust. No saved decision means no. Global directories are always passed.
-- **Not included:** hooks (#635), MCP servers (#633) and plugin skills. Of a command's
+- **MCP servers** come along only while `mcpServers` is on (below).
+- **Not included:** hooks (#635) and plugin skills. Of a command's
   frontmatter, only `allowed-tools` changes what it does. `description` and `argument-hint` describe it,
   and `model` is not applied.
 
@@ -535,10 +536,39 @@ Configure dialog does not do this yet and still shows its first choice. Known li
 Pi's `shellPath` setting is not used for a command's shell lines (Windows without Git Bash answers
 `[shell unavailable: …]`), a line gets 30 seconds, and `@docs/$1.md` is not expanded, by design.
 
-**`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit`, `write` or
-`subagent`** (the `pi-native` backend), and before a permitted shell line of a command taken over through
+**`mcpServers` starts the source's MCP servers and offers their tools** (#633, spec 31). It is off by
+default, because each server is a process started on your behalf, and it does nothing without a
+`resourcesFrom` source. Only Claude Code offers servers so far: its user and local scope always, a
+project's `.mcp.json` servers only when Pi trusts the project and you approved them in Claude. Only
+servers started as a local process (stdio) come along; HTTP and SSE servers are listed as left out. Each
+tool is offered as `mcp__<server>__<tool>`. The session waits up to 5 s for the servers when it starts; a
+slower one joins later and says so, and one that fails says why. Things to know:
+
+- **A server's `env` is never written to disk by this app.** The list reaches Pi in the environment variable
+  `SWITCHBOARD_PI_MCP_SERVERS`, which the extension deletes as it loads, so the agent's own shell does not
+  see it. Where terminal Pi is started through a shell (an npm shim, or a pre-launch command), that shell
+  keeps it for the life of the session.
+- **`${VAR}` in a definition** is filled from the session's environment, your per-backend variables here
+  included. The preview under `resourcesFrom` uses the app's own environment, so a variable set only per
+  backend can show as missing there and still work at launch.
+- **The preview cannot see a server fail.** A server that does not start (a command that is not there, a
+  crash on its own config) is said in the session when it happens.
+- **A delegated agent has no MCP tools**: the `subagent` tool's child starts no servers.
+- **On Windows a bare `npx` does not start**; write the server as `cmd /c npx …`, as Claude's own Windows
+  setup does. The notice says so.
+- **A tool call has no timeout**; Stop ends it.
+- In `pi-native`, `approvalGate` (below) asks before every MCP tool. The terminal backend asks about none.
+
+The preview under `resourcesFrom` lists the servers a launch would start, by name and command, and the ones
+left out with their reason. It never shows a server's `env` or arguments.
+
+**`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit`, `write`,
+`subagent` or an MCP tool** (the `pi-native` backend; its label is "Ask before commands, file changes and
+MCP tools"), and before a permitted shell line of a command taken over through
 `resourcesFrom`. Each call waits for an answer in the conversation: allow once, allow
-for the rest of the session, or refuse. It is on by default. It is a convenience and not a security boundary: the check runs inside the
+for the rest of the session, or refuse. For an MCP tool the allowance covers that one tool, and the question
+quotes the server's own description of it, which is the server's claim. A tool of your own whose name starts
+with `mcp__` is asked about as well. It is on by default. It is a convenience and not a security boundary: the check runs inside the
 agent's own process, and a Pi started outside Switchboard asks nothing.
 
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
@@ -670,6 +700,7 @@ Still open:
 | `SWITCHBOARD_SUBMIT_VERIFY_MS` | Window in which a submit waits for the busy rising edge | built-in default; same validation |
 | `SWITCHBOARD_DEBUG_PORT` | CDP port for `drive-app.js` / `check-debug-port.js` / `perf-sample.js` / `perf-trace.js`, and the port `demo:start -- --debug` binds. Set it when an instance already holds the default — an installed app started with a debugging port leaves the demo nothing to bind. | `9222` |
 | `SWITCHBOARD_DEMO_DIR` | Root of the isolated demo environment | `C:/temp/switchboard` |
+| `SWITCHBOARD_PI_MCP_SERVERS` | **Set by the app, not by you**: the MCP server list a Pi session's resources extension starts (#633, `mcpServers` above). Added to that session's environment only, and deleted by the extension as it loads | unset |
 
 **The isolation set** is seven variables: `SWITCHBOARD_DATA_DIR`, `SWITCHBOARD_USER_DATA` and the five
 `SWITCHBOARD_STORE_*`. Set all seven and a run touches nothing real — that is exactly what

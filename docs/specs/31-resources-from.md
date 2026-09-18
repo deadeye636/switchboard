@@ -1,8 +1,9 @@
-# 31 — Resources from: a Pi session takes over another CLI's skills, commands and agents
+# 31 — Resources from: a Pi session takes over another CLI's skills, commands, agents and MCP servers
 
-Issue #632. The core half is `src/app/resource-sources.js`, the Pi half is `src/backends/pi/session-resources.js`
-with the per-spawn extension in `src/backends/pi/resources-extension.js` and the command bridge in
-`src/backends/pi/command-bridge.js`. It applies to both Pi backends, the terminal one and `pi-native`
+Issue #632, with agents from #639 and MCP servers from #633. The core half is `src/app/resource-sources.js`, the Pi half is `src/backends/pi/session-resources.js`
+with the per-spawn extension in `src/backends/pi/resources-extension.js`, the command bridge in
+`src/backends/pi/command-bridge.js` and the MCP client in `src/backends/pi/mcp-section.js`. Claude's side of
+the MCP servers is `src/backends/claude/mcp-servers.js`. It applies to both Pi backends, the terminal one and `pi-native`
 (spec 30).
 
 ## What changes for the user
@@ -10,7 +11,8 @@ with the per-spawn extension in `src/backends/pi/resources-extension.js` and the
 Someone who has spent a year collecting skills and slash commands for Claude Code loses all of them the day
 they start a session in Pi, even when Pi runs the same model. The owner's goal for this issue and the ones
 after it: switching a session from Claude or Codex to Pi must not lose the user's setup. #632 covers the
-content, skills and commands, and adds the one setting the later parts attach to; #639 adds agents.
+content, skills and commands, and adds the one setting the later parts attach to; #639 adds agents and #633
+MCP servers.
 
 That setting is **Resources from**, a select on the Pi backends: `None (Pi's own)`, Claude Code, Codex,
 Antigravity CLI. It cascades like every launch option, so a project can pick a different source than the
@@ -19,8 +21,12 @@ global setting. With a source chosen, a Pi session gets that CLI's skills (`/ski
 command Pi already has keeps its own. The one thing a source replaces is the app's own `/handoff` and
 `/plan` (#569), because a user's command of that name is the user's choice.
 
+A source's MCP servers come along only with a second switch, **MCP servers from the source**, which is off
+by default: each server is a process started on the user's behalf, and choosing a source must not start
+processes by itself.
+
 Under the select, the settings screen shows what a session started from that scope would take over: the
-directories, and the ones left out with the reason.
+directories and the MCP servers, and the ones left out with the reason.
 
 ## Decisions
 
@@ -47,6 +53,22 @@ The settings screen (step 4) added two:
 | Choices | The field declares `choicesFrom: 'sharedResourceSources'` instead of listing sources; the core fills the choices at the `backends-list` projection. | Pi's folder cannot name other backends (CLAUDE.md reflex 5). Filling them where every form reads the fields gives the settings page, the Configure dialog, the template editor and the tour one list. The list does not change at run time, so it needs no dynamic mechanism. |
 | Preview | A closed disclosure under the select, read when opened, with the options the page shows for that backend. | It lists another backend's directories, so it costs a read, and the settings search must not open it on every keystroke (`data-lazy`). With the page's own options, unsaved edits included, its trust answer is the one a launch would get. A template's pane has none: its launch reads layers that page does not assemble. |
 
+#633 added these, the owner's as well, 2026-09-18 (direction comment on #633):
+
+| | Decision | Why |
+|---|---|---|
+| M1 | The server list comes from the source picked in "Resources from". A list of the user's own beside it is a later step. | One switch for everything a session takes over. |
+| M2 | A source reads its own config format through a hook in its own folder and answers with neutral rows. Only Claude declares one so far. | Parsing JSON or TOML is logic, not dialect data, and it runs in the app, where a descriptor function can be called. |
+| M3 | The server list reaches Pi in one environment variable, never in the generated file. The extension reads it once and deletes it. | A server's `env` routinely holds tokens, and the extension file sits on disk for the life of the session. |
+| M4 | A small stdio client of the app's own, no SDK. | Three requests are all it needs, and it is tested like the other sections. |
+| M5 | In `pi-native` every MCP tool is asked about, and "Allow for this session" covers one tool. | `readOnlyHint` is the server's own claim, and an MCP tool can do anything its server does. |
+| M6 | A project's `.mcp.json` servers come along only when Pi trusts the project and the user approved them in Claude. | They come with the repository, as project directories do (E1), and Claude itself starts none without the approval. |
+| M7 | The extension ends its servers when the session ends. | Measured on Windows: they also die with Pi itself, because Node puts its children in a kill-on-close job object, so the app needs nothing of its own there. Elsewhere a Pi that is killed leaves its servers to end on their closed input, which was not measured. |
+| M8 | A server that fails is said, in the session and in the preview, never silently absent. | A tool that is just missing is the failure mode an extension makes easy. The preview can only say what a definition shows; a server that fails when it starts is said in the session (see Known limits). |
+| O1 | Each source keeps its own CLI's rule for what needs trust: what sits in the user's home file does not, what sits in the repository does. | The owner's words: "same handling as Claude, Codex". |
+| O2 | A tool is called `mcp__<server>__<tool>`, cleaned to letters, digits, `_` and `-`, cut at 64. | What every provider accepts, and the spelling a Claude agent's `mcp__…` tools already use. |
+| O4 | `session_start` waits for the servers up to 5 s together, then goes on; a slower server registers later and says so. | Measured: a tool registered after a prompt went out is not seen by it, and the app often launches with a prompt. |
+
 ## The seam
 
 No backend is named in the core, and no source's format is spelled in Pi's folder.
@@ -55,7 +77,9 @@ No backend is named in the core, and no source's format is spelled in Pi's folde
   of its `listResources` rows may leave it, by their `source` key, so plugin rows stay out without the core
   knowing what a plugin is. The two dialects describe its command and agent files as data (below), because
   those are read inside Pi's process, where no descriptor function can be called. Claude offers skills,
-  commands and agents, Codex and agy skills only; Hermes and Pi declare `null`.
+  commands and agents, Codex and agy skills only; Hermes and Pi declare `null`. A source that offers MCP
+  servers also implements `listSharedMcpServers({ projectPath, env })` (#633): they are entries in its
+  config files, not listing rows, so it answers with neutral rows of its own (below). Only Claude does.
 - **A target** declares `acceptsSharedResources` (the kinds it can take) and `trustsProjectResources`
   (E1), and implements the hook pair `buildSessionResources` / `releaseSessionResources`. It may also
   declare `declinesSharedResource({ kind, scope, options })`, for a kind it accepts but not with this
@@ -67,11 +91,16 @@ No backend is named in the core, and no source's format is spelled in Pi's folde
   does not trust and any row of a kind the target declines for this launch, and reports each of those drops
   with its reason, as well as a command or an agent dropped because its source declares no dialect for it. Rows the source never offers (plugins, settings) and kinds
   the target does not take are left out without a report, because nothing was going to be passed there. The
-  spawn path and the settings preview both ask `resolve`, so they cannot disagree.
+  spawn path and the settings preview both ask `resolve`, so they cannot disagree, with one exception: an
+  MCP definition is expanded against the launch's environment at spawn and against the app's in the
+  preview, so a variable that only a launch sets can read differently in the two. Its answer has an
+  `mcpServers` bucket as well, and it takes an `env`, the environment a launch runs with, which a source
+  expands its MCP definitions against. The preview answers without a server's `env` and arguments.
 - **The spawn** (`src/app/terminal/spawn.js`) awaits `buildSessionResources` with the cascaded options and
   a resolver, before the #569 templates. After the await it checks again for a quit and for a second open
   of the same session. That await is the first on a Pi spawn before the session is registered, and without
-  the check a quit could orphan the process or a racing open could double it.
+  the check a quit could orphan the process or a racing open could double it. The hook may also answer an
+  `env`, which the spawn adds to the session's environment last, after its own `$VAR` resolution (#633).
 
 `projectPath` is the session's working directory, not the project whose settings apply. Pi checks trust
 there, and for a worktree the two differ.
@@ -152,6 +181,70 @@ Click-tested in `pi-native` with Claude as source, on an OpenAI session: a Claud
 followed its own system prompt. A call to an agent with only `WebFetch` was blocked with its reason, and
 nobody was asked.
 
+## MCP servers (#633)
+
+Pi has no MCP client. Its README says so and points to an extension, and 0.85.1 is no different. So the
+resources extension carries one, as a third section (`src/backends/pi/mcp-section.js`), and it runs only
+while **MCP servers from the source** is on. With it off the source's config is not even read, and the
+preview shows one line saying so.
+
+**Where the servers come from.** Claude keeps them in three places (`src/backends/claude/mcp-servers.js`):
+the user scope at the top of `~/.claude.json`, the local scope in that file's block for the project, and
+the project scope in `<project>/.mcp.json`. The first two are the user's own writing and count as global.
+The third comes with the repository: it needs Pi's trust in the project (E1) and the user's approval in
+Claude, read from the project's blocks in `~/.claude.json`, the user settings and the project's
+`settings.local.json`, and never from the committed `.claude/settings.json`. `settings.local.json` is the
+user's only by convention: it is gitignored, not unwritable, so a repository that commits one can approve
+its own servers there, as it can for Claude. What still stands in the way is Pi's trust, which a project
+server needs as well. Rows come in Claude's order, local then project then user, and the first
+definition of a name decides even when it cannot be started, because that is the one Claude would run.
+`${VAR}` and `${VAR:-default}` are expanded in the command, the arguments and the env, against the
+session's own environment, resolved as the spawn resolves it. A server with a variable that is not set and
+has no default is left out and named; a variable set to an empty value expands to nothing, as in a shell.
+
+The local scope is looked up under the project path as spelled, forward slashes and exact case, and under
+nothing else. That is measured: `claude mcp add` filed the server under the directory as the shell spelled
+it, and `claude mcp list` run from the same directory in its on-disk case did not find it. Trust is filed
+differently (#627), which is why this lookup has its own function.
+
+**What the core leaves out, with a reason each:** a transport other than stdio, a project server in an
+untrusted project or without the approval, a missing variable, a definition with no command, a name a
+higher scope already defined, and every server while the switch is off.
+
+**How they reach Pi.** The list, `env` included, travels in one environment variable that the spawn adds
+after its own `$VAR` resolution. The extension reads it when Pi loads it and deletes it from the process's
+environment, so the agent's `bash` tool does not inherit it (measured: a shell the agent ran saw nothing).
+Nothing of it is written into the extension file or the log.
+
+**The client.** Each server is started without a shell, as Claude starts it, and spoken to line by line:
+`initialize`, `tools/list` with paging, `tools/call`. A server's `ping` is answered and anything else it asks
+is refused. Every tool becomes a Pi tool named `mcp__<server>__<tool>` with the server's own input schema
+(measured: Pi takes it as it is). A result's text and images are carried, a resource's text is inlined,
+anything else is named, and the text is cut at 51,200 characters. Stop aborts a call and tells the server so.
+
+**Starting and restarting.** `session_start` waits up to 5 s for all servers together. A server that is
+slower registers when it answers and says that its tools are offered from the next prompt on. A server
+that fails is announced with its reason, including the tail of its standard error, and a failure is never
+lost because a slower sibling kept the start past the cap. Pi builds a new extension instance for every
+`/new`, `/resume` and `/fork` and evaluates the extension again on `/reload`, so the list and the running
+clients live in a process-level holder and each instance registers the tools again. A counter per start
+keeps a start that belongs to an earlier session from stopping a later one's server or announcing anything
+into it. The servers end with the session; on Windows the whole tree is ended.
+
+**The question in `pi-native`** (M5). The approval gate asks before every tool whose name starts with
+`mcp__`, and "Allow for this session" covers that one tool. The question carries a line the section
+publishes about the tool: which server it belongs to and the server's own description of it. That line is
+the server's claim, like `readOnlyHint`. A tool of the user's own that happens to start with `mcp__` is
+asked about as well, without a line. The terminal backend asks about nothing, and neither does
+`pi-native` with the gate off; the option text says both.
+
+Click-tested with two stdio servers from Claude, one user-scope with a secret in its `env` and one
+local-scope. In `pi-native` with a launch prompt, both tools were called on the first turn, after the gate
+asked, and "Allow for this session" let the second call of the same tool through without a question. In
+terminal Pi the tool worked and the agent's shell did not see the variable. After `/new` and after `/reload`
+the tools worked again on fresh server processes, and the server with the secret still had it. After the
+sessions were stopped no server process was left.
+
 ## Measured
 
 Against Pi 0.84.4, in the isolated demo. Later Pi versions were not re-measured.
@@ -174,13 +267,14 @@ commands came from one extension.
 
 ## What comes along and what does not
 
-Comes along: skills; commands with arguments, file references and permitted shell lines; and, while the
-subagent tool is on, agents with the tools Pi has a counterpart for (#639).
+Comes along: skills; commands with arguments, file references and permitted shell lines; while the
+subagent tool is on, agents with the tools Pi has a counterpart for (#639); and while its own switch is on,
+the source's stdio MCP servers with their tools (#633).
 
 Does not, and says so in the option's own text:
 
 - Hooks: #635, as a section of the same extension.
-- MCP servers: #633. Pi has no MCP client of its own.
+- MCP servers other than stdio (HTTP, SSE), and any server of Codex or agy, which declare none yet.
 - Plugin skills: later (E5).
 - Anything tied to the source CLI's own tools. Of a command's frontmatter, `allowed-tools` decides its
   shell lines and `description` and `argument-hint` describe it; nothing else changes what it does, and
@@ -211,3 +305,26 @@ Does not, and says so in the option's own text:
 - **An agent file edited during a session** is read again at each call, so it can gain tools after an
   "Allow for this session" was given for it, and a session model switched with Ctrl+P can resolve its model
   differently at the next call. The key names the agent, not its contents or its model (as in #634).
+- **MCP (#633): the list stays in a wrapping shell's environment.** Pi and its tools do not have it, but
+  where terminal Pi is started through a shell (an npm shim such as `pi.cmd`, or a pre-launch command), that
+  shell keeps the variable, secrets included, for the life of the session, and a pre-launch command runs
+  with it. A process of the same user can read it there. The same secrets sit in the source CLI's own
+  config file anyway.
+- **MCP: the preview sees definitions, not processes.** It says which servers a launch would start and why
+  the others are left out, but a server that then fails to start (a command that does not exist, a crash on
+  its own config) is only said in the session, when it happens.
+- **MCP: the preview expands `${VAR}` against the app's environment**, while a launch uses the session's,
+  which adds the backend's and your per-backend variables. So a variable set only there can read as missing
+  in the preview and still start at launch. The preview also shows a variable in `command` expanded. At
+  launch the expansion sees the app's environment with the backend's and your variables over it, but not the
+  variables the spawn adds for the session itself (the CLI's home in an isolated run), so `${VAR}` naming one
+  of those gets the app's value.
+- **MCP: a delegated agent has no MCP tools.** A taken-over agent's `mcp__…` tools are left out as having no
+  counterpart, and the subagent tool's child Pi loads none of this app's extensions, so it starts no server.
+- **MCP: a bare `npx` does not start on Windows**, because a `.cmd` shim needs a shell, and Claude's own
+  Windows setup writes such a server as `cmd /c npx …` for the same reason. The notice says so.
+- **MCP: a tool call has no timeout.** A tool may run long; Stop ends it. Starting and listing have 30 s.
+- **MCP: `.mcp.json` is read from the project directory only.** Whether Claude also reads one from a parent
+  directory was not measured.
+- **MCP: the whole list travels in one environment variable**, and Windows caps one at 32,767 characters. An
+  extreme list could fail the spawn; this was not tried.

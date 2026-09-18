@@ -361,8 +361,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Pi driven through its runtime (#568)** — `Pi (native)` starts `pi --mode rpc` instead of Pi's TUI and
   draws the conversation from its events: the turn being streamed, tool calls and their output, and
   questions an extension is waiting on. It has no terminal. A text field sends, queues and steers turns,
-  and before `bash`, `powershell`, `edit`, `write`, a delegation to the `subagent` tool or a taken-over
-  command's shell line runs, the call is shown with its command or diff and waits for
+  and before `bash`, `powershell`, `edit`, `write`, a delegation to the `subagent` tool, a taken-over
+  command's shell line or a taken-over MCP tool runs, the call is shown with its command or diff and waits for
   allow once, allow for the session, or refuse. Its sessions stay Pi's rows. A marker in the
   transcript says how a session was driven, and the row reopens there. Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).
@@ -384,7 +384,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   launch would get. **Agents (#639)** come along while the subagent tool is on: their tools are mapped through
   a neutral vocabulary, anything Pi has no counterpart for or cannot enforce is left out and named, an agent
   left with nothing is refused, and a model name is resolved within the session's own provider, never
-  another. Hooks and MCP servers do not come along yet (#635, #633). Spec:
+  another. **MCP servers (#633)** come along while their own switch is on: the source's stdio servers are
+  started by a small MCP client in the same extension, their tools are offered as `mcp__<server>__<tool>`,
+  the server list reaches Pi through its environment rather than a file, a project's servers need Pi's
+  trust and the user's approval in the source CLI, and `Pi (native)` asks before each tool. Hooks do not
+  come along yet (#635). Spec:
   [`specs/31-resources-from.md`](specs/31-resources-from.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
   `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a

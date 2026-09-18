@@ -3,7 +3,8 @@
 // "Resources from: Claude" on a Pi session means: the skills and commands the user keeps for Claude are
 // offered in that Pi session too, so switching CLIs does not lose them. This module is the one answer to
 // "what exactly would be handed over", asked by the spawn path (what goes on the command line) and by the
-// settings screen (what the preview shows), so the two cannot disagree.
+// settings screen (what the preview shows), so the two cannot disagree — except where an MCP definition is
+// expanded: the spawn hands in the session's environment, the preview has none and uses this process's (#633).
 //
 // NEUTRAL BY CONSTRUCTION. No backend is named here:
 //   - a SOURCE declares `sharedResources` — which of its `listResources` rows may leave it, by `source`,

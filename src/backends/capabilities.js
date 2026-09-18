@@ -180,8 +180,8 @@ const CATALOG = [
   {
     id: 'resourcesFrom',
     group: 'resources',
-    label: "Use another CLI's skills, commands and agents",
-    description: 'Can be pointed at another backend, so the skills, commands and agents you keep for that CLI are offered in this one too (#632, #639).',
+    label: "Use another CLI's skills, commands, agents and MCP servers",
+    description: 'Can be pointed at another backend, so the skills, commands, agents and MCP servers you keep for that CLI are offered in this one too (#632, #639, #633).',
     declaredBy: 'acceptsSharedResources',
   },
   {
