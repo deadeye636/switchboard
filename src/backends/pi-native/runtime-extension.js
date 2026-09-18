@@ -16,7 +16,9 @@
 //     unasked. The question is Pi's own `ctx.ui.select`, which RPC mode turns into an `extension_ui_request`
 //     the app answers — no side channel. Its title is a line for the app, not for a person (see
 //     APPROVAL_PREFIX); the app draws the question itself. "Allow for this session" is remembered in this
-//     process only, per tool, so it ends with the session; anything lasting is the setting. The question is
+//     process only, per tool, so it ends with the session; anything lasting is the setting. For `subagent`
+//     it is per AGENT (#634): the question named one agent's tools, and allowing a different agent — maybe
+//     one with more tools — on the strength of it would allow more than was shown. The question is
 //     handed the run's abort signal: Pi's `abort` waits for the run to go idle, and a handler still waiting
 //     on an answer would hold that forever — with the signal, Stop resolves the question to "no" and the
 //     call is blocked, which is also what every answer that is not an explicit allow does.
@@ -100,7 +102,9 @@ function extensionSource({ gate = true } = {}) {
     + `  const allowed = new Set<string>();\n`
     + `  pi.on("tool_call", async (event: any, ctx: any) => {\n`
     + `    const tool = String(event?.toolName || "");\n`
-    + `    if (!gated.has(tool) || allowed.has(tool)) return;\n`
+    + `    if (!gated.has(tool)) return;\n`
+    + `    const key = tool === "subagent" ? "subagent:" + String(event?.input?.agent || "") : tool;\n`
+    + `    if (allowed.has(key)) return;\n`
     + `    let detail = "";\n`
     + `    try {\n`
     + `      const g: any = globalThis;\n`
@@ -112,7 +116,7 @@ function extensionSource({ gate = true } = {}) {
     + `      choice = await ctx.ui.select(${JSON.stringify(APPROVAL_PREFIX)} + JSON.stringify({ tool, id: event?.toolCallId || null, detail }),\n`
     + `        ${JSON.stringify([CHOICES.once, CHOICES.session, CHOICES.refuse])}, { signal: ctx?.signal });\n`
     + `    } catch { choice = undefined; }\n`
-    + `    if (choice === ${JSON.stringify(CHOICES.session)}) { allowed.add(tool); return; }\n`
+    + `    if (choice === ${JSON.stringify(CHOICES.session)}) { allowed.add(key); return; }\n`
     + `    if (choice === ${JSON.stringify(CHOICES.once)}) return;\n`
     + `    return { block: true, reason: "The user did not allow this " + tool + " call." };\n`
     + `  });\n`;

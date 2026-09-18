@@ -489,7 +489,7 @@ Both Pi backends offer it. In `pi-native`, unless `approvalGate` is off, the app
 before every delegation and names the agent's tools and model beside the task, because it cannot ask
 about anything the child does: the child is a second Pi without this app's extension, so allowing a
 delegation allows whatever the agent's own tools then do. **Allow for this session** on a delegation
-allows every later one in the session, to any agent, without asking again. With `approvalGate` off,
+allows later delegations to the same agent without asking again; another agent is asked about. With `approvalGate` off,
 delegations run unasked. The terminal backend asks about nothing, delegations included.
 
 **`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit`, `write` or

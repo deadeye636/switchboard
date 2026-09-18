@@ -295,6 +295,18 @@ test('the running gate: a subagent question carries the agent description, and o
   assert.equal(runtimeExtension.parseApprovalTitle(titles[0]).detail, 'Agent counter · tools: ls');
   assert.equal(runtimeExtension.parseApprovalTitle(titles[1]).detail, '');
 
+  // Allow for this session is per AGENT for a delegation: the question showed one agent's tools, so another
+  // agent is asked about again, and the same one is not.
+  const perAgent = loadExtension({ gate: true });
+  let asks = 0;
+  const delegate = (agent, answer) => perAgent.handlers.tool_call({ toolName: 'subagent', toolCallId: 'd', input: { agent, task: 't' } },
+    { ui: { select: async () => { asks++; return answer; } }, cwd: '<project>' });
+  assert.equal(await delegate('counter', runtimeExtension.CHOICES.session), undefined);
+  assert.equal(await delegate('counter', undefined), undefined, 'the same agent runs without asking');
+  assert.equal(asks, 1);
+  assert.equal((await delegate('writer', undefined)).block, true, 'another agent is asked, and no answer blocks');
+  assert.equal(asks, 2);
+
   const bare = loadExtension({ gate: true }, { [Symbol.for(DESCRIBE_KEY)]: () => { throw new Error('boom'); } });
   const blocked = await bare.handlers.tool_call({ toolName: 'subagent', toolCallId: 's2', input: { agent: 'x' } }, { ui: { select: async () => undefined }, cwd: '<project>' });
   assert.equal(blocked.block, true, 'a describer that throws still leaves a question, and no answer still blocks');

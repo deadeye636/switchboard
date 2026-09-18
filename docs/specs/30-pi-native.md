@@ -165,9 +165,15 @@ tools and model. An agent file without a `tools` line runs with Pi's default too
 extension, which publishes a describer under a registry symbol (`DESCRIBE_KEY` in
 `src/backends/pi/subagent-tool.js`); the gate asks it at the moment of the call and adds the answer to the
 question's title as `detail`. Without it the question still stands, only without the line. An allow covers
-whatever the agent's tools then do. **Allow for this session is per tool name**, as for every gated tool,
-so for `subagent` it allows every later delegation in the session, to any agent and with any task, and
-none of them asks again. The child's cost line is part of the tool's result text, so the view shows it as
+whatever the agent's tools then do. **Allow for this session is per agent for `subagent`**, where every
+other gated tool keeps it per tool name: the question named one agent's tools, and allowing a different
+agent — possibly one with more tools — on the strength of it would allow more than was shown. Later
+delegations to the same agent, with any task, then run without asking; another agent is asked about
+again. The key is the agent's NAME, so the promise has a limit: an agent file edited mid-session to carry
+more tools, or created for a name that was allowed while it did not exist yet, runs under the earlier
+allow. The convenience-not-boundary line covers that; keying on the description as well would re-ask after
+every edit to the agent. Decided by the owner over a setting for it, because the settings that exist already cover the
+other wish: switching `approvalGate` off. The child's cost line is part of the tool's result text, so the view shows it as
 ordinary tool output.
 
 The question comes from the per-spawn extension, not from the app. A `tool_call` handler calls Pi's own
@@ -178,7 +184,8 @@ conversation it already holds, through the viewer's own tool renderer: the comma
 content. It offers three answers:
 
 - **Allow once**
-- **Allow for this session**: remembered per tool, in the extension, for the life of the process.
+- **Allow for this session**: remembered per tool (per agent for `subagent`), in the extension, for the
+  life of the process.
   Anything lasting is the setting, where it stays visible and can be taken back.
 - **Refuse**: the call is blocked with a reason the agent reads ("The user did not allow this bash
   call.") and answers.

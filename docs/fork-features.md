@@ -370,7 +370,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says
   what the run cost. The tool is passed as a per-spawn extension, so nothing is installed into Pi's own
   configuration. It is off by default. Both Pi backends offer it, and `Pi (native)` asks before a
-  delegation unless `approvalGate` is off or delegations were allowed for the session, naming the agent's
+  delegation unless `approvalGate` is off or that agent was allowed for the session, naming the agent's
   tools and model, because the child runs
   without the app's approval question. Settings: [`settings-reference.md`](settings-reference.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
