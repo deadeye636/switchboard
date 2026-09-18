@@ -342,7 +342,10 @@ function createConversationView(getSession, container) {
     card.className = 'jsonl-entry conversation-ask conversation-approval';
     const title = document.createElement('div');
     title.className = 'conversation-ask-title';
-    title.textContent = `The agent wants to run ${request.tool}`;
+    // A command the user ran asks for itself; everything else is the agent's own call.
+    title.textContent = request.requestedBy
+      ? `Your command ${request.requestedBy} wants to run a shell line`
+      : `The agent wants to run ${request.tool}`;
     card.appendChild(title);
     const block = findToolUse(request.toolCallId);
     if (block && typeof renderToolUse === 'function') {

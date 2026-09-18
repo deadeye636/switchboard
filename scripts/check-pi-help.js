@@ -30,7 +30,7 @@ const AUDITED_EXCLUDED = new Set([
   '--no-session',
   '--no-extensions',
   // `--skill` was here and is NOT any more: #632 sends it for a source's skill directories ("Resources
-  // from"), derived through `buildSharedResources` like `--prompt-template` above. Its negative stays
+  // from"), derived through `buildSessionResources` like `--prompt-template` above. Its negative stays
   // excluded — a source only adds to Pi's own skills, it never switches them off.
   '--no-skills',
   // `--prompt-template` was here and is NOT any more: #569 sends it on every Pi spawn, out of the

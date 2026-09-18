@@ -214,7 +214,7 @@ test('the approval gate: on by default for bash/edit/write, gone when the option
 
 test('our approval question is recognised by its title and drawn as an approval, any other select is not', () => {
   const title = runtimeExtension.APPROVAL_PREFIX + JSON.stringify({ tool: 'bash', id: 'call_1|fc_2' });
-  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2', detail: '' });
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2', detail: '', by: '' });
   assert.equal(runtimeExtension.parseApprovalTitle('Allow bash?'), null);
   assert.equal(runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX + '{broken'), null);
 
@@ -244,16 +244,15 @@ test('the approval option is declared, applied through the runtime extension, an
   assert.equal(tpl.transport, 'rpc');
 });
 
-// The generated extension RUN, not read: its annotations dropped and its export turned into a function, then
-// handed a fake `pi`. What decides safety is behaviour — a cancel, a throw and an unknown answer must block —
-// and a substring check cannot see that.
+// The generated extension RUN, not read: compiled from TypeScript by esbuild (the regex that used to drop the
+// annotations broke on the first one that was not `: any`), then handed a fake `pi`. What decides safety is
+// behaviour — a cancel, a throw and an unknown answer must block — and a substring check cannot see that.
 function loadExtension(options, globals = {}) {
   const vm = require('node:vm');
-  const js = runtimeExtension.extensionSource(options)
-    .replace(/: any/g, '').replace(/new Set<string>\(\)/g, 'new Set()')
-    .replace('export default function', 'module.exports = function');
-  const mod = { exports: null };
-  vm.runInNewContext(js, { module: mod, JSON, ...globals });
+  const { code } = require('esbuild').transformSync(runtimeExtension.extensionSource(options), { loader: 'ts', format: 'cjs', target: 'node20' });
+  const mod = { exports: {} };
+  vm.runInNewContext(code, { module: mod, exports: mod.exports, JSON, ...globals });
+  mod.exports = mod.exports.default;
   const handlers = {};
   const appended = [];
   mod.exports({ on: (ev, fn) => { handlers[ev] = fn; }, appendEntry: (t, d) => appended.push([t, d]) });
@@ -338,4 +337,27 @@ test('every edit shape Pi itself accepts is drawn as a diff', () => {
   assert.equal(draw({ edits: 'not json' }).name, 'edit', 'a shape nobody can read stays generic');
   const ps = normalizeTranscriptEntries([{ type: 'message', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'p', name: 'powershell', arguments: { command: 'dir' } }] } }])[0].message.content[0];
   assert.deepEqual([ps.name, ps.input.command], ['Bash', 'dir']);
+});
+
+// #632, N1: a command the user ran asks through the gate with an allowance of its own. "Allow for this
+// session" on its shell line must not unlock the agent's `bash` tool, nor the other way round, and the card
+// says who is asking.
+test('the running gate: a command\'s own allowance is not the agent\'s bash, and the question names the command', async () => {
+  const bridge = require('../src/backends/pi/command-bridge');
+  const g = {};
+  const { handlers } = loadExtension({ gate: true }, { globalThis: g });
+  const askGate = g[Symbol.for(bridge.APPROVAL_ASK_KEY)];
+  assert.equal(typeof askGate, 'function', 'the gate publishes its question');
+  const titles = [];
+  const select = (answer) => async (title) => { titles.push(title); return answer; };
+  assert.equal(await askGate('bash', 'git status', { ui: { select: select(runtimeExtension.CHOICES.session) } }, { key: 'command:greet', by: '/greet' }), true);
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(titles[0]), { tool: 'bash', id: null, detail: 'git status', by: '/greet' });
+  // The same command again: allowed for the session, not asked.
+  assert.equal(await askGate('bash', 'git status', { ui: { select: select(undefined) } }, { key: 'command:greet', by: '/greet' }), true);
+  assert.equal(titles.length, 1);
+  // The agent's own bash is still asked about…
+  const r = await handlers.tool_call({ toolName: 'bash', toolCallId: 'c9' }, { ui: { select: select(undefined) } });
+  assert.equal(r.block, true, 'a command\'s allowance does not reach the agent\'s bash tool');
+  // …and another command is asked about too.
+  assert.equal(await askGate('bash', 'ls', { ui: { select: select(undefined) } }, { key: 'command:other', by: '/other' }), false);
 });

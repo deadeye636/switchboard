@@ -149,34 +149,49 @@ function promptTemplateFlags(backend) {
 }
 
 /**
- * Another backend's resources, handed over per spawn (#632). The same reason as the two above: the hook
- * emits a real flag no `buildLaunch` run can show. The resolver is a stand-in answering one directory of
- * each kind the target accepts, synchronously, so the hook answers synchronously too.
+ * What a session is given at spawn beyond its own setup (#632, #634): another backend's skills and commands,
+ * and the subagent tool, in one hook. The same reason as the two above: the hook emits real flags no
+ * `buildLaunch` run can show. Every option the hook applies is set to a value that reaches the argv — a
+ * toggle on, anything else to a stand-in source — and the resolver answers one directory of each kind the
+ * backend accepts, synchronously, so the hook answers synchronously too.
  */
-function sharedResourceFlags(backend) {
-  if (typeof backend.buildSharedResources !== 'function' || !Array.isArray(backend.acceptsSharedResources)) return [];
-  const field = (backend.configFields || []).find((f) => f.appliedBy === 'buildSharedResources');
-  if (!field) return [];
+function sessionResourceFlags(backend) {
+  if (typeof backend.buildSessionResources !== 'function') return [];
+  const fields = (backend.configFields || []).filter((f) => f.appliedBy === 'buildSessionResources');
+  if (!fields.length) return [];
+  const options = {};
+  for (const f of fields) options[f.id] = f.type === 'toggle' ? true : 'flag-audit-source';
+  const accepts = Array.isArray(backend.acceptsSharedResources) ? backend.acceptsSharedResources : [];
+  let dir = null;
   try {
-    const built = backend.buildSharedResources({
-      options: { [field.id]: 'flag-audit-source' },
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'switchboard-flag-audit-'));
+    const built = backend.buildSessionResources({
+      dir,
+      tag: 'FLAG-AUDIT',
+      options,
       resolveSource: (sourceId) => ({
         ok: true,
         source: sourceId,
-        skills: [{ path: 'flag-audit-skills', scope: 'global' }],
-        commands: [{ path: 'flag-audit-commands', scope: 'global', dialect: {} }],
+        skills: accepts.includes('skill') ? [{ path: 'flag-audit-skills', scope: 'global' }] : [],
+        commands: accepts.includes('command') ? [{ path: 'flag-audit-commands', scope: 'global', dialect: {} }] : [],
         dropped: [],
       }),
     });
-    return built ? flagsIn(built.args) : [];
+    if (!built || typeof built.then === 'function') return [];
+    if (built.cleanup && typeof backend.releaseSessionResources === 'function') {
+      try { backend.releaseSessionResources(built.cleanup); } catch { /* the temp dir goes anyway */ }
+    }
+    return flagsIn(built.args);
   } catch {
     return [];
+  } finally {
+    if (dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
 }
 
 /** Every flag this backend can put on its CLI's command line, derived — not written down. */
 function managedFlags(backend, opts) {
-  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend), ...sharedResourceFlags(backend)]);
+  const flags = new Set([...bindingFlags(backend), ...promptTemplateFlags(backend), ...sessionResourceFlags(backend)]);
   for (const variant of launchVariants(backend, opts)) {
     let launch;
     try { launch = backend.buildLaunch(variant); } catch { continue; }

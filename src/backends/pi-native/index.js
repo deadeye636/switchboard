@@ -119,14 +119,15 @@ module.exports = {
   providesPromptTemplates: pi.providesPromptTemplates,
   buildPromptTemplates: pi.buildPromptTemplates,
   releasePromptTemplates: pi.releasePromptTemplates,
-  // The subagent tool (#634) is the same extension over RPC. Its child is a second Pi that does not load
-  // this backend's runtime extension, so the approval gate cannot reach the child's own calls — which is
-  // why `subagent` is one of GATED_TOOLS (`./runtime-extension.js`): the delegation itself is asked about.
-  // Its cost line is part of the tool's result text, so the conversation view shows it as tool output
-  // without knowing the tool.
-  providesSubagentTool: pi.providesSubagentTool,
-  buildSubagentTool: pi.buildSubagentTool,
-  releaseSubagentTool: pi.releaseSubagentTool,
+  // What the session is given beyond its own setup — another CLI's skills and commands (#632) and the
+  // subagent tool (#634) — is the same extension over RPC. The subagent's child is a second Pi that does not
+  // load this backend's runtime extension, so the approval gate cannot reach the child's own calls — which
+  // is why `subagent` is one of GATED_TOOLS (`./runtime-extension.js`): the delegation itself is asked
+  // about. Its cost line is part of the tool's result text, so the conversation view shows it as tool
+  // output without knowing the tool.
+  providesSessionResources: pi.providesSessionResources,
+  buildSessionResources: pi.buildSessionResources,
+  releaseSessionResources: pi.releaseSessionResources,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.
   resolveLineage: pi.resolveLineage,
   openedWithCommand: pi.openedWithCommand,
@@ -143,7 +144,6 @@ module.exports = {
   sharedResources: pi.sharedResources,
   acceptsSharedResources: pi.acceptsSharedResources,
   trustsProjectResources: pi.trustsProjectResources,
-  buildSharedResources: pi.buildSharedResources,
   caveat: pi.caveat,
   capabilities,
   configFields,

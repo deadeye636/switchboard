@@ -275,4 +275,7 @@ module.exports = {
   writePromptTemplates,
   removePromptTemplates,
   hasArgumentSubstitution,
+  // #632: the per-spawn directories are named with this, so the resources extension can tell our
+  // templates from the user's own and let a source's command of the same name replace ours only.
+  DIR_PREFIX,
 };

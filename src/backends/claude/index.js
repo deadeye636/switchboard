@@ -771,15 +771,22 @@ module.exports = {
   // text, and a target that expands commands itself reads it:
   //   - `$ARGUMENTS` is everything typed after the command, `$1`, `$2`, … one word each;
   //   - `` !`cmd` `` is replaced by the command's output — but Claude runs it ONLY when the file's
-  //     `allowed-tools` frontmatter permits a `Bash(…)` call covering it, and so must the target (O4);
-  //   - `@path` is replaced by that file's content, relative to the project.
+  //     `allowed-tools` frontmatter permits a `Bash(…)` call covering it, and so must the target (O4).
+  //     An entry is the bare tool (anything), `Bash(<prefix>:*)` (the command or the command followed by
+  //     arguments), a pattern with `*` standing for any run of characters, or the exact command;
+  //   - `@path` is replaced by that file's content, relative to the project;
+  //   - a file in a subdirectory keeps its own name — the folder only labels it (`commands/fe/x.md` is
+  //     `/x`, described as "(fe)"), and `description` / `argument-hint` describe it.
   sharedResources: {
     sources: ['skills-directory', 'project-skills', 'commands-directory', 'project-commands'],
     commandDialect: {
       allArguments: '$ARGUMENTS',
       positionalArguments: true,
-      inlineShell: { open: '!`', close: '`', permissionKey: 'allowed-tools', permissionTool: 'Bash' },
+      inlineShell: { open: '!`', close: '`', permissionKey: 'allowed-tools', tool: 'Bash', prefixSuffix: ':*', wildcard: '*' },
       fileReference: '@',
+      subdirectories: 'label',
+      descriptionKey: 'description',
+      argumentHintKey: 'argument-hint',
     },
   },
   // One level into a listed directory (#440) — the shared walker, this backend's rules.

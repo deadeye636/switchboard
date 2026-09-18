@@ -460,13 +460,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   let promptTemplateCleanup = null;
   // #568: what a runtime-driven backend wrote for this spawn (its per-spawn extension). Same lifetime again.
   let runtimeCleanup = null;
-  // #634: what a backend wrote so this session gets a subagent tool. Same lifetime again.
-  let subagentToolCleanup = null;
+  // #632/#634: what a backend wrote so this session gets its resources and tools. Same lifetime again.
+  let sessionResourcesCleanup = null;
   // Everything the backend allocated above, released in one place — by the catch below and by the refusals
   // inside the backend branch that return rather than throw.
   const releaseSpawnAllocations = () => {
     try { if (typeof runtimeCleanup === 'function') runtimeCleanup(ctx.log); } catch { /* best effort */ }
-    try { if (typeof subagentToolCleanup === 'function') subagentToolCleanup(ctx.log); } catch { /* best effort */ }
+    try { if (typeof sessionResourcesCleanup === 'function') sessionResourcesCleanup(ctx.log); } catch { /* best effort */ }
     try { if (typeof promptTemplateCleanup === 'function') promptTemplateCleanup(ctx.log); } catch { /* best effort */ }
     try { if (typeof liveBindingCleanup === 'function') liveBindingCleanup(ctx.log); } catch { /* best effort */ }
   };
@@ -761,20 +761,24 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
-      // #632: another backend's skills in this session ("Resources from"). The core resolves what the
-      // chosen source offers for THIS launch (`../resource-sources.js`) and hands the resolver to the
-      // backend, which reads its own option to learn the source and decides how its CLI is given the
-      // result — so nothing here names a backend or an option key. `projectPath` is the session's working
-      // directory, which is also where the CLI checks trust: for a worktree that is the worktree itself,
-      // not the project whose settings apply, and the two must not be mixed.
+      // #632 + #634: what the session is given beyond its own setup — another backend's skills and commands
+      // ("Resources from") and the subagent tool — through ONE backend hook, so it is one per-spawn file and
+      // one release (owner decision O5). The core resolves what the chosen source offers for THIS launch
+      // (`../resource-sources.js`) and hands the resolver to the backend, which reads its own options to learn
+      // the source and whether the tool is wanted, and decides how its CLI is given all of it — so nothing
+      // here names a backend or an option key. `projectPath` is the session's working directory, which is
+      // also where the CLI checks trust: for a worktree that is the worktree itself, not the project whose
+      // settings apply, and the two must not be mixed.
       //
       // Placed BEFORE the #569 templates so any flag it adds precedes theirs on the command line — Pi keeps
-      // the first of two equal names. Best-effort: a failure means the session starts without the source's
-      // resources, which is what every session did before this existed.
-      if (Array.isArray(backend.acceptsSharedResources) && typeof backend.buildSharedResources === 'function') {
+      // the first of two equal names. Best-effort: a failure means the session starts without these, which
+      // is what every session did before they existed.
+      if (backend.providesSessionResources === true && typeof backend.buildSessionResources === 'function') {
         try {
           const options = spawnOptionsFor(backend, projectPath, sessionOptions);
-          const built = await backend.buildSharedResources({
+          const built = await backend.buildSessionResources({
+            dir: ctx.bindingDir,
+            tag: terminalTag,
             options,
             resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options }),
             log: ctx.log,
@@ -782,12 +786,17 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           if (built && Array.isArray(built.args) && built.args.length) {
             launch.args = [...launch.args, ...built.args];
           }
+          // Keep the RELEASE, not the descriptor — the exit handler runs where `backend` is out of scope.
+          sessionResourcesCleanup = built && built.cleanup && typeof backend.releaseSessionResources === 'function'
+            ? (log) => backend.releaseSessionResources(built.cleanup, log)
+            : null;
           if (built && built.source) {
-            ctx.log.info(`[shared-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.dropped || []).length} dropped`);
-            for (const d of built.dropped || []) ctx.log.debug(`[shared-resources] session=${sessionId} dropped ${d.kind} (${d.scope}, ${d.reason})`);
+            ctx.log.info(`[session-resources] session=${sessionId} from ${built.source}: ${(built.skills || []).length} skill dir(s), ${(built.commands || []).length} command dir(s), ${(built.dropped || []).length} dropped`);
+            for (const d of built.dropped || []) ctx.log.debug(`[session-resources] session=${sessionId} dropped ${d.kind} (${d.scope}, ${d.reason})`);
           }
+          if (built && built.subagent) ctx.log.info(`[session-resources] session=${sessionId} subagent tool offered via ${backend.id}`);
         } catch (err) {
-          ctx.log.warn(`[shared-resources] session=${sessionId} could not set up: ${err.message}`);
+          ctx.log.warn(`[session-resources] session=${sessionId} could not set up: ${err.message}`);
         }
         // The await above can take real disk time, and the world may have moved meanwhile. A quit that
         // began has already collected the pids it will stop, so a process spawned now would outlive the
@@ -836,30 +845,6 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           }
         } catch (err) {
           ctx.log.warn(`[prompt-templates] session=${sessionId} could not set up: ${err.message}`);
-        }
-      }
-
-      // #634: a subagent tool the backend can hand its CLI for this spawn. The same neutral shape again —
-      // the core says where a per-spawn file may go and passes the session's resolved options; whether the
-      // tool is wanted at all is an option the backend reads itself, so nothing here names it. Best-effort:
-      // a failure means the session starts without the tool, which is what it did before this existed.
-      if (backend.providesSubagentTool === true && typeof backend.buildSubagentTool === 'function') {
-        try {
-          const built = backend.buildSubagentTool({
-            dir: ctx.bindingDir,
-            tag: terminalTag,
-            options: spawnOptionsFor(backend, projectPath, sessionOptions),
-            log: ctx.log,
-          });
-          if (built && Array.isArray(built.args) && built.args.length) {
-            launch.args = [...launch.args, ...built.args];
-            subagentToolCleanup = built.cleanup && typeof backend.releaseSubagentTool === 'function'
-              ? (log) => backend.releaseSubagentTool(built.cleanup, log)
-              : null;
-            ctx.log.info(`[subagent-tool] session=${sessionId} offered via ${backend.id}`);
-          }
-        } catch (err) {
-          ctx.log.warn(`[subagent-tool] session=${sessionId} could not set up: ${err.message}`);
         }
       }
 
@@ -1124,8 +1109,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     _promptTemplateCleanup: promptTemplateCleanup,
     // #568: and what a runtime-driven backend wrote for this spawn.
     _runtimeCleanup: runtimeCleanup,
-    // #634: and what a backend wrote so this session has a subagent tool.
-    _subagentToolCleanup: subagentToolCleanup,
+    // #632/#634: and what a backend wrote so this session has its resources and the subagent tool.
+    _sessionResourcesCleanup: sessionResourcesCleanup,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
     // #305: did the live binding reach this spawn's argv? A backend that CANNOT report is answered by
@@ -1502,11 +1487,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     } catch (err) {
       ctx.log.debug(`[prompt-templates] cleanup failed for session=${realId}: ${err.message}`);
     }
-    // #634: and the subagent tool's extension, on its own try for the same reason.
+    // #632/#634: and the session-resources extension, on its own try for the same reason.
     try {
-      if (typeof session._subagentToolCleanup === 'function') session._subagentToolCleanup(ctx.log);
+      if (typeof session._sessionResourcesCleanup === 'function') session._sessionResourcesCleanup(ctx.log);
     } catch (err) {
-      ctx.log.debug(`[subagent-tool] cleanup failed for session=${realId}: ${err.message}`);
+      ctx.log.debug(`[session-resources] cleanup failed for session=${realId}: ${err.message}`);
     }
     // #568: and the runtime-driven backend's extension, on its own try for the same reason.
     try {

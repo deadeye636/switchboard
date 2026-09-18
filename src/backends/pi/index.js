@@ -27,8 +27,7 @@ const parser = require('./parser');
 const trust = require('./trust');
 const liveBinding = require('./live-binding');
 const promptTemplates = require('./prompt-templates');
-const subagentTool = require('./subagent-tool');
-const sharedResourceFlags = require('./shared-resources');
+const sessionResources = require('./session-resources');
 const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
@@ -114,20 +113,20 @@ const configFields = [
   // #634: a `subagent` tool, passed per spawn the same way. OFF by default — it lets the model start a
   // second Pi process with its own context and its own bill, on a call nobody typed.
   { id: 'subagentTool', label: 'Subagent tool', type: 'toggle', default: false,
-    appliesAt: 'spawn', appliedBy: 'buildSubagentTool',
+    appliesAt: 'spawn', appliedBy: 'buildSessionResources',
     description: 'Give the session a `subagent` tool that hands one task at a time to an agent defined as a markdown file, run as a separate Pi process with a fresh context. Each run is a second model session with its own cost, shown in the tool result.' },
   { id: 'subagentAgentsDir', label: 'Subagent definitions', type: 'text', default: '',
-    appliesAt: 'spawn', appliedBy: 'buildSubagentTool', requires: 'subagentTool',
+    appliesAt: 'spawn', appliedBy: 'buildSessionResources', requires: 'subagentTool',
     description: 'Directory holding the agent definitions (`.md` files with `name`, `description` and optional `tools` and `model` in the frontmatter). Empty = Pi\'s own `agents` directory under its agent directory. A relative path is taken from the project.' },
-  // #632: take over another backend's skills (and, from step 3, its commands). ONE source at a time — two
+  // #632: take over another backend's skills and commands. ONE source at a time — two
   // would collide by name and nobody could tell which one ran. The choices are the backends that offer
   // something, which only the core can list without naming them here; until the settings screen fills
-  // them in (step 4 of #632), the one choice is "None". Applied through `buildSharedResources`, which
-  // reads this key itself (`./shared-resources.js`).
+  // them in (step 4 of #632), the one choice is "None". Applied through `buildSessionResources`, which
+  // reads this key itself (`./session-resources.js`).
   { id: 'resourcesFrom', label: 'Resources from', type: 'select', choices: [''],
     choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
-    appliesAt: 'spawn', appliedBy: 'buildSharedResources',
-    description: 'Also offer the skills you keep for another CLI in this session. Pi\'s own skills still load, and one of its own wins over a source\'s skill of the same name. A project\'s own directories are passed only when Pi trusts the project. Hooks, MCP servers and agents do not come along.' },
+    appliesAt: 'spawn', appliedBy: 'buildSessionResources',
+    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Hooks, MCP servers and agents do not come along.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',
@@ -458,14 +457,15 @@ module.exports = {
   buildPromptTemplates: ({ dir, tag, dirs, options, log } = {}) =>
     promptTemplates.writePromptTemplates({ dir, tag, dirs, options, log }),
   releasePromptTemplates: (dir, log) => promptTemplates.removePromptTemplates(dir, log),
-  // A `subagent` tool, offered through a per-spawn extension (#634, `./subagent-tool.js`). The same pair
-  // shape as the two above, and for the same reason: the release is kept by the core for the exit handler.
-  // `supportsSubagents` stays false — that is the seam for a store the app reads, and a child run with
-  // `--no-session` writes nothing to read.
-  providesSubagentTool: true,
-  buildSubagentTool: ({ dir, tag, options, log } = {}) =>
-    subagentTool.writeSubagentExtension({ dir, tag, options, log }),
-  releaseSubagentTool: (file, log) => subagentTool.removeSubagentExtension(file, log),
+  // What the session is given beyond its own setup (`./session-resources.js`): another CLI's skills and
+  // commands ("Resources from", #632) and the `subagent` tool (#634), in ONE per-spawn extension (O5). The
+  // same pair shape as the two above, for the same reason: the release is kept by the core for the exit
+  // handler. It may answer with a promise — the core's resolver reads the source's directories.
+  // `supportsSubagents` stays false — that is the seam for a store the app reads, and a subagent child run
+  // with `--no-session` writes nothing to read.
+  providesSessionResources: true,
+  buildSessionResources: (ctx) => sessionResources.buildSessionResources(ctx),
+  releaseSessionResources: (file, log) => sessionResources.releaseSessionResources(file, log),
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //
@@ -541,7 +541,7 @@ module.exports = {
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },
     skillInvoke: 'yes',
-    resourcesFrom: { state: 'limited', note: 'skills so far; commands follow' },
+    resourcesFrom: 'yes',
     planDirSetting: { state: 'no', note: 'writes no plan documents at all' },
     plans: { state: 'no', note: 'keeps no plans store' },
     projectConfig: 'no',
@@ -623,9 +623,6 @@ description:
     if (!projectPath) return false;
     try { return trust.get(projectPath) === true; } catch { return false; }
   },
-  // What the resolved source becomes on Pi's command line (`./shared-resources.js`). Async: the core hands
-  // in its resolver, and listing a source's directories may touch the disk.
-  buildSharedResources: (ctx) => sharedResourceFlags.buildSharedResources(ctx),
 
   sessionsRoot,
   setRoot,

@@ -61,7 +61,7 @@ const PINNED = {
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
     // whose extension never reported has no answer at all rather than an empty one.
     queuedTurn: 'limited', quota: 'no',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'limited', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',
   },
   // Pi driven over its RPC mode (#568). Every answer that is about the BINARY or its store is Pi's; the three
@@ -73,7 +73,7 @@ const PINNED = {
     modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
-    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'limited', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'no',
   },
   agy: {

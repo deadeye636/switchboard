@@ -174,7 +174,7 @@ const HOOK_PAIRS = [
   { flag: 'supportsLiveRebinding', pair: ['buildLiveBinding', 'releaseLiveBinding'], what: 'live rebinding' },
   { flag: 'providesPromptTemplates', pair: ['buildPromptTemplates', 'releasePromptTemplates'], what: 'prompt templates' },
   { flag: 'providesRuntimeExtension', pair: ['buildRuntimeExtension', 'releaseRuntimeExtension'], what: 'a runtime extension (#568)' },
-  { flag: 'providesSubagentTool', pair: ['buildSubagentTool', 'releaseSubagentTool'], what: 'a subagent tool (#634)' },
+  { flag: 'providesSessionResources', pair: ['buildSessionResources', 'releaseSessionResources'], what: 'session resources — another CLI\'s skills and commands, and the subagent tool (#632, #634)' },
 ];
 
 test('a backend that claims a paired capability implements the pair — one that cannot carries neither', () => {
@@ -247,18 +247,19 @@ test('buildPromptTemplates declines rather than throwing when it cannot write', 
   }
 });
 
-// #634 — and for the subagent tool, with one more decline: it is OFF unless the options switch it on, so
-// options that say nothing must mean no tool, and no file written.
-test('buildSubagentTool declines rather than throwing, and stays off unless switched on', () => {
+// #632/#634 — and for the session resources, with one more decline: the subagent tool is OFF unless the
+// options switch it on and a source only comes with a resolver, so options that say nothing must mean
+// nothing given and no file written.
+test('buildSessionResources declines rather than throwing, and gives nothing unless asked', () => {
   for (const b of READY) {
-    if (b.providesSubagentTool !== true) continue;
-    assert.equal(b.buildSubagentTool({}), null, `${b.id}: no inputs must mean no tool`);
-    assert.equal(b.buildSubagentTool({ tag: 't', options: { subagentTool: true } }), null, `${b.id}: no dir must mean no tool`);
-    assert.equal(b.buildSubagentTool({ dir: os.tmpdir(), options: { subagentTool: true } }), null, `${b.id}: no tag must mean no tool`);
-    assert.equal(b.buildSubagentTool({ dir: os.tmpdir(), tag: 't' }), null, `${b.id}: no options must mean no tool`);
-    assert.equal(b.buildSubagentTool({ dir: os.tmpdir(), tag: 't', options: {} }), null, `${b.id}: an unset option must mean no tool`);
-    assert.doesNotThrow(() => b.releaseSubagentTool(null));
-    assert.doesNotThrow(() => b.releaseSubagentTool(path.join(os.tmpdir(), 'switchboard-no-such-subagent.ts')));
+    if (b.providesSessionResources !== true) continue;
+    assert.equal(b.buildSessionResources({}), null, `${b.id}: no inputs must mean nothing given`);
+    assert.equal(b.buildSessionResources({ tag: 't', options: { subagentTool: true } }), null, `${b.id}: no dir must mean no file`);
+    assert.equal(b.buildSessionResources({ dir: os.tmpdir(), options: { subagentTool: true } }), null, `${b.id}: no tag must mean no file`);
+    assert.equal(b.buildSessionResources({ dir: os.tmpdir(), tag: 't' }), null, `${b.id}: no options must mean nothing given`);
+    assert.equal(b.buildSessionResources({ dir: os.tmpdir(), tag: 't', options: {} }), null, `${b.id}: unset options must mean nothing given`);
+    assert.doesNotThrow(() => b.releaseSessionResources(null));
+    assert.doesNotThrow(() => b.releaseSessionResources(path.join(os.tmpdir(), 'switchboard-no-such-resources.ts')));
   }
 });
 

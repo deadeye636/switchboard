@@ -244,44 +244,102 @@ test('Pi\'s saved trust decides when the run does not override it, and "no decis
     'the run override wins over a saved no, as it does in Pi');
 });
 
-// ── Step 2: Pi turns the resolved skills into flags ─────────────────────────────────────────────────
+// ── Steps 2 and 3: Pi turns the resolved source into flags and one extension ─────────────────────────
 
-test('Pi hands a source\'s skill directories over as --skill, in order, and reports commands as not yet passed', async () => {
+function tmp() {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'sb-632-res-'));
+}
+
+test('Pi hands a source\'s skill directories over as --skill, in order, and its commands in one extension', async () => {
+  const fs = require('node:fs');
   const pi = backends.get('pi');
-  const resolved = {
-    ok: true,
-    skills: [{ path: '<home>/a/skills', scope: 'global' }, { path: '<project>/.a/skills', scope: 'project' }],
-    commands: [{ path: '<home>/a/commands', scope: 'global', dialect: {} }],
-    dropped: [{ path: '<project>/.a/commands', kind: 'command', scope: 'project', reason: 'untrusted-project' }],
-  };
-  let asked = null;
-  const built = await pi.buildSharedResources({
-    options: { resourcesFrom: 'src-a' },
-    resolveSource: async (id) => { asked = id; return resolved; },
-  });
-  assert.equal(asked, 'src-a');
-  assert.deepEqual(built.args, ['--skill', '<home>/a/skills', '--skill', '<project>/.a/skills']);
-  assert.deepEqual(built.dropped.map((d) => d.reason), ['untrusted-project', 'not-yet-supported']);
+  const dir = tmp();
+  try {
+    const resolved = {
+      ok: true,
+      skills: [{ path: '<home>/a/skills', scope: 'global' }, { path: '<project>/.a/skills', scope: 'project' }],
+      commands: [{ path: '<home>/a/commands', scope: 'global', dialect: { allArguments: '$ARGUMENTS' } }],
+      dropped: [{ path: '<project>/.a/commands', kind: 'command', scope: 'project', reason: 'untrusted-project' }],
+    };
+    let asked = null;
+    const built = await pi.buildSessionResources({
+      dir, tag: 't632',
+      options: { resourcesFrom: 'src-a' },
+      resolveSource: async (id) => { asked = id; return resolved; },
+    });
+    assert.equal(asked, 'src-a');
+    assert.deepEqual(built.args, ['--skill', '<home>/a/skills', '--skill', '<project>/.a/skills', '--extension', built.cleanup]);
+    assert.deepEqual(built.dropped.map((d) => d.reason), ['untrusted-project']);
+    const text = fs.readFileSync(built.cleanup, 'utf8');
+    assert.match(text, /registerSourceCommands\(pi\);/);
+    assert.ok(text.includes(JSON.stringify('<home>/a/commands')));
+    assert.doesNotMatch(text, /registerSubagent\(pi\);/, 'the tool is off, so its section is not written');
+    pi.releaseSessionResources(built.cleanup);
+    assert.equal(fs.existsSync(built.cleanup), false);
+  } finally {
+    require('node:fs').rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-test('Pi passes nothing when no source is chosen or the source answers nothing', async () => {
+test('skills alone need no file; no source and no tool means nothing at all', async () => {
   const pi = backends.get('pi');
-  let called = false;
-  assert.equal(pi.buildSharedResources({ options: {}, resolveSource: () => { called = true; } }), null);
-  assert.equal(pi.buildSharedResources({ options: { resourcesFrom: '  ' }, resolveSource: () => { called = true; } }), null);
-  assert.equal(called, false, 'no source, no listing');
-  assert.equal(await pi.buildSharedResources({ options: { resourcesFrom: 'x' }, resolveSource: async () => ({ ok: false }) }), null);
+  const dir = tmp();
+  try {
+    const skillsOnly = pi.buildSessionResources({
+      dir, tag: 't1', options: { resourcesFrom: 'x' },
+      resolveSource: () => ({ ok: true, skills: [{ path: '<home>/s', scope: 'global' }], commands: [], dropped: [] }),
+    });
+    assert.deepEqual(skillsOnly.args, ['--skill', '<home>/s']);
+    assert.equal(skillsOnly.cleanup, null);
+    let called = false;
+    assert.equal(pi.buildSessionResources({ dir, tag: 't2', options: {}, resolveSource: () => { called = true; } }), null);
+    assert.equal(pi.buildSessionResources({ dir, tag: 't3', options: { resourcesFrom: '  ' }, resolveSource: () => { called = true; } }), null);
+    assert.equal(called, false, 'no source, no listing');
+    const failed = await pi.buildSessionResources({ dir, tag: 't4', options: { resourcesFrom: 'x' }, resolveSource: async () => ({ ok: false }) });
+    assert.deepEqual(failed.args, [], 'a source that answers nothing gives nothing, and still says which source it was');
+    assert.equal(failed.source, 'x');
+    assert.deepEqual(require('node:fs').readdirSync(dir), []);
+  } finally {
+    require('node:fs').rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-test('pi-native and a template on Pi carry the same hook, and the flag audit derives --skill from it', () => {
+test('a source\'s commands and the subagent tool share ONE extension file (O5)', () => {
+  const fs = require('node:fs');
   const pi = backends.get('pi');
-  assert.equal(backends.get('pi-native').buildSharedResources, pi.buildSharedResources);
+  const dir = tmp();
+  try {
+    const built = pi.buildSessionResources({
+      dir, tag: 'both',
+      options: { resourcesFrom: 'x', subagentTool: true },
+      resolveSource: () => ({ ok: true, skills: [], commands: [{ path: '<home>/c', scope: 'global', dialect: {} }], dropped: [] }),
+    });
+    assert.equal(built.args.filter((a) => a === '--extension').length, 1);
+    assert.deepEqual(fs.readdirSync(dir), ['pi-resources-both.ts']);
+    const text = fs.readFileSync(built.cleanup, 'utf8');
+    assert.match(text, /registerSubagent\(pi\);\n  registerSourceCommands\(pi\);/);
+    assert.equal((text.match(/from "@earendil-works\/pi-coding-agent";/g) || []).length, 1, 'one merged import line');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('pi-native and a template on Pi carry the same hook, and the flag audit derives --skill and --extension from it', () => {
+  const pi = backends.get('pi');
+  assert.equal(backends.get('pi-native').buildSessionResources, pi.buildSessionResources);
   const tpl = backends.profileToDescriptor({ id: 'tpl-pi', name: 'A template', backendId: 'pi' });
-  assert.equal(tpl.buildSharedResources, pi.buildSharedResources);
+  assert.equal(tpl.buildSessionResources, pi.buildSessionResources);
+  assert.equal(tpl.releaseSessionResources, pi.releaseSessionResources);
+  assert.equal(tpl.providesSessionResources, true);
   assert.deepEqual(tpl.acceptsSharedResources, pi.acceptsSharedResources);
   const { managedFlags } = require('../scripts/managed-flags');
-  assert.ok(managedFlags(pi).includes('--skill'), 'Pi can send --skill, so its help check audits it');
-  assert.ok(managedFlags(backends.get('pi-native')).includes('--skill'));
+  for (const b of [pi, backends.get('pi-native')]) {
+    assert.ok(managedFlags(b).includes('--skill'), `${b.id} can send --skill, so its help check audits it`);
+    assert.ok(managedFlags(b).includes('--extension'));
+  }
 });
 
 test('the spawn path resolves against the session\'s working directory and places the flags before the #569 templates', () => {
@@ -291,7 +349,7 @@ test('the spawn path resolves against the session\'s working directory and place
   const path = require('node:path');
   const { stripComments } = require('./helpers/strip-comments');
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8'));
-  const shared = src.indexOf('backend.buildSharedResources(');
+  const shared = src.indexOf('backend.buildSessionResources(');
   const templates = src.indexOf('backend.buildPromptTemplates(');
   assert.ok(shared > 0 && templates > 0 && shared < templates, 'shared resources come before the templates');
   const call = src.slice(shared, src.indexOf('});', shared));
@@ -299,7 +357,7 @@ test('the spawn path resolves against the session\'s working directory and place
   assert.doesNotMatch(call, /settingsOwnerPath/);
   // The options are the CASCADED ones: the global and project settings are where `resourcesFrom` is set, and
   // the raw session options would silently drop both.
-  const block = src.slice(src.lastIndexOf('if (Array.isArray(backend.acceptsSharedResources)', shared), shared);
+  const block = src.slice(src.lastIndexOf('if (backend.providesSessionResources === true', shared), shared);
   assert.match(block, /const options = spawnOptionsFor\(backend, projectPath, sessionOptions\)/);
 });
 
@@ -311,7 +369,7 @@ test('after the shared-resources await, a quit or a second open of the same sess
   const path = require('node:path');
   const { stripComments } = require('./helpers/strip-comments');
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8'));
-  const start = src.indexOf('backend.buildSharedResources(');
+  const start = src.indexOf('backend.buildSessionResources(');
   const after = src.slice(start, src.indexOf('backend.buildPromptTemplates(', start));
   assert.match(after, /if \(ctx\.getAppQuitting\(\)\) \{\s*releaseSpawnAllocations\(\);\s*return/);
   assert.match(after, /ctx\.activeSessions\.get\(sessionId\)[\s\S]*releaseSpawnAllocations\(\);\s*return openTerminal\(/);

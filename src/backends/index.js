@@ -207,9 +207,9 @@ function profileToDescriptor(p) {
     // The subagent tool (#634), the pair together for the same reason. It is off unless the options say
     // otherwise, and a template's options cascade like any other launch's, so forwarding it offers
     // nothing a template's user did not switch on.
-    providesSubagentTool: base ? base.providesSubagentTool === true : false,
-    ...(base && typeof base.buildSubagentTool === 'function' ? { buildSubagentTool: base.buildSubagentTool } : {}),
-    ...(base && typeof base.releaseSubagentTool === 'function' ? { releaseSubagentTool: base.releaseSubagentTool } : {}),
+    providesSessionResources: base ? base.providesSessionResources === true : false,
+    ...(base && typeof base.buildSessionResources === 'function' ? { buildSessionResources: base.buildSessionResources } : {}),
+    ...(base && typeof base.releaseSessionResources === 'function' ? { releaseSessionResources: base.releaseSessionResources } : {}),
     // …and the WRITER, where the base has one (#605). Pi is told its queue depth by push and remembers it
     // for the pull the core makes (#530), and main looks that writer up by the row's backendId. So a
     // template got the reader and not the recorder: the extension reported, nothing kept it, and
@@ -315,7 +315,6 @@ function profileToDescriptor(p) {
     // not forwarded — see NOT_INHERITED in test/template-descriptor-shape.test.js.
     ...(base && Array.isArray(base.acceptsSharedResources) ? { acceptsSharedResources: base.acceptsSharedResources } : {}),
     ...(base && typeof base.trustsProjectResources === 'function' ? { trustsProjectResources: base.trustsProjectResources } : {}),
-    ...(base && typeof base.buildSharedResources === 'function' ? { buildSharedResources: base.buildSharedResources } : {}),
     // Is something OUTSIDE Switchboard already running this session (#172, #607)? The answer comes from
     // asking the BASE's CLI about its own sessions, and a template's sessions are in that same store
     // under that same CLI — so the question applies unchanged (#605). `app/live-owners.js` selects the
