@@ -18,7 +18,7 @@ Almost every guard here works by writing down what it expects and comparing. Tha
 copy, and a copy drifts. Three that did, each found after the fact:
 
 - `WHERE_IT_GOES` in `test/main-no-new-ipc.test.js` against the table in `.claude/rules/main-process.md`
-  — six modules apart. The test's copy is the FAILURE MESSAGE, so it is the half an agent reads, and a
+  — six modules apart the first time, nine the second. The test's copy is the FAILURE MESSAGE, so it is the half an agent reads, and a
   handler whose area was missing from it became a `GRANDFATHERED` entry instead of moving.
 - `ALLOWED_BINDINGS` in `test/backend-integrations.test.js` against what a rule said its size was.
 - `MANAGED` in the old `scripts/check-*-help.js` against what the app actually sends — see below.
@@ -32,7 +32,8 @@ A hand-typed list can be wrong in the same direction as the thing it audits, and
 with itself and passes. `hermes --checkpoints` was missing from the CLI **and** from the list at once;
 every session launched with that toggle died at spawn and the check stayed green. `scripts/managed-flags.js`
 now derives the managed set by running `buildLaunch` at every launch shape with every option at a value
-that reaches the argv, plus `buildLiveBinding`. Write the flag and the audit covers it; write a list and
+that reaches the argv, plus every spawn-applied builder a descriptor declares (`buildLiveBinding`,
+`buildPromptTemplates`, `buildSessionResources` — the script's header is the list). Write the flag and the audit covers it; write a list and
 it does not.
 
 The residue that cannot be derived is one hand-written door — a script's `SENT_ELSEWHERE`, for a flag the

@@ -242,8 +242,8 @@ or told otherwise. Measured on one machine on one afternoon: four long-running s
 only once it has drawn a frame and survived; a fresh spawn used to arm the reattach path's redraw nudge
 too, so the CLI met three geometry changes inside its first 150 ms while drawing that frame. It no longer
 does — `.claude/rules/main-process.md` carries the rule and `test/spawn-first-resize.test.js` the guard,
-and the remaining half (four CLIs plus a cold scan starving the first frame) is **#567**, whose
-main-thread half is fixed (the scan's writes stream a folder at a time) while the rest is open. It belongs in
+and the remaining half (four CLIs plus a cold scan starving the first frame) was **#567**, now
+closed: the scan's writes stream a folder at a time, and an ordinary launch is gated by folder (#589). It belongs in
 this file because the symptom lands in this file's territory: nothing in the renderer is wrong when a
 user's conversation suddenly appears in xterm's scrollback and the page keys change meaning.
 
@@ -626,7 +626,8 @@ A patch is only safe when **the render can re-derive it**: update the cache firs
 what you paint from the same function the builder calls. Two copies of a derivation, one in the builder and
 one in the patch, is the #229 trap wearing a different hat — it agrees today and drifts on the next edit.
 Report structural change (a thing that has to appear or disappear) back to the caller and let it rebuild.
-The remaining cost of a full render is #516.
+#516 (closed) took a full render from 63-100 ms to 9-16 ms on the measured instance; the two rules above are
+what keeps it there.
 
 ## Session health is a field the core measured, and the callers pass the threshold (#620)
 
@@ -669,7 +670,7 @@ while the app runs, so routing it would make the copy correct only until somethi
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
-`preview-kind`, and since #582 `worktree-path`. **List the directory rather than trusting this line.**
+`preview-kind`, `worktree-path` (#582) and `convention-dir-name` (#630). **List the directory rather than trusting this line.**
 `require()`d in main, a global in the renderer (which has no require — plain `<script>` tags). The
 preview in main must compute with the same code the insert runs in the renderer; two copies would be
 a bug factory. `worktree-path` is what that reads like when it is ignored: the pairing that decides

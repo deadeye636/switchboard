@@ -425,6 +425,14 @@ the way the binding and the templates are, so a spawn-applied option (`approvalG
 `appliedBy`. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
 to read them, and the terminal-key tests check the absence.
 
+**The per-spawn hooks that exist, and the order they were added in.** `supportsLiveRebinding` +
+`buildLiveBinding` / `releaseLiveBinding` (the terminal backends' busy/idle binding); `providesPromptTemplates`
++ `buildPromptTemplates` / `releasePromptTemplates` (#569 — the app's `/handoff` and `/plan` as Pi prompt
+templates, spec 29); `providesRuntimeExtension` + `buildRuntimeExtension` / `releaseRuntimeExtension` (#568,
+pi-native's marker and approval gate); `providesSessionResources` + `buildSessionResources` /
+`releaseSessionResources` (#632/#634/#639, everything a session is GIVEN). All four predate the rule below,
+and `spawn.js` calls each in a fixed order (resources before templates, so a source's name wins).
+
 **A new per-spawn feature is a SECTION, not a hook pair (#632).** Everything a Pi session is GIVEN goes
 into the resources extension (`src/backends/pi/resources-extension.js`), built through
 `providesSessionResources` + `buildSessionResources` / `releaseSessionResources`. It sits beside the
@@ -631,7 +639,8 @@ subcommand), so every session launched with it on died at spawn. Nothing caught 
 missing from the CLI **and** missing from that list at once, and the audit stays green. The set is
 derived from the descriptor now — `scripts/managed-flags.js` runs `buildLaunch` at every launch shape,
 with every option at a value that reaches the argv (and an options object that answers everything, so a
-branch no `configFields` entry declares is still seen), plus `buildLiveBinding`. **Write the flag, and
+branch no `configFields` entry declares is still seen), plus every spawn-applied builder a descriptor declares (`buildLiveBinding`,
+`buildPromptTemplates`, `buildSessionResources` — the script's header is the list). **Write the flag, and
 the audit covers it; write a list, and it does not.** The one hand-written door left is a script's
 `SENT_ELSEWHERE`, for a flag the CORE adds outside the descriptor (Claude's `--ide` after the MCP
 bridge, Pi's `--list-models` probe) — each entry names where it is sent, and a test checks that file

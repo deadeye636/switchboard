@@ -54,7 +54,9 @@ you must write one, write what you compared it against.
 
 ## Language & privacy
 
-- All docs, code comments and user-facing UI text are **English**. Commit messages too.
+- All docs, code comments and user-facing UI text are **English**. Commit messages too. The one recorded
+  exception is `docs/customizing-colors.md`, a third-party guide kept in French as its author wrote it —
+  CLAUDE.md reflex 7 says why, and that it does not generalise. Do not translate it in passing.
 - **No personal or local identifiers.** Never write absolute paths, local machine references
   (`C:\Users\<name>`, drive letters, home dirs), or personal names/emails into issues, commit
   messages, code, or docs — use generic placeholders (`~`, `<project>`, `<user>`). This repo is

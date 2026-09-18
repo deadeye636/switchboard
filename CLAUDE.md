@@ -38,6 +38,9 @@ table is the fallback and it is binding.
 | the welcome tour — a pane, a control that writes a setting, a figure that follows one | `docs/specs/27-welcome-tour.md` (why) + `test/welcome-tour.test.js` (the guard) |
 | attention — busy/ready, the hooks, a turn that announces nothing | `docs/specs/05-hook-attention-detection.md` (why) + `.claude/rules/main-process.md` (the rule) |
 | session health — the badge, the context fill, a model's context window | `docs/specs/28-session-health.md` (why) + `.claude/rules/backends.md` (the `contextWindow` hook) + `src/backends/claude/model-windows.js` (Claude's measured table) + `.claude/rules/renderer.md` (the rule) |
+| the handoff and plan commands offered INSIDE a CLI session (Pi prompt templates) | `docs/specs/29-agent-side-conventions.md` (why) + `.claude/rules/backends.md` (the prompt-templates hook trio) |
+| skills — the picker, a backend's skill invocation | `docs/specs/21-skills.md` |
+| the command palette | `docs/specs/23-command-palette.md` |
 | a session with no terminal — a backend driven over a pipe, the conversation view | `docs/specs/30-pi-native.md` (why) + `.claude/rules/backends.md` (the driver/owner rule) + `.claude/rules/renderer.md` (the terminal-less entry) |
 | "Resources from" — a Pi session taking over another CLI's skills, commands and agents, a per-spawn extension section, a select whose choices the core fills | `docs/specs/31-resources-from.md` (why) + `.claude/rules/backends.md` (the declarations, sections not hook pairs) + `src/app/resource-sources.js` (the one resolver) |
 | a release, a tag, an installer | `docs/ai/release.md` |
@@ -175,6 +178,13 @@ table is the fallback and it is binding.
     append-aware and per-line instead, and it still imports `renameWithRetry` from `safe-write.js` rather
     than growing a second copy of the Windows retry. It does not generalise: a new writer goes through
     `writeTextFile`.
+    **The second recorded exemption is a CLASS, not a file: a per-spawn file the app generates.** The live
+    bindings (`claude/live-binding.js`, `pi/live-binding.js`), Pi's prompt templates, Pi's resources
+    extension and pi-native's runtime extension are written with a raw `writeFileSync`, and each header says
+    why: the file is made fresh for one spawn in a directory only this app writes, has no previous content to
+    keep or race against, and is removed at exit. A CLI READS it, but nobody else WRITES it, which is what the
+    baseline compare exists for. A file that outlives its spawn, sits anywhere the user or a CLI also writes,
+    or is ever re-written in place is not in this class and goes through `writeTextFile`.
 
 ### 12. One answer for where a project keeps its documents
 
@@ -308,9 +318,11 @@ table is the fallback and it is binding.
     **`worktreeRootOf` beside it answers "whose sub-unit am I", and since #586 that is what EVERY
     ownership question asks** — the register, the admin rows, the settings cascade, the sidebar's nesting,
     the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather
-    than trusting that list. `parseWorktreePath`'s one-level parent survives in one place — the
-    visibility walk in `src/index/projects-view.js`, which climbs it a level at a time — and elsewhere only
-    as a yes/no "is this a worktree at all". The worktree dirty check in `src/app/vcs.js` used to hand that
+    than trusting that list. `parseWorktreePath`'s one-level parent survives in two places — the
+    visibility walk in `src/index/projects-view.js`, which climbs it a level at a time, and
+    `resolveWorktreePath` in `src/session/derive-project-path.js`, which folds a session's cwd into that
+    parent once it exists on disk (whether that one should ask `worktreeRootOf` has not been decided) — and
+    elsewhere only as a yes/no "is this a worktree at all". The worktree dirty check in `src/app/vcs.js` used to hand that
     parent to `git` as a first `-C` and stopped at #624: a second absolute `-C` replaces the first, so the
     parent bought nothing and failed the whole call once it was gone. The
     sidebar used to ask it for the nesting and no longer does.
@@ -365,7 +377,7 @@ absent from the installer.
 | `src/main.js` | composition root: requires, `DATA_DIR`, the module wiring (count the `.init(` calls rather than trusting a number here), the legacy IPC handlers (`GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there) |
 | `src/app/**` | the areas main.js used to hold — **list the directory**, an enumeration here goes stale (it missed `backend-models` and `backend-resources` for as long as they existed) |
 | `src/preload.js` | the **only** IPC surface — `window.api.*` |
-| `src/shared/**` | the modules **both** processes load — **list the directory**, an enumeration here goes stale (`worktree-path` joined the four in #582) |
+| `src/shared/**` | the modules **both** processes load — **list the directory**, an enumeration here goes stale |
 | `src/renderer/**` | vanilla JS, no framework; plain `<script>` tags, morphdom, `@xterm/xterm`, CodeMirror via esbuild |
 | `src/db/**` | `db.js` = façade (#217) over `connection`/`schema`/`migrations` + the stores |
 | `src/index/**` | `session-cache.js` = façade (#199) — **list the directory**, "the worker clients" is not what it holds: `projects-view.js` builds the sidebar/admin rows and `worktree-dirs.js` reads the FILESYSTEM (#594) |

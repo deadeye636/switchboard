@@ -275,7 +275,10 @@ Grep for `writeTextFile` rather than trusting this list. A new writer that does 
 of guarantees for the same files — and the two that landed last were both a settings blob written by a
 feature whose subject was something else, which is where this rule gets forgotten.
 
-**One writer deliberately does not, and its header says why: `src/backends/rewrite-cwd.js` (#557).** Every
+**Two exemptions are recorded, and CLAUDE.md reflex 11 has both.** The per-spawn files the app generates for
+one launch (the live bindings, Pi's prompt templates and resources extension, pi-native's runtime extension)
+are a class of their own: nobody else writes them, so there is nothing for a baseline to protect. The
+other is one writer, and its header says why: `src/backends/rewrite-cwd.js` (#557). Every
 file above is a small settings blob a human edits in a dialog, and `writeTextFile`'s two answers fit that
 shape — refuse a racing write and hand the conflict back, and re-apply the file's majority EOL to the whole
 document. Neither fits a session's transcript. Refusing is not an answer when the other party appends a
@@ -332,11 +335,12 @@ there is no seam a test can reach a fresh spawn through. It exists for the regre
 happen: someone restores the symmetry between the two branches because it looks like a bug.
 
 The other half of #560 — four CLIs plus a cold scan starving the first frame, measured at 10-13 s to the
-alternate screen — is **#567**, half fixed and still open. Do not re-derive it here; `docs/specs/11-performance.md`
-carries the measurements. The half that landed: the cold scan's database apply used to take the main
+alternate screen — was **#567**, closed since. Do not re-derive it here; `docs/specs/11-performance.md`
+and the issue's closing comments carry the measurements, including that the 18.5 s figure was a first-ever
+launch and a gated second launch costs a fraction of it (#589). The half that landed: the cold scan's database apply used to take the main
 thread in one 0.8-2.2 s bite, and the worker now streams a folder at a time so main applies one per
-`setImmediate`. The half that has not: that block does not account for 10-13 s, and the remaining
-suspect is a cold page cache, which needs a reboot to measure. **The apply yields now, so a
+`setImmediate`. What that block did not account for turned out to be first-launch cost; the folder
+gate of #589 is what an ordinary launch pays instead. **The apply yields now, so a
 `get-projects` taken mid-scan can see some folders rebuilt and others not** — a torn read, self-corrected
 by the final `projects-changed`, and the deliberate price of not blocking main.
 
