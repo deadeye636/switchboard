@@ -193,7 +193,10 @@ The entry carries `terminal: null`, `fitAddon: null` and `conversation`. **Every
 `entry.terminal` checks it first** — fit, repaint, WebGL, font, theme, focus, scrollback, the exit
 banner — and a launch error is written through `writeEntryError`, not `entry.terminal.write`. A new
 site that reaches for the xterm without asking crashes on exactly the sessions nobody tests by hand.
-Such a session gets no grid card and is not detached (spec 30, E3); both refusals say so.
+Such a session gets no grid card and is not detached (spec 30, E3); both refusals say so. Its input is a
+text field, and **`insertResolvedText` asks the entry for a `conversation` before it looks at the terminal
+it was handed** — a picker opened there gets an anchor object, not an xterm, so a new insert path that
+reaches for `terminal.paste()` first would send the text down the pipe as keystrokes nobody submits.
 
 ## A working backend is the control, not the thing to normalize away
 

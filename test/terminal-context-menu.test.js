@@ -189,6 +189,22 @@ test('insertResolvedText: a running session with no xterm here still gets the te
   } finally { global.window = savedWindow; }
 });
 
+test('insertResolvedText: a session with no terminal takes the text into its own field, breaks intact (#568)', () => {
+  // Down the pipe as keystrokes it would wait, invisible, for the next Enter — and its line breaks would be
+  // collapsed for a paste mode that does not exist there.
+  const sent = [];
+  const inserted = [];
+  const savedWindow = global.window;
+  global.window = { api: { sendInput: (id, d) => sent.push([id, d]) } };
+  global.openSessions = new Map([['s1', { terminal: null, conversation: { insertText: (t, o) => { inserted.push([t, o]); return true; } } }]]);
+  try {
+    const ok = menu.insertResolvedText(null, 's1', 'look at this\nand report', { trailing: ' ', submit: true });
+    assert.strictEqual(ok, true);
+    assert.deepStrictEqual(inserted, [['look at this\nand report ', { submit: true }]]);
+    assert.deepStrictEqual(sent, [], 'nothing reaches the pipe as keystrokes');
+  } finally { global.window = savedWindow; delete global.openSessions; }
+});
+
 test('insertResolvedText: no session id → nothing is sent, and no bare Enter', () => {
   const sent = [];
   const savedWindow = global.window;

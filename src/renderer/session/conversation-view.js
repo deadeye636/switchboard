@@ -15,8 +15,16 @@
 // xterm asks `entry.terminal` first; the ones that could not are listed in the PR that added this file and
 // in `docs/specs/30-pi-native.md`.
 //
+// INPUT (step B of #568). A text field, not keystrokes into a PTY. Enter sends a turn — main queues it behind
+// a running one, against its own busy state; Ctrl/Cmd+Enter STEERS a running turn (delivered between its tool calls); Escape stops it. The skill,
+// plan, handoff and variable pickers open here on the same shortcuts as in a terminal, and what they pick
+// lands in this field through `insertResolvedText` (terminal/terminal-context-menu.js), which asks the
+// entry for a conversation before it reaches for a PTY.
+//
 // Free globals it reads at CALL time (none at parse time except `window.api`): renderJsonlEntry,
-// buildToolResultMap, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js).
+// buildToolResultMap, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
+// (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), and the
+// four palette openers (terminal/*-palette.js).
 
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
@@ -67,7 +75,34 @@ function createConversationView(getSession, container) {
   status.className = 'conversation-status';
   log.appendChild(partialEl);
   log.appendChild(activity);
+
+  const composer = document.createElement('div');
+  composer.className = 'conversation-composer';
+  const input = document.createElement('textarea');
+  input.className = 'conversation-input';
+  input.rows = 3;
+  const mod = (typeof isMac !== 'undefined' && isMac) ? 'Cmd' : 'Ctrl';
+  input.placeholder = `Message the agent — Enter sends, Shift+Enter adds a line, ${mod}+Enter steers a running turn, Esc stops it`;
+  const actions = document.createElement('div');
+  actions.className = 'conversation-composer-actions';
+  const makeButton = (label, title, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'new-session-secondary-btn';
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener('click', onClick);
+    actions.appendChild(b);
+    return b;
+  };
+  const sendBtn = makeButton('Send', 'Send (Enter)', () => submit('prompt'));
+  const steerBtn = makeButton('Steer', `Deliver between the running turn's tool calls (${mod}+Enter)`, () => submit('steer'));
+  const stopBtn = makeButton('Stop', 'Stop the running turn (Esc)', () => stop());
+  composer.appendChild(input);
+  composer.appendChild(actions);
+
   container.appendChild(log);
+  container.appendChild(composer);
   container.appendChild(status);
 
   const view = {
@@ -162,7 +197,107 @@ function createConversationView(getSession, container) {
     }
   }
 
+  // Enter and Send always ask for a plain turn. Whether it has to wait for a running one is decided in the
+  // main process against the session's own busy state, which this window only hears about one op later — a
+  // mode chosen here from that echo could queue a message behind a run that has already ended.
+
+  let sending = false;
+  // A send asked for while one is in flight (a skill picked mid-send) runs when that one is back, rather
+  // than being dropped while the picker reports success.
+  let submitAgain = null;
+  async function submit(mode) {
+    const text = input.value;
+    if (!text.trim() || view.exited) return;
+    if (sending) { submitAgain = mode; return; }
+    // Focus goes back to the field afterwards only if it was here to begin with — in panes mode the user
+    // may have moved to another pane while the send was in flight.
+    const hadFocus = container.contains(document.activeElement);
+    sending = true;
+    renderComposer();
+    let res;
+    try { res = await window.api.agent.send(view.session.sessionId, { text, mode }); } catch { res = null; }
+    sending = false;
+    if (res && res.ok) {
+      // Only what was sent is taken away — something typed while the send was in flight stays.
+      if (input.value.startsWith(text)) input.value = input.value.slice(text.length).replace(/^\s+/, '');
+    } else {
+      notice('error', (res && res.error) || 'The message did not reach the session.');
+    }
+    renderComposer();
+    if (hadFocus) input.focus();
+    if (submitAgain) { const next = submitAgain; submitAgain = null; submit(next); }
+  }
+
+  async function stop() {
+    if (!view.busy) return;
+    let res;
+    try { res = await window.api.agent.abort(view.session.sessionId); } catch { res = null; }
+    if (!res || !res.ok) notice('error', (res && res.error) || 'The session did not stop.');
+  }
+
+  function renderComposer() {
+    const off = view.exited;
+    input.disabled = off;
+    sendBtn.disabled = off || sending;
+    sendBtn.textContent = view.busy ? 'Queue' : 'Send';
+    sendBtn.title = view.busy ? 'Send when the running turn is done (Enter)' : 'Send (Enter)';
+    steerBtn.style.display = view.busy && !off ? '' : 'none';
+    steerBtn.disabled = sending;
+    stopBtn.style.display = view.busy && !off ? '' : 'none';
+    composer.classList.toggle('disabled', off);
+  }
+
+  // The pickers a terminal opens on the same chords. They are handed an ANCHOR where a terminal would go: the
+  // palette sits in the lower half of `element`'s rectangle and hands the focus back through `focus()`,
+  // which is all it asks of a terminal. What it picks comes back through `insertResolvedText` into this
+  // field, which asks the entry for a conversation before it looks at the terminal it was given.
+  const paletteAnchor = { element: container, focus: () => input.focus() };
+  const PALETTES = {
+    insertVariable: () => (typeof openVariablePalette === 'function' ? openVariablePalette : null),
+    insertPlan: () => (typeof openPlanPalette === 'function' ? openPlanPalette : null),
+    insertHandoff: () => (typeof openHandoffPalette === 'function' ? openHandoffPalette : null),
+    insertSkill: () => (typeof openSkillPalette === 'function' ? openSkillPalette : null),
+  };
+
+  input.addEventListener('keydown', (e) => {
+    // An input method composing a character owns Enter and Escape until it is done (229 is Chromium's
+    // composition keyCode, the same guard palette-core.js carries).
+    if (e.isComposing || e.keyCode === 229) return;
+    if (typeof matchShortcut === 'function' && typeof appShortcuts !== 'undefined') {
+      const macNow = typeof isMac !== 'undefined' && isMac;
+      for (const [id, opener] of Object.entries(PALETTES)) {
+        if (matchShortcut(id, e, macNow, appShortcuts)) {
+          const open = opener();
+          if (open) { e.preventDefault(); e.stopPropagation(); open(paletteAnchor, view.session.sessionId); }
+          return;
+        }
+      }
+    }
+    if (e.key === 'Escape' && view.busy) { e.preventDefault(); stop(); return; }
+    if (e.key !== 'Enter') return;
+    if (e.shiftKey) return;   // a new line, as in any text field
+    const chord = (typeof isMac !== 'undefined' && isMac) ? e.metaKey : e.ctrlKey;
+    e.preventDefault();
+    submit(chord && view.busy ? 'steer' : 'prompt');
+  });
+
+  // Text a picker chose, placed at the caret. `submit` sends the field as a turn right away, which is what a
+  // skill invocation asks for in a terminal too.
+  function insertText(text, { submit: andSend = false } = {}) {
+    if (view.exited) { notice('error', 'The session has ended — nothing was inserted.'); return false; }
+    if (typeof text !== 'string' || !text) return false;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? input.value.length;
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    const caret = start + text.length;
+    input.setSelectionRange(caret, caret);
+    input.focus();
+    if (andSend) submit('prompt');
+    return true;
+  }
+
   function renderStatus() {
+    renderComposer();
     const parts = [];
     if (view.exited) parts.push('Session ended.');
     else if (view.busy) parts.push('Working…');
@@ -310,7 +445,12 @@ function createConversationView(getSession, container) {
   }
 
   renderStatus();
-  return { apply, attach, markExited, notice, element: container, log, focus: () => {}, dispose: () => {} };
+  return {
+    apply, attach, markExited, notice, insertText,
+    element: container, log,
+    focus: () => { if (!input.disabled) input.focus(); },
+    dispose: () => {},
+  };
 }
 
 /**

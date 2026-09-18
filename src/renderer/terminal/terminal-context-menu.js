@@ -181,6 +181,12 @@ function pasteIntoTerminal(terminal, sessionId, text) {
 // through `sendInput`, so this is the one thing that path relied on. Returns whether the text was delivered.
 function insertResolvedText(terminal, sessionId, text, { trailing = '', submit = false } = {}) {
   if (typeof text !== 'string' || !text) return false;
+  // A session with no terminal (#568) takes the text into its own input field, line breaks and all — there
+  // is no paste mode to hide them behind and none needed. Without this the text would go down the pipe as
+  // keystrokes with no Enter after them and wait there, invisible, for the next turn.
+  const conversation = sessionId && typeof openSessions !== 'undefined'
+    ? (openSessions.get(sessionId) || {}).conversation : null;
+  if (conversation) return conversation.insertText(text + trailing, { submit });
   const bracketed = !!(terminal && terminal.modes && terminal.modes.bracketedPasteMode);
   const body = (bracketed && sessionId) ? text : text.replace(/[\r\n]+/g, ' ');
   const payload = body + trailing;

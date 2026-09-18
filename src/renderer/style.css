@@ -2989,6 +2989,33 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 .conversation-log::-webkit-scrollbar { width: 5px; }
 .conversation-log::-webkit-scrollbar-track { background: transparent; }
 .conversation-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+.conversation-composer {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 8px 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.conversation-composer.disabled { opacity: 0.5; }
+.conversation-input {
+  flex: 1;
+  min-height: 38px;
+  max-height: 40vh;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  background: rgba(0,0,0,0.3);
+  color: #d0d0e0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.conversation-input:focus { outline: none; border-color: rgba(128, 136, 255, 0.6); }
+.conversation-composer-actions { display: flex; flex-direction: column; gap: 6px; }
+.conversation-composer-actions .new-session-secondary-btn:disabled { opacity: 0.5; cursor: default; }
 .conversation-status {
   flex: none;
   min-height: 20px;

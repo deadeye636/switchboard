@@ -126,6 +126,29 @@ nothing is reordered.
 - A renderer reload leaves the child running. Opening the session again reattaches and loads the
   conversation from `get_messages`.
 
+## Input (step B)
+
+The view has a text field, not a terminal. Enter sends a turn. While the agent is working, the turn is
+**queued** as a follow-up, because Pi refuses a `prompt` that arrives mid-run unless it is told what to do
+with it. That choice is made in the main process against the session's own busy state, not in the window,
+which hears about a settled run one op later and could otherwise queue a message behind a run that has
+already ended. Ctrl+Enter (Cmd+Enter on macOS) **steers** the running turn: Pi delivers the message after the
+current tool calls and before the next model call. Escape and the Stop button abort. The buttons follow
+the state: Send when idle, and Queue, Steer and Stop while a turn runs.
+
+Measured in the demo: a steer sent while the agent was counting with one `bash` call per number arrived
+between two calls, and the agent stopped where the message told it to.
+
+The skill, plan, handoff and variable pickers open in the field on the same shortcuts as in a terminal.
+They are handed an anchor instead of a terminal, the view's own element with a `focus()` back into the
+field, so the palette sits in the lower half of the conversation as it would in a terminal.
+`insertResolvedText` asks the entry for a conversation **before** it looks at the terminal it was given.
+The text lands in the field with its line breaks, and a skill's `submit` sends it. Before this, the text
+would have gone down the pipe as keystrokes with no Enter after them, and waited there unseen.
+
+What goes into the pipe directly — the seed, a staged prompt, the trigger watcher — still takes the PTY
+path (`write()`), and that path treats text plus a carriage return as a turn.
+
 ## The renderer
 
 `createTerminalEntry` is the one place every launch path goes through, and it hands a session whose
@@ -141,6 +164,8 @@ terminal-key tests check that.
 ## Known gaps
 
 - **Detach and the grid** (E3).
+- **The command palette's insert entries** (run a skill, insert a plan, a handoff, a variable) ask for a
+  terminal and are absent for such a session; the keyboard chords in the text field work.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:
