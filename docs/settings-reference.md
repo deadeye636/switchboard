@@ -440,8 +440,8 @@ own `config.toml`.)
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
-| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
-| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
+| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, and `subagentTool` / `subagentAgentsDir`, which it does not offer yet (#634: its approval gate would not see the child's calls), plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
 
@@ -465,6 +465,25 @@ worth knowing before you look for a way to edit the text. **A template of your o
 in Pi's own prompts directory, or in a trusted project's, takes precedence over the one Switchboard
 passes, which is the intended way to replace it. And **a Pi session started outside Switchboard has
 neither command**, because nothing was written anywhere for it to find.
+
+**`subagentTool` gives a Pi session a `subagent` tool** (#634). The model can hand one task to an agent
+defined as a markdown file, and that agent runs as a separate Pi process with a fresh context. Each run is
+a second model session with its own cost; the turns, tokens, cost and model of the run are added to the
+tool result, so they show in the session. It is off by default. Like `conventionPrompts` it writes nothing
+into Pi's configuration: each spawn gets one extension file under the app's data folder, passed with
+`--extension` and removed when the session ends. The child runs without a session file, so it never
+appears in the sidebar. The child shares the session's `approval`, `offline` and `noContextFiles` choices,
+so a run told not to trust the project does not trust it one process down. Three things to know:
+
+- **`subagentAgentsDir` says where the agent definitions are.** Each is a `.md` file with `name` and
+  `description` in its frontmatter (the name comes from there, not from the file name), and optionally
+  `tools` and `model`; the body becomes the agent's
+  system prompt. Empty means the `agents` directory under Pi's own agent directory. A relative path is
+  taken from the project. An agent without a `model` runs on the session's model and thinking level.
+- **A tool allowlist has to name it.** Pi's `tools` field restricts extension tools too, so with an
+  allowlist set, `subagent` is only there if the list includes it.
+- **Pi's own example extension clashes with it.** If you linked Pi's `examples/extensions/subagent` into
+  your extensions directory, both register a tool called `subagent`. Pi reports the clash as an extension error and decides by its load order which one the session gets, so switch one of them off.
 
 **`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit` or `write`** (the
 `pi-native` backend). Each call waits for an answer in the conversation: allow once, allow for the rest of the session,

@@ -204,6 +204,12 @@ function profileToDescriptor(p) {
     providesPromptTemplates: base ? base.providesPromptTemplates === true : false,
     ...(base && typeof base.buildPromptTemplates === 'function' ? { buildPromptTemplates: base.buildPromptTemplates } : {}),
     ...(base && typeof base.releasePromptTemplates === 'function' ? { releasePromptTemplates: base.releasePromptTemplates } : {}),
+    // The subagent tool (#634), the pair together for the same reason. It is off unless the options say
+    // otherwise, and a template's options cascade like any other launch's, so forwarding it offers
+    // nothing a template's user did not switch on.
+    providesSubagentTool: base ? base.providesSubagentTool === true : false,
+    ...(base && typeof base.buildSubagentTool === 'function' ? { buildSubagentTool: base.buildSubagentTool } : {}),
+    ...(base && typeof base.releaseSubagentTool === 'function' ? { releaseSubagentTool: base.releaseSubagentTool } : {}),
     // …and the WRITER, where the base has one (#605). Pi is told its queue depth by push and remembers it
     // for the pull the core makes (#530), and main looks that writer up by the row's backendId. So a
     // template got the reader and not the recorder: the extension reported, nothing kept it, and

@@ -27,6 +27,7 @@ const parser = require('./parser');
 const trust = require('./trust');
 const liveBinding = require('./live-binding');
 const promptTemplates = require('./prompt-templates');
+const subagentTool = require('./subagent-tool');
 const turnQueue = require('./turn-queue');
 const transcriptView = require('./transcript-view');
 const resources = require('./resources');
@@ -109,6 +110,14 @@ const configFields = [
   { id: 'conventionPrompts', label: 'Handoff and plan commands', type: 'toggle', default: true,
     appliesAt: 'spawn', appliedBy: 'buildPromptTemplates',
     description: 'Offer /handoff and /plan inside the session, carrying this project\'s own document directories. A template of your own with the same name takes precedence over the one Switchboard passes.' },
+  // #634: a `subagent` tool, passed per spawn the same way. OFF by default — it lets the model start a
+  // second Pi process with its own context and its own bill, on a call nobody typed.
+  { id: 'subagentTool', label: 'Subagent tool', type: 'toggle', default: false,
+    appliesAt: 'spawn', appliedBy: 'buildSubagentTool',
+    description: 'Give the session a `subagent` tool that hands one task at a time to an agent defined as a markdown file, run as a separate Pi process with a fresh context. Each run is a second model session with its own cost, shown in the tool result.' },
+  { id: 'subagentAgentsDir', label: 'Subagent definitions', type: 'text', default: '',
+    appliesAt: 'spawn', appliedBy: 'buildSubagentTool', requires: 'subagentTool',
+    description: 'Directory holding the agent definitions (`.md` files with `name`, `description` and optional `tools` and `model` in the frontmatter). Empty = Pi\'s own `agents` directory under its agent directory. A relative path is taken from the project.' },
   { id: 'noBuiltinTools', label: 'Disable built-in tools', type: 'toggle', default: false,
     description: 'Disable Pi\'s built-in tools but keep extension/custom tools enabled (`--no-builtin-tools`).' },
   { id: 'approval', label: 'Project trust for this run', type: 'select',
@@ -439,6 +448,14 @@ module.exports = {
   buildPromptTemplates: ({ dir, tag, dirs, options, log } = {}) =>
     promptTemplates.writePromptTemplates({ dir, tag, dirs, options, log }),
   releasePromptTemplates: (dir, log) => promptTemplates.removePromptTemplates(dir, log),
+  // A `subagent` tool, offered through a per-spawn extension (#634, `./subagent-tool.js`). The same pair
+  // shape as the two above, and for the same reason: the release is kept by the core for the exit handler.
+  // `supportsSubagents` stays false — that is the seam for a store the app reads, and a child run with
+  // `--no-session` writes nothing to read.
+  providesSubagentTool: true,
+  buildSubagentTool: ({ dir, tag, options, log } = {}) =>
+    subagentTool.writeSubagentExtension({ dir, tag, options, log }),
+  releaseSubagentTool: (file, log) => subagentTool.removeSubagentExtension(file, log),
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //

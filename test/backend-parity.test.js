@@ -159,6 +159,7 @@ const HOOK_PAIRS = [
   { flag: 'supportsLiveRebinding', pair: ['buildLiveBinding', 'releaseLiveBinding'], what: 'live rebinding' },
   { flag: 'providesPromptTemplates', pair: ['buildPromptTemplates', 'releasePromptTemplates'], what: 'prompt templates' },
   { flag: 'providesRuntimeExtension', pair: ['buildRuntimeExtension', 'releaseRuntimeExtension'], what: 'a runtime extension (#568)' },
+  { flag: 'providesSubagentTool', pair: ['buildSubagentTool', 'releaseSubagentTool'], what: 'a subagent tool (#634)' },
 ];
 
 test('a backend that claims a paired capability implements the pair — one that cannot carries neither', () => {
@@ -228,6 +229,21 @@ test('buildPromptTemplates declines rather than throwing when it cannot write', 
     // And releasing something that was never created is a no-op, not a throw.
     assert.doesNotThrow(() => b.releasePromptTemplates(null));
     assert.doesNotThrow(() => b.releasePromptTemplates(path.join(os.tmpdir(), 'switchboard-no-such-templates')));
+  }
+});
+
+// #634 — and for the subagent tool, with one more decline: it is OFF unless the options switch it on, so
+// options that say nothing must mean no tool, and no file written.
+test('buildSubagentTool declines rather than throwing, and stays off unless switched on', () => {
+  for (const b of READY) {
+    if (b.providesSubagentTool !== true) continue;
+    assert.equal(b.buildSubagentTool({}), null, `${b.id}: no inputs must mean no tool`);
+    assert.equal(b.buildSubagentTool({ tag: 't', options: { subagentTool: true } }), null, `${b.id}: no dir must mean no tool`);
+    assert.equal(b.buildSubagentTool({ dir: os.tmpdir(), options: { subagentTool: true } }), null, `${b.id}: no tag must mean no tool`);
+    assert.equal(b.buildSubagentTool({ dir: os.tmpdir(), tag: 't' }), null, `${b.id}: no options must mean no tool`);
+    assert.equal(b.buildSubagentTool({ dir: os.tmpdir(), tag: 't', options: {} }), null, `${b.id}: an unset option must mean no tool`);
+    assert.doesNotThrow(() => b.releaseSubagentTool(null));
+    assert.doesNotThrow(() => b.releaseSubagentTool(path.join(os.tmpdir(), 'switchboard-no-such-subagent.ts')));
   }
 });
 

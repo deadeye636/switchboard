@@ -30,8 +30,13 @@ const runtimeExtension = require('./runtime-extension');
 //   `models`   — the Ctrl+P cycle list is a TUI key binding; nothing here presses it.
 //   `useTheme` — Pi's theme colours its TUI; this backend draws with the app's own styles.
 const TUI_ONLY = new Set(['models', 'useTheme']);
+// Not offered HERE yet (#634, step 1 of 2). The subagent tool starts a child Pi that does not get this
+// backend's extension, so the approval gate below would never see the child's commands and file changes.
+// Until the gate asks about the `subagent` call itself, this backend neither forwards the tool's hooks nor
+// shows its fields — a control that did nothing here would be the worse half.
+const NOT_YET = new Set(['subagentTool', 'subagentAgentsDir']);
 const configFields = [
-  ...pi.configFields.filter(f => !TUI_ONLY.has(f.id)),
+  ...pi.configFields.filter(f => !TUI_ONLY.has(f.id) && !NOT_YET.has(f.id)),
   // Step C of #568. Pi asks nothing before a tool runs; this backend's own extension does, because a
   // conversation drawn by the app looks supervised, and one that only LOOKS supervised is the worse
   // failure. Applied through the runtime extension (`./runtime-extension.js` reads the option), so the

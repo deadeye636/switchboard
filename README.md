@@ -106,6 +106,9 @@ chart rather than a row of zeroes.
   it runs a command or changes a file. Its sessions are ordinary Pi sessions and reopen where they were
   driven.
   → [`docs/specs/30-pi-native.md`](docs/specs/30-pi-native.md)
+- **Subagents for Pi** — an opt-in `subagent` tool that hands one task to an agent from a markdown
+  definition, run as a separate Pi process with a fresh context; the result says what it cost.
+  → [`docs/settings-reference.md`](docs/settings-reference.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey

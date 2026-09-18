@@ -459,10 +459,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   let promptTemplateCleanup = null;
   // #568: what a runtime-driven backend wrote for this spawn (its per-spawn extension). Same lifetime again.
   let runtimeCleanup = null;
+  // #634: what a backend wrote so this session gets a subagent tool. Same lifetime again.
+  let subagentToolCleanup = null;
   // Everything the backend allocated above, released in one place — by the catch below and by the refusals
   // inside the backend branch that return rather than throw.
   const releaseSpawnAllocations = () => {
     try { if (typeof runtimeCleanup === 'function') runtimeCleanup(ctx.log); } catch { /* best effort */ }
+    try { if (typeof subagentToolCleanup === 'function') subagentToolCleanup(ctx.log); } catch { /* best effort */ }
     try { if (typeof promptTemplateCleanup === 'function') promptTemplateCleanup(ctx.log); } catch { /* best effort */ }
     try { if (typeof liveBindingCleanup === 'function') liveBindingCleanup(ctx.log); } catch { /* best effort */ }
   };
@@ -791,6 +794,30 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // #634: a subagent tool the backend can hand its CLI for this spawn. The same neutral shape again —
+      // the core says where a per-spawn file may go and passes the session's resolved options; whether the
+      // tool is wanted at all is an option the backend reads itself, so nothing here names it. Best-effort:
+      // a failure means the session starts without the tool, which is what it did before this existed.
+      if (backend.providesSubagentTool === true && typeof backend.buildSubagentTool === 'function') {
+        try {
+          const built = backend.buildSubagentTool({
+            dir: ctx.bindingDir,
+            tag: terminalTag,
+            options: spawnOptionsFor(backend, projectPath, sessionOptions),
+            log: ctx.log,
+          });
+          if (built && Array.isArray(built.args) && built.args.length) {
+            launch.args = [...launch.args, ...built.args];
+            subagentToolCleanup = built.cleanup && typeof backend.releaseSubagentTool === 'function'
+              ? (log) => backend.releaseSubagentTool(built.cleanup, log)
+              : null;
+            ctx.log.info(`[subagent-tool] session=${sessionId} offered via ${backend.id}`);
+          }
+        } catch (err) {
+          ctx.log.warn(`[subagent-tool] session=${sessionId} could not set up: ${err.message}`);
+        }
+      }
+
       // How this backend wants to be spawned (00 §4). Claude runs as a shell-quoted command string
       // (today's path). An Axis-B binary may ask for ARGV mode instead: Codex is happiest with clean
       // execFile-style argv, and Windows shell quoting mangles it.
@@ -1052,6 +1079,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     _promptTemplateCleanup: promptTemplateCleanup,
     // #568: and what a runtime-driven backend wrote for this spawn.
     _runtimeCleanup: runtimeCleanup,
+    // #634: and what a backend wrote so this session has a subagent tool.
+    _subagentToolCleanup: subagentToolCleanup,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
     // #305: did the live binding reach this spawn's argv? A backend that CANNOT report is answered by
@@ -1427,6 +1456,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       if (typeof session._promptTemplateCleanup === 'function') session._promptTemplateCleanup(ctx.log);
     } catch (err) {
       ctx.log.debug(`[prompt-templates] cleanup failed for session=${realId}: ${err.message}`);
+    }
+    // #634: and the subagent tool's extension, on its own try for the same reason.
+    try {
+      if (typeof session._subagentToolCleanup === 'function') session._subagentToolCleanup(ctx.log);
+    } catch (err) {
+      ctx.log.debug(`[subagent-tool] cleanup failed for session=${realId}: ${err.message}`);
     }
     // #568: and the runtime-driven backend's extension, on its own try for the same reason.
     try {
