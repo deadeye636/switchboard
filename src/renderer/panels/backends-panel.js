@@ -299,6 +299,62 @@
       </details>`;
   }
 
+  // What a field alone does NOT deliver (#645). A field may declare `withheld`: one entry per kind that
+  // needs a second option switched on, each naming that option and the sentence to print while it is off.
+  // The form compares the option's value and prints the note — it names no option and no backend of its
+  // own, the way `sourcePreview` above names no field.
+  //
+  // Drawn from the OPTION STATE alone, never from a listing: the preview beside it answers "what would
+  // this launch get", costs a walk of another backend's directories and is therefore closed until somebody
+  // opens it (#472). This line answers the cheaper question — "is a kind switched off entirely" — so it
+  // costs nothing and is there whether or not the preview was ever opened.
+  // Each note CARRIES the declared default of the option it is about, because the stored blob holds only
+  // what somebody set and the control beside it falls back to `f.default`. Without this a kind whose
+  // switch defaults ON would render as a ticked toggle and a line saying the kind is withheld, on one
+  // screen — nothing declares that combination today, and a backend already ships a toggle defaulting to
+  // true, so the shape exists. Read from the same `configFields` the form is drawing, never a table here.
+  function withheldShell(backend, field) {
+    const rows = Array.isArray(field && field.withheld) ? field.withheld : [];
+    // Same refusal as `sourcePreviewShell`: a template launches with layers this page does not assemble.
+    if (!rows.length || backend.isProfile) return '';
+    const declared = new Map((Array.isArray(backend.configFields) ? backend.configFields : []).map(f => [f.id, f.default]));
+    const notes = rows
+      .filter(r => r && r.requires && r.note)
+      .map(r => `<div class="settings-hint backend-withheld-note" data-requires="${esc(r.requires)}" data-requires-default="${declared.get(r.requires) === true ? '1' : ''}" hidden>${esc(r.note)}</div>`)
+      .join('');
+    if (!notes) return '';
+    return `
+      <div class="backend-withheld" data-withheld-backend="${esc(backend.id)}" data-withheld-opt="${esc(field.id)}"
+           data-opt-default="${esc(field.default === undefined || field.default === null ? '' : String(field.default))}" hidden>${notes}</div>`;
+  }
+
+  // A field is IN EFFECT when somebody chose something: `''`, `false`, `null` and `undefined` are all
+  // "nothing chosen" here. A note about what a field does not deliver would read as a complaint about a
+  // field nobody set.
+  function optionInEffect(value) {
+    if (value === undefined || value === null || value === false) return false;
+    return typeof value === 'string' ? value.trim() !== '' : true;
+  }
+
+  // `optionsFor(backendId)` is the same live cascade the preview asks, so both describe one launch — and
+  // where it holds nothing for an option, the declared default decides, the way the control does.
+  function refreshWithheld(root, backendId, optionsFor) {
+    const options = (typeof optionsFor === 'function' && optionsFor(backendId)) || {};
+    root.querySelectorAll(`.backend-withheld[data-withheld-backend="${CSS.escape(backendId)}"]`).forEach(box => {
+      const set = options[box.dataset.withheldOpt];
+      const chosen = optionInEffect(set === undefined ? box.dataset.optDefault : set);
+      let shown = false;
+      box.querySelectorAll('.backend-withheld-note').forEach(note => {
+        const required = options[note.dataset.requires];
+        // Strictly `true`, the way the launch reads it (`declinesSharedResource`): a stored `'true'` is not on.
+        const on = required === undefined ? note.dataset.requiresDefault === '1' : required === true;
+        note.hidden = !(chosen && !on);
+        if (!note.hidden) shown = true;
+      });
+      box.hidden = !shown;
+    });
+  }
+
   const DROP_REASONS = {
     'untrusted-project': 'not passed: the project is not trusted for this launch',
     'no-command-dialect': 'not passed: that backend\'s commands cannot be read here',
@@ -369,8 +425,13 @@
 
   // Bound AFTER the page's own `change` listener, so a changed option is already recorded when this reads it.
   function bindSourcePreviews(root, projectPath, optionsFor) {
+    // The withheld lines (#645) are drawn on every render and followed on every change, whether or not
+    // this page has a preview at all — they cost no request, so the preview's early return must not take
+    // them with it. One `change` listener for both, because the two guard conditions are the same one.
+    const withheld = root.querySelectorAll('.backend-withheld');
+    withheld.forEach(box => refreshWithheld(root, box.dataset.withheldBackend, optionsFor));
     const previews = root.querySelectorAll('details.backend-source-preview');
-    if (!previews.length) return;
+    if (!withheld.length && !previews.length) return;
     previews.forEach(d => {
       d.addEventListener('toggle', () => {
         if (!d.open || d.dataset.loaded === '1') return;
@@ -382,6 +443,7 @@
       const t = e.target;
       const bid = t && t.dataset && t.dataset.backend;
       if (!bid || !t.classList || !(t.classList.contains('backend-default-input') || t.classList.contains('backend-inherit-cb'))) return;
+      if (withheld.length) refreshWithheld(root, bid, optionsFor);
       root.querySelectorAll(`details.backend-source-preview[data-preview-backend="${CSS.escape(bid)}"]`).forEach(d => {
         // A closed one is re-read when it opens again, not on every change while nobody looks at it.
         if (d.open && d.dataset.loaded === '1') loadSourcePreview(d, projectPath, optionsFor);
@@ -509,7 +571,7 @@
             <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session in this project without opening its configure dialog.`)}</div>
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, !overridden)}</div>
-        </div>${sourcePreviewShell(backend, f)}`;
+        </div>${withheldShell(backend, f)}${sourcePreviewShell(backend, f)}`;
     }).join('');
 
     // No disclosure around it any more (#490): the pane IS the disclosure, and the "N overrides" marker
@@ -590,7 +652,7 @@
             ${f.more ? `<div class="settings-more">${esc(f.more)}</div>` : ''}
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled || !set)}</div>
-        </div>${disabled ? '' : sourcePreviewShell(backend, f)}`;
+        </div>${disabled ? '' : withheldShell(backend, f) + sourcePreviewShell(backend, f)}`;
     }).join('');
 
     return `

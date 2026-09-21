@@ -129,7 +129,17 @@ const configFields = [
     choicesFrom: 'sharedResourceSources',
     choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
     appliesAt: 'spawn', appliedBy: 'buildSessionResources',
-    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Its MCP servers come along only while "MCP servers from the source" is on. Hooks do not come along.' },
+    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Its MCP servers come along only while "MCP servers from the source" is on. Hooks do not come along.',
+    // #645: two of the four kinds need a second switch, and both switches are off until somebody turns
+    // them on — choosing a source must start neither a model session nor a process nobody asked for
+    // (`./session-resources.js`, `declinesSharedResource`). That is deliberate and stays; what is missing
+    // is the sentence, which the description above buries and the preview shows only once it is opened.
+    // Each entry is a kind this field alone does not deliver: the option that would, and what to say while
+    // it is off. The form compares the option's value and prints the note — it learns no option of ours.
+    withheld: [
+      { requires: 'subagentTool', note: 'The source\'s agents are not passed while the subagent tool is off.' },
+      { requires: 'mcpServers', note: 'The source\'s MCP servers are not started while "MCP servers from the source" is off.' },
+    ] },
   // #633: start the source's MCP servers and offer their tools. OFF by default — every server is a process
   // started on the user's behalf, and the setting nobody should acquire by upgrading. Read by
   // `buildSessionResources` (`./session-resources.js`), like the source itself.

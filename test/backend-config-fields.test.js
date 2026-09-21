@@ -62,6 +62,23 @@ for (const backend of BACKENDS) {
             `${backend.id}.${f.id} rewrites "${dead}" to "${alive}", which is not one of its own choices`);
         }
       }
+      // #645 — a field may say which of its kinds another option has to switch on. The form compares that
+      // option's value, so a `requires` naming a field that does not exist reads as "off" for good: the
+      // note then sits there for ever while the kind IS passed, and nothing else says a word. Same shape
+      // as the check above, and the same reason for it.
+      if (f.withheld !== undefined) {
+        assert.ok(Array.isArray(f.withheld) && f.withheld.length,
+          `${backend.id}.${f.id} declares withheld kinds but names none`);
+        const ids = new Set(backend.configFields.map(other => other.id));
+        for (const row of f.withheld) {
+          assert.ok(row && typeof row.note === 'string' && row.note.trim(),
+            `${backend.id}.${f.id} withholds a kind without a sentence to show`);
+          assert.ok(ids.has(row.requires),
+            `${backend.id}.${f.id} withholds a kind until "${row.requires}", which is not one of this backend's options`);
+          assert.notEqual(row.requires, f.id,
+            `${backend.id}.${f.id} cannot be withheld until itself`);
+        }
+      }
     }
   });
 

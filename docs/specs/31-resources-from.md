@@ -271,6 +271,22 @@ Comes along: skills; commands with arguments, file references and permitted shel
 subagent tool is on, agents with the tools Pi has a counterpart for (#639); and while its own switch is on,
 the source's stdio MCP servers with their tools (#633).
 
+Two of those four need a second switch, and the form now says which while the switch is off (#645). The
+defaults do not move: choosing a source must start neither a model session nor a process nobody asked for,
+which is what `declinesSharedResource` decides at launch and at the preview alike. What moved is only the
+sentence. The field's own description had carried it since #633 and buried it; the preview lists each
+withheld row with the target's reason and is closed until somebody opens it, because it costs a walk of
+another backend's directories; at launch the dropped rows went to the log and nothing else. A measured
+launch: `1 skill dir(s), 1 command dir(s), 0 agent dir(s), 0 MCP server(s), 5 dropped`, and not a character
+of it in the app. So a user who moved a session to Pi kept their skills and their commands and learned
+about their agents when an agent answered that it was not available.
+
+The line is a **declaration**, like the preview beside it: a field may carry `withheld`, one entry per kind
+it does not deliver alone, each naming the option that would and the sentence to print while it is off. The
+form compares that option's value and prints the note, so it learns no option and no backend of its own.
+And it is drawn from the option STATE — no listing, no filesystem — which is what lets it sit in the open
+beside a preview that cannot.
+
 Does not, and says so in the option's own text:
 
 - Hooks: #635, as a section of the same extension.
@@ -292,10 +308,15 @@ Does not, and says so in the option's own text:
   skills to measure.
 - **Codex skills may carry Codex-only instructions.** Pi reads them as they are, and they fail the way they
   would in any CLI other than Codex. They are documented, not filtered.
-- **The settings screen has three small cuts, left on purpose.** A backend that is switched off shows no
+- **The settings screen has four small cuts, left on purpose.** A backend that is switched off shows no
   preview on its global page, where every control is disabled anyway. An empty stored value is shown as a
-  blank "(not available)". And the Configure dialog, unlike the settings screen, still falls back to the
-  first choice for a stored value it does not offer.
+  blank "(not available)". The Configure dialog, unlike the settings screen, still falls back to the
+  first choice for a stored value it does not offer. And that dialog draws the same fields without the
+  withheld lines of #645 — so the one place a source is chosen immediately before a launch still says
+  nothing about the two kinds that need a second switch. It is the strongest case for saying it and it is
+  still a cut: the dialog is a per-session override with its own markers, and a line there would have to
+  answer against those rather than against the cascade, which is a second rule for one sentence. Whoever
+  takes it on states which of the two the dialog's line describes.
 - **A session with no model gives a source agent no `--model`**, so Pi picks its own default. A running
   session always has a model, so this is theoretical, and it was true before #639 as well.
 - **A name Pi already has** is only known once the session runs, so the settings preview cannot show it. The
