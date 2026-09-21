@@ -103,6 +103,10 @@ module.exports = {
     argumentsCommand: protocol.argumentsCommand,
     stateCommand: protocol.stateCommand,
     messagesCommand: protocol.messagesCommand,
+    // `/session` (#643): the command is registered in the runtime extension so Pi resolves the name, and
+    // the figures come from here, over the one RPC command that has them.
+    statsCommand: protocol.statsCommand,
+    statsNotice: protocol.statsNotice,
     answerCommand: protocol.answerCommand,
     sessionIdFromState: protocol.sessionIdFromState,
     entriesFromMessages: protocol.entriesFromMessages,

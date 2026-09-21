@@ -37,11 +37,28 @@
 //                   URL against its own loopback callback, and when the browser wins Pi aborts the prompt —
 //                   RPC mode then resolves the question locally and tells the client NOTHING (Pi 0.84.4,
 //                   `createDialogPromise`), so without this the card would stay open with nobody behind it.
+//   STATS_PREFIX    `/session` was typed. It carries NO figures, and that is the whole point of it — see
+//                   below.
+//
+// `/session` IS REGISTERED HERE AND ANSWERED BY THE APP (#643, owner decision W3). Pi's RPC has a
+// documented `get_session_stats`, and the reason for reaching for it rather than answering in the handler
+// is NOT that the extension API cannot: `ctx.getContextUsage()` and `ctx.sessionManager.getEntries()` are
+// both documented, and Pi's own `getSessionStats()` is computed from the latter. Answering here would mean
+// re-implementing Pi's accounting — which kinds of entry count as a message, how a cached token is
+// booked — in generated TypeScript, against a version of Pi nobody pinned. Two implementations of one
+// arithmetic drift, and the one in this file would be the wrong one. So the command asks Pi for Pi's own
+// answer, and the handler only says "this was typed".
+//
+// WHAT REGISTERING THE NAME COSTS: an extension command is dispatched BEFORE prompt templates
+// (`AgentSession.prompt` tries `_tryExecuteExtensionCommand` first and returns if it handled the line), so
+// a `session` template of the user's own is shadowed by this. That is the same precedence every name in
+// `TUI_ONLY` already takes, and it is the price of the command appearing in the app's `/` list at all.
 'use strict';
 
 const LINK_PREFIX = 'switchboard-link:';
 const ASK_PREFIX = 'switchboard-ask:';
 const DISMISS_PREFIX = 'switchboard-dismiss:';
+const STATS_PREFIX = 'switchboard-stats:';
 
 // Pi's own names for the levels, in its order (`ThinkingLevel`). A model that offers fewer is clamped by
 // Pi, and the command reads back what it got.
@@ -86,7 +103,6 @@ function describeFailure(err, cap) {
 // prompt; now each says where the thing lives instead. The hint names the app's way where there is one.
 // Keep it to what is true today: a command that gets built here leaves this list in the same change.
 const TUI_ONLY = {
-  session: 'Pi (native) does not show token and cost figures yet.',
   fork: 'Fork the session from its row in the sidebar.',
   clone: 'Pi (native) does not offer it yet.',
   tree: 'Pi (native) does not offer it yet.',
@@ -127,6 +143,7 @@ function commandsSource() {
     `  const LINK = ${JSON.stringify(LINK_PREFIX)};`,
     `  const ASK = ${JSON.stringify(ASK_PREFIX)};`,
     `  const DISMISS = ${JSON.stringify(DISMISS_PREFIX)};`,
+    `  const STATS = ${JSON.stringify(STATS_PREFIX)};`,
     `  const LEVELS: string[] = ${JSON.stringify(THINKING_LEVELS)};`,
     `  const MODEL_LIST_MAX = ${MODEL_LIST_MAX};`,
     `  const CAP = ${MESSAGE_CAP};`,
@@ -337,6 +354,14 @@ function commandsSource() {
     '    }),',
     '  });',
     '',
+    // W3: registered here so the name is Pi's to resolve and the app's `/` list picks it up like any
+    // other, answered by the app, which asks Pi for Pi's own figures. The handler says only that it was
+    // typed; it never sees a number. Like every name registered here, it shadows a template of that name.
+    '  pi.registerCommand("session", {',
+    '    description: "Show this session\'s messages, tokens and cost, as Pi counts them",',
+    '    handler: async (_args: string, ctx: any) => say(ctx, STATS, "info"),',
+    '  });',
+    '',
     '  for (const name of Object.keys(TUI_ONLY)) {',
     '    pi.registerCommand(name, {',
     '      description: "A command of Pi\'s terminal interface",',
@@ -433,6 +458,12 @@ function parseAskTitle(title) {
   } catch { return null; }
 }
 
+// Was this notice `/session` being typed? The marker carries nothing: the app asks Pi for the figures
+// itself, over the RPC command that has them (`statsCommand` in `./rpc-protocol.js`).
+function parseStats(message) {
+  return String(message == null ? '' : message).startsWith(STATS_PREFIX);
+}
+
 // A notice saying Pi stopped waiting on one of these questions: its token, else null.
 function parseDismiss(message) {
   const s = String(message == null ? '' : message);
@@ -444,7 +475,7 @@ function parseDismiss(message) {
 }
 
 module.exports = {
-  LINK_PREFIX, ASK_PREFIX, DISMISS_PREFIX, THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP,
+  LINK_PREFIX, ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP,
   COMPLETE_COMMAND, COMPLETIONS_PREFIX, ARGUMENT_COMMANDS,
-  commandsSource, describeFailure, parseLink, parseAskTitle, parseDismiss, parseCompletions,
+  commandsSource, describeFailure, parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats,
 };

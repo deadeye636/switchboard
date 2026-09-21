@@ -157,6 +157,24 @@ test('the autocomplete: commands, a command\'s arguments, and paths inside the s
   assert.equal((await agentRpc.listCommands('nobody')).ok, false);
 });
 
+// #643 (W3): the command says only that it was typed, and the CORE fetches the figures over the protocol.
+// The whole point of the route is that no number passes through the extension, so the check is that a
+// request went out and a notice came back — with the backend's wording, which the core never writes.
+test('the session\'s figures are fetched by the core and drawn as a notice', async (t) => {
+  const h = harness();
+  t.after(() => h.proc.kill());
+  await until(() => h.rekeys.length === 1);
+  await agentRpc.sendTurn('fake-session', { text: '/session', mode: 'prompt' });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'notice'));
+  const notice = h.sent.filter(m => m.op && m.op.op === 'notice').pop().op;
+  assert.equal(notice.level, 'info');
+  assert.match(notice.text, /^As Pi counts this session: /, 'the source of the figures is named');
+  assert.match(notice.text, /2 messages, 1 of them yours and 1 the agent's · 0 tool calls/);
+  assert.match(notice.text, /150 tokens \(120 in, 30 out,/);
+  assert.match(notice.text, /\$0\.0021/);
+  assert.ok(!h.sent.some(m => m.op && m.op.op === 'figures'), 'the request op is answered here, never sent on');
+});
+
 test('a carriage return inside a bracketed paste is text: a pasted CRLF block is one turn', async (t) => {
   const h = harness();
   t.after(() => h.proc.kill());

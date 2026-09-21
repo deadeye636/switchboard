@@ -181,6 +181,27 @@ test('spawn.js hands a disabled driver\'s session back to the row\'s opener (sou
   assert.match(src, /recordOwnerOf\(backend\)/, 'the fork/resume guards ask the record owner');
 });
 
+// The descriptor's `rpc` object is copied out of the protocol module by hand, and the core reaches the
+// protocol ONLY through it — so a function added to the module and forgotten here is unreachable, with no
+// error anywhere: the core's feature checks read as "this backend cannot do that" and the feature is simply
+// absent. `statsCommand` shipped that way for one test run (#643). Derived, so a new export is covered on
+// the day it is written; anything the core is deliberately not given goes in the list with its reason.
+test('every part of the protocol the core could use is handed to it', () => {
+  // Empty today, and an entry carries the REASON the core must not call that function — not a category.
+  const NOT_HANDED_OVER = {};
+  const exempt = (k) => Object.prototype.hasOwnProperty.call(NOT_HANDED_OVER, k);
+  const exported = Object.keys(protocol).filter(k => typeof protocol[k] === 'function');
+  const rpc = backends.get('pi-native').rpc || {};
+  // The IDENTITY, not the name: `statsCommand: protocol.stateCommand` passes a name check and would send
+  // the core to the wrong command, which is the failure this guard exists to make loud.
+  const missing = exported.filter(k => rpc[k] !== protocol[k] && !exempt(k));
+  assert.deepEqual(missing, [],
+    `rpc-protocol.js exports these and the descriptor's \`rpc\` does not pass them on: ${missing.join(', ')}. `
+    + 'Add them there, or name them in NOT_HANDED_OVER with the reason the core must not call them.');
+  const stale = Object.keys(NOT_HANDED_OVER).filter(k => !exported.includes(k));
+  assert.deepEqual(stale, [], `NOT_HANDED_OVER names something the protocol no longer exports: ${stale.join(', ')}`);
+});
+
 test('the launch is Pi\'s own, over RPC, without a shell and without the TUI-only options', () => {
   const d = backends.get('pi-native');
   const launch = d.buildLaunch({ cwd: '/p', options: { model: 'm1', models: 'a,b', useTheme: 'dark' } });

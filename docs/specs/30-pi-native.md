@@ -261,6 +261,7 @@ the approval gate is on or not:
 | `/model [name]` | Switches the model for this session only. A name picks directly, several matches are offered, and a long list asks for the provider first. Nothing is written to Pi's settings, so the model the app launches with stays the app's setting. |
 | `/thinking [level]` | Sets the thinking level and reads back what Pi applied, since a model that offers fewer levels is clamped. |
 | `/compact [instructions]` | Runs Pi's compaction. While a turn is running it refuses and says so, and Pi's own compaction events say how it went. |
+| `/session` | What the session has cost so far: messages, the four token counts and their total, the spend, and the context reading when Pi has one. Answered by the app, not by the command — see below. |
 
 The rest of Pi's terminal commands (`/tree`, `/export`, `/new`, `/settings` …) answer with a line saying
 where that function lives in the app, or that it is not offered yet. The list is `TUI_ONLY` in that file.
@@ -295,13 +296,56 @@ Five things decide how it is built:
   `lasting`, a settled run leaves it open and the session stays "waiting". Only an answer, a dismissal, Pi
   taking it back or the process ending closes it.
 
-Three markers carry what `ctx.ui` has no field for. A notice can carry a page to open, a question can be
-masked and named, and a notice can say Pi stopped waiting on a question. They are decoded in
+Four markers carry what `ctx.ui` has no field for. A notice can carry a page to open, a question can be
+masked and named, a notice can say Pi stopped waiting on a question, and a notice can say `/session` was
+typed. They are decoded in
 `rpc-protocol.js`, and the renderer only gets plain fields: `links` on a notice, `secret` and `lasting` on an
 ask.
 The page opens through the existing `open-external` handler, which accepts only http(s). What Pi says about
 a failure is passed on in one line, except where it could name a local path: an errno error is named by its
 code, which Pi sometimes leaves only in the text (`describeFailure`).
+
+### `/session` is registered by the extension and answered by the app (W3)
+
+**Not because the extension could not answer it.** `ctx.getContextUsage()` and
+`ctx.sessionManager.getEntries()` are both documented, and Pi computes its own `getSessionStats()` from the
+second — so a handler could have produced every field itself. What that would mean is re-implementing Pi's
+accounting in generated TypeScript: which kinds of entry count as a message, how a cached token is booked,
+what a compaction summary does to the total. Two implementations of one arithmetic drift, against a Pi
+version nobody pinned, and the copy in this repo would be the wrong one. So the command asks Pi for Pi's
+own answer, over the documented `get_session_stats`.
+
+Three routes were weighed: reaching for a private field the way the login above does; having the app
+recognise `/session` in the text field before it is sent; or registering the command here and letting the
+app answer it. The third is the one built. The handler says one marker and nothing else — no figure ever
+passes through the extension. The decoder turns that marker into `{ op: 'figures' }`, which carries no
+numbers either; `agent-rpc.js` answers it by sending the backend's `statsCommand` and drawing the sentence
+the backend's `statsNotice` builds, so the shape of Pi's figures stays inside the backend folder and the
+core learns no field of it.
+
+**What registering the name costs.** An extension command is dispatched BEFORE prompt templates —
+`AgentSession.prompt` tries `_tryExecuteExtensionCommand` first and returns if that handled the line
+(measured, Pi 0.85.1) — so a `session` prompt template of the user's own is shadowed by this, exactly as
+every name in `TUI_ONLY` already shadows one. That is the price of the command being resolvable at all,
+and it is the same price the section above states for those.
+
+**The card names Pi as the source, and that is a decision.** These are the runtime's counters for the
+session it is running; Switchboard's statistics view counts the same session from its transcript. The two
+are close and need not agree — a turn Pi has not written out yet is in one and not the other — and two
+figures with different provenance and no label is how somebody spends an afternoon looking for a bug in
+arithmetic that is doing what it should.
+
+**Nothing in the card is worded as a breakdown**, because Pi's counts are not one: `totalMessages` counts
+every message entry it holds, including tool results, bash executions and compaction summaries, while
+`userMessages` and `assistantMessages` count two of those kinds and `toolCalls` counts invocations rather
+than messages. In a plain session they reconcile and read like a partition; one `/compact` later they do
+not. Token figures are printed unrounded for the same reason — a rounded part stops adding up to a rounded
+total in front of the reader — and only the context WINDOW, which is a capacity and not a summand, is
+abbreviated.
+
+This is **not** the rest of #572. That issue's open half is the status bar's usage segment, which is about
+an account's plan limits rather than a session's spend, and it needs a measurement of its own first:
+whether Pi writes anything resembling a plan limit at all.
 
 ## The input completes as you type (#643)
 
@@ -363,8 +407,8 @@ questions before a command's shell line and before an MCP tool, described under 
 - **A login is ended by its card, not by Stop.** Esc and Stop abort a run, and a login is not one. A second
   `/login` to a provider whose first login is still open waits behind it in Pi's queue and shows no card
   until the first one ends. Dismissing the open card ends it.
-- **Session statistics, fork/clone/tree, export, `!cmd` and reload** are not built yet. Each of those
-  commands answers with a line instead (#643).
+- **fork/clone/tree, export, `!cmd` and reload** are not built yet. Each of those commands answers with a
+  line instead (#643). Session statistics used to be on this list and is built — `/session`, above.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:

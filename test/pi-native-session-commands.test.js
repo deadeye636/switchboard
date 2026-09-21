@@ -68,7 +68,7 @@ function fakeRuntime({ providers, credentials = [], login, logout } = {}) {
 test('the section is in the runtime extension with the gate on and off, registered at load', () => {
   for (const gate of [true, false]) {
     const commands = load({ gate });
-    for (const name of ['login', 'logout', 'model', 'thinking', 'compact', ...Object.keys(sessionCommands.TUI_ONLY)]) {
+    for (const name of ['login', 'logout', 'model', 'thinking', 'compact', 'session', ...Object.keys(sessionCommands.TUI_ONLY)]) {
       assert.equal(typeof (commands[name] && commands[name].handler), 'function', `/${name} with the gate ${gate ? 'on' : 'off'}`);
     }
   }
@@ -412,6 +412,64 @@ test('a failed compaction is said once, in Pi\'s words when Pi already said it',
   assert.deepEqual(d.decode({ type: 'compaction_end', errorMessage: 'model refused' }),
     [{ op: 'notice', level: 'error', text: 'Compaction failed: model refused' }]);
   assert.deepEqual(d.decode({ type: 'compaction_end' }), [{ op: 'notice', level: 'error', text: 'Compaction failed.' }]);
+});
+
+// #643 (W3) — the command is Pi's to resolve, the figures are the app's to fetch. The handler must carry
+// no numbers: Pi's extension API has none to give, and an undocumented field is what this route avoids.
+test('/session says only that it was typed, and the decoder turns that into an ask for the figures', async () => {
+  const cmds = load();
+  const { ctx, said } = context();
+  await cmds.session.handler('', ctx); await settle();
+  assert.equal(said.length, 1);
+  assert.equal(said[0].text, sessionCommands.STATS_PREFIX, 'the marker alone — no figure passes through Pi');
+
+  const d = protocol.createDecoder();
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 'n9', method: 'notify', message: sessionCommands.STATS_PREFIX }),
+    [{ op: 'figures' }]);
+  // A notice that merely starts with something else is still an ordinary notice.
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 'n10', method: 'notify', message: 'switchboard is fine' }),
+    [{ op: 'notice', level: 'info', text: 'switchboard is fine' }]);
+});
+
+test('/session is no longer answered with a line saying it is not here', () => {
+  assert.equal(Object.prototype.hasOwnProperty.call(sessionCommands.TUI_ONLY, 'session'), false,
+    'a command that gets built leaves TUI_ONLY in the same change');
+  const listed = protocol.commandsFromResponse({ data: { commands: [{ name: 'session', source: 'extension', description: 'd' }] } });
+  assert.deepEqual(listed.map(c => c.name), ['session'], 'and it is offered in the input\'s command list');
+});
+
+test('the figures name Pi as their source, and a missing reading is left out rather than guessed', () => {
+  const full = protocol.statsNotice({
+    success: true,
+    data: {
+      totalMessages: 7, userMessages: 3, assistantMessages: 3, toolCalls: 1,
+      tokens: { input: 40100, output: 3000, cacheRead: 5100, cacheWrite: 0, total: 48200 },
+      cost: 0.0412,
+      contextUsage: { tokens: 48200, contextWindow: 200000, percent: 24.1 },
+    },
+  });
+  assert.equal(full.level, 'info');
+  assert.match(full.text, /^As Pi counts this session: /, 'whose numbers these are is said, not implied');
+  // Not worded as a partition: Pi's `totalMessages` counts kinds the other two do not.
+  assert.match(full.text, /7 messages, 3 of them yours and 3 the agent's · 1 tool call/);
+  // Unrounded, so the parts visibly add up to the total; only the capacity is abbreviated.
+  assert.match(full.text, /48200 tokens \(40100 in, 3000 out, 5100 read from cache, 0 written to it\)/);
+  assert.match(full.text, /\$0\.0412/);
+  assert.match(full.text, /24 % of a 200k context window/);
+
+  // Rounding each figure on its own would print a total its own parts contradict.
+  const evenSplit = protocol.statsNotice({ success: true, data: { totalMessages: 2, tokens: { input: 10500, output: 10500, cacheRead: 0, cacheWrite: 0, total: 21000 }, cost: 0 } });
+  assert.match(evenSplit.text, /21000 tokens \(10500 in, 10500 out,/);
+
+  // Right after a compaction Pi's reading has no percent; the sentence simply ends earlier.
+  const noContext = protocol.statsNotice({ success: true, data: { totalMessages: 1, tokens: { total: 12 }, cost: 2.5, contextUsage: { tokens: null, contextWindow: 200000, percent: null } } });
+  assert.doesNotMatch(noContext.text, /context window/);
+  assert.match(noContext.text, /\$2\.50/, 'a spend of a dollar or more is not read in ten-thousandths');
+  assert.match(noContext.text, /1 message, /, 'one message is not "1 messages"');
+
+  const refused = protocol.statsNotice({ success: false, error: 'no answer' });
+  assert.equal(refused.level, 'warning');
+  assert.match(refused.text, /did not report/);
 });
 
 test('the generated section carries no backtick-born damage and no execFile', () => {

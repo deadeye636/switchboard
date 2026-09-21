@@ -3,7 +3,7 @@
 // framing and the exit path are exercised against a real child process rather than a mock of one.
 'use strict';
 
-const { ASK_PREFIX, DISMISS_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
+const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
 
 const SESSION_ID = 'fake-session';
 const messages = [];
@@ -65,6 +65,10 @@ process.stdin.on('data', (chunk) => {
         } else if (cmd.message === 'command ask') {
           // A question one of pi-native's own commands asks (#642): outside any run, and marked as such.
           out({ type: 'extension_ui_request', id: 'c1', method: 'select', title: ASK_PREFIX + JSON.stringify({ title: 'Pick', token: 't1' }), options: ['a', 'b'] });
+        } else if (cmd.message === '/session') {
+          // As measured for the completion command above: the extension command says its word, THEN Pi
+          // answers the prompt. The word carries no figures — the client asks for those itself (#643).
+          out({ type: 'extension_ui_request', id: 'n2', method: 'notify', message: STATS_PREFIX });
         } else if (cmd.message === 'take it back') {
           // Pi stopped waiting on that question (a login's browser callback won), and the command says so.
           out({ type: 'extension_ui_request', id: 'n1', method: 'notify', message: DISMISS_PREFIX + JSON.stringify({ token: 't1' }) });
@@ -74,6 +78,14 @@ process.stdin.on('data', (chunk) => {
         break;
       case 'extension_ui_response':
         out({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: `answered ${cmd.value}` }], stopReason: 'stop', timestamp: 3 } });
+        break;
+      case 'get_session_stats':
+        out({ id: cmd.id, type: 'response', command: 'get_session_stats', success: true, data: {
+          sessionFile: undefined, sessionId: SESSION_ID,
+          userMessages: 1, assistantMessages: 1, toolCalls: 0, toolResults: 0, totalMessages: 2,
+          tokens: { input: 120, output: 30, cacheRead: 0, cacheWrite: 0, total: 150 },
+          cost: 0.0021,
+        } });
         break;
       case 'abort':
         out({ id: cmd.id, type: 'response', command: 'abort', success: true });

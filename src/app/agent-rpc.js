@@ -241,6 +241,20 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
         report('waiting', { prompt_kind: op.request.method });
         sendOp(state, op);
         return;
+      case 'figures':
+        // The user asked the session for its own figures. The backend says only THAT it was asked — what
+        // the numbers are, and what they are called, is a question only its protocol can put to the
+        // runtime, so the core sends what the backend hands it and draws the sentence it gets back. Not
+        // awaited: an answer that never comes must not hold the stream this runs on.
+        flushPartial();
+        if (typeof rpc.statsCommand !== 'function' || typeof rpc.statsNotice !== 'function') return;
+        request(rpc.statsCommand).then((res) => {
+          // The backend words an unanswered request too, so there is no silent branch here: a command that
+          // draws nothing at all reads as one that did not run.
+          const notice = rpc.statsNotice(res);
+          if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text });
+        }).catch((err) => ctx.log.warn(`[agent-rpc] the session's figures were not reported: ${err.message}`));
+        return;
       case 'answered':
         // The runtime stopped waiting on a question by itself (a login whose browser callback won). Only a
         // question still open is closed, and the session leaves "waiting" the way `answerAsk` lets it go.

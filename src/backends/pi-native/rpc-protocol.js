@@ -17,6 +17,9 @@
 //                                    `request.lasting` says it belongs to a command, not to a run, so a run
 //                                    settling does not end it
 //   { op: 'answered', id }           the runtime stopped waiting on a question without an answer from us
+//   { op: 'figures' }                the user asked the session what it has cost so far (#643). It carries
+//                                    no numbers: the core answers it by sending `statsCommand` and drawing
+//                                    `statsNotice`, so the shape of those figures stays in this file
 //
 // Entries are the same neutral shape the Message History viewer already draws, produced by Pi's own
 // normaliser (`../pi/transcript-view.js`), so a live session and its history look the same and there is
@@ -37,7 +40,7 @@
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
-const { parseLink, parseAskTitle, parseDismiss, parseCompletions, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
+const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
 function entriesFor(message) {
@@ -238,6 +241,9 @@ function createDecoder() {
             questionTokens.delete(token);
             return id ? [{ op: 'answered', id }] : [];
           }
+          // `/session` was typed. The command carries no figures on purpose — the core asks for them with
+          // `statsCommand` below, which is the one documented way to them (#643, W3).
+          if (parseStats(msg.message)) return [{ op: 'figures' }];
           const level = msg.notifyType === 'error' || msg.notifyType === 'warning' ? msg.notifyType : 'info';
           // A page to open — a login page, a device-code page. Drawn with a button rather than as the URL.
           const link = parseLink(msg.message);
@@ -312,6 +318,59 @@ function argumentsCommand(id, { command, token } = {}) {
 const stateCommand = (id) => ({ id, type: 'get_state' });
 const messagesCommand = (id) => ({ id, type: 'get_messages' });
 
+// --- the session's own figures (#643, `/session`) ---
+
+// Pi's documented `get_session_stats`. Its answer is `SessionStats`: message counts, the four token
+// counts and their total, the cost, and an optional context reading.
+const statsCommand = (id) => ({ id, type: 'get_session_stats' });
+
+// A capacity may be rounded; a figure that is part of a sum may NOT, or the parts stop adding up to the
+// total in front of the reader (10 500 + 10 500 = 21 000 prints as "21k (11k, 11k)").
+const roundCapacity = (n) => (n >= 10000 ? Math.round(n / 1000) + 'k' : String(n));
+const spend = (n) => '$' + (n >= 1 ? n.toFixed(2) : n.toFixed(4));
+const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
+
+/**
+ * `statsCommand`'s answer as a notice — `{ level, text }`. An answer that did not arrive is a notice too,
+ * at `warning`: a command that says nothing at all reads as one that did not run.
+ *
+ * The wording names Pi, and that is a decision rather than politeness: these are the runtime's own
+ * counters for the session it is running, while the app's statistics view counts the same session from
+ * its transcript. The two are close and need not agree — a turn Pi has not written out yet is in one and
+ * not the other — and a figure with no source beside a figure with a different source is how somebody
+ * spends an afternoon looking for a bug in the arithmetic.
+ *
+ * NOTHING HERE IS WORDED AS A PARTITION, because Pi's counts are not one. `totalMessages` counts every
+ * message entry it holds — a tool result, a bash execution, a compaction summary — while `userMessages`
+ * and `assistantMessages` count two of those kinds, and `toolCalls` counts invocations rather than
+ * messages at all. In a plain session the numbers look like a breakdown and happen to reconcile; one
+ * `/compact` or one shell line later they do not, and a sentence that promised a breakdown would then be
+ * the thing at fault rather than the arithmetic.
+ */
+function statsNotice(response) {
+  const d = response && response.success !== false ? response.data : null;
+  if (!d || typeof d !== 'object') {
+    return { level: 'warning', text: 'Pi did not report the session\'s figures.' };
+  }
+  const n = (v) => (Number.isFinite(v) ? v : 0);
+  const t = d.tokens && typeof d.tokens === 'object' ? d.tokens : {};
+  const parts = [
+    plural(n(d.totalMessages), 'message') + ', ' + n(d.userMessages) + ' of them yours and '
+      + n(d.assistantMessages) + ' the agent\'s',
+    plural(n(d.toolCalls), 'tool call'),
+    n(t.total) + ' tokens (' + n(t.input) + ' in, ' + n(t.output)
+      + ' out, ' + n(t.cacheRead) + ' read from cache, ' + n(t.cacheWrite) + ' written to it)',
+    spend(n(d.cost)),
+  ];
+  // Only while Pi has a reading: right after a compaction it answers one whose tokens and percent are
+  // null, until the next turn fills them in again.
+  const usage = d.contextUsage;
+  if (usage && Number.isFinite(usage.percent) && Number.isFinite(usage.contextWindow)) {
+    parts.push(Math.round(usage.percent) + ' % of a ' + roundCapacity(usage.contextWindow) + ' context window');
+  }
+  return { level: 'info', text: 'As Pi counts this session: ' + parts.join(' · ') + '.' };
+}
+
 // The answer to an `ask`. `answer` is the app's: `{ value }` for a choice or a text, `{ confirmed }` for a
 // yes/no, `{ cancelled: true }` for a dismissed dialog — the three response shapes Pi documents.
 function answerCommand(requestId, answer = {}) {
@@ -345,6 +404,8 @@ module.exports = {
   argumentsCommand,
   stateCommand,
   messagesCommand,
+  statsCommand,
+  statsNotice,
   answerCommand,
   sessionIdFromState,
   entriesFromMessages,
