@@ -76,6 +76,21 @@ test('a file reference becomes the file\'s content; a missing file, a directory 
   assert.equal(bridge.expandFileRefs('@notes.md', '@', dir, 4), '@notes.md', 'a file over the cap stays a reference');
 });
 
+test('a reference closed by a delimiter resolves and keeps the delimiter; one glued to a word does not (#644)', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-644-ref-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'notes.md'), 'NOTE-CONTENT\n');
+  // A command writes the reference inside a sentence it quotes; the quote travels with the path, and the
+  // source CLI reads the file anyway (measured against Claude Code v2.1.278).
+  for (const [open, close] of [['"', '"'], ["'", "'"], ['(', ')'], ['[', ']']]) {
+    const out = bridge.expandFileRefs(`say ${open}FILE= @notes.md${close} now`, '@', dir, 1024);
+    assert.match(out, /notes\.md:\n```\nNOTE-CONTENT\n```/, `${close} closes a reference`);
+    assert.ok(out.includes('```' + close + ' now'), `${close} stays where it was`);
+  }
+  // The boundary in FRONT of the marker is not punctuation: the source CLI does not read this one either.
+  assert.equal(bridge.expandFileRefs('FILE=@notes.md', '@', dir, 1024), 'FILE=@notes.md');
+});
+
 test('command files: nested ones keep their own name under a labelling dialect; the first of two names wins', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-632-list-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -148,7 +163,9 @@ test('the generated extension registers the source\'s commands at session_start,
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const cmds = path.join(root, 'commands');
   fs.mkdirSync(path.join(cmds, 'fe'), { recursive: true });
-  fs.writeFileSync(path.join(cmds, 'greet.md'), '---\ndescription: Greet someone\nargument-hint: <name>\nallowed-tools: Bash(echo hi)\n---\nHello $ARGUMENTS, first $1.\nRun: !`echo hi`\nRefused: !`rm -rf x`\nFile: @README.md\n');
+  // The reference is written the way a command usually writes one — inside a quoted sentence (#644), so
+  // the trailing delimiter is exercised through the GENERATED extension and not only by the direct call.
+  fs.writeFileSync(path.join(cmds, 'greet.md'), '---\ndescription: Greet someone\nargument-hint: <name>\nallowed-tools: Bash(echo hi)\n---\nHello $ARGUMENTS, first $1.\nRun: !`echo hi`\nRefused: !`rm -rf x`\nFile: "the notes, @README.md"\n');
   fs.writeFileSync(path.join(cmds, 'fe', 'comp.md'), 'Component $1');
   fs.writeFileSync(path.join(cmds, 'review.md'), 'the source review');
   fs.writeFileSync(path.join(cmds, 'handoff.md'), 'the source handoff');
@@ -185,7 +202,7 @@ test('the generated extension registers the source\'s commands at session_start,
   assert.match(text, /Hello Bob "Smith Jr", first Bob\./);
   assert.match(text, /Run: RAN:echo hi/);
   assert.match(text, /Refused: !`rm -rf x`/, 'a command the file does not permit stays as written');
-  assert.match(text, /File: README\.md:\n```\nREADME-BODY\n```/);
+  assert.match(text, /File: "the notes, README\.md:\n```\nREADME-BODY\n```"/, 'the closing quote is back after the content (#644)');
   assert.doesNotMatch(text, /allowed-tools/, 'the frontmatter is not sent');
   assert.equal(pi.sent[0].opts, undefined, 'idle: sent as a new turn');
   assert.ok(notes.some((n) => /rm -rf x/.test(n.m)), 'the refusal is reported to the user');

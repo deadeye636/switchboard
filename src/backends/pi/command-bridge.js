@@ -154,13 +154,25 @@ function inlineShellSpans(body, shell) {
   return spans;
 }
 
-/** The body with each `<marker><path>` that names a readable file replaced by that file's content. */
+/**
+ * The body with each `<marker><path>` that names a readable file replaced by that file's content.
+ *
+ * A reference runs to the next space, so whatever the sentence around it CLOSES with travels with the
+ * path and has to come off again before it is resolved — quotes included (#644): a command that writes
+ * `say "the notes, @notes.md"` means the file, and the source CLI reads it. The run that came off is put
+ * back after the content, so the sentence is unchanged.
+ *
+ * What OPENS the reference is a different question and stays strict: the marker has to follow whitespace,
+ * so `X=@notes.md` is not a reference and neither is a marker glued to an opening quote. That half is not
+ * an oversight — the source CLI does the same (measured against Claude Code v2.1.278, which reads a
+ * reference written after a space and leaves `X=@notes.md` as text).
+ */
 function expandFileRefs(body, marker, cwd, cap) {
   if (!marker) return String(body || '');
   const esc = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp('(^|\\s)' + esc + '([^\\s]+)', 'g');
   return String(body || '').replace(re, (whole, lead, ref) => {
-    const clean = ref.replace(/[.,;:!?)\]]+$/, '');
+    const clean = ref.replace(/[.,;:!?)\]"']+$/, '');
     const trail = ref.slice(clean.length);
     const file = path.resolve(cwd || '.', clean);
     let content;
