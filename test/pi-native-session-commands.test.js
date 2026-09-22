@@ -568,6 +568,115 @@ test('the figures name Pi as their source, and a missing reading is left out rat
   assert.match(refused.text, /did not report/);
 });
 
+// #643 — a `!` line is not a command: Pi's own input event catches it, so the model never sees it and
+// the `!` grammar stays inside this folder.
+test('a ! line is caught in the input event and answered with a marker', async () => {
+  const hooks = {};
+  const cmds = load({ pi: { on: (name, fn) => { hooks[name] = fn; } } });
+  assert.equal(typeof hooks.input, 'function', 'the section hooks Pi\'s own input event');
+  assert.ok(cmds, 'and still registers the commands beside it');
+
+  const { ctx, said } = context();
+  const ran = await hooks.input({ text: '!ls -la', source: 'rpc' }, ctx);
+  assert.deepEqual(plain(ran), { action: 'handled' }, 'handled, so it never reaches the model');
+  assert.equal(said.length, 1);
+  assert.equal(said[0].text, sessionCommands.SHELL_PREFIX + JSON.stringify({ command: 'ls -la' }));
+
+  const d = protocol.createDecoder();
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 's1', method: 'notify', message: said[0].text }),
+    [{ op: 'shell', command: 'ls -la' }]);
+});
+
+test('an ordinary line is left alone, and a lone ! is somebody still typing', async () => {
+  const hooks = {};
+  load({ pi: { on: (name, fn) => { hooks[name] = fn; } } });
+  const { ctx, said } = context();
+  for (const text of ['hello', 'do not run !ls', '', '!', '!   ']) {
+    const answer = await hooks.input({ text, source: 'rpc' }, ctx);
+    assert.deepEqual(plain(answer), { action: 'continue' }, `"${text}" is ordinary input`);
+  }
+  assert.deepEqual(said, [], 'and nothing was said about any of them');
+});
+
+// `!!` means "keep the output out of the context" in Pi's terminal interface, and the RPC bash has no
+// such option — so it is refused rather than run as if the second ! had been typed by accident.
+test('a !! line is refused, naming what it cannot do here', async () => {
+  const hooks = {};
+  load({ pi: { on: (name, fn) => { hooks[name] = fn; } } });
+  const { ctx, said } = context();
+  const answer = await hooks.input({ text: '!!secret-thing', source: 'rpc' }, ctx);
+  assert.deepEqual(plain(answer), { action: 'handled' }, 'handled, so it does not reach the model either');
+  assert.equal(said.length, 1);
+  assert.equal(said[0].level, 'warning');
+  assert.match(said[0].text, /always joins the conversation/);
+  assert.equal(said[0].text.includes('secret-thing'), false, 'and the line itself is not repeated back');
+  assert.equal(said[0].text.startsWith(sessionCommands.SHELL_PREFIX), false, 'no shell line is asked for');
+});
+
+test('a shell line is run by the runtime, stopped by the one command that stops it, and worded here', () => {
+  assert.deepEqual(protocol.shellCommand('r1', { command: 'echo hi' }), { id: 'r1', type: 'bash', command: 'echo hi' });
+  // Pi's abort_bash takes no id of its own: one shell line runs at a time.
+  assert.deepEqual(protocol.shellAbortCommand('r2'), { id: 'r2', type: 'abort_bash' });
+
+  const ok = protocol.shellResult({ success: true, data: { output: 'hi\n', exitCode: 0, cancelled: false, truncated: false } });
+  assert.equal(ok.status, 'done');
+  assert.equal(ok.output, 'hi\n\n[exit 0]', 'worded like the history viewer words the same execution');
+
+  const failed = protocol.shellResult({ success: true, data: { output: 'nope', exitCode: 2 } });
+  assert.equal(failed.status, 'error');
+  assert.match(failed.output, /\[exit 2\]/);
+
+  const cut = protocol.shellResult({ success: true, data: { output: 'lots', exitCode: 0, truncated: true } });
+  assert.match(cut.output, /\[truncated\]/);
+
+  // A stopped line KEEPS what it had already printed (measured on 0.85.1 against a command that was
+  // writing when it was stopped). An empty answer means it had printed nothing, not that Pi discarded it
+  // — reading the empty case as the general one is how the opposite got written down first.
+  const stoppedWithOutput = protocol.shellResult({ success: true, data: { output: 'half of it\n', cancelled: true } });
+  assert.equal(stoppedWithOutput.status, 'cancelled');
+  assert.equal(stoppedWithOutput.output, 'half of it\n\n[cancelled]', 'what it printed stands, marked as stopped');
+
+  const stoppedSilent = protocol.shellResult({ success: true, data: { output: '', cancelled: true } });
+  assert.equal(stoppedSilent.status, 'cancelled');
+  assert.equal(stoppedSilent.output, '[cancelled]', 'a line that had printed nothing is the marker alone');
+
+  // "did not finish", never "was not run": the commonest way here is the session ending mid-command, and
+  // it HAD run.
+  const refused = protocol.shellResult({ success: false, error: 'not running' });
+  assert.equal(refused.status, 'error');
+  assert.match(refused.output, /did not finish/);
+});
+
+// A line drawn live and the same line re-read out of the transcript after a re-mount must READ alike, so
+// the two are asserted against each other rather than each against a string written twice.
+test('a shell line is worded the same live as the history viewer words it', () => {
+  const { normalizeTranscriptEntries } = require('../src/backends/pi/transcript-view');
+  const history = (m) => normalizeTranscriptEntries([{ type: 'message', message: { role: 'bashExecution', ...m } }])[0]._localCmd.output;
+
+  for (const m of [
+    { command: 'x', output: 'out\n', exitCode: 0 },
+    { command: 'x', output: 'out\n', exitCode: 2 },
+    { command: 'x', output: 'half\n', cancelled: true },
+    { command: 'x', output: 'lots', exitCode: 0, truncated: true },
+  ]) {
+    assert.equal(protocol.shellResult({ success: true, data: m }).output, history(m),
+      `the live wording and the history wording agree for ${JSON.stringify(m)}`);
+  }
+});
+
+test('a shell line\'s output accumulates under the id its request went out with', () => {
+  const d = protocol.createDecoder();
+  assert.deepEqual(d.decode({ type: 'bash_execution_update', id: 'r9', delta: 'one\n' }),
+    [{ op: 'localCommand', id: 'r9', status: 'running', output: 'one\n' }]);
+  assert.deepEqual(d.decode({ type: 'bash_execution_update', id: 'r9', delta: 'two\n' }),
+    [{ op: 'localCommand', id: 'r9', status: 'running', output: 'one\ntwo\n' }],
+    'the growing text is accumulated here, so a view that re-mounts mid-command still has all of it');
+  // A second line keeps its own text.
+  assert.deepEqual(d.decode({ type: 'bash_execution_update', id: 'r10', delta: 'other' }),
+    [{ op: 'localCommand', id: 'r10', status: 'running', output: 'other' }]);
+  assert.deepEqual(d.decode({ type: 'bash_execution_update', delta: 'nobody' }), [], 'no id, nothing to attach it to');
+});
+
 test('the written file is named by the backend and says where it went, or why it did not', () => {
   const name = protocol.exportFileName('01a0c81e-2545-77f6');
   assert.match(name, /^pi-session-01a0c81e-2545-77f6-[0-9T-]+Z?\.html$/, 'the format is the runtime\'s, so the extension is too');

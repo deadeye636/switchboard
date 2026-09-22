@@ -116,6 +116,11 @@ module.exports = {
     lastReplyCommand: protocol.lastReplyCommand,
     lastReplyText: protocol.lastReplyText,
     copiedNotice: protocol.copiedNotice,
+    // A `!` line (#643). `shellAbortCommand` is what Stop reaches for while one is running: a plain
+    // `abort` is about the agent's turn and leaves a shell line running (measured).
+    shellCommand: protocol.shellCommand,
+    shellAbortCommand: protocol.shellAbortCommand,
+    shellResult: protocol.shellResult,
     answerCommand: protocol.answerCommand,
     sessionIdFromState: protocol.sessionIdFromState,
     entriesFromMessages: protocol.entriesFromMessages,

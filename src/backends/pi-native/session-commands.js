@@ -42,6 +42,7 @@
 //   EXPORT_PREFIX   `/export` was typed, with whatever was typed after it. It carries no path and writes
 //                   no file: only the app knows where a file it produces belongs.
 //   COPY_PREFIX     `/copy` was typed. The clipboard is the app's, not the runtime's.
+//   SHELL_PREFIX    a `!` line was typed. Not a command at all — see "A `!` LINE" below.
 //
 // A MARKER WITH A SIDE EFFECT IS A WIDER THING THAN A MARKER THAT DRAWS, and `switchboard-export:` is the
 // first of those — so the reasoning is here, for the next one rather than for this one. Everything above it
@@ -58,6 +59,18 @@
 //
 // The next marker that carries a side effect does not inherit this. Ask the same question about it: who can
 // emit it, and does that party already have what the marker grants?
+//
+// THE NEXT ONE IS `switchboard-shell:`, AND IT RUNS A COMMAND LINE. Same two questions, same answer, and
+// the answer is the same because the party is the same: only an extension loaded into that Pi session can
+// reach `ctx.ui.notify`, and such an extension already runs unsandboxed in Pi's process — it can spawn
+// whatever it likes without asking this app. A skill cannot reach it, and neither can the model, which can
+// only call tools. So the marker grants nobody anything new.
+//
+// What IS new is where the line came from, and that is answered in the CORE rather than here. Pi's
+// `input` event fires for every turn that reaches the session, and this app writes turns into one from
+// places that are not somebody typing — the trigger watcher, a seed prompt, a custom launcher. This file
+// cannot tell those apart: it sees a line, not a way in. So `src/app/agent-rpc.js` honours the marker only
+// for a line its own composer sent, and that is where the reasoning for it lives.
 //
 // `/session` IS REGISTERED HERE AND ANSWERED BY THE APP (#643, owner decision W3). Pi's RPC has a
 // documented `get_session_stats`, and the reason for reaching for it rather than answering in the handler
@@ -87,6 +100,23 @@
 // `ctx.navigateTree` and `ctx.newSession` all exist. An earlier reading of the RPC surface ALONE
 // concluded that `/reload` and `/tree` were unreachable, and both conclusions were wrong — the commands
 // registered here run against the extension API, which is the wider of the two.
+//
+// A `!` LINE IS NOT A COMMAND, AND PI'S OWN `input` EVENT IS WHERE IT IS CAUGHT. In Pi's terminal
+// interface `!ls` runs a shell line and puts the output into the conversation. Over RPC that prefix means
+// nothing: a `/` line is looked up among commands, and everything else — `!ls` included — goes to the
+// model as text. `pi.on("input")` fires for a line that arrived over RPC too (measured: `source: "rpc"`),
+// and a handler returning `{ action: "handled" }` stops it before skill and template expansion, so the
+// model never sees it. The handler says a marker and the app sends Pi's own `bash`, which is the point:
+// Pi's shell runs it and Pi books the output into its context, so the next turn sees it. Running it in
+// here with `node:child_process` would be a second shell whose output nothing would read.
+//
+// The `!` grammar therefore lives entirely in this folder — no core branch, nothing in the composer. A
+// runtime that spells its shell escape differently, or has none, changes nothing outside its own backend.
+//
+// `!!` IS REFUSED RATHER THAN QUIETLY TREATED AS `!`. In Pi's terminal interface it means "run it but keep
+// the output out of the context", and the RPC `bash` command has no such option (measured: `command` is
+// all it takes). Accepting the line and booking the output anyway would break exactly the promise the
+// second `!` makes, which is worse than not offering it.
 'use strict';
 
 const LINK_PREFIX = 'switchboard-link:';
@@ -95,6 +125,7 @@ const DISMISS_PREFIX = 'switchboard-dismiss:';
 const STATS_PREFIX = 'switchboard-stats:';
 const EXPORT_PREFIX = 'switchboard-export:';
 const COPY_PREFIX = 'switchboard-copy:';
+const SHELL_PREFIX = 'switchboard-shell:';
 
 // Pi's own names for the levels, in its order (`ThinkingLevel`). A model that offers fewer is clamped by
 // Pi, and the command reads back what it got.
@@ -174,6 +205,12 @@ const COMPLETIONS_CAP = 300;
 const UNREACHABLE = 'This version of Pi does not let Switchboard reach its login. Log in once with /login in a '
   + 'Pi terminal session — Pi (native) uses the same login.';
 
+// What a `!!` line is answered with. It names the difference rather than the refusal: what the second `!`
+// buys in Pi's terminal interface is unavailable here, so the honest answer is that the output always
+// joins the conversation.
+const NO_QUIET_SHELL = 'Pi (native) has no quiet shell line: the output of a command always joins the '
+  + 'conversation, so the next turn sees it. Use one ! instead.';
+
 // The generated section. Plain strings joined by newlines, like the command bridge: no template literal, so a
 // backtick or a `${` in here cannot end or interpolate anything, and no backslash has to survive two
 // languages.
@@ -188,6 +225,8 @@ function commandsSource() {
     `  const STATS = ${JSON.stringify(STATS_PREFIX)};`,
     `  const EXPORT = ${JSON.stringify(EXPORT_PREFIX)};`,
     `  const COPY = ${JSON.stringify(COPY_PREFIX)};`,
+    `  const SHELL = ${JSON.stringify(SHELL_PREFIX)};`,
+    `  const NO_QUIET_SHELL = ${JSON.stringify(NO_QUIET_SHELL)};`,
     `  const LEVELS: string[] = ${JSON.stringify(THINKING_LEVELS)};`,
     `  const MODEL_LIST_MAX = ${MODEL_LIST_MAX};`,
     `  const CAP = ${MESSAGE_CAP};`,
@@ -458,6 +497,19 @@ function commandsSource() {
     '    }),',
     '  });',
     '',
+    // A `!` line, caught in Pi's own input event — the header says why it is here and not a command.
+    // The handler answers at once: the app sends the shell line itself, so there is nothing to await.
+    '  pi.on("input", async (event: any, ctx: any) => {',
+    '    const text = String((event && event.text) || "");',
+    '    if (text.charAt(0) !== "!") return { action: "continue" };',
+    '    if (text.charAt(1) === "!") { say(ctx, NO_QUIET_SHELL, "warning"); return { action: "handled" }; }',
+    '    const command = text.slice(1).trim();',
+    // A lone `!` is somebody starting to type, not an empty command: it stays what it was.
+    '    if (!command) return { action: "continue" };',
+    '    say(ctx, SHELL + JSON.stringify({ command }), "info");',
+    '    return { action: "handled" };',
+    '  });',
+    '',
     '  for (const name of Object.keys(TUI_ONLY)) {',
     '    pi.registerCommand(name, {',
     '      description: "A command of Pi\'s terminal interface",',
@@ -580,6 +632,19 @@ function parseCopy(message) {
   return String(message == null ? '' : message).startsWith(COPY_PREFIX);
 }
 
+// A `!` line: `{ command }`, else null. The command is whatever stood after the `!`, capped because it
+// goes onto a command line — a line of unbounded length is not one somebody typed on purpose.
+const SHELL_COMMAND_CAP = 8192;
+function parseShell(message) {
+  const s = String(message == null ? '' : message);
+  if (!s.startsWith(SHELL_PREFIX)) return null;
+  try {
+    const v = JSON.parse(s.slice(SHELL_PREFIX.length));
+    const command = v && typeof v.command === 'string' ? v.command.trim() : '';
+    return command ? { command: command.slice(0, SHELL_COMMAND_CAP) } : null;
+  } catch { return null; }
+}
+
 // A notice saying Pi stopped waiting on one of these questions: its token, else null.
 function parseDismiss(message) {
   const s = String(message == null ? '' : message);
@@ -591,9 +656,9 @@ function parseDismiss(message) {
 }
 
 module.exports = {
-  LINK_PREFIX, ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX,
-  THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP,
+  LINK_PREFIX, ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX, SHELL_PREFIX,
+  THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP, NO_QUIET_SHELL,
   COMPLETE_COMMAND, COMPLETIONS_PREFIX, ARGUMENT_COMMANDS,
   commandsSource, describeFailure, parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats,
-  parseExport, parseCopy,
+  parseExport, parseCopy, parseShell,
 };

@@ -3,11 +3,12 @@
 // framing and the exit path are exercised against a real child process rather than a mock of one.
 'use strict';
 
-const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
+const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX, SHELL_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
 
 const SESSION_ID = 'fake-session';
 const messages = [];
 let buf = '';
+let runningBash = null;   // { id, printed } of a shell line waiting to be stopped
 
 function out(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
 
@@ -74,6 +75,10 @@ process.stdin.on('data', (chunk) => {
           out({ type: 'extension_ui_request', id: 'n3', method: 'notify', message: EXPORT_PREFIX + JSON.stringify({ args: cmd.message.slice('/export'.length).trim() }) });
         } else if (cmd.message === '/copy') {
           out({ type: 'extension_ui_request', id: 'n4', method: 'notify', message: COPY_PREFIX });
+        } else if (cmd.message.startsWith('!')) {
+          // Stands in for the runtime extension's `input` hook: a `!` line is answered with the marker and
+          // never reaches the model.
+          out({ type: 'extension_ui_request', id: 'n5', method: 'notify', message: SHELL_PREFIX + JSON.stringify({ command: cmd.message.slice(1).trim() }) });
         } else if (cmd.message === 'take it back') {
           // Pi stopped waiting on that question (a login's browser callback won), and the command says so.
           out({ type: 'extension_ui_request', id: 'n1', method: 'notify', message: DISMISS_PREFIX + JSON.stringify({ token: 't1' }) });
@@ -104,7 +109,25 @@ process.stdin.on('data', (chunk) => {
         out({ id: cmd.id, type: 'response', command: 'get_last_assistant_text', success: true, data: { text } });
         break;
       }
+      case 'bash': {
+        // `slow …` waits for abort_bash and answers nothing until then, which is how a long command
+        // behaves; anything else streams one chunk and finishes, the way Pi was measured to.
+        out({ type: 'bash_execution_update', id: cmd.id, delta: `ran ${cmd.command}\n` });
+        if (/^slow\b/.test(String(cmd.command || ''))) { runningBash = { id: cmd.id, printed: `ran ${cmd.command}\n` }; break; }
+        out({ id: cmd.id, type: 'response', command: 'bash', success: true, data: { output: `ran ${cmd.command}\n`, exitCode: 0, cancelled: false, truncated: false } });
+        break;
+      }
+      case 'abort_bash':
+        out({ id: cmd.id, type: 'response', command: 'abort_bash', success: true });
+        if (runningBash) {
+          // As measured on Pi 0.85.1: a stopped line KEEPS what it had already printed. An empty answer
+          // means the command had printed nothing yet, not that the output was discarded.
+          out({ id: runningBash.id, type: 'response', command: 'bash', success: true, data: { output: runningBash.printed, cancelled: true, truncated: false } });
+          runningBash = null;
+        }
+        break;
       case 'abort':
+        // As measured on Pi 0.85.1: an abort answers success and leaves a running shell line alone.
         out({ id: cmd.id, type: 'response', command: 'abort', success: true });
         break;
       default:

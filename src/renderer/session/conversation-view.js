@@ -126,6 +126,8 @@ function createConversationView(getSession, container) {
     approvals: new Map(),    // tool call id -> request id, while an approval for that call is open
     busy: false,
     queue: { steering: [], followUp: [] },
+    // Shell lines still running: the runtime's id -> { index, command }. See `localCommand`.
+    localCommands: new Map(),
     exited: false,
     attached: false,
   };
@@ -170,11 +172,52 @@ function createConversationView(getSession, container) {
     insertEntryEl(index, el);
   }
 
+  // A shell line the user ran (#643). It is an ORDINARY entry — it keeps the place it started in — and it
+  // is replaced as its output grows, so the map only has to remember which entry belongs to which line.
+  // Keyed by the runtime's id rather than drawn in the partial slot, because a shell line and an assistant
+  // turn can be live at the same time and the partial slot holds one thing.
+  //
+  // The command text arrives once, with the first op; the ops after it carry output and status only, so it
+  // is kept here rather than re-sent.
+  function localCommand(op) {
+    const id = String(op.id == null ? '' : op.id);
+    if (!id) return;
+    const known = view.localCommands.get(id);
+    const command = op.command != null ? String(op.command) : (known ? known.command : '');
+    const entry = { type: 'local-command', _localCmd: { cmd: command, output: String(op.output || '') } };
+    const running = op.status === 'running';
+    if (known) {
+      view.entries[known.index] = entry;
+      known.command = command;
+      const fresh = renderOne(known.index);
+      if (fresh && running) fresh.classList.add('conversation-streaming');
+      const old = view.elements[known.index];
+      if (old && fresh) old.replaceWith(fresh);
+      view.elements[known.index] = fresh || old;
+      if (!running) { view.localCommands.delete(id); renderComposer(); }
+      return;
+    }
+    const index = view.entries.push(entry) - 1;
+    view.localCommands.set(id, { index, command });
+    const el = renderOne(index);
+    if (el && running) el.classList.add('conversation-streaming');
+    view.elements[index] = el;
+    insertEntryEl(index, el);
+    if (!running) view.localCommands.delete(id);
+    // Stop appears and disappears with the command, and nothing else redraws the composer for it: a
+    // shell line raises no busy edge, which is what `somethingRunning` exists to cover.
+    renderComposer();
+  }
+
   function reset(entries) {
     for (const el of view.elements) if (el) el.remove();
     view.entries = [];
     view.elements = [];
+    // A re-mount re-reads the conversation from the runtime, and a finished shell line is in it as an
+    // ordinary entry — so nothing here may still claim an index into the list just thrown away.
+    view.localCommands.clear();
     for (const entry of entries || []) appendEntry(entry);
+    renderComposer();
   }
 
   function renderPartial() {
@@ -242,8 +285,14 @@ function createConversationView(getSession, container) {
     if (submitAgain) { const next = submitAgain; submitAgain = null; submit(next); }
   }
 
+  // What Stop and Escape can end. A turn is the obvious one; a shell line the user ran (#643) is the
+  // other, and it is NOT a turn — it sets no busy state, because the agent is not working. Gating the
+  // control on `busy` alone therefore left a running command with no way to stop it, which is the whole
+  // of what the abort in main was built for.
+  const somethingRunning = () => !!view.busy || view.localCommands.size > 0;
+
   async function stop() {
-    if (!view.busy) return;
+    if (!somethingRunning()) return;
     let res;
     try { res = await window.api.agent.abort(view.session.sessionId); } catch { res = null; }
     if (!res || !res.ok) notice('error', (res && res.error) || 'The session did not stop.');
@@ -257,7 +306,7 @@ function createConversationView(getSession, container) {
     sendBtn.title = view.busy ? 'Send when the running turn is done (Enter)' : 'Send (Enter)';
     steerBtn.style.display = view.busy && !off ? '' : 'none';
     steerBtn.disabled = sending;
-    stopBtn.style.display = view.busy && !off ? '' : 'none';
+    stopBtn.style.display = somethingRunning() && !off ? '' : 'none';
     composer.classList.toggle('disabled', off);
   }
 
@@ -290,7 +339,7 @@ function createConversationView(getSession, container) {
         }
       }
     }
-    if (e.key === 'Escape' && view.busy) { e.preventDefault(); stop(); return; }
+    if (e.key === 'Escape' && somethingRunning()) { e.preventDefault(); stop(); return; }
     if (e.key !== 'Enter') return;
     if (e.shiftKey) return;   // a new line, as in any text field
     const chord = (typeof isMac !== 'undefined' && isMac) ? e.metaKey : e.ctrlKey;
@@ -533,6 +582,7 @@ function createConversationView(getSession, container) {
       case 'busy': view.busy = !!op.busy; if (!view.busy) { view.tools.clear(); renderActivity(); } renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
       case 'notice': notice(op.level, op.text, op.links, op.files); break;
+      case 'localCommand': localCommand(op); break;
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);
@@ -578,6 +628,10 @@ function createConversationView(getSession, container) {
     view.exited = true;
     view.busy = false;
     view.tools.clear();
+    // A shell line running when the session died can never report back, so it stops counting as running.
+    // The disabled composer hides Stop anyway today; this is so that stays true if that gate is ever
+    // relaxed, rather than leaving `somethingRunning()` permanently true for a dead session.
+    view.localCommands.clear();
     renderActivity();
     for (const card of view.asks.values()) card.remove();
     view.asks.clear();

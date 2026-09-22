@@ -266,6 +266,7 @@ the approval gate is on or not:
 | `/copy` | Puts the agent's last reply on the system clipboard. Answered by the app, because a clipboard belongs to the machine. |
 | `/name [name]` | Names the session through `pi.setSessionName`. With no argument it asks on a card. Answered inside the extension. |
 | `/reload` | Reloads Pi's extensions, skills, prompt templates and context files through `ctx.reload()`. Answered inside the extension. |
+| `!cmd` | Not a command at all: a shell line, caught in Pi's own `input` event and run by Pi's own shell, so its output joins the session's context — see below. |
 
 The rest of Pi's terminal commands (`/tree`, `/new`, `/settings` …) answer with a line saying
 where that function lives in the app, or that it is not offered yet. The list is `TUI_ONLY` in that file.
@@ -407,6 +408,74 @@ so the notice goes out before the call and nothing is said after it. Two consequ
 instance — the resources were reloaded, so asking again is the honest answer — and the app's `/` list is
 briefly stale, which the composer's own reuse window heals without anyone telling it.
 
+### A `!` line is not a command (#643)
+
+In Pi's terminal interface `!ls` runs a shell line and puts its output into the conversation. Over RPC
+that prefix means nothing — only a `/` line is looked up, and `!ls` goes to the model as text.
+
+So it is caught in Pi's own `input` event, which fires for a line that arrived over RPC too (measured:
+`source: "rpc"`), and a handler returning `{ action: "handled" }` stops it before skill and template
+expansion. The handler says a marker; the app sends Pi's own `bash`. That is the point of the round trip:
+**Pi's shell runs it and Pi books the output into its context**, so the next turn sees it — verified by
+running `!echo MARKER` and asking the model what the last command printed. Running it inside the
+extension with `node:child_process` would be a second shell whose output nothing would read.
+
+The `!` grammar therefore lives entirely in `src/backends/pi-native/`. No core branch, nothing in the
+composer: a runtime that spells its shell escape differently, or has none, changes nothing outside its
+own folder.
+
+**`!!` is refused rather than quietly run as `!`.** In Pi's terminal interface the second `!` means "keep
+the output out of the context", and the RPC `bash` has no such option. Accepting the line and booking the
+output anyway would break exactly the promise it makes.
+
+Three things about how it is drawn, each decided by a measurement:
+
+- **It cannot use the `partial` slot.** A shell line and an assistant turn can be live AT ONCE — measured:
+  a `bash` sent mid-turn completed while the assistant was still streaming. So it is an ordinary entry,
+  keyed by the id its request went out under, replaced as its output grows. The growing text is
+  accumulated in the decoder, so a view that re-mounts mid-command gets the whole output on the next
+  delta rather than the remainder — and the main process stamps the COMMAND onto every op it forwards
+  for that line, because a view that mounted late has not seen the op that named it and would otherwise
+  draw output under an empty heading, with no Stop.
+  **The ops are coalesced like the streamed turn**, at the same interval and for the same reason: each
+  one carries the whole output so far, and a chatty command writes a delta at a time. Anything that needs
+  ordering flushes both streams, since they share one order in the view. And main forwards an op only for
+  a line it started itself: one it did not start has no request behind it, so nothing would ever end it
+  and the view would offer Stop for it until the tab closed.
+- **Stop had to learn a second thing to stop.** A shell line raises no busy edge — the agent is not
+  working — and the Stop control was gated on `busy` alone, so a running command had nothing to stop it.
+  It is offered while either is running now, and Escape reaches the same abort. And the abort itself is a
+  different command: measured, a plain `abort` answers success and leaves the shell line running to
+  completion, because `abort` is about the turn. `abort_bash` is what ends it.
+  **Each is sent only when there is something for it to stop**: both when a line is running beside a turn,
+  which is one press ending both, and only `abort_bash` for a line running on its own — so stopping a
+  command does not also kill a reply that was streaming beside it.
+- **A stopped line KEEPS what it had already printed.** The first reading of this said the opposite, and
+  it was taken from a command that had printed nothing when it was stopped — an empty answer there means
+  "there was nothing", not "it was discarded". Re-measured against a command that was writing at the
+  time: every line of it came back. The marker says the line was stopped; the output above it stands.
+  That marker is `[cancelled]`, which is not a word chosen here: it is what the Message History reader
+  writes for the SAME execution when it reads it back out of the transcript, and the two are asserted
+  against each other rather than each against a string written twice. A line that reads one way live and
+  another after a re-mount is the drift that pinning exists to prevent.
+
+**A shell line runs only when this window's composer sent it.** The runtime raises its marker for every
+turn that reaches the session, and a turn is not only what somebody typed: the trigger watcher, a seed
+prompt and a custom launcher all write into one. A `!` line arriving that way would run a command with
+nothing asked — and the decision not to put a typed `!` line through the approval gate was taken about a
+person at a keyboard, not about a file dropped in a directory. So the composer records the line it sent
+and a marker is honoured only against that record, once.
+
+It fails CLOSED, deliberately: a line wrongly taken for injected does not run, which is an annoyance,
+while one wrongly taken for typed runs a command nobody asked for. It matches the TEXT rather than
+trusting the order, so a typed line and an injected one overlapping still come out right, and an injected
+line SAYS it was not run rather than disappearing — what it asked for was a command, and silence would
+read as the app losing it.
+
+The alternative weighed and not taken was putting an injected `!` line through the approval gate. It
+keeps the capability, but a trigger runs when nobody is watching, and a card nobody answers blocks it —
+so the capability would be unreliable exactly where it is used.
+
 ### `/fork`, `/clone` and `/tree` are refused, and not because they are out of reach
 
 A first reading of Pi's **RPC** surface alone concluded that `/tree` and `/reload` could not be built at
@@ -487,10 +556,9 @@ questions before a command's shell line and before an MCP tool, described under 
 - **A login is ended by its card, not by Stop.** Esc and Stop abort a run, and a login is not one. A second
   `/login` to a provider whose first login is still open waits behind it in Pi's queue and shows no card
   until the first one ends. Dismissing the open card ends it.
-- **`!cmd` is not built yet**, and answers as an ordinary prompt would (#643). `/fork`, `/clone` and
-  `/tree` each answer with a line instead, and that is a REFUSAL rather than a gap — the section above
-  says what each costs, and `/tree` is #646. Session statistics, the export, the copy, the name and the
-  reload used to be on this list and are built; they are in the table above.
+- **`/fork`, `/clone` and `/tree` answer with a line instead**, and that is a REFUSAL rather than a gap —
+  the section above says what each costs, and `/tree` is #646. Session statistics, the export, the copy,
+  the name, the reload and `!cmd` used to be on this list and are built; they are in the table above.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:

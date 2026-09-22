@@ -167,6 +167,13 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
     decoder: rpc.createDecoder(),
     pending: new Map(),      // request id -> { resolve, timer }
     asks: new Map(),         // request id -> the ask the renderer has not answered yet
+    // Shell lines this process started that have not reported back: id -> the command text. The TEXT is
+    // kept because every op forwarded for that line carries it — a view that mounts mid-command has
+    // never seen the op that named it, and would otherwise draw output under an empty heading.
+    localCommands: new Map(),
+    localOps: new Map(),     // id -> the newest running op not sent yet (coalesced, like the partial)
+    localTimer: null,
+    composerLines: new Set(), // shell lines the composer sent that the runtime has not raised yet
     queue: { steering: [], followUp: [] },
     busy: false,
     typed: '',               // what `write()` has collected towards the next carriage return
@@ -177,9 +184,29 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
     seq: 0,                  // the number of the last op sent — see sendOp
   };
 
+  // Both streamed things at once: the assistant turn being written, and any shell line writing beside it.
+  // They are separate streams and can run together, but they share ONE order in the view, so whatever
+  // needs ordering flushes both — a notice drawn between two halves of a command's output would read as
+  // part of it.
   function flushPartial() {
     if (state.partialTimer) { clearTimeout(state.partialTimer); state.partialTimer = null; }
     if (state.partialOp) { const op = state.partialOp; state.partialOp = null; sendOp(state, op); }
+    flushLocalOps();
+  }
+
+  function flushLocalOps(only) {
+    if (only !== undefined) {
+      const op = state.localOps.get(only);
+      state.localOps.delete(only);
+      if (op) sendOp(state, op);
+      if (!state.localOps.size && state.localTimer) { clearTimeout(state.localTimer); state.localTimer = null; }
+      return;
+    }
+    if (state.localTimer) { clearTimeout(state.localTimer); state.localTimer = null; }
+    if (!state.localOps.size) return;
+    const ops = [...state.localOps.values()];
+    state.localOps.clear();
+    for (const op of ops) sendOp(state, op);
   }
 
   function write(obj) {
@@ -189,14 +216,23 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
 
   // One request, one response. Pi echoes the `id` it was given; a request whose response never comes is
   // answered with a refusal after RESPONSE_TIMEOUT_MS so nobody awaits it forever.
-  function request(build) {
-    const id = crypto.randomUUID();
+  //
+  // Two options, each for one caller and each the opposite of a default:
+  //
+  //   `id`         the runtime echoes it on events of its OWN before the response lands — a shell line's
+  //                output arrives under it — so the caller has to know the id in advance.
+  //   `timeoutMs`  0 means no timer at all, and the only caller that asks for it is a shell line the
+  //                USER started: `!npm test` runs for minutes, and a timeout would report a failure
+  //                about a command that is working. Nothing is leaked by it — the child exiting resolves
+  //                every pending request (see the exit handler), which is the real bound here.
+  function request(build, { id: fixedId, timeoutMs = RESPONSE_TIMEOUT_MS } = {}) {
+    const id = fixedId || crypto.randomUUID();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
+      const timer = timeoutMs > 0 ? setTimeout(() => {
         state.pending.delete(id);
         resolve({ success: false, error: 'no answer' });
-      }, RESPONSE_TIMEOUT_MS);
-      if (typeof timer.unref === 'function') timer.unref();
+      }, timeoutMs) : null;
+      if (timer && typeof timer.unref === 'function') timer.unref();
       state.pending.set(id, { resolve, timer });
       if (!write(build(id))) {
         clearTimeout(timer);
@@ -223,6 +259,37 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
     }
   }
   state.followIdentity = followIdentity;
+
+  // A SHELL LINE RUNS ONLY IF THIS WINDOW'S COMPOSER SENT IT.
+  //
+  // The runtime raises its shell-line marker for every turn that reaches the session, and a turn does not
+  // only come from somebody typing: the trigger watcher, a seed prompt and a custom launcher all write
+  // into a session through `write()` below. A `!` line arriving that way would run a command with nothing
+  // asked — and the decision not to put a typed `!` line through the approval gate was taken about a
+  // person at a keyboard, not about a file dropped in a directory.
+  //
+  // So the composer says what it sent, and a marker is honoured only against that. It fails CLOSED on
+  // purpose: a line wrongly taken for injected does not run, which is an annoyance, while one wrongly
+  // taken for typed runs a command nobody asked for. Matching the TEXT rather than trusting an order
+  // keeps that true when a typed line and an injected one overlap.
+  //
+  // The reader must spell the command exactly as the backend's marker does, which is why both sides trim
+  // the line and then trim what follows the `!`.
+  const SHELL_LINE = /^\s*!\s*(?!\s*!)(.+)$/s;
+  function shellLineOf(text) {
+    const m = SHELL_LINE.exec(String(text == null ? '' : text));
+    const command = m ? m[1].trim() : '';
+    return command || null;
+  }
+  function noteComposerLine(text) {
+    const command = shellLineOf(text);
+    if (!command) return;
+    // A bound, not a cache: these are consumed within a second of being sent, and one left behind means
+    // the runtime never raised the marker for it.
+    if (state.composerLines.size > 16) state.composerLines.clear();
+    state.composerLines.add(command);
+  }
+  state.noteComposerLine = noteComposerLine;
 
   function report(kind, extra) {
     const found = findSession(tag);
@@ -257,6 +324,24 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
           if (typeof state.partialTimer.unref === 'function') state.partialTimer.unref();
         }
         return;
+      case 'localCommand': {
+        // A shell line writes a delta at a time and every op carries the whole output so far, so it is
+        // coalesced exactly as the streamed turn above is. Without it `!npm test` sends one full-buffer
+        // message and costs one full re-render per delta, which `ping -n 6` is far too quiet to show.
+        //
+        // Two things are decided here rather than in the backend, because both are about THIS process's
+        // own bookkeeping: an op for a line this process did not start is dropped — nothing would ever
+        // end it, so the view would keep offering Stop for it forever — and the command TEXT is stamped
+        // on, so a view that mounts mid-command draws the line complete.
+        const command = state.localCommands.get(op.id);
+        if (command === undefined) return;
+        state.localOps.set(op.id, { ...op, command });
+        if (!state.localTimer) {
+          state.localTimer = setTimeout(flushLocalOps, PARTIAL_INTERVAL_MS);
+          if (typeof state.localTimer.unref === 'function') state.localTimer.unref();
+        }
+        return;
+      }
       case 'busy':
         flushPartial();
         if (state.busy === op.busy) return;
@@ -327,6 +412,44 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
             ...(file ? { files: [{ path: file, label: 'Open the file' }] } : {}),
           });
         }).catch((err) => ctx.log.warn(`[agent-rpc] the session was not written to a file: ${err.message}`));
+        return;
+      }
+      case 'shell': {
+        // The user asked to run a shell line. The runtime runs it, because its own shell is what books the
+        // output into the session's context — the next prompt then carries it to the model. This process
+        // only starts it, says so on screen, and remembers that one is running so Stop can reach it.
+        flushPartial();
+        if (typeof rpc.shellCommand !== 'function' || typeof rpc.shellResult !== 'function') return;
+        const command = String(op.command || '');
+        if (!command) return;
+        // Only a line this window's composer sent — see `noteComposerLine`. A turn written into the
+        // session from somewhere else says so rather than running, because what it asked for is a
+        // command and refusing it silently would read as the app losing the line.
+        if (!state.composerLines.delete(command)) {
+          sendOp(state, {
+            op: 'notice',
+            level: 'warning',
+            text: 'A shell line only runs when it is typed here. This one arrived with a message sent into the session, so it was not run.',
+          });
+          return;
+        }
+        const id = crypto.randomUUID();
+        state.localCommands.set(id, command);
+        // Said before the request goes out, so a command that takes a minute has something on screen from
+        // the first frame rather than from its last.
+        sendOp(state, { op: 'localCommand', id, command, status: 'running', output: '' });
+        request(() => rpc.shellCommand(id, { command }), { id, timeoutMs: 0 }).then((res) => {
+          state.localCommands.delete(id);
+          // Whatever was still waiting to be drawn for this line is dropped rather than sent: the result
+          // below carries the whole output, so flushing first would draw the same text twice.
+          state.localOps.delete(id);
+          const result = rpc.shellResult(res);
+          sendOp(state, { op: 'localCommand', id, command, status: result.status, output: result.output });
+        }).catch((err) => {
+          state.localCommands.delete(id);
+          state.localOps.delete(id);
+          ctx.log.warn(`[agent-rpc] a shell line did not report back: ${err.message}`);
+        });
         return;
       }
       case 'lastReply':
@@ -502,17 +625,34 @@ async function sendTurn(sessionId, payload) {
   const text = String((payload && payload.text) || '');
   if (!text.trim()) return { ok: false, error: 'Nothing to send.' };
   const mode = SEND_MODES.has(payload && payload.mode) ? payload.mode : 'prompt';
+  state.noteComposerLine(text);
   const res = await state.send({ text, mode });
   // Pi's refusal is its own sentence about the request ("Agent is streaming…"), not a thrown error that
   // could carry a path, so it is passed on.
   return res && res.success !== false ? { ok: true } : { ok: false, error: (res && res.error) || 'The session refused the message.' };
 }
 
+// Stop. It ends the agent's turn — and, since #643, a shell line the user started, which is a SECOND
+// thing to stop and not the same one: measured on Pi 0.85.1, a plain abort answers success while the
+// command runs on to completion, because an abort is about the turn and a shell line is not one. So both
+// go out when a shell line is running, that one first: it is the thing the user can see working.
+//
+// A stopped line keeps what it had already printed (measured), so what the user is left with is the
+// output up to the moment they pressed Stop, marked as stopped. The backend words that.
+//
+// EACH IS SENT ONLY WHEN THERE IS SOMETHING FOR IT TO STOP. Both, when a shell line is running beside a
+// turn — that is one press of Stop ending both, which is what Stop means — but a shell line running on
+// its own does not get the turn aborted as well, and an idle session with a shell line does not report
+// "The session did not stop" because the abort it did not need answered oddly.
 async function abortTurn(sessionId) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
-  const res = await state.request(state.rpc.abortCommand);
-  return res && res.success !== false ? { ok: true } : { ok: false, error: 'The session did not stop.' };
+  const stopsLine = state.localCommands.size > 0 && typeof state.rpc.shellAbortCommand === 'function';
+  const answers = [];
+  if (stopsLine) answers.push(await state.request(state.rpc.shellAbortCommand));
+  if (state.busy || !stopsLine) answers.push(await state.request(state.rpc.abortCommand));
+  const failed = answers.find(res => !res || res.success === false);
+  return failed ? { ok: false, error: 'The session did not stop.' } : { ok: true };
 }
 
 // --- the input's autocomplete (#643) ---

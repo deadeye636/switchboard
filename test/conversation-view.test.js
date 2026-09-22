@@ -38,7 +38,11 @@ function setup({ attachAnswer } = {}) {
     function renderJsonlEntry(entry) {
       const d = document.createElement('div');
       d.className = 'jsonl-entry';
-      d.textContent = JSON.stringify(entry.message && entry.message.content);
+      // The real one draws a shell line through renderLocalCommand (jsonl/jsonl-viewer.js); here it is
+      // enough that the entry the view builds carries the command and the output where that reader looks.
+      d.textContent = entry && entry._localCmd
+        ? entry._localCmd.cmd + '\\n' + entry._localCmd.output
+        : JSON.stringify(entry.message && entry.message.content);
       return d;
     }
   `, ctx);
@@ -231,6 +235,68 @@ test('a notice with a file draws a button that opens the file, never the browser
   buttons[0].click();
   assert.deepEqual(opened, ['somewhere/session.html']);
   assert.deepEqual(browsed, [], 'a file never goes to the browser opener');
+});
+
+// #643 — a shell line the user ran. It keeps its place in the conversation and is REPLACED as its output
+// grows, rather than appended to, and it cannot use the partial slot: a shell line and an assistant turn
+// can be live at once.
+test('a shell line is one entry that grows, and keeps its place in the order', () => {
+  const h = setup();
+  const entries = () => [...h.entry.element.querySelectorAll('.conversation-log > *')];
+
+  h.entry.conversation.apply({ op: 'localCommand', seq: 1, id: 'r1', command: 'ls -la', status: 'running', output: '' });
+  const afterStart = entries().length;
+  assert.ok(h.entry.element.textContent.includes('ls -la'), 'the command is on screen before any output');
+
+  h.entry.conversation.apply({ op: 'localCommand', seq: 2, id: 'r1', status: 'running', output: 'one\n' });
+  h.entry.conversation.apply({ op: 'localCommand', seq: 3, id: 'r1', status: 'running', output: 'one\ntwo\n' });
+  assert.equal(entries().length, afterStart, 'the same entry is replaced, never a second one appended');
+  assert.ok(h.entry.element.textContent.includes('two'), 'and it shows the latest output');
+  assert.ok(h.entry.element.textContent.includes('ls -la'), 'the command survives ops that do not repeat it');
+
+  h.entry.conversation.apply({ op: 'localCommand', seq: 4, id: 'r1', status: 'done', output: 'one\ntwo\n\n[exit 0]' });
+  assert.equal(entries().length, afterStart);
+  assert.ok(h.entry.element.textContent.includes('[exit 0]'));
+});
+
+// A shell line raises no busy edge — the agent is not working — so a control gated on `busy` alone left
+// a running command with nothing to stop it, while main had the abort all along.
+test('Stop is offered while a shell line runs, and Escape reaches it', () => {
+  const h = setup();
+  const stopBtn = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  assert.ok(stopBtn, 'the control exists');
+  assert.equal(stopBtn.style.display, 'none', 'and is hidden while nothing is running');
+
+  h.entry.conversation.apply({ op: 'localCommand', seq: 1, id: 'r1', command: 'sleep 9', status: 'running', output: '' });
+  assert.equal(stopBtn.style.display, '', 'a running shell line offers Stop, although the session is not busy');
+  h.key({ key: 'Escape' });
+  assert.equal(h.calls.abort, 1, 'and Escape reaches the same abort');
+
+  h.entry.conversation.apply({ op: 'localCommand', seq: 2, id: 'r1', status: 'cancelled', output: '[stopped]' });
+  assert.equal(stopBtn.style.display, 'none', 'and it goes again when the line ends');
+  h.key({ key: 'Escape' });
+  assert.equal(h.calls.abort, 1, 'Escape stops nothing once there is nothing to stop');
+});
+
+test('two shell lines are two entries, and a re-mount forgets them', () => {
+  const h = setup();
+  h.entry.conversation.apply({ op: 'localCommand', seq: 1, id: 'a', command: 'first', status: 'running', output: '' });
+  h.entry.conversation.apply({ op: 'localCommand', seq: 2, id: 'b', command: 'second', status: 'running', output: '' });
+  const text = h.entry.element.textContent;
+  assert.ok(text.includes('first') && text.includes('second'), 'each id is its own entry');
+
+  // The conversation is re-read from the runtime, where a finished line is an ordinary entry — so nothing
+  // may still hold an index into the list that was just thrown away.
+  h.entry.conversation.apply({ op: 'reset', seq: 3, entries: [] });
+  const stopBtn = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  assert.equal(stopBtn.style.display, 'none', 'a re-mount starts with nothing running');
+
+  // Main stamps the command onto EVERY op for a line it started, so a view that mounts mid-command draws
+  // it whole and gets its Stop back rather than showing output under an empty heading.
+  h.entry.conversation.apply({ op: 'localCommand', seq: 4, id: 'a', command: 'first', status: 'running', output: 'again' });
+  assert.ok(h.entry.element.textContent.includes('again'), 'a later op for a known id draws a fresh entry');
+  assert.ok(h.entry.element.textContent.includes('first'), 'and the entry still names the command');
+  assert.equal(stopBtn.style.display, '', 'and the line can be stopped again');
 });
 
 test('a notice with neither a page nor a file has no actions at all', () => {

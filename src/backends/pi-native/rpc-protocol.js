@@ -27,6 +27,13 @@
 //   { op: 'lastReply' }              the user asked for the agent's last reply as text (#643), to put on
 //                                    the clipboard. The core sends `lastReplyCommand`, does the copying,
 //                                    and draws `copiedNotice`
+//   { op: 'shell', command }         the user asked to run a shell line (#643, a `!` line). The core sends
+//                                    `shellCommand` and the runtime runs it, so the output joins the
+//                                    session's own context
+//   { op: 'localCommand', id, … }    a shell line the user ran: `command` when it starts, `output` as it
+//                                    grows, `status` running/done/error/cancelled. Keyed by `id` because a
+//                                    shell line and an assistant turn can be live AT ONCE (measured), so
+//                                    this cannot share the `partial` slot with one
 //
 // Entries are the same neutral shape the Message History viewer already draws, produced by Pi's own
 // normaliser (`../pi/transcript-view.js`), so a live session and its history look the same and there is
@@ -47,7 +54,7 @@
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
-const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
+const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, parseShell, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
 function entriesFor(message) {
@@ -86,6 +93,14 @@ function createDecoder() {
   // answer arrives as a notice BEFORE Pi's response to the request, so the core reads it here when the
   // response lands. Taken once; bounded in case a request's reader has already given up.
   const completions = new Map();
+  // What a shell line (`!cmd`) has written so far, by the id its request went out under. The growing text
+  // is accumulated HERE rather than in the renderer: a view that re-mounts mid-command would otherwise
+  // have to rebuild it from deltas it never saw. Bounded both ways — the map because a session can run
+  // many lines, and each string because a command can write megabytes and only the app's screen reads
+  // this. The FINAL output is the runtime's own (`shellResult`), truncation marker and all, so a live
+  // view that kept the tail is corrected the moment the command ends.
+  const shellOutput = new Map();
+  const LIVE_OUTPUT_CAP = 200000;
 
   const partialOp = () => ({ op: 'partial', entry: partial ? (entriesFor(partial)[0] || null) : null });
 
@@ -145,6 +160,17 @@ function createDecoder() {
           ops.push({ op: 'notice', level: 'info', text: 'Stopped.' });
         }
         return ops;
+      }
+      // A shell line the user ran writes here as it goes. It is NOT a tool call — no tool block exists to
+      // attach it to — so it gets an op of its own, keyed by the id the `bash` request carried.
+      case 'bash_execution_update': {
+        const id = String(msg.id == null ? '' : msg.id);
+        if (!id) return [];
+        if (shellOutput.size > 8 && !shellOutput.has(id)) shellOutput.clear();
+        let output = (shellOutput.get(id) || '') + String(msg.delta == null ? '' : msg.delta);
+        if (output.length > LIVE_OUTPUT_CAP) output = output.slice(output.length - LIVE_OUTPUT_CAP);
+        shellOutput.set(id, output);
+        return [{ op: 'localCommand', id, status: 'running', output }];
       }
       case 'tool_execution_start':
         return [{ op: 'tool', id: msg.toolCallId, status: 'running', output: '' }];
@@ -256,6 +282,9 @@ function createDecoder() {
           const asked = parseExport(msg.message);
           if (asked) return [{ op: 'exportFile', args: asked.args }];
           if (parseCopy(msg.message)) return [{ op: 'lastReply' }];
+          // A `!` line, caught by the extension's `input` hook rather than by a command.
+          const shell = parseShell(msg.message);
+          if (shell) return [{ op: 'shell', command: shell.command }];
           const level = msg.notifyType === 'error' || msg.notifyType === 'warning' ? msg.notifyType : 'info';
           // A page to open — a login page, a device-code page. Drawn with a button rather than as the URL.
           const link = parseLink(msg.message);
@@ -461,6 +490,53 @@ function copiedNotice({ text, copied } = {}) {
   return { level: 'info', text: 'The agent\'s last reply is on the clipboard (' + plural(String(text).split('\n').length, 'line') + ').' };
 }
 
+// --- a shell line the user ran (#643, a `!` line) ---
+
+// Pi's documented `bash`. The runtime runs it and books a `BashExecutionMessage` into the session, which
+// is the whole reason for going through the protocol rather than running a child here: the next prompt
+// carries the output to the model, exactly as it does in Pi's terminal interface.
+const shellCommand = (id, { command } = {}) => ({ id, type: 'bash', command: String(command || '') });
+
+// Pi's documented `abort_bash`. It takes no id — the runtime runs one shell line at a time — and it is
+// the ONLY thing that stops one: measured on 0.85.1, a plain `abort` answers success and the command
+// runs to completion with `cancelled: false`, because `abort` is about the agent's turn and a shell line
+// is not one.
+const shellAbortCommand = (id) => ({ id, type: 'abort_bash' });
+
+/**
+ * `shellCommand`'s answer as the final state of that line — `{ status, output }`.
+ *
+ * The output is worded the way the Message History viewer words the same execution when it reads it back
+ * out of the transcript (`../pi/transcript-view.js`): the text, then the exit code, then the truncation
+ * marker. A live line and the same line re-read after a re-mount then look alike, which is the point of
+ * building it here rather than in the renderer.
+ *
+ * A CANCELLED line KEEPS what it had already printed — measured on 0.85.1 by stopping a command that
+ * was writing at the time, and the reply carried every line of it. An earlier reading said the opposite
+ * and was taken from a command that had printed nothing when it was stopped, where an empty answer means
+ * "there was nothing", not "it was thrown away". So the marker says the line was stopped and the output
+ * above it stands.
+ */
+function shellResult(response) {
+  if (!response || response.success === false) {
+    // "did not finish", not "was not run": the commonest way to land here is the session ending while the
+    // line was running, and it HAD run. Whether it started at all is not knowable from this answer.
+    return { status: 'error', output: 'The shell line did not finish: ' + describeFailure({ message: response && response.error }, MESSAGE_CAP) };
+  }
+  const d = response.data && typeof response.data === 'object' ? response.data : {};
+  const status = d.cancelled ? 'cancelled' : (d.exitCode ? 'error' : 'done');
+  // `[cancelled]`, not a word of this file's own: the history reader spells the SAME execution that way
+  // when it reads it back out of the transcript, and a line that says one thing live and another after a
+  // re-mount is the drift this wording exists to avoid. `test/pi-source-agents`-style pinning is done in
+  // `test/pi-native-session-commands.test.js`, which asserts the two against each other.
+  const parts = [
+    String(d.output == null ? '' : d.output),
+    d.cancelled ? '[cancelled]' : (d.exitCode == null ? '' : `[exit ${d.exitCode}]`),
+    d.truncated ? '[truncated]' : '',
+  ].filter(Boolean);
+  return { status, output: parts.join('\n') };
+}
+
 // The answer to an `ask`. `answer` is the app's: `{ value }` for a choice or a text, `{ confirmed }` for a
 // yes/no, `{ cancelled: true }` for a dismissed dialog — the three response shapes Pi documents.
 function answerCommand(requestId, answer = {}) {
@@ -502,6 +578,9 @@ module.exports = {
   lastReplyCommand,
   lastReplyText,
   copiedNotice,
+  shellCommand,
+  shellAbortCommand,
+  shellResult,
   answerCommand,
   sessionIdFromState,
   entriesFromMessages,
