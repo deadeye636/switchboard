@@ -210,3 +210,33 @@ test('a notice with a page to open draws a button that hands a web address to th
   buttons[0].click();
   assert.deepEqual(opened, ['https://example.test/authorize?x=1']);
 });
+
+// #643 — a file the app produced for this session (`/export`). A separate field from `links`, because the
+// two go to different openers: a page to the browser, a file to the OS default application.
+test('a notice with a file draws a button that opens the file, never the browser', () => {
+  const h = setup();
+  const opened = [];
+  const browsed = [];
+  h.w.api.openPath = (p) => { opened.push(p); return Promise.resolve(); };
+  h.w.api.openExternal = (u) => { browsed.push(u); return Promise.resolve(); };
+  h.entry.conversation.apply({ op: 'notice', seq: 1, level: 'info', text: 'Session written to somewhere.', files: [
+    { path: 'somewhere/session.html', label: 'Open the file' },
+    { path: '', label: 'Not this' },
+  ] });
+  const notice = [...h.entry.element.querySelectorAll('.conversation-notice')].pop();
+  const buttons = [...notice.querySelectorAll('button')];
+  assert.deepEqual(buttons.map(b => b.textContent), ['Open the file'], 'an entry with no path is not a button');
+  assert.ok(buttons[0].classList.contains('new-session-secondary-btn'), 'a styled control');
+  assert.equal(buttons[0].title, 'somewhere/session.html', 'the path is readable without opening it');
+  buttons[0].click();
+  assert.deepEqual(opened, ['somewhere/session.html']);
+  assert.deepEqual(browsed, [], 'a file never goes to the browser opener');
+});
+
+test('a notice with neither a page nor a file has no actions at all', () => {
+  const h = setup();
+  h.entry.conversation.apply({ op: 'notice', seq: 1, level: 'info', text: 'Just a line.' });
+  const notice = [...h.entry.element.querySelectorAll('.conversation-notice')].pop();
+  assert.equal(notice.querySelectorAll('button').length, 0);
+  assert.equal(notice.querySelectorAll('.conversation-ask-actions').length, 0);
+});

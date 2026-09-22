@@ -60,6 +60,11 @@ Log file: the installed app writes `%APPDATA%/switchboard/logs/main.log`; a **de
 `~/.switchboard-dev/userData/logs/main.log`. Reading the wrong one looks exactly like "my log line
 never fired".
 
+`DATA_DIR` also holds `exports/`, where a file a session produced for itself goes when nobody named a
+path (#643, `/export` in a runtime-driven session). It follows `DATA_DIR` like the database, so a
+sandbox's exports do not land beside a dev run's — and it is deliberately not the project, because a
+runtime asked to export itself with no path writes into its own working directory.
+
 ## The source stores are shared by both
 
 They belong to the CLIs, not to us: `~/.claude/projects/**`, `%LOCALAPPDATA%\hermes\state.db`,

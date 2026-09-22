@@ -20,6 +20,13 @@
 //   { op: 'figures' }                the user asked the session what it has cost so far (#643). It carries
 //                                    no numbers: the core answers it by sending `statsCommand` and drawing
 //                                    `statsNotice`, so the shape of those figures stays in this file
+//   { op: 'exportFile', args }       the user asked for a file of this session (#643). `args` is the file
+//                                    they named, or '' — the core decides the path and sends
+//                                    `exportCommand`, because where a file the app produced belongs is
+//                                    not a question about the runtime
+//   { op: 'lastReply' }              the user asked for the agent's last reply as text (#643), to put on
+//                                    the clipboard. The core sends `lastReplyCommand`, does the copying,
+//                                    and draws `copiedNotice`
 //
 // Entries are the same neutral shape the Message History viewer already draws, produced by Pi's own
 // normaliser (`../pi/transcript-view.js`), so a live session and its history look the same and there is
@@ -40,7 +47,7 @@
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
-const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
+const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
 function entriesFor(message) {
@@ -244,6 +251,11 @@ function createDecoder() {
           // `/session` was typed. The command carries no figures on purpose — the core asks for them with
           // `statsCommand` below, which is the one documented way to them (#643, W3).
           if (parseStats(msg.message)) return [{ op: 'figures' }];
+          // `/export` and `/copy`, the same way: the command says only that it was typed, and the core
+          // answers over the protocol below. Neither carries a path or any text.
+          const asked = parseExport(msg.message);
+          if (asked) return [{ op: 'exportFile', args: asked.args }];
+          if (parseCopy(msg.message)) return [{ op: 'lastReply' }];
           const level = msg.notifyType === 'error' || msg.notifyType === 'warning' ? msg.notifyType : 'info';
           // A page to open — a login page, a device-code page. Drawn with a button rather than as the URL.
           const link = parseLink(msg.message);
@@ -371,6 +383,84 @@ function statsNotice(response) {
   return { level: 'info', text: 'As Pi counts this session: ' + parts.join(' · ') + '.' };
 }
 
+// --- a file of the session (#643, `/export`) ---
+
+// Pi's documented `export_html`. The `outputPath` is not optional HERE although it is in the protocol:
+// without one Pi writes beside its own working directory and answers a RELATIVE name (measured on
+// 0.85.1: `pi-session-<stamp>_<id>.html`, and the file landed in the project). A file appearing in
+// somebody's repository because they asked a session to export itself is not an answer to what they
+// asked, so the core names the path and this always carries it.
+const exportCommand = (id, { outputPath } = {}) => ({ id, type: 'export_html', outputPath: String(outputPath || '') });
+
+/**
+ * What the file is CALLED. The core names the directory it goes in and this names the file, because the
+ * format is the runtime's: Pi exports HTML, and a core that spelled `.html` would have learned one
+ * runtime's answer to a question it is not allowed to know.
+ *
+ * `hint` is whatever the core can say about the session; anything that is not plainly a filename is
+ * dropped rather than escaped, because a name assembled out of someone else's string is how a path
+ * segment stops being one.
+ */
+function exportFileName(hint) {
+  const safe = String(hint == null ? '' : hint).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64);
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `pi-session-${safe || 'unnamed'}-${stamp}.html`;
+}
+
+/**
+ * `exportCommand`'s answer as a notice — `{ level, text, path }`. `path` is the file the runtime says it
+ * wrote, and the core offers to open it; a notice without one is still a notice, so a runtime that
+ * answers success and says nothing does not read as a command that did not run.
+ *
+ * The runtime's own refusal is the actionable part and is passed on, through `describeFailure` for the
+ * same reason every other message from it is (#444): Pi words some of these itself, and one of them
+ * ("Nothing to export yet - start a conversation first") is exactly what the user needs to read.
+ */
+function exportNotice(response) {
+  if (!response || response.success === false) {
+    return { level: 'error', text: 'The session was not written: ' + describeFailure({ message: response && response.error }, MESSAGE_CAP) };
+  }
+  const p = response.data && typeof response.data.path === 'string' ? response.data.path : '';
+  if (!p) return { level: 'warning', text: 'Pi wrote the session but did not say where.' };
+  return { level: 'info', text: 'Session written to ' + p, path: p };
+}
+
+// --- the agent's last reply (#643, `/copy`) ---
+
+// Pi's documented `get_last_assistant_text`. It answers `{ text: null }` for a session the agent has not
+// replied in yet, which is a real answer and not a failure.
+const lastReplyCommand = (id) => ({ id, type: 'get_last_assistant_text' });
+
+/**
+ * The last assistant turn as text — and THREE answers, not two, because collapsing the last into the
+ * middle one is a sentence that lies to the reader:
+ *
+ *   a string   the reply
+ *   null       there is no reply yet. A real answer: a session nobody has been answered in.
+ *   undefined  the request was not answered at all — a timeout, a child that has exited. Saying "no
+ *              reply yet" about a session full of replies is the one wrong thing this can print, so it
+ *              is a case of its own. `statsNotice` and `exportNotice` both word an unanswered request
+ *              rather than staying silent about it; this is the same rule one command along.
+ */
+function lastReplyText(response) {
+  if (!response || response.success === false) return undefined;
+  const d = response.data;
+  const text = d && typeof d.text === 'string' ? d.text : '';
+  return text ? text : null;
+}
+
+/**
+ * What to say once the app has TRIED to copy. `copied` is the app's own answer, because the clipboard
+ * belongs to the machine rather than to the session — this file words the sentence, the core performs
+ * the act, and neither does both.
+ */
+function copiedNotice({ text, copied } = {}) {
+  if (text === undefined) return { level: 'warning', text: 'Pi did not answer, so nothing was copied.' };
+  if (text === null) return { level: 'info', text: 'The agent has not replied in this session yet, so there is nothing to copy.' };
+  if (!copied) return { level: 'error', text: 'The reply could not be put on the clipboard.' };
+  return { level: 'info', text: 'The agent\'s last reply is on the clipboard (' + plural(String(text).split('\n').length, 'line') + ').' };
+}
+
 // The answer to an `ask`. `answer` is the app's: `{ value }` for a choice or a text, `{ confirmed }` for a
 // yes/no, `{ cancelled: true }` for a dismissed dialog — the three response shapes Pi documents.
 function answerCommand(requestId, answer = {}) {
@@ -406,6 +496,12 @@ module.exports = {
   messagesCommand,
   statsCommand,
   statsNotice,
+  exportCommand,
+  exportFileName,
+  exportNotice,
+  lastReplyCommand,
+  lastReplyText,
+  copiedNotice,
   answerCommand,
   sessionIdFromState,
   entriesFromMessages,

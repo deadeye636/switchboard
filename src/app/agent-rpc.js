@@ -26,9 +26,19 @@
 
 const { spawn: spawnChild, execFile } = require('child_process');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { completePaths } = require('./path-completion');
 
 let ctx = null;
+
+// Where a file the app produced goes when the user named none. Under the app's own data directory, and
+// deliberately NOT beside the session: a runtime asked to export itself with no path writes into its
+// working directory, which is the user's project — measured, and an untracked file appearing in somebody's
+// repository is not an answer to what they asked. A path the user DID name is theirs and is taken as given,
+// resolved against the session's own directory the way a shell would.
+const EXPORT_DIR_NAME = 'exports';
 
 /**
  * @param {object} context
@@ -38,6 +48,9 @@ let ctx = null;
  * @param {(tag: string, id: string) => object|null} context.adoptSessionId
  * @param {(sessionId: string, hook: object) => void} context.deliverBindSignal
  * @param {() => boolean} context.getAppQuitting
+ * @param {string} [context.dataDir]  where a file a session produced goes when nobody named a path
+ * @param {Electron.Clipboard} [context.clipboard]  arrives through ctx like every other Electron part,
+ *   so this module stays loadable under `node --test`
  * @param {object} context.log
  */
 function init(context) {
@@ -63,6 +76,39 @@ function findSession(tag) {
     if (s && s._terminalTag === tag) return { id, session: s };
   }
   return null;
+}
+
+/**
+ * The absolute file a `/export`-shaped request should write to, or null when it cannot be named.
+ * `named` is what the user typed after the command; empty means they named nothing.
+ *
+ * The backend names the FILE (its format is its own — `exportFileName`), the app names the DIRECTORY.
+ *
+ * The directory is created for BOTH branches, and that is what the runtime is being spared: it is handed
+ * a path, and a parent that does not exist comes back as an errno the user reads as a failed export
+ * rather than as a missing folder. `/export out/session.html` in a project with no `out/` is the case.
+ *
+ * A leading `~` is expanded, because it is a path the USER typed and they mean their home directory.
+ * Left alone, `path.resolve` would make it a directory called `~` inside the project — which is exactly
+ * the outcome the default branch exists to avoid, reached by a shell-shaped path. This is not the
+ * CLI-home rule in `.claude/rules/main-process.md`: that one is about composing a backend's store path,
+ * and this is one character somebody typed.
+ */
+function expandHome(p) {
+  if (p !== '~' && !/^~[\\/]/.test(p)) return p;
+  return path.join(os.homedir(), p.slice(1));
+}
+
+function exportTarget(rpc, state, sessionLabel, named) {
+  const typed = String(named || '').trim();
+  const file = typed
+    ? path.resolve(state.cwd || process.cwd(), expandHome(typed))
+    : (typeof rpc.exportFileName === 'function' && ctx && ctx.dataDir
+      ? path.join(ctx.dataDir, EXPORT_DIR_NAME, rpc.exportFileName(sessionLabel))
+      : '');
+  if (!file) return null;
+  try { fs.mkdirSync(path.dirname(file), { recursive: true }); } catch { return null; }
+  return file;
 }
 
 function stateFor(sessionId) {
@@ -254,6 +300,51 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
           const notice = rpc.statsNotice(res);
           if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text });
         }).catch((err) => ctx.log.warn(`[agent-rpc] the session's figures were not reported: ${err.message}`));
+        return;
+      case 'exportFile': {
+        // The user asked for a file of this session. WHERE it goes is the app's question and nobody
+        // else's; what it is called and what is in it are the runtime's. Not awaited, for the same
+        // reason the figures are not: an answer that never comes must not hold this stream.
+        flushPartial();
+        if (typeof rpc.exportCommand !== 'function' || typeof rpc.exportNotice !== 'function') return;
+        const found = findSession(tag);
+        const target = exportTarget(rpc, state, (found && found.id) || tag, op.args);
+        if (!target) {
+          sendOp(state, { op: 'notice', level: 'error', text: 'Switchboard could not decide where to write the file.' });
+          return;
+        }
+        request((id) => rpc.exportCommand(id, { outputPath: target })).then((res) => {
+          const notice = rpc.exportNotice(res);
+          if (!notice || !notice.text) return;
+          // The runtime may answer a path relative to its own directory, so it is resolved before it is
+          // offered — a button that opens a path this process would resolve against ITS cwd opens
+          // whatever happens to sit there.
+          const file = notice.path ? path.resolve(state.cwd || process.cwd(), String(notice.path)) : '';
+          sendOp(state, {
+            op: 'notice',
+            level: notice.level || 'info',
+            text: notice.text,
+            ...(file ? { files: [{ path: file, label: 'Open the file' }] } : {}),
+          });
+        }).catch((err) => ctx.log.warn(`[agent-rpc] the session was not written to a file: ${err.message}`));
+        return;
+      }
+      case 'lastReply':
+        // The user asked for the agent's last reply on the clipboard. The runtime hands back the text,
+        // this process does the copying — a clipboard belongs to the machine rather than to a session —
+        // and the backend words what happened, whichever way it went, so there is one sentence-writer.
+        flushPartial();
+        if (typeof rpc.lastReplyCommand !== 'function' || typeof rpc.lastReplyText !== 'function'
+          || typeof rpc.copiedNotice !== 'function') return;
+        request(rpc.lastReplyCommand).then((res) => {
+          const text = rpc.lastReplyText(res);
+          let copied = false;
+          if (text != null && ctx.clipboard && typeof ctx.clipboard.writeText === 'function') {
+            try { ctx.clipboard.writeText(String(text)); copied = true; } catch { copied = false; }
+          }
+          const notice = rpc.copiedNotice({ text, copied });
+          if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text });
+        }).catch((err) => ctx.log.warn(`[agent-rpc] the last reply was not copied: ${err.message}`));
         return;
       case 'answered':
         // The runtime stopped waiting on a question by itself (a login whose browser callback won). Only a

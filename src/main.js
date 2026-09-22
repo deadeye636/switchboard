@@ -2221,6 +2221,11 @@ agentRpc.init({
   adoptSessionId: (tag, id) => sessionTransitions.adoptSessionId(tag, id),
   // …and the one delivery of a backend's own busy/idle/waiting report.
   deliverBindSignal: (sessionId, hook) => hooks.deliverBindSignal(sessionId, hook),
+  // Where a file a session produced goes when nobody named a path (#643, `/export`), and the clipboard a
+  // session may be asked to fill (#643, `/copy`) — through ctx like every other Electron part, so the
+  // module stays loadable under `node --test`.
+  dataDir: require('./db/connection').DATA_DIR,
+  clipboard,
   log,
 });
 agentRpc.registerIpc(ipcMain);

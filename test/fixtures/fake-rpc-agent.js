@@ -3,7 +3,7 @@
 // framing and the exit path are exercised against a real child process rather than a mock of one.
 'use strict';
 
-const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
+const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
 
 const SESSION_ID = 'fake-session';
 const messages = [];
@@ -69,6 +69,11 @@ process.stdin.on('data', (chunk) => {
           // As measured for the completion command above: the extension command says its word, THEN Pi
           // answers the prompt. The word carries no figures — the client asks for those itself (#643).
           out({ type: 'extension_ui_request', id: 'n2', method: 'notify', message: STATS_PREFIX });
+        } else if (cmd.message.startsWith('/export')) {
+          // Same shape again: the command says what was typed after it and nothing more.
+          out({ type: 'extension_ui_request', id: 'n3', method: 'notify', message: EXPORT_PREFIX + JSON.stringify({ args: cmd.message.slice('/export'.length).trim() }) });
+        } else if (cmd.message === '/copy') {
+          out({ type: 'extension_ui_request', id: 'n4', method: 'notify', message: COPY_PREFIX });
         } else if (cmd.message === 'take it back') {
           // Pi stopped waiting on that question (a login's browser callback won), and the command says so.
           out({ type: 'extension_ui_request', id: 'n1', method: 'notify', message: DISMISS_PREFIX + JSON.stringify({ token: 't1' }) });
@@ -87,6 +92,18 @@ process.stdin.on('data', (chunk) => {
           cost: 0.0021,
         } });
         break;
+      case 'export_html':
+        // Measured on Pi 0.85.1: the path it was given is echoed back, and an empty session is refused
+        // with a sentence of Pi's own rather than an errno.
+        if (!messages.length) { out({ id: cmd.id, type: 'response', command: 'export_html', success: false, error: 'Nothing to export yet - start a conversation first' }); break; }
+        out({ id: cmd.id, type: 'response', command: 'export_html', success: true, data: { path: cmd.outputPath } });
+        break;
+      case 'get_last_assistant_text': {
+        const last = [...messages].reverse().find(m => m.role === 'assistant');
+        const text = last ? last.content.map(c => c.text).join('') : null;
+        out({ id: cmd.id, type: 'response', command: 'get_last_assistant_text', success: true, data: { text } });
+        break;
+      }
       case 'abort':
         out({ id: cmd.id, type: 'response', command: 'abort', success: true });
         break;

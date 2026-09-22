@@ -328,14 +328,20 @@ function createConversationView(getSession, container) {
 
   // `links` are pages to open — a login page is several hundred characters of query string, so it is a button
   // that hands the address to the OS browser rather than text to copy. Only http(s): main refuses anything else.
-  function notice(level, text, links) {
+  //
+  // `files` are files the app itself produced for this session (#643, `/export`). A separate field rather
+  // than a `links` entry with a `file:` address, because the two go to different places for different
+  // reasons: a page is handed to the OS browser, a file to the OS default application, and main guards
+  // the second against sensitive paths. Neither field says which backend asked.
+  function notice(level, text, links, files) {
     const div = document.createElement('div');
     div.className = 'jsonl-entry jsonl-meta-entry conversation-notice conversation-notice-' + (level || 'info');
     const line = document.createElement('div');
     line.textContent = String(text || '');
     div.appendChild(line);
     const pages = Array.isArray(links) ? links.filter(l => l && /^https?:\/\//i.test(String(l.url || ''))) : [];
-    if (pages.length) {
+    const docs = Array.isArray(files) ? files.filter(f => f && String(f.path || '')) : [];
+    if (pages.length || docs.length) {
       const actions = document.createElement('div');
       actions.className = 'conversation-ask-actions';
       for (const l of pages) {
@@ -345,6 +351,15 @@ function createConversationView(getSession, container) {
         b.textContent = String(l.label || 'Open the page');
         try { b.title = new URL(String(l.url)).host; } catch { /* the label says enough */ }
         b.addEventListener('click', () => { window.api.openExternal(String(l.url)); });
+        actions.appendChild(b);
+      }
+      for (const f of docs) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'new-session-secondary-btn';
+        b.textContent = String(f.label || 'Open the file');
+        b.title = String(f.path);
+        b.addEventListener('click', () => { window.api.openPath(String(f.path)); });
         actions.appendChild(b);
       }
       div.appendChild(actions);
@@ -517,7 +532,7 @@ function createConversationView(getSession, container) {
         break;
       case 'busy': view.busy = !!op.busy; if (!view.busy) { view.tools.clear(); renderActivity(); } renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
-      case 'notice': notice(op.level, op.text, op.links); break;
+      case 'notice': notice(op.level, op.text, op.links, op.files); break;
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);

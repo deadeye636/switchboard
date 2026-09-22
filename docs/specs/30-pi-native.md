@@ -262,8 +262,12 @@ the approval gate is on or not:
 | `/thinking [level]` | Sets the thinking level and reads back what Pi applied, since a model that offers fewer levels is clamped. |
 | `/compact [instructions]` | Runs Pi's compaction. While a turn is running it refuses and says so, and Pi's own compaction events say how it went. |
 | `/session` | What the session has cost so far: messages, the four token counts and their total, the spend, and the context reading when Pi has one. Answered by the app, not by the command — see below. |
+| `/export [file]` | Writes the session to an HTML file. Answered by the app, which decides where it goes — see below. |
+| `/copy` | Puts the agent's last reply on the system clipboard. Answered by the app, because a clipboard belongs to the machine. |
+| `/name [name]` | Names the session through `pi.setSessionName`. With no argument it asks on a card. Answered inside the extension. |
+| `/reload` | Reloads Pi's extensions, skills, prompt templates and context files through `ctx.reload()`. Answered inside the extension. |
 
-The rest of Pi's terminal commands (`/tree`, `/export`, `/new`, `/settings` …) answer with a line saying
+The rest of Pi's terminal commands (`/tree`, `/new`, `/settings` …) answer with a line saying
 where that function lives in the app, or that it is not offered yet. The list is `TUI_ONLY` in that file.
 Registering those names changes one thing: a prompt template or another extension's command with the same
 name used to run over RPC and now gets the line instead, and a command taken over from another CLI under such
@@ -296,11 +300,12 @@ Five things decide how it is built:
   `lasting`, a settled run leaves it open and the session stays "waiting". Only an answer, a dismissal, Pi
   taking it back or the process ending closes it.
 
-Four markers carry what `ctx.ui` has no field for. A notice can carry a page to open, a question can be
-masked and named, a notice can say Pi stopped waiting on a question, and a notice can say `/session` was
-typed. They are decoded in
-`rpc-protocol.js`, and the renderer only gets plain fields: `links` on a notice, `secret` and `lasting` on an
-ask.
+Markers carry what `ctx.ui` has no field for: a notice can carry a page to open, a question can be masked
+and named, a notice can say Pi stopped waiting on a question, and a notice can say that a command whose
+answer is the app's was typed. The prefixes are declared together at the top of `session-commands.js` —
+read them there rather than from a list here. They are decoded in
+`rpc-protocol.js`, and the renderer only gets plain fields: `links` and `files` on a notice, `secret` and
+`lasting` on an ask.
 The page opens through the existing `open-external` handler, which accepts only http(s). What Pi says about
 a failure is passed on in one line, except where it could name a local path: an errno error is named by its
 code, which Pi sometimes leaves only in the text (`describeFailure`).
@@ -346,6 +351,81 @@ abbreviated.
 This is **not** the rest of #572. That issue's open half is the status bar's usage segment, which is about
 an account's plan limits rather than a session's spend, and it needs a measurement of its own first:
 whether Pi writes anything resembling a plan limit at all.
+
+### Which side answers a command is decided by where the answer LIVES (#643)
+
+`/session` set the pattern and the four commands after it fall on both sides of it. The question is not
+"can the extension do this" — it is "whose answer is it":
+
+- **`/name` and `/reload` are answered inside the extension**, because Pi's extension API holds the whole
+  answer: `pi.setSessionName(name)` and `ctx.reload()`. Relaying either through the app would be a round
+  trip ending in the same call.
+- **`/export` and `/copy` are answered by the app**, for `/session`'s reason. Where a file the app produced
+  belongs is the app's question; a clipboard belongs to the machine rather than to a session. Each command
+  says only that it was typed — `/export` carries what was typed after it and no path of its own.
+
+**`/name` writes one name, not two.** Pi writes the name into its session file and Pi's own parser reads it
+back as the row's `customTitle` (`src/backends/pi/parser.js`), so the sidebar follows without the app
+keeping a name of its own beside it. The card says so, because the row moves when Pi has written the file
+rather than when the command returns.
+
+**And a name written into the transcript OUTRANKS a later rename in the sidebar** — a session named this
+way cannot be renamed from the app for good. `index-writes.js` promotes a `customTitle` to the row's name
+on every parse, and the row reads `meta.name` first, so the next parse of Pi's file puts the typed name
+back. That is not new and not this feature's: it is how a CLI's own title has always beaten a UI rename,
+for Claude's `/title` as much as for Pi's `/name` in a terminal session. What IS new is that pi-native can
+now reach it, so it is written down here rather than discovered by somebody whose rename kept reverting.
+
+**`/export` never writes into the project unless asked to.** Measured on Pi 0.85.1: `export_html` with no
+`outputPath` answers a RELATIVE name and the file lands in the runtime's working directory, which is the
+user's project — an untracked file appearing in somebody's repository is not an answer to what they asked.
+So the app always names the path: `<data dir>/exports/` when nobody named one, and a path the user DID name
+resolved against the session's own directory, the way a shell would read it. The backend names the FILE
+(`exportFileName` — the format is the runtime's, so the extension is too) and the app names the directory.
+The notice carries the file as a `files` entry, drawn as a button that goes to the OS default application
+through the existing `open-path` handler. That is a separate field from `links` on purpose: a page goes to
+the browser, a file goes to the default application and past main's sensitive-path guard.
+
+**Two things `/export <path>` does that a reader should not have to discover.** It overwrites without
+asking, the way a shell `>` does — `/export package.json` destroys it — and a path the app cannot hand to
+the OS opener afterwards still gets written: `open-path` returns silently for a sensitive path (`~/.ssh/…`
+and the like), so the file is there, the notice names it, and the button does nothing. Neither is worth a
+guard of its own: the first is what naming a file means, and the second is one shared handler's behaviour
+that the terminal's own context menu relies on. They are written down because they are the two ways this
+command surprises somebody.
+
+**The export marker is the first one that carries a SIDE EFFECT rather than something to draw**, and that
+was taken deliberately. Any extension in that Pi session can reach `ctx.ui.notify` and therefore ask the
+app to write the file anywhere — but an extension runs unsandboxed in Pi's process with `node:fs`, so it
+could already write anywhere this app can. A skill cannot reach it (it is instructions to the model) and
+neither can the model (it can only call tools). `session-commands.js` carries the reasoning next to the
+markers, for the next marker with a side effect rather than for this one.
+
+**`/reload` is terminal for its own handler.** Pi tears the extension instance down and builds a new one,
+so the notice goes out before the call and nothing is said after it. Two consequences are deliberate: every
+"Allow for this session" the approval gate had granted is forgotten, because that set lived in the replaced
+instance — the resources were reloaded, so asking again is the honest answer — and the app's `/` list is
+briefly stale, which the composer's own reuse window heals without anyone telling it.
+
+### `/fork`, `/clone` and `/tree` are refused, and not because they are out of reach
+
+A first reading of Pi's **RPC** surface alone concluded that `/tree` and `/reload` could not be built at
+all. That was wrong, and it is written down here because the conclusion was handed to the owner as a fact.
+The extension API is the wider of the two: `ctx.fork(entryId, { position })` is `/fork` and `/clone`,
+`ctx.navigateTree(targetId, …)` moves the leaf, `ctx.reload()` exists, and so do `ctx.newSession()` and
+`ctx.switchSession()`. `/reload` is built for that reason.
+
+What refuses `/fork` and `/clone` is what they would do to the tab. Both REPLACE the session the runtime is
+on — measured: the session id and the session file both change under the running process, and the session
+that was forked from is left on disk. So the tab the user is looking at would silently become a different
+session. The sidebar's own Fork already answers this and answers it the other way round, by opening the
+copy in a tab of its own, and two routes that disagree about which session the user is left looking at is
+worth refusing outright. Their `TUI_ONLY` lines name the sidebar rather than saying "not yet".
+
+`/tree` is a different refusal: it is reachable and it is not a command, it is a surface. The branch
+browser is a tree with filter modes, and after a jump the conversation has to be re-read — and the leaf
+moving is not a turn, so nothing in the event flow announces it. That is its own piece of work: **#646**,
+which carries the measurements above so they are not taken again.
 
 ## The input completes as you type (#643)
 
@@ -407,8 +487,10 @@ questions before a command's shell line and before an MCP tool, described under 
 - **A login is ended by its card, not by Stop.** Esc and Stop abort a run, and a login is not one. A second
   `/login` to a provider whose first login is still open waits behind it in Pi's queue and shows no card
   until the first one ends. Dismissing the open card ends it.
-- **fork/clone/tree, export, `!cmd` and reload** are not built yet. Each of those commands answers with a
-  line instead (#643). Session statistics used to be on this list and is built — `/session`, above.
+- **`!cmd` is not built yet**, and answers as an ordinary prompt would (#643). `/fork`, `/clone` and
+  `/tree` each answer with a line instead, and that is a REFUSAL rather than a gap — the section above
+  says what each costs, and `/tree` is #646. Session statistics, the export, the copy, the name and the
+  reload used to be on this list and are built; they are in the table above.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:

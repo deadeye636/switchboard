@@ -39,6 +39,25 @@
 //                   `createDialogPromise`), so without this the card would stay open with nobody behind it.
 //   STATS_PREFIX    `/session` was typed. It carries NO figures, and that is the whole point of it — see
 //                   below.
+//   EXPORT_PREFIX   `/export` was typed, with whatever was typed after it. It carries no path and writes
+//                   no file: only the app knows where a file it produces belongs.
+//   COPY_PREFIX     `/copy` was typed. The clipboard is the app's, not the runtime's.
+//
+// A MARKER WITH A SIDE EFFECT IS A WIDER THING THAN A MARKER THAT DRAWS, and `switchboard-export:` is the
+// first of those — so the reasoning is here, for the next one rather than for this one. Everything above it
+// asks the app to put something on screen; this one asks the app to WRITE A FILE, at a path the marker
+// names. `ctx.ui.notify` is reachable by any extension loaded into that Pi session, so any of them can ask
+// for that write.
+//
+// Taken deliberately, and the reason is the attacker rather than the channel: an extension runs unsandboxed
+// in Pi's own process with `node:fs` available, so it can already write anywhere this app can, without
+// asking us. The marker hands it nothing it did not have. What CANNOT reach this channel is the part that
+// would matter — a skill is instructions to the model, and the model can only call tools, neither of which
+// can emit a notify. The approval gate does not cover it either, but the gate has never been a security
+// boundary and says so.
+//
+// The next marker that carries a side effect does not inherit this. Ask the same question about it: who can
+// emit it, and does that party already have what the marker grants?
 //
 // `/session` IS REGISTERED HERE AND ANSWERED BY THE APP (#643, owner decision W3). Pi's RPC has a
 // documented `get_session_stats`, and the reason for reaching for it rather than answering in the handler
@@ -53,12 +72,29 @@
 // (`AgentSession.prompt` tries `_tryExecuteExtensionCommand` first and returns if it handled the line), so
 // a `session` template of the user's own is shadowed by this. That is the same precedence every name in
 // `TUI_ONLY` already takes, and it is the price of the command appearing in the app's `/` list at all.
+//
+// WHICH SIDE ANSWERS A COMMAND IS DECIDED BY WHERE THE ANSWER LIVES, and the four commands added in the
+// second half of #643 fall on both sides of that line:
+//
+//   `/name` and `/reload` are answered HERE, because Pi's extension API holds the whole answer —
+//   `pi.setSessionName(name)` and `ctx.reload()`. Asking the app to relay either would be a round trip
+//   that ends in the same call.
+//   `/export` and `/copy` are answered by the APP, for the same reason `/session` is: the answer is not
+//   the runtime's. Where a file the app produced belongs is the app's question, and the clipboard is the
+//   machine's, not the session's. Each says only that it was typed.
+//
+// Measured before any of it was written (Pi 0.85.1): `pi.setSessionName`, `ctx.reload`, `ctx.fork`,
+// `ctx.navigateTree` and `ctx.newSession` all exist. An earlier reading of the RPC surface ALONE
+// concluded that `/reload` and `/tree` were unreachable, and both conclusions were wrong — the commands
+// registered here run against the extension API, which is the wider of the two.
 'use strict';
 
 const LINK_PREFIX = 'switchboard-link:';
 const ASK_PREFIX = 'switchboard-ask:';
 const DISMISS_PREFIX = 'switchboard-dismiss:';
 const STATS_PREFIX = 'switchboard-stats:';
+const EXPORT_PREFIX = 'switchboard-export:';
+const COPY_PREFIX = 'switchboard-copy:';
 
 // Pi's own names for the levels, in its order (`ThinkingLevel`). A model that offers fewer is clamped by
 // Pi, and the command reads back what it got.
@@ -102,15 +138,21 @@ function describeFailure(err, cap) {
 // The rest of Pi's terminal commands (owner decision E5). Typed here they used to reach the model as a
 // prompt; now each says where the thing lives instead. The hint names the app's way where there is one.
 // Keep it to what is true today: a command that gets built here leaves this list in the same change.
+//
+// `fork` and `clone` stay on this list DELIBERATELY, and not because they cannot be built: `ctx.fork`
+// reaches both. They are refused because of what they would do to the tab. Pi's fork and clone replace
+// the session the runtime is on — measured, the session id and the file both change under the running
+// process — so the tab the user is looking at would silently become a different session, with the one
+// they forked from left on disk with no tab. The sidebar's own Fork already answers this and answers it
+// the other way round, by opening the copy in a tab of its own. Two routes that disagree about which
+// session the user is left looking at is the one shape worth refusing outright.
 const TUI_ONLY = {
-  fork: 'Fork the session from its row in the sidebar.',
-  clone: 'Pi (native) does not offer it yet.',
-  tree: 'Pi (native) does not offer it yet.',
-  export: 'Pi (native) does not offer it yet.',
+  fork: 'Fork the session from its row in the sidebar — it opens the copy in a tab of its own.',
+  clone: 'Fork the session from its row in the sidebar; Pi\'s own clone would move this tab onto the copy.',
+  // Reachable through `ctx.navigateTree`, and not built because it is a surface rather than a command
+  // (a tree with filter modes, and a conversation to re-read after the jump) — #646.
+  tree: 'Switchboard does not draw Pi\'s branch tree yet.',
   share: 'Pi (native) does not offer it yet.',
-  copy: 'Select the text in the conversation to copy it.',
-  reload: 'Pi (native) does not offer it yet.',
-  name: 'Rename the session from its row in the sidebar.',
   new: 'Start a new session from the sidebar.',
   resume: 'Open the session from the sidebar to resume it.',
   trust: 'Trust the project in Switchboard\'s project manager.',
@@ -144,6 +186,8 @@ function commandsSource() {
     `  const ASK = ${JSON.stringify(ASK_PREFIX)};`,
     `  const DISMISS = ${JSON.stringify(DISMISS_PREFIX)};`,
     `  const STATS = ${JSON.stringify(STATS_PREFIX)};`,
+    `  const EXPORT = ${JSON.stringify(EXPORT_PREFIX)};`,
+    `  const COPY = ${JSON.stringify(COPY_PREFIX)};`,
     `  const LEVELS: string[] = ${JSON.stringify(THINKING_LEVELS)};`,
     `  const MODEL_LIST_MAX = ${MODEL_LIST_MAX};`,
     `  const CAP = ${MESSAGE_CAP};`,
@@ -362,6 +406,58 @@ function commandsSource() {
     '    handler: async (_args: string, ctx: any) => say(ctx, STATS, "info"),',
     '  });',
     '',
+    // Same shape as `/session`, for the same reason: the runtime can write the file, but only the app
+    // knows where a file it produced belongs, so the marker carries what was typed and nothing else.
+    '  pi.registerCommand("export", {',
+    '    description: "Write this session to an HTML file; anything after the command is the file to write",',
+    '    handler: async (args: string, ctx: any) =>',
+    '      say(ctx, EXPORT + JSON.stringify({ args: String(args || "").trim() }), "info"),',
+    '  });',
+    '',
+    // The clipboard belongs to the machine, not to the session, so the app does the copying. What is
+    // copied is still the runtime's answer — the app asks for it over the protocol.
+    '  pi.registerCommand("copy", {',
+    '    description: "Copy the agent\'s last reply to the clipboard",',
+    '    handler: async (_args: string, ctx: any) => say(ctx, COPY, "info"),',
+    '  });',
+    '',
+    // Answered here: `pi.setSessionName` IS the whole answer. Pi writes the name into the session file,
+    // and Pi's own parser reads it back as the row's title (`../pi/parser.js`), so the sidebar follows
+    // without the app writing a second name of its own — there is one name, not two.
+    '  pi.registerCommand("name", {',
+    '    description: "Give this session a name; anything after the command is the name",',
+    '    handler: detached(async (args: string, ctx: any) => {',
+    '      if (typeof pi.setSessionName !== "function") { say(ctx, "This version of Pi cannot name a session from Pi (native).", "error"); return; }',
+    '      let name = String(args || "").trim();',
+    '      if (!name) {',
+    '        const typed = await question(ctx, "input", "What should this session be called?", "", false);',
+    '        name = typeof typed === "string" ? typed.trim() : "";',
+    '      }',
+    '      if (!name) return;',
+    '      try { pi.setSessionName(name); }',
+    '      catch (err: any) { say(ctx, "Naming the session failed: " + failure(err), "error"); return; }',
+    '      say(ctx, "Session name: " + name + ". Switchboard\'s sidebar follows it once Pi has written it out.", "info");',
+    '    }),',
+    '  });',
+    '',
+    // Answered here too, and it is terminal for its own handler: Pi tears this extension instance down
+    // and builds a new one, so anything said AFTER the await runs from the version being replaced. The
+    // notice therefore goes out first and nothing follows the call.
+    //
+    // Two consequences that are not bugs and should not be "fixed": every "Allow for this session"
+    // granted to the approval gate is forgotten, because that set lives in the instance Pi has just
+    // replaced — the resources were reloaded, so asking again is the honest answer. And the app's `/`
+    // list is briefly stale; it is re-read within the composer's own reuse window, so nothing here has
+    // to tell it.
+    '  pi.registerCommand("reload", {',
+    '    description: "Reload Pi\'s extensions, skills, prompt templates and context files",',
+    '    handler: detached(async (_args: string, ctx: any) => {',
+    '      if (!ctx || typeof ctx.reload !== "function") { say(ctx, "This version of Pi cannot reload its resources from Pi (native).", "error"); return; }',
+    '      say(ctx, "Reloading Pi\'s extensions, skills, prompt templates and context files…", "info");',
+    '      await ctx.reload();',
+    '    }),',
+    '  });',
+    '',
     '  for (const name of Object.keys(TUI_ONLY)) {',
     '    pi.registerCommand(name, {',
     '      description: "A command of Pi\'s terminal interface",',
@@ -464,6 +560,26 @@ function parseStats(message) {
   return String(message == null ? '' : message).startsWith(STATS_PREFIX);
 }
 
+// `/export` being typed, and what was typed after it: `{ args }`, else null. `args` is a file the user
+// named and may be anything they typed — the app decides what to do with it, and an empty one means they
+// named none. Capped, because it becomes part of a path: a name of unbounded length is not one.
+const EXPORT_ARGS_CAP = 1024;
+function parseExport(message) {
+  const s = String(message == null ? '' : message);
+  if (!s.startsWith(EXPORT_PREFIX)) return null;
+  try {
+    const v = JSON.parse(s.slice(EXPORT_PREFIX.length));
+    if (!v || typeof v !== 'object') return { args: '' };
+    return { args: typeof v.args === 'string' ? v.args.trim().slice(0, EXPORT_ARGS_CAP) : '' };
+  } catch { return { args: '' }; }
+}
+
+// `/copy` being typed. It carries nothing: what to copy is asked for over the protocol, and the copying
+// is the app's.
+function parseCopy(message) {
+  return String(message == null ? '' : message).startsWith(COPY_PREFIX);
+}
+
 // A notice saying Pi stopped waiting on one of these questions: its token, else null.
 function parseDismiss(message) {
   const s = String(message == null ? '' : message);
@@ -475,7 +591,9 @@ function parseDismiss(message) {
 }
 
 module.exports = {
-  LINK_PREFIX, ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP,
+  LINK_PREFIX, ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX,
+  THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP,
   COMPLETE_COMMAND, COMPLETIONS_PREFIX, ARGUMENT_COMMANDS,
   commandsSource, describeFailure, parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats,
+  parseExport, parseCopy,
 };

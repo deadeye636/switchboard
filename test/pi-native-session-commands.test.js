@@ -68,7 +68,8 @@ function fakeRuntime({ providers, credentials = [], login, logout } = {}) {
 test('the section is in the runtime extension with the gate on and off, registered at load', () => {
   for (const gate of [true, false]) {
     const commands = load({ gate });
-    for (const name of ['login', 'logout', 'model', 'thinking', 'compact', 'session', ...Object.keys(sessionCommands.TUI_ONLY)]) {
+    for (const name of ['login', 'logout', 'model', 'thinking', 'compact', 'session', 'export', 'copy', 'name', 'reload',
+      ...Object.keys(sessionCommands.TUI_ONLY)]) {
       assert.equal(typeof (commands[name] && commands[name].handler), 'function', `/${name} with the gate ${gate ? 'on' : 'off'}`);
     }
   }
@@ -431,11 +432,106 @@ test('/session says only that it was typed, and the decoder turns that into an a
     [{ op: 'notice', level: 'info', text: 'switchboard is fine' }]);
 });
 
-test('/session is no longer answered with a line saying it is not here', () => {
-  assert.equal(Object.prototype.hasOwnProperty.call(sessionCommands.TUI_ONLY, 'session'), false,
-    'a command that gets built leaves TUI_ONLY in the same change');
-  const listed = protocol.commandsFromResponse({ data: { commands: [{ name: 'session', source: 'extension', description: 'd' }] } });
-  assert.deepEqual(listed.map(c => c.name), ['session'], 'and it is offered in the input\'s command list');
+test('a command that is built is no longer answered with a line saying it is not here', () => {
+  for (const name of ['session', 'export', 'copy', 'name', 'reload']) {
+    assert.equal(Object.prototype.hasOwnProperty.call(sessionCommands.TUI_ONLY, name), false,
+      `/${name}: a command that gets built leaves TUI_ONLY in the same change`);
+    const listed = protocol.commandsFromResponse({ data: { commands: [{ name, source: 'extension', description: 'd' }] } });
+    assert.deepEqual(listed.map(c => c.name), [name], `and /${name} is offered in the input's command list`);
+  }
+});
+
+// #643 (E14) — `/fork` and `/clone` are refused although `ctx.fork` reaches both, because they would move
+// the tab the user is looking at onto a different session. The hint has to point at the route that exists.
+test('the commands that stay refused name the route that does exist', () => {
+  for (const name of ['fork', 'clone']) {
+    assert.match(sessionCommands.TUI_ONLY[name], /sidebar/,
+      `/${name} is refused on purpose, so its line must name where the app does it`);
+  }
+  // The tree is refused because it is a SURFACE, not because it is out of reach (#646), so its line has
+  // to say that Switchboard does not draw it — not the old "Pi (native) does not offer it yet", which
+  // reads as a gap in the runtime.
+  assert.match(sessionCommands.TUI_ONLY.tree, /Switchboard does not draw/);
+  assert.match(sessionCommands.TUI_ONLY.tree, /tree/);
+});
+
+// The same shape as `/session`: the command says it was typed, nothing else. What the user typed after it
+// travels, because only the app can decide what to do with a path.
+test('/export says only that it was typed, with whatever was typed after it', async () => {
+  const cmds = load();
+  const { ctx, said } = context();
+  await cmds.export.handler('  notes.html  ', ctx); await settle();
+  assert.equal(said.length, 1);
+  assert.equal(said[0].text, sessionCommands.EXPORT_PREFIX + JSON.stringify({ args: 'notes.html' }),
+    'the marker carries the typed name and no path of its own');
+
+  const d = protocol.createDecoder();
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 'e1', method: 'notify', message: said[0].text }),
+    [{ op: 'exportFile', args: 'notes.html' }]);
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 'e2', method: 'notify', message: sessionCommands.EXPORT_PREFIX + '{}' }),
+    [{ op: 'exportFile', args: '' }], 'nothing typed is an empty name, not a missing op');
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 'e3', method: 'notify', message: sessionCommands.EXPORT_PREFIX + 'not json' }),
+    [{ op: 'exportFile', args: '' }], 'a marker that does not parse is still the command being typed');
+});
+
+test('/copy says only that it was typed; the clipboard is never the runtime\'s', async () => {
+  const cmds = load();
+  const { ctx, said } = context();
+  await cmds.copy.handler('', ctx); await settle();
+  assert.deepEqual(said.map(s => s.text), [sessionCommands.COPY_PREFIX]);
+  const d = protocol.createDecoder();
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 'c1', method: 'notify', message: sessionCommands.COPY_PREFIX }),
+    [{ op: 'lastReply' }]);
+});
+
+// Answered inside the extension, because `pi.setSessionName` IS the answer — and Pi's own parser reads
+// that name back as the row's title, so there is one name rather than the app writing a second.
+test('/name sets the runtime\'s own session name, asking for one when none was typed', async () => {
+  const named = [];
+  const cmds = load({ pi: { setSessionName: (n) => named.push(n) } });
+  const first = context();
+  await cmds.name.handler('  Refactor auth  ', first.ctx); await settle();
+  assert.deepEqual(named, ['Refactor auth'], 'trimmed, and taken from the argument when there is one');
+  assert.match(first.said[0].text, /^Session name: Refactor auth\./);
+
+  const asked = context({ input: ['From the card'] });
+  await cmds.name.handler('', asked.ctx); await settle();
+  assert.deepEqual(named, ['Refactor auth', 'From the card']);
+
+  const cancelled = context({ input: [''] });
+  await cmds.name.handler('', cancelled.ctx); await settle();
+  assert.equal(named.length, 2, 'an empty answer names nothing');
+  assert.equal(cancelled.said.length, 0, 'and says nothing either');
+});
+
+test('/name says so plainly when the runtime cannot be asked', async () => {
+  const cmds = load({ pi: { setSessionName: undefined } });
+  const { ctx, said } = context();
+  await cmds.name.handler('x', ctx); await settle();
+  assert.match(said[0].text, /cannot name a session/);
+  assert.equal(said[0].level, 'error');
+});
+
+// Terminal for its own handler: Pi replaces this extension instance, so the notice goes out BEFORE the
+// call and nothing is said after it.
+test('/reload speaks first and then hands the runtime over', async () => {
+  const order = [];
+  const { ctx, said } = context();
+  ctx.reload = async () => { order.push(['reload', said.length]); };
+  const cmds = load();
+  await cmds.reload.handler('', ctx); await settle();
+  assert.deepEqual(order, [['reload', 1]], 'the notice was already out when the reload started');
+  assert.equal(said.length, 1, 'and nothing is said from the instance being replaced');
+  assert.match(said[0].text, /Reloading/);
+});
+
+test('/reload says so plainly when the runtime cannot be asked', async () => {
+  const cmds = load();
+  const { ctx, said } = context();
+  ctx.reload = undefined;
+  await cmds.reload.handler('', ctx); await settle();
+  assert.match(said[0].text, /cannot reload/);
+  assert.equal(said[0].level, 'error');
 });
 
 test('the figures name Pi as their source, and a missing reading is left out rather than guessed', () => {
@@ -470,6 +566,62 @@ test('the figures name Pi as their source, and a missing reading is left out rat
   const refused = protocol.statsNotice({ success: false, error: 'no answer' });
   assert.equal(refused.level, 'warning');
   assert.match(refused.text, /did not report/);
+});
+
+test('the written file is named by the backend and says where it went, or why it did not', () => {
+  const name = protocol.exportFileName('01a0c81e-2545-77f6');
+  assert.match(name, /^pi-session-01a0c81e-2545-77f6-[0-9T-]+Z?\.html$/, 'the format is the runtime\'s, so the extension is too');
+  assert.match(protocol.exportFileName('../../etc/passwd'), /^pi-session-etcpasswd-/,
+    'anything that is not plainly a filename is dropped rather than escaped');
+  assert.match(protocol.exportFileName(''), /^pi-session-unnamed-/);
+  assert.equal(protocol.exportFileName('a/b').includes('/'), false, 'never a second path segment');
+
+  assert.deepEqual(protocol.exportCommand('q1', { outputPath: 'C:/tmp/x.html' }),
+    { id: 'q1', type: 'export_html', outputPath: 'C:/tmp/x.html' });
+
+  const wrote = protocol.exportNotice({ success: true, data: { path: '/somewhere/x.html' } });
+  assert.equal(wrote.level, 'info');
+  assert.equal(wrote.path, '/somewhere/x.html');
+  assert.match(wrote.text, /Session written to \/somewhere\/x\.html/);
+
+  // Pi's own refusal is the actionable half, so it is passed on.
+  const empty = protocol.exportNotice({ success: false, error: 'Nothing to export yet - start a conversation first' });
+  assert.equal(empty.level, 'error');
+  assert.match(empty.text, /Nothing to export yet/);
+
+  // …but not when it names a path, which is what `describeFailure` is for (#444).
+  const leaky = protocol.exportNotice({ success: false, error: "EACCES: permission denied, open '/home/someone/x.html'" });
+  assert.match(leaky.text, /a file could not be read or written \(EACCES\)/);
+  assert.equal(leaky.text.includes('/home/someone'), false);
+
+  const silent = protocol.exportNotice({ success: true, data: {} });
+  assert.equal(silent.level, 'warning');
+  assert.equal(silent.path, undefined, 'no path means no button rather than a button to nowhere');
+});
+
+test('the last reply is text the runtime hands over, and the copying is said to have happened or not', () => {
+  assert.deepEqual(protocol.lastReplyCommand('q2'), { id: 'q2', type: 'get_last_assistant_text' });
+  assert.equal(protocol.lastReplyText({ success: true, data: { text: 'pong' } }), 'pong');
+  assert.equal(protocol.lastReplyText({ success: true, data: { text: null } }), null, 'no reply yet is an answer');
+  assert.equal(protocol.lastReplyText({ success: true, data: { text: '' } }), null);
+  // Three answers, not two: a request that was never answered must not be told as "no reply yet", or a
+  // session full of replies is described as empty and the clipboard is left alone in silence.
+  assert.equal(protocol.lastReplyText({ success: false, error: 'no answer' }), undefined);
+  assert.equal(protocol.lastReplyText(null), undefined);
+
+  const done = protocol.copiedNotice({ text: 'one\ntwo', copied: true });
+  assert.equal(done.level, 'info');
+  assert.match(done.text, /clipboard \(2 lines\)/);
+  assert.match(protocol.copiedNotice({ text: 'one', copied: true }).text, /\(1 line\)/, 'one line is not "1 lines"');
+
+  assert.match(protocol.copiedNotice({ text: null, copied: false }).text, /nothing to copy/);
+  assert.equal(protocol.copiedNotice({ text: null, copied: false }).level, 'info', 'an empty session is not an error');
+  assert.equal(protocol.copiedNotice({ text: 'x', copied: false }).level, 'error', 'a clipboard that refused is');
+
+  const unanswered = protocol.copiedNotice({ text: undefined, copied: false });
+  assert.equal(unanswered.level, 'warning');
+  assert.match(unanswered.text, /did not answer/);
+  assert.doesNotMatch(unanswered.text, /not replied/, 'never the empty-session sentence for a failed request');
 });
 
 test('the generated section carries no backtick-born damage and no execFile', () => {

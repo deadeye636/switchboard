@@ -107,6 +107,15 @@ module.exports = {
     // the figures come from here, over the one RPC command that has them.
     statsCommand: protocol.statsCommand,
     statsNotice: protocol.statsNotice,
+    // `/export` and `/copy` (#643), the same shape: the command says it was typed, the answer is asked
+    // for here. Each is a PAIR the core feature-checks together — a backend that cannot write a file of
+    // its session, or cannot hand back its last reply, declares neither half and the core does nothing.
+    exportCommand: protocol.exportCommand,
+    exportFileName: protocol.exportFileName,
+    exportNotice: protocol.exportNotice,
+    lastReplyCommand: protocol.lastReplyCommand,
+    lastReplyText: protocol.lastReplyText,
+    copiedNotice: protocol.copiedNotice,
     answerCommand: protocol.answerCommand,
     sessionIdFromState: protocol.sessionIdFromState,
     entriesFromMessages: protocol.entriesFromMessages,
