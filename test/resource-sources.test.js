@@ -112,7 +112,7 @@ test('commands from a source without a dialect are dropped, not passed as plain 
 test('no source means nothing to hand over; an unknown or silent source is refused', async () => {
   withRegistry();
   const none = await resourceSources.resolve({ target: 'tgt', sourceId: '' });
-  assert.deepEqual(none, { ok: true, source: null, skills: [], commands: [], agents: [], mcpServers: [], dropped: [] });
+  assert.deepEqual(none, { ok: true, source: null, skills: [], commands: [], agents: [], mcpServers: [], hooks: [], dropped: [] });
   for (const id of ['silent', 'planned', 'tpl', 'nope', 'tgt']) {
     const r = await resourceSources.resolve({ target: 'tgt', sourceId: id });
     assert.equal(r.ok, false, id);
@@ -199,7 +199,7 @@ test('the owner\'s three sources offer skills; only Claude declares a command di
 test('both Pi backends take skills, commands, agents and MCP servers, and offer Claude, Codex and Antigravity as sources', () => {
   resourceSources.init({ backends });
   for (const id of ['pi', 'pi-native']) {
-    assert.deepEqual(backends.get(id).acceptsSharedResources, ['skill', 'command', 'agent', 'mcp-server'], id);
+    assert.deepEqual(backends.get(id).acceptsSharedResources, ['skill', 'command', 'agent', 'mcp-server', 'hook'], id);
     assert.deepEqual(resourceSources.sourcesFor(id).map((s) => s.id).sort(), ['agy', 'claude', 'codex'], id);
   }
   assert.deepEqual(resourceSources.sourcesFor('claude'), [], 'Claude takes nothing over');
@@ -515,12 +515,28 @@ test('a kind the target declines for this launch is dropped with the target\'s o
   assert.deepEqual(asked, [['skill', 'global', 1], ['agent', 'global', 1]]);
 });
 
-test('a declining hook that throws or answers nonsense takes nothing away', async () => {
-  for (const decline of [() => { throw new Error('boom'); }, () => ({ reason: '' }), () => 'no']) {
+test('a declining hook that answers nonsense takes nothing away', async () => {
+  for (const decline of [() => ({ reason: '' }), () => 'no']) {
     withAgents({ decline });
     const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
     assert.equal(r.agents.length, 1);
     assert.deepEqual(r.dropped, []);
+  }
+});
+
+// …but a hook that THREW is a gate that could not answer, and a gate fails CLOSED. For one kind this hook
+// is the only thing between a command line of the user's and its running (#635), so "could not say" is
+// read as "not this time" rather than as "no objection". An answer that is merely the wrong SHAPE is
+// different: nothing went wrong, the target simply said nothing.
+test('a declining hook that throws withholds the kind, rather than waving it through', async () => {
+  withAgents({ decline: () => { throw new Error('boom'); } });
+  const r = await resourceSources.resolve({ target: 'tgt', sourceId: 'src-a' });
+  assert.deepEqual(r.agents, []);
+  // Every kind it was asked about, because the hook threw for each of them.
+  assert.ok(r.dropped.length >= 1);
+  for (const d of r.dropped) {
+    assert.equal(d.reason, 'target-declined');
+    assert.match(d.note, /could not say/);
   }
 });
 

@@ -364,6 +364,11 @@
     'not-approved': 'not started: this project server has not been approved in that CLI',
     'shadowed': 'not started: a server of the same name comes first in that CLI',
     'no-command': 'not started: no command to run',
+    // #635 — why one of the source's hooks does not run. `source-declined` is deliberately absent: it
+    // arrives with the source's own sentence in `note`, which says which moment or matcher it was.
+    'no-event-here': 'not run: this session has no moment matching it',
+    'no-hook-dialect': 'not run: that backend does not say what its hooks expect to read',
+    'extension-not-written': 'not run: the file the session is given could not be written',
   };
 
   function renderSourcePreview(result, projectPath) {
@@ -374,12 +379,13 @@
     // An MCP server (#633) is an entry in a config file, not a directory: it is shown by its NAME (and the
     // command it starts), under the source's own word for where it is configured, with the file as tooltip.
     // A row with neither is about the whole kind (every MCP server, when the launch takes none of them).
-    const label = (r) => (r.name ? (r.command ? `${r.name} (${r.command})` : r.name) : (r.path || ''));
+    // A hook has no name: what identifies it is the moment it runs at and the command it runs.
+    const label = (r) => (r.event ? `${r.event}: ${r.command || ''}` : (r.name ? (r.command ? `${r.name} (${r.command})` : r.name) : (r.path || '')));
     const row = (kind, r, note) => `
       <div class="settings-more open backend-source-preview-row">
         <span class="backend-pill">${esc(kind)}</span>
-        <span class="backend-pill ${r.scope === 'project' ? 'scope-project' : ''}">${esc(r.origin || r.scope || 'global')}</span>
-        ${label(r) ? `<code${r.name && r.path ? ` title="${esc(r.path)}"` : ''}>${esc(label(r))}</code>` : ''}${note ? ` <span class="backend-source-preview-note">${esc(note)}</span>` : ''}
+        <span class="backend-pill ${r.scope === 'project' ? 'scope-project' : ''}">${esc(r.where || r.origin || r.scope || 'global')}</span>
+        ${label(r) ? `<code${r.path && (r.name || r.event) ? ` title="${esc(r.path)}"` : ''}>${esc(label(r))}</code>` : ''}${note ? ` <span class="backend-source-preview-note">${esc(note)}</span>` : ''}
       </div>`;
     const kindLabel = (kind) => (kind === 'mcp-server' ? 'mcp server' : kind);
     const taken = [
@@ -387,6 +393,10 @@
       ...(result.commands || []).map(r => row('command', r)),
       ...(result.agents || []).map(r => row('agent', r)),
       ...(result.mcpServers || []).map(r => row(kindLabel('mcp-server'), r)),
+      // #635 — a hook is a COMMAND that will run on this machine, so the preview shows the command
+      // itself: it is the one thing worth reading before switching this on. The moment is the label, and
+      // the settings file it came from is the tooltip.
+      ...(result.hooks || []).map(r => row('hook', r)),
     ];
     // A reason the core words is looked up here; one the TARGET gave (#639, e.g. "the subagent tool is off")
     // arrives with its own sentence, because this panel may not name the option that decided it.

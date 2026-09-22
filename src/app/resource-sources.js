@@ -10,7 +10,8 @@
 //   - a SOURCE declares `sharedResources` — which of its `listResources` rows may leave it, by `source`,
 //     plus a `commandDialect` and an `agentDialect` describing its command and agent files (data, because
 //     the target reads them inside its own process), and optionally `listSharedMcpServers` — its MCP servers
-//     as neutral rows, since those are entries in its config files rather than listing rows (#633);
+//     as neutral rows, since those are entries in its config files rather than listing rows (#633) — and
+//     `listSharedHooks` with a `hookDialect`, its hooks in the same shape and for the same reason (#635);
 //   - a TARGET declares `acceptsSharedResources` (the kinds it can take), `trustsProjectResources`
 //     (whether this launch may be handed a source's project-scope directories — owner decision E1) and,
 //     optionally, `declinesSharedResource` (a kind it accepts but not with this launch's options, #639).
@@ -80,6 +81,10 @@ function sourcesFor(targetOrId) {
  *   - `agents`   — `[{ path, scope, dialect }]`, directories of agent files and how to read them (#639);
  *   - `mcpServers` — `[{ name, scope, origin, path, command, args, env }]`, stdio MCP servers to start (#633).
  *                  `env` routinely carries tokens: it is for the spawn path, and `preview` strips it;
+ *   - `hooks`    — `[{ event, sourceEvent, tools, command, timeoutMs, scope, path, dialect }]`, commands of the
+ *                  user's to run when the session reaches a moment (#635). `event` is a word from
+ *                  `src/backends/hook-events.js`, `tools` the neutral tool words a tool moment is limited
+ *                  to (null for every tool);
  *   - `dropped`  — `[{ path, kind, scope, reason, note? }]`, what the source has but this launch does not
  *                  get, so the preview can say so instead of leaving it out silently. `note` is the
  *                  target's own sentence where the TARGET declined the kind (`declinesSharedResource`).
@@ -88,7 +93,7 @@ function sourcesFor(targetOrId) {
 // `env` is the environment the launch will run with, which a source expands its MCP definitions against
 // (`${VAR}`); the preview has no launch and uses this process's own.
 async function resolve({ target: targetOrId, sourceId, projectPath = null, options = {}, env = null } = {}) {
-  const empty = { ok: true, source: null, skills: [], commands: [], agents: [], mcpServers: [], dropped: [] };
+  const empty = { ok: true, source: null, skills: [], commands: [], agents: [], mcpServers: [], hooks: [], dropped: [] };
   const target = asDescriptor(targetOrId);
   const kinds = acceptedKinds(target);
   if (!sourceId || !kinds.length) return empty;
@@ -131,13 +136,19 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
         if (a && typeof a === 'object' && typeof a.reason === 'string' && a.reason) {
           answer = { reason: a.reason, note: typeof a.note === 'string' ? a.note : null };
         }
-      } catch { answer = null; }
+      } catch {
+        // A GATE FAILS CLOSED. This hook is the whole of some switches — for hooks it is the only thing
+        // between a command line of the user's and its running — so a target that threw is read as "not
+        // this time" rather than as "no objection". The cost of being wrong the other way is a resource
+        // withheld and said so; the cost here would be execution nobody switched on.
+        answer = { reason: 'target-declined', note: 'not passed: the target could not say whether it takes this' };
+      }
     }
     declined.set(key, answer);
     return answer;
   };
 
-  const out = { ok: true, source: sourceId, skills: [], commands: [], agents: [], mcpServers: [], dropped: [] };
+  const out = { ok: true, source: sourceId, skills: [], commands: [], agents: [], mcpServers: [], hooks: [], dropped: [] };
   for (const row of listed.resources) {
     if (!row || !row.path || !sources.has(row.source)) continue;
     if (!kinds.includes(row.kind)) continue;
@@ -172,11 +183,73 @@ async function resolve({ target: targetOrId, sourceId, projectPath = null, optio
   if (kinds.includes(MCP_KIND) && typeof source.listSharedMcpServers === 'function') {
     takeMcpServers({ source, projectPath, projectTrusted, declineFor, env, out });
   }
+  if (kinds.includes(HOOK_KIND) && typeof source.listSharedHooks === 'function') {
+    takeHooks({ source, shared, projectPath, projectTrusted, declineFor, out });
+  }
   return out;
 }
 
 // What a target calls an MCP server when it accepts one — core vocabulary, like 'skill' and 'command'.
 const MCP_KIND = 'mcp-server';
+// …and a hook: a command of the user's, run when the session reaches a moment (#635).
+const HOOK_KIND = 'hook';
+
+/**
+ * A source's hooks (#635). Config entries rather than listing rows, so the same shape as the MCP servers
+ * above: the source answers through `listSharedHooks` with neutral rows, and the rules applied here are the
+ * launch's — the target's own "no" for this launch, and a project's hooks only when the target trusts the
+ * project.
+ *
+ * A hook RUNS A COMMAND OF THE USER'S, so the trust rule is the whole guard and there is no second one to
+ * fall back on. The source decides scope; this decides whether a `project` scope may run at all.
+ *
+ * A row the source already declined (a moment with no counterpart, a matcher it could not map) is carried
+ * through to `dropped` with the source's own sentence rather than re-worded: it knows why, and a hook that
+ * quietly does not fire is the failure this feature is most likely to have.
+ */
+function takeHooks({ source, shared, projectPath, projectTrusted, declineFor, out }) {
+  const globalDecline = declineFor(HOOK_KIND, 'global');
+  const projectDecline = declineFor(HOOK_KIND, 'project');
+  if (globalDecline && projectDecline) {
+    out.dropped.push({ path: null, kind: HOOK_KIND, scope: 'global', reason: globalDecline.reason, note: globalDecline.note });
+    return;
+  }
+  let listed;
+  try { listed = source.listSharedHooks({ projectPath: projectPath || null }); } catch { listed = null; }
+  if (!listed || listed.ok === false || !Array.isArray(listed.hooks)) return;
+  for (const h of listed.hooks) {
+    if (!h || typeof h.command !== 'string' || !h.command) continue;
+    const scope = h.scope === 'project' ? 'project' : 'global';
+    const drop = (reason, note) => out.dropped.push({
+      path: h.file || null, kind: HOOK_KIND, scope, event: h.sourceEvent || null, reason, ...(note ? { note } : {}),
+    });
+    const declines = scope === 'project' ? projectDecline : globalDecline;
+    if (declines) { drop(declines.reason, declines.note); continue; }
+    // The source's own refusal, kept as it was written.
+    if (h.declined) { drop('source-declined', h.declined); continue; }
+    if (!h.event) { drop('source-declined', 'the source named no moment for it'); continue; }
+    if (scope === 'project' && !projectTrusted) { drop('untrusted-project'); continue; }
+    // Without the dialect the target could only guess what the command expects to read, and a hook handed
+    // the wrong shape fails in the user's own script rather than here.
+    if (!shared.hookDialect) { drop('no-hook-dialect'); continue; }
+    out.hooks.push({
+      event: h.event,
+      // The source's own name for the moment, for a preview to show: `event` is a word of the shared
+      // vocabulary and reads as jargon beside the settings the user actually wrote.
+      sourceEvent: h.sourceEvent || null,
+      tools: Array.isArray(h.tools) ? h.tools.map(String) : null,
+      command: h.command,
+      timeoutMs: Number.isFinite(h.timeoutMs) && h.timeoutMs > 0 ? h.timeoutMs : DEFAULT_HOOK_TIMEOUT_MS,
+      scope,
+      path: h.file || null,
+      dialect: shared.hookDialect,
+    });
+  }
+}
+
+// What a hook gets when its source named no timeout of its own. Not a policy of the core's: a source that
+// knows its CLI's default says so per row, and this is only what is left when none was stated.
+const DEFAULT_HOOK_TIMEOUT_MS = 60000;
 
 /**
  * A source's MCP servers (#633). They are entries in the source's config files rather than listing rows, so
@@ -285,7 +358,12 @@ async function preview({ backendId, sourceId, projectPath, options } = {}) {
   const described = source ? sourcesFor(target).find((s) => s.id === source) : null;
   // A server's env and arguments can carry tokens, and this answer goes to a window: name and command only.
   const mcpServers = (result.mcpServers || []).map((s) => ({ name: s.name, scope: s.scope, origin: s.origin, path: s.path, command: s.command }));
-  return { ...result, mcpServers, sourceLabel: described ? described.label : null };
+  // A hook's command is shown as the user wrote it — it is the one thing worth reading before agreeing to
+  // run it, and it is theirs. The DIALECT is dropped: it is data for the target, and nothing to look at.
+  const hooks = (result.hooks || []).map((h) => ({
+    event: h.sourceEvent || h.event, tools: h.tools, command: h.command, timeoutMs: h.timeoutMs, scope: h.scope, path: h.path,
+  }));
+  return { ...result, mcpServers, hooks, sourceLabel: described ? described.label : null };
 }
 
 function registerIpc(ipc) {

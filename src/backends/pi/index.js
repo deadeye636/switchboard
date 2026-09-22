@@ -129,7 +129,7 @@ const configFields = [
     choicesFrom: 'sharedResourceSources',
     choiceLabels: { '': 'None (Pi\'s own)' }, default: '',
     appliesAt: 'spawn', appliedBy: 'buildSessionResources',
-    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Its MCP servers come along only while "MCP servers from the source" is on. Hooks do not come along.',
+    description: 'Also offer the skills and commands you keep for another CLI in this session. Pi\'s own still load, and one of its own wins over a source\'s of the same name. A command\'s inline shell lines run only where its own allowed-tools permit them, as in that CLI. A project\'s own directories are passed only when Pi trusts the project. Its agents come along only while the subagent tool is on, and a tool that has no counterpart in Pi is left out. Its MCP servers come along only while "MCP servers from the source" is on, and its hooks only while "Hooks from the source" is on.',
     // #645: two of the four kinds need a second switch, and both switches are off until somebody turns
     // them on — choosing a source must start neither a model session nor a process nobody asked for
     // (`./session-resources.js`, `declinesSharedResource`). That is deliberate and stays; what is missing
@@ -139,7 +139,15 @@ const configFields = [
     withheld: [
       { requires: 'subagentTool', note: 'The source\'s agents are not passed while the subagent tool is off.' },
       { requires: 'mcpServers', note: 'The source\'s MCP servers are not started while "MCP servers from the source" is off.' },
+      { requires: 'sourceHooks', note: 'The source\'s hooks are not run while "Hooks from the source" is off.' },
     ] },
+  // #635: run the source's hooks on this session's own lifecycle. OFF by default, and of the three
+  // switches on this family it is the one that most obviously must be: a hook is a command line of the
+  // user's, run on the user's machine whenever the session reaches a moment, and nobody should acquire
+  // that by upgrading. Read by `buildSessionResources` (`./session-resources.js`), like the source itself.
+  { id: 'sourceHooks', label: 'Hooks from the source', type: 'toggle', default: false,
+    appliesAt: 'spawn', appliedBy: 'buildSessionResources',
+    description: 'Run the commands the chosen source has attached to its own lifecycle when this session reaches the matching moment: the session opening, a tool call finishing, and the agent going idle. Only hooks that run a command come along — a hook that answers back, blocks or feeds context in does not, and neither does one whose moment or whose tools have no counterpart in Pi. A project\'s own hooks come along only when Pi trusts the project. Each runs with the session\'s environment and is given up to the timeout the source set for it; nothing waits for it.' },
   // #633: start the source's MCP servers and offer their tools. OFF by default — every server is a process
   // started on the user's behalf, and the setting nobody should acquire by upgrading. Read by
   // `buildSessionResources` (`./session-resources.js`), like the source itself.
@@ -633,7 +641,9 @@ description:
   // per-launch half is `declinesSharedResource`, which the core asks beside the trust question.
   // MCP servers (#633) are started by a section of the same per-spawn extension, and only while their own
   // toggle is on — the same per-launch hook answers for them.
-  acceptsSharedResources: ['skill', 'command', 'agent', 'mcp-server'],
+  // Hooks (#635) are a further section of it, on the same terms: the source's commands run on Pi's own
+  // lifecycle events, only while their toggle is on, and a project's only when Pi trusts the project.
+  acceptsSharedResources: ['skill', 'command', 'agent', 'mcp-server', 'hook'],
   declinesSharedResource: (ctx) => sessionResources.declinesSharedResource(ctx),
   // Whether this launch may be handed a source's PROJECT-scope directories (owner decision E1). A path on
   // Pi's command line is loaded whether or not the project is trusted, so passing one would read the

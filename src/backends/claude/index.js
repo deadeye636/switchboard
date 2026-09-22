@@ -22,6 +22,21 @@ const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, reso
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
 const mcpServers = require('./mcp-servers');
+const hooksConfig = require('./hooks-config');
+
+// This CLI's tool names onto the neutral words (`../tool-vocabulary.js`). Named here because TWO
+// declarations read it — an agent's `tools` line (#639) and a hook's matcher (#635) — and they name the
+// same things: a second copy is a table that agrees today and drifts on the next tool.
+const AGENT_TOOL_WORDS = Object.freeze({
+  Read: 'read',
+  Write: 'write',
+  Edit: 'edit',
+  MultiEdit: 'edit',
+  Grep: 'search-text',
+  Glob: 'find-files',
+  LS: 'list-dir',
+  Bash: 'shell',
+});
 const plugins = require('./plugins');
 // Who is holding a session right now (#172) — the CLI is the only one that knows.
 const liveAgents = require('./live-agents');
@@ -796,16 +811,26 @@ module.exports = {
       inheritModel: 'inherit',
       argumentOpen: '(',
       argumentClose: ')',
-      toolWords: {
-        Read: 'read',
-        Write: 'write',
-        Edit: 'edit',
-        MultiEdit: 'edit',
-        Grep: 'search-text',
-        Glob: 'find-files',
-        LS: 'list-dir',
-        Bash: 'shell',
-      },
+      toolWords: AGENT_TOOL_WORDS,
+    },
+    // `hookDialect` (#635) is the same kind of data for a hook COMMAND: what this CLI puts on its standard
+    // input when it runs one. A hook the user already wrote reads exactly these keys, so a target that runs
+    // it has to hand it exactly this shape — a neutral payload would be a takeover that breaks every hook
+    // it takes over, which is not one (owner decision H8).
+    //   - `eventKey` carries this CLI's OWN name for the moment, because that is what a hook switches on;
+    //     `eventNames` maps the neutral words back to those names, and is the inverse of what
+    //     `./hooks-config.js` reads. One direction per side: the source's reader turns names into words,
+    //     this turns words back into names for the payload.
+    //   - the tool keys are filled only for a tool moment, and left out otherwise, as this CLI does.
+    //   - `cwdKey` and `sessionKey` are the session's own, filled by the target from what it knows.
+    hookDialect: {
+      eventKey: 'hook_event_name',
+      eventNames: { 'session-start': 'SessionStart', 'tool-finished': 'PostToolUse', 'agent-idle': 'Stop' },
+      sessionKey: 'session_id',
+      cwdKey: 'cwd',
+      toolNameKey: 'tool_name',
+      toolInputKey: 'tool_input',
+      toolResponseKey: 'tool_response',
     },
     commandDialect: {
       allArguments: '$ARGUMENTS',
@@ -821,6 +846,10 @@ module.exports = {
   // config file, not a directory, and reading Claude's three places for them — with the approval a
   // `.mcp.json` server needs — is this folder's logic. Neutral rows, `./mcp-servers.js` says which.
   listSharedMcpServers: mcpServers.createListSharedMcpServers({ claudeHome }),
+  // The hooks another backend may take over (#635). A config entry like an MCP server, so the same shape:
+  // this folder reads Claude's settings files and answers neutral rows, and the tool names in a matcher go
+  // through the SAME table the agent dialect declares rather than a second copy.
+  listSharedHooks: hooksConfig.createListSharedHooks({ claudeHome, toolWords: () => AGENT_TOOL_WORDS }),
   // One level into a listed directory (#440) — the shared walker, this backend's rules.
   expandResource: resources.expandResource,
   // What the app may write back (#441). Markdown for skills, commands, agents and instruction files;

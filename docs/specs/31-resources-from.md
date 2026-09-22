@@ -1,4 +1,4 @@
-# 31 — Resources from: a Pi session takes over another CLI's skills, commands, agents and MCP servers
+# 31 — Resources from: a Pi session takes over another CLI's skills, commands, agents, MCP servers and hooks
 
 Issue #632, with agents from #639 and MCP servers from #633. The core half is `src/app/resource-sources.js`, the Pi half is `src/backends/pi/session-resources.js`
 with the per-spawn extension in `src/backends/pi/resources-extension.js`, the command bridge in
@@ -244,6 +244,86 @@ asked, and "Allow for this session" let the second call of the same tool through
 terminal Pi the tool worked and the agent's shell did not see the variable. After `/new` and after `/reload`
 the tools worked again on fresh server processes, and the server with the secret still had it. After the
 sessions were stopped no server process was left.
+
+## Hooks (#635)
+
+The user has attached commands to the source CLI's own lifecycle. With `sourceHooks` on, the same commands
+run when the Pi session reaches the matching moment — the point of the whole effort applied once more:
+switching CLIs should not lose the setup.
+
+**A MOMENT IS A WORD NEITHER CLI OWNS.** `src/backends/hook-events.js` is to events what
+`tool-vocabulary.js` is to an agent's tools: the source maps its own event names onto `session-start`,
+`tool-finished` and `agent-idle`, and the target declares which of ITS events is each word. Neither folder
+learns the other's names, and a word one side cannot answer means the hook is not taken over rather than
+attached to the nearest moment instead — a hook that fires at almost the right time is worse than one that
+does not fire, because nothing on screen says it was the wrong moment.
+
+**The three words are the ones both sides were MEASURED to have**, and two of them have a plausible
+neighbour that is wrong:
+
+| Word | Source | Target | Why not the neighbour |
+|---|---|---|---|
+| `session-start` | `SessionStart` | `session_start` | — |
+| `tool-finished` | `PostToolUse` | `tool_result` | `tool_execution_end` carries the tool's RESULT and not its INPUT, and a hook of this kind is handed both (measured payloads in `pi/hooks-section.js`) |
+| `agent-idle` | `Stop` | `agent_settled` | an `agent_end` may still be followed by a retry, a compaction or a queued continuation, so it is not the moment a person means by "it has stopped" — the same reading the live binding took for busy/idle (#573) |
+
+**Only a hook that RUNS A COMMAND travels**, and that is also what keeps Switchboard's own attention hook
+out (owner decision H1). The app writes `type: "http"` entries into the very file this reads
+(`src/app/hooks.js`), and a session reporting its turns through a taken-over copy of them would announce
+every turn twice. Filtering by TYPE rather than by our own URL is the structural version of that rule:
+ours is not a command, so nothing here has to know what our sentinel looks like.
+
+**Nothing that can answer back comes along** (H3). `PreToolUse`, `UserPromptSubmit` and `PreCompact` have
+no word at all, and a deny, an `additionalContext` or an exit code 2 is not honoured: blocking is a
+permission surface, `approvalGate` is already that surface, and a second one is the second way to do one
+thing. There is therefore no return value to respect and no way for a hook to hold the session.
+
+**A matcher names the source's tools**, mapped through the same `toolWords` table the agent dialect
+declares — one table, because a matcher and an agent's `tools` line name the same things (H4). A matcher
+that is a pattern rather than a list of names is not taken over: narrowing it would mean guessing which
+tools it meant. A matcher naming a tool with no counterpart is refused for the same reason.
+
+**The payload is the SOURCE's own shape** (H8), and that is the point rather than a compromise: a hook the
+user already wrote reads `hook_event_name` and `tool_name` by name, so a neutral shape would be a takeover
+that breaks everything it takes over. The key names come out of the source's `hookDialect` as data, the way
+a command's and an agent's do, because the payload is written inside the target's process.
+
+**Nothing waits for a hook** (H5). Pi awaits its event handlers, so a slow hook would make the agent look
+stuck with nothing on screen saying why. The handler starts the child and returns; the child is stopped at
+the timeout its own entry set (60 s when it set none), **with its whole tree** — `shell: true` means what
+the section holds is a shell, and killing a shell does not kill what it launched, so a report of "it was
+stopped" would otherwise be false on Windows. **A failure is said and a success is not** (H10): a non-zero exit, a spawn that
+fails and a timeout each put one line in the conversation, naming the command rather than the moment,
+because the command is what the user would go and look at. A line per successful tool call would be noise.
+
+**A project's hooks need the target's trust** (H6), like every other project-scope resource — and
+`settings.local.json` inside a project counts as the project's although it is conventionally the user's
+alone, because nothing enforces that convention and the trust rule is the only guard between a checkout and
+a command running on this machine.
+
+The MVP in the issue's body — a hand-written command per event, configured in Switchboard — is not built
+and is not this (H7). This takes over what the user already has.
+
+**A matcher is only read as tools on the TOOL moment.** This CLI's `SessionStart` matcher is `startup`,
+`resume`, `clear` or `compact` — which side of a session it is, not a tool — and `Stop` has none. Reading
+one as a tool list refused the commonest `SessionStart` configuration there is, with a sentence that was
+true and about the wrong question. What a session-side matcher SELECTS is not carried: the target reaches
+its own start once, however this one was reached.
+
+Three limits worth knowing. **The failure line is the FIRST line of the hook's standard error**, stripped of
+colour codes and capped — the same reading `cli-probe.js` takes of a CLI's complaint. For a script that
+fails with a stack trace that is not always the most useful line (Node prints its own locator first), and
+picking a better one would mean guessing at one runtime's format; the command and the exit code are named,
+which is enough to go and run it. **A `SessionStart` hook fires before the conversation view has
+attached**, so its failure reaches the log rather than the screen — it is the one moment where "a hook that
+failed says so" is weaker than the others. And **nothing serialises the hooks**: a `PostToolUse` hook with
+no matcher starts one shell per tool call, where the source CLI runs its own one at a time. Nothing waits
+for them either, which is the point, so a busy session with a slow hook can have several in flight.
+
+**What a hook is told about the session is the session FILE, not an id.** The dialect's `session_id` key is
+filled from what the target can answer, and Pi names a session by its transcript path. A hook that reads
+that field gets an absolute `.jsonl` path where the source CLI would have given a UUID. The key is the
+source's, the value is the target's, and a hook that only passes it along is unaffected.
 
 ## Measured
 

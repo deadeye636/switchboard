@@ -440,7 +440,7 @@ own `config.toml`.)
 | `codex` | `model`, `approvalMode` (**`on-request`**), `sandbox` (**`workspace-write`**), `profile`, `search`, `oss`, `localProvider`, `addDirs`, `configOverrides` |
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
-| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `mcpServers` (**off**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
+| `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `mcpServers` (**off**, applied at spawn), `sourceHooks` (**off**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 | `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30). It has no login of its own: it uses Pi's saved logins, so log in once through the terminal Pi backend (`/login`) |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
@@ -523,8 +523,9 @@ name replaces:
   agent runs on the session's model. The question and the result say which tools and which model it got.
 - **A project's own directories** are passed only when Pi trusts the project: `approval` for this run
   first, then Pi's saved trust. No saved decision means no. Global directories are always passed.
-- **MCP servers** come along only while `mcpServers` is on (below).
-- **Not included:** hooks (#635) and plugin skills. Of a command's
+- **MCP servers** come along only while `mcpServers` is on (below), and **hooks** only while
+  `sourceHooks` is on (below).
+- **Not included:** plugin skills. Of a command's
   frontmatter, only `allowed-tools` changes what it does. `description` and `argument-hint` describe it,
   and `model` is not applied.
 
@@ -561,6 +562,45 @@ slower one joins later and says so, and one that fails says why. Things to know:
 
 The preview under `resourcesFrom` lists the servers a launch would start, by name and command, and the ones
 left out with their reason. It never shows a server's `env` or arguments.
+
+**`sourceHooks` runs the source's hooks on the Pi session's own lifecycle** (#635, spec 31). It is off by
+default — a hook is a command line of yours, run on your machine whenever the session reaches a moment —
+and it does nothing without a `resourcesFrom` source. Only Claude Code offers hooks so far, from its four
+settings files. Three moments are carried across, and they are the ones both CLIs were measured to have:
+
+| Claude's event | When it runs here |
+|---|---|
+| `SessionStart` | the session has opened |
+| `PostToolUse` | a tool call has finished |
+| `Stop` | the agent has stopped and is waiting for you |
+
+Things to know:
+
+- **Only a hook that RUNS A COMMAND comes along.** A hook that answers back — a deny, `additionalContext`,
+  exit code 2 — is not taken over, because blocking belongs to `approvalGate` and a second permission
+  surface is a second way to do one thing. Switchboard's own attention hook is an HTTP entry rather than a
+  command, so it is left out by the same rule and a session cannot report its turns twice.
+- **`PreToolUse`, `UserPromptSubmit` and `PreCompact` do not come along** at all: each of them can answer
+  back. They are listed as left out, with that reason.
+- **A matcher names Claude's tools**, and each is mapped onto the neutral words a Pi tool is described by.
+  A matcher that is a pattern rather than a list of tool names (`Notebook.*`) is not taken over — narrowing
+  it would mean guessing which tools it meant — and neither is one naming a tool Pi has no counterpart for.
+- **A project's own hooks** (`.claude/settings.json` and `.claude/settings.local.json` in the repository)
+  come along only when Pi trusts the project, like its other project-scope resources. `settings.local.json`
+  is treated as the project's although it is conventionally yours alone: nothing enforces that convention.
+- **Each hook runs with the session's environment and working directory**, through a shell, with the event
+  as JSON on its standard input in Claude's own shape (`hook_event_name`, `tool_name`, `tool_input`,
+  `tool_response`, `session_id`, `cwd`) — so a hook you already wrote reads what it expects. The KEYS are
+  Claude's; `session_id` carries what Pi can answer, which is the session's transcript path rather than a
+  UUID.
+- **A matcher is read as tools only on `PostToolUse`.** A `SessionStart` matcher (`startup`, `resume`,
+  `clear`, `compact`) selects which side of a session it is, and that is not carried: the Pi session
+  reaches its own start once, however it was reached.
+- **Nothing waits for a hook**, and nothing serialises them either: a `PostToolUse` hook with no matcher
+  starts one shell per tool call, where Claude runs its own one at a time. Each is given the timeout
+  Claude's own entry set for it (60 s when it set none) and stopped at it, with its whole process tree. A hook that fails, cannot be started, or runs past its timeout says so once in
+  the conversation; one that works says nothing.
+- **Both Pi backends run them**, the terminal one and `pi-native`.
 
 **`approvalGate` asks before a runtime-driven Pi session runs `bash`, `powershell`, `edit`, `write`,
 `subagent` or an MCP tool** (the `pi-native` backend; its label is "Ask before commands, file changes and

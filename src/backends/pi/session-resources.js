@@ -23,9 +23,11 @@
 const subagentTool = require('./subagent-tool');
 const resourcesExtension = require('./resources-extension');
 const mcpSection = require('./mcp-section');
+const hooksSection = require('./hooks-section');
 
 const SOURCE_OPTION_ID = 'resourcesFrom';
 const MCP_OPTION_ID = 'mcpServers';
+const HOOKS_OPTION_ID = 'sourceHooks';
 
 /**
  * `{ args, env, cleanup, source, skills, commands, agents, mcpServers, dropped }` for this launch, or null when
@@ -52,6 +54,7 @@ function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
   let commands = [];
   let agents = [];
   let mcpServers = [];
+  let hooks = [];
   let dropped = [];
   if (sourceId) {
     if (!resolved || resolved.ok === false) {
@@ -61,6 +64,7 @@ function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
       commands = resolved.commands || [];
       agents = resolved.agents || [];
       mcpServers = resolved.mcpServers || [];
+      hooks = resolved.hooks || [];
       dropped = [...(resolved.dropped || [])];
     }
   }
@@ -78,26 +82,36 @@ function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
   let cleanup = null;
   let env = null;
   const mcpEnv = mcpSection.envFor(mcpServers);
-  if (section || commands.length || mcpEnv) {
-    const written = resourcesExtension.writeResourcesExtension({ dir, tag, subagent: section, commands, mcp: !!mcpEnv, log });
+  // A hook the TARGET cannot place is reported here rather than silently left out: the core decided it may
+  // be handed over, so the reason it still does not run is this folder's to give.
+  const placed = hooksSection.usable(hooks);
+  hooks = placed.runnable;
+  dropped.push(...placed.dropped);
+  if (section || commands.length || mcpEnv || hooks.length) {
+    const written = resourcesExtension.writeResourcesExtension({ dir, tag, subagent: section, commands, mcp: !!mcpEnv, hooks, log });
     if (written) {
       args.push('--extension', written.file);
       cleanup = written.file;
       env = mcpEnv;
-    } else if (commands.length || agents.length || mcpServers.length) {
+    } else if (commands.length || agents.length || mcpServers.length || hooks.length) {
       // No file, no commands and no agents — said, rather than a session that silently lacks them.
       for (const c of commands) dropped.push({ path: c.path, kind: 'command', scope: c.scope, reason: 'extension-not-written' });
       for (const a of agents) dropped.push({ path: a.path, kind: 'agent', scope: a.scope, reason: 'extension-not-written' });
       for (const m of mcpServers) dropped.push({ path: m.path, name: m.name, kind: 'mcp-server', scope: m.scope, reason: 'extension-not-written' });
+      for (const h of hooks) dropped.push({ path: h.path, kind: 'hook', scope: h.scope, reason: 'extension-not-written' });
       commands = [];
       agents = [];
       mcpServers = [];
+      hooks = [];
     }
   }
   // The rows leave without their env: this answer is logged, and only `env` above goes to the process.
   const servers = mcpServers.map((m) => ({ name: m.name, scope: m.scope }));
-  if (!args.length) return sourceId ? { args, env: null, cleanup: null, source: sourceId, skills, commands, agents, mcpServers: servers, dropped } : null;
-  return { args, env, cleanup, source: sourceId || null, skills, commands, agents, mcpServers: servers, dropped, subagent: !!subagent };
+  // A hook leaves without its command line: this answer is logged, and a user's own command is not a thing
+  // to write into a log file on every launch.
+  const hookRows = hooks.map((h) => ({ event: h.event, scope: h.scope }));
+  if (!args.length) return sourceId ? { args, env: null, cleanup: null, source: sourceId, skills, commands, agents, mcpServers: servers, hooks: hookRows, dropped } : null;
+  return { args, env, cleanup, source: sourceId || null, skills, commands, agents, mcpServers: servers, hooks: hookRows, dropped, subagent: !!subagent };
 }
 
 function releaseSessionResources(file, log) {
@@ -119,7 +133,12 @@ function declinesSharedResource({ kind, options } = {}) {
   if (kind === 'mcp-server' && !(options && options[MCP_OPTION_ID] === true)) {
     return { reason: 'target-declined', note: 'not started: MCP servers from the source are off' };
   }
+  // And the same again for hooks (#635), where it matters most: a hook is a command line of the user's,
+  // and choosing a source must not start running commands nobody switched on.
+  if (kind === 'hook' && !(options && options[HOOKS_OPTION_ID] === true)) {
+    return { reason: 'target-declined', note: 'not run: hooks from the source are off' };
+  }
   return null;
 }
 
-module.exports = { SOURCE_OPTION_ID, MCP_OPTION_ID, buildSessionResources, releaseSessionResources, declinesSharedResource };
+module.exports = { SOURCE_OPTION_ID, MCP_OPTION_ID, HOOKS_OPTION_ID, buildSessionResources, releaseSessionResources, declinesSharedResource };
