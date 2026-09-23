@@ -189,12 +189,22 @@ the set and replaces it wholesale on the next tick, which is what heals a relaun
 
 A session whose backend declares `transport` is mounted by `createConversationEntry`
 (`session/conversation-view.js`), reached through `createTerminalEntry` so every launch path gets it.
-The entry carries `terminal: null`, `fitAddon: null` and `conversation`. **Every site that touches
-`entry.terminal` checks it first** — fit, repaint, WebGL, font, theme, focus, scrollback, the exit
-banner — and a launch error is written through `writeEntryError`, not `entry.terminal.write`. A new
-site that reaches for the xterm without asking crashes on exactly the sessions nobody tests by hand.
-Such a session gets no grid card and is not detached (spec 30, E3); both refusals say so. Its input is a
-text field, and **`insertResolvedText` asks the entry for a `conversation` before it looks at the terminal
+The entry carries `terminal: null`, `fitAddon: null` and `conversation`. **Nearly every site that touches
+`entry.terminal` checks it first** — fit, repaint, WebGL, font, theme, scrollback, the exit banner — and a
+launch error is written through `writeEntryError`, not `entry.terminal.write`. A new site that reaches for
+the xterm without asking crashes on exactly the sessions nobody tests by hand.
+**Focus is the exception, and it is a live defect, so do not read this list as a promise** (#649):
+`applyPendingFocus` in `views/panes-view.js` calls `entry.terminal.focus()` with no check, inside a
+`try/catch` that swallows the `TypeError` — so in panes mode activating such a session's tab leaves the
+caret nowhere and says nothing. It was written before #568 and is the only focus path panes mode has, because
+`showSession`'s panes branch deliberately takes no focus (#425). The grid learned to fall back to
+`entry.conversation.focus()` in #636; panes has not. A sentence claiming every site checks is worse than no
+sentence: this one stood while the defect it describes sat two files away.
+It detaches, moves between windows and gets a grid card like any other session (#636): the two refusals
+that said otherwise were the first version's cut, and the reason under the detach one — "a detached window
+mounts by replaying its PTY" — had stopped being true, because `createTerminalEntry` is the one place that
+chooses a surface and `attachEntrySurface` loads the conversation from the runtime instead of from a
+replay. Its input is a text field, and **`insertResolvedText` asks the entry for a `conversation` before it looks at the terminal
 it was handed** — a picker opened there gets an anchor object, not an xterm, so a new insert path that
 reaches for `terminal.paste()` first would send the text down the pipe as keystrokes nobody submits.
 

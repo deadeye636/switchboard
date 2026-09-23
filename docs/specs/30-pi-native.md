@@ -19,7 +19,7 @@ carries two surfaces that have to be kept in step. An unfinished conversation vi
 |---|---|---|
 | E1 | The **installed** `pi` runs over RPC. It is not bundled. | The issue asked for a bundled copy so Pi could be patched. Measured: 129 MB unpacked, ESM, and it would have to run as its own process from outside the asar. Nothing needs patching yet, so bundling waits for a reason and becomes an issue of its own. |
 | E2 | A session this backend ran is **marked in its own transcript**. The row stays Pi's. | Both backends read one store, and a row can have one owner. See "Who owns a row". |
-| E3 | Single view and panes only. **No detach, no grid card.** | A detached window mounts a session by replaying its PTY, and there is no PTY here. A detach is refused with a sentence, and the grid says once, when it opens, that such sessions are not in it. |
+| E3 | Single view and panes only for the FIRST version. **LIFTED since #636** — such a session detaches, moves between windows and gets a grid card like any other. | The reason given at the time was that a detached window mounts a session by replaying its PTY and there is none here. That had already stopped being true: `createTerminalEntry` is the one place that chooses a session's surface, and the mount goes on through `attachEntrySurface`, which loads the conversation from the runtime rather than from a replay. |
 | E4 | One commit per step, not pushed without a look. | — |
 
 ## Who owns a row
@@ -148,6 +148,13 @@ field, so the palette sits in the lower half of the conversation as it would in 
 `insertResolvedText` asks the entry for a conversation **before** it looks at the terminal it was given.
 The text lands in the field with its line breaks, and a skill's `submit` sends it. Before this, the text
 would have gone down the pipe as keystrokes with no Enter after them, and waited there unseen.
+
+**The command palette offers the same four rows (#637)**, and against the same anchor: the view exposes it
+as `conversation.paletteAnchor`, and `focusedActionTerminal` hands that to the palette where a terminal
+session gets its terminal. One anchor, not a second one beside the chords' — a palette opened from the
+command list and one opened from its shortcut position themselves identically because they are given the
+same object. The rows used to be absent rather than broken, which is why the guard for this lives in
+`test/conversation-view.test.js` and reads `app.js` by name.
 
 What goes into the pipe directly — the seed, a staged prompt, the trigger watcher — still takes the PTY
 path (`write()`), and that path treats text plus a carriage return as a turn.
@@ -546,9 +553,6 @@ questions before a command's shell line and before an MCP tool, described under 
 
 ## Known gaps
 
-- **Detach and the grid** (E3) — #636.
-- **The command palette's insert entries** (run a skill, insert a plan, a handoff, a variable) ask for a
-  terminal and are absent for such a session; the keyboard chords in the text field work — #637.
 - **The login rests on an undocumented field** (see "Pi's own commands"). A Pi that drops it gets a
   message pointing at the terminal backend's `/login` instead of a login.
 - **A device-code login cannot be cancelled from the view.** It asks no question, only polls, so there is no

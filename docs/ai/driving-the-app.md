@@ -229,6 +229,27 @@ The main-window needle survives that, and for a reason worth knowing: a detached
 **Once it has loaded** is the caveat — a window that has just been opened still carries the frame's
 `Switchboard`, so give a fresh one its moment before addressing the main window by title.
 
+**And a RESTORED detached window may never load a name at all**, which makes that caveat permanent
+rather than a moment. Detached windows are persisted and come back on the next launch (`persistWindows`),
+and one whose session is not mounted keeps the frame's `Switchboard` for as long as it is open — so
+`--target=Switchboard file` matches it as well as main, and the first in the CDP list wins. There is no
+needle that excludes them: the matcher tests a contiguous substring of `"<title> <url>"`, and every
+window's URL contains `index.html`. Measured with four restored detached windows open — the needle
+answered from one of them, and the answer was true about the wrong window.
+
+So when any window of its own may be open, **make the eval say who answered** rather than trusting the
+needle:
+
+```
+node scripts/drive-app.js "--target=Switchboard file" eval "JSON.stringify({win: location.search, …})"
+```
+
+`location.search` is `''` in the main window and `?win=detached…` in every other, and
+`window.isDetachedWindow()` answers the same thing by name. An answer that does not carry one of those
+is an answer about an unknown window. This cost an afternoon once: several readings of "the main window
+still holds this session" were taken from a detached window that did, and a defect was nearly reported
+against code that was behaving correctly.
+
 When in doubt, ask the page who it is: `window.isDetachedWindow()` answers from the URL and never
 changes, and `window.__detachedSessionId` is the session that window currently treats as its own —
 since #325 the **active** one, not the one it was opened with. Neither tells you the whole set, and

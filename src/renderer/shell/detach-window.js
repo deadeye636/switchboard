@@ -595,19 +595,14 @@ if (isOwnWindow) document.body.classList.add('detached-window');
     }
   };
 
-  // A session with no terminal (#568) stays in the main window for now. A detached window mounts a
-  // session by replaying its PTY, and there is no PTY to replay — the conversation view would arrive empty.
-  // Decided for the first cut of the runtime-driven backend (plan E3) and said to the user, not hidden.
-  const stuckInMain = (sessionId) => {
-    const session = (typeof sessionMap !== 'undefined' && sessionMap.get(sessionId))
-      || (typeof openSessions !== 'undefined' && (openSessions.get(sessionId) || {}).session) || null;
-    if (!session || typeof sessionHasNoTerminal !== 'function' || !sessionHasNoTerminal(session)) return false;
-    window.showControlToast?.({ message: 'A session without a terminal stays in the main window for now', timeoutMs: 3000 });
-    return true;
-  };
+  // A session with no terminal (#568) used to be refused here, on the ground that a detached window mounts
+  // a session by replaying its PTY and there is none to replay. That reason had stopped being true:
+  // `createTerminalEntry` is the ONE place that decides which surface a session gets, and the receiving
+  // window's mount goes through it and then through `attachEntrySurface`, which loads the conversation
+  // from the runtime rather than from a replay. So the cut is lifted (#636) and nothing stands in its
+  // place — the move is the ordinary one.
 
   window.moveSessionToWindow = async (sessionId, windowId, placement) => {
-    if (String(windowId) !== 'main' && stuckInMain(sessionId)) return false;
     // The one combination a move still cannot serve (#332): a session with no process into an EXISTING
     // detached window outside panes mode. There is no dormant tab in that strip and no sidebar beside
     // it, so the session would be held by a window that shows it nowhere — and the adopt would hand the
@@ -657,7 +652,6 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   // it had actually been dropped. Nothing in here is main-window-specific; `sessionMap` is app.js's
   // and both windows load it, and a session it does not know simply gets the generic title.
   window.detachSession = async (sessionId, at) => {
-    if (stuckInMain(sessionId)) return null;
     const session = typeof sessionMap !== 'undefined' ? sessionMap.get(sessionId) : null;
     const title = (typeof cleanDisplayName === 'function'
       ? cleanDisplayName(session && (session.name || session.aiTitle || session.summary)) : '') || 'Session';
