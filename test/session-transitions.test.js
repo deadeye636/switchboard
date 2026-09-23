@@ -367,7 +367,9 @@ test('clear: single active PTY session in folder → rekeys to the new session i
     assert.equal(session.realSessionId, newId);
     const forked = events.filter(e => e.channel === 'session-forked');
     assert.equal(forked.length, 1);
-    assert.deepEqual(forked[0].args, [oldId, newId]);
+    // The third argument says WHERE the move came from: this one is the transcript detector reading a
+    // file in the store, which is not the CLI saying it can take a prompt (#640).
+    assert.deepEqual(forked[0].args, [oldId, newId, 'transcript']);
   } finally {
     cleanup(tmp);
   }

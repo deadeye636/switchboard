@@ -1550,22 +1550,43 @@ async function launchNewSession(project, sessionOptions, seedText) {
     const backend = (typeof getBackend === 'function' && sessionOptions && sessionOptions.backendId)
       ? getBackend(sessionOptions.backendId)
       : null;
-    seedSessionWhenReady(sessionId, String(seedText), { graceMs: (backend && backend.seedGraceMs) || 0 });
+    seedSessionWhenReady(sessionId, String(seedText), {
+      graceMs: (backend && backend.seedGraceMs) || 0,
+      // Only a FRESH launch may wait for the backend's own report, because the report is what re-keys the
+      // session — the two paths that seed a session already running would wait for an id change that has
+      // long happened and fall through to the timeout instead.
+      announcesReady: !!(backend && backend.announcesSessionReady),
+    });
   }
 
   return sessionId;
 }
 
-// Seed a freshly-launched session with its first message once the CLI has booted and gone quiet. Rather
-// than guessing a fixed delay, we watch lastActivityTime (populated by trackActivity for every session's
-// output) for the boot UI to render and then settle. Best-effort: seeds anyway at timeout.
+// Seed a freshly-launched session with its first message once the CLI can take it.
+//
+// TWO ways of knowing that, and the better one is only available where a backend declares it. Where the
+// CLI ANNOUNCES its own session (`announcesSessionReady`), that announcement is waited for: it is what
+// re-keys this entry, so the launch id giving way to the CLI's own id is the report itself, and no
+// number is guessed anywhere. Everywhere else we still watch lastActivityTime (populated by
+// trackActivity for every session's output) for the boot UI to render and then settle.
+//
+// The quiet rule is a heuristic and it is WRONG on a CLI that pauses mid-startup — measured on Pi: the
+// pause after its update check satisfies "700 ms of quiet" about 1.2 s into a startup that prints until
+// 6.2 s, the submit is refused, and the text is left sitting in the CLI's own composer (#640). That is
+// why an announcing backend REPLACES this rule rather than being offered it as a second chance.
+//
+// Best-effort either way: seeds anyway at timeout — and on an announcing backend that is what carries the
+// cost of this choice, which is worth stating rather than discovering: if the report never arrives (the
+// binding POST is swallowed, the extension did not load, the CLI is too old) the seed waits the full
+// MAX_WAIT_MS instead of the ~1.2 s the quiet rule would have taken. Slower, and it is the right way round
+// — the quiet rule's speed there was the bug, and the packet arrives either way.
 //
 // `graceMs` (from the backend descriptor) is a floor, not a hint: Hermes needs ~12s of Python imports
 // before its TUI can take input at all, and it PRINTS during that time (our own startup hint does too),
 // so "the terminal went quiet" arrives long before the process can hear anything. Without the floor the
 // packet is pasted into a process with no input loop and is simply gone — on exactly the backend whose
 // handoff support this feature was extended for.
-function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel, timelineNote } = {}) {
+function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady = false, timelineLabel, timelineNote } = {}) {
   const SETTLE_MS = 700;
   const POLL_MS = 250;
   const MAX_WAIT_MS = 12000 + graceMs;
@@ -1600,7 +1621,19 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, timelineLabel,
     const settled = last && quietFor >= SETTLE_MS;
     const timedOut = elapsed >= MAX_WAIT_MS;
 
-    if (pipe || settled || timedOut) {
+    // A backend that ANNOUNCES its session (`announcesSessionReady`) is not guessed at. Where that exists
+    // it replaces the quiet rule rather than joining it — the quiet rule is what fires too early on such a
+    // CLI, so keeping it as an alternative would keep the bug (#640). The timeout still backstops it.
+    //
+    // **Ask whether the CLI announced, never whether the id changed.** Two unrelated routes re-key a
+    // session, and the other one is a transcript file appearing in a store — which on Pi is born about
+    // 1.8 s in, before its own report and before it takes a prompt. An id comparison cannot tell them
+    // apart and would read a file's birth as readiness, which is this bug with a different cause.
+    const announced = announcesReady
+      && typeof window.sessionWasAnnounced === 'function' && window.sessionWasAnnounced(liveId);
+    const ready = announcesReady ? announced : settled;
+
+    if (pipe || ready || timedOut) {
       seeded = true;
       // Bracketed paste keeps the multi-line text intact, then SUBMIT.
       //

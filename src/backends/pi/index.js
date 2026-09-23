@@ -470,6 +470,23 @@ module.exports = {
   supportsLiveRebinding: true,
   buildLiveBinding: ({ dir, tag, sessionUrl, log } = {}) => liveBinding.writeBindingExtension({ dir, tag, sessionUrl, log }),
   releaseLiveBinding: (file, log) => liveBinding.removeBindingExtension(file, log),
+  // This CLI names its own session, over the binding above, BEFORE it has taken any input — so the
+  // report is a readiness signal and the seeding path may wait for it instead of guessing (#640).
+  //
+  // Measured in the isolated demo rather than read anywhere: seeding on the old rule ("700 ms of quiet")
+  // fires about 1.2 s into a startup that keeps printing until 6.2 s, because the pause after the update
+  // check already satisfies it — and the CLI then answers the submit with a refusal and leaves the text
+  // sitting unsent in its own composer. Held until the binding reported (4.9 s in that run, 2.8 s in
+  // another, which is why a number was never going to do it), the same submit was taken with no refusal
+  // and an empty composer.
+  //
+  // It says nothing about any other backend, and it is about the REPORT, not about the re-key the report
+  // causes. This CLI is also adopted from its store, and that route is no readiness signal at all: the
+  // transcript file is born about 1.8 s in — measured on the same launch, before this report at 2.5 s and
+  // before the prompt was taken at 3.2 s. The first draft of this comment asserted that file appears with
+  // the first turn, which is exactly what a reader would have to believe for an id comparison to be safe,
+  // and the file's own timestamp says otherwise.
+  announcesSessionReady: true,
   // The app's handoff and plan conventions, offered inside the session as `/handoff` and `/plan` (#569).
   //
   // Pi takes `--prompt-template <path>` for exactly this, so the app passes a directory it made for

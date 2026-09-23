@@ -102,7 +102,7 @@ test('a single live session re-keys onto its /clear child and records the lineag
 
     assert.equal(s.activeSessions.has('child'), true, 'the lone session re-keys');
     assert.equal(s.activeSessions.has('parent'), false, 'the dead source id is gone');
-    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'parent', 'child']);
+    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'parent', 'child', 'transcript']);
     assert.deepEqual(s.rekeyedMcp, [['parent', 'child']], 'the MCP server followed');
     assert.deepEqual(s.rekeyedBackend, [['parent', 'child']], 'the backend overlay followed');
     // #193: the clear child's provenance is recorded (child, folder, parent) for the sidebar thread.
@@ -131,7 +131,7 @@ test('THE HEADLINE: two live sessions, a claim names one → that one re-keys, t
     assert.equal(s.activeSessions.has('child'), true, 'the terminal that cleared re-keys onto its child');
     assert.equal(s.activeSessions.has('parent'), false, 'the dead source id is gone');
     assert.equal(s.activeSessions.has('bystander'), true, 'the bystander keeps its own session');
-    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'parent', 'child']);
+    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'parent', 'child', 'transcript']);
     assert.deepEqual(s.rekeyedMcp, [['parent', 'child']], 'the MCP server followed');
     assert.deepEqual(s.rekeyedBackend, [['parent', 'child']], 'the backend overlay followed');
     assert.deepEqual(s.lineage, [['child', s.folder, 'parent']], 'the /clear lineage is persisted');
@@ -217,7 +217,7 @@ test('THE #304 CASE: a stale live key still re-keys when the claim names a newer
 
     assert.equal(s.activeSessions.has('child'), true, 'the terminal follows its CLI onto the child');
     assert.equal(s.activeSessions.has('stale'), false, 'the stale key is gone');
-    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'stale', 'child']);
+    assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'stale', 'child', 'transcript']);
     assert.deepEqual(s.rekeyedMcp, [['stale', 'child']], 'the MCP server followed');
     assert.deepEqual(s.rekeyedBackend, [['stale', 'child']], 'the backend overlay followed');
     // The ancestor is what the CLI said it ended, NOT the id we happened to hold the row under.

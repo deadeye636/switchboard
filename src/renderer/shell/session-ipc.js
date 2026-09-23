@@ -186,7 +186,16 @@ window.rekeySessionState = function (oldId, newId) {
   return true;
 };
 
-window.api.onSessionForked((oldId, newId) => {
+// Which sessions the CLI has named ITSELF, for the life of this window (#640). A store file appearing
+// re-keys a session too, and that says nothing about whether the CLI can take a prompt yet — so the seed
+// path asks this set rather than comparing ids, which cannot tell the two routes apart.
+const announcedSessions = new Set();
+window.sessionWasAnnounced = (sessionId) => announcedSessions.has(sessionId);
+
+window.api.onSessionForked((oldId, newId, origin) => {
+  // Recorded before the re-key can be refused: whether THIS window holds the session has no bearing on
+  // whether the CLI announced it, and the window that launched it is the one waiting to seed.
+  if (origin === 'announced') { announcedSessions.add(newId); announcedSessions.delete(oldId); }
   if (!window.rekeySessionState(oldId, newId)) return;
 
   // A fork moves the header onto the new id, which now lives in the name's tooltip (#358).

@@ -1731,6 +1731,10 @@ ipcMain.handle('backends-list', () => {
       // How long this CLI needs before it can accept input at all (Hermes: ~12s of Python imports).
       // The handoff seeding path waits it out instead of pasting into a process that cannot hear it.
       seedGraceMs: Number(b.seedGraceMs) || 0,
+      // Does this CLI report its own session as live before it can have taken any input (#640)? Where it
+      // does, the seeding path waits for that report rather than for a quiet spell, which on a CLI that
+      // pauses mid-startup arrives seconds too early.
+      announcesSessionReady: !!b.announcesSessionReady,
       // Can this backend report a quota, and is that figure live (#191)? The DECLARATION crosses IPC;
       // the fetch stays in main. Settings offers a status-bar checkbox only for backends that say yes —
       // Hermes and Pi have no quota at all, so they never get a control that could never show a value.

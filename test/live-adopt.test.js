@@ -72,7 +72,7 @@ test('a spawned session adopts the id the backend gave itself, and the renderer 
   assert.equal(activeSessions.has('temp-1'), false, 'the temp id is gone');
   assert.equal(activeSessions.get('codex-real')?.realSessionId, 'codex-real', 're-keyed onto the real one');
   assert.deepEqual(rekeyed, [['temp-1', 'codex-real']], 'the backend overlay moved with it');
-  assert.deepEqual(sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'temp-1', 'codex-real'],
+  assert.deepEqual(sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'temp-1', 'codex-real', 'store'],
     'without this the pending row never dies');
   assert.equal(adopt.liveStoreRef.get('codex-real'), '/store/rec.jsonl');
 });

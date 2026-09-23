@@ -224,6 +224,7 @@ function profileToDescriptor(p) {
     // entries handed to the viewer unnormalized.
     ...(base && base.startupHint ? { startupHint: base.startupHint } : {}),
     ...(base && base.seedGraceMs !== undefined ? { seedGraceMs: base.seedGraceMs } : {}),
+    ...(base && base.announcesSessionReady ? { announcesSessionReady: true } : {}),
     ...(base && base.deleteBlockedReason ? { deleteBlockedReason: base.deleteBlockedReason } : {}),
     ...(base && typeof base.normalizeTranscriptEntries === 'function'
       ? { normalizeTranscriptEntries: base.normalizeTranscriptEntries } : {}),

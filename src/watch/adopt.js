@@ -211,7 +211,9 @@ function claimLiveRecord(sessionId, session, backend, candidatePaths) {
     if (ctx.rekeyTimelineSession) ctx.rekeyTimelineSession(sessionId, realId);
     const mainWindow = ctx.getMainWindow();
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('session-forked', sessionId, realId);
+      // A record in the store matched this session, which says nothing about whether the CLI can take a
+      // prompt — the seed path reads this origin and waits on (#640).
+      mainWindow.webContents.send('session-forked', sessionId, realId, 'store');
     }
   } else {
     // No adoption needed (or the target id is somehow already live). NOTE: the claim is deliberately

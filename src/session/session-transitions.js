@@ -364,7 +364,7 @@ function readOldSessionTail(filePath) {
  * — the transcript detector below and the terminal's own report (`adoptSessionId`) — because doing five of
  * the six was how a re-key used to half-happen.
  */
-function applyRekey(fromId, session, toId) {
+function applyRekey(fromId, session, toId, origin) {
   session.realSessionId = toId;
   activeSessions.delete(fromId);
   activeSessions.set(toId, session);
@@ -385,7 +385,12 @@ function applyRekey(fromId, session, toId) {
   } catch { /* module not wired in a test build */ }
   const mainWindow = getMainWindow();
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('session-forked', fromId, toId);
+    // WHERE the move came from travels with it (#640). Two unrelated routes reach this line: the CLI
+    // reporting its own session, and a transcript file appearing in a store. Only the first says anything
+    // about whether the CLI can take input — measured on Pi, its store file is born about 1.8 s in, well
+    // before its own report and before it will accept a prompt — so a reader that cannot tell them apart
+    // would read a file's birth as readiness. `undefined` here means "not the CLI's own word".
+    mainWindow.webContents.send('session-forked', fromId, toId, origin);
   }
 }
 
@@ -427,7 +432,8 @@ function adoptSessionId(tag, newId) {
   const kind = viaClaim ? 'clear' : 'terminal';
   const ancestorId = viaClaim ? claim.sessionId : fromId;
 
-  applyRekey(fromId, session, newId);
+  // `adoptSessionId` is the CLI naming its own session — Pi over its live binding, pi-native over RPC.
+  applyRekey(fromId, session, newId, 'announced');
   if (session.projectFolder) {
     try { recordLineage(newId, session.projectFolder, ancestorId, kind); } catch { /* best effort */ }
   }
@@ -597,7 +603,9 @@ function detectSessionTransitions(folder) {
         session.knownJsonlFiles = new Set(currentFiles);
         // Update slug from new session
         if (signals.slug) session.sessionSlug = signals.slug;
-        applyRekey(sessionId, session, newId);
+        // The transcript detector: a file in the store said so. Not the CLI's own word, and deliberately
+        // spelled out rather than left to a default, so the two routes read differently at a glance.
+        applyRekey(sessionId, session, newId, 'transcript');
         break; // Only one transition per session per flush
       }
     }

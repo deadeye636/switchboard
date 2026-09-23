@@ -401,7 +401,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   configureAttentionHook: (enabled) => ipcRenderer.invoke('configure-attention-hook', enabled),
   onSessionForked: (callback) => {
-    ipcRenderer.on('session-forked', (_event, oldId, newId) => callback(oldId, newId));
+    ipcRenderer.on('session-forked', (_event, oldId, newId, origin) => callback(oldId, newId, origin));
   },
   onSubagentSpawned: (cb) => ipcRenderer.on('subagent-spawned', (_e, payload) => cb(payload)),
   onSubagentCompleted: (cb) => ipcRenderer.on('subagent-completed', (_e, payload) => cb(payload)),

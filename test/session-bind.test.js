@@ -55,7 +55,7 @@ test('THE #303 CASE: the terminal reports a new id and the live row follows it',
   assert.equal(s.activeSessions.get('alive').realSessionId, 'alive');
   assert.deepEqual(s.rekeyedMcp, [['dead', 'alive']], 'the MCP server followed');
   assert.deepEqual(s.rekeyedBackend, [['dead', 'alive']], 'the backend overlay followed');
-  assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'dead', 'alive']);
+  assert.deepEqual(s.sent.find(([ch]) => ch === 'session-forked'), ['session-forked', 'dead', 'alive', 'announced']);
 });
 
 test('with no claim the lineage kind is "terminal" — no cause was witnessed, so none is claimed', () => {

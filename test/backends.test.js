@@ -478,6 +478,17 @@ test('a template inherits what its binary decides about starting and reading', (
     }
   });
 
+  // The same, on the backend that HAS the field. Whether the CLI reports its own session is a fact about
+  // the binary, and a template runs the same binary — a template that did not inherit it would fall back
+  // to the quiet rule and be seeded seconds before it can take a prompt (#640).
+  const piTemplate = { id: 'pi-tpl', name: 'A template', backendId: 'pi', env: {} };
+  withRegistry({}, [piTemplate], () => {
+    const base = backends.get('pi');
+    const d = backends.get('pi-tpl');
+    assert.equal(base.announcesSessionReady, true, 'the base says it names its own session');
+    assert.equal(d.announcesSessionReady, true, 'and the template running that binary says so too');
+  });
+
   const pi = { id: 'pi-norm-tpl', name: 'A template', backendId: 'pi', env: {} };
   withRegistry({}, [pi], () => {
     const base = backends.get('pi');
