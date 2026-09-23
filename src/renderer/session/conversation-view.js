@@ -314,6 +314,9 @@ function createConversationView(getSession, container) {
   // palette sits in the lower half of `element`'s rectangle and hands the focus back through `focus()`,
   // which is all it asks of a terminal. What it picks comes back through `insertResolvedText` into this
   // field, which asks the entry for a conversation before it looks at the terminal it was given.
+  // Handed to a picker where a terminal would go, and EXPOSED below: the command palette's insert rows
+  // open the same pickers for this session (#637) and ask for this object rather than building a second
+  // one, which is how the two would start to differ about where the popover sits.
   const paletteAnchor = { element: container, focus: () => input.focus() };
   const PALETTES = {
     insertVariable: () => (typeof openVariablePalette === 'function' ? openVariablePalette : null),
@@ -643,7 +646,7 @@ function createConversationView(getSession, container) {
   renderStatus();
   return {
     apply, attach, markExited, notice, insertText,
-    element: container, log,
+    element: container, log, paletteAnchor,
     focus: () => { if (!input.disabled) input.focus(); },
     dispose: () => {},
   };

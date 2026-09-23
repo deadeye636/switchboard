@@ -123,8 +123,9 @@
 // Registered here rather than in a central list, which is the registry's whole point: the picker that
 // owns the behaviour owns the row, and `shortcutId` makes the row print the key it also answers to.
 //
-// Absent without a mounted terminal, because that is what the picker types into — `focusedActionTerminal`
-// answers null for a session whose CLI has exited or that panes mode never mounted.
+// Absent without a mounted SURFACE to type into — `focusedActionTerminal` answers null for a session whose
+// CLI has exited or that panes mode never mounted. A session with no terminal has one (#637): its text
+// field, handed over as the anchor its own hotkey already opens this picker with.
 if (typeof registerCommandAction === 'function') registerCommandAction({
   id: 'insert.variable',
   title: 'Insert a saved variable',

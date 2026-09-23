@@ -306,3 +306,35 @@ test('a notice with neither a page nor a file has no actions at all', () => {
   assert.equal(notice.querySelectorAll('button').length, 0);
   assert.equal(notice.querySelectorAll('.conversation-ask-actions').length, 0);
 });
+
+// --- The palette anchor (#637) ---
+//
+// A wiring guard, not a behaviour test. `paletteAnchor` is a public member of the view that
+// `src/renderer/app.js` reads BY NAME, so the four insert rows of the command palette can open against a
+// session that has no terminal. Nothing else connects the two: rename it, or drop the branch in
+// `focusedActionTerminal`, and the rows go silently absent again with the whole suite green — which is the
+// "absent, not broken" shape #637 exists to remove.
+
+test('the view exposes one palette anchor, shaped the way openPalette uses a terminal', () => {
+  const h = setup();
+  const anchor = h.entry.conversation.paletteAnchor;
+  assert.ok(anchor, 'the view exposes paletteAnchor');
+  // `openPalette` does exactly three things with it: position() reads element.getBoundingClientRect(),
+  // closePalette() calls focus(), and the picker hands it on as its context.
+  assert.ok(anchor.element && typeof anchor.element.getBoundingClientRect === 'function', 'it has an element');
+  assert.equal(typeof anchor.focus, 'function', 'and it can take the caret');
+
+  // One anchor, not a second one beside the chords' — the same object the view uses itself.
+  anchor.focus();
+  assert.equal(h.entry.element.ownerDocument.activeElement, h.entry.element.querySelector('textarea'),
+    'focusing the anchor puts the caret in the session text field');
+});
+
+test('focusedActionTerminal still answers for an entry with no terminal', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
+  const fn = app.slice(app.indexOf('function focusedActionTerminal'));
+  const body = fn.slice(0, fn.indexOf('\n}\n') + 1);
+  assert.ok(body.includes('paletteAnchor'),
+    'focusedActionTerminal reads the conversation view\'s paletteAnchor — without it the command palette '
+    + 'offers no insert row for a session with no terminal (#637)');
+});

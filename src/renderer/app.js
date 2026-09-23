@@ -179,20 +179,27 @@ function focusedActionSession() {
   return sessionMap.get(activeSessionId) || (openSessions.get(activeSessionId) || {}).session || null;
 }
 
-// The MOUNTED terminal of the focused session, for an action that types into one — the four insert
-// pickers, which the hotkey hands `(terminal, sessionId)` and which have nowhere to put their text
-// without it (#489).
+// What the focused session TYPES INTO, for an action that inserts text — the four insert pickers, which
+// the hotkey hands `(target, sessionId)` and which have nowhere to put their text without one (#489).
 //
 // Deliberately not derived from `focusedActionSession`: that answers "which session does the user mean"
 // and resolves through `sessionMap`, which holds sessions whose CLI has exited and, in panes mode, ones
-// that were never mounted. A picker needs the xterm instance, so this asks `openSessions` — the map that
-// holds exactly the terminals that exist — and answers null for everything else, which is what lets the
-// action be ABSENT rather than fail on use.
+// that were never mounted. A picker needs something MOUNTED to type into, so this asks `openSessions` —
+// the map that holds exactly the surfaces that exist — and answers null for everything else, which is
+// what lets the action be ABSENT rather than fail on use.
+//
+// Two kinds of surface answer (#637). An xterm is one. A session with no terminal is the other: its
+// surface is a text field, and what a picker needs of a terminal is only a rectangle to sit under and a
+// way to hand the focus back — which is exactly what the conversation view's own anchor is, and it is
+// asked for rather than rebuilt here, because the hotkey inside that view opens the same pickers with
+// the same object and two anchors would drift.
 function focusedActionTerminal() {
   if (!activeSessionId) return null;
   const entry = openSessions.get(activeSessionId);
-  if (!entry || entry.closed || !entry.terminal) return null;
-  return { terminal: entry.terminal, sessionId: activeSessionId };
+  if (!entry || entry.closed) return null;
+  if (entry.terminal) return { terminal: entry.terminal, sessionId: activeSessionId };
+  const anchor = entry.conversation && entry.conversation.paletteAnchor;
+  return anchor ? { terminal: anchor, sessionId: activeSessionId } : null;
 }
 
 // A history entry is navigable only while its session is still mounted — a closed
