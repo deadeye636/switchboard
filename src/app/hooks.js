@@ -193,10 +193,11 @@ function handleHookRequest(req, res, token = attentionHookToken) {
       // boundary. Refresh that session's transcript now — bypassing the watcher +
       // reindex debounces — so a rename (Claude /rename → custom-title) shows the
       // moment the turn ends instead of lagging up to several seconds (#60).
+      let sess = null;
       if (sessionId) {
         try {
-          const sess = ctx.activeSessions.get(sessionId)
-            || [...ctx.activeSessions.values()].find(x => x.realSessionId === sessionId);
+          sess = ctx.activeSessions.get(sessionId)
+            || [...ctx.activeSessions.values()].find(x => x.realSessionId === sessionId) || null;
           if (sess && sess.projectFolder) {
             // relFilename is folder-prefixed (refreshFile strips the first segment).
             const rel = sess.projectFolder + '/' + sessionId + '.jsonl';
@@ -207,6 +208,18 @@ function handleHookRequest(req, res, token = attentionHookToken) {
         } catch (err) {
           ctx.log.warn(`[attention-hook] fast refresh failed: ${err.message}`);
         }
+      }
+      // A session driven over a PIPE reports its own state (#659): the runtime's stream says when a turn starts
+      // and ends, and `agent-rpc.js` delivers that through `deliverBindSignal`. The hooks this app writes into
+      // the CLI's global settings still fire in such a child — measured on Claude Code in `-p` mode, a hook
+      // from the global settings ran there — so without this one turn would be announced twice, by two
+      // producers that need not agree on when it ended. The transcript refresh above stays: a rename still
+      // shows at the turn's end. Keyed on how the session is driven, never on which backend drives it.
+      if (sess && sess.transport) {
+        ctx.log.debug(`[attention-hook] session=${sessionId} ignored: its state comes from its pipe (${sess.transport})`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{}');
+        return;
       }
       const signal = attentionSource.classifyAttentionSignal({ source: 'hook', payload: hook });
 

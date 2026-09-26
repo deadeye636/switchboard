@@ -609,6 +609,13 @@ Two things that audit is worth carrying:
   but the module's own default was the real home, so anything reading before that injection got the
   real one and looked isolated. That is what made the first pass of the audit itself misreport.
 
+## The attention hook stays quiet for a session driven over a pipe (#659)
+
+The hooks in the CLI's global settings fire in a piped child too, and that session already reports busy and
+ready from its own stream (`agent-rpc.js` → `deliverBindSignal`). `hooks.js` therefore drops the attention
+delivery for a session whose active entry carries `transport` and keeps the transcript refresh beside it.
+Keyed on `sess.transport`, never on a backend id. Spec 05 has the reasoning.
+
 ## The attention hook is OFF in a dev build (#219)
 
 `~/.claude/settings.json` is a shared, CLI-owned file, and `src/app/hooks.js` writes an HTTP entry

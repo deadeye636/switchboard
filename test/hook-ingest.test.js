@@ -156,6 +156,45 @@ test('the fast-path reindex only fires for a session we know (#60)', async () =>
 
 // --- the reversibility promise: switching the feature off must leave the user's own hooks alone -------
 
+// #659: a session driven over a pipe reports busy and ready from its own stream, and the global hooks still
+// fire inside such a child. The hook's attention delivery is dropped for it — nothing reaches the renderer,
+// nothing is held or cancelled — while the transcript refresh stays, so a rename still shows at the turn's end.
+test('a pipe-driven session gets no attention from the hooks, but still its transcript refresh', async () => {
+  const posted = [];
+  const held = [];
+  const activeSessions = new Map([['sess-1', { projectFolder: 'proj', realSessionId: 'sess-1', transport: 'rpc' }]]);
+  const ctx = makeCtx({
+    activeSessions,
+    indexWorker: { postFile: (folder, rel, opts) => posted.push({ folder, rel, opts }) },
+    holdReady: () => { held.push('hold'); return true; },
+    cancelHeldReady: () => held.push('cancel'),
+    sendTimelineSignal: () => held.push('timeline'),
+  });
+  for (const payload of [stopHook, { hook_event_name: 'Stop', session_id: 'sess-1' }, { hook_event_name: 'UserPromptSubmit', session_id: 'sess-1' }]) {
+    const res = await post(`/switchboard-attention-hook?t=${TOKEN}`, payload, TOKEN);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body, '{}', 'the CLI is still answered at once');
+  }
+  assert.deepEqual(ctx.sent, [], 'no attention signal for a session whose pipe says it itself');
+  assert.deepEqual(held, [], 'and the turn-hold and the timeline are not touched either');
+  assert.equal(posted.length, 3, 'the transcript refresh still runs on every hook');
+
+  // Found by its real id too, as the lookup does for a re-keyed session.
+  activeSessions.clear();
+  activeSessions.set('launch-id', { projectFolder: 'proj', realSessionId: 'sess-1', transport: 'rpc' });
+  await post(`/switchboard-attention-hook?t=${TOKEN}`, stopHook, TOKEN);
+  assert.deepEqual(ctx.sent, []);
+  assert.deepEqual(held, []);
+});
+
+test('a terminal session is unchanged: the same hook still raises its attention', async () => {
+  const activeSessions = new Map([['sess-1', { projectFolder: 'proj', realSessionId: 'sess-1', transport: null }]]);
+  const ctx = makeCtx({ activeSessions });
+  await post(`/switchboard-attention-hook?t=${TOKEN}`, stopHook, TOKEN);
+  assert.equal(ctx.sent.length, 1);
+  assert.equal(ctx.sent[0].channel, 'attention-signal');
+});
+
 test('stripSwitchboardHooks removes only our own handlers', () => {
   const settings = {
     hooks: {

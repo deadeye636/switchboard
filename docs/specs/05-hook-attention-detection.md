@@ -221,3 +221,20 @@ Two things closed the gap, and neither of them weakens the guard:
   be stale (#120), so reading it per report would write a "ready for review" per notification.
 
 A session nothing ever saw working still records nothing. That is the half worth keeping.
+
+## A session driven over a pipe is not announced by the hooks (#659)
+
+The hooks the app writes into the CLI's global settings also reach a process of that CLI this app drives over
+a pipe instead of a terminal (#653). Measured on Claude Code 2.1.283 in `-p --input-format stream-json` mode:
+a user-level `SessionStart` command hook from the global settings ran in the piped child (`system/hook_started`
+and `hook_response` in the stream). That the app's own entries — HTTP hooks on `Stop`, `UserPromptSubmit` and
+`Notification` in the same file — fire there too is inferred from it, not measured: hooks load per settings
+source, not per event or type. A launch with `--setting-sources` narrowed or `--bare` would change that. Such a session already reports its own state — `src/app/agent-rpc.js`
+reads the turn's start and end off the stream and delivers them through `deliverBindSignal`, the same path a
+terminal's binding takes. Left alone, the hook would announce the same turn a second time, from a producer
+that need not agree with the stream on when the turn ended.
+
+So `src/app/hooks.js` drops the hook's attention delivery for a session whose active entry carries
+`transport` — no `attention-signal`, no turn-hold, no timeline echo — and keeps its transcript refresh, so a
+rename still shows the moment the turn ends. The key is how the session is driven, never which backend
+drives it. A terminal session is untouched.
