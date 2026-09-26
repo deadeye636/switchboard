@@ -212,12 +212,19 @@ function createConversationView(getSession, container) {
 
   function reset(entries) {
     for (const el of view.elements) if (el) el.remove();
+    // A notice has no place in the runtime's snapshot, so once the entries around it are redrawn it would
+    // sit above the whole conversation (#654). A reset used to happen only on an empty log at mount; a
+    // branch switch (#646) resets a log that has notices in it, and the one about the switch itself is sent
+    // after the reset, so it still appears.
+    for (const el of log.querySelectorAll(':scope > .conversation-notice')) el.remove();
     view.entries = [];
     view.elements = [];
     // A re-mount re-reads the conversation from the runtime, and a finished shell line is in it as an
     // ordinary entry — so nothing here may still claim an index into the list just thrown away.
     view.localCommands.clear();
     for (const entry of entries || []) appendEntry(entry);
+    // A question still open stays open, below the conversation it is about — where it was before.
+    for (const card of view.asks.values()) log.insertBefore(card, partialEl);
     renderComposer();
   }
 

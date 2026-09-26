@@ -376,3 +376,24 @@ test('an unsent hand-back held during an attach is applied whatever its number',
   await attaching;
   assert.equal(h.input.value, 'early seed');
 });
+
+// #654 — a reset re-draws the entries; a notice from before it must not end up above the re-read
+// conversation, and a question still open stays open, below it.
+test('a reset drops earlier notices and keeps an open question below the conversation', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const entry = (text) => ({ type: 'user', message: { role: 'user', content: text } });
+  conv.apply({ op: 'append', entry: entry('before'), seq: 1 });
+  conv.apply({ op: 'notice', level: 'info', text: 'an old notice', seq: 2 });
+  conv.apply({ op: 'ask', request: { id: 'q1', method: 'confirm', title: 'Still open?' }, seq: 3 });
+  conv.apply({ op: 'reset', entries: [entry('one'), entry('two')], seq: 4 });
+  conv.apply({ op: 'notice', level: 'info', text: 'about the reset', seq: 5 });
+  const log = h.entry.element.querySelector('.conversation-log');
+  const kids = [...log.children].filter(el => el.textContent.trim());
+  const text = kids.map(el => el.textContent);
+  assert.ok(!text.some(t => t.includes('an old notice')), 'the notice from before the reset is gone');
+  assert.ok(text[0].includes('one') && text[1].includes('two'), 'the conversation comes first');
+  const ask = kids.findIndex(el => el.classList.contains('conversation-ask'));
+  assert.ok(ask > 1, 'the open question is below the conversation');
+  assert.ok(text.some(t => t.includes('about the reset')), 'a notice after the reset is drawn');
+});
