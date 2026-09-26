@@ -391,6 +391,43 @@ function recordOwnerOf(b) {
   return registry.get(b.transcriptsOf) || b;
 }
 
+/**
+ * Whose ROW is a session of this backend (#658)? The backend itself, unless it only drives another's
+ * binary (`transcriptsOf`) — then the owner's, however the session was driven. Asked with the id a launch
+ * recorded, so a stored row names the backend whose scan can find it again, and `openerFor` decides the
+ * driver from the row's `transport`.
+ *
+ * Not `recordOwnerOf`: that one answers who keeps the RECORD for the fork and resume guards, and answers
+ * the driver itself as soon as it declares `liveRefFor`. A template keeps its own id — it does not declare
+ * `transcriptsOf`, and its sessions are its own.
+ */
+function rowOwnerOf(id) {
+  if (!id) return null;
+  // Asked on the stamp path of every Claude row: a registry that cannot answer (a profiles store that
+  // throws) keeps the id it was given, which is what the stamp did before this existed.
+  let b = null;
+  try { b = get(id); } catch { return id; }
+  return b && b.transcriptsOf ? b.transcriptsOf : id;
+}
+
+/**
+ * Which backends' STORES are read — scanned and watched — right now (#658, owner decision E12 on #653).
+ *
+ * A backend's own switch, and also the switch of any backend that drives its binary: a driver keeps no
+ * store of its own, so with its owner switched off nothing would ever pick up a session the driver writes,
+ * and it would never reach the sidebar. Answers the owner ids. Only a launchable backend counts, so a
+ * driver switched off reads nothing, and a store nobody can launch against is left alone as before.
+ */
+function storesRead() {
+  const ids = new Set();
+  for (const b of launchable()) ids.add(b.transcriptsOf || b.id);
+  return ids;
+}
+
+function storeIsRead(id) {
+  return storesRead().has(id);
+}
+
 function has(id) {
   return get(id) != null;
 }
@@ -604,6 +641,6 @@ _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, openerFor, recordOwnerOf, profileToDescriptor,
+  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, storesRead, storeIsRead, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };

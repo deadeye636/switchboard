@@ -115,11 +115,16 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
 // (i.e. not Claude, not an Axis-A profile, and shaped like a scannable store). This is what main posts as
 // the `roster` so the worker never calls `backends.list()` (B-1: in a worker `backendEnabled` is empty, so
 // list() would fall back to Claude-only). This is the ready+enabled filter the reconcile sweep applies.
+//
+// "Enabled" is whether the backend's STORE is read (#658): its own switch, or the switch of a backend that
+// drives its binary (`transcriptsOf`). A pi-native session with Pi switched off is still Pi's row, and
+// without this nothing ever scanned it into the sidebar.
 function axisBRoster() {
   let list;
-  try { list = backends.list(); } catch { return []; }
+  let read;
+  try { list = backends.list(); read = backends.storesRead(); } catch { return []; }
   return list
-    .filter(b => b.status === 'ready' && b.enabled && b.id !== 'claude' && !b.isProfile
+    .filter(b => b.status === 'ready' && read.has(b.id) && b.id !== 'claude' && !b.isProfile
       && typeof b.discoverSessions === 'function' && typeof b.parseSession === 'function')
     .map(b => b.id);
 }

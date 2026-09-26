@@ -89,6 +89,48 @@ test('a dir event hands the match an ABSOLUTE path — a relative one would fail
   }
 });
 
+// #658: a backend that only DRIVES another's binary keeps no store, so while it is on its owner's store is
+// watched even with the owner switched off — the registry's `storesRead` says which stores, not `launchable`.
+test('the owner\'s store is watched while only a driver of it is on', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'store-watcher-driver-'));
+  const store = createFileStore({
+    root: () => root,
+    matches: (name) => name.endsWith('.jsonl'),
+    parseSession: () => null,
+    refSuffix: (id) => `-${id}.jsonl`,
+  });
+  const owner = {
+    id: 'owner', axis: 'B', status: 'ready', enabled: false,
+    watchTargets: store.watchTargets, matchLiveSession: () => null, liveState: () => null,
+  };
+  const driver = { id: 'driver', status: 'ready', enabled: true, transcriptsOf: 'owner' };
+  const posted = [];
+  adopt.liveStoreRef.clear();
+  adopt.liveBusy.clear();
+  adopt.init({
+    activeSessions: new Map(),
+    getMainWindow: () => ({ isDestroyed: () => false, webContents: { send() {} } }),
+    backends: { get: (id) => (id === 'owner' ? owner : driver) },
+    sessionBackends: { get: () => null, rekeySession() {} },
+    log,
+  });
+  stores.init({
+    backends: { launchable: () => [driver], list: () => [owner, driver], storesRead: () => new Set(['owner']) },
+    getAppQuitting: () => false,
+    indexWorker: { postReconcile: (msg) => posted.push(msg) },
+    log,
+  });
+  stores.startBackendWatchers();
+  try {
+    fs.writeFileSync(path.join(root, 'session-1.jsonl'), '{}\n');
+    const got = await until(() => (posted.length ? posted[0] : null), 15000);
+    assert.deepEqual(got, { backendIds: ['owner'] }, 'the write in the owner\'s store was seen and reconciled as the owner\'s');
+  } finally {
+    stores.stopBackendWatchers();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a db event names no file, so the match is asked for the full walk', async () => {
   // The polled db target reports a stat, not a path in a tree. That has to arrive as "no scope" — the
   // same thing the 30 s ticker sends — or a backend whose store is a single database could never pair.

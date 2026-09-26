@@ -66,9 +66,13 @@ function init(ctx) {
  * Fails OPEN. If the registry cannot answer (a unit test with no backends.init, a settings read that
  * throws), scanning is the safe direction: a missed scan is a stale sidebar, while a wrongly-skipped one
  * would look like the user's sessions had vanished.
+ *
+ * And "switched on" means its STORE is read (#658): Claude's own switch, or that of a backend driving its
+ * binary — with Claude off and such a driver on, a session the driver writes would otherwise never reach
+ * the sidebar. `storeIsRead` in the registry is the one answer, shared with the other stores' scan.
  */
 function claudeEnabled() {
-  try { return backends.isLaunchable('claude') !== false; } catch { return true; }
+  try { return backends.storeIsRead('claude') !== false; } catch { return true; }
 }
 
 // The launch-time overlay (session-backends.json) is the ONLY way to tell an Axis-A profile session
@@ -96,7 +100,11 @@ function overlayFor(sessionId, parentSessionId) {
 function stampClaudeProvenance(s) {
   const ov = overlayFor(s.sessionId, s.parentSessionId);
   if (ov && ov.backendId) {
-    s.backendId = ov.backendId;
+    // The overlay records the backend that LAUNCHED the session, and a backend that only drives Claude's
+    // binary is not the row's owner (#658): stamped with its id, the row would drop out of Claude's own
+    // reconcile and be opened by the driver even while it is switched off. So the owner is stamped, and the
+    // row's `transport` says how it was driven. A profile keeps its own id, as before.
+    s.backendId = backends.rowOwnerOf(ov.backendId);
     if (ov.profileId) s.profileId = ov.profileId;
   }
   // Which parser produced this row (#152). The skip gate compares it to the parser we have now.

@@ -3,6 +3,7 @@ const fs = require('fs');
 const { bucketFromIso, bucketKey } = require('../metrics-bucket');
 const { sessionProjectPath } = require('../../session/derive-project-path');
 const { specNamesModel } = require('./model-windows');
+const { transportFromEntry } = require('./transport-marker');
 
 // Bump on ANY change to what this parser writes into a session row or its metrics. The scan compares
 // this to the version recorded on the cached row (#152) and re-reads the session when they differ —
@@ -30,7 +31,9 @@ const { specNamesModel } = require('./model-windows');
 //       (`subtype: 'local_command'`), not as a user message, and v8 never saw it (measured on CLI 2.1.272).
 //   v10: nothing inside the turn `/model` was typed in expires the switch. With a prompt queued the CLI
 //       writes the switch at once, and the running request's entries land after it.
-const PARSER_SCHEMA_VERSION = 10; // v10: a switch typed mid-turn waits for the turn's end — #622 follow-up
+//   v11: the row carries `transport` — whether the session was ever driven over the stream pipe, from the
+//        `entrypoint` the driver sets (./transport-marker.js, #658). Existing rows were read without it.
+const PARSER_SCHEMA_VERSION = 11; // v11: row.transport from the entrypoint marker — #658
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -304,6 +307,9 @@ function createParseState() {
     // model. The next prompt or command also ends the wait, for a turn that wrote no `turn_duration`.
     turnOpen: false,
     specWaitsForTurnEnd: false,
+    // How the session was driven, once any line carried the driver's marker (./transport-marker.js). Kept in
+    // the parse state so the incremental path keeps it: the marker is on the lines already consumed.
+    transport: null,
   };
 }
 
@@ -364,6 +370,7 @@ function applyEntryLine(st, line) {
     }
   }
   if (entry.cwd) st.lastCwd = entry.cwd;
+  if (!st.transport) st.transport = transportFromEntry(entry);
   if (entry.slug && !st.slug) st.slug = entry.slug;
   if (entry.forkedFrom && entry.forkedFrom.sessionId && !st.forkedFrom) st.forkedFrom = entry.forkedFrom.sessionId;
   if (entry.agentId && !st.agentId) st.agentId = entry.agentId;
@@ -512,6 +519,8 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     // lineageParentId/lineageKind at the neutral sink — the parser does not stamp the shared field itself.
     // `parentSessionId` stays for Claude SUBAGENTS only.
     forkedFrom: st.forkedFrom || null,
+    // Whether it was ever driven over the stream pipe (#658); `openerFor` decides who opens it.
+    transport: st.transport || null,
     dailyMetrics,
   };
 }

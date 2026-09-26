@@ -419,6 +419,20 @@ backend OPENS it — the sidebar payload and the spawn path's cache fallback bot
 switched off hands the row back to the owner. `test/backend-parity.test.js` pins that shape, spec 30 has
 the reasoning.
 
+**Two more answers the registry owns for such a pair (#658), and neither is spelled twice.** `rowOwnerOf(id)`
+turns the id a launch RECORDED into the row's owner — Claude's provenance stamp reads the launch overlay,
+which names the driver, and stamping that would put the row outside Claude's own reconcile. It is not
+`recordOwnerOf`, which answers who keeps the record for the fork and resume guards and returns a driver
+that declares `liveRefFor`. And `storesRead()` answers which stores are scanned and watched: the owner's
+switch OR any launchable driver's (#653 E12), so a session the driver writes reaches the sidebar with the
+owner off. Claude's indexer (`claudeEnabled`), the other stores' roster (`axisBRoster`) and the store
+watcher all ask it. **What that costs, stated:** the WHOLE store is read then, not only what the driver
+wrote — so with the owner off, sessions run outside the app appear too, under the owner's id, and opening
+one is refused as disabled (`openerFor` hands the driver only a row that carries its `transport`). The
+older line "a disabled backend's store is not re-scanned" holds for a store nobody drives. A driver's marker is its owner's format and lives in the owner's folder — Pi's is a
+`custom` entry the driver writes, Claude's is the `entrypoint` Claude Code writes itself from
+`CLAUDE_CODE_ENTRYPOINT` (`claude/transport-marker.js`).
+
 A descriptor with `transport` spawns on a pipe (`src/app/agent-rpc.js`), and its `rpc` half is where the
 protocol lives: it turns the CLI's lines into the app's own ops and the app's requests into lines. The
 core names no event of it. Its per-spawn extension is a hook pair on the descriptor

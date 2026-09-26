@@ -96,7 +96,14 @@ function startBackendWatchers() {
     debounceTimer = setTimeout(flush, DEBOUNCE_MS);
   }
 
-  for (const backend of ctx.backends.launchable()) {
+  // The stores that are READ, not the backends that are switched on (#658): a backend driving another's binary
+  // keeps no store of its own, so its owner's store is watched while the driver is on, even with the owner
+  // off. A registry without the answer (a test's stand-in) watches what is launchable, as before.
+  const read = typeof ctx.backends.storesRead === 'function' ? ctx.backends.storesRead() : null;
+  const watched = read
+    ? ctx.backends.list().filter(b => b.status === 'ready' && read.has(b.id))
+    : ctx.backends.launchable();
+  for (const backend of watched) {
     // Claude (and every Axis-A profile, which shares Claude's store) is already covered by
     // startProjectsWatcher — watching it twice would double every refresh.
     if (backend.axis !== 'B' || typeof backend.watchTargets !== 'function') continue;
