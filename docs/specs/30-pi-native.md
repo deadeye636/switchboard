@@ -596,9 +596,9 @@ inside the open quote.
 
 ## Another CLI's skills, commands, agents and MCP servers
 
-Both Pi backends can take over another CLI's skills, commands, agents and MCP servers through the
-`resourcesFrom` setting (#632, #639, #633). How that works, and what does not come along (hooks, servers other
-than stdio), is in spec 31, "What comes along and what does not". The parts specific to this backend are the
+Both Pi backends can take over another CLI's skills, commands, agents, MCP servers and hooks through the
+`resourcesFrom` setting (#632, #639, #633, #635). How that works, and what does not come along (servers other
+than stdio, a hook that answers back), is in spec 31, "What comes along and what does not". The parts specific to this backend are the
 questions before a command's shell line and before an MCP tool, described under Approvals above.
 
 ## Known gaps

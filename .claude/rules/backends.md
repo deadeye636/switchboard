@@ -442,7 +442,8 @@ extensions that make the app's own seams work (the live binding in terminal Pi, 
 above in `pi-native`) and the #569 template directory, and it is not one of those. The resources extension
 composes sections: the `subagent` tool (#634) and the commands taken over from another backend
 (`command-bridge.js`), each exporting its imports and its source text, and the composer merges them into
-one `pi-resources-<tag>.ts`. MCP (#633) and hooks (#635) go in as further sections of that file. Another
+one `pi-resources-<tag>.ts`. MCP (#633) and hooks (#635) are further sections of that file
+(`mcp-section.js`, `hooks-section.js`). Another
 hook pair would be another file per spawn, another release on exit and another place to forget the quit
 re-check after the await, which the spawn path already carries once.
 

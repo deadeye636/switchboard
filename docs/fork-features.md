@@ -394,8 +394,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   another. **MCP servers (#633)** come along while their own switch is on: the source's stdio servers are
   started by a small MCP client in the same extension, their tools are offered as `mcp__<server>__<tool>`,
   the server list reaches Pi through its environment rather than a file, a project's servers need Pi's
-  trust and the user's approval in the source CLI, and `Pi (native)` asks before each tool. Hooks do not
-  come along yet (#635). Spec:
+  trust and the user's approval in the source CLI, and `Pi (native)` asks before each tool. **Hooks (#635)**
+  come along while their own switch is on: a command the source attached to the session opening, a tool call
+  finishing or the agent going idle runs at the matching moment in Pi; a hook that answers back does not come
+  along. Spec:
   [`specs/31-resources-from.md`](specs/31-resources-from.md).
 - **Two kinds of history, one seam** — discovery is dual-mode from the start: a backend yields
   `{kind:'file'}` handles (Claude, Codex, Pi, and agy — whose per-conversation file happens to be a
@@ -666,7 +668,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Closing does not silently kill your work** — the window owns every running CLI: when it goes, they
   go, and it used to go without a word (an accidental Alt+F4 was enough). Closing with sessions running
   asks first, in the app's own dialog, naming how many sessions and terminals and in which projects.
-  Cancel is the default (Escape and Enter both cancel) and the dialog is not dismissible. The decision
+  The dialog opens on Cancel, so Enter keeps the sessions, and it is not dismissible: Escape and a click
+  beside it do nothing. The decision
   and the wording are a testable module (`src/app/quit-guard.js`); the native message box survives only as the
   fallback for a renderer that cannot answer, or a crashed one would leave a window that can never be
   closed. Switch it off in *Settings → Sessions*.

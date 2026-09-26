@@ -305,7 +305,7 @@ alone, because nothing enforces that convention and the trust rule is the only g
 a command running on this machine.
 
 The MVP in the issue's body — a hand-written command per event, configured in Switchboard — is not built
-and is not this (H7). This takes over what the user already has.
+and is not this (H7); it is #652. This takes over what the user already has.
 
 **A matcher is only read as tools on the TOOL moment.** This CLI's `SessionStart` matcher is `startup`,
 `resume`, `clear` or `compact` — which side of a session it is, not a tool — and `Stop` has none. Reading
@@ -372,7 +372,8 @@ beside a preview that cannot.
 
 Does not, and says so in the option's own text:
 
-- Hooks: #635, as a section of the same extension.
+- A hook that answers back, blocks or feeds context in, or whose moment or tools have no counterpart in Pi.
+  The hooks that do come along are in "Hooks (#635)" above.
 - MCP servers other than stdio (HTTP, SSE), and any server of Codex or agy, which declare none yet.
 - Plugin skills: later (E5).
 - Anything tied to the source CLI's own tools. Of a command's frontmatter, `allowed-tools` decides its
