@@ -170,8 +170,11 @@ cost of their own. With the tool off, the preview shows the agent directories as
   a model the user cannot reach): an exact id first, then the highest-sorting id containing the name,
   preferring one without a date suffix. The child is handed that exact `provider/id`. With no match the agent runs on the
   session's model, and the question and the result say so. Pi's own resolver would have searched every
-  provider (measured: `sonnet` under an OpenAI session picked an amazon-bedrock model). Pi's own agents keep
-  Pi's rule; whether they should change is #641.
+  provider (measured: `sonnet` under an OpenAI session picked an amazon-bedrock model). Pi's own agents get
+  the same rule since #641 (owner decision), with two differences because they were written for Pi: a
+  `provider/id` naming an available model is kept as written, whatever its provider, since spelling out the
+  provider is how such an agent asks for another one on purpose; and Pi's `:<thinking>` suffix is carried
+  over onto the resolved model. A name that needed resolving is said in the question and in the result.
 - **The question (in `pi-native`) and the result say what was done**: the tools the agent got, the model it runs on and why,
   and every entry left out with its reason. "Allow for this session" is keyed by the agent's origin, scope
   and name, so an allow cannot pass to a different agent that later answers to the same name.

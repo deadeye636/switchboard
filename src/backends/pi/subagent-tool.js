@@ -21,8 +21,9 @@
 //     file — so the scan never finds a child and the sidebar never shows one. The child is visible only as
 //     the tool call in its parent.
 //   - an agent's body goes to the child through `--append-system-prompt <temp file>`, its `tools` through
-//     `--tools`, and its `model` through `--model`; an agent that names no model inherits the parent's
-//     model and thinking level.
+//     `--tools`, and its `model` through `--model` — resolved first, for Pi's own agents as for taken-over
+//     ones, because Pi's own fallback matches a name across every provider (#639, #641); an agent that names
+//     no model inherits the parent's model and thinking level.
 //   - the child is started as `process.execPath` + `process.argv[1]` — the node and the Pi script running
 //     the parent — so no shell and no npm shim is involved, which matters on Windows. (The example's last
 //     fallback, a bare `pi` without a shell, is kept for a runtime that is neither; it cannot start an npm
@@ -202,6 +203,35 @@ function pickSourceModel(name, parent, available) {
   return { model: pick.provider + '/' + pick.id, fellBack: false, note: name + ' resolved to ' + pick.provider + '/' + pick.id };
 }
 
+/**
+ * Which model one of PI'S OWN agents' `model:` value means (#641, owner decision: the same rule as a source
+ * agent). Pi's fallback is the same for both — a name that finds nothing in a provider is matched across EVERY
+ * provider — so an agent written for Pi can land on a provider the user has no credentials for just as a
+ * taken-over one could. Two things differ from `pickSourceModel`, both because this file was written FOR Pi:
+ *   - a `provider/id` naming a model that is available is kept exactly as written, whatever its provider —
+ *     spelling the provider out is how an agent asks for another one on purpose;
+ *   - Pi's own `:<thinking>` suffix (`sonnet:high`) is carried over onto the resolved model.
+ * Everything else goes through `pickSourceModel`: within the parent's provider, or the session's model with
+ * a note — never silently another provider. Same answer shape; a plain function like that one, written into
+ * the extension beside it with `toString()`, so the name it calls resolves in both places.
+ */
+function pickPiModel(name, parent, available) {
+  let base = String(name || '').trim();
+  let level = '';
+  const suffix = /^(.*):(off|minimal|low|medium|high|xhigh)$/i.exec(base);
+  if (suffix) { base = suffix[1]; level = ':' + suffix[2].toLowerCase(); }
+  const slash = base.indexOf('/');
+  if (slash > 0) {
+    const provider = base.slice(0, slash).toLowerCase();
+    const id = base.slice(slash + 1).toLowerCase();
+    const listed = (Array.isArray(available) ? available : [])
+      .some((m) => m && String(m.provider).toLowerCase() === provider && String(m.id).toLowerCase() === id);
+    if (listed) return { model: base + level, fellBack: false, note: base + level + ' as the agent names it' };
+  }
+  const r = pickSourceModel(base, parent, available);
+  return r.fellBack || !r.model ? r : { model: r.model + level, fellBack: false, note: r.note + (level ? ' (thinking ' + level.slice(1) + ')' : '') };
+}
+
 // The extension, as TypeScript Pi loads directly. What varies per spawn — the agents directory and another
 // CLI's agent directories with their dialect — is written as JSON literals, so no text a user typed can
 // close a string and become code.
@@ -235,6 +265,7 @@ const DEFAULT_TOOLS: string[] = ${JSON.stringify(DEFAULT_TOOLS)};
 const agentToolEntries = (${permissionEntries.toString()});
 const mapSourceAgent = (${mapSourceAgent.toString()});
 const pickSourceModel = (${pickSourceModel.toString()});
+const pickPiModel = (${pickPiModel.toString()});
 
 function agentsDir(cwd: string): string {
   if (!AGENTS_DIR) return path.join(getAgentDir(), "agents");
@@ -315,18 +346,28 @@ function allAgents(cwd: string): any[] {
   return out;
 }
 
-// Which model a call runs on, and whether it gets the session's thinking level. Pi's own agents are left as
-// they are written (#641 decides about them); a source agent's name is resolved within the session's
-// provider, and "inherit" or no name means the session's model.
+// Which model a call runs on, and whether it gets the session's thinking level. Both kinds of agent resolve a
+// name within the session's provider and never silently land on another (#639 for a source agent, #641 for
+// Pi's own, which also keeps an available provider/id as written); "inherit" or no name means the
+// session's model. The note is what the question before the call and the result say about it.
 function agentModel(agent: any, ctx: any): { model?: string; thinking: boolean; note: string } {
   const parent = ctx && ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : null;
   const own = parent ? parent.provider + "/" + parent.id : undefined;
-  if (agent.origin !== "source") return { model: agent.model || own, thinking: !agent.model, note: "" };
-  if (!agent.model) return { model: own, thinking: true, note: agent.inheritsModel ? "inherit: the session's model" : "the session's model" };
+  if (!agent.model) {
+    if (agent.origin !== "source") return { model: own, thinking: true, note: "" };
+    return { model: own, thinking: true, note: agent.inheritsModel ? "inherit: the session's model" : "the session's model" };
+  }
   let available: any[] = [];
   try { available = ctx && ctx.modelRegistry ? ctx.modelRegistry.getAvailable() : []; } catch { available = []; }
-  const r = pickSourceModel(agent.model, parent, available);
+  const r = agent.origin === "source" ? pickSourceModel(agent.model, parent, available) : pickPiModel(agent.model, parent, available);
   return { model: r.model, thinking: r.fellBack, note: r.note };
+}
+
+// The model line for one of Pi's own agents, which has no mapping line to carry it: said only when the name
+// needed resolving, so an agent that runs on the session's model reads as it always did.
+function ownModelLine(agent: any, modelNote?: string): string {
+  if (!agent || agent.origin === "source" || !modelNote) return "";
+  return "Model: " + modelNote + ".";
 }
 
 // What was done to a source agent's tools, in one line — for the question before the call and for its result.
@@ -404,7 +445,7 @@ function describeAgent(cwd: string, name: string, ctx?: any): any {
   if (agent.refused) {
     return { text: "Agent " + agent.name + " will be refused: " + agent.refused + ". " + mappingLine(agent), key: agent.origin + ":" + (agent.scope || "") + ":" + agent.name, refused: true };
   }
-  const model = agent.model || (agent.inheritsModel ? "the session's (the file says inherit)" : "the session's");
+  const model = (agent.model && agentModel(agent, ctx).note) || (agent.inheritsModel ? "the session's (the file says inherit)" : "the session's");
   const what = agent.origin === "source"
     ? mappingLine(agent, agentModel(agent, ctx).note)
     : "Agent " + agent.name + " · tools: " + (agent.tools ? agent.tools.join(", ") : "Pi's default tools") + " · model: " + model + ".";
@@ -542,8 +583,9 @@ function registerSubagent(pi: any) {
 
         // The usage so far travels with the abort: a run cancelled because it got away is the one whose cost
         // most needs saying.
-        if (aborted) throw new Error("Subagent was aborted. " + usageLine(agent.name, usage, usedModel) + (mappingLine(agent, chosen.note) ? " [" + mappingLine(agent, chosen.note) + "]" : ""));
-        const summary = usageLine(agent.name, usage, usedModel) + (mappingLine(agent, chosen.note) ? "\\n[" + mappingLine(agent, chosen.note) + "]" : "");
+        const said = mappingLine(agent, chosen.note) || ownModelLine(agent, chosen.note);
+        if (aborted) throw new Error("Subagent was aborted. " + usageLine(agent.name, usage, usedModel) + (said ? " [" + said + "]" : ""));
+        const summary = usageLine(agent.name, usage, usedModel) + (said ? "\\n[" + said + "]" : "");
         const details = { agent: agent.name, origin: agent.origin, tools: agent.tools, modelNote: chosen.note, dropped: agent.dropped || [], usage: { ...usage }, model: usedModel, exitCode, stopReason };
         const failed = exitCode !== 0 || stopReason === "error" || stopReason === "aborted";
         if (failed) {
@@ -570,6 +612,7 @@ function extensionSource({ agentsDir, sourceAgents } = {}) {
 
 module.exports = {
   pickSourceModel,
+  pickPiModel,
   TOOL_FOR_WORD,
   DEFAULT_TOOLS,
   mapSourceAgent,

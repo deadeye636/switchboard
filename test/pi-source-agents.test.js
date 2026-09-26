@@ -266,3 +266,46 @@ test('the section: the question names the model that will run, resolved from the
   assert.doesNotMatch(describe(root, 'son', ctx('openai-codex', 'gpt-5.6-sol')).text, /bedrock/);
   assert.match(describe(root, 'inh', ctx('openai-codex', 'gpt-5.6-sol')).text, /model inherit: the session's model/);
 });
+
+// ── #641: Pi's own agents get the same rule (owner decision) ─────────────────────────────────────────────
+
+test('a Pi agent\'s bare model name resolves within the session\'s provider and never lands on another', () => {
+  const codex = { provider: 'openai-codex', id: 'gpt-5.6-sol' };
+  const anthropic = { provider: 'anthropic', id: 'claude-opus-5' };
+  assert.equal(subagentTool.pickPiModel('sonnet', anthropic, AVAILABLE).model, 'anthropic/claude-sonnet-5');
+  const r = subagentTool.pickPiModel('sonnet', codex, AVAILABLE);
+  assert.equal(r.model, 'openai-codex/gpt-5.6-sol', 'not the bedrock model Pi\'s own fallback picked (#639)');
+  assert.equal(r.fellBack, true);
+  assert.match(r.note, /sonnet is not available from openai-codex; uses the session's model/);
+});
+
+test('a Pi agent\'s explicit provider/id of an available model is kept as written, whatever its provider', () => {
+  const codex = { provider: 'openai-codex', id: 'gpt-5.6-sol' };
+  const kept = subagentTool.pickPiModel('anthropic/claude-sonnet-4-6', codex, AVAILABLE);
+  assert.deepEqual([kept.model, kept.fellBack], ['anthropic/claude-sonnet-4-6', false]);
+  assert.match(kept.note, /as the agent names it/);
+  const missing = subagentTool.pickPiModel('anthropic/claude-nope', codex, AVAILABLE);
+  assert.deepEqual([missing.model, missing.fellBack], ['openai-codex/gpt-5.6-sol', true], 'one that is not available is not passed on');
+});
+
+test('a Pi agent\'s thinking suffix survives the resolution', () => {
+  const anthropic = { provider: 'anthropic', id: 'claude-opus-5' };
+  assert.equal(subagentTool.pickPiModel('sonnet:high', anthropic, AVAILABLE).model, 'anthropic/claude-sonnet-5:high');
+  assert.equal(subagentTool.pickPiModel('anthropic/claude-sonnet-4-6:LOW', { provider: 'openai-codex', id: 'x' }, AVAILABLE).model,
+    'anthropic/claude-sonnet-4-6:low');
+  assert.equal(subagentTool.pickPiModel('sonnet:high', { provider: 'openai-codex', id: 'gpt-5.6-sol' }, AVAILABLE).model,
+    'openai-codex/gpt-5.6-sol', 'a fallback runs on the session\'s model with the session\'s thinking level');
+});
+
+test('the section: the question for one of Pi\'s own agents names the model that will run and why', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-641-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const own = path.join(root, 'pi-agents');
+  writeAgent(own, 'son.md', { name: 'son', description: 'x', tools: 'read', model: 'sonnet' });
+  writeAgent(own, 'plain.md', { name: 'plain', description: 'x', tools: 'read' });
+  const { describe } = runSection({ piAgents: own, sources: [] });
+  const ctx = (provider, id) => ({ model: { provider, id }, modelRegistry: { getAvailable: () => AVAILABLE } });
+  assert.match(describe(root, 'son', ctx('openai-codex', 'gpt-5.6-sol')).text, /model: sonnet is not available from openai-codex; uses the session's model openai-codex\/gpt-5\.6-sol/);
+  assert.match(describe(root, 'son', ctx('anthropic', 'claude-opus-5')).text, /model: sonnet resolved to anthropic\/claude-sonnet-5/);
+  assert.match(describe(root, 'plain', ctx('openai-codex', 'gpt-5.6-sol')).text, /model: the session's\./, 'an agent naming no model reads as before');
+});
