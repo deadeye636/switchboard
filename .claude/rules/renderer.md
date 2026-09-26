@@ -193,13 +193,14 @@ The entry carries `terminal: null`, `fitAddon: null` and `conversation`. **Nearl
 `entry.terminal` checks it first** — fit, repaint, WebGL, font, theme, scrollback, the exit banner — and a
 launch error is written through `writeEntryError`, not `entry.terminal.write`. A new site that reaches for
 the xterm without asking crashes on exactly the sessions nobody tests by hand.
-**Focus is the exception, and it is a live defect, so do not read this list as a promise** (#649):
-`applyPendingFocus` in `views/panes-view.js` calls `entry.terminal.focus()` with no check, inside a
-`try/catch` that swallows the `TypeError` — so in panes mode activating such a session's tab leaves the
-caret nowhere and says nothing. It was written before #568 and is the only focus path panes mode has, because
-`showSession`'s panes branch deliberately takes no focus (#425). The grid learned to fall back to
-`entry.conversation.focus()` in #636; panes has not. A sentence claiming every site checks is worse than no
-sentence: this one stood while the defect it describes sat two files away.
+**The three sites that TAKE the caret on activation each fall back to `entry.conversation.focus()`**: `showSession` (single
+layout), `focusGridCard` (#636) and `applyPendingFocus` in `views/panes-view.js` (#649) — the last is the
+only focus path panes mode has, because `showSession`'s panes branch deliberately takes no focus (#425).
+Before #649 it called `entry.terminal.focus()` unchecked inside a `try/catch` that swallowed the
+`TypeError`, so the caret went nowhere and nothing said so. A `try/catch` around a surface call is for a
+DISPOSED surface, never for a missing one. The sidebar's refocus after a morphdom pass (`shell/sidebar.js`)
+restores only a terminal on purpose: a text field with the caret counts as the user typing there. Do not read
+this list as a promise, grep for `entry.terminal.`.
 It detaches, moves between windows and gets a grid card like any other session (#636): the two refusals
 that said otherwise were the first version's cut, and the reason under the detach one — "a detached window
 mounts by replaying its PTY" — had stopped being true, because `createTerminalEntry` is the one place that

@@ -568,7 +568,12 @@ window.__sessionDragId = null;
     // user may have clicked elsewhere, and a queued focus that fires anyway would drag them back.
     const leaf = PaneTree.leafOfTab(tree, tabIdFor(sessionId));
     if (!leaf || leaf.activeTabId !== tabIdFor(sessionId)) return;
-    try { entry.terminal.focus(); } catch { /* disposed between the request and the render */ }
+    // Whichever surface the session has (#649): an xterm, or the text field of a session with no terminal
+    // (#568). The catch is for a surface disposed between the request and the render — not for a missing one.
+    try {
+      if (entry.terminal) entry.terminal.focus();
+      else if (entry.conversation) entry.conversation.focus();
+    } catch { /* disposed between the request and the render */ }
   }
 
   /** Write out each revealed pane's replay backlog. Runs right after `applyVisibility`. */

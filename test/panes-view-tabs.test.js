@@ -1067,6 +1067,34 @@ test('#425: a queued focus is dropped when that session is no longer on top', as
   } finally { h.destroy(); }
 });
 
+// A session with no terminal (#568) is mounted with `terminal: null` and a conversation view whose text
+// field takes the caret. The one focus path panes mode has used to call `entry.terminal.focus()` and let a
+// try/catch swallow the TypeError, so the caret went nowhere (#649).
+test('#649: switching to a session with no terminal focuses its text field', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('s1');
+    h.enable();
+    await h.settle();
+    await h.open('s2');
+
+    const s2 = h.openSessions.get('s2');
+    const conversationFocus = [];
+    s2.terminal = null;
+    s2.conversation = {
+      focus() { conversationFocus.push({ parentClass: s2.element.parentElement ? s2.element.parentElement.className : null }); },
+    };
+    h.panes.show('s1');
+    await h.settle();
+    h.panes.show('s2');
+    await h.settle();
+
+    assert.equal(conversationFocus.length, 1, 'the text field gets the caret exactly once');
+    assert.match(conversationFocus[0].parentClass || '', /pane-body/,
+      'focused while already inside its pane, like a terminal is (#425)');
+  } finally { h.destroy(); }
+});
+
 // --- #436: a reorder along the tab row is not a split across the whole area ---
 //
 // #376's sliver of the outer band crosses the tab strip so the area's TOP edge is sayable at all.
