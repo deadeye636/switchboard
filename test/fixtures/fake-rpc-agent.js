@@ -3,7 +3,7 @@
 // framing and the exit path are exercised against a real child process rather than a mock of one.
 'use strict';
 
-const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX, SHELL_PREFIX, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
+const { ASK_PREFIX, DISMISS_PREFIX, STATS_PREFIX, EXPORT_PREFIX, COPY_PREFIX, SHELL_PREFIX, TREE_PREFIX, NAVIGATED_PREFIX, NAVIGATE_COMMAND, COMPLETE_COMMAND, COMPLETIONS_PREFIX } = require('../../src/backends/pi-native/session-commands');
 
 const SESSION_ID = 'fake-session';
 const messages = [];
@@ -55,6 +55,23 @@ process.stdin.on('data', (chunk) => {
       case 'prompt':
         // A submit the runtime refuses (#648): nothing runs, and only the response says so.
         if (cmd.message === 'refuse me') { out({ id: cmd.id, type: 'response', command: 'prompt', success: false, error: 'not now' }); break; }
+        if (cmd.message.startsWith('/' + NAVIGATE_COMMAND + ' ')) {
+          // The branch move (#646): the command is detached, so Pi answers the prompt first and the word
+          // about the move follows. Moving onto the first reply leaves one turn; picking the second user
+          // message hands its text back.
+          const req = JSON.parse(cmd.message.slice(NAVIGATE_COMMAND.length + 2));
+          out({ id: cmd.id, type: 'response', command: 'prompt', success: true });
+          const known = { a1: '', u2: messages[2] ? messages[2].content[0].text : '' };
+          setTimeout(() => {
+            if (!(req.target in known)) {
+              out({ type: 'extension_ui_request', id: 'nv', method: 'notify', message: NAVIGATED_PREFIX + JSON.stringify({ token: req.token, ok: false, error: 'That point is no longer in the session.' }) });
+              return;
+            }
+            messages.splice(2);
+            out({ type: 'extension_ui_request', id: 'nv', method: 'notify', message: NAVIGATED_PREFIX + JSON.stringify({ token: req.token, ok: true, summarized: req.summarize, draft: known[req.target] }) });
+          }, 5);
+          break;
+        }
         if (cmd.message.startsWith('/' + COMPLETE_COMMAND + ' ')) {
           // As measured: the extension command says its answer, THEN Pi answers the prompt.
           const req = JSON.parse(cmd.message.slice(COMPLETE_COMMAND.length + 2));
@@ -75,6 +92,8 @@ process.stdin.on('data', (chunk) => {
         } else if (cmd.message.startsWith('/export')) {
           // Same shape again: the command says what was typed after it and nothing more.
           out({ type: 'extension_ui_request', id: 'n3', method: 'notify', message: EXPORT_PREFIX + JSON.stringify({ args: cmd.message.slice('/export'.length).trim() }) });
+        } else if (cmd.message === '/tree') {
+          out({ type: 'extension_ui_request', id: 'n6', method: 'notify', message: TREE_PREFIX });
         } else if (cmd.message === '/copy') {
           out({ type: 'extension_ui_request', id: 'n4', method: 'notify', message: COPY_PREFIX });
         } else if (cmd.message.startsWith('!')) {
@@ -91,6 +110,14 @@ process.stdin.on('data', (chunk) => {
       case 'extension_ui_response':
         out({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: `answered ${cmd.value}` }], stopReason: 'stop', timestamp: 3 } });
         break;
+      case 'get_tree': {
+        // Two turns in one chain, as a real session is: u1 → a1 → u2 → a2, the leaf on a2.
+        const node = (id, message, children) => ({ entry: { type: 'message', id, message }, children });
+        const [u1, a1, u2, a2] = messages;
+        const tree = u1 ? [node('u1', u1, a1 ? [node('a1', a1, u2 ? [node('u2', u2, a2 ? [node('a2', a2, [])] : [])] : [])] : [])] : [];
+        out({ id: cmd.id, type: 'response', command: 'get_tree', success: true, data: { tree, leafId: a2 ? 'a2' : (a1 ? 'a1' : null) } });
+        break;
+      }
       case 'get_session_stats':
         out({ id: cmd.id, type: 'response', command: 'get_session_stats', success: true, data: {
           sessionFile: undefined, sessionId: SESSION_ID,

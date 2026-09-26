@@ -319,6 +319,8 @@ contextBridge.exposeInMainWorld('api', {
     commands: (id) => ipcRenderer.invoke('agent-commands', id),
     arguments: (id, command) => ipcRenderer.invoke('agent-arguments', id, command),
     paths: (id, prefix) => ipcRenderer.invoke('agent-paths', id, prefix),
+    // `/tree` (#646): move the session to another point of its branch tree; the outcome arrives as ops.
+    navigate: (id, target, options) => ipcRenderer.invoke('agent-navigate', id, target, options),
   },
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)

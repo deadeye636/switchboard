@@ -366,7 +366,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   allow once, allow for the session, or refuse. Its sessions stay Pi's rows. A marker in the
   transcript says how a session was driven, and the row reopens there. **Pi's own commands (#642, #643)**:
   `/login` (subscription or API key), `/logout`, `/model`, `/thinking` and `/compact` work in the text field.
-  The questions they ask appear as cards in the conversation. Pi's other terminal commands say where the
+  The questions they ask appear as cards in the conversation. `/tree` (#646) opens the session's branch tree
+  in a dialog and moves the session to an earlier point, with or without a summary of the branch it leaves;
+  a picked message of the user's goes back into the text field. Pi's other terminal commands say where the
   function lives instead of going to the model as a prompt. The text field completes as you type: `/` lists
   Pi's commands, prompt templates and skills, `/model`, `/thinking`, `/login` and `/logout` list their
   arguments, and `@` lists the project's files. Spec:

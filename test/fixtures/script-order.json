@@ -93,6 +93,7 @@
     "subagent-live.js",
     "jsonl-viewer.js",
     "composer-completion.js",
+    "branch-tree-dialog.js",
     "conversation-view.js",
     "dialogs.js",
     "welcome-tour.js",

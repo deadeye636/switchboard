@@ -30,6 +30,10 @@
 //   { op: 'shell', command }         the user asked to run a shell line (#643, a `!` line). The core sends
 //                                    `shellCommand` and the runtime runs it, so the output joins the
 //                                    session's own context
+//   { op: 'branchTree' }             the user asked for the session's branch tree (#646). The core sends
+//                                    `treeCommand` and hands the view what `treeRows` makes of the answer
+//   { op: 'navigated', token, … }    the move the app asked for (`navigateCommand`) is done, refused or
+//                                    cancelled; `draft` is a user message handed back for editing
 //   { op: 'localCommand', id, … }    a shell line the user ran: `command` when it starts, `output` as it
 //                                    grows, `status` running/done/error/cancelled. Keyed by `id` because a
 //                                    shell line and an assistant turn can be live AT ONCE (measured), so
@@ -54,7 +58,7 @@
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
-const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, parseShell, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
+const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, parseShell, parseTree, parseNavigated, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, NAVIGATE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
 function entriesFor(message) {
@@ -285,6 +289,10 @@ function createDecoder() {
           // A `!` line, caught by the extension's `input` hook rather than by a command.
           const shell = parseShell(msg.message);
           if (shell) return [{ op: 'shell', command: shell.command }];
+          // `/tree` (#646): the tree is asked for over RPC. And the answer to a move the app asked for.
+          if (parseTree(msg.message)) return [{ op: 'branchTree' }];
+          const moved = parseNavigated(msg.message);
+          if (moved) return [{ op: 'navigated', ...moved }];
           const level = msg.notifyType === 'error' || msg.notifyType === 'warning' ? msg.notifyType : 'info';
           // A page to open — a login page, a device-code page. Drawn with a button rather than as the URL.
           const link = parseLink(msg.message);
@@ -338,7 +346,7 @@ function commandsFromResponse(response) {
   const answers = list.some(c => c && c.source === 'extension' && c.name === COMPLETE_COMMAND);
   const out = [];
   for (const c of list) {
-    if (!c || typeof c.name !== 'string' || !c.name || c.name === COMPLETE_COMMAND) continue;
+    if (!c || typeof c.name !== 'string' || !c.name || c.name === COMPLETE_COMMAND || c.name === NAVIGATE_COMMAND) continue;
     if (c.source === 'extension' && Object.prototype.hasOwnProperty.call(TUI_ONLY, c.name)) continue;
     out.push({
       name: c.name,
@@ -537,6 +545,131 @@ function shellResult(response) {
   return { status, output: parts.join('\n') };
 }
 
+// --- the session's branch tree (#646, `/tree`) ---
+
+// Pi's documented `get_tree`: `{ tree, leafId }`, where a node is `{ entry, children, label? }` and a root
+// may be a settings entry rather than a message.
+const treeCommand = (id) => ({ id, type: 'get_tree' });
+
+// More rows than anybody reads in a dialog, and a bound on what one answer can put on the IPC.
+const TREE_ROWS_CAP = 2000;
+const TREE_TEXT_CAP = 200;
+
+const oneLine = (t) => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+const clip = (t) => { const v = oneLine(t); return v.length > TREE_TEXT_CAP ? v.slice(0, TREE_TEXT_CAP - 1) + '…' : v; };
+
+// What one of Pi's entries is, in the app's words: `kind` is user / assistant / tool / summary / setting /
+// other, `text` a one-line preview. `null` for an entry the tree does not show at all.
+function treeEntry(entry, isLeaf) {
+  if (!entry || typeof entry !== 'object') return null;
+  switch (entry.type) {
+    case 'message': {
+      const m = entry.message || {};
+      switch (m.role) {
+        case 'user': return { kind: 'user', text: clip(textOf(m.content)) };
+        case 'assistant': {
+          const text = clip(textOf((Array.isArray(m.content) ? m.content : []).filter(c => c && c.type === 'text')));
+          if (text) return { kind: 'assistant', text };
+          // Pi's own tree hides a turn that only called tools — the calls' results carry what happened —
+          // unless it failed or was stopped, or the session is standing on it.
+          if (m.stopReason === 'error') return { kind: 'assistant', text: clip(m.errorMessage || 'The model call failed.') };
+          if (m.stopReason === 'aborted') return { kind: 'assistant', text: 'Stopped.' };
+          const calls = (Array.isArray(m.content) ? m.content : []).filter(c => c && c.type === 'toolCall').map(c => c.name).filter(Boolean);
+          return isLeaf ? { kind: 'assistant', text: calls.length ? 'Called ' + calls.join(', ') : '' } : null;
+        }
+        case 'toolResult': return { kind: 'tool', text: clip((m.toolName ? m.toolName + ': ' : '') + textOf(m.content)) };
+        case 'bashExecution': return { kind: 'tool', text: clip('! ' + (m.command || '')) };
+        case 'branchSummary': return { kind: 'summary', text: clip(m.summary || 'A summary of a branch left behind') };
+        case 'compactionSummary': return { kind: 'summary', text: clip(m.summary || 'The conversation, compacted') };
+        default: return { kind: 'other', text: clip(textOf(m.content)) };
+      }
+    }
+    case 'branch_summary': return { kind: 'summary', text: clip(entry.summary || 'A summary of a branch left behind') };
+    case 'compaction': return { kind: 'summary', text: clip(entry.summary || 'The conversation, compacted') };
+    case 'custom_message': return { kind: 'other', text: clip(textOf(entry.content)) };
+    case 'model_change': return { kind: 'setting', text: clip('Model: ' + [entry.provider, entry.modelId].filter(Boolean).join('/')) };
+    case 'thinking_level_change': return { kind: 'setting', text: clip('Thinking: ' + (entry.thinkingLevel || '')) };
+    case 'session_info': return { kind: 'setting', text: clip('Session name: ' + (entry.name || '')) };
+    case 'label': return { kind: 'setting', text: clip('Label: ' + (entry.label || '(removed)')) };
+    case 'custom': return { kind: 'setting', text: clip(entry.customType || 'An extension\'s entry') };
+    default: return { kind: 'other', text: clip(entry.type || '') };
+  }
+}
+
+/**
+ * `treeCommand`'s answer as rows the app draws — `{ rows, truncated }`, or null when there was no answer.
+ *
+ * FLAT, NOT NESTED, and that is the point rather than a convenience: a session is a chain in which every
+ * message is the child of the one before, so a nested drawing indents once per message. `depth` is the
+ * number of branch points above a row — the way Pi's own tree view indents — and the branch holding the
+ * session's current point comes first at every fork. A row is `{ id, depth, kind, text, label, onPath,
+ * current }`: `onPath` is the branch the session is on, `current` the point it stands on.
+ */
+function treeRows(response) {
+  const d = response && response.success !== false ? response.data : null;
+  if (!d || typeof d !== 'object') return null;
+  const roots = (Array.isArray(d.tree) ? d.tree : (d.tree ? [d.tree] : [])).filter(n => n && n.entry);
+  const leafId = typeof d.leafId === 'string' ? d.leafId : null;
+  const kids = (n) => (Array.isArray(n.children) ? n.children.filter(c => c && c.entry) : []);
+
+  // Which subtrees hold the current point — iterative, because a long session is a chain thousands deep.
+  const onPath = new Set();
+  const order = [];
+  const walk = [...roots];
+  while (walk.length) { const n = walk.pop(); order.push(n); for (const c of kids(n)) walk.push(c); }
+  for (let i = order.length - 1; i >= 0; i--) {
+    const n = order[i];
+    if ((leafId && n.entry.id === leafId) || kids(n).some(c => onPath.has(c))) onPath.add(n);
+  }
+
+  const first = (list) => [...list.filter(n => onPath.has(n)), ...list.filter(n => !onPath.has(n))];
+  const rows = [];
+  let truncated = false;
+  const stack = first(roots).reverse().map(n => [n, roots.length > 1 ? 1 : 0]);
+  while (stack.length) {
+    const [n, depth] = stack.pop();
+    const id = String(n.entry.id || '');
+    const current = !!leafId && id === leafId;
+    const shown = id ? treeEntry(n.entry, current) : null;
+    if (shown) {
+      if (rows.length >= TREE_ROWS_CAP) { truncated = true; break; }
+      rows.push({
+        id,
+        depth,
+        kind: shown.kind,
+        text: shown.text,
+        label: typeof n.label === 'string' ? clip(n.label) : '',
+        onPath: onPath.has(n),
+        current,
+      });
+    }
+    const children = first(kids(n));
+    const next = children.length > 1 ? depth + 1 : depth;
+    for (let i = children.length - 1; i >= 0; i--) stack.push([children[i], next]);
+  }
+  return { rows, truncated };
+}
+
+// Move the session to another point. A prompt that runs the extension's internal command — like
+// `argumentsCommand`, it reaches neither the model nor the transcript. The outcome comes back later as a
+// `navigated` op carrying the same token, because a move with a summary is a model call.
+function navigateCommand(id, { target, summarize, token } = {}) {
+  const req = { target: String(target || ''), summarize: summarize === true, token: String(token || '') };
+  return { id, type: 'prompt', message: `/${NAVIGATE_COMMAND} ${JSON.stringify(req)}` };
+}
+
+// What to say once a move is done — `{ level, text }`, or null for a move the user cancelled.
+function navigatedNotice(op) {
+  if (!op) return null;
+  if (op.cancelled) return null;
+  if (!op.ok) return { level: 'error', text: op.error || 'The session did not switch branches.' };
+  const parts = ['Switched to another point in the session.'];
+  if (op.summarized) parts.push('A summary of the branch you left was added at the new point.');
+  if (op.draft) parts.push('The message you picked is back in the input, to edit and send again.');
+  parts.push('The branch you left stays in the tree.');
+  return { level: 'info', text: parts.join(' ') };
+}
+
 // The answer to an `ask`. `answer` is the app's: `{ value }` for a choice or a text, `{ confirmed }` for a
 // yes/no, `{ cancelled: true }` for a dismissed dialog — the three response shapes Pi documents.
 function answerCommand(requestId, answer = {}) {
@@ -581,6 +714,10 @@ module.exports = {
   shellCommand,
   shellAbortCommand,
   shellResult,
+  treeCommand,
+  treeRows,
+  navigateCommand,
+  navigatedNotice,
   answerCommand,
   sessionIdFromState,
   entriesFromMessages,

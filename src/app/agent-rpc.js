@@ -185,6 +185,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
     localOps: new Map(),     // id -> the newest running op not sent yet (coalesced, like the partial)
     localTimer: null,
     composerLines: new Set(), // shell lines the composer sent that the runtime has not raised yet
+    navigations: new Set(),  // moves in the branch tree this process asked for and has not heard back on
     queue: { steering: [], followUp: [] },
     busy: false,
     typed: '',               // what `write()` has collected towards the next carriage return
@@ -492,6 +493,35 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
           if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text });
         }).catch((err) => ctx.log.warn(`[agent-rpc] the last reply was not copied: ${err.message}`));
         return;
+      case 'branchTree':
+        // The user asked for the session's branch tree (#646). Read over the protocol and handed to the view
+        // as the backend's neutral rows; not awaited, like the figures.
+        flushPartial();
+        if (typeof rpc.treeCommand !== 'function' || typeof rpc.treeRows !== 'function') return;
+        request(rpc.treeCommand).then((res) => {
+          const tree = rpc.treeRows(res);
+          if (!tree) { sendOp(state, { op: 'notice', level: 'warning', text: 'The session did not send its branch tree.' }); return; }
+          sendOp(state, { op: 'branchTree', rows: tree.rows || [], truncated: !!tree.truncated });
+        }).catch((err) => ctx.log.warn(`[agent-rpc] the branch tree was not read: ${err.message}`));
+        return;
+      case 'navigated': {
+        // A move this process asked for (`navigateBranch`) is done. Only ours: the token is what says so.
+        // The leaf moving is not a turn, so nothing else in the stream would redraw the conversation — the
+        // runtime's own snapshot is read again and replaces it, the way an attach does.
+        if (!state.navigations.delete(op.token)) return;
+        flushPartial();
+        const notice = typeof rpc.navigatedNotice === 'function' ? rpc.navigatedNotice(op) : null;
+        const tell = () => { if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text }); };
+        if (!op.ok) { tell(); return; }
+        request(rpc.messagesCommand).then((res) => {
+          if (res && res.success !== false) sendOp(state, { op: 'reset', entries: rpc.entriesFromMessages(res) });
+          else sendOp(state, { op: 'notice', level: 'warning', text: 'The session switched, but its conversation could not be read again. Reopen the tab to see it.' });
+          // A user message the user picked comes back for editing, into the input (owner decision T8).
+          if (op.draft) sendOp(state, { op: 'draft', text: op.draft });
+          tell();
+        }).catch((err) => ctx.log.warn(`[agent-rpc] the conversation was not read after a switch: ${err.message}`));
+        return;
+      }
       case 'answered':
         // The runtime stopped waiting on a question by itself (a login whose browser callback won). Only a
         // question still open is closed, and the session leaves "waiting" the way `answerAsk` lets it go.
@@ -716,6 +746,33 @@ async function abortTurn(sessionId) {
   return failed ? { ok: false, error: 'The session did not stop.' } : { ok: true };
 }
 
+// --- the branch tree (#646) ---
+
+// Move the session to another point in its tree. The runtime does the move; this process only asks, and
+// hears back through a `navigated` op carrying the same token. Refused while a turn runs — the backend's
+// command refuses it too, and saying so here spares a round trip that ends in the same sentence.
+const TARGET_CAP = 256;
+async function navigateBranch(sessionId, target, options) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (typeof state.rpc.navigateCommand !== 'function') return { ok: false, error: 'This session cannot switch branches.' };
+  const id = String(target == null ? '' : target);
+  if (!id || id.length > TARGET_CAP) return { ok: false, error: 'No point in the session was picked.' };
+  if (state.busy) return { ok: false, error: 'Wait for the current turn to finish before switching branches.' };
+  const summarize = !!(options && options.summarize === true);
+  const token = crypto.randomUUID();
+  if (state.navigations.size > 8) state.navigations.clear();   // a bound: each is answered within a turn
+  state.navigations.add(token);
+  // A summary is a model call and can take a while; the notice is the first frame of it.
+  if (summarize) sendOp(state, { op: 'notice', level: 'info', text: 'Summarising the branch you are leaving…' });
+  const res = await state.request((rid) => state.rpc.navigateCommand(rid, { target: id, summarize, token }));
+  if (!res || res.success === false) {
+    state.navigations.delete(token);
+    return { ok: false, error: 'The session did not take the switch.' };
+  }
+  return { ok: true };
+}
+
 // --- the input's autocomplete (#643) ---
 
 // What a `/` can complete to: the backend's own list, in the app's words (`{ name, description, kind,
@@ -775,11 +832,12 @@ function registerIpc(ipc) {
   ipc.handle('agent-commands', (_event, sessionId) => listCommands(sessionId));
   ipc.handle('agent-arguments', (_event, sessionId, command) => completeArguments(sessionId, command));
   ipc.handle('agent-paths', (_event, sessionId, prefix) => completeSessionPaths(sessionId, prefix));
+  ipc.handle('agent-navigate', (_event, sessionId, target, options) => navigateBranch(sessionId, target, options));
 }
 
 module.exports = {
   init, registerIpc, start,
   // For the tests, which drive a fake child through the same functions the IPC calls.
-  attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths,
+  attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

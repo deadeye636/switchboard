@@ -24,8 +24,8 @@
 // Free globals it reads at CALL time (none at parse time except `window.api`): renderJsonlEntry,
 // buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
-// four palette openers (terminal/*-palette.js), and createComposerCompletion (session/composer-completion.js,
-// read when a view is built).
+// four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
+// read when a view is built), and showBranchTreeDialog (session/branch-tree-dialog.js, #646).
 
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
@@ -591,6 +591,8 @@ function createConversationView(getSession, container) {
       case 'notice': notice(op.level, op.text, op.links, op.files); break;
       case 'localCommand': localCommand(op); break;
       case 'unsent': unsent(op.text); break;
+      case 'draft': draft(op.text); break;
+      case 'branchTree': openBranchTree(op); break;
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);
@@ -619,6 +621,36 @@ function createConversationView(getSession, container) {
       return;
     }
     notice('error', 'The session did not take this message, and it was not sent:\n' + body);
+  }
+
+  // A message handed back to be rewritten (#646): the user picked one of their own messages in the branch
+  // tree, and the session now stands on the point before it. Into the input when that is empty; otherwise
+  // quoted, because what the user is typing is theirs and is not overwritten — the same rule as `unsent`.
+  function draft(text) {
+    const body = String(text || '');
+    if (!body.trim() || view.exited) return;
+    if (!input.disabled && !input.value.trim()) {
+      input.value = body;
+      renderComposer();
+      input.focus();
+      return;
+    }
+    notice('info', 'The message you picked, to rewrite (the input was not empty, so it was not put there):\n' + body);
+  }
+
+  // The session's branch tree (#646). The rows are the backend's; the move is asked of main, and what it
+  // did arrives as ops — a `reset` of the conversation and a notice — so nothing here waits on it.
+  function openBranchTree(op) {
+    if (view.exited || typeof showBranchTreeDialog !== 'function') return;
+    showBranchTreeDialog({
+      rows: op.rows || [],
+      truncated: !!op.truncated,
+      onSwitch: async (target, summarize) => {
+        let res;
+        try { res = await window.api.agent.navigate(view.session.sessionId, target, { summarize }); } catch { res = null; }
+        if (!res || !res.ok) notice('error', (res && res.error) || 'The session did not switch.');
+      },
+    });
   }
 
   // The conversation so far comes from the running session itself — the transcript is the truth, and

@@ -3057,6 +3057,42 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 }
 .conversation-notice-error { color: #f0a0a0; }
 .conversation-notice-warning { color: #e0c080; }
+/* The branch tree (#646, session/branch-tree-dialog.js): a control dialog, wider, holding a list. The rows
+   indent by the backend's depth (forks above the row); the session's own branch is brighter, and the point
+   it stands on is marked. */
+.control-dialog.branch-tree-dialog { width: min(760px, 100%); }
+.branch-tree-filters { display: flex; gap: 6px; margin-top: 12px; }
+.branch-tree-filter.active { border-color: rgba(128, 136, 255, 0.6); color: #e0e0f0; background: rgba(128, 136, 255, 0.12); }
+.branch-tree-list {
+  margin-top: 10px;
+  max-height: 50vh;
+  overflow-y: auto;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 4px 0;
+}
+.branch-tree-list:focus { outline: none; border-color: rgba(128, 136, 255, 0.5); }
+.branch-tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: #8a8aa0;
+  cursor: pointer;
+}
+.branch-tree-row.on-path { color: #c8c8dc; }
+.branch-tree-row:hover { background: rgba(255,255,255,0.04); }
+.branch-tree-row.selected { background: rgba(128, 136, 255, 0.18); color: #f0f0ff; }
+.branch-tree-kind { flex: none; width: 56px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #6a6a80; }
+.branch-tree-kind-user { color: #8088ff; }
+.branch-tree-kind-assistant { color: #3ecf8a; }
+.branch-tree-kind-summary { color: #e0a040; }
+.branch-tree-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-tree-label { flex: none; padding: 0 6px; border-radius: 8px; background: rgba(224, 160, 64, 0.15); color: #e0c080; font-size: 11px; }
+.branch-tree-here { flex: none; color: #3ecf5a; font-size: 11px; }
+.branch-tree-empty { padding: 10px; color: #7a7a90; font-size: 12px; }
+.branch-tree-hint { margin-top: 8px; min-height: 1.45em; }
 .conversation-ask {
   margin: 8px 0;
   border: 1px solid rgba(128, 136, 255, 0.45);

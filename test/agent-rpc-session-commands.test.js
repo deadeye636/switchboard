@@ -10,6 +10,47 @@ const os = require('node:os');
 
 const { harness, stopped, tempDataDir, until, agentRpc, SESSION_CWD } = require('./helpers/agent-rpc-harness');
 
+// #646 — the tree is read over the protocol and handed to the view as rows; the move is asked of the
+// runtime and its outcome re-reads the conversation, because moving the leaf is not a turn.
+test('/tree hands the view the backend\'s rows, and a move re-reads the conversation', async (t) => {
+  const h = harness();
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length === 1);
+  await agentRpc.sendTurn('fake-session', { text: 'one', mode: 'prompt' });
+  await until(() => h.signals.filter(s => s.kind === 'idle').length === 1);
+  await agentRpc.sendTurn('fake-session', { text: 'two', mode: 'prompt' });
+  await until(() => h.signals.filter(s => s.kind === 'idle').length === 2);
+
+  await agentRpc.sendTurn('fake-session', { text: '/tree', mode: 'prompt' });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'branchTree' && m.op.rows));
+  const tree = h.sent.find(m => m.op && m.op.op === 'branchTree').op;
+  assert.deepEqual(tree.rows.map(r => [r.id, r.kind, r.current]), [['u1', 'user', false], ['a1', 'assistant', false], ['u2', 'user', false], ['a2', 'assistant', true]]);
+  assert.equal(h.sent.filter(m => m.op && m.op.op === 'branchTree').length, 1, 'the request op is answered here, not passed on');
+
+  const res = await agentRpc.navigateBranch('fake-session', 'u2', { summarize: false });
+  assert.deepEqual(res, { ok: true });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'draft'));
+  const after = h.sent.map(m => m.op).filter(Boolean);
+  const reset = after.filter(o => o.op === 'reset').pop();
+  assert.equal(reset.entries.length, 2, 'the conversation is read again, on the branch the session now stands on');
+  assert.equal(after.find(o => o.op === 'draft').text, 'two', 'the picked message comes back for editing');
+  assert.match(after.filter(o => o.op === 'notice').pop().text, /Switched to another point/);
+  assert.ok(!after.some(o => o.op === 'navigated'), 'the outcome op is answered here too');
+});
+
+test('a move is refused for no point, and a failed one says why without re-reading', async (t) => {
+  const h = harness();
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length === 1);
+  assert.equal((await agentRpc.navigateBranch('fake-session', '', {})).ok, false);
+  assert.equal((await agentRpc.navigateBranch('nobody', 'a1', {})).ok, false);
+  assert.deepEqual(await agentRpc.navigateBranch('fake-session', 'gone', { summarize: true }), { ok: true });
+  await until(() => h.sent.some(m => m.op && m.op.op === 'notice' && /no longer in the session/.test(m.op.text || '')));
+  const ops = h.sent.map(m => m.op).filter(Boolean);
+  assert.ok(ops.some(o => o.op === 'notice' && /Summarising/.test(o.text)), 'a summary says it is working first');
+  assert.ok(!ops.some(o => o.op === 'reset'), 'nothing moved, so nothing is re-read');
+});
+
 test('the session\'s figures are fetched by the core and drawn as a notice', async (t) => {
   const h = harness();
   t.after(() => stopped(h));

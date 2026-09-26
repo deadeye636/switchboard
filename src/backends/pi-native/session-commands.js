@@ -43,6 +43,8 @@
 //                   no file: only the app knows where a file it produces belongs.
 //   COPY_PREFIX     `/copy` was typed. The clipboard is the app's, not the runtime's.
 //   SHELL_PREFIX    a `!` line was typed. Not a command at all — see "A `!` LINE" below.
+//   TREE_PREFIX     `/tree` was typed (#646). It carries nothing: the app asks Pi for the tree over RPC.
+//   NAVIGATED_PREFIX  `{ token, ok, … }`: what the internal move command did — see "`/tree`" below.
 //
 // A MARKER WITH A SIDE EFFECT IS A WIDER THING THAN A MARKER THAT DRAWS, and `switchboard-export:` is the
 // first of those — so the reasoning is here, for the next one rather than for this one. Everything above it
@@ -113,6 +115,25 @@
 // The `!` grammar therefore lives entirely in this folder — no core branch, nothing in the composer. A
 // runtime that spells its shell escape differently, or has none, changes nothing outside its own backend.
 //
+// `/tree` IS A SURFACE, AND ITS TWO HALVES LIVE ON DIFFERENT SIDES (#646). Reading the tree is Pi's documented
+// RPC `get_tree`, so the command only says it was typed and the app asks. MOVING the leaf is not in the RPC
+// surface at all: it is `ctx.navigateTree`, so the app asks for it through an internal command of this
+// extension (`NAVIGATE_COMMAND`), the way the argument completion already works, and hears back through a
+// marked notice — the command is detached, because a move with a summary is a model call and the `prompt`
+// response only comes once a handler returns.
+//
+// Two things the handler does that `navigateTree` does not, both measured on Pi 0.85.1:
+//
+//   A PLAIN MOVE WRITES NOTHING. Pi only moves its in-memory leaf, and on load it takes the LAST entry in the
+//   file as the leaf — so a session closed before its next turn came back on the branch the user had left.
+//   The handler therefore appends a `custom` entry (`BRANCH_ENTRY`) whenever the leaf is not already the
+//   file's last entry. Pi's context ignores it, the app's parser skips it, and it makes the move durable.
+//   `navigateTree`'s own `label` option does the same and was measured too; it was not taken because it
+//   puts a label the user never chose into Pi's own tree (owner decisions T4, T7).
+//   A USER MESSAGE IS HANDED BACK. Picking one moves the leaf to its PARENT and, in Pi's terminal interface,
+//   puts the message into the editor to be rewritten. RPC mode drops that text, so it is read here, before
+//   the move, and carried back to the app, which puts it into the input (T8).
+//
 // `!!` IS REFUSED RATHER THAN QUIETLY TREATED AS `!`. In Pi's terminal interface it means "run it but keep
 // the output out of the context", and the RPC `bash` command has no such option (measured: `command` is
 // all it takes). Accepting the line and booking the output anyway would break exactly the promise the
@@ -126,6 +147,13 @@ const STATS_PREFIX = 'switchboard-stats:';
 const EXPORT_PREFIX = 'switchboard-export:';
 const COPY_PREFIX = 'switchboard-copy:';
 const SHELL_PREFIX = 'switchboard-shell:';
+const TREE_PREFIX = 'switchboard-tree:';
+const NAVIGATED_PREFIX = 'switchboard-navigated:';
+// The internal command that moves the leaf, and the custom entry that makes a plain move durable (#646).
+const NAVIGATE_COMMAND = 'switchboard-navigate';
+const BRANCH_ENTRY = 'switchboard-branch';
+// How much of a user message comes back for editing. A prompt longer than this is not one somebody retypes.
+const DRAFT_CAP = 100000;
 
 // Pi's own names for the levels, in its order (`ThinkingLevel`). A model that offers fewer is clamped by
 // Pi, and the command reads back what it got.
@@ -180,9 +208,6 @@ function describeFailure(err, cap) {
 const TUI_ONLY = {
   fork: 'Fork the session from its row in the sidebar — it opens the copy in a tab of its own.',
   clone: 'Fork the session from its row in the sidebar; Pi\'s own clone would move this tab onto the copy.',
-  // Reachable through `ctx.navigateTree`, and not built because it is a surface rather than a command
-  // (a tree with filter modes, and a conversation to re-read after the jump) — #646.
-  tree: 'Switchboard does not draw Pi\'s branch tree yet.',
   share: 'Pi (native) does not offer it yet.',
   new: 'Start a new session from the sidebar.',
   resume: 'Open the session from the sidebar to resume it.',
@@ -226,6 +251,10 @@ function commandsSource() {
     `  const EXPORT = ${JSON.stringify(EXPORT_PREFIX)};`,
     `  const COPY = ${JSON.stringify(COPY_PREFIX)};`,
     `  const SHELL = ${JSON.stringify(SHELL_PREFIX)};`,
+    `  const TREE = ${JSON.stringify(TREE_PREFIX)};`,
+    `  const NAVIGATED = ${JSON.stringify(NAVIGATED_PREFIX)};`,
+    `  const BRANCH_ENTRY = ${JSON.stringify(BRANCH_ENTRY)};`,
+    `  const DRAFT_CAP = ${DRAFT_CAP};`,
     `  const NO_QUIET_SHELL = ${JSON.stringify(NO_QUIET_SHELL)};`,
     `  const LEVELS: string[] = ${JSON.stringify(THINKING_LEVELS)};`,
     `  const MODEL_LIST_MAX = ${MODEL_LIST_MAX};`,
@@ -510,6 +539,51 @@ function commandsSource() {
     '    return { action: "handled" };',
     '  });',
     '',
+    // #646. Opening the tree is refused while a turn runs, like /compact: the conversation is moving under
+    // it, and the move it exists for is refused then anyway.
+    '  pi.registerCommand("tree", {',
+    '    description: "Walk this session\'s branches and switch it to another point",',
+    '    handler: async (_args: string, ctx: any) => {',
+    '      if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) { say(ctx, "Wait for the current turn to finish before opening the branch tree.", "warning"); return; }',
+    '      say(ctx, TREE, "info");',
+    '    },',
+    '  });',
+    '',
+    // The move. Internal (hidden from the app's list), asked for by the app with the point the user
+    // picked; the header says why it is detached and what it adds to Pi's own move.
+    `  pi.registerCommand(${JSON.stringify(NAVIGATE_COMMAND)}, {`,
+    '    description: "Switchboard\'s branch switch (internal)",',
+    '    handler: detached(async (args: string, ctx: any) => {',
+    '      let req: any = null;',
+    '      try { req = JSON.parse(String(args || "")); } catch { return; }',
+    '      if (!req || typeof req.token !== "string" || typeof req.target !== "string" || !req.target) return;',
+    '      const done = (o: any) => say(ctx, NAVIGATED + JSON.stringify(Object.assign({ token: req.token }, o)), "info");',
+    '      if (!ctx || typeof ctx.navigateTree !== "function") { done({ ok: false, error: "This version of Pi cannot switch branches from Pi (native)." }); return; }',
+    '      if (typeof ctx.isIdle === "function" && !ctx.isIdle()) { done({ ok: false, error: "Wait for the current turn to finish before switching branches." }); return; }',
+    '      const sm: any = ctx.sessionManager;',
+    '      let entry: any = null;',
+    '      try { entry = sm.getEntry(req.target); } catch {}',
+    '      if (!entry) { done({ ok: false, error: "That point is no longer in the session." }); return; }',
+    '      const textOf = (c: any) => typeof c === "string" ? c : (Array.isArray(c) ? c.map((b: any) => (b && b.type === "text" && typeof b.text === "string" ? b.text : "")).join("") : "");',
+    '      let draft = "";',
+    '      if (entry.type === "message" && entry.message && entry.message.role === "user") draft = textOf(entry.message.content);',
+    '      else if (entry.type === "custom_message") draft = textOf(entry.content);',
+    '      let r: any = null;',
+    '      try { r = await ctx.navigateTree(req.target, { summarize: req.summarize === true }); }',
+    '      catch (err: any) { done({ ok: false, error: "Switching failed: " + failure(err) }); return; }',
+    '      if (r && r.cancelled) { done({ ok: false, cancelled: true }); return; }',
+    '      let summarized = false;',
+    '      try {',
+    '        const all: any[] = sm.getEntries() || [];',
+    '        const last: any = all.length ? all[all.length - 1] : null;',
+    '        const leaf = sm.getLeafId();',
+    '        summarized = !!(last && last.id === leaf && last.type === "branch_summary");',
+    '        if (!last || last.id !== leaf) pi.appendEntry(BRANCH_ENTRY, { target: req.target });',
+    '      } catch {}',
+    '      done({ ok: true, summarized, draft: draft.slice(0, DRAFT_CAP) });',
+    '    }),',
+    '  });',
+    '',
     '  for (const name of Object.keys(TUI_ONLY)) {',
     '    pi.registerCommand(name, {',
     '      description: "A command of Pi\'s terminal interface",',
@@ -645,6 +719,30 @@ function parseShell(message) {
   } catch { return null; }
 }
 
+// Was this notice `/tree` being typed? It carries nothing: the app asks for the tree over RPC.
+function parseTree(message) {
+  return String(message == null ? '' : message).startsWith(TREE_PREFIX);
+}
+
+// What the move command did: `{ token, ok, cancelled, error, summarized, draft }`, else null. `draft` is a
+// user message handed back for editing; `error` is the handler's own sentence.
+function parseNavigated(message) {
+  const s = String(message == null ? '' : message);
+  if (!s.startsWith(NAVIGATED_PREFIX)) return null;
+  try {
+    const v = JSON.parse(s.slice(NAVIGATED_PREFIX.length));
+    if (!v || typeof v.token !== 'string' || !v.token) return null;
+    return {
+      token: v.token,
+      ok: v.ok === true,
+      cancelled: v.cancelled === true,
+      error: typeof v.error === 'string' ? v.error.slice(0, MESSAGE_CAP) : '',
+      summarized: v.summarized === true,
+      draft: typeof v.draft === 'string' ? v.draft.slice(0, DRAFT_CAP) : '',
+    };
+  } catch { return null; }
+}
+
 // A notice saying Pi stopped waiting on one of these questions: its token, else null.
 function parseDismiss(message) {
   const s = String(message == null ? '' : message);
@@ -660,5 +758,6 @@ module.exports = {
   THINKING_LEVELS, TUI_ONLY, MESSAGE_CAP, NO_QUIET_SHELL,
   COMPLETE_COMMAND, COMPLETIONS_PREFIX, ARGUMENT_COMMANDS,
   commandsSource, describeFailure, parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats,
-  parseExport, parseCopy, parseShell,
+  parseExport, parseCopy, parseShell, parseTree, parseNavigated,
+  TREE_PREFIX, NAVIGATED_PREFIX, NAVIGATE_COMMAND, BRANCH_ENTRY, DRAFT_CAP,
 };

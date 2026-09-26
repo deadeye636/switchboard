@@ -104,7 +104,8 @@ chart rather than a row of zeroes.
 - **Pi without a terminal** — a second Pi backend that drives Pi over its RPC mode and draws the
   conversation itself: streamed replies, tool calls with their output and diffs, and a question before
   it runs a command or changes a file. `/login`, `/model`, `/thinking` and `/compact` work there too, so
-  logging in and switching models do not need Pi's terminal. Its sessions are ordinary Pi sessions and
+  logging in and switching models do not need Pi's terminal, and `/tree` walks the session's branches and
+  switches it to an earlier point. Its sessions are ordinary Pi sessions and
   reopen where they were driven.
   → [`docs/specs/30-pi-native.md`](docs/specs/30-pi-native.md)
 - **Subagents for Pi** — an opt-in `subagent` tool that hands one task to an agent from a markdown

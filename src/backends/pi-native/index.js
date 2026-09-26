@@ -121,6 +121,12 @@ module.exports = {
     shellCommand: protocol.shellCommand,
     shellAbortCommand: protocol.shellAbortCommand,
     shellResult: protocol.shellResult,
+    // `/tree` (#646): the tree is read over RPC, the move goes through the runtime extension, and the
+    // outcome is worded here. The core checks all four together — a backend without a tree declares none.
+    treeCommand: protocol.treeCommand,
+    treeRows: protocol.treeRows,
+    navigateCommand: protocol.navigateCommand,
+    navigatedNotice: protocol.navigatedNotice,
     answerCommand: protocol.answerCommand,
     sessionIdFromState: protocol.sessionIdFromState,
     entriesFromMessages: protocol.entriesFromMessages,

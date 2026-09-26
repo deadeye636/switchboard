@@ -271,8 +271,8 @@ test('/compact: runs with the instructions after it, waits for an idle session',
 test('a terminal-only command says where the thing lives instead of reaching the model', async () => {
   const cmds = load();
   const { ctx, said } = context();
-  await cmds.tree.handler('', ctx); await settle();
-  assert.equal(said[0].text, '/tree is a command of Pi\'s terminal interface. ' + sessionCommands.TUI_ONLY.tree);
+  await cmds.hotkeys.handler('', ctx); await settle();
+  assert.equal(said[0].text, '/hotkeys is a command of Pi\'s terminal interface. ' + sessionCommands.TUI_ONLY.hotkeys);
 });
 
 test('the protocol: a link notice gets a button, a secret input is flagged, Pi taking a question back closes it', () => {
@@ -393,7 +393,8 @@ test('the command list leaves out the internal command and says which ones take 
     { name: 'greet', description: 'Say  hi\n twice', source: 'extension' },
     { name: 'review', source: 'prompt' },
     { name: 'skill:x', source: 'skill' },
-    { name: 'tree', source: 'extension', description: 'A command of the terminal interface' },
+    { name: 'hotkeys', source: 'extension', description: 'A command of the terminal interface' },
+    { name: sessionCommands.NAVIGATE_COMMAND, source: 'extension' },
   ] } });
   assert.deepEqual(rows, [
     { name: 'thinking', description: 'Set it', kind: 'command', arguments: true },
@@ -433,7 +434,7 @@ test('/session says only that it was typed, and the decoder turns that into an a
 });
 
 test('a command that is built is no longer answered with a line saying it is not here', () => {
-  for (const name of ['session', 'export', 'copy', 'name', 'reload']) {
+  for (const name of ['session', 'export', 'copy', 'name', 'reload', 'tree']) {
     assert.equal(Object.prototype.hasOwnProperty.call(sessionCommands.TUI_ONLY, name), false,
       `/${name}: a command that gets built leaves TUI_ONLY in the same change`);
     const listed = protocol.commandsFromResponse({ data: { commands: [{ name, source: 'extension', description: 'd' }] } });
@@ -448,11 +449,136 @@ test('the commands that stay refused name the route that does exist', () => {
     assert.match(sessionCommands.TUI_ONLY[name], /sidebar/,
       `/${name} is refused on purpose, so its line must name where the app does it`);
   }
-  // The tree is refused because it is a SURFACE, not because it is out of reach (#646), so its line has
-  // to say that Switchboard does not draw it — not the old "Pi (native) does not offer it yet", which
-  // reads as a gap in the runtime.
-  assert.match(sessionCommands.TUI_ONLY.tree, /Switchboard does not draw/);
-  assert.match(sessionCommands.TUI_ONLY.tree, /tree/);
+});
+
+// --- /tree (#646) ---
+
+// A session manager shaped like Pi 0.85.1's: entries in file order, the leaf moved by the navigation.
+function treeContext({ idle = true, entries, leaf, navigate } = {}) {
+  const base = context({ idle });
+  const file = entries.slice();
+  let leafId = leaf;
+  const moves = [];
+  base.ctx.sessionManager = {
+    getEntry: (id) => file.find(e => e.id === id),
+    getEntries: () => file,
+    getLeafId: () => leafId,
+  };
+  base.ctx.navigateTree = async (id, opts) => {
+    moves.push({ id, summarize: opts.summarize });
+    if (navigate) return navigate({ id, opts, file, setLeaf: (l) => { leafId = l; } });
+    const target = file.find(e => e.id === id);
+    leafId = target.type === 'message' && target.message.role === 'user' ? target.parentId : id;
+    return { cancelled: false };
+  };
+  return { ...base, file, moves };
+}
+const piEntries = () => [
+  { type: 'message', id: 'u1', parentId: null, message: { role: 'user', content: [{ type: 'text', text: 'first' }] } },
+  { type: 'message', id: 'a1', parentId: 'u1', message: { role: 'assistant', content: [{ type: 'text', text: 'ALPHA' }] } },
+  { type: 'message', id: 'u2', parentId: 'a1', message: { role: 'user', content: 'second, as a string' } },
+  { type: 'message', id: 'a2', parentId: 'u2', message: { role: 'assistant', content: [{ type: 'text', text: 'BETA' }] } },
+];
+
+test('/tree says only that it was typed, and not while a turn runs', async () => {
+  const cmds = load();
+  const idle = context();
+  await cmds.tree.handler('', idle.ctx); await settle();
+  assert.deepEqual(idle.said.map(s => s.text), [sessionCommands.TREE_PREFIX]);
+  const busy = context({ idle: false });
+  await cmds.tree.handler('', busy.ctx); await settle();
+  assert.match(busy.said[0].text, /Wait for the current turn/);
+  assert.equal(Object.prototype.hasOwnProperty.call(sessionCommands.TUI_ONLY, 'tree'), false);
+});
+
+// T7 (measured): a plain move writes nothing, so the command writes the entry that makes it durable.
+test('a plain move is made durable with an entry the context ignores', async () => {
+  const appended = [];
+  const cmds = load({ pi: { appendEntry: (type, data) => appended.push({ type, data }) } });
+  const t = treeContext({ entries: piEntries(), leaf: 'a2' });
+  await cmds[sessionCommands.NAVIGATE_COMMAND].handler(JSON.stringify({ target: 'a1', token: 'k1' }), t.ctx); await settle();
+  assert.deepEqual(plain(t.moves), [{ id: 'a1', summarize: false }]);
+  assert.deepEqual(plain(appended), [{ type: sessionCommands.BRANCH_ENTRY, data: { target: 'a1' } }]);
+  assert.deepEqual(sessionCommands.parseNavigated(t.said[0].text),
+    { token: 'k1', ok: true, cancelled: false, error: '', summarized: false, draft: '' });
+});
+
+// T8: picking a user message hands its text back, read BEFORE the move (Pi's RPC mode drops it).
+test('picking a user message hands its text back for editing', async () => {
+  const cmds = load();
+  const t = treeContext({ entries: piEntries(), leaf: 'a2' });
+  await cmds[sessionCommands.NAVIGATE_COMMAND].handler(JSON.stringify({ target: 'u2', token: 'k2' }), t.ctx); await settle();
+  assert.equal(sessionCommands.parseNavigated(t.said[0].text).draft, 'second, as a string');
+});
+
+test('a move with a summary is durable already and adds nothing', async () => {
+  const appended = [];
+  const cmds = load({ pi: { appendEntry: (type) => appended.push(type) } });
+  const t = treeContext({
+    entries: piEntries(), leaf: 'a2',
+    navigate: ({ id, file, setLeaf }) => { file.push({ type: 'branch_summary', id: 's1', parentId: id }); setLeaf('s1'); return { cancelled: false }; },
+  });
+  await cmds[sessionCommands.NAVIGATE_COMMAND].handler(JSON.stringify({ target: 'a1', summarize: true, token: 'k3' }), t.ctx); await settle();
+  assert.deepEqual(plain(t.moves), [{ id: 'a1', summarize: true }]);
+  assert.deepEqual(appended, [], 'the summary is already the last entry and the leaf');
+  assert.equal(sessionCommands.parseNavigated(t.said[0].text).summarized, true);
+});
+
+test('a move is refused while a turn runs, for a point that is gone, and says a cancel', async () => {
+  const cmds = load();
+  const nav = cmds[sessionCommands.NAVIGATE_COMMAND].handler;
+  const busy = treeContext({ entries: piEntries(), leaf: 'a2', idle: false });
+  await nav(JSON.stringify({ target: 'a1', token: 'b' }), busy.ctx); await settle();
+  assert.match(sessionCommands.parseNavigated(busy.said[0].text).error, /Wait for the current turn/);
+  assert.deepEqual(busy.moves, []);
+  const gone = treeContext({ entries: piEntries(), leaf: 'a2' });
+  await nav(JSON.stringify({ target: 'zz', token: 'g' }), gone.ctx); await settle();
+  assert.match(sessionCommands.parseNavigated(gone.said[0].text).error, /no longer in the session/);
+  const cancelled = treeContext({ entries: piEntries(), leaf: 'a2', navigate: () => ({ cancelled: true }) });
+  await nav(JSON.stringify({ target: 'a1', token: 'c' }), cancelled.ctx); await settle();
+  assert.equal(sessionCommands.parseNavigated(cancelled.said[0].text).cancelled, true);
+  const unread = context();
+  await nav('not json', unread.ctx); await settle();
+  assert.equal(unread.said.length, 0, 'a request it cannot read gets no answer');
+});
+
+test('the protocol: /tree asks for the tree, the move comes back as its own op', () => {
+  const d = protocol.createDecoder();
+  assert.deepEqual(d.decode({ type: 'extension_ui_request', id: 't', method: 'notify', message: sessionCommands.TREE_PREFIX }), [{ op: 'branchTree' }]);
+  const [moved] = d.decode({ type: 'extension_ui_request', id: 'm', method: 'notify',
+    message: sessionCommands.NAVIGATED_PREFIX + JSON.stringify({ token: 'k', ok: true, draft: 'again' }) });
+  assert.deepEqual(moved, { op: 'navigated', token: 'k', ok: true, cancelled: false, error: '', summarized: false, draft: 'again' });
+  assert.deepEqual(protocol.navigateCommand('r1', { target: 'a1', summarize: true, token: 'k' }),
+    { id: 'r1', type: 'prompt', message: '/' + sessionCommands.NAVIGATE_COMMAND + ' {"target":"a1","summarize":true,"token":"k"}' });
+  assert.equal(protocol.navigatedNotice({ cancelled: true }), null, 'a cancel says nothing');
+  assert.equal(protocol.navigatedNotice({ ok: false, error: 'No.' }).level, 'error');
+  assert.match(protocol.navigatedNotice({ ok: true, summarized: true, draft: 'x' }).text, /summary .* back in the input/s);
+});
+
+// The rows are flat with a depth per fork, the session's branch first at every fork — a nested drawing of
+// a chain would indent once per message.
+test('the tree becomes flat rows: a depth per fork, the current branch first, noise left out', () => {
+  const msg = (id, role, content, extra) => ({ entry: { type: 'message', id, message: { role, content, ...(extra || {}) } }, children: [] });
+  const u1 = msg('u1', 'user', [{ type: 'text', text: 'hi\n  there' }]);
+  const a1 = msg('a1', 'assistant', [{ type: 'text', text: 'ALPHA' }]);
+  const old = msg('u2', 'user', 'old branch');
+  const oldA = msg('a2', 'assistant', [{ type: 'toolCall', name: 'read' }]);   // tools only: hidden
+  const newU = msg('u3', 'user', 'new branch');
+  const newA = msg('a3', 'assistant', [{ type: 'toolCall', name: 'bash' }]);   // tools only, but the leaf
+  const setting = { entry: { type: 'model_change', id: 'm1', provider: 'p', modelId: 'x' }, children: [] };
+  u1.children = [a1]; a1.children = [old, setting]; old.children = [oldA]; setting.children = [newU]; newU.children = [newA];
+  const out = protocol.treeRows({ success: true, data: { tree: [u1], leafId: 'a3' } });
+  assert.deepEqual(out.rows.map(r => [r.id, r.depth, r.kind, r.text, r.onPath, r.current]), [
+    ['u1', 0, 'user', 'hi there', true, false],
+    ['a1', 0, 'assistant', 'ALPHA', true, false],
+    ['m1', 1, 'setting', 'Model: p/x', true, false],
+    ['u3', 1, 'user', 'new branch', true, false],
+    ['a3', 1, 'assistant', 'Called bash', true, true],
+    ['u2', 1, 'user', 'old branch', false, false],
+  ]);
+  assert.equal(out.truncated, false);
+  assert.equal(protocol.treeRows({ success: false }), null, 'no answer is not an empty tree');
+  assert.deepEqual(protocol.treeRows({ success: true, data: { tree: [], leafId: null } }), { rows: [], truncated: false });
 });
 
 // The same shape as `/session`: the command says it was typed, nothing else. What the user typed after it

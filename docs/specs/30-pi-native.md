@@ -285,9 +285,10 @@ the approval gate is on or not:
 | `/copy` | Puts the agent's last reply on the system clipboard. Answered by the app, because a clipboard belongs to the machine. |
 | `/name [name]` | Names the session through `pi.setSessionName`. With no argument it asks on a card. Answered inside the extension. |
 | `/reload` | Reloads Pi's extensions, skills, prompt templates and context files through `ctx.reload()`. Answered inside the extension. |
+| `/tree` | Opens the session's branch tree in a dialog and moves the session to the point the user picks — see "The branch tree" below. |
 | `!cmd` | Not a command at all: a shell line, caught in Pi's own `input` event and run by Pi's own shell, so its output joins the session's context — see below. |
 
-The rest of Pi's terminal commands (`/tree`, `/new`, `/settings` …) answer with a line saying
+The rest of Pi's terminal commands (`/fork`, `/new`, `/settings` …) answer with a line saying
 where that function lives in the app, or that it is not offered yet. The list is `TUI_ONLY` in that file.
 Registering those names changes one thing: a prompt template or another extension's command with the same
 name used to run over RPC and now gets the line instead, and a command taken over from another CLI under such
@@ -495,7 +496,7 @@ The alternative weighed and not taken was putting an injected `!` line through t
 keeps the capability, but a trigger runs when nobody is watching, and a card nobody answers blocks it —
 so the capability would be unreliable exactly where it is used.
 
-### `/fork`, `/clone` and `/tree` are refused, and not because they are out of reach
+### `/fork` and `/clone` are refused, and not because they are out of reach
 
 A first reading of Pi's **RPC** surface alone concluded that `/tree` and `/reload` could not be built at
 all. That was wrong, and it is written down here because the conclusion was handed to the owner as a fact.
@@ -510,10 +511,47 @@ session. The sidebar's own Fork already answers this and answers it the other wa
 copy in a tab of its own, and two routes that disagree about which session the user is left looking at is
 worth refusing outright. Their `TUI_ONLY` lines name the sidebar rather than saying "not yet".
 
-`/tree` is a different refusal: it is reachable and it is not a command, it is a surface. The branch
-browser is a tree with filter modes, and after a jump the conversation has to be re-read — and the leaf
-moving is not a turn, so nothing in the event flow announces it. That is its own piece of work: **#646**,
-which carries the measurements above so they are not taken again.
+`/tree` was on this list until #646 built it. It was never refused for what it does to the tab (a move
+keeps the session and its file); it waited because it is a surface rather than a command. The next section
+is how it was built.
+
+### The branch tree (#646)
+
+Pi keeps a session as a tree. A switch or a rewritten prompt starts a branch beside the old one, and
+nothing is deleted. `/tree` shows that tree in a dialog (`src/renderer/session/branch-tree-dialog.js`)
+and moves the session to the point the user picks.
+
+The two halves live in different places. Reading the tree is Pi's RPC `get_tree`, so the command only says
+it was typed and the core asks. `rpc-protocol.js` turns the answer into flat rows: an id, a depth, a kind,
+a one-line text, a label, whether the row is on the current branch and whether the session stands on it.
+The depth counts forks, not messages, because every message in a chain is the child of the one before and a
+nested drawing would indent once per message. The current branch comes first at every fork. A turn that
+only called tools is left out unless the session stands on it, as in Pi's own tree view. The dialog has
+three views: the conversation, the user's own messages, and everything including settings changes.
+
+Moving is not in the RPC surface. It is `ctx.navigateTree`, so the app sends an internal command of the
+runtime extension, `switchboard-navigate`, the way the argument completion works. The command is detached,
+because a move with a summary is a model call. Its outcome comes back as a marked notice, and the core then
+reads the conversation again with `get_messages` and replaces the view, since moving the leaf is not a turn
+and nothing else would redraw it. It is refused while a turn runs, like `/compact`.
+
+Three decisions came from measuring Pi 0.85.1, and all three are recorded on #646:
+
+- **A plain move is made durable by the app.** Pi only moves its in-memory leaf. On load it takes the last
+  entry in the file as the leaf, and so does this app's Pi parser, so a session closed before its next turn
+  came back on the branch the user had left, and the sidebar showed the old branch until then. The command
+  appends a `custom` entry (`switchboard-branch`) whenever the leaf is not the file's last entry. Pi's
+  context ignores it and the parser skips it. `navigateTree`'s `label` option does the same job, but it
+  puts a label into Pi's own tree that the user never set, so it was not used.
+- **A move with a summary needs nothing extra.** Pi appends the summary at the new point and it becomes the
+  leaf. The dialog offers it as its own button, because it costs a model call.
+- **A user message comes back for editing.** Picking one moves the session to the point before it, as in
+  Pi's terminal interface, and the message goes into the input so it can be changed and sent again. RPC
+  mode drops that text, so the command reads it before the move. An input that already holds text is not
+  overwritten; the message is quoted in the conversation instead.
+
+Labels cannot be set from the dialog yet, and the command palette does not offer the tree. Both were left
+for later on purpose.
 
 ## The input completes as you type (#643)
 
@@ -572,9 +610,11 @@ questions before a command's shell line and before an MCP tool, described under 
 - **A login is ended by its card, not by Stop.** Esc and Stop abort a run, and a login is not one. A second
   `/login` to a provider whose first login is still open waits behind it in Pi's queue and shows no card
   until the first one ends. Dismissing the open card ends it.
-- **`/fork`, `/clone` and `/tree` answer with a line instead**, and that is a REFUSAL rather than a gap —
-  the section above says what each costs, and `/tree` is #646. Session statistics, the export, the copy,
-  the name, the reload and `!cmd` used to be on this list and are built; they are in the table above.
+- **`/fork` and `/clone` answer with a line instead**, and that is a REFUSAL rather than a gap — the
+  section above says what each costs. Session statistics, the export, the copy, the name, the reload,
+  `!cmd` and `/tree` used to be on this list and are built; they are in the table above.
+- **The branch tree shows at most 2000 rows** (`TREE_ROWS_CAP` in `rpc-protocol.js`) and says so when a
+  session has more.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
 - **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:
