@@ -305,7 +305,16 @@ alone, because nothing enforces that convention and the trust rule is the only g
 a command running on this machine.
 
 The MVP in the issue's body — a hand-written command per event, configured in Switchboard — is not built
-and is not this (H7); it is #652. This takes over what the user already has.
+and is not this (H7). It was split off into #652 and **closed there as not needed**: Pi already has that
+route. Pi discovers the user's own extensions in `~/.pi/agent/extensions/` on every launch, and this app
+never passes `--no-extensions`, so a file placed there loads beside the per-spawn extensions this app
+writes. Measured on Pi 0.85.1 in RPC mode (the Pi (native) launch) with an `-e` extension alongside, as the
+app launches it: the user's extension loaded and its `session_start` handler ran. A Switchboard setting would
+have been a second way to do that. It would also have needed a payload shape of its own, an order against
+the taken-over hooks, and a guard for project-scoped commands. Pi's route answers all three itself: the
+handler receives Pi's own event object, there is no second runner, and project-local extensions load only
+once Pi trusts the project. This section takes over what the user already has; the user's guide says how
+to write the extension (`docs/multi-llm.md`).
 
 **A matcher is only read as tools on the TOOL moment.** This CLI's `SessionStart` matcher is `startup`,
 `resume`, `clear` or `compact` — which side of a session it is, not a tool — and `Stop` has none. Reading

@@ -106,6 +106,25 @@ project's own directories are passed only when Pi trusts the project. The settin
 session would take over. Details: [`specs/31-resources-from.md`](specs/31-resources-from.md), and every
 option in [`settings-reference.md`](settings-reference.md).
 
+To run a command of your own when a Pi session reaches a moment, write a Pi extension. Switchboard has no
+setting for it because Pi loads your extensions on every launch, including the ones Switchboard starts.
+Put a file in `~/.pi/agent/extensions/`:
+
+```ts
+// ~/.pi/agent/extensions/notify-when-done.ts
+import { spawn } from "node:child_process";
+
+export default function (pi: any) {
+  pi.on("agent_settled", async () => {
+    spawn("my-notify", ["Pi is waiting for you"], { stdio: "ignore", detached: true }).unref();
+  });
+}
+```
+
+It runs in both Pi backends and can use any event Pi offers: `session_start` and `tool_result` as well as
+`agent_settled`. Pi's own documentation lists the rest. An extension in a project's `.pi/extensions/` loads
+only once Pi trusts that project.
+
 ## Handoffs across backends
 
 A **handoff** is a packet that summarises the actual state of the work — written by an agent, reviewed by
