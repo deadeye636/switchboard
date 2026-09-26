@@ -62,6 +62,17 @@ function init(context) {
 // wedged child does not leave a view waiting forever.
 const RESPONSE_TIMEOUT_MS = 20000;
 
+// How long a runtime may take to answer ANYTHING after it was started (#647). A request written before the
+// runtime reads its input waits in the pipe and is answered once it does — Pi attaches its reader only after
+// its extensions have loaded and `session_start` has run, which includes the resources extension's MCP
+// servers (up to their own 5 s cap) and a TypeScript compile per extension. Several sessions starting at
+// once — a restore after a restart — stretch that, and measuring the ordinary timeout from the spawn told a
+// view mounting into a healthy session that it "did not answer". So until the first response arrives a
+// request waits at least until this much time has passed since the start; after that the ordinary timeout
+// applies. The child exiting still resolves everything at once, so this is a bound on a runtime that is
+// alive and silent, not on one that died.
+const STARTUP_TIMEOUT_MS = 120000;
+
 // How often a streamed turn is redrawn at most. Pi sends a delta per token; forwarding every one would
 // rebuild the partial message in the renderer a few hundred times a second. The LAST partial always goes
 // out, and anything else that happens flushes it first, so nothing is reordered and nothing is dropped.
@@ -135,7 +146,7 @@ function sendOp(state, op) {
  * `tag` is the terminal tag spawn.js minted. Answers the PTY-shaped process spawn.js stores as
  * `session.pty`. Throws if the child cannot be started, so spawn.js's own catch releases what it allocated.
  */
-function start({ tag, rpc, command, args, cwd, env, label }) {
+function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
   if (!ctx) throw new Error('agent-rpc is not initialised');
   if (!rpc || typeof rpc.createDecoder !== 'function') throw new Error('this backend declares no protocol');
 
@@ -182,7 +193,12 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
     stderrTail: '',
     exited: false,
     seq: 0,                  // the number of the last op sent — see sendOp
+    startedAt: Date.now(),
+    answered: false,         // has the runtime answered any request yet — see STARTUP_TIMEOUT_MS
   };
+  // The tests shorten both; the app never passes them.
+  const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
+  const startupMs = (timeouts && timeouts.startupMs) || STARTUP_TIMEOUT_MS;
 
   // Both streamed things at once: the assistant turn being written, and any shell line writing beside it.
   // They are separate streams and can run together, but they share ONE order in the view, so whatever
@@ -225,13 +241,20 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
   //                USER started: `!npm test` runs for minutes, and a timeout would report a failure
   //                about a command that is working. Nothing is leaked by it — the child exiting resolves
   //                every pending request (see the exit handler), which is the real bound here.
-  function request(build, { id: fixedId, timeoutMs = RESPONSE_TIMEOUT_MS } = {}) {
+  //
+  // A request sent before the runtime has answered anything waits out its start as well (#647), and one that
+  // still finds it silent then resolves as `not started` rather than `no answer`: a runtime that never
+  // began reading is a different failure from one that stopped answering, and the view says which.
+  function request(build, { id: fixedId, timeoutMs = responseMs } = {}) {
     const id = fixedId || crypto.randomUUID();
     return new Promise((resolve) => {
-      const timer = timeoutMs > 0 ? setTimeout(() => {
+      const wait = timeoutMs > 0 && !state.answered
+        ? Math.max(timeoutMs, startupMs - (Date.now() - state.startedAt))
+        : timeoutMs;
+      const timer = wait > 0 ? setTimeout(() => {
         state.pending.delete(id);
-        resolve({ success: false, error: 'no answer' });
-      }, timeoutMs) : null;
+        resolve({ success: false, error: state.answered ? 'no answer' : 'not started' });
+      }, wait) : null;
       if (timer && typeof timer.unref === 'function') timer.unref();
       state.pending.set(id, { resolve, timer });
       if (!write(build(id))) {
@@ -500,6 +523,7 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
       let msg;
       try { msg = JSON.parse(line); } catch { ctx.log.debug(`[agent-rpc] unreadable line (${line.length} bytes)`); continue; }
       if (msg && msg.type === 'response') {
+        state.answered = true;
         const waiting = msg.id != null ? state.pending.get(String(msg.id)) : null;
         if (waiting) {
           clearTimeout(waiting.timer);
@@ -551,7 +575,7 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
       if (ch === '\r' && !state.inPaste) {
         const turn = state.typed.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
         state.typed = '';
-        if (turn.trim()) send({ text: turn, mode: 'prompt' });
+        if (turn.trim()) handBackIfRefused(turn, send({ text: turn, mode: 'prompt' }));
       } else {
         state.typed += ch;   // a pasted \r stays until the line endings are folded below
       }
@@ -561,6 +585,25 @@ function start({ tag, rpc, command, args, cwd, env, label }) {
 
   function send({ text, mode }) {
     return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy }));
+  }
+
+  // A turn written as keys — the seed prompt, the trigger watcher, a launcher — has nobody waiting on its
+  // answer, so a refusal used to vanish (#648). The composer's own send reports back to the view that sent
+  // it; this is the same for everything else: the text goes back into the view's input, unsent, with a line
+  // saying so. A process that has ended says that itself, and a refusal then would only repeat it.
+  function handBackIfRefused(text, pending) {
+    pending.then((res) => {
+      if (state.exited || (res && res.success !== false)) return;
+      // A timeout is not a refusal: the line is still in the pipe and runs once the runtime reads it, so
+      // handing it back would invite the user to send it twice. Only an answer that says no is handed back.
+      if (res && (res.error === 'not started' || res.error === 'no answer')) {
+        ctx.log.info(`[agent-rpc] a written turn got no answer yet (${res.error}); left in the pipe`);
+        return;
+      }
+      flushPartial();
+      sendOp(state, { op: 'unsent', text });
+      ctx.log.info(`[agent-rpc] a written turn was not taken (${(res && res.error) || 'refused'}); handed back to the view`);
+    });
   }
   state.send = send;
 
@@ -605,7 +648,13 @@ async function attach(sessionId) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
   const res = await state.request(state.rpc.messagesCommand);
-  if (!res || res.success === false) return { ok: false, error: 'The session did not answer.' };
+  if (!res || res.success === false) {
+    // Logged with the time since the start, because the case this exists for (#647) was never measured:
+    // the next one says whether the runtime was still starting, had stopped answering, or refused.
+    const reason = (res && res.error) || 'refused';
+    ctx.log.info(`[agent-rpc] attach ${sessionId} failed (${reason}) ${Date.now() - state.startedAt} ms after the start`);
+    return { ok: false, error: attachFailure(reason, Date.now() - state.startedAt) };
+  }
   return {
     ok: true,
     seq: res._seq || 0,
@@ -615,6 +664,18 @@ async function attach(sessionId) {
     queue: state.queue,
     asks: [...state.asks.values()],
   };
+}
+
+// What the view says when the conversation could not be loaded — one sentence per failure, because they want
+// different things from the user: a session that is not running can be relaunched, one still starting after
+// the startup bound is wedged, and one that stopped answering may recover on its own.
+function attachFailure(reason, waitedMs) {
+  switch (reason) {
+    case 'not running': case 'exited': return 'This session is not running.';
+    case 'not started': return `The session did not start answering within ${Math.max(1, Math.round(waitedMs / 60000))} minute${Math.round(waitedMs / 60000) > 1 ? 's' : ''}.`;
+    case 'no answer': return 'The session did not answer.';
+    default: return 'The session could not load its conversation.';
+  }
 }
 
 const SEND_MODES = new Set(['prompt', 'steer', 'follow_up']);
@@ -720,5 +781,5 @@ module.exports = {
   init, registerIpc, start,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths,
-  PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS,
+  PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

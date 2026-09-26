@@ -20,12 +20,13 @@ const TAG = 'tag-1';
 // inside it (`fixtures/…`), and it must not move when a helper does.
 const SESSION_CWD = path.join(__dirname, '..');
 
-function harness({ dataDir } = {}) {
+function harness({ dataDir, env, timeouts } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
   const rekeys = [];
   const clipped = [];
+  const logged = [];
   const window = { isDestroyed: () => false, webContents: { send: (ch, id, op) => sent.push({ ch, id, op }) } };
   agentRpc.init({
     activeSessions,
@@ -49,13 +50,13 @@ function harness({ dataDir } = {}) {
     // Electron's own parts arrive through ctx, which is what keeps this module loadable here at all.
     dataDir,
     clipboard: { writeText: (text) => clipped.push(text) },
-    log: { info() {}, warn() {}, debug() {} },
+    log: { info: (line) => logged.push(line), warn() {}, debug() {} },
   });
   const proc = agentRpc.start({
-    tag: TAG, rpc: piNative.rpc, command: process.execPath, args: [FIXTURE], cwd: SESSION_CWD, env: process.env, label: 'Fake',
+    tag: TAG, rpc: piNative.rpc, command: process.execPath, args: [FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts,
   });
   activeSessions.set('launch-id', { pty: proc, _terminalTag: TAG, exited: false });
-  return { activeSessions, sent, signals, rekeys, clipped, proc };
+  return { activeSessions, sent, signals, rekeys, clipped, logged, proc };
 }
 
 // Kill the child AND wait for it to be gone. `agentRpc` holds one module-level ctx, so a late op from a

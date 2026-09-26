@@ -124,6 +124,18 @@ Everything here was measured against Pi 0.84.4. Later Pi versions were not re-me
   now follows the entry object, which the re-key moves unchanged. Any backend re-keyed during the wait
   benefits. A session on a pipe is also seeded at once: it has no screen that settles, and the pipe
   queues the command until Pi reads it.
+- Pi reads its input only once its extensions have loaded and `session_start` has run. A request written
+  before then waits in the pipe and is answered afterwards. The 20-second response timeout used to run from
+  the spawn, so a view mounting while several sessions started at once could be told "The session did not
+  answer" about a healthy session (#647). Until the runtime has answered anything, a request now waits up
+  to two minutes from the start, and a runtime still silent then is reported as not having finished
+  starting, which is a different sentence from one that stopped answering. The view says it is waiting
+  meanwhile. Every failed attach is logged with its reason and the time since the start.
+- A turn written as keys (the seed prompt, a trigger file, a launcher) has nobody waiting on its answer. A
+  refusal used to vanish; it now comes back to the view as unsent, into the input when that is empty and
+  quoted in a notice when the user is typing there (#648). Only an answer that says no is handed back:
+  a request that timed out is still in the pipe and runs once Pi reads it, so handing it back would invite
+  the user to send it twice.
 - A carriage return inside a bracketed paste is text, as it is to a terminal, so a pasted CRLF block is
   one turn and not several.
 - A renderer reload leaves the child running. Opening the session again reattaches and loads the

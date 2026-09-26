@@ -153,6 +153,32 @@ test('ops arriving while a view mounts are replayed after the snapshot — only 
   assert.match(drawn[1], /new/);
 });
 
+// #647: a runtime can take a while to start reading, and main waits that out. Meanwhile the view says it is
+// waiting rather than showing an empty conversation that looks finished — and the line goes once it answers.
+test('while the attach is in flight the status says the view is waiting for the session', async () => {
+  let release;
+  const h = setup({ attachAnswer: () => new Promise((r) => { release = r; }) });
+  const status = h.entry.element.querySelector('.conversation-status');
+  const attaching = h.entry.conversation.attach();
+  assert.match(status.textContent, /Waiting for the session/);
+  release({ ok: true, entries: [], seq: 0, busy: false, queue: { steering: [], followUp: [] }, asks: [] });
+  await attaching;
+  assert.doesNotMatch(status.textContent, /Waiting for the session/);
+});
+
+// #648: a turn written from outside the composer that the runtime refused comes back as unsent — into an
+// empty input so one press sends it, quoted in the notice when the user is already typing there.
+test('a refused written turn goes back into an empty input, and is quoted when the input is in use', () => {
+  const h = setup();
+  h.entry.conversation.apply({ op: 'unsent', text: 'the seed', seq: 1 });
+  assert.equal(h.input.value, 'the seed');
+  assert.match(h.entry.element.textContent, /did not take this message\. It is back in the input/);
+  h.input.value = 'my own draft';
+  h.entry.conversation.apply({ op: 'unsent', text: 'second seed', seq: 2 });
+  assert.equal(h.input.value, 'my own draft', 'what the user typed is theirs');
+  assert.match(h.entry.element.textContent, /was not sent:\nsecond seed/);
+});
+
 test('an approval is drawn with the call it is about, answers with the value it was given, and holds the status', async () => {
   const h = setup();
   const answers = [];
@@ -337,4 +363,16 @@ test('focusedActionTerminal still answers for an entry with no terminal', () => 
   assert.ok(body.includes('paletteAnchor'),
     'focusedActionTerminal reads the conversation view\'s paletteAnchor — without it the command palette '
     + 'offers no insert row for a session with no terminal (#637)');
+});
+
+// #648 with the verifier's ordering: a refusal that reaches the view while an attach is in flight, numbered
+// below the snapshot, must still come back — no snapshot ever holds it.
+test('an unsent hand-back held during an attach is applied whatever its number', async () => {
+  let release;
+  const h = setup({ attachAnswer: () => new Promise((r) => { release = r; }) });
+  const attaching = h.entry.conversation.attach();
+  h.entry.conversation.apply({ op: 'unsent', text: 'early seed', seq: 3 });
+  release({ ok: true, entries: [], seq: 7, busy: false, queue: { steering: [], followUp: [] }, asks: [] });
+  await attaching;
+  assert.equal(h.input.value, 'early seed');
 });

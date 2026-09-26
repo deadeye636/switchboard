@@ -148,3 +148,48 @@ test('kill ends the child and the exit handlers run — the path the stop and th
   await until(() => exited !== null);
   assert.equal(typeof exited.exitCode, 'number');
 });
+
+// #647: a view mounts while the runtime is still starting. What it asked waits in the pipe, and the ordinary
+// response timeout, measured from the spawn, used to report "did not answer" about a healthy session.
+test('a request sent while the runtime is still starting waits for the start, not the response timeout', async (t) => {
+  const h = harness({ env: { FAKE_RPC_BOOT_MS: '600' }, timeouts: { responseMs: 150, startupMs: 10000 } });
+  t.after(() => stopped(h));
+  const snap = await agentRpc.attach('launch-id');
+  assert.equal(snap.ok, true, 'answered once the runtime began reading, although that took four response timeouts');
+  assert.deepEqual(snap.entries, []);
+});
+
+test('a runtime that never starts answering is reported as not started, and the log says when', async (t) => {
+  const h = harness({ env: { FAKE_RPC_BOOT_MS: 'never' }, timeouts: { responseMs: 100, startupMs: 400 } });
+  t.after(() => stopped(h));
+  const snap = await agentRpc.attach('launch-id');
+  assert.equal(snap.ok, false);
+  assert.match(snap.error, /did not start answering within 1 minute./);
+  assert.ok(h.logged.some(l => /attach launch-id failed \(not started\) \d+ ms after the start/.test(l)), h.logged.join('\n'));
+});
+
+// #648: a turn written as keys (the seed prompt, a trigger, a launcher) has nobody waiting on its answer, so a
+// refusal used to vanish. It is handed back to the view as something still unsent.
+test('a written turn the runtime refuses is handed back to the view, unsent', async (t) => {
+  const h = harness();
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length === 1);
+  h.proc.write('\x1b[200~refuse me\x1b[201~\r');
+  await until(() => h.sent.some(m => m.op && m.op.op === 'unsent'));
+  const op = h.sent.find(m => m.op && m.op.op === 'unsent').op;
+  assert.equal(op.text, 'refuse me');
+  assert.equal(op.reason, undefined, 'the runtime\'s own words stay in the log');
+  h.proc.write('hello\r');
+  await until(() => h.signals.some(s => s.kind === 'idle'));
+  assert.equal(h.sent.filter(m => m.op && m.op.op === 'unsent').length, 1, 'an accepted turn is not handed back');
+});
+
+// A timeout is not a refusal: the line is still in the pipe and runs once the runtime reads it, so handing
+// it back would invite the user to send it twice.
+test('a written turn that only timed out is not handed back', async (t) => {
+  const h = harness({ env: { FAKE_RPC_BOOT_MS: 'never' }, timeouts: { responseMs: 100, startupMs: 300 } });
+  t.after(() => stopped(h));
+  h.proc.write('hello\r');
+  await until(() => h.logged.some(l => /got no answer yet \(not started\)/.test(l)));
+  assert.ok(!h.sent.some(m => m.op && m.op.op === 'unsent'));
+});

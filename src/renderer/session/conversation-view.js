@@ -130,6 +130,7 @@ function createConversationView(getSession, container) {
     localCommands: new Map(),
     exited: false,
     attached: false,
+    attaching: false,        // an attach is in flight — see renderStatus
   };
 
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < CONVERSATION_STICK_PX;
@@ -372,6 +373,9 @@ function createConversationView(getSession, container) {
     // A session held by a question is waiting on the reader, not working — the same line the inbox draws.
     else if (view.asks.size) parts.push('Waiting for your answer');
     else if (view.busy) parts.push('Working…');
+    // A runtime may take a while to start reading (#647) — main waits that out rather than failing, and this
+    // is what the user sees meanwhile instead of an empty conversation that looks finished.
+    else if (view.attaching) parts.push('Waiting for the session…');
     const waiting = view.queue.steering.length + view.queue.followUp.length;
     if (waiting) parts.push(`${waiting} message${waiting === 1 ? '' : 's'} waiting`);
     status.textContent = parts.join(' · ');
@@ -586,6 +590,7 @@ function createConversationView(getSession, container) {
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
       case 'notice': notice(op.level, op.text, op.links, op.files); break;
       case 'localCommand': localCommand(op); break;
+      case 'unsent': unsent(op.text); break;
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);
@@ -600,14 +605,34 @@ function createConversationView(getSession, container) {
     follow(wasAtBottom);
   }
 
+  // A turn written into the session from outside the composer — a seed prompt, a trigger, a launcher — that
+  // the runtime refused (#648). It is handed back as something still unsent: into the input when that is
+  // empty, so one press sends it, and otherwise quoted in the notice, because what the user is typing is
+  // theirs and is not overwritten.
+  function unsent(text) {
+    const body = String(text || '');
+    if (!body.trim() || view.exited) return;
+    if (!input.disabled && !input.value.trim()) {
+      input.value = body;
+      renderComposer();
+      notice('error', 'The session did not take this message. It is back in the input, unsent.');
+      return;
+    }
+    notice('error', 'The session did not take this message, and it was not sent:\n' + body);
+  }
+
   // The conversation so far comes from the running session itself — the transcript is the truth, and
   // there is no second log in this window to fall out of step with it.
   async function attach() {
     pending = [];
+    view.attaching = true;
+    renderStatus();
     let res;
     try { res = await window.api.agent.attach(view.session.sessionId); } catch { res = null; }
     const held = pending;
     pending = null;
+    view.attaching = false;
+    renderStatus();
     if (!res || !res.ok) {
       for (const op of held) apply(op);
       if (!view.exited) notice('error', (res && res.error) || 'The conversation could not be loaded.');
@@ -624,7 +649,9 @@ function createConversationView(getSession, container) {
     log.scrollTop = log.scrollHeight;
     // What happened after the snapshot was taken, in order. Older ops are already in it.
     const since = Number(res.seq) || 0;
-    for (const op of held) if (!(Number(op.seq) <= since)) apply(op);
+    // An `unsent` hand-back is never part of a snapshot, so its number decides nothing: a refusal that
+    // arrived before the runtime answered the attach would otherwise be taken for "already in it" (#648).
+    for (const op of held) if (op.op === 'unsent' || !(Number(op.seq) <= since)) apply(op);
   }
 
   function markExited(exitCode) {

@@ -53,6 +53,8 @@ process.stdin.on('data', (chunk) => {
         ] } });
         break;
       case 'prompt':
+        // A submit the runtime refuses (#648): nothing runs, and only the response says so.
+        if (cmd.message === 'refuse me') { out({ id: cmd.id, type: 'response', command: 'prompt', success: false, error: 'not now' }); break; }
         if (cmd.message.startsWith('/' + COMPLETE_COMMAND + ' ')) {
           // As measured: the extension command says its answer, THEN Pi answers the prompt.
           const req = JSON.parse(cmd.message.slice(COMPLETE_COMMAND.length + 2));
@@ -135,3 +137,14 @@ process.stdin.on('data', (chunk) => {
     }
   }
 });
+
+// A runtime that is still starting (#647): Pi reads its input only once its extensions have loaded, so what
+// was written before then waits in the pipe. `FAKE_RPC_BOOT_MS` holds the reader back that long; `never`
+// holds it back for good, which is a runtime that started and then wedged. A paused stdin holds nothing
+// open, so the timer is what keeps a wedged one alive the way a real one is.
+const BOOT = process.env.FAKE_RPC_BOOT_MS;
+if (BOOT) {
+  process.stdin.pause();
+  setInterval(() => {}, 60 * 60 * 1000);
+  if (BOOT !== 'never') setTimeout(() => process.stdin.resume(), Number(BOOT));
+}
