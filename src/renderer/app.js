@@ -2426,6 +2426,9 @@ async function reapplyGlobalSettings() {
           cancelLabel: 'Cancel',
           tone: 'danger',
           dismissible: false,
+          // Enter answers with the safe choice, as the native fallback's defaultId does: a reflexive Enter
+          // must not stop every running session.
+          initialFocus: 'cancel',
         });
       } catch { ok = false; }
       window.api.confirmCloseResult(!!ok);

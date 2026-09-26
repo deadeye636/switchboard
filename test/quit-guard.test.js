@@ -104,6 +104,8 @@ test('the question goes to the app\'s own dialog, and the yes comes back to clos
   assert.match(app, /onConfirmClose\(async \(warning\) => \{/, 'the renderer puts the app\'s dialog up');
   assert.match(app, /dismissible: false/,
     'and a stray backdrop click is not an answer to a question about work you cannot get back');
+  assert.match(app, /onConfirmClose[\s\S]{0,900}initialFocus: 'cancel'/,
+    'the dialog opens on Cancel, so Enter keeps the sessions — the same default the native box has');
 
   // The native box stays as the fallback for a renderer that cannot answer — without it a crashed
   // renderer would leave a window that can never be closed.
