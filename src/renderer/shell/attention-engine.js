@@ -140,6 +140,9 @@ function recordActivityEdge(sessionId, active) {
   if (active && !wasActive) {
     // New work started → any earlier "finished" stamp is stale.
     finishedAt.delete(sessionId);
+    // …and it is what a seed's readback waits for (#648, `watchSeedSubmit` in app.js). Asked for, because
+    // the map is app.js's and this file is also loaded without it.
+    if (typeof turnStartedAt !== 'undefined') turnStartedAt.set(sessionId, Date.now());
   } else if (wasActive && !active) {
     // busy→idle edge: stamp the finish time. Unfocused sessions become response-ready in the caller;
     // for the focused-then-left case this stamp is what lets the configurable running-inbox

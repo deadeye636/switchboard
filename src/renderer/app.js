@@ -434,6 +434,7 @@ const sessionBusyState = new Map(); // sessionId → boolean (currently active)
 // SubagentStart/SubagentStop hooks drive exactly and the JSONL scan backs up (#119).
 const subagentActiveSessions = new Set();
 const finishedAt = new Map(); // sessionId → ms timestamp of the last busy→idle edge (drives running-in-inbox)
+const turnStartedAt = new Map(); // sessionId → ms timestamp of the last idle→busy edge (a seed's readback, #648)
 const lastActivityTime = new Map(); // sessionId → Date of last terminal output
 // `lastViewedTime` and `filesTouchedSinceViewed` used to live here. They are in the record now (#396) as
 // the `viewed` and `file-touched` kinds — they had the same lifetime bug as the timeline, in the same
@@ -1644,7 +1645,11 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady
       // Through the renderer's one input seam (`shell/prompt-staging.js`), like every writer of a
       // session's stdin: this chunk ENDS in the submit, so it leaves the prompt line clean, and a
       // staged prompt must not be held behind text that was sent before anyone could look at it.
+      const seededAt = Date.now();
       sendSessionInput(liveId, `\x1b[200~${seedText}\x1b[201~\r`);
+      // The write is not the end of it (#648): a CLI can refuse the submit, and then the text sits unsent in
+      // its own composer. A pipe session answers for itself — main hands a refused turn back to its view.
+      if (!pipe) watchSeedSubmit({ currentEntry, launchId: sessionId, seedText, seededAt });
       // Main cannot see this one: from its side a seeded session is a session that received input. So
       // it is NOTED rather than recorded here — main still writes it, and every window still hears it.
       window.api.noteTimelineEvent(
@@ -1658,6 +1663,70 @@ function seedSessionWhenReady(sessionId, seedText, { graceMs = 0, announcesReady
   }
 
   setTimeout(attempt, POLL_MS);
+}
+
+// Did a seed's submit land? (#648)
+//
+// A seed used to be written and forgotten, so a submit the CLI refused was lost by construction: the user
+// found an idle session with their text sitting unsent in the CLI's own composer (#640 was one way there).
+// The readback is the one thing every backend already reports whatever its CLI: the session STARTING WORK.
+// A busy edge after the write, a turn that already finished, or the session being busy now all say the
+// submit landed. Nothing here reads what the CLI printed — its words for "not ready" stay in its own
+// folder, and no backend id is asked.
+//
+// No turn within SEED_CONFIRM_MS: the text is most likely in the composer with the Enter refused, so the
+// SUBMIT alone is sent again, a couple of times — never the text, which would paste it twice. An Enter into
+// an empty composer is ignored by every CLI this app drives. Only while the prompt line is clean: once the
+// user has typed there, an Enter would send THEIR half-written line, and that is not ours to press. Nor
+// while the session is asking for attention: then the CLI is likely showing a dialog of its own (a trust
+// prompt, a permission question), and an Enter would pick its default unseen.
+//
+// Still nothing: the user is told, with the text to copy, rather than left to find it. The cost of the
+// heuristic is stated here rather than discovered — a backend whose busy report is slow, or missed for a
+// very short turn, can draw this notice about a message that did go out. That is the cheaper mistake: it
+// costs a glance, while the one it replaces cost the message.
+const SEED_CONFIRM_MS = 15000;
+const SEED_RETRY_MS = 5000;
+const SEED_RETRIES = 2;
+
+function seedTurnStarted(ids, since) {
+  for (const id of ids) {
+    if (!id) continue;
+    if (sessionBusyState.get(id)) return true;
+    if ((turnStartedAt.get(id) || 0) >= since) return true;
+    if ((finishedAt.get(id) || 0) >= since) return true;
+  }
+  return false;
+}
+
+function watchSeedSubmit({ currentEntry, launchId, seedText, seededAt }) {
+  let retries = 0;
+  function check() {
+    const entry = currentEntry();
+    if (!entry || entry.closed) return;   // closed before it could be asked
+    const liveId = (entry.session && entry.session.sessionId) || launchId;
+    // The process ended: there is no composer left to submit into, and its own exit says what happened.
+    if (!activePtyIds.has(liveId) && !activePtyIds.has(launchId)) return;
+    if (seedTurnStarted([launchId, liveId], seededAt)) return;
+    const lineInUse = (typeof stagedPromptDirtyLines !== 'undefined' && stagedPromptDirtyLines.has(liveId))
+      || attentionSessions.has(liveId) || attentionSessions.has(launchId);
+    if (retries < SEED_RETRIES && !lineInUse) {
+      retries += 1;
+      sendSessionInput(liveId, '\r');
+      setTimeout(check, SEED_RETRY_MS);
+      return;
+    }
+    // Named the way every other toast names a session (shell/prompt-staging.js).
+    const session = sessionMap.get(liveId) || entry.session || null;
+    const name = (typeof stagedPromptSessionLabel === 'function' && stagedPromptSessionLabel(session)) || 'this session';
+    showControlToast({
+      message: `The first message for “${name}” was not submitted. It may still be in the session's input — press Enter there, or copy it from here.`,
+      actionLabel: 'Copy message',
+      onAction: async () => { try { await navigator.clipboard.writeText(seedText); } catch { /* nothing to copy into */ } },
+      timeoutMs: 60000,
+    });
+  }
+  setTimeout(check, SEED_CONFIRM_MS);
 }
 
 // Legacy alias

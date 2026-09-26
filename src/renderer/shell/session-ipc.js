@@ -334,6 +334,7 @@ window.api.onProcessExited((sessionId, exitCode) => {
     responseReadySessions.delete(sessionId);
     sessionBusyState.delete(sessionId);
     finishedAt.delete(sessionId);
+    if (typeof turnStartedAt !== 'undefined') turnStartedAt.delete(sessionId);
     for (const projList of [cachedProjects, cachedAllProjects]) {
       for (const proj of projList) {
         proj.sessions = proj.sessions.filter(s => s.sessionId !== sessionId);
