@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const { runningSessions, survivingSessions, shouldAskBeforeClose, closeWarning } = require('../src/app/quit-guard');
+const { runningSessions, shouldAskBeforeClose, closeWarning } = require('../src/app/quit-guard');
 
 const live = (over = {}) => ({ exited: false, projectPath: 'D:\\a', ...over });
 
@@ -112,77 +112,24 @@ test('the question goes to the app\'s own dialog, and the yes comes back to clos
 
 // --- What closing does NOT stop (#608) ------------------------------------------------------------
 //
-// The dialog counted `activeSessions` and said "Closing Switchboard stops them" about everything it
-// listed. A CLI running under a daemon of its own is not in that map and is not stopped by the quit —
-// measured, one was still holding its session the next day. The old wording was therefore both silent
-// about those sessions and wrong about them at the same time.
+// #608 once listed the sessions another process holds as a second group ("keeps running"). It was taken
+// out: the user can do nothing about them from this dialog, so the rows were noise. What stays pinned is
+// that the dialog names only what the close stops, and that a survivor never reopens a dialog the user
+// turned off.
 
-const held = (over = {}) => ({ sessionId: 's-1', kind: 'background', name: 'a job', ...over });
-
-test('#608: a surviving session is named, and NOT as something closing stops', () => {
-  const w = closeWarning([live()], [held({ name: 'a handoff job' })]);
-  assert.match(w.message, /1 session still running\. Closing Switchboard stops it/,
-    'the first group keeps its wording — those really are stopped');
-  assert.match(w.message, /will KEEP running afterwards/,
-    'and the second group is told apart, because that sentence is false about it');
-  assert.ok(w.details.some(d => d.value === 'a handoff job' && d.label === 'keeps running'));
+test('#608: the dialog names only what the close stops', () => {
+  const w = closeWarning([live()]);
+  assert.doesNotMatch(w.message, /KEEP running/i);
+  assert.ok(!w.details.some(d => /keeps running/.test(d.label)));
+  assert.equal(w.confirmLabel, 'Close and stop them');
 });
 
-test('#608: no surviving sessions changes nothing about the dialog', () => {
-  const before = closeWarning([live()], []);
-  assert.doesNotMatch(before.message, /KEEP running/);
-  assert.deepEqual(before, closeWarning([live()]),
-    'the second argument is additive — an app with nothing outside it sees the dialog it always saw');
-});
-
-test('#608: a cold or missing owner list says nothing rather than guessing', () => {
-  for (const cold of [undefined, null, []]) {
-    assert.doesNotMatch(closeWarning([live()], cold).message, /KEEP running/);
-  }
-  assert.deepEqual(survivingSessions(null), []);
-  assert.deepEqual(survivingSessions([null, {}, held()]), [held()],
-    'an entry with no session id is not an entry');
-});
-
-test('#608: the native fallback text carries the surviving rows too', () => {
-  const w = closeWarning([live()], [held({ name: 'a handoff job' })]);
-  assert.match(w.detail, /a handoff job — keeps running/,
-    'the native box has no detail rows, so anything only in `details` would be invisible there');
-});
-
-test('#608: a long list of survivors is capped like the first group', () => {
-  const many = Array.from({ length: 9 }, (_, i) => held({ sessionId: `s-${i}`, name: `job ${i}` }));
-  const w = closeWarning([live()], many);
-  assert.equal(w.details.filter(d => d.label === 'keeps running').length, 6);
-  assert.ok(w.details.some(d => d.value === '…and 3 more'));
-});
-
-// The half that is easy to lose: the switch that turns the dialog off is asked about the sessions the
-// quit STOPS, and a surviving session must not resurrect a dialog the user has switched off.
-test('#608: the surviving list does not reopen a dialog the user turned off', () => {
+test('#608: nothing of ours running is silence, whatever else is alive', () => {
   assert.equal(shouldAskBeforeClose([live()], { confirmQuitWithRunningSessions: false }), false);
-  assert.equal(shouldAskBeforeClose([], {}), false,
-    'nothing of ours is running — today that is silence, and #608 records it as a decision');
+  assert.equal(shouldAskBeforeClose([], {}), false);
 });
 
-test('#608: the confirm button stops claiming to stop what it does not', () => {
-  assert.equal(closeWarning([live()], []).confirmLabel, 'Close and stop them',
-    'with nothing surviving, the click really does stop everything listed');
-  assert.equal(closeWarning([live()], [held()]).confirmLabel, 'Close anyway',
-    'one session on the list that keeps running makes "stop them" a false claim about the button too');
-});
-
-// One survivor and several are a different sentence, and the first draft only read wrong with exactly
-// one: "1 session … the process holding them".
-test('#608: both sentences agree with their own counts', () => {
-  const one = closeWarning([live()], [held()]).message;
-  assert.match(one, /1 session still running\. Closing Switchboard stops it/,
-    'this half predates #608 and read "stops them" about a single session');
-  assert.match(one, /1 session will KEEP running/);
-  assert.match(one, /the process holding it and cannot stop it\./);
-
-  const two = closeWarning([live(), live()], [held(), held({ sessionId: 's-2' })]).message;
-  assert.match(two, /2 sessions still running\. Closing Switchboard stops them/);
-  assert.match(two, /2 sessions will KEEP running/);
-  assert.match(two, /the processes holding them and cannot stop them\./);
+test('the message agrees with its own count', () => {
+  assert.match(closeWarning([live()]).message, /1 session still running. Closing Switchboard stops it/);
+  assert.match(closeWarning([live(), live()]).message, /2 sessions still running. Closing Switchboard stops them/);
 });

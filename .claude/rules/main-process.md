@@ -216,16 +216,14 @@ from the keyboard:
 - **A system logoff is not held** (`session-end` → `systemShuttingDown`). Windows is not waiting for us;
   holding the quit there only risks being force-killed mid-wait, which re-creates the orphan.
 
-**And what the teardown CANNOT reach is now said out loud (#608).** A CLI that put itself under a daemon
-of its own is not one of our PTY children — `taskkill /T` walks the tree from `session.pty.pid` and a
-detached daemon is not in it, so it survives a clean quit and keeps holding its session. Measured: one
-was still running the next day, which is what produced a resume conflict on the next launch. The close
-dialog names those sessions as a **second group** (`quitGuard.closeWarning(running, surviving)`, fed from
-`liveOwners.current()`), worded apart from the first for one reason: "Closing Switchboard stops them" is
-FALSE about them, and rolling the two together would have made the dialog lie about exactly the sessions
-it had just learned to see. It reads the poller's last answer and never fetches — a child process in
-front of a keystroke is not what a close event is for — and it does **not** open a dialog that was not
-opening anyway: the switch that turns the warning off is asked about the sessions the quit STOPS.
+**What the teardown CANNOT reach is deliberately NOT in the close dialog.** A CLI that put itself under a
+daemon of its own is not one of our PTY children — `taskkill /T` walks the tree from `session.pty.pid` and a
+detached daemon is not in it, so it survives a clean quit and keeps holding its session (measured: still
+running the next day, which produced a resume conflict on the next launch). #608 once listed those
+sessions in the dialog as a second "keeps running" group; the owner had it taken out again, because the
+user can do nothing about them from there and a row nobody can act on is noise in a question about what
+they are about to lose. The conflict is answered at the other end — the conflict dialog names the
+process and offers to stop it. Do not put the group back.
 
 `stopForeignPid` beside the rest is the one thing here that kills a process the app did not start
 (#607) — same primitive, deliberately different bookkeeping: it never enters `pendingPids`, because a

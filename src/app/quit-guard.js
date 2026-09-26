@@ -48,34 +48,16 @@ function describeCounts(agents, terminals) {
 const MAX_ROWS = 6;
 
 /**
- * The sessions that will still be running AFTER the app is gone (#608).
- *
- * The list above is what closing STOPS. This is its opposite, and the dialog had no idea it existed: a CLI
- * that put itself under a daemon of its own is not one of our PTY children, so the teardown cannot reach
- * it — measured, one was still holding its session the next day, which is what produced the resume
- * conflict on the next launch.
- *
- * Fed from `app/live-owners.js`, which has already dropped everything `activeSessions` holds. So every
- * entry it publishes is by definition NOT ours, and there is nothing further to filter — the one thing
- * this must not do is name a session the quit is about to kill, and that is settled upstream.
- *
- * A cold or missing list answers an empty array. Saying nothing is right there: the alternative is
- * telling somebody a session survived when the truth is that nobody asked.
- */
-function survivingSessions(liveOwners) {
-  return (liveOwners || []).filter(o => o && o.sessionId);
-}
-
-/**
  * The question, in the shape the app's own dialog takes (title / message / detail rows) — and, as `detail`,
  * the same thing as plain text for the native box main.js falls back to when the renderer cannot answer.
  *
- * `surviving` is the second group (#608) and it is worded apart from the first for one reason: the
- * sentence "Closing Switchboard stops them" is FALSE about it. Rolling the two together would have been
- * the smaller diff and would have made the dialog lie about exactly the sessions it had just learned to
- * see.
+ * It names only what the close STOPS. A session some other process holds survives the quit, and #608 once
+ * listed those as a second group ("keeps running"); it was taken out again because the user can do nothing
+ * about them from here — a row they cannot act on is noise in a question about what they are about to
+ * lose. The resume conflict such a session causes is answered where it happens, by the conflict dialog
+ * naming the process and offering to stop it.
  */
-function closeWarning(running, surviving = []) {
+function closeWarning(running) {
   const list = (running || []).filter(Boolean);
   const agents = list.filter(s => !s.isPlainTerminal).length;
   const terminals = list.length - agents;
@@ -101,43 +83,18 @@ function closeWarning(running, surviving = []) {
     details.push({ label: '', value: `…and ${entries.length - MAX_ROWS} more` });
   }
 
-  // The second group. Named rather than counted per project: these are sessions somebody else's process is
-  // running, and their own name is what the user can go and find them by — the path would say where they
-  // started, which is the less useful half here.
-  const outlive = survivingSessions(surviving);
-  const survivingRows = outlive.slice(0, MAX_ROWS).map(o => ({
-    label: 'keeps running',
-    value: o.name || o.sessionId,
-  }));
-  if (outlive.length > MAX_ROWS) {
-    survivingRows.push({ label: '', value: `…and ${outlive.length - MAX_ROWS} more` });
-  }
-  const allRows = [...details, ...survivingRows];
-
-  // One session or several is a different sentence, and the first draft got it wrong in a way that only
-  // shows up with exactly one: "1 session … the process holding them". The count already varies, so the
-  // pronouns have to vary with it.
-  const survivingNote = outlive.length
-    ? ` ${describeCounts(outlive.length, 0)} will KEEP running afterwards — Switchboard did not start `
-      + `the ${outlive.length === 1 ? 'process holding it and cannot stop it' : 'processes holding them and cannot stop them'}.`
-    : '';
-
   return {
     title: 'Sessions are still running',
-    // The same agreement the surviving sentence needs, and this half had it wrong first — "1 session
-    // still running. Closing Switchboard stops them" predates #608 and only reads wrong with exactly one.
+    // One session or several is a different sentence — "1 session still running. Closing Switchboard
+    // stops them" read wrong with exactly one.
     message: `${describeCounts(agents, terminals)} still running. Closing Switchboard stops `
-      + `${list.length === 1 ? 'it' : 'them'} — a CLI in the middle of a turn loses what it was doing.`
-      + survivingNote,
-    // The button says what the click does, and with a surviving session on the list "stop them" is the
-    // same false claim the message above stopped making. The wording lives here rather than in the
-    // renderer for the reason the rest of it does: this is the half that can be tested.
-    confirmLabel: outlive.length ? 'Close anyway' : 'Close and stop them',
-    details: allRows,
+      + `${list.length === 1 ? 'it' : 'them'} — a CLI in the middle of a turn loses what it was doing.`,
+    confirmLabel: 'Close and stop them',
+    details,
     // The native fallback has no detail rows, only a block of text.
-    detail: allRows.map(d => (d.label ? `• ${d.value} — ${d.label}` : `• ${d.value}`)).join('\n')
+    detail: details.map(d => (d.label ? `• ${d.value} — ${d.label}` : `• ${d.value}`)).join('\n')
       + '\n\nSettings → Sessions turns this warning off.',
   };
 }
 
-module.exports = { runningSessions, survivingSessions, shouldAskBeforeClose, closeWarning };
+module.exports = { runningSessions, shouldAskBeforeClose, closeWarning };
