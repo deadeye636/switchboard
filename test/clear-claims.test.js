@@ -6,7 +6,7 @@
 // URL), not an inference from mtimes or keystrokes. Both of those were tried and rejected — see
 // session-lineage.js for why the mtime window mis-keys a bystander.
 //
-// So what these pin is the small set of rules that keep a fact from turning into a guess: claims expire,
+// So what these pin is the small set of rules that keep a fact from turning into a guess: claims age out of the pairing window,
 // a dead terminal's claim explains nothing, two claims in one window are still ambiguous, and a consumed
 // claim cannot win twice.
 
@@ -58,12 +58,23 @@ test('a claim with no folder still answers a folder-scoped lookup', () => {
   assert.equal(claims.resolveSingleClaim({ folder: 'proj', liveTags: ['t1'] }).sessionId, 'S1');
 });
 
-test('a claim expires', () => {
+test('a claim ages out of the folder-pairing window', () => {
   const t0 = 1_000_000;
   claims.recordClearClaim({ tag: 't1', sessionId: 'S1', now: t0 });
   assert.ok(claims.resolveSingleClaim({ liveTags: ['t1'], now: t0 + claims.CLAIM_TTL_MS - 1 }));
   assert.equal(claims.resolveSingleClaim({ liveTags: ['t1'], now: t0 + claims.CLAIM_TTL_MS + 1 }), null,
     'an old claim must not pair with an unrelated clear minutes later');
+});
+
+test('an old claim is filtered out of the pairing window, not forgotten (#651)', () => {
+  const t0 = 1_000_000;
+  claims.recordClearClaim({ tag: 't1', sessionId: 'S1', now: t0 });
+  const later = t0 + claims.CLAIM_TTL_MS * 10;
+  assert.equal(claims.resolveSingleClaim({ liveTags: ['t1'], now: later }), null);
+  assert.equal(claims.resolveSingleClaim({ liveTags: ['t1'], now: later, maxAgeMs: Infinity }).sessionId, 'S1',
+    'a caller asking about its own terminal can still find it');
+  claims.forgetTag('t1');
+  assert.equal(claims.resolveSingleClaim({ liveTags: ['t1'], now: later, maxAgeMs: Infinity }), null, 'exit ends it');
 });
 
 test('a second clear in one terminal replaces the first claim', () => {
@@ -85,4 +96,12 @@ test('forgetting a terminal drops its claim', () => {
   claims.recordClearClaim({ tag: 't1', sessionId: 'S1' });
   claims.forgetTag('t1');
   assert.equal(claims.resolveSingleClaim({ liveTags: ['t1'] }), null);
+});
+
+test('a claim nobody released is dropped a day later, when another is recorded', () => {
+  const t0 = 1_000_000;
+  claims.recordClearClaim({ tag: 'gone', sessionId: 'S1', now: t0 });
+  claims.recordClearClaim({ tag: 't2', sessionId: 'S2', now: t0 + 25 * 60 * 60 * 1000 });
+  assert.equal(claims.claimsFor({ liveTags: ['gone'], maxAgeMs: Infinity }).length, 0);
+  assert.equal(claims.claimsFor({ liveTags: ['t2'], maxAgeMs: Infinity }).length, 1);
 });

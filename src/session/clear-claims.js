@@ -27,10 +27,18 @@
 // session-transitions.js, and this can be tested without either.
 'use strict';
 
-// A claim is worth nothing once the child has been born and matched. Long enough for the transcript to
+// How old a claim may be to pair with a child the FOLDER turned up. Long enough for the transcript to
 // appear and the watcher to fire (seconds at worst), short enough that a claim cannot pair with an
 // unrelated clear minutes later.
+//
+// It is a filter on that question, not the claim's lifetime (#651). A caller asking about ONE terminal's
+// own claim — the session-bind route, which only runs on the next prompt, however long after the `/clear`
+// that is — passes `maxAgeMs` and checks the claim against the row itself. A claim ends when it is paired
+// (`releaseClaim`), replaced by the terminal's next clear, or its terminal exits (`forgetTag`). A POST that
+// lands after its terminal's exit handler, or an exit handler that fails before it forgets, would leave one
+// behind, so a claim older than CLAIM_MAX_AGE_MS is dropped whenever another is recorded.
 const CLAIM_TTL_MS = 60_000;
+const CLAIM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 // tag -> { tag, sessionId, folder, at }
 const _claims = new Map();
@@ -38,6 +46,7 @@ const _claims = new Map();
 /** The terminal `tag` reset `sessionId`. Called from the hook ingest; one claim per terminal at a time. */
 function recordClearClaim({ tag, sessionId, folder, now = Date.now() }) {
   if (!tag || !sessionId) return null;
+  for (const [t, c] of _claims) if (now - c.at > CLAIM_MAX_AGE_MS) _claims.delete(t);
   const claim = { tag, sessionId, folder: folder || null, at: now };
   // A terminal only ever has ONE open claim: a second clear before the first was consumed means the first
   // is stale (its child was already re-keyed, or never appeared), and keeping it would let an old claim
@@ -46,20 +55,16 @@ function recordClearClaim({ tag, sessionId, folder, now = Date.now() }) {
   return claim;
 }
 
-function _prune(now) {
-  for (const [tag, c] of _claims) if (now - c.at > CLAIM_TTL_MS) _claims.delete(tag);
-}
-
 /**
  * The open claims that could explain a child appearing now.
  *
  * `liveTags` is what the caller still owns — a claim from a terminal that has since exited explains
  * nothing and must not keep a row alive. Pass the tags of the sessions currently live in that folder.
  */
-function claimsFor({ folder = null, liveTags = null, now = Date.now() } = {}) {
-  _prune(now);
+function claimsFor({ folder = null, liveTags = null, now = Date.now(), maxAgeMs = CLAIM_TTL_MS } = {}) {
   const out = [];
   for (const c of _claims.values()) {
+    if (now - c.at > maxAgeMs) continue;
     if (folder && c.folder && c.folder !== folder) continue;
     if (liveTags && !liveTags.includes(c.tag)) continue;
     out.push(c);

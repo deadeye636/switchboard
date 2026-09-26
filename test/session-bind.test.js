@@ -18,7 +18,7 @@ const transitions = require('../src/session/session-transitions');
 const hooks = require('../src/app/hooks');
 const claims = require('../src/session/clear-claims');
 
-function setup({ claim = null } = {}) {
+function setup({ claim = null, realClaims = false } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const rekeyedMcp = [];
@@ -33,8 +33,10 @@ function setup({ claim = null } = {}) {
     rekeyMcpServer: (from, to) => rekeyedMcp.push([from, to]),
     rekeySessionBackend: (from, to) => rekeyedBackend.push([from, to]),
     recordLineage: (childId, folder, parentId, kind) => lineage.push([childId, folder, parentId, kind]),
-    getClearClaim: ({ liveTags } = {}) => (claim && (!liveTags || liveTags.includes(claim.tag)) ? claim : null),
-    releaseClearClaim: (tag) => released.push(tag),
+    getClearClaim: realClaims
+      ? (opts) => claims.resolveSingleClaim(opts)
+      : ({ liveTags } = {}) => (claim && (!liveTags || liveTags.includes(claim.tag)) ? claim : null),
+    releaseClearClaim: (tag) => { released.push(tag); if (realClaims) claims.releaseClaim(tag); },
   });
   const add = (id, over = {}) => activeSessions.set(id, {
     exited: false, isPlainTerminal: false, projectFolder: 'proj',
@@ -190,4 +192,30 @@ test('the two bind ingests are told apart by PATH, never by payload shape', asyn
 
   post(hooks.sessionBindUrl('tag-b'), { session_id: 'B2', hook_event_name: 'Stop' }, token);
   assert.deepEqual(adopted, [['tag-b', 'B2']], 'a bind POST is a binding, not a claim');
+});
+
+// #651: this route runs on the NEXT prompt, which can be minutes after the `/clear`. The claim is past the
+// folder-pairing window by then, and the move used to be recorded as 'terminal'.
+test('a clear claim older than the pairing window still names a clear, when it names the session the row is on', () => {
+  claims._resetForTests();
+  const s = setup({ realClaims: true });
+  s.add('A', { _terminalTag: 'tag-term' });
+  claims.recordClearClaim({ tag: 'tag-term', sessionId: 'A', now: Date.now() - 10 * 60 * 1000 });
+
+  transitions.adoptSessionId('tag-term', 'B');
+
+  assert.deepEqual(s.lineage, [['B', 'proj', 'A', 'clear']]);
+  assert.deepEqual(claims.claimsFor({ liveTags: ['tag-term'], maxAgeMs: Infinity }), [], 'and it is spent');
+});
+
+test('an aged claim naming some other session is a leftover, not this move', () => {
+  claims._resetForTests();
+  const s = setup({ realClaims: true });
+  s.add('B', { _terminalTag: 'tag-term' });
+  claims.recordClearClaim({ tag: 'tag-term', sessionId: 'A', now: Date.now() - 10 * 60 * 1000 });
+
+  transitions.adoptSessionId('tag-term', 'C');
+
+  assert.deepEqual(s.lineage, [['C', 'proj', 'B', 'terminal']]);
+  claims._resetForTests();
 });

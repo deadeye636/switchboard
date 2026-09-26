@@ -423,8 +423,24 @@ function adoptSessionId(tag, newId) {
   // which session it ENDED, and that is the real parent — it can differ from the id we held the row under
   // if an earlier move was missed. A claim for this tag is therefore the better answer whenever there is
   // one, and it also tells us the move's KIND, which the report on its own never does.
+  //
+  // This route runs on the NEXT prompt, which can be any time after the `/clear` (#651), so an older claim
+  // is still asked for — but only trusted when it names the very session this row is still on. That is
+  // what makes it this move's claim rather than a leftover from one the detector already followed.
+  //
+  // What it cannot tell apart, stated rather than discovered: a clear the detector never followed, then an
+  // in-CLI `/resume` of another session before any prompt in the cleared one. The resumed session is then
+  // recorded as a clear child of the session the clear ended. A fresh claim (inside CLAIM_TTL_MS) has always
+  // had that exposure, since it is trusted without the check for #304's stale key; the aged path widens it
+  // only for that sequence, which needs a clear nobody prompted after.
   let claim = null;
-  try { claim = getClearClaim({ liveTags: [tag] }); } catch { /* no ingest wired (tests) */ }
+  try {
+    claim = getClearClaim({ liveTags: [tag] });
+    if (!claim) {
+      const aged = getClearClaim({ liveTags: [tag], maxAgeMs: Infinity });
+      if (aged && aged.sessionId === fromId) claim = aged;
+    }
+  } catch { /* no ingest wired (tests) */ }
   const viaClaim = !!(claim && claim.sessionId);
   // 'terminal' is deliberately not 'clear': all we witnessed is that this PTY ran that session before
   // this one. Naming it after a cause we did not observe is the kind of manufactured confidence the
@@ -570,9 +586,8 @@ function detectSessionTransitions(folder) {
               // The CLI's id, not ours: it is the session that actually ended, so it is the ancestor even
               // when this row was still keyed to something older.
               clearAncestorId = parentId;
-              // Consume it: the claim has done its job, and leaving it open would let it win a second,
-              // unrelated pairing inside its TTL.
-              try { releaseClearClaim(claim.tag); } catch { /* best effort */ }
+              // The claim is consumed below with every other clear this terminal matched (#651) — it is
+              // this terminal's own, since `ownerId` was matched by its tag.
               log.info(`[detect] session=${sessionId} clear file=${newId} matched by terminal claim (ended=${parentId})`);
             }
           } else {
@@ -600,6 +615,10 @@ function detectSessionTransitions(folder) {
         // the scanner cannot correlate it (the parent's file is unchanged and skipped), so we persist it
         // here where the parent is known at high confidence. Fork lineage is written by the scanner.
         if (kind === 'clear') { try { recordLineage(newId, folder, clearAncestorId || sessionId); } catch { /* best effort */ } }
+        // Whichever rule matched it, this terminal's clear is followed now, so its claim is spent (#651).
+        // The single-live-session rule used to leave it open, where a later move of the same terminal
+        // could have been read as this clear.
+        if (kind === 'clear' && session._terminalTag) { try { releaseClearClaim(session._terminalTag); } catch { /* best effort */ } }
         session.knownJsonlFiles = new Set(currentFiles);
         // Update slug from new session
         if (signals.slug) session.sessionSlug = signals.slug;

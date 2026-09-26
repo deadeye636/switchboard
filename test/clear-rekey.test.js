@@ -324,3 +324,19 @@ test('an ambiguous clear is RE-CHECKED, so a claim that arrives late still lands
     assert.deepEqual(released, ['tag-parent']);
   } finally { fs.rmSync(projectsDir, { recursive: true, force: true }); }
 });
+
+// #651: whichever rule matched the clear, the terminal's claim is spent. The single-live-session rule used
+// to leave it open, where the session-bind route could later read an unrelated move as this clear.
+test('a clear matched by the single-live-session rule releases that terminal\'s claim too', () => {
+  const now = Date.now();
+  const s = setup({
+    'parent.jsonl': { content: '{"type":"user"}\n', mtimeMs: now - 300 },
+    'child.jsonl': { content: CLEAR_LINE + '\n' },
+  });
+  try {
+    s.addSession('parent', { knownJsonlFiles: new Set(['parent.jsonl']), _terminalTag: 'tag-solo' });
+    transitions.detectSessionTransitions(s.folder);
+    assert.equal(s.activeSessions.has('child'), true);
+    assert.deepEqual(s.released, ['tag-solo']);
+  } finally { s.cleanup(); }
+});
