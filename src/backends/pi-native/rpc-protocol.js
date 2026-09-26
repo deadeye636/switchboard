@@ -680,6 +680,13 @@ function answerCommand(requestId, answer = {}) {
   return out;
 }
 
+// Which line answers a request of the core's: Pi answers every command with a `response` record that
+// echoes the `id` it was sent, and puts `success: false` + `error` on a refusal, which is the shape the
+// core hands its caller. Everything else Pi writes is an event for the decoder.
+function responseOf(msg) {
+  return msg && msg.type === 'response' ? { id: msg.id, payload: msg } : null;
+}
+
 // What a `get_state` response says about identity. Only the id is used by the core.
 function sessionIdFromState(response) {
   const data = response && response.data;
@@ -696,6 +703,7 @@ function entriesFromMessages(response) {
 
 module.exports = {
   createDecoder,
+  responseOf,
   sendCommand,
   abortCommand,
   commandsCommand,

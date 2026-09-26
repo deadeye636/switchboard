@@ -20,7 +20,9 @@ const TAG = 'tag-1';
 // inside it (`fixtures/…`), and it must not move when a helper does.
 const SESSION_CWD = path.join(__dirname, '..');
 
-function harness({ dataDir, env, timeouts } = {}) {
+// `rpc` and `fixture` swap in another protocol half and the child that speaks it
+// (`agent-rpc-stream.test.js`); the default is pi-native's own half against the Pi stand-in.
+function harness({ dataDir, env, timeouts, rpc, fixture } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
@@ -53,7 +55,7 @@ function harness({ dataDir, env, timeouts } = {}) {
     log: { info: (line) => logged.push(line), warn() {}, debug() {} },
   });
   const proc = agentRpc.start({
-    tag: TAG, rpc: piNative.rpc, command: process.execPath, args: [FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts,
+    tag: TAG, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts,
   });
   activeSessions.set('launch-id', { pty: proc, _terminalTag: TAG, exited: false });
   return { activeSessions, sent, signals, rekeys, clipped, logged, proc };

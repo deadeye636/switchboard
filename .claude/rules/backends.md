@@ -427,6 +427,33 @@ the way the binding and the templates are, so a spawn-applied option (`approvalG
 `appliedBy`. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
 to read them, and the terminal-key tests check the absence.
 
+**What the `rpc` half declares, because runtimes differ (#657).** The core used to assume Pi's shape in each
+of the places below; each is a declaration of the half now, and a second runtime-driven backend states its
+answers instead of the core learning its format:
+
+- `responseOf(msg)` → `{ id, payload } | null` — REQUIRED (`start` refuses a half without it). Which line
+  answers a request of the core's, and under which id; `payload` is what the caller gets, with
+  `success: false` + `error` for a refusal. Everything else goes to the decoder.
+- `stateCommand` + `sessionIdFromState` — optional, a pair. A runtime that can be ASKED which session it
+  is on is asked at start and after every settled run; one that cannot announces a move with an
+  `{ op: 'identity', sessionId }` op instead. Both paths re-key through the one shared re-key.
+- `sendAcknowledged: false` — a runtime that answers no turn line. The write is the send, and the write
+  of a turn to an idle session is its busy edge, because nothing in such a stream says a turn began.
+- `messagesCommand` + `entriesFromMessages`, or `entriesFromTranscript({ sessionId, cwd })` with an
+  optional `entryKey(entry)` — where an attach gets the conversation so far: asked of the runtime, or
+  read from the transcript the backend knows how to find. The file can be behind the pipe or ahead of it,
+  so the core adds the recently sent entries the file lacks and stamps each `append` op with its key, and
+  the view skips an op for an entry its snapshot already holds (the sequence contract in
+  `attachFromTranscript`). **An `entryKey` must be unique for the life of a conversation**: the view skips
+  an op by its key, so a key used twice hides the second entry.
+- `gracefulStopMs` — a runtime that still writes on the way out: stdin closes first, the tree is killed
+  after that long, and nothing more is written to it meanwhile. Pi declares none (#653 E14: a wait only
+  where the CLI needs one). Its session manager writes each entry synchronously once the session has an
+  assistant reply, and keeps the entries before that in memory without flushing them on exit — so a wait
+  would save nothing, and a pi-native attach reads `get_messages`, not the file.
+- `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
+  request back.
+
 **The per-spawn hooks that exist, and the order they were added in.** `supportsLiveRebinding` +
 `buildLiveBinding` / `releaseLiveBinding` (the terminal backends' busy/idle binding); `providesPromptTemplates`
 + `buildPromptTemplates` / `releasePromptTemplates` (#569 — the app's `/handoff` and `/plan` as Pi prompt

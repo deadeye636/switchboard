@@ -95,6 +95,12 @@ module.exports = {
   // on the other — see `./rpc-protocol.js` for the ops.
   rpc: {
     createDecoder: protocol.createDecoder,
+    // Which line answers a request of the core's (Pi's `response` record). Pi also acknowledges a turn
+    // line and answers `get_state`/`get_messages`, so it declares neither `sendAcknowledged: false` nor
+    // `entriesFromTranscript`. Nor `gracefulStopMs`: Pi writes each session entry synchronously once the
+    // session has an assistant reply, and flushes nothing on exit that it held before one — a wait would
+    // save nothing, so it is stopped at once as before.
+    responseOf: protocol.responseOf,
     sendCommand: protocol.sendCommand,
     abortCommand: protocol.abortCommand,
     // The input's autocomplete (#643): the commands a `/` can complete to, and one command's arguments.

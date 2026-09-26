@@ -78,6 +78,11 @@ const STARTUP_TIMEOUT_MS = 120000;
 // out, and anything else that happens flushes it first, so nothing is reordered and nothing is dropped.
 const PARTIAL_INTERVAL_MS = 60;
 
+// How many finished entries are kept for an attach that reads the conversation from the transcript file
+// (see `attach`). The file can lag the stream by the entry being written, never by a whole turn, so this
+// is a bound on a window of milliseconds rather than a second log of the session.
+const RECENT_APPENDS_CAP = 64;
+
 // The session this state belongs to, found by the tag spawn.js minted for it. The TAG, not an id: the id is
 // what changes when the session is re-keyed onto the one Pi names, and the tag is what `adoptSessionId` and
 // every other re-key already follow.
@@ -148,7 +153,9 @@ function sendOp(state, op) {
  */
 function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
   if (!ctx) throw new Error('agent-rpc is not initialised');
-  if (!rpc || typeof rpc.createDecoder !== 'function') throw new Error('this backend declares no protocol');
+  if (!rpc || typeof rpc.createDecoder !== 'function' || typeof rpc.responseOf !== 'function') {
+    throw new Error('this backend declares no protocol');
+  }
 
   const child = spawnChild(command, args || [], {
     cwd,
@@ -196,6 +203,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
     seq: 0,                  // the number of the last op sent — see sendOp
     startedAt: Date.now(),
     answered: false,         // has the runtime answered any request yet — see STARTUP_TIMEOUT_MS
+    // The last finished entries sent, for an attach from the transcript file — kept only when the backend
+    // can name an entry (`entryKey`), because a merge without a key could only guess what is a repeat.
+    recentAppends: [],
+    resets: 0,               // how many times the conversation was replaced — see `attachFromTranscript`
+    stopping: false,         // a graceful stop is waiting for the child — see `kill`
   };
   // The tests shorten both; the app never passes them.
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
@@ -226,13 +238,16 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
     for (const op of ops) sendOp(state, op);
   }
 
+  // Nothing is written once a stop has closed stdin: the stream is not destroyed yet, so a write would be
+  // accepted and then fail asynchronously, and a turn or an answer would report success about nothing.
   function write(obj) {
-    if (state.exited || !child.stdin || child.stdin.destroyed) return false;
+    if (state.exited || state.stopping || !child.stdin || child.stdin.destroyed || child.stdin.writableEnded) return false;
     try { child.stdin.write(JSON.stringify(obj) + '\n'); return true; } catch { return false; }
   }
 
-  // One request, one response. Pi echoes the `id` it was given; a request whose response never comes is
-  // answered with a refusal after RESPONSE_TIMEOUT_MS so nobody awaits it forever.
+  // One request, one response. The runtime answers under the `id` it was given — where it spells that id is
+  // the backend's `responseOf` — and a request whose response never comes is answered with a refusal after
+  // RESPONSE_TIMEOUT_MS so nobody awaits it forever.
   //
   // Two options, each for one caller and each the opposite of a default:
   //
@@ -268,19 +283,26 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
   state.request = request;
   state.write = write;
 
-  // Which session is Pi on? Asked at start and after every settled run, because the answer is what the row
-  // is keyed on and Pi can move (a fork or a new session from inside it). The re-key itself is the one
-  // every other backend's live binding goes through.
-  async function followIdentity() {
-    const res = await request(rpc.stateCommand);
-    const id = res && res.success !== false ? rpc.sessionIdFromState(res) : null;
+  // The row is keyed on the session the runtime is on, and the runtime can move (a fork or a new session
+  // from inside it). The re-key itself is the one every other backend's live binding goes through.
+  function adoptIdentity(id) {
     if (!id || typeof ctx.adoptSessionId !== 'function') return;
     try {
-      const moved = ctx.adoptSessionId(tag, id);
+      const moved = ctx.adoptSessionId(tag, String(id));
       if (moved && moved.from && moved.to) ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
     } catch (err) {
       ctx.log.warn(`[agent-rpc] could not follow the runtime's session id: ${err.message}`);
     }
+  }
+
+  // Two ways a runtime says which session it is on, and a backend declares one or both. A runtime that can
+  // be ASKED (`stateCommand` + `sessionIdFromState`) is asked at start and after every settled run; one
+  // that ANNOUNCES a move emits an `identity` op when it happens. Asking a runtime that has no such request
+  // would build nothing and reject inside the Promise, so a backend without the pair is simply not asked.
+  async function followIdentity() {
+    if (typeof rpc.stateCommand !== 'function' || typeof rpc.sessionIdFromState !== 'function') return;
+    const res = await request(rpc.stateCommand);
+    adoptIdentity(res && res.success !== false ? rpc.sessionIdFromState(res) : null);
   }
   state.followIdentity = followIdentity;
 
@@ -512,9 +534,10 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
         flushPartial();
         const notice = typeof rpc.navigatedNotice === 'function' ? rpc.navigatedNotice(op) : null;
         const tell = () => { if (notice && notice.text) sendOp(state, { op: 'notice', level: notice.level || 'info', text: notice.text }); };
-        if (!op.ok) { tell(); return; }
+        if (!op.ok || typeof rpc.messagesCommand !== 'function') { tell(); return; }
         request(rpc.messagesCommand).then((res) => {
-          if (res && res.success !== false) sendOp(state, { op: 'reset', entries: rpc.entriesFromMessages(res) });
+          // Through `handleOp`, like every reset: an attach reading the transcript counts them.
+          if (res && res.success !== false) handleOp({ op: 'reset', entries: rpc.entriesFromMessages(res) });
           else sendOp(state, { op: 'notice', level: 'warning', text: 'The session switched, but its conversation could not be read again. Reopen the tab to see it.' });
           // A user message the user picked comes back for editing, into the input (owner decision T8).
           if (op.draft) sendOp(state, { op: 'draft', text: op.draft });
@@ -530,6 +553,32 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
         flushPartial();
         sendOp(state, op);
         if (!state.asks.size) report(state.busy ? 'busy' : 'idle');
+        return;
+      case 'identity':
+        // The runtime announced the session it is on now. Nothing is drawn for it: the re-key tells the
+        // renderer through the path every re-key takes.
+        flushPartial();
+        adoptIdentity(op.sessionId);
+        return;
+      case 'append': {
+        flushPartial();
+        // A backend that can name an entry has the name stamped on the op, so a view that took the entry from
+        // a transcript snapshot can tell the op for it apart from a new one (see `attachFromTranscript`).
+        const key = typeof rpc.entryKey === 'function' && op.entry ? rpc.entryKey(op.entry) : null;
+        if (key) {
+          state.recentAppends.push(op.entry);
+          if (state.recentAppends.length > RECENT_APPENDS_CAP) state.recentAppends.shift();
+        }
+        sendOp(state, key ? { ...op, key: String(key) } : op);
+        return;
+      }
+      case 'reset':
+        // The whole conversation was replaced; what was kept for an attach describes the old one, and an
+        // attach reading the file right now has to know its read may predate this.
+        state.recentAppends = [];
+        state.resets += 1;
+        flushPartial();
+        sendOp(state, op);
         return;
       default:
         flushPartial();
@@ -552,16 +601,21 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
       if (!line.trim()) continue;
       let msg;
       try { msg = JSON.parse(line); } catch { ctx.log.debug(`[agent-rpc] unreadable line (${line.length} bytes)`); continue; }
-      if (msg && msg.type === 'response') {
+      // Is this line the answer to a request of ours? Only the backend can tell: every runtime spells a
+      // response and the id it carries its own way. `payload` is what the waiting caller receives, and it
+      // carries `success: false` with an `error` when the runtime refused.
+      let answer = null;
+      try { answer = rpc.responseOf(msg); } catch (err) { ctx.log.warn(`[agent-rpc] response check failed: ${err.message}`); }
+      if (answer) {
         state.answered = true;
-        const waiting = msg.id != null ? state.pending.get(String(msg.id)) : null;
+        const waiting = answer.id != null ? state.pending.get(String(answer.id)) : null;
         if (waiting) {
           clearTimeout(waiting.timer);
-          state.pending.delete(String(msg.id));
+          state.pending.delete(String(answer.id));
           // The op number at the moment the answer ARRIVED, not when its reader resumes: the rest of this
           // chunk is parsed and sent before the awaiting code runs, and those ops are newer than the answer.
           flushPartial();
-          waiting.resolve({ ...msg, _seq: state.seq });
+          waiting.resolve({ ...(answer.payload || {}), _seq: state.seq });
         }
         continue;
       }
@@ -613,7 +667,20 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
     state.typed = state.typed.replace(/\r\n?/g, '\n');
   }
 
+  // A runtime that ACKNOWLEDGES a turn answers its line like any request, and a refusal comes back as one.
+  // One that does not (`sendAcknowledged: false`) never answers a turn line at all, so waiting for an answer
+  // would time every turn out as "no answer" while the runtime works on it. There the write IS the send,
+  // and — since nothing in such a stream says a turn began — the write is also the moment the session turns
+  // busy. A line written while a turn runs (a steer, a follow-up) changes nothing about that.
   function send({ text, mode }) {
+    if (rpc.sendAcknowledged === false) {
+      const wasBusy = state.busy;
+      if (!write(rpc.sendCommand({ id: crypto.randomUUID(), text, mode, busy: wasBusy }))) {
+        return Promise.resolve({ success: false, error: 'not running' });
+      }
+      if (!wasBusy) handleOp({ op: 'busy', busy: true });
+      return Promise.resolve({ success: true });
+    }
     return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy }));
   }
 
@@ -639,7 +706,38 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
 
   // Stopping takes the process TREE on Windows. Pi runs its tools as children of its own, and a plain kill
   // of the node process leaves a running `bash` behind with nobody to answer it.
+  //
+  // A backend whose runtime still has something to write when it is told to stop — a transcript it flushes
+  // on the way out — declares `gracefulStopMs`: the first stop closes stdin and waits that long for the
+  // child to leave by itself, then takes the tree. A second stop while it waits (the quit path's deadline, a
+  // user pressing Stop again) does not wait again. A backend that declares nothing is stopped at once, which
+  // is what every stop did before.
+  //
+  // A child that DOES leave by itself during the wait may leave a tool it started still running. Off
+  // Windows the process group it was started in is signalled after it went, so that tool goes with it. On
+  // Windows there is no such group: `taskkill /T` walks the tree from a pid that no longer exists, so a
+  // runtime that orphans its own tools on the way out keeps them. The quit path's own deadline
+  // (`session-shutdown.js`) is no help there either, for the same reason.
   function kill() {
+    if (state.exited) return;
+    const graceMs = Number(rpc.gracefulStopMs) > 0 ? Number(rpc.gracefulStopMs) : 0;
+    if (graceMs && !state.stopping) {
+      state.stopping = true;
+      try { child.stdin.end(); } catch { /* already closed */ }
+      const timer = setTimeout(treeKill, graceMs);
+      if (typeof timer.unref === 'function') timer.unref();
+      child.once('exit', () => {
+        clearTimeout(timer);
+        if (process.platform !== 'win32' && child.pid) {
+          try { process.kill(-child.pid, 'SIGTERM'); } catch { /* the group is already gone */ }
+        }
+      });
+      return;
+    }
+    treeKill();
+  }
+
+  function treeKill() {
     if (state.exited) return;
     const pid = child.pid;
     if (process.platform === 'win32' && pid) {
@@ -671,12 +769,19 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
 
 // --- IPC ---
 
-// What a view needs to draw a session it has just mounted: the conversation so far (from the runtime,
-// which holds the transcript), the turn being streamed, whether it is working, what is queued, and any
-// question still open. The transcript is the truth — there is no second log here to fall out of step.
+// What a view needs to draw a session it has just mounted: the conversation so far, the turn being
+// streamed, whether it is working, what is queued, and any question still open. The transcript is the
+// truth — there is no second log here to fall out of step.
+//
+// Where the conversation so far comes from is the backend's. A runtime that can be ASKED for it
+// (`messagesCommand` + `entriesFromMessages`) answers from what it holds. One that cannot has its
+// conversation read from its own transcript file instead (`entriesFromTranscript`, see below).
 async function attach(sessionId) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
+  if (typeof state.rpc.messagesCommand !== 'function' || typeof state.rpc.entriesFromMessages !== 'function') {
+    return attachFromTranscript(sessionId, state);
+  }
   const res = await state.request(state.rpc.messagesCommand);
   if (!res || res.success === false) {
     // Logged with the time since the start, because the case this exists for (#647) was never measured:
@@ -689,6 +794,77 @@ async function attach(sessionId) {
     ok: true,
     seq: res._seq || 0,
     entries: state.rpc.entriesFromMessages(res),
+    partial: state.decoder.currentPartial(),
+    busy: state.busy,
+    queue: state.queue,
+    asks: [...state.asks.values()],
+  };
+}
+
+// The conversation of a runtime that cannot be asked for it, read from the transcript the runtime writes.
+// The backend reads its own file (`entriesFromTranscript({ sessionId, cwd })`, sync or a Promise): which
+// file and what is in it are its format, and this process names none.
+//
+// THE SEQUENCE CONTRACT. The view replays every op newer than the `seq` an attach answers and nothing older
+// (see `sendOp`). A snapshot taken from a FILE is not taken at one moment the way a runtime's answer is: the
+// runtime writes an entry to its file and to the pipe separately, so the file can be behind the ops already
+// sent, or ahead of them. Both directions are answered, and both need the backend's `entryKey`:
+//
+//   - BEHIND. The number is taken AFTER the read, so everything sent before it is the snapshot's business,
+//     and the entries sent recently that the file does not have yet are added from `recentAppends`. They go
+//     at the end, in the order they were sent — the file's own order is not known for an entry it lacks.
+//   - AHEAD. An entry the file already has may still be in the pipe; its op then arrives with a number past
+//     the snapshot's and would be drawn a second time. So the snapshot answers the `keys` it holds, every
+//     `append` op carries its `key`, and the view skips an op for an entry it already has.
+//
+// A backend without `entryKey` gets the file alone: without a key there is no telling a repeat from a new
+// entry. An entry the runtime sends but never writes to its file (a reply the CLI makes up itself) is added
+// from `recentAppends` on every attach while it is among the last ones sent, and is gone after that.
+//
+// A `reset` while the file is being read replaces the conversation the read may describe, and its own op
+// would be at or below the number taken after it — never replayed. The read is then done again, once; a
+// session that keeps being replaced during two reads answers a refusal rather than a stale conversation.
+//
+// No startup wait: nothing is asked of the runtime, and a session that has not written its file yet has an
+// empty conversation, which is the truth about it.
+async function attachFromTranscript(sessionId, state) {
+  const rpc = state.rpc;
+  if (typeof rpc.entriesFromTranscript !== 'function') {
+    return { ok: false, error: 'This session cannot load its conversation.' };
+  }
+  let entries;
+  let settled = false;
+  for (let attempt = 0; attempt < 2 && !settled; attempt++) {
+    const resetsBefore = state.resets;
+    try {
+      entries = await rpc.entriesFromTranscript({ sessionId, cwd: state.cwd });
+    } catch (err) {
+      ctx.log.info(`[agent-rpc] attach ${sessionId}: the transcript was not read (${err.code || err.message})`);
+      return { ok: false, error: 'The session could not load its conversation.' };
+    }
+    settled = state.resets === resetsBefore;
+  }
+  if (state.exited) return { ok: false, error: 'This session is not running.' };
+  if (!settled) return { ok: false, error: 'The session changed while its conversation was loaded. Reopen the tab to see it.' };
+  const out = Array.isArray(entries) ? entries.slice() : [];
+  const seq = state.seq;
+  // `keys` names only what came out of the FILE: an entry added from `recentAppends` was sent before the
+  // number was taken, so its op is never replayed and there is nothing for the view to skip. A key the view
+  // holds for nothing would only wait there to swallow a later entry of a runtime that reuses keys.
+  const keys = [];
+  if (typeof rpc.entryKey === 'function') {
+    const seen = new Set();
+    for (const e of out) { const k = rpc.entryKey(e); if (k) { seen.add(String(k)); keys.push(String(k)); } }
+    for (const e of state.recentAppends) {
+      const k = rpc.entryKey(e);
+      if (k && !seen.has(String(k))) { out.push(e); seen.add(String(k)); }
+    }
+  }
+  return {
+    ok: true,
+    seq,
+    keys,
+    entries: out,
     partial: state.decoder.currentPartial(),
     busy: state.busy,
     queue: state.queue,
@@ -718,8 +894,8 @@ async function sendTurn(sessionId, payload) {
   const mode = SEND_MODES.has(payload && payload.mode) ? payload.mode : 'prompt';
   state.noteComposerLine(text);
   const res = await state.send({ text, mode });
-  // Pi's refusal is its own sentence about the request ("Agent is streaming…"), not a thrown error that
-  // could carry a path, so it is passed on.
+  // A runtime's refusal is its own sentence about the request (Pi's "Agent is streaming…"), not a thrown
+  // error that could carry a path, so it is passed on.
   return res && res.success !== false ? { ok: true } : { ok: false, error: (res && res.error) || 'The session refused the message.' };
 }
 
@@ -813,8 +989,11 @@ function answerAsk(sessionId, requestId, answer) {
   if (!state) return { ok: false, error: 'This session is not running.' };
   const id = String(requestId || '');
   if (!state.asks.has(id)) return { ok: false, error: 'That question is no longer open.' };
+  // The question itself goes to the backend with the answer: a runtime may want part of its own request
+  // back (an approval that echoes the input it was asked about).
+  const asked = state.asks.get(id);
   state.asks.delete(id);
-  const ok = state.write(state.rpc.answerCommand(id, answer || { cancelled: true }));
+  const ok = state.write(state.rpc.answerCommand(id, answer || { cancelled: true }, asked));
   if (ok) sendOp(state, { op: 'answered', id });
   // The question ended the busy state (a session waiting on the user is not working); answering it inside
   // a run hands the session back to the agent, and nothing else would say so until the run settles. A

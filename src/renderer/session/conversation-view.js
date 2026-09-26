@@ -579,14 +579,22 @@ function createConversationView(getSession, container) {
   // Ops that arrive while an attach is in flight wait here, and only those newer than the snapshot are
   // applied after it — see `sendOp` in src/app/agent-rpc.js for the numbering.
   let pending = null;
+  // The entries a snapshot read from a transcript already holds, by the key main stamped on them. The file
+  // can be ahead of the pipe, so the op for one of them may still arrive after the snapshot; it is skipped
+  // once and forgotten (`attachFromTranscript` in src/app/agent-rpc.js). Empty for a backend that names no
+  // entries, and cleared by any replacement of the conversation.
+  let snapshotKeys = new Set();
 
   function apply(op) {
     if (!op || typeof op !== 'object') return;
     if (pending && op.op !== 'reset') { pending.push(op); return; }
     const wasAtBottom = atBottom();
     switch (op.op) {
-      case 'reset': reset(op.entries); break;
-      case 'append': appendEntry(op.entry); break;
+      case 'reset': snapshotKeys = new Set(); reset(op.entries); break;
+      case 'append':
+        if (op.key && snapshotKeys.delete(String(op.key))) return;
+        appendEntry(op.entry);
+        break;
       case 'partial': view.partial = op.entry || null; renderPartial(); break;
       case 'tool':
         view.tools.set(op.id, { status: op.status, output: op.output || '' });
@@ -679,6 +687,7 @@ function createConversationView(getSession, container) {
     }
     view.attached = true;
     apply({ op: 'reset', entries: res.entries || [] });
+    snapshotKeys = new Set(Array.isArray(res.keys) ? res.keys.map(String) : []);
     view.partial = res.partial || null;
     renderPartial();
     view.busy = !!res.busy;

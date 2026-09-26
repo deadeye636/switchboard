@@ -153,6 +153,26 @@ test('ops arriving while a view mounts are replayed after the snapshot — only 
   assert.match(drawn[1], /new/);
 });
 
+// #657: a snapshot read from a transcript file can hold an entry whose op is still on its way, and that op
+// then arrives numbered past the snapshot. The key main stamps on it is what says it is a repeat — once.
+test('an op for an entry the transcript snapshot already holds is skipped, once', async () => {
+  let release;
+  const h = setup({ attachAnswer: () => new Promise((r) => { release = r; }) });
+  const attaching = h.entry.conversation.attach();
+  const user = (text) => ({ type: 'message', message: { role: 'user', content: [{ type: 'text', text }] } });
+  // The op arrives while the attach is still in flight, numbered past the snapshot it is already in.
+  h.entry.conversation.apply({ op: 'append', entry: user('in the file'), key: 'k1', seq: 4 });
+  release({ ok: true, entries: [user('in the file')], keys: ['k1'], seq: 3, busy: false, queue: { steering: [], followUp: [] }, asks: [] });
+  await attaching;
+  h.entry.conversation.apply({ op: 'append', entry: user('really new'), key: 'k2', seq: 5 });
+  h.entry.conversation.apply({ op: 'append', entry: user('same key again'), key: 'k1', seq: 6 });
+  const drawn = [...h.entry.element.querySelectorAll('.conversation-log > .jsonl-entry')].map(d => d.textContent);
+  assert.equal(drawn.length, 3, 'the repeat was dropped, a new entry drawn, and a key is only skipped once');
+  assert.match(drawn[0], /in the file/);
+  assert.match(drawn[1], /really new/);
+  assert.match(drawn[2], /same key again/);
+});
+
 // #647: a runtime can take a while to start reading, and main waits that out. Meanwhile the view says it is
 // waiting rather than showing an empty conversation that looks finished — and the line goes once it answers.
 test('while the attach is in flight the status says the view is waiting for the session', async () => {
