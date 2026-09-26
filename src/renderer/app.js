@@ -1527,7 +1527,13 @@ async function launchNewSession(project, sessionOptions, seedText) {
   const entry = createTerminalEntry(session);
 
   // Open terminal in main process with session options
-  const result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
+  let result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
+  // A backend that starts only in a trusted project refused this one (#655). A new session is always somebody
+  // at the keyboard — a click, a fork, a handoff — so the question is put to them, and a yes starts it again.
+  if (!result.ok && result.untrusted && typeof grantTrustForLaunch === 'function'
+      && await grantTrustForLaunch(result.untrusted)) {
+    result = await window.api.openTerminal(sessionId, projectPath, true, sessionOptions || null);
+  }
   if (!result.ok) {
     writeEntryError(entry, result.error);
     entry.closed = true;
@@ -1892,7 +1898,10 @@ async function showTerminalHeader(session) {
 // a flag on the third argument rather than a customOptions object, because customOptions REPLACES the
 // resolved launch options — passing one just to carry a flag would strip the session's own model,
 // permission mode and everything else the cascade resolved.
-async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false } = {}) {
+// `askTrust: false` is a mount nobody asked for at the keyboard (the boot fallback): a backend refusing an
+// untrusted project then says so in the tab, and no dialog appears in front of a user who clicked nothing
+// (#655). A `show: false` mount is the launch restore, and asks nothing either.
+async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false, askTrust = true } = {}) {
   // Opening a terminal session is a fresh navigation — drop any pending
   // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
   window.__tasksReturnTarget = null;
@@ -1961,7 +1970,12 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   // Carried through the spawn guard as the user's own answer (#172), never set by the app itself.
   const spawnOptions = ignoreLiveOwner ? { ...(resumeOptions || {}), ignoreLiveOwner: true } : resumeOptions;
-  const result = await window.api.openTerminal(sessionId, projectPath, false, spawnOptions);
+  let result = await window.api.openTerminal(sessionId, projectPath, false, spawnOptions);
+  // Refused for want of trust (#655): asked of the user when they opened it, and started again on a yes.
+  if (!result.ok && result.untrusted && show && askTrust && typeof grantTrustForLaunch === 'function'
+      && await grantTrustForLaunch(result.untrusted)) {
+    result = await window.api.openTerminal(sessionId, projectPath, false, spawnOptions);
+  }
   if (!result.ok) {
     writeEntryError(entry, result.error);
     entry.closed = true;
@@ -2663,7 +2677,7 @@ loadProjects().then(async () => {
   // Fallback: restore the single active session (e.g. after a reload).
   if (activeSessionId && !openSessions.has(activeSessionId)) {
     const session = sessionMap.get(activeSessionId);
-    if (session) openSession(session);
+    if (session) openSession(session, null, { askTrust: false });
   }
 }).then(() => {
   // The welcome tour on a first launch (#146) — chained AFTER the whole boot callback, including the

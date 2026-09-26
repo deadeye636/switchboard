@@ -502,3 +502,67 @@ test('a backend spawn carries ELECTRON_NO_ATTACH_CONSOLE, a plain terminal does 
     'in the foreground there loses its console output when this is set (measured)',
   );
 });
+
+// #655: a backend that declares `trustBeforeStart` is asked for its saved trust in the directory the child
+// starts in, and anything but a yes refuses before a launch is even built — with a payload the renderer turns
+// into the trust question.
+function trustBackend(answer, calls, built = []) {
+  return fakeBackend({
+    trustBeforeStart: true,
+    projectTrust: { get: (p) => { calls.push(p); if (answer instanceof Error) throw answer; return answer; } },
+    buildLaunch: () => { built.push(true); throw new Error('stop here'); },
+  });
+}
+
+test('an untrusted project is refused before the launch is built, naming the backend and the folder', async () => {
+  const calls = [];
+  setup({ backend: trustBackend(false, calls) });
+  const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /starts only in a project Codex trusts/);
+  assert.deepEqual(r.untrusted, { backendId: 'codex', backendLabel: 'Codex', trustLabel: 'Codex', projectPath: CWD });
+  assert.deepEqual(calls, [CWD], 'asked about the directory the child would start in');
+});
+
+test('a project with no saved answer, or a trust read that throws, is refused the same way', async () => {
+  for (const answer of [null, undefined, new Error('unreadable')]) {
+    const calls = [];
+    setup({ backend: trustBackend(answer, calls) });
+    const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+    assert.equal(r.ok, false);
+    assert.ok(r.untrusted, `no yes is a refusal (${String(answer)})`);
+  }
+});
+
+test('a trusted project passes the gate, and a backend that declares no gate is not asked', async () => {
+  const calls = [];
+  const built = [];
+  setup({ backend: trustBackend(true, calls, built) });
+  const trusted = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+  assert.ok(!trusted.untrusted, 'past the gate');
+  assert.equal(built.length, 1, 'it went on to build the launch');
+
+  const asked = [];
+  setup({ backend: fakeBackend({ projectTrust: { get: (p) => { asked.push(p); return false; } }, buildLaunch: () => { throw new Error('stop here'); } }) });
+  const plain = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+  assert.ok(!plain.untrusted);
+  assert.deepEqual(asked, [], 'a terminal backend whose CLI asks its own question is not gated here');
+});
+
+test('a driver\'s refusal names the CLI whose trust it is — granting it trusts the project there too', async () => {
+  const calls = [];
+  const driver = { ...trustBackend(false, calls), id: 'pi-native', label: 'Pi (native)', transcriptsOf: 'pi' };
+  setup({ backend: driver, registry: { 'pi-native': driver, pi: fakeBackend({ id: 'pi', label: 'Pi' }) } });
+  const r = await spawn.openTerminal('s', CWD, true, { backendId: 'pi-native' });
+  assert.equal(r.untrusted.trustLabel, 'Pi');
+  assert.equal(r.untrusted.backendId, 'pi-native', 'the write still goes through the backend that asked');
+  assert.match(r.error, /Pi \(native\) starts only in a project Pi trusts/);
+});
+
+test('a backend that declares the gate but has no trust answer to ask is refused, not started', async () => {
+  const built = [];
+  setup({ backend: fakeBackend({ trustBeforeStart: true, buildLaunch: () => { built.push(true); throw new Error('stop here'); } }) });
+  const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+  assert.ok(r.untrusted, 'no trust, no start');
+  assert.deepEqual(built, []);
+});

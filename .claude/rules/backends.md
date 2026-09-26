@@ -406,7 +406,18 @@ chip per template in the Projects manager.
 then the template is the only entry that can still answer for that CLI. Its callers are named in
 `test/backends.test.js` with the reason each is on the list, so a surface that stops asking fails by name.
 **The test to apply when you forward a hook**: does any consumer of it take a LIST? Then it goes through
-`oneAskerPerCli` in the same commit.
+`oneAskerPerCli` in the same commit. **A driver (`transcriptsOf`) stands in for its owner the same way
+(#655)**: pi-native forwarded Pi's `projectTrust` and the manager drew two chips for one trust file until
+the dedupe learned that relation too.
+
+**A backend whose CLI asks its own trust question of nobody declares `trustBeforeStart` (#655).** The spawn
+path then asks `projectTrust.get(<the directory the child starts in>)` before `buildLaunch` and refuses
+anything but `true` — a declaration without a `projectTrust` to ask included — with an
+`untrusted: { backendId, backendLabel, trustLabel, projectPath }` payload, where `trustLabel` names the CLI
+whose trust file it is (`cliOwnerOf`: a driver's owner, a template's base's owner); the renderer puts
+the one trust confirm (`confirmProjectTrustGrant` in `src/renderer/dialogs/dialogs.js`, shared with the
+Projects manager) to a user who launched it and starts again on a yes. A declaration, never an id. pi-native
+declares it; a CLI shown in a terminal asks for itself and does not.
 
 ## A backend can DRIVE another backend's binary without owning its rows (#568)
 

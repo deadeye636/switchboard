@@ -305,6 +305,51 @@ async function stopOwnerAndResume(session) {
 }
 window.showResumeConflict = showResumeConflict;
 
+// Granting a backend trust in a project — the ONE confirm for it (#655). The Projects manager asks it from a
+// trust chip, and a launch asks it when a backend that starts only in a trusted project was refused for this
+// one. Two copies of this text would be two warnings that drift apart about the same permission.
+// `sharedGate` is where the backend keeps the answer when that reaches further than the project (a
+// repository root every checkout shares, #627); null when the answer is the project's own.
+function confirmProjectTrustGrant({ label, projectName, sharedGate = null } = {}) {
+  return showControlDialog({
+    tone: 'danger',
+    title: `Grant trust to this project — for ${label}?`,
+    message: `Trusting a project lets ${label} run its tools, hooks and commands without asking. Only do this for code you know and control. It applies to ${label} alone.`
+      + (sharedGate ? ` ${label} keeps this answer for the whole repository, so every checkout of it is trusted too.` : ''),
+    details: [
+      { label: 'Project', value: projectName },
+      { label: 'Backend', value: label },
+      ...(sharedGate ? [{ label: 'Trust kept for', value: sharedGate }] : []),
+    ],
+    confirmLabel: 'Grant trust',
+    cancelLabel: 'Cancel',
+  });
+}
+
+// A launch refused because the backend does not trust the project yet (`untrusted` on the spawn answer,
+// #655). Asks the confirm above and, on a yes, writes the trust through the same call the Projects manager
+// makes. Answers whether trust was granted, so the caller can start again; a refusal the user cancelled, or
+// a write that failed, leaves the refusal standing in the tab.
+async function grantTrustForLaunch(untrusted) {
+  if (!untrusted || !untrusted.backendId || !untrusted.projectPath) return false;
+  // The CLI the answer belongs to, which for a backend driving another's binary is the owner (spawn.js).
+  const label = untrusted.trustLabel || untrusted.backendLabel || untrusted.backendId;
+  const projectName = String(untrusted.projectPath).split(/[\\/]/).filter(Boolean).pop() || untrusted.projectPath;
+  const ok = await confirmProjectTrustGrant({ label, projectName });
+  if (!ok) return false;
+  let res = null;
+  try { res = await window.api.setProjectTrust(untrusted.projectPath, untrusted.backendId, true); } catch { res = null; }
+  if (!res || res.error || res.ok === false) {
+    showControlMessage({
+      title: 'Trust was not granted',
+      message: (res && res.error) || `The trust answer could not be saved for ${label}.`,
+      tone: 'warning',
+    });
+    return false;
+  }
+  return true;
+}
+
 function findProjectForSession(session) {
   const project = [...cachedAllProjects, ...cachedProjects].find(p =>
     p.sessions && p.sessions.some(s => s.sessionId === session.sessionId)

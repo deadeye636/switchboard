@@ -69,12 +69,14 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   // the orphan still reach the live PTY.
   const cancelledMounts = new Set();
 
-  async function mountOnce(session, show) {
+  // `askTrust: false` for a mount nobody clicked for — the restore when this window opens (#655): a backend
+  // refusing an untrusted project then says so in the tab instead of putting a dialog up at startup.
+  async function mountOnce(session, show, { askTrust = true } = {}) {
     const id = session.sessionId;
     if (openSessions.has(id) || mounting.has(id) || cancelledMounts.has(id)) return;
     mounting.add(id);
     try {
-      await openSession(session, undefined, { show });
+      await openSession(session, undefined, { show, askTrust });
       clearDormantState(); // something is running here now — whatever it was, the placeholder is stale
       // Re-check AFTER the await: the release can land while openSession is in flight.
       if (cancelledMounts.has(id) && openSessions.has(id) && typeof destroySession === 'function') {
@@ -217,9 +219,11 @@ if (isOwnWindow) document.body.classList.add('detached-window');
         if (typeof startSessionProcess === 'function') await startSessionProcess(session);
         continue;
       }
-      await mountOnce(session, !first);
+      await mountOnce(session, !first, { askTrust: false });
       if (!first) first = id;
     }
+    // A headless start refused for want of trust says so once, like the main window's restore (#655).
+    if (typeof reportUntrustedRestores === 'function') reportUntrustedRestores();
 
     // Only what another window could have filled comes back. That is the same rule a view crossing
     // windows obeys (#364): a kind with no loader would arrive blank, and an instanced preview or

@@ -30,8 +30,16 @@ const runtimeExtension = require('./runtime-extension');
 //   `models`   — the Ctrl+P cycle list is a TUI key binding; nothing here presses it.
 //   `useTheme` — Pi's theme colours its TUI; this backend draws with the app's own styles.
 const TUI_ONLY = new Set(['models', 'useTheme']);
+// …and one that is left out for a reason of its own (#655, #653 E13): `approval`, "Project trust for this
+// run". This backend starts only in a project Pi trusts (`trustBeforeStart` below), so the SAVED answer is the
+// only one that counts: a per-run "trust this run" would start where nothing was trusted, and "do not trust
+// this run" would start with the project half left out — the reduced start the gate exists to refuse. A value
+// stored before this is ignored and never reaches the argv. The terminal Pi backend keeps the option; Pi
+// asks its own question there.
+const SAVED_TRUST_ONLY = new Set(['approval']);
+const notOffered = (id) => TUI_ONLY.has(id) || SAVED_TRUST_ONLY.has(id);
 const configFields = [
-  ...pi.configFields.filter(f => !TUI_ONLY.has(f.id)),
+  ...pi.configFields.filter(f => !notOffered(f.id)),
   // Step C of #568. Pi asks nothing before a tool runs; this backend's own extension does, because a
   // conversation drawn by the app looks supervised, and one that only LOOKS supervised is the worse
   // failure. Applied through the runtime extension (`./runtime-extension.js` reads the option), so the
@@ -43,9 +51,9 @@ const configFields = [
       + 'the agent\'s own process, and a Pi started outside Switchboard asks nothing.' },
 ];
 
-function stripTuiOnly(options) {
+function stripNotOffered(options) {
   const out = { ...(options || {}) };
-  for (const id of TUI_ONLY) delete out[id];
+  for (const id of [...TUI_ONLY, ...SAVED_TRUST_ONLY]) delete out[id];
   return out;
 }
 
@@ -55,7 +63,7 @@ function stripTuiOnly(options) {
  * an npm `.cmd` shim, which a pipe-driven child cannot start directly.
  */
 function buildLaunch(ctx = {}) {
-  const base = pi.buildLaunch({ ...ctx, options: stripTuiOnly(ctx.options) });
+  const base = pi.buildLaunch({ ...ctx, options: stripNotOffered(ctx.options) });
   const exec = piExecCommand();
   return {
     ...base,
@@ -91,6 +99,9 @@ module.exports = {
   // …and whose transcripts it drives. `backends.openerFor(row)` matches a row's owner and its recorded
   // transport against these two and nothing else.
   transcriptsOf: 'pi',
+  // Starts only in a project Pi trusts (#655). Over RPC Pi asks nobody whether a project may load its own
+  // settings and extensions, so the spawn path asks the saved answer first and refuses without one.
+  trustBeforeStart: true,
   // The protocol half the core drives. Everything in it speaks Pi on one side and the app's own vocabulary
   // on the other — see `./rpc-protocol.js` for the ops.
   rpc: {
@@ -177,7 +188,8 @@ module.exports = {
   // #632: the same binary takes over the same resources, and the same trust rule decides the project half.
   sharedResources: pi.sharedResources,
   acceptsSharedResources: pi.acceptsSharedResources,
-  trustsProjectResources: pi.trustsProjectResources,
+  // Pi's rule without the per-run override, which this backend does not offer (see SAVED_TRUST_ONLY).
+  trustsProjectResources: (ctx = {}) => pi.trustsProjectResources({ ...ctx, options: stripNotOffered(ctx.options) }),
   declinesSharedResource: pi.declinesSharedResource,
   caveat: pi.caveat,
   capabilities,

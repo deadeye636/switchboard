@@ -643,6 +643,37 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // NO TRUST, NO START (#655, #653 E5/E8). A backend that declares `trustBeforeStart` runs its CLI in a way
+      // that asks the CLI's own trust question of nobody — driven over a pipe, where a terminal would have
+      // shown it — so a checked-out repository's hooks, extensions and settings would run on this machine
+      // unasked. So the app asks instead, BEFORE anything is spawned: the backend's own saved answer, for the
+      // directory the child starts in (a worktree is asked about itself, since that is what the CLI checks).
+      // Anything but a yes refuses — a folder with no answer yet included — and the refusal says which
+      // backend and which folder, so the renderer can put the question to the user and start again.
+      // A backend that declares the gate but no trust answer to ask fails CLOSED: "no trust" is all it can say.
+      if (backend.trustBeforeStart === true) {
+        let trusted = null;
+        const ask = backend.projectTrust && typeof backend.projectTrust.get === 'function' ? backend.projectTrust.get : null;
+        try { trusted = ask ? ask(projectPath) : null; } catch { trusted = null; }
+        if (trusted !== true) {
+          const label = backend.label || backend.id;
+          // Whose answer it is: a backend that drives another's binary keeps its owner's trust (pi-native reads
+          // Pi's, and so does a template on it), so the question names the CLI the answer belongs to —
+          // granting it trusts the project for that CLI in a terminal as well, and a dialog saying "for this
+          // backend alone" would be untrue.
+          const owner = typeof ctx.backends.cliOwnerOf === 'function' ? ctx.backends.cliOwnerOf(backend)
+            : (backend.transcriptsOf ? ctx.backends.get(backend.transcriptsOf) : null);
+          const trustLabel = (owner && owner.label) || label;
+          ctx.log.info(`[spawn] refused: backend=${backend.id} does not trust the project (${trusted === false ? 'untrusted' : 'no answer'})`);
+          return {
+            ok: false,
+            error: `${label} starts only in a project ${trustLabel} trusts, and this one is not trusted yet. `
+              + `Grant it trust for ${trustLabel} to start the session.`,
+            untrusted: { backendId: backend.id, backendLabel: label, trustLabel, projectPath },
+          };
+        }
+      }
+
       // Forking an id the backend never issued produces a dead tab ("No session found"). It happens with
       // every backend that names its own sessions: until it has written its store record we only hold OUR
       // id, which means nothing to it. Refuse with a sentence instead of spawning.

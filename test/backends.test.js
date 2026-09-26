@@ -543,6 +543,24 @@ test('a template stands in for a base that is not in the list', () => {
   assert.deepEqual(backends.oneAskerPerCli(list).map(b => b.id), ['codex', 'tpl-a']);
 });
 
+// #655: a backend that DRIVES another's binary forwards its owner's trust, so both answered the same trust file
+// and the Projects manager drew two chips for one answer. It stands in for its owner like a template for its base.
+test('a driver collapses into its owner, and stands in for it while the owner is off', () => {
+  const driver = { id: 'pi-native', transcriptsOf: 'pi' };
+  assert.deepEqual(backends.oneAskerPerCli([driver, { id: 'pi' }, { id: 'claude' }]).map(b => b.id), ['pi', 'claude'],
+    'the owner answers, whatever order the list arrives in');
+  assert.deepEqual(backends.oneAskerPerCli([{ id: 'claude' }, driver]).map(b => b.id), ['claude', 'pi-native'],
+    'with the owner switched off the driver is the one entry for that CLI');
+});
+
+test('a template on a driver answers for its owner, and is named after it', () => {
+  const list = [{ id: 'pi' }, { id: 'tpl-pn', isProfile: true, baseId: 'pi-native' }];
+  assert.deepEqual(backends.oneAskerPerCli(list).map(b => b.id), ['pi'], 'Pi is listed, so the template adds no second chip');
+  assert.equal(backends.cliOwnerOf({ id: 'tpl-pn', isProfile: true, baseId: 'pi-native' }).id, 'pi');
+  assert.equal(backends.cliOwnerOf({ id: 'pi-native', transcriptsOf: 'pi' }).label, backends.get('pi').label);
+  assert.equal(backends.cliOwnerOf({ id: 'codex' }).id, 'codex', 'everything else answers for itself');
+});
+
 test('oneAskerPerCli survives the shapes a caller can actually hand it', () => {
   assert.deepEqual(backends.oneAskerPerCli([]), []);
   assert.deepEqual(backends.oneAskerPerCli(null), []);

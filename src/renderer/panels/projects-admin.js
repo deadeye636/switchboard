@@ -12,7 +12,7 @@
 
   let data = [];         // rows from get-projects-admin
   let autoAdd = true;    // whether project auto-add is on (allowlist irrelevant then)
-  let trustable = [];    // the backends that HAVE a per-project trust gate (#171): Claude, Codex — not Pi/Hermes
+  let trustable = [];    // the backends that HAVE a per-project trust gate (#171), one per CLI: Claude, Codex, Pi — not Hermes
   let metaBackends = []; // the backends that keep a per-project config/meta store (#211): [{id,label,removeLabel}]
   let filter = '';       // search substring (lowercased)
   // Which rows the table on screen was drawn with an indent, keyed by path (#595). Whether a worktree is
@@ -564,21 +564,10 @@
         const reach = described && described.scope !== 'own' && described.gate ? described : null;
         let target = path;
         if (next) {
-          // Granting trust bypasses that CLI's own security gate — warn first, and name the CLI.
+          // Granting trust bypasses that CLI's own security gate — warn first, and name the CLI. The one confirm
+          // for it (dialogs/dialogs.js), shared with a launch refused for want of trust (#655).
           const shared = reach && reach.scope === 'shared';
-          const ok = await showControlDialog({
-            tone: 'danger',
-            title: `Grant trust to this project — for ${label}?`,
-            message: `Trusting a project lets ${label} run its tools, hooks and commands without asking. Only do this for code you know and control. It applies to ${label} alone.`
-              + (shared ? ` ${label} keeps this answer for the whole repository, so every checkout of it is trusted too.` : ''),
-            details: [
-              { label: 'Project', value: shortName(path) },
-              { label: 'Backend', value: label },
-              ...(shared ? [{ label: 'Trust kept for', value: reach.gate }] : []),
-            ],
-            confirmLabel: 'Grant trust',
-            cancelLabel: 'Cancel',
-          });
+          const ok = await confirmProjectTrustGrant({ label, projectName: shortName(path), sharedGate: shared ? reach.gate : null });
           if (!ok) return;
         } else {
           // Removing trust asks nothing for a project whose answer is its own and nobody else's. It asks when the

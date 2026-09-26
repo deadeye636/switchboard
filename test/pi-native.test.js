@@ -412,3 +412,23 @@ test('the running gate: an MCP tool is asked about, per tool, with the MCP secti
   const off = loadExtension({ gate: false });
   assert.equal(off.handlers.tool_call, undefined, 'the gate switched off asks about nothing');
 });
+
+// #655, #653 E13: pi-native starts only in a project Pi trusts, so only the SAVED answer counts — the per-run
+// "Project trust for this run" override is not offered, a stored value never reaches the argv, and the rule
+// for a source's project resources ignores it too. The terminal Pi backend keeps the option.
+test('pi-native declares the trust gate and offers no per-run trust override', () => {
+  const native = backends.get('pi-native');
+  const pi = backends.get('pi');
+  assert.equal(native.trustBeforeStart, true);
+  assert.ok(!native.configFields.some(f => f.id === 'approval'), 'not offered here');
+  assert.ok(pi.configFields.some(f => f.id === 'approval'), 'still offered by the terminal backend');
+  for (const approval of ['approve', 'no-approve']) {
+    const launch = native.buildLaunch({ cwd: os.tmpdir(), resume: false, sessionId: 's', options: { approval } });
+    assert.ok(!launch.args.includes('--approve') && !launch.args.includes('--no-approve'), approval + ' never reaches the argv');
+  }
+  const untrusted = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-pi-native-trust-'));
+  try {
+    assert.equal(native.trustsProjectResources({ projectPath: untrusted, options: { approval: 'approve' } }), false,
+      'a stored "trust this run" does not stand in for a saved answer');
+  } finally { fs.rmSync(untrusted, { recursive: true, force: true }); }
+});

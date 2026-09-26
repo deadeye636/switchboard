@@ -125,10 +125,28 @@ async function startSessionProcess(session) {
   if (resumeOptions) { delete resumeOptions.worktree; delete resumeOptions.worktreeName; }
   try {
     const result = await window.api.openTerminal(sessionId, projectPath, false, resumeOptions);
+    // A backend that starts only in a trusted project refused it (#655). There is no tab to say so in and
+    // nobody asked for the start, so no dialog: the refusal is kept and said once when the restore is done.
+    if (result && result.untrusted) untrustedRestores.push(result.untrusted);
     return !!(result && result.ok);
   } catch {
     return false; // a session whose process cannot come back is still in the sidebar to click
   }
+}
+
+// Sessions a restore could not start because their backend does not trust the project yet (#655). Said in
+// one line after the restore — not a dialog, since nobody clicked anything — and opening the session from the
+// sidebar then asks the trust question the way any launch does.
+const untrustedRestores = [];
+function reportUntrustedRestores() {
+  if (!untrustedRestores.length) return;
+  const labels = [...new Set(untrustedRestores.map(u => u.trustLabel || u.backendLabel || u.backendId))];
+  const count = untrustedRestores.length;
+  untrustedRestores.length = 0;
+  const line = `${count} session${count === 1 ? ' was' : 's were'} not restored: ${labels.join(', ')} starts only in a trusted project. Open ${count === 1 ? 'it' : 'one'} to grant trust.`;
+  // `showControlToast` (dialogs/control-dialogs.js) is the renderer's one global toast; every `toast` is a
+  // module's own local, so a `typeof toast` check here would be quietly false and say nothing.
+  if (typeof showControlToast === 'function') showControlToast({ message: line, timeoutMs: 12000 });
 }
 
 async function restoreOpenSessionsOnLaunch() {
@@ -214,6 +232,7 @@ async function restoreOpenSessionsOnLaunch() {
   // Statuses were gated for the whole restore — bring the sidebar, panes and grid
   // up to date once now that the full set is open.
   refreshSessionStatusViews();
+  reportUntrustedRestores();
   return uniqueSessions.length > 0 || started > 0;
 }
 

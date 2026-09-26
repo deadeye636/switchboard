@@ -943,8 +943,8 @@ function remapProject(oldPath, newPath) {
 }
 
 /**
- * Every enabled backend that has a per-project trust gate at all (Claude, Codex — not Pi, not Hermes),
- * ONE PER CLI.
+ * Every enabled backend that has a per-project trust gate at all (Claude, Codex, Pi — not Hermes), ONE PER
+ * CLI: a template and a backend that drives another's binary both stand in for the CLI they run.
  *
  * The gate is an entry in that CLI's own config file, keyed by project path, so a template and its base
  * read and write the same one (#605). Listed separately, the Projects manager grew a duplicate trust chip
@@ -1241,7 +1241,10 @@ function getProjectsAdmin() {
 
     // What the renderer needs to draw the controls: which backends can be trusted, and which keep a
     // config/meta store (for the columns and the Remove-dialog "delete config entry" switch).
-    const trustable = trustBackends.map(b => ({ id: b.id, label: b.label || b.id }));
+    // Labelled by the CLI whose trust file the chip writes (#655): a driver or a template standing in for its
+    // CLI is named after that CLI, so the chip and the launch's own trust question agree about whose answer it is.
+    const ownerOf = (b) => (typeof ctx.backends.cliOwnerOf === 'function' ? ctx.backends.cliOwnerOf(b) : null) || b;
+    const trustable = trustBackends.map(b => ({ id: b.id, label: ownerOf(b).label || b.label || b.id }));
     const metaBackendsOut = metaBackends.map(b => ({
       id: b.id, label: b.label || b.id, removeLabel: (b.projectMeta && b.projectMeta.removeLabel) || null,
     }));

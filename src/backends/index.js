@@ -233,6 +233,9 @@ function profileToDescriptor(p) {
     // transport and the protocol half that drives it travel with the launch they belong to.
     ...(base && base.transport ? { transport: base.transport } : {}),
     ...(base && base.rpc ? { rpc: base.rpc } : {}),
+    // …and the trust gate that launch needs (#655): a template runs the same CLI the same way, so it asks
+    // nobody either. A gate a template could step around would not be a gate.
+    ...(base && base.trustBeforeStart === true ? { trustBeforeStart: true } : {}),
     // …and its per-spawn extension, the pair together (the marker, and the approval gate a template's
     // sessions need exactly as much as the base's).
     providesRuntimeExtension: base ? base.providesRuntimeExtension === true : false,
@@ -411,6 +414,28 @@ function rowOwnerOf(id) {
 }
 
 /**
+ * Which CLI's own config a backend answers with — its trust file above all (#655). A driver answers with its
+ * owner's (`transcriptsOf`), a template with its base's, and a template on a driver with the driver's owner:
+ * pi-native and a template on it both read Pi's `trust.json`. Everything else answers with its own. The id,
+ * for `oneAskerPerCli`'s dedupe; `cliOwnerOf` below gives the descriptor, whose label is what a question
+ * about that answer must name.
+ */
+function cliOwnerIdOf(b) {
+  if (!b) return null;
+  if (b.transcriptsOf) return b.transcriptsOf;
+  if (b.isProfile) return rowOwnerOf(b.baseId || b.id);
+  return b.id;
+}
+
+function cliOwnerOf(b) {
+  const id = cliOwnerIdOf(b);
+  if (!id || !b || id === b.id) return b || null;
+  let owner = null;
+  try { owner = get(id); } catch { owner = null; }
+  return owner || b;
+}
+
+/**
  * Which backends' STORES are read — scanned and watched — right now (#658, owner decision E12 on #653).
  *
  * A backend's own switch, and also the switch of any backend that drives its binary: a driver keeps no
@@ -509,19 +534,25 @@ function launchable() {
  * A built-in always wins where it is present. A TEMPLATE stands in for a base that is not in the list —
  * a base can be switched off while a template on it stays on (#162), and then the template is the only
  * entry that can still answer for that CLI. Filtering profiles outright would lose that case silently.
+ *
+ * A backend that DRIVES another's binary (`transcriptsOf`, #568) is the same case one relation along
+ * (#655): pi-native forwards Pi's trust, so Pi and pi-native answered the same trust file twice and the
+ * Projects manager drew two chips for one answer. It stands in for its owner the way a template stands in
+ * for its base — dropped while the owner is listed, the one entry for that CLI while the owner is off.
  */
 function oneAskerPerCli(list) {
   const out = [];
   const answeredFor = new Set();
+  const standsIn = (b) => b.isProfile || !!b.transcriptsOf;
   for (const b of list || []) {
-    if (!b || b.isProfile || answeredFor.has(b.id)) continue;
+    if (!b || standsIn(b) || answeredFor.has(b.id)) continue;
     answeredFor.add(b.id);
     out.push(b);
   }
   // Second pass, so a built-in wins whatever order the caller's list happens to be in.
   for (const b of list || []) {
-    if (!b || !b.isProfile) continue;
-    const owner = b.baseId || b.id;
+    if (!b || !standsIn(b)) continue;
+    const owner = cliOwnerIdOf(b);
     if (answeredFor.has(owner)) continue;
     answeredFor.add(owner);
     out.push(b);
@@ -641,6 +672,6 @@ _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, storesRead, storeIsRead, profileToDescriptor,
+  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, storeIsRead, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };
