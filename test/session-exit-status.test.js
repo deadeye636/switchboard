@@ -53,6 +53,8 @@ function loadSessionIpc(state = {}) {
     responseReadySessions: new Set(),
     sessionBusyState: new Map(),
     finishedAt: new Map(),
+    turnStartedAt: new Map(),
+    lastActivityTime: new Map(),
     subagentActiveSessions: new Set(),
     sessionTimelineStore: { events: new Map(), loaded: new Set() },
     cachedProjects: state.cachedProjects || [],
@@ -237,4 +239,54 @@ test('sidebar and pane placeholder agree the moment the exit lands, mounted or n
     assert.equal(paneSaysRunning(sandbox, 'real-id'), false, `mounted=${mounted}: the pane`);
     assert.notEqual(getStatus(sandbox, 'real-id').key, 'running', `mounted=${mounted}: the sidebar row`);
   }
+});
+
+// #650: the status this window keeps per session moves with the re-key. Left on the retired id, the row
+// under the new one read idle and unflagged, and the old entries could never be cleared.
+test('a re-key moves busy, attention, ready, activity and turn stamps to the new id', () => {
+  const { sandbox } = loadSessionIpc();
+  pendingSession(sandbox, 'launch-id');
+  const when = new Date();
+  sandbox.sessionBusyState.set('launch-id', true);
+  sandbox.attentionSessions.add('launch-id');
+  sandbox.attentionReason.set('launch-id', { reason: 'permission', source: 'hook' });
+  sandbox.responseReadySessions.add('launch-id');
+  sandbox.lastActivityTime.set('launch-id', when);
+  sandbox.finishedAt.set('launch-id', 5);
+  sandbox.turnStartedAt.set('launch-id', 4);
+  assert.equal(sandbox.window.rekeySessionState('launch-id', 'real-id'), true);
+  assert.equal(sandbox.sessionBusyState.get('real-id'), true);
+  assert.ok(sandbox.attentionSessions.has('real-id'));
+  assert.deepEqual(sandbox.attentionReason.get('real-id'), { reason: 'permission', source: 'hook' });
+  assert.ok(sandbox.responseReadySessions.has('real-id'));
+  assert.equal(sandbox.lastActivityTime.get('real-id'), when);
+  assert.equal(sandbox.finishedAt.get('real-id'), 5);
+  assert.equal(sandbox.turnStartedAt.get('real-id'), 4);
+  for (const m of [sandbox.sessionBusyState, sandbox.attentionReason, sandbox.lastActivityTime, sandbox.finishedAt, sandbox.turnStartedAt]) {
+    assert.equal(m.has('launch-id'), false, 'nothing is left under the retired id');
+  }
+  assert.equal(sandbox.attentionSessions.has('launch-id') || sandbox.responseReadySessions.has('launch-id'), false);
+});
+
+test('a re-key onto an id this window already knows: its state wins, the later timestamp wins', () => {
+  const { sandbox } = loadSessionIpc();
+  pendingSession(sandbox, 'launch-id');
+  sandbox.sessionBusyState.set('launch-id', true);
+  sandbox.sessionBusyState.set('real-id', false);
+  sandbox.finishedAt.set('launch-id', 900);
+  sandbox.finishedAt.set('real-id', 100);
+  sandbox.subagentActiveSessions.add('launch-id');
+  sandbox.window.rekeySessionState('launch-id', 'real-id');
+  assert.equal(sandbox.sessionBusyState.get('real-id'), false, 'an edge under the new id is the newer report');
+  assert.equal(sandbox.finishedAt.get('real-id'), 900, 'a stale stamp from an earlier life of that id does not win');
+  assert.ok(sandbox.subagentActiveSessions.has('real-id'));
+  assert.equal(sandbox.sessionBusyState.has('launch-id') || sandbox.finishedAt.has('launch-id'), false);
+});
+
+test('the status moves even where this window holds no record of the session', () => {
+  const { sandbox } = loadSessionIpc();
+  sandbox.sessionBusyState.set('elsewhere', true);
+  assert.equal(sandbox.window.rekeySessionState('elsewhere', 'real-id'), false);
+  assert.equal(sandbox.sessionBusyState.get('real-id'), true);
+  assert.equal(sandbox.sessionBusyState.has('elsewhere'), false);
 });

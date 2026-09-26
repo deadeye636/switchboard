@@ -107,6 +107,30 @@ window.api.onSessionDetected((tempId, realId) => {
   pollActiveSessions();
 });
 
+// The status this window keeps per session, moved with a re-key (#650): busy, attention and its reason,
+// ready, subagent activity, the last output and the turn stamps. Left on the retired id, the row under the
+// new one read idle and unflagged until the next edge, and the old entries could never be cleared because
+// nothing names that id again. Status maps are filled by events whether or not this window holds the
+// session, so this runs even where the rest of the re-key finds nothing to move.
+//
+// Where the new id already carries a value — a session this window saw before, resumed in place — the two
+// are merged by kind: a timestamp keeps the later one, and a state keeps what the new id already says,
+// since an edge under the new id is the newer report.
+function rekeyStatusState(oldId, newId) {
+  const stamps = [lastActivityTime, finishedAt];
+  if (typeof turnStartedAt !== 'undefined') stamps.push(turnStartedAt);
+  const later = (a, b) => (+a >= +b ? a : b);
+  for (const map of [sessionBusyState, attentionReason, ...stamps]) {
+    if (!map.has(oldId)) continue;
+    if (!map.has(newId)) map.set(newId, map.get(oldId));
+    else if (stamps.includes(map)) map.set(newId, later(map.get(newId), map.get(oldId)));
+    map.delete(oldId);
+  }
+  for (const set of [attentionSessions, responseReadySessions, subagentActiveSessions]) {
+    if (set.delete(oldId)) set.add(newId);
+  }
+}
+
 // Move every piece of renderer state a session is keyed by onto its new id.
 //
 // Split out of the `session-forked` handler because that event reaches the MAIN window only — by
@@ -132,6 +156,7 @@ window.api.onSessionDetected((tempId, realId) => {
 // holds nothing at all under the old id — the ordinary case for whichever window it is not in.
 window.rekeySessionState = function (oldId, newId) {
   if (!oldId || !newId || oldId === newId) return false;
+  rekeyStatusState(oldId, newId);
   const entry = openSessions.get(oldId);
   const pendingEntry = pendingSessions.get(oldId);
   // The one record, wherever this window is holding it. It is the same object in all three maps by
