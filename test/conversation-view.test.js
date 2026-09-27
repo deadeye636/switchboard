@@ -216,12 +216,77 @@ test('an approval is drawn with the call it is about, answers with the value it 
   assert.match(card.textContent, /the backend's own words about who asks/, 'what the question is worth is the backend\'s sentence (#660)');
   assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Waiting for your answer/);
   assert.match(h.entry.element.querySelector('.conversation-activity').textContent, /Waiting for your approval/);
+  assert.equal(card.querySelectorAll('button')[1].textContent, 'Allow for this session', 'the plain words when the backend says nothing more');
   [...card.querySelectorAll('button')].find(b => b.textContent === 'Allow for this session').click();
   await h.settle();
   assert.equal(JSON.stringify(answers), JSON.stringify([['q1', { value: 'A2' }]]));   // built in the page's realm
   conv.apply({ op: 'answered', id: 'q1', seq: 5 });
   assert.equal(h.entry.element.querySelector('.conversation-approval'), null);
   assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Working/);
+});
+
+// #661: the agent's own questions — one card for all of them, answered once, several choices joined.
+test('a questions card answers every question at once, with several choices and a free answer', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push([req, a]); return Promise.resolve({ ok: true }); };
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'u1', kind: 'questions', questions: [
+    { question: 'Which toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese', description: 'Classic' }, { label: 'Ham', description: '' }] },
+    { question: 'Which size?', header: 'Size', multiSelect: false, options: [{ label: 'Small', description: '' }, { label: 'Large', description: '' }] },
+  ] } });
+  const card = h.entry.element.querySelector('.conversation-questions');
+  assert.ok(card);
+  assert.equal(card.querySelectorAll('.conversation-question').length, 2);
+  assert.equal(card.querySelectorAll('.conversation-question-desc').length, 1, 'a description is drawn once, where there is one');
+  const [q1, q2] = card.querySelectorAll('.conversation-question');
+  assert.equal(q1.querySelectorAll('input[type=checkbox]').length, 3, 'two options and Other, several allowed');
+  assert.equal(q2.querySelectorAll('input[type=radio]').length, 3);
+  const submit = [...card.querySelectorAll('button')].find(b => b.textContent === 'Answer');
+  assert.equal(submit.disabled, true, 'nothing answered yet');
+  const tick = (box) => { box.checked = true; box.dispatchEvent(new h.w.Event('change', { bubbles: true })); };
+  const [cheese, ham] = q1.querySelectorAll('input[type=checkbox]');
+  tick(cheese);
+  tick(ham);
+  assert.equal(submit.disabled, true, 'the second question is still open');
+  const other = q2.querySelector('.conversation-question-other');
+  other.value = 'Medium';
+  other.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.equal(submit.disabled, false);
+  submit.click();
+  await h.settle();
+  assert.equal(JSON.stringify(answers), JSON.stringify([['u1', { answers: { 'Which toppings?': 'Cheese, Ham', 'Which size?': 'Medium' } }]]));
+  h.entry.conversation.apply({ op: 'answered', id: 'u1', seq: 2 });
+  assert.equal(h.entry.element.querySelector('.conversation-questions'), null);
+});
+
+test('an approval\'s session button says what it allows, and a refused answer re-checks the questions card', async () => {
+  const h = setup();
+  h.w.api.agent.answer = () => Promise.resolve({ ok: false, error: 'gone' });
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 's1', kind: 'approval', tool: 'Write', answers: { once: 'A', session: 'S', refuse: 'R' }, sessionLabel: 'Allow all edits for this session' } });
+  assert.ok([...h.entry.element.querySelectorAll('.conversation-approval button')].some(b => b.textContent === 'Allow all edits for this session'));
+  h.entry.conversation.apply({ op: 'ask', seq: 2, request: { id: 'u2', kind: 'questions', questions: [
+    { question: 'A?', header: '', multiSelect: false, options: [{ label: 'x', description: '' }] },
+    { question: 'B?', header: '', multiSelect: false, options: [{ label: 'y', description: '' }] },
+  ] } });
+  const card = h.entry.element.querySelector('.conversation-questions');
+  const submit = [...card.querySelectorAll('button')].find(b => b.textContent === 'Answer');
+  [...card.querySelectorAll('button')].find(b => b.textContent === 'Dismiss').click();
+  await h.settle();
+  assert.equal(submit.disabled, true, 'after a refused send, Answer still waits for every question');
+});
+
+test('a plan card draws the plan and answers approve or keep planning', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push([req, a]); return Promise.resolve({ ok: true }); };
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'p1', kind: 'plan', plan: '# Plan\n\n1. Create hello.txt', answers: { approve: 'P-OK', keep: 'P-KEEP' } } });
+  const card = h.entry.element.querySelector('.conversation-plan');
+  assert.ok(card);
+  assert.match(card.querySelector('.conversation-plan-body').textContent, /Create hello\.txt/);
+  assert.deepEqual([...card.querySelectorAll('button')].map(b => b.textContent), ['Approve', 'Keep planning']);
+  [...card.querySelectorAll('button')].find(b => b.textContent === 'Keep planning').click();
+  await h.settle();
+  assert.equal(JSON.stringify(answers), JSON.stringify([['p1', { value: 'P-KEEP' }]]));
 });
 
 // #642: a login asks for an API key in a masked one-line field, answered with Enter or OK, and locked while the

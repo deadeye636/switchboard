@@ -492,7 +492,10 @@ function createConversationView(getSession, container) {
         }
       });
     };
-    for (const [key, label, primary] of [['once', 'Allow once', true], ['session', 'Allow for this session'], ['refuse', 'Refuse']]) {
+    // "For this session" says what it allows when the backend can say it (a mode switch reaches every later
+    // call, not only this one); the plain words otherwise.
+    const sessionText = typeof request.sessionLabel === 'string' && request.sessionLabel ? request.sessionLabel : 'Allow for this session';
+    for (const [key, label, primary] of [['once', 'Allow once', true], ['session', sessionText], ['refuse', 'Refuse']]) {
       if (!answers[key]) continue;
       const b = document.createElement('button');
       b.type = 'button';
@@ -508,9 +511,147 @@ function createConversationView(getSession, container) {
     renderActivity();
   }
 
+  // Sends one answer for a card and locks it until the answer is taken; a refused send unlocks it again, and
+  // `unlocked` lets the card put back any control that has a condition of its own.
+  function sendAnswer(card, request, payload, unlocked) {
+    const controls = () => card.querySelectorAll('button, textarea, input');
+    for (const c of controls()) c.disabled = true;
+    window.api.agent.answer(view.session.sessionId, request.id, payload).then((res) => {
+      if (!res || !res.ok) {
+        for (const c of controls()) c.disabled = false;
+        if (typeof unlocked === 'function') unlocked();
+        notice('error', (res && res.error) || 'The answer did not reach the session.');
+      }
+    });
+  }
+
+  // The agent asking the user one or more questions at once (#661). Each question offers its options — one
+  // of them, or several where it says so — and a free answer of the user's own; one Answer sends them all,
+  // because the backend takes them as a single reply. What an answer becomes on the wire is the backend's.
+  function renderQuestions(request) {
+    const card = document.createElement('div');
+    card.className = 'jsonl-entry conversation-ask conversation-questions';
+    const title = document.createElement('div');
+    title.className = 'conversation-ask-title';
+    title.textContent = request.questions.length > 1 ? 'The agent is asking you some questions' : 'The agent is asking you a question';
+    card.appendChild(title);
+    const readers = [];
+    const submit = document.createElement('button');
+    // Answer waits until every question has one — the CLI takes them as a single reply.
+    const refresh = () => { submit.disabled = !readers.every(r => r.value()); };
+    request.questions.forEach((q, qi) => {
+      const block = document.createElement('div');
+      block.className = 'conversation-question';
+      const head = document.createElement('div');
+      head.className = 'conversation-question-text';
+      if (q.header) {
+        const chip = document.createElement('span');
+        chip.className = 'conversation-question-header';
+        chip.textContent = q.header;
+        head.appendChild(chip);
+      }
+      head.appendChild(document.createTextNode(q.question));
+      block.appendChild(head);
+      const type = q.multiSelect ? 'checkbox' : 'radio';
+      const name = `q-${request.id}-${qi}`;
+      const choices = [];
+      const addChoice = (labelText, description) => {
+        const row = document.createElement('label');
+        row.className = 'conversation-question-option';
+        const box = document.createElement('input');
+        box.type = type;
+        box.name = name;
+        box.addEventListener('change', refresh);
+        row.appendChild(box);
+        const text = document.createElement('span');
+        text.className = 'conversation-question-label';
+        text.textContent = labelText;
+        row.appendChild(text);
+        if (description) {
+          const desc = document.createElement('span');
+          desc.className = 'conversation-question-desc';
+          desc.textContent = description;
+          row.appendChild(desc);
+        }
+        block.appendChild(row);
+        return box;
+      };
+      for (const opt of q.options) choices.push({ box: addChoice(opt.label, opt.description), label: opt.label });
+      const otherBox = addChoice('Other');
+      const other = document.createElement('input');
+      other.type = 'text';
+      other.className = 'conversation-ask-input conversation-question-other';
+      other.placeholder = 'Your own answer';
+      other.addEventListener('input', () => { if (other.value.trim()) otherBox.checked = true; refresh(); });
+      block.appendChild(other);
+      card.appendChild(block);
+      // What this question's answer is right now, or '' — several choices joined the way the CLI reads them.
+      const value = () => {
+        const picked = choices.filter(c => c.box.checked).map(c => c.label);
+        if (otherBox.checked && other.value.trim()) picked.push(other.value.trim());
+        return picked.join(', ');
+      };
+      readers.push({ question: q.question, value });
+    });
+    const actions = document.createElement('div');
+    actions.className = 'conversation-ask-actions';
+    submit.type = 'button';
+    submit.className = 'new-session-secondary-btn conversation-ask-primary';
+    submit.textContent = 'Answer';
+    submit.disabled = true;
+    submit.addEventListener('click', () => {
+      const answers = {};
+      for (const r of readers) answers[r.question] = r.value();
+      sendAnswer(card, request, { answers }, refresh);
+    });
+    actions.appendChild(submit);
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.className = 'new-session-secondary-btn';
+    dismiss.textContent = 'Dismiss';
+    dismiss.addEventListener('click', () => sendAnswer(card, request, { cancelled: true }, refresh));
+    actions.appendChild(dismiss);
+    card.appendChild(actions);
+    view.asks.set(request.id, card);
+    log.insertBefore(card, partialEl);
+  }
+
+  // The agent's plan, put to the user before it leaves plan mode (#661). Drawn as the markdown it is, through
+  // the history viewer's own sanitized renderer; approving lets it start, keeping it planning ends the turn.
+  function renderPlan(request) {
+    const card = document.createElement('div');
+    card.className = 'jsonl-entry conversation-ask conversation-plan';
+    const title = document.createElement('div');
+    title.className = 'conversation-ask-title';
+    title.textContent = 'The agent has a plan';
+    card.appendChild(title);
+    const body = document.createElement('div');
+    body.className = 'conversation-plan-body';
+    if (typeof renderJsonlText === 'function') body.innerHTML = renderJsonlText(String(request.plan || ''));
+    else body.textContent = String(request.plan || '');
+    card.appendChild(body);
+    const actions = document.createElement('div');
+    actions.className = 'conversation-ask-actions';
+    const answers = request.answers || {};
+    for (const [key, label, primary] of [['approve', 'Approve', true], ['keep', 'Keep planning']]) {
+      if (!answers[key]) continue;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'new-session-secondary-btn' + (primary ? ' conversation-ask-primary' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => sendAnswer(card, request, { value: answers[key] }));
+      actions.appendChild(b);
+    }
+    card.appendChild(actions);
+    view.asks.set(request.id, card);
+    log.insertBefore(card, partialEl);
+  }
+
   function renderAsk(request) {
     if (!request || view.asks.has(request.id)) return;
     if (request.kind === 'approval') { renderApproval(request); return; }
+    if (request.kind === 'questions' && Array.isArray(request.questions) && request.questions.length) { renderQuestions(request); return; }
+    if (request.kind === 'plan') { renderPlan(request); return; }
     const card = document.createElement('div');
     card.className = 'jsonl-entry conversation-ask';
     const title = document.createElement('div');

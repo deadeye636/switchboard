@@ -38,15 +38,38 @@
 //      subtype is `error_during_execution`, `is_error` set and a diagnostic line as its `errors` — the same
 //      shape a turn that really failed has. So the decoder hears what the core wrote (`noteSent`) and reads
 //      that result, when it follows a Stop, as the stop it is. The session takes the next turn as usual.
+//   9. Three kinds of approval (#661), all `can_use_tool`:
+//      - An ordinary tool may carry `permission_suggestions` — only when no rule of the user's matched
+//        (measured: a Bash call under an `ask` rule carried none, a Write carried `setMode acceptEdits` for
+//        the session). Handed back as `updatedPermissions`, the CLI applies them.
+//      - `AskUserQuestion` is a question, not a permission. Its answer is an allow whose `updatedInput`
+//        carries `answers: { <question>: <text> }`; a multi-select answer is the labels joined with ", ",
+//        and any text is taken as a free answer (both measured).
+//      - `ExitPlanMode` carries the plan as markdown and NO permission suggestions. Approving is a plain
+//        allow (the session goes back to its mode before planning); "keep planning" is a deny with
+//        `interrupt: true`, which ends the turn with the same `error_during_execution` result a Stop gets —
+//        so `noteSent` reads that answer the way it reads a Stop.
 'use strict';
 
-// The two answers an approval card offers in this step. "Allow for this session" needs the CLI's own
-// permission suggestions, which is #661's part; until then a card offers once or refuse.
+// The answers an approval card offers. "For this session" only where the CLI suggested something for the
+// session (point 9); a suggestion that would write the user's settings files is not offered (#661 E17).
 const ALLOW = 'allow';
+const ALLOW_SESSION = 'allow-session';
 const REFUSE = 'deny';
+
+// The two answers of a plan (point 9). No "approve and accept edits": measured working, left out by the
+// owner's decision (#661 E16).
+const APPROVE_PLAN = 'approve';
+const KEEP_PLANNING = 'keep';
 
 // What Claude is told when the user refuses a tool. The model reads it, so it says what happened.
 const REFUSED_MESSAGE = 'The user refused this tool call in Switchboard.';
+const KEEP_PLANNING_MESSAGE = 'The user wants to keep planning. Stay in plan mode and wait for their next message.';
+const UNANSWERED_MESSAGE = 'The user dismissed the question without answering it.';
+
+// Claude's own tools that ask the user something rather than asking to do something (point 9).
+const QUESTION_TOOL = 'AskUserQuestion';
+const PLAN_TOOL = 'ExitPlanMode';
 
 // A stream event, a message or a result that belongs to a subagent's own conversation carries the tool call
 // that started it. Those are the subagent's, drawn under that call by Claude's history reader, not turns of
@@ -64,6 +87,41 @@ function textOf(content) {
 function argsFromText(text) {
   if (!text) return {};
   try { return JSON.parse(text); } catch { return { _partial: text }; }
+}
+
+// The questions of an `AskUserQuestion` call as the card draws them, or [] when the input is not that shape.
+function questionsOf(input) {
+  const list = input && Array.isArray(input.questions) ? input.questions : [];
+  const out = [];
+  for (const q of list) {
+    if (!q || typeof q.question !== 'string' || !q.question) continue;
+    const options = (Array.isArray(q.options) ? q.options : [])
+      .filter(o => o && typeof o.label === 'string' && o.label)
+      .map(o => ({ label: o.label, description: typeof o.description === 'string' ? o.description : '' }));
+    out.push({ question: q.question, header: typeof q.header === 'string' ? q.header : '', options, multiSelect: q.multiSelect === true });
+  }
+  return out;
+}
+
+// The suggestions an approval may hand back for "this session": only those whose destination IS the session.
+// One naming a settings file would outlive the session and write a file of the user's (#661 E17).
+function sessionPermissions(suggestions) {
+  return (Array.isArray(suggestions) ? suggestions : []).filter(s => s && typeof s === 'object' && s.destination === 'session');
+}
+
+// What "for this session" actually allows, in the button's own words. A mode switch reaches every later call,
+// not just this one — `acceptEdits` lets every edit through for the rest of the session — and a card that only
+// said "allow for this session" would hide that. Claude's own terminal words the same suggestion this way.
+const MODE_LABELS = {
+  acceptEdits: 'Allow all edits for this session',
+  bypassPermissions: 'Allow everything for this session',
+  plan: 'Switch to plan mode for this session',
+};
+function sessionLabel(permissions) {
+  const mode = permissions.find(p => p.type === 'setMode');
+  if (mode && MODE_LABELS[mode.mode]) return MODE_LABELS[mode.mode];
+  if (permissions.length && permissions.every(p => p.type === 'addRules')) return 'Always allow this for this session';
+  return 'Allow for this session';
 }
 
 // One stream line as the entry the viewer draws: Claude's own shape, and the uuid the transcript has for it.
@@ -85,10 +143,11 @@ function createDecoder() {
   // finished has already arrived as an `assistant` line and been taken out (point 4 above).
   let partial = null;
   let sessionId = null;
-  // A Stop went out and the turn it stopped has not ended yet (point 8 above). Cleared by the result that
-  // ends that turn, and by a turn starting — a Stop sent while nothing ran ends nothing, and must not turn
-  // the next turn's real failure into "Stopped.".
-  let stopping = false;
+  // A Stop — or an answer that interrupts, "keep planning" — went out and the turn it ended has not ended
+  // yet (points 8 and 9 above). Holds the sentence that result is drawn as. Cleared by the result that ends
+  // that turn, and by a turn starting — a Stop sent while nothing ran ends nothing, and must not turn the
+  // next turn's real failure into "Stopped.".
+  let stopping = null;
 
   const partialEntry = () => {
     if (!partial) return null;
@@ -177,10 +236,10 @@ function createDecoder() {
   function onResult(msg) {
     const ops = [];
     if (partial) { partial = null; ops.push({ op: 'partial', entry: null }); }
-    const stopped = stopping && msg.subtype === 'error_during_execution';
-    stopping = false;
+    const stopped = stopping && msg.subtype === 'error_during_execution' ? stopping : null;
+    stopping = null;
     if (stopped) {
-      ops.push({ op: 'notice', level: 'info', text: 'Stopped.' });
+      ops.push({ op: 'notice', level: 'info', text: stopped });
     } else if (msg.is_error || (msg.subtype && msg.subtype !== 'success')) {
       // `errors` is the CLI's own sentences about what went wrong; `result` is the reply text, which for a
       // failed turn is usually the same sentence. Neither is a thrown message naming a path.
@@ -195,7 +254,7 @@ function createDecoder() {
   function onSystem(msg) {
     switch (msg.subtype) {
       // Every turn opens with it — the busy edge for a turn nothing of ours started (point 2 above).
-      case 'init': stopping = false; return [{ op: 'busy', busy: true }];
+      case 'init': stopping = null; return [{ op: 'busy', busy: true }];
       case 'status':
         return msg.status === 'compacting' ? [{ op: 'notice', level: 'info', text: 'Compacting the conversation…' }] : [];
       case 'compact_boundary':
@@ -212,25 +271,40 @@ function createDecoder() {
   function onControlRequest(msg) {
     const r = msg.request || {};
     if (r.subtype !== 'can_use_tool' || msg.request_id == null) return [];
+    const input = r.input && typeof r.input === 'object' ? r.input : {};
+    const base = {
+      id: String(msg.request_id),
+      tool: String(r.tool_name || ''),
+      toolCallId: r.tool_use_id ? String(r.tool_use_id) : '',
+      method: 'select',
+      title: '',
+      requestedBy: '',
+      options: [],
+      // Kept for the answer: an allow hands the tool's input back as `updatedInput` (point 7 above).
+      input,
+    };
+    if (r.tool_name === QUESTION_TOOL) {
+      const questions = questionsOf(input);
+      // A question the card could not draw is still an approval: better "allow AskUserQuestion?" than nothing.
+      if (questions.length) return [{ op: 'ask', request: { ...base, kind: 'questions', questions } }];
+    }
+    if (r.tool_name === PLAN_TOOL && typeof input.plan === 'string') {
+      return [{ op: 'ask', request: { ...base, kind: 'plan', plan: input.plan, answers: { approve: APPROVE_PLAN, keep: KEEP_PLANNING } } }];
+    }
+    const permissions = sessionPermissions(r.permission_suggestions);
     return [{
       op: 'ask',
       request: {
-        id: String(msg.request_id),
+        ...base,
         kind: 'approval',
-        tool: String(r.tool_name || ''),
-        toolCallId: r.tool_use_id ? String(r.tool_use_id) : '',
-        method: 'select',
-        title: '',
         // Claude's own words about the call, where it gave some (a Bash call's description).
         message: typeof r.description === 'string' ? r.description : '',
-        requestedBy: '',
-        options: [],
-        answers: { once: ALLOW, refuse: REFUSE },
+        answers: permissions.length ? { once: ALLOW, session: ALLOW_SESSION, refuse: REFUSE } : { once: ALLOW, refuse: REFUSE },
         // What this question is worth, for the card: Claude asks it under its own permission rules, the same
         // question its terminal would put, and a tool its rules allow never reaches this card.
         note: 'Claude Code asks this under its own permission rules, as it would in a terminal.',
-        // Kept for the answer: an allow hands the tool's input back as `updatedInput` (point 7 above).
-        input: r.input && typeof r.input === 'object' ? r.input : {},
+        permissions,
+        ...(permissions.length ? { sessionLabel: sessionLabel(permissions) } : {}),
       },
     }];
   }
@@ -257,9 +331,13 @@ function createDecoder() {
     }
   }
 
-  // A line the core wrote. Only a Stop matters here (point 8 above).
+  // A line the core wrote. Only what ends the running turn matters here: a Stop (point 8 above), and an
+  // answer that interrupts, which is "keep planning" (point 9).
   function noteSent(line) {
-    if (line && line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = true;
+    if (!line) return;
+    if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = 'Stopped.';
+    const answer = line.type === 'control_response' && line.response && line.response.response;
+    if (answer && answer.behavior === 'deny' && answer.interrupt === true) stopping = 'Kept planning. Say what to change.';
   }
 
   return { decode, noteSent, currentPartial: partialEntry };
@@ -311,18 +389,36 @@ function commandsFromResponse(response) {
 
 // The answer to an approval (`ask`). `answer` is the app's: `{ value }` with one of the card's answers, or
 // `{ cancelled: true }` for a card dismissed without one, which refuses — a tool nobody allowed does not run.
+//
+// Per kind (point 9): a `questions` ask answers `{ answers: { <question>: <text> } }`; a `plan` ask answers
+// `{ value }` with approve or keep; an `approval` answers `{ value }` with one of its card's answers.
 function answerCommand(requestId, answer = {}, ask = null) {
-  const allowed = !answer.cancelled && answer.value === ALLOW;
-  return {
-    type: 'control_response',
-    response: {
-      subtype: 'success',
-      request_id: String(requestId),
-      response: allowed
-        ? { behavior: 'allow', updatedInput: (ask && ask.input && typeof ask.input === 'object') ? ask.input : {} }
-        : { behavior: 'deny', message: REFUSED_MESSAGE },
-    },
-  };
+  const input = (ask && ask.input && typeof ask.input === 'object') ? ask.input : {};
+  const reply = (response) => ({ type: 'control_response', response: { subtype: 'success', request_id: String(requestId), response } });
+  const kind = ask && ask.kind;
+  if (kind === 'questions') {
+    const answers = {};
+    const given = !answer.cancelled && answer.answers && typeof answer.answers === 'object' ? answer.answers : {};
+    for (const q of Array.isArray(ask.questions) ? ask.questions : []) {
+      const text = given[q.question];
+      if (typeof text === 'string' && text.trim()) answers[q.question] = text.trim();
+    }
+    return Object.keys(answers).length
+      ? reply({ behavior: 'allow', updatedInput: { ...input, answers } })
+      : reply({ behavior: 'deny', message: UNANSWERED_MESSAGE });
+  }
+  if (kind === 'plan') {
+    // Anything but an approval keeps planning — a plan nobody approved is not carried out.
+    return !answer.cancelled && answer.value === APPROVE_PLAN
+      ? reply({ behavior: 'allow', updatedInput: input })
+      : reply({ behavior: 'deny', message: KEEP_PLANNING_MESSAGE, interrupt: true });
+  }
+  if (!answer.cancelled && answer.value === ALLOW_SESSION && ask && Array.isArray(ask.permissions) && ask.permissions.length) {
+    return reply({ behavior: 'allow', updatedInput: input, updatedPermissions: ask.permissions });
+  }
+  return !answer.cancelled && answer.value === ALLOW
+    ? reply({ behavior: 'allow', updatedInput: input })
+    : reply({ behavior: 'deny', message: REFUSED_MESSAGE });
 }
 
 // Which line answers a request of the core's: a `control_response` under the `request_id` it was sent with.
@@ -365,5 +461,8 @@ module.exports = {
   conversationEntries,
   entryKey,
   ALLOW,
+  ALLOW_SESSION,
   REFUSE,
+  APPROVE_PLAN,
+  KEEP_PLANNING,
 };

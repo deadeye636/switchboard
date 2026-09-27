@@ -3107,6 +3107,24 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 .conversation-approval { border-color: rgba(224, 160, 64, 0.55); background: rgba(224, 160, 64, 0.07); }
 .conversation-approval-call { margin-top: 8px; }
 .conversation-approval-note { font-size: 12px; color: #8a8aa0; }
+/* The agent's own questions (#661): one block per question, its options as a list, a free answer below. */
+.conversation-question { margin-top: 10px; }
+.conversation-question-text { color: #d0d0e0; margin-bottom: 4px; }
+.conversation-question-header {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(128, 136, 255, 0.18);
+  color: #c0c4ff;
+  font-size: 11px;
+}
+.conversation-question-option { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; cursor: pointer; color: #d0d0e0; }
+.conversation-question-option input { accent-color: #8088ff; margin: 0; }
+.conversation-question-desc { color: #8a8aa0; font-size: 12px; }
+.conversation-question-other { margin-top: 4px; }
+/* A plan the agent wants approved before it starts (#661): the markdown it wrote, kept to a readable height. */
+.conversation-plan-body { margin-top: 6px; max-height: 50vh; overflow: auto; color: #d0d0e0; }
 .conversation-ask-input {
   width: 100%;
   box-sizing: border-box;

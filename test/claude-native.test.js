@@ -130,7 +130,7 @@ test('an approval arrives as an ask, a withdrawn one closes, and the answer echo
   assert.equal(ask.request.message, 'List');
   assert.match(ask.request.note, /Claude Code asks this under its own permission rules/,
     'the card says whose question it is — not the pi-native gate\'s "convenience, not a boundary"');
-  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'refuse'], '"for this session" is #661\'s');
+  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'refuse'], 'no suggestion from the CLI, no "for this session"');
   assert.deepEqual(decodeAll([{ type: 'control_cancel_request', request_id: 'r1' }]), [{ op: 'answered', id: 'r1' }]);
   assert.deepEqual(decodeAll([{ type: 'control_request', request_id: 'r2', request: { subtype: 'hook_callback' } }]), []);
 
@@ -141,6 +141,66 @@ test('an approval arrives as an ask, a withdrawn one closes, and the answer echo
     assert.equal(r.behavior, 'deny', JSON.stringify(answer));
     assert.ok(r.message);
   }
+});
+
+// #661, measured on 2.1.283: a Write with no rule matched carried `setMode acceptEdits` for the session.
+test('"allow for this session" is offered only for what the CLI suggested for the session, and hands it back', () => {
+  const suggestions = [
+    { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+    { type: 'addRules', rules: [{ toolName: 'Write' }], behavior: 'allow', destination: 'localSettings' },
+  ];
+  const [ask] = decodeAll([{ type: 'control_request', request_id: 'w1', request: { subtype: 'can_use_tool', tool_name: 'Write', tool_use_id: 't2', input: { file_path: 'b.txt', content: 'hi' }, permission_suggestions: suggestions } }]);
+  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'session', 'refuse']);
+  assert.equal(ask.request.sessionLabel, 'Allow all edits for this session', 'the button says a mode switch reaches every later edit');
+  const r = protocol.answerCommand('w1', { value: ask.request.answers.session }, ask.request).response.response;
+  assert.equal(r.behavior, 'allow');
+  assert.deepEqual(r.updatedInput, { file_path: 'b.txt', content: 'hi' });
+  assert.deepEqual(r.updatedPermissions, [suggestions[0]], 'a suggestion that writes a settings file is not taken (#661 E17)');
+
+  const [onlyFile] = decodeAll([{ type: 'control_request', request_id: 'w2', request: { subtype: 'can_use_tool', tool_name: 'Write', input: {}, permission_suggestions: [suggestions[1]] } }]);
+  assert.deepEqual(Object.keys(onlyFile.request.answers), ['once', 'refuse'], 'nothing for the session, no session button');
+  assert.equal(protocol.answerCommand('w2', { value: protocol.ALLOW_SESSION }, onlyFile.request).response.response.updatedPermissions, undefined);
+});
+
+test('AskUserQuestion is a question card, and its answers go back in updatedInput', () => {
+  const input = { questions: [
+    { question: 'Which toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese', description: 'Classic' }, { label: 'Ham' }] },
+    { question: 'Which size?', header: 'Size', multiSelect: false, options: [{ label: 'Small' }, { label: 'Large' }] },
+  ] };
+  const [ask] = decodeAll([{ type: 'control_request', request_id: 'a1', request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', tool_use_id: 't3', input, requires_user_interaction: true } }]);
+  assert.equal(ask.request.kind, 'questions');
+  assert.deepEqual(ask.request.questions.map(q => [q.question, q.header, q.multiSelect, q.options.map(o => o.label)]),
+    [['Which toppings?', 'Toppings', true, ['Cheese', 'Ham']], ['Which size?', 'Size', false, ['Small', 'Large']]]);
+  const r = protocol.answerCommand('a1', { answers: { 'Which toppings?': 'Cheese, Ham', 'Which size?': ' Medium ', 'Not asked': 'x' } }, ask.request).response.response;
+  assert.equal(r.behavior, 'allow');
+  assert.deepEqual(r.updatedInput, { ...input, answers: { 'Which toppings?': 'Cheese, Ham', 'Which size?': 'Medium' } },
+    'the input unchanged, the answers beside it — only for questions that were asked');
+  for (const answer of [{ cancelled: true }, { answers: {} }, {}]) {
+    assert.equal(protocol.answerCommand('a1', answer, ask.request).response.response.behavior, 'deny', JSON.stringify(answer));
+  }
+  const [odd] = decodeAll([{ type: 'control_request', request_id: 'a2', request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input: { questions: 'nope' } } }]);
+  assert.equal(odd.request.kind, 'approval', 'a question the card cannot draw is still asked, as an approval');
+});
+
+test('ExitPlanMode is a plan card: approve lets it start, keep planning ends the turn as kept, not failed', () => {
+  const input = { plan: '# Plan\n\n1. Do it', planFilePath: 'plans/x.md' };
+  const decoder = protocol.createDecoder();
+  const [ask] = decoder.decode({ type: 'control_request', request_id: 'p1', request: { subtype: 'can_use_tool', tool_name: 'ExitPlanMode', tool_use_id: 't4', input } });
+  assert.equal(ask.request.kind, 'plan');
+  assert.equal(ask.request.plan, input.plan);
+  assert.deepEqual(Object.keys(ask.request.answers), ['approve', 'keep'], 'no "approve and accept edits" (#661 E16)');
+  assert.deepEqual(protocol.answerCommand('p1', { value: ask.request.answers.approve }, ask.request).response.response,
+    { behavior: 'allow', updatedInput: input });
+  for (const answer of [{ value: ask.request.answers.keep }, { cancelled: true }]) {
+    const r = protocol.answerCommand('p1', answer, ask.request).response.response;
+    assert.equal(r.behavior, 'deny');
+    assert.equal(r.interrupt, true, 'keep planning ends the turn');
+  }
+  // Measured: that interrupt ends the turn with the same result a Stop gets.
+  decoder.noteSent(protocol.answerCommand('p1', { value: ask.request.answers.keep }, ask.request));
+  const ops = decoder.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] });
+  assert.equal(ops[0].level, 'info');
+  assert.match(ops[0].text, /Kept planning/);
 });
 
 test('the CLI\'s bookkeeping lines are not drawn', () => {
