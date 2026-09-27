@@ -214,6 +214,50 @@ function commandOnlyText(text) {
 }
 
 /**
+ * The command a user message consists of AS TYPED — `/model opus` — or '' when it carries anything else
+ * (#680). Unlike `commandOnlyText`, which answers what a session may be NAMED after and therefore refuses a
+ * command with arguments, this answers what the user wrote, arguments included, for a view that draws it.
+ */
+function typedCommand(text) {
+  const s = String(text || '');
+  const named = COMMAND_NAME.exec(s);
+  if (!named) return '';
+  if (s.replace(COMMAND_TAGS, ' ').replace(OUTPUT_TAGS, ' ').trim()) return '';
+  const cmd = named[1].trim();
+  if (!cmd || /\s/.test(cmd)) return '';
+  const args = COMMAND_ARGS.exec(s);
+  const typed = cmd.startsWith('/') ? cmd : '/' + cmd;
+  const line = args && args[1].trim() ? `${typed} ${args[1].trim()}` : typed;
+  // A line that carries the command AND what it printed keeps both: the view shows what happened, which a
+  // title helper like `commandOnlyText` has no use for.
+  const output = outputOf(s);
+  return output ? `${line}\n${output}` : line;
+}
+
+// A local command's printed text, stdout and stderr alike, paired or self-closing.
+const OUTPUT_TAGS = /<local-command-(?:stdout|stderr)\s*\/>|<local-command-(?:stdout|stderr)>[\s\S]*?<\/local-command-(?:stdout|stderr)>/g;
+
+function outputOf(s) {
+  const inner = [];
+  s.replace(/<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/g, (_, _kind, body) => { inner.push(body); return ''; });
+  return inner.join('\n').trim();
+}
+
+/**
+ * The output of a local command, when a user message is nothing but that output (#680), else `null`.
+ *
+ * Claude records what a local command printed as its own user line wrapped in `<local-command-stdout>`
+ * (or `<local-command-stderr>` for an error), empty when it printed nothing. `''` means "such a line, with
+ * nothing in it"; `null` means the message is something else and is shown as it is.
+ */
+function localCommandOutput(text) {
+  const s = String(text || '');
+  if (!/<local-command-(?:stdout|stderr)[\s>/]/.test(s)) return null;
+  if (s.replace(OUTPUT_TAGS, ' ').trim()) return null;
+  return outputOf(s);
+}
+
+/**
  * The command a STORED row opened with, or '' when it opened with something a user wrote.
  *
  * This is what the descriptor hands the core, and through it the renderer: a row whose summary is nothing
@@ -780,4 +824,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, openedWithCommand };
+module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, openedWithCommand };

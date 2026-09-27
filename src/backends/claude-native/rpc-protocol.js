@@ -56,6 +56,9 @@
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
 // limits; re-exported below, where the descriptor takes it from.
 const { textOf, argsFromText, oneLineDescription, NOTICES, IMAGE_INPUT } = require('../rpc-shared');
+// Claude's slash-command grammar, from Claude's own reader — one copy of it, beside the transcript format
+// it belongs to (#229, #680).
+const { typedCommand, localCommandOutput } = require('../claude/session-reader');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
 // session (point 9). "In this project" only where it suggested an allow rule for the project's LOCAL settings
@@ -163,6 +166,33 @@ function entryOf({ type, uuid, timestamp, message }) {
   };
 }
 
+// The text of a user line, when it is plain text: a string, or a single text block. Anything else (tool
+// results, images, several blocks) is never command markup and is left alone.
+function plainUserText(message) {
+  if (!message || typeof message !== 'object') return null;
+  const c = message.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c) && c.length === 1 && c[0] && c[0].type === 'text' && typeof c[0].text === 'string') return c[0].text;
+  return null;
+}
+
+// A user line as the conversation view should read it (#680). Claude records a slash command as a user
+// line of nothing but `<command-name>`/`<command-message>`/`<command-args>` tags, and a local command's
+// output as one wrapped in `<local-command-stdout>`. The terminal shows neither as markup, so neither does
+// the view: the command reads as what the user typed (arguments included), the output as its text. `null` means the line says
+// nothing — a local command that printed nothing — and is left out. Every other line comes back unchanged.
+function displayedLine(line) {
+  if (!line || line.type !== 'user') return line;
+  const text = plainUserText(line.message);
+  if (text == null) return line;
+  const command = typedCommand(text);
+  if (command) return { ...line, message: { ...line.message, content: command } };
+  const output = localCommandOutput(text);
+  if (output == null) return line;
+  if (!output) return null;
+  return { ...line, message: { ...line.message, content: output } };
+}
+
 /**
  * One decoder per running session: it holds the assistant message being streamed and the session id the
  * CLI last named. `decode(line)` takes one parsed stdout record and answers the ops it amounts to.
@@ -253,7 +283,9 @@ function createDecoder() {
   function onUser(msg) {
     const m = msg.message;
     if (!m || typeof m !== 'object' || msg.isMeta) return [];
-    const ops = [{ op: 'append', entry: entryOf(msg) }];
+    const shown = displayedLine(msg);
+    if (!shown) return [];
+    const ops = [{ op: 'append', entry: entryOf(shown) }];
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_result' && b.tool_use_id) {
         ops.push({ op: 'tool', id: b.tool_use_id, status: b.is_error ? 'error' : 'done', output: textOf(b.content) });
@@ -491,7 +523,8 @@ function conversationEntries(lines) {
   for (const line of Array.isArray(lines) ? lines : []) {
     if (!line || (line.type !== 'user' && line.type !== 'assistant')) continue;
     if (line.isSidechain || line.isMeta || !line.message || typeof line.uuid !== 'string') continue;
-    out.push(line);
+    const shown = displayedLine(line);
+    if (shown) out.push(shown);
   }
   return out;
 }

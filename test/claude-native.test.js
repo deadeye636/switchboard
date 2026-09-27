@@ -302,6 +302,47 @@ test('an attach reads the conversation\'s own lines out of the transcript', () =
   assert.deepEqual(protocol.conversationEntries(lines).map(l => l.uuid), ['u1', 'a1']);
 });
 
+test('slash-command markup reads as the command, and a local command\'s output as its text (#680)', () => {
+  const clear = '<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>';
+  const lines = [
+    { type: 'user', uuid: 'c1', message: { role: 'user', content: clear } },
+    { type: 'user', uuid: 'o1', message: { role: 'user', content: '<local-command-stdout></local-command-stdout>' } },
+    { type: 'user', uuid: 'o2', message: { role: 'user', content: '<local-command-stdout>Total cost: $0.01</local-command-stdout>' } },
+    { type: 'user', uuid: 'c2', message: { role: 'user', content: [{ type: 'text', text: '<command-name>/model</command-name><command-args>opus</command-args>' }] } },
+    { type: 'user', uuid: 'p1', message: { role: 'user', content: 'what does <command-name> mean?' } },
+    { type: 'user', uuid: 'c3', message: { role: 'user', content: '<command-name>/clear</command-name><command-message>clear</command-message><command-args/>' } },
+    { type: 'user', uuid: 'e1', message: { role: 'user', content: '<local-command-stderr>Error: unknown model</local-command-stderr>' } },
+    { type: 'user', uuid: 'c4', message: { role: 'user', content: '<command-name>/cost</command-name><local-command-stdout>Total cost: $0.02</local-command-stdout>' } },
+    // A skill invocation expands into markup AND prose: that is a real prompt, and it is left as written.
+    { type: 'user', uuid: 's1', message: { role: 'user', content: '<command-name>/review</command-name>\nReview the diff for bugs.' } },
+  ];
+  const shown = protocol.conversationEntries(lines);
+  assert.deepEqual(shown.map(l => [l.uuid, l.message.content]), [
+    ['c1', '/clear'],
+    // An empty output says nothing and is left out.
+    ['o2', 'Total cost: $0.01'],
+    // A command the user gave arguments to reads as they typed it, arguments included.
+    ['c2', '/model opus'],
+    ['p1', 'what does <command-name> mean?'],
+    // The self-closing form of an empty argument list.
+    ['c3', '/clear'],
+    // An error a local command printed reads as its text, like its output does.
+    ['e1', 'Error: unknown model'],
+    // A line carrying the command and what it printed keeps both.
+    ['c4', '/cost\nTotal cost: $0.02'],
+    ['s1', '<command-name>/review</command-name>\nReview the diff for bugs.'],
+  ]);
+  assert.equal(lines[0].message.content, clear, 'the transcript line itself is not changed');
+
+  // The live stream draws the same line the same way, and an empty output appends nothing.
+  const ops = decodeAll([
+    { type: 'user', uuid: 'c1', message: { role: 'user', content: clear } },
+    { type: 'user', uuid: 'o1', message: { role: 'user', content: '<local-command-stdout></local-command-stdout>' } },
+  ]);
+  const appended = ops.filter(o => o.op === 'append').map(o => o.entry.message.content);
+  assert.deepEqual(appended, ['/clear']);
+});
+
 test('entriesFromTranscript finds the session under the project\'s folder, and by its id when the folder differs', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-claude-native-'));
   const before = claude._roots();
