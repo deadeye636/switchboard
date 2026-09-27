@@ -345,8 +345,7 @@ options are not offered yet. Every key, its default and what it means: `docs/set
   owners. Each is answered once, by the terminal backend, which reads the same files (see the capability
   notes in `src/backends/claude-native/index.js`).
 - **Restoring a tab** can show the session as not running while it runs (#668), or resume the session from
-  before a `/clear` (#669). After `/clear` the tab header can show the folder name instead of the project's
-  display name (#667).
+  before a `/clear` (#669).
 - **The redraw rate on a streamed turn** is not measured. The stream is about 40 small events a second
   (measured, and cheap for the pipe); what the view's redraw costs at that rate is still open.
 - **The version floor is the measured version.** Features are not detected from the `system/init`
