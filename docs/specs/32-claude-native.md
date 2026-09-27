@@ -93,6 +93,15 @@ how it was driven is a field of its own. Only the marker is different.
 4. `backends.openerFor(row)` hands a marked row to claude-native while it can launch, and back to the
    terminal backend when it is off. The transcript is Claude's either way, so resume and fork work from
    both.
+5. **The user can choose, per session (#670).** A view picked in the Resume dialog (Terminal / GUI) is
+   stored in `session_meta.opener` and wins over the marker while its backend can launch — the same
+   function, with the choice as a second argument, as spec 30 describes. The marker keeps meaning "driven
+   over the pipe at least once" (E9 is unchanged); the stored choice is what lets a session driven here go
+   back to the terminal without switching claude-native off for every session.
+   A stored choice that cannot launch is kept and today's route applies, which has one consequence worth
+   knowing: a stored Terminal on a MARKED row with the terminal backend switched off opens in the GUI,
+   because the marker then decides. "Can launch" means ready, enabled and installed, the same set for the
+   sidebar and the spawn.
 
 **Claude's own `/resume` picker does not list these sessions.** It hides every `sdk-*` entrypoint
 (measured), so a session started here is found in Switchboard, not in the CLI's picker. The terminal

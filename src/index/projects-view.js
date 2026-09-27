@@ -219,6 +219,17 @@ function buildProjectsFromCache(showArchived) {
     return options;
   };
 
+  // Which backends may launch right now (#670) — ready, enabled and not known to be missing — resolved once
+  // per build and only when a row needs it (one with a transport or a stored view), because `list()` asks
+  // every backend's availability probe.
+  let launchableSet = null;
+  const launchableNow = () => {
+    if (!launchableSet) {
+      try { launchableSet = backends.launchableIds(); } catch { launchableSet = new Set(); }
+    }
+    return launchableSet;
+  };
+
   const knownIds = new Set();
   const shownIds = new Set();
   for (const row of cachedRows) {
@@ -279,7 +290,16 @@ function buildProjectsFromCache(showArchived) {
       // over another transport (#568) — `openerFor` decides, and answers the owner for every row that
       // carries no transport, which is nearly all of them. The renderer resolves badge, surface and resume
       // from this one field; the database keeps the owner, because the scan reconciles by owner.
-      backendId: row.transport ? backends.openerFor(row) : (row.backendId || 'claude'),
+      //
+      // A view the USER chose for this session (#670, `session_meta.opener`) goes through the same function
+      // and wins over the marker while its backend can launch. `ownerBackendId` is the row's owner beside it
+      // and `openerStored` says whether a choice is stored, so the renderer can offer the other view of the
+      // pair and tell a chosen view from an automatic one without deriving either.
+      backendId: (row.transport || meta?.opener)
+        ? backends.openerFor(row.backendId ? row : { ...row, backendId: LEGACY_SESSION_BACKEND }, meta?.opener || null, launchableNow())
+        : (row.backendId || 'claude'),
+      ownerBackendId: row.backendId || LEGACY_SESSION_BACKEND,
+      openerStored: !!meta?.opener,
       // v12 cost + lineage (T-5.5). Null on every token-only backend. `costStatus` says whether the
       // figure is an estimate or a settled amount. `lineageParentId` is a backend's OWN parent link
       // (Hermes' parent_session_id), deliberately separate from `parentSessionId` = Claude subagent.

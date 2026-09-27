@@ -1898,12 +1898,18 @@ async function showTerminalHeader(session) {
 // `askTrust: false` is a mount nobody asked for at the keyboard (the boot fallback): a backend refusing an
 // untrusted project then says so in the tab, and no dialog appears in front of a user who clicked nothing
 // (#655). A `show: false` mount is the launch restore, and asks nothing either.
-async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false, askTrust = true } = {}) {
+// `openerChoice` (#670) is the view the user picked for this open — the owner ("Terminal") or a driver of it
+// ("GUI") — when it is not already in `customOptions` (the conflict retry carries it here, because a
+// customOptions object would replace the resolved launch options). Main validates it and stores it once the
+// spawn succeeded.
+async function openSession(session, customOptions, { show = true, ignoreLiveOwner = false, askTrust = true, openerChoice = null } = {}) {
   // Opening a terminal session is a fresh navigation — drop any pending
   // "return to tasks" target so a later viewer-close doesn't jump back to tasks.
   window.__tasksReturnTarget = null;
   window.__bookmarksReturnTarget = null;
   const { sessionId, projectPath } = session;
+  // The view explicitly asked for (#670), from the Resume dialog or carried through a retry.
+  const requestedView = (customOptions && customOptions.openerChoice) || openerChoice || null;
 
   // The session lives in a window of its own (#2). Mounting it here as well would put two xterms on one
   // PTY — every keystroke echoed twice, both fighting over the size. Raise its window instead.
@@ -1938,13 +1944,15 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   if (!ignoreLiveOwner && typeof liveOwnerFor === 'function' && typeof window.showResumeConflict === 'function') {
     const owner = liveOwnerFor(sessionId);
     if (owner) {
-      window.showResumeConflict({ sessionId, projectPath, owner });
+      window.showResumeConflict({ sessionId, projectPath, owner, openerChoice: requestedView });
       return;
     }
   }
 
-  // Create new terminal entry (hidden until showSession)
-  const entry = createTerminalEntry(session);
+  // Create new terminal entry (hidden until showSession). With a view asked for (#670), the surface is the
+  // REQUESTED backend's — a terminal or a conversation — not the one the row carried until now, because a
+  // fresh spawn does not replay what it wrote before an entry existed to receive it.
+  const entry = createTerminalEntry(requestedView ? { ...session, backendId: requestedView } : session);
 
   // Open terminal in main process.
   // Resume is binary-bound (§5.11): main reapplies the session's RECORDED backend, so we must not
@@ -1957,9 +1965,13 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   // nothing about backends is known, so there is no id to give: '' resolves no options, and main still
   // reapplies the session's RECORDED backend, which is what decides the binary either way. Naming Claude
   // here (as this did) only ever meant "hand Claude's options to whatever this session is".
-  const resumeBackendId = window.sessionBackendId ? window.sessionBackendId(session) : '';
+  //
+  // A requested view resolves the options of the TARGET (#670): the other view of the pair has options of
+  // its own. The dedicated `openerChoice` survives the `backendId` delete below — it is not the generic key.
+  const resumeBackendId = requestedView || (window.sessionBackendId ? window.sessionBackendId(session) : '');
   const resumeOptions = customOptions || await resolveLaunchOptionsFor({ projectPath }, resumeBackendId);
   if (resumeOptions) delete resumeOptions.backendId;
+  if (resumeOptions && requestedView) resumeOptions.openerChoice = requestedView;
   // The `worktree` default applies to NEW sessions only. Resuming must reuse the
   // session's existing directory, so never pass --worktree on resume — otherwise
   // a plain-click resume tries to spin up a fresh git worktree and fails to attach
@@ -1980,9 +1992,15 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
     // A session something else is running is not a failure to report and forget (#172): the CLI names a
     // way out — fork a copy — and the app can take it. The refusal carries the entry that says so.
     if (result.liveOwner && typeof window.showResumeConflict === 'function') {
-      window.showResumeConflict({ sessionId, projectPath, owner: result.liveOwner, message: result.error });
+      window.showResumeConflict({ sessionId, projectPath, owner: result.liveOwner, message: result.error, openerChoice: requestedView });
     }
     return;
+  }
+  // The view is now the requested one, and main has stored it (#670). The row says so at once rather than
+  // on the next projects refresh.
+  if (requestedView && typeof sessionMap !== 'undefined') {
+    const known = sessionMap.get(sessionId);
+    if (known) { known.backendId = requestedView; known.openerStored = true; }
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 

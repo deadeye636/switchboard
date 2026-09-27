@@ -536,6 +536,14 @@ const migrations = [
       `);
     } catch {}
   },
+
+  // Which backend the user chose to OPEN a session with (#670): the owner ("Terminal") or a driver of the
+  // owner ("GUI"), as a backend id. A USER's decision, so it sits in session_meta beside the name and the
+  // star, not in session_cache, which the scanner rewrites. NULL is every session nobody chose for, and
+  // those keep today's routing (`backends.openerFor`). Nothing is backfilled.
+  (db) => {
+    try { db.exec('ALTER TABLE session_meta ADD COLUMN opener TEXT'); } catch {}
+  },
 ];
 
 /**

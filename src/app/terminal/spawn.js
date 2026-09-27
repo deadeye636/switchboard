@@ -69,6 +69,10 @@ function init(context) {
 // prints its prompt in well under a second.
 const SILENT_TERMINAL_NOTICE_MS = 6000;
 
+// A session row with a NULL backendId was written before #161, when every session was Claude's. This is
+// that legacy default (answer 1 in `.claude/rules/backends.md`), never a live launch target.
+const LEGACY_SESSION_BACKEND = 'claude';
+
 /**
  * What that terminal is told. A pure function because it is the only part of the silence path a test can
  * reach — `pty.spawn` is required at module load, so the timer around it has no seam (the same reason
@@ -287,6 +291,19 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // corpse. Fall through to the resume/spawn path instead.
   const existingSession = ctx.activeSessions.get(sessionId);
   if (existingSession && !existingSession.exited) {
+    // An explicit view (#670) names the backend this session should open in. A session that is already
+    // running in ANOTHER one is not switched by a reattach — that is its own act, with its own gate — so a
+    // request that disagrees with the live session is refused rather than silently shown in the old view.
+    // Compared by the backend a template runs on, so a session running under a template of the owner is not
+    // "the other view" of a request for the owner itself. A driver keeps its own id.
+    const requestedView = sessionOptions && sessionOptions.openerChoice;
+    const viewOf = (id) => {
+      const b = ctx.backends.get(id);
+      return b && b.isProfile ? (b.baseId || id) : id;
+    };
+    if (requestedView && existingSession.launchBackendId && viewOf(requestedView) !== viewOf(existingSession.launchBackendId)) {
+      return { ok: false, error: 'This session is already running in the other view. Stop it before opening it in this one.' };
+    }
     const session = existingSession;
     // `rendererAttached` means "some window is rendering this session" — not "this window is".
     // Nothing reads it today. Before anything does, read the invariant behind it (#328): a move
@@ -443,6 +460,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // as the two above: the guard on the way IN can only fire from a warm cache, so the cold case is caught
   // on the way OUT — and the exit handler lives outside the branch where the backend is in scope.
   let launchBackend = null;
+  // #670: an explicit view the spawn was asked for, written to `session_meta.opener` once the spawn has
+  // succeeded — never before, so a refused or failed launch stores nothing.
+  let openerToStore = null;
   // Does the OSC-0 TITLE busy heuristic apply to this session? Only for the claude binary — see the
   // session object below. Same reason `isClaudeBinary` exists, hoisted because the session is built out
   // here while the descriptor is only in scope in the branch.
@@ -551,8 +571,74 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // byte-identical (recorded == null -> claude); it forecloses the resume-clobber landmine once
       // profiles ship (Phase 2/3). A fork inherits the source session's recorded backend too.
       let recorded = null;
-      if (!sessionOptions?.backendId) {
-        const lookupId = sessionOptions?.forkFrom || (!isNew ? sessionId : null);
+      // An EXPLICIT view (#670, `openerChoice`): which backend of an owner/driver pair opens this session —
+      // the owner ("Terminal") or a launchable driver of it ("GUI"). A dedicated key rather than the generic
+      // `backendId`, because a fork and the launch-options resolver both set that one, and neither means
+      // "the user picked this view". Validated here, in main: the owner comes from the cached row, else from
+      // the launch record (`rowOwnerOf`), and anything that is neither the owner nor a launchable driver of
+      // it is refused with a sentence. Stored only after the spawn below succeeds (`openerToStore`).
+      const lookupId = sessionOptions?.forkFrom || (!isNew ? sessionId : null);
+      const openerChoice = (sessionOptions && typeof sessionOptions.openerChoice === 'string' && sessionOptions.openerChoice) || null;
+      // One "launchable" for every routing decision below — ready AND enabled AND not known to be missing —
+      // the same set the sidebar payload asks, so the view it draws and the backend spawned here agree.
+      // Resolved lazily and once per open.
+      let launchableSet;
+      const launchableNow = () => {
+        if (launchableSet === undefined) {
+          launchableSet = typeof ctx.backends.launchableIds === 'function' ? ctx.backends.launchableIds() : null;
+        }
+        return launchableSet || undefined;
+      };
+      // Whose session is this? The cached row's owner (a NULL backendId is the pre-#161 Claude row the
+      // payload also reads as LEGACY_SESSION_BACKEND), else the launch record's, for a session the index has
+      // not read yet — Claude writes its transcript only with the first turn. `row` is handed back so the
+      // callers route against the same row they took the owner from.
+      const ownerOfLookup = () => {
+        let row = null;
+        try { row = ctx.getCachedSession(lookupId) || null; } catch { /* cache unavailable -> the record */ }
+        if (row) return { owner: row.backendId || LEGACY_SESSION_BACKEND, row };
+        const rec = ctx.sessionBackends.get(lookupId);
+        if (rec && rec.backendId && typeof ctx.backends.rowOwnerOf === 'function') {
+          const owner = ctx.backends.rowOwnerOf(rec.backendId);
+          if (owner) return { owner, row: null };
+        }
+        return { owner: null, row: null };
+      };
+      if (openerChoice) {
+        if (!lookupId) return { ok: false, error: 'A view can only be chosen for an existing session.' };
+        const { owner } = ownerOfLookup();
+        if (!owner) return { ok: false, error: 'Switchboard does not know which backend this session belongs to yet, so its view cannot be chosen.' };
+        const accepted = typeof ctx.backends.isOpenerFor === 'function' && ctx.backends.isOpenerFor(owner, openerChoice, launchableNow());
+        if (!accepted) {
+          const chosen = ctx.backends.get(openerChoice);
+          return { ok: false, error: `'${(chosen && chosen.label) || openerChoice}' cannot open this session. Choose Terminal or GUI again.` };
+        }
+        recorded = { backendId: openerChoice, profileId: null };
+        openerToStore = { id: sessionId, backendId: openerChoice };
+      }
+      if (!openerChoice && !sessionOptions?.backendId) {
+        // A STORED view wins over the launch record (#670), as long as its backend can launch — the same
+        // answer the sidebar payload carries, from the same function. A stored view that cannot launch right
+        // now (its driver switched off or not installed) is left in the database and today's route below
+        // applies; it takes effect again once its backend is back.
+        const storedView = lookupId && typeof ctx.getOpener === 'function' ? ctx.getOpener(lookupId) : null;
+        if (storedView) {
+          try {
+            const { owner, row } = ownerOfLookup();
+            if (owner && typeof ctx.backends.openerFor === 'function') {
+              // A row the index has not read yet is routed as its owner's with no marker: the stored view
+              // is the only thing that can move it, and `openerFor` answers the same way as for a cached row.
+              const routed = row ? { ...row, backendId: owner } : { backendId: owner };
+              if (ctx.backends.openerFor(routed, storedView, launchableNow()) === storedView) {
+                const rec = ctx.sessionBackends.get(lookupId);
+                // Keep the record's template profile when it names the same backend.
+                recorded = rec && rec.backendId === storedView ? rec : { backendId: storedView, profileId: null };
+              }
+            }
+          } catch { /* cache unavailable -> today's route */ }
+        }
+      }
+      if (!openerChoice && !sessionOptions?.backendId && !recorded) {
         if (lookupId) {
           recorded = ctx.sessionBackends.get(lookupId);
           // The overlay is only the bridge until the first scan. `session_cache.backendId` is the
@@ -569,16 +655,23 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           // …and ALSO when the overlay names a backend that only DRIVES another's transcripts and is switched
           // off (#568). The launch record keeps `pi-native` for every session it ran, and a record alone would
           // refuse the resume with "disabled" — while the row belongs to Pi, which can open it in a terminal.
+          // "Off" in the #670 sense — switched off OR not installed — so a record naming a driver whose binary
+          // is missing heals onto the owner here, exactly as the payload already shows it (one "launchable").
+          // Asked only for a record that names a driver: `launchableIds()` probes every backend, and a plain
+          // resume must not pay for it.
           const recordedBackend = recorded ? ctx.backends.get(recorded.backendId) : null;
-          const driverOff = !!(recordedBackend && recordedBackend.transcriptsOf
-            && typeof ctx.backends.isLaunchable === 'function' && !ctx.backends.isLaunchable(recordedBackend.id));
+          const driverOff = !!(recordedBackend && recordedBackend.transcriptsOf && (() => {
+            const set = launchableNow();
+            return set ? !set.has(recordedBackend.id)
+              : (typeof ctx.backends.isLaunchable === 'function' && !ctx.backends.isLaunchable(recordedBackend.id));
+          })());
           if (!recorded || !recordedBackend || driverOff) {
             try {
               const row = ctx.getCachedSession(lookupId);
               // The backend that OPENS the row, which is its owner unless a sibling drove it over another
               // transport (#568) — the same answer the sidebar payload carries, from the same function.
               if (row && row.backendId) {
-                const opener = typeof ctx.backends.openerFor === 'function' ? ctx.backends.openerFor(row) : row.backendId;
+                const opener = typeof ctx.backends.openerFor === 'function' ? ctx.backends.openerFor(row, null, launchableNow()) : row.backendId;
                 recorded = { backendId: opener || row.backendId, profileId: null };
               }
             } catch { /* cache unavailable -> fall through to the claude default */ }
@@ -589,8 +682,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // That inference is still right, and with Claude disableable (#162) it is also the reason such a
       // session cannot be resumed while Claude is off — which the user is owed a sentence about, not a
       // raw failure.
-      const requestedId = sessionOptions?.backendId || recorded?.backendId || 'claude';
-      const inferredClaude = !sessionOptions?.backendId && !recorded?.backendId;
+      const requestedId = openerChoice || sessionOptions?.backendId || recorded?.backendId || 'claude';
+      const inferredClaude = !openerChoice && !sessionOptions?.backendId && !recorded?.backendId;
       // A recorded provenance that STILL does not resolve (its backend/template was removed from this
       // build, and the cache heal above found nothing) must not silently become a Claude resume of a
       // foreign transcript — `claude --resume <codex-uuid>` gives a dead tab, where every other
@@ -1196,6 +1289,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     _sessionResourcesCleanup: sessionResourcesCleanup,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
+    // #670: which backend this session was launched with, so a reattach can refuse a request for the other
+    // view instead of showing the old one.
+    launchBackendId: (launchBackend && launchBackend.id) || null,
     // #305: did the live binding reach this spawn's argv? A backend that CANNOT report is answered by
     // its `supportsLiveRebinding` capability; this answers the other half — one that can, and did not.
     _liveBound: liveBound,
@@ -1603,6 +1699,17 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       sessionOptions?.forkFrom ? 'Fork requested' : 'Session started',
       sessionOptions?.forkFrom ? `Forking from ${sessionOptions.forkFrom}.` : 'Created from Switchboard.',
     );
+  }
+
+  // #670: the explicit view, stored now that the session exists. Only a choice that differs from the
+  // automatic route reaches here at all — the renderer sends the option only when the user changed it.
+  if (openerToStore && typeof ctx.setOpener === 'function') {
+    // Under the id the session holds NOW: a CLI that renamed itself between the spawn and this line has
+    // already been re-keyed, and the re-key's copy found nothing to move yet.
+    const storeId = session.realSessionId || openerToStore.id;
+    try { ctx.setOpener(storeId, openerToStore.backendId); } catch (err) {
+      ctx.log.debug(`[opener] could not store the view for session=${storeId}: ${err.message}`);
+    }
   }
 
   return { ok: true, reattached: false, mcpActive: !!mcpServer };

@@ -201,6 +201,10 @@ function claimLiveRecord(sessionId, session, backend, candidatePaths) {
     ctx.activeSessions.delete(sessionId);
     ctx.activeSessions.set(realId, session);
     ctx.sessionBackends.rekeySession(sessionId, realId);
+    // …and the view the user chose (#670), which the database holds under the launch id until now.
+    if (typeof ctx.copyOpener === 'function') {
+      try { ctx.copyOpener(sessionId, realId); } catch { /* the database may be gone during a quit */ }
+    }
     liveStoreRef.set(realId, match.ref);
     const wasBusy = liveBusy.get(sessionId);
     liveBusy.delete(sessionId);

@@ -177,7 +177,7 @@ const { encodeProjectPath } = require('./session/encode-project-path');
 
 
 const {
-  getMeta, getAllMeta, toggleStar, setName, setArchived,
+  getMeta, getAllMeta, toggleStar, setName, setArchived, getOpener, setOpener, copyOpener,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones, getPlanRefAttributions,
@@ -1723,6 +1723,10 @@ ipcMain.handle('backends-list', () => {
       // How the session is driven (#568): absent for a CLI in a PTY, the transport's name for one driven
       // over a pipe. The renderer mounts a conversation view instead of a terminal on it, naming no backend.
       transport: b.transport || null,
+      // Whose rows this backend drives (#568, #670): the owner's id for a driver, null otherwise. The renderer
+      // pairs a session's owner with its drivers through this field — the Resume dialog's View field — and
+      // names no backend doing it.
+      transcriptsOf: b.transcriptsOf || null,
       // Which images a turn of such a session may carry (#662): `{ types, maxBytes }`, or null for none. The
       // conversation view offers attaching only where this is set and refuses what it does not allow.
       imageInput: (b.rpc && b.rpc.imageInput) || null,
@@ -2126,6 +2130,8 @@ terminalIo.registerIpc(ipcMain);
 // Session transitions → session-transitions.js
 const sessionTransitions = require('./session/session-transitions');
 sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer, rekeySessionBackend: sessionBackends.rekeySession,
+  // #670: a re-key keeps the view the user chose for the session.
+  copyOpener,
   // #235: which backend spawned a live session — the launch overlay is what knows, so the subagent
   // dispatch asks it instead of reading a field an activeSessions entry never carries.
   getSessionBackend: (id) => sessionBackends.get(id),
@@ -2189,6 +2195,8 @@ watchAdopt.init({
   // Adoption moves a session onto the id its backend chose; the record's busy latch has to move with it,
   // exactly as adopt.js's own liveBusy does, or the turn spanning the move never ends.
   rekeyTimelineSession: (fromId, toId) => timeline.rekeySession(fromId, toId),
+  // …and so does the view the user chose for the session (#670, `session_meta.opener`).
+  copyOpener,
   // "No record for this session" is published as a state rather than sent as a toast (#460) — the tab
   // it explains stays blank for as long as the session lives.
   noteMissingStoreRecord: (sessionId, message) => storeRecordNotice.notice(sessionId, message),
@@ -2281,6 +2289,10 @@ spawn.init({
   composeLauncherCommand,
   resolveSpawnEnv,
   getCachedSession,
+  // #670: the view a session opens in, as the user chose it. Read before the launch record on a resume,
+  // written only after a spawn that carried an explicit choice succeeded.
+  getOpener,
+  setOpener,
   cleanupSecretRefsForSession,
   ensureProjectAdded: (p) => projects.ensureProjectAdded(p),
   startMcpServer,

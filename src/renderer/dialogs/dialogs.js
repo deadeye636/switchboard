@@ -220,7 +220,7 @@ async function forkSession(session, project) {
  * opening. It is offered last and worded as what it does, because it is the one button here that destroys
  * something.
  */
-async function showResumeConflict({ sessionId, projectPath, owner, message } = {}) {
+async function showResumeConflict({ sessionId, projectPath, owner, message, openerChoice = null } = {}) {
   if (!sessionId) return;
   const session = (typeof sessionMap !== 'undefined' && sessionMap.get(sessionId))
     || { sessionId, projectPath };
@@ -271,11 +271,12 @@ async function showResumeConflict({ sessionId, projectPath, owner, message } = {
   }
   // The user has overruled the list. `ignoreLiveOwner` rides through the spawn guard as their answer,
   // and the CLI still gets the last word — if it really is held, the tab says so as it did before.
+  // The view the user asked for (#670) rides along on both resumes, or the retry would open the other one.
   if (choice === 'secondary') {
-    openSession(session, null, { ignoreLiveOwner: true });
+    openSession(session, null, { ignoreLiveOwner: true, openerChoice });
     return;
   }
-  if (choice === 'tertiary') await stopOwnerAndResume(session);
+  if (choice === 'tertiary') await stopOwnerAndResume(session, openerChoice);
 }
 
 /**
@@ -290,7 +291,7 @@ async function showResumeConflict({ sessionId, projectPath, owner, message } = {
  * question about a decision already made — the session is exactly where it was, and Resume anyway is
  * still one click away on the next attempt.
  */
-async function stopOwnerAndResume(session) {
+async function stopOwnerAndResume(session, openerChoice = null) {
   let result = null;
   try {
     result = await window.api.stopLiveOwner(session.sessionId);
@@ -305,7 +306,7 @@ async function stopOwnerAndResume(session) {
     });
     return;
   }
-  openSession(session, null, { ignoreLiveOwner: true });
+  openSession(session, null, { ignoreLiveOwner: true, openerChoice });
 }
 window.showResumeConflict = showResumeConflict;
 
@@ -883,35 +884,73 @@ async function showNewSessionDialog(project, backendId) {
   return showGeneratedConfigDialog(project, backend);
 }
 
-async function showGeneratedResumeDialog(session, backend) {
+// The Terminal / GUI pair a session can open in (#670), or null when there is no choice to offer.
+//
+// A row's owner is the backend whose transcript it is (`ownerBackendId` from the projects payload); a GUI is
+// a backend that declares `transcriptsOf: <owner>` (`backends-list`). Both have to be able to launch right
+// now — ready, enabled and not known to be missing — or nothing is offered (#670 E8). Templates are never
+// part of a pair: a template declares no `transcriptsOf` and its rows are its own. No backend is named here.
+function viewPairFor(session) {
+  const byId = window._backendsById || {};
+  const canLaunch = (b) => !!(b && b.status === 'ready' && b.enabled && b.available !== false);
+  const current = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : session && session.backendId) || '';
+  const currentBackend = byId[current];
+  const ownerId = (session && session.ownerBackendId) || (currentBackend && currentBackend.transcriptsOf) || current;
+  const owner = byId[ownerId];
+  if (!owner || owner.isProfile || owner.transcriptsOf || !canLaunch(owner)) return null;
+  const gui = Object.values(byId).find(b => b && !b.isProfile && b.transcriptsOf === ownerId && canLaunch(b));
+  if (!gui) return null;
+  return { terminal: owner, gui, current: current === gui.id ? gui.id : owner.id };
+}
+
+// Is this session DORMANT in this window — no process behind it and no surface holding it? The View field is
+// offered only then (#670): a running session's Resume just shows its tab, and switching a running one is its
+// own act.
+function sessionIsDormant(session) {
+  const id = session && session.sessionId;
+  if (!id) return false;
+  if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(id)) return false;
+  if (typeof openSessions !== 'undefined' && openSessions.has(id) && !openSessions.get(id).closed) return false;
+  if (typeof activePtyIds !== 'undefined' && activePtyIds.has(id)) return false;
+  return true;
+}
+
+async function showGeneratedResumeDialog(session, initialBackend) {
   const effective = await window.api.getEffectiveSettings(session.projectPath);
-  const saved = storedDefaultsFor(effective, backend);
-  const fields = (schemaBackendOf(backend) || {}).configFields || [];
   const sessionName = session.name || session.aiTitle || session.summary || String(session.sessionId).slice(0, 8);
+  // The View field (#670): Terminal (the owner) or GUI (a driver of it), preselected with the view the session
+  // opens in today. Offered only for a dormant session whose pair can both launch.
+  const pair = sessionIsDormant(session) ? viewPairFor(session) : null;
+  const initialView = pair ? pair.current : null;
+  let backend = pair ? (initialView === pair.gui.id ? pair.gui : pair.terminal) : initialBackend;
+  let fields = [];
 
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
 
-  const body = fields.map((f, i) => {
-    const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
-    const id = `grd-${i}`;
-    let control;
-    if (f.type === 'select') {
-      const opts = (f.choices || []).map(c =>
-        `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
-      ).join('');
-      control = `<select class="settings-select" id="${id}">${opts}</select>`;
-    } else if (f.type === 'toggle') {
-      control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
-    } else {
-      control = textControlHtml(id, f, val, backend.id, false);
-    }
-    // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
-    // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
-    // where the decision is made, instead of living in a comment nobody reads.
-    return `
+  function fieldsHtml(b) {
+    const saved = storedDefaultsFor(effective, b);
+    fields = (schemaBackendOf(b) || {}).configFields || [];
+    return fields.map((f, i) => {
+      const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
+      const id = `grd-${i}`;
+      let control;
+      if (f.type === 'select') {
+        const opts = (f.choices || []).map(c =>
+          `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
+        ).join('');
+        control = `<select class="settings-select" id="${id}">${opts}</select>`;
+      } else if (f.type === 'toggle') {
+        control = `<label class="settings-toggle"><input type="checkbox" id="${id}" ${val ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>`;
+      } else {
+        control = textControlHtml(id, f, val, b.id, false);
+      }
+      // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
+      // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
+      // where the decision is made, instead of living in a comment nobody reads.
+      return `
       <div class="settings-field settings-field-wide" ${f.requires ? `data-requires="${escapeHtml(f.requires)}"` : ''}>
         <div class="settings-field-info">
           <span class="settings-label">${escapeHtml(f.label || f.id)}</span>
@@ -919,27 +958,61 @@ async function showGeneratedResumeDialog(session, backend) {
         </div>
         <div class="settings-field-control">${control}</div>
       </div>`;
-  }).join('');
+    }).join('') || '<div class="settings-description">This backend has no launch options.</div>';
+  }
+
+  // Two choices, so a two-way switch rather than a select — the file viewer's mode buttons, reused as they are.
+  const viewHtml = pair ? `
+    <div class="settings-field settings-field-wide">
+      <div class="settings-field-info">
+        <span class="settings-label">View</span>
+        <div class="settings-description">Changing it is remembered for this session. Left as it is, nothing is stored.</div>
+      </div>
+      <div class="settings-field-control">
+        <div class="viewer-mode-group resume-view-switch" role="group" aria-label="View">
+          <button type="button" class="fp-toolbar-btn viewer-mode-btn" data-view="${escapeHtml(pair.terminal.id)}">Terminal</button>
+          <button type="button" class="fp-toolbar-btn viewer-mode-btn" data-view="${escapeHtml(pair.gui.id)}">GUI</button>
+        </div>
+      </div>
+    </div>` : '';
 
   dialog.innerHTML = `
-    <h3>Resume ${escapeHtml(backend.label)} — ${escapeHtml(sessionName)}</h3>
-    ${body || '<div class="settings-description">This backend has no launch options.</div>'}
+    <h3 class="resume-dialog-title"></h3>
+    <div class="resume-dialog-fields"></div>
     <div class="new-session-actions">
       <button class="new-session-cancel-btn">Cancel</button>
       <button class="new-session-start-btn">Resume</button>
     </div>
   `;
+  // The dialog is built for ONE backend, so choosing the other view rebuilds its options and its title. The
+  // View field is rendered with the options, inside one list, so the list's rounded ends stay where they are.
+  function renderFor(b) {
+    backend = b;
+    dialog.querySelector('.resume-dialog-title').textContent = `Resume ${b.label} — ${sessionName}`;
+    dialog.querySelector('.resume-dialog-fields').innerHTML = viewHtml + fieldsHtml(b);
+    dialog.querySelectorAll('.resume-view-switch [data-view]').forEach(btn => {
+      const on = btn.dataset.view === b.id;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.addEventListener('click', () => {
+        const next = btn.dataset.view === pair.gui.id ? pair.gui : pair.terminal;
+        if (next.id !== backend.id) renderFor(next);
+      });
+    });
+    bindModelDiscovery(dialog);
+  }
+  renderFor(backend);
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
-  bindModelDiscovery(dialog);
 
   function close() {
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   }
   function resume() {
-    // NOTE: no backendId is sent — main reapplies the session's RECORDED backend (§5.11). We only
-    // carry this backend's own options.
+    // No backendId is sent — main reapplies the session's RECORDED backend (§5.11). We only carry this
+    // backend's own options, plus the view when the user CHANGED it (#670 E17): left at its preselected value,
+    // nothing is stored, so opening the dialog and pressing Resume does not pin today's automatic route.
     const options = {};
     fields.forEach((f, i) => {
       const el = dialog.querySelector(`#grd-${i}`);
@@ -952,12 +1025,14 @@ async function showGeneratedResumeDialog(session, backend) {
       if (v === '') return;
       options[f.id] = v;
     });
+    if (pair && backend.id !== initialView) options.openerChoice = backend.id;
     close();
     openSession(session, options);
   }
   function onKey(e) {
     if (e.key === 'Escape') close();
-    else if (e.key === 'Enter' && !e.target.matches('input')) resume();
+    // Enter on a View button toggles it; it must not also start the session.
+    else if (e.key === 'Enter' && !e.target.matches('input') && !e.target.closest('.resume-view-switch')) resume();
   }
   dialog.querySelector('.new-session-cancel-btn').onclick = close;
   dialog.querySelector('.new-session-start-btn').onclick = resume;

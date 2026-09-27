@@ -438,7 +438,12 @@ The ones that will look wrong to someone tidying up later:
 7. **Disable is not delete.** A disabled backend leaves the picker, the scan and the badge counting; its
    sessions stay visible and searchable.
 8. **A handoff is context, not a continuation — and it is the ONE exception to binary-bound resume.**
-   Resuming a *session* reapplies its backend, with no chooser (§5.11). Resuming a *handoff* starts a
+   Resuming a *session* reapplies its backend, with no chooser (§5.11) — **except within an owner/driver
+   pair (#670)**: a session whose owner also has a driver (`transcriptsOf`) may be opened by either, because
+   both run the same binary over the same transcript. The Resume dialog's View field (Terminal / GUI) is
+   that choice, offered only while both can launch, and stored per session in `session_meta.opener` when
+   changed. It never crosses binaries: `backends.isOpenerFor` accepts the owner or a launchable driver of
+   it and nothing else, and the spawn path refuses anything else with a sentence. Resuming a *handoff* starts a
    **new** session seeded with a packet, so it may run on any backend and the user is asked which
    (defaulting to the one that wrote it — a column in `project_handoffs` when this was written, and the
    `backend:` line of the packet's own header since #468, which moved handoffs out of the database and

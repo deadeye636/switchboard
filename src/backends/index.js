@@ -365,21 +365,82 @@ function get(id) {
  *
  * Only a backend that could LAUNCH claims it. Switched off, the row goes back to its owner, which runs the
  * same binary over the same transcript — the session opens in a terminal instead of not opening at all.
- * Cheap on purpose: `projects-view.js` asks once per row, and only a row that carries a transport gets past
- * the first line.
+ * Cheap on purpose: `projects-view.js` asks once per row, and only a row that carries a transport or a stored
+ * choice gets past the first lines.
+ *
+ * **A stored choice wins (#670).** The user can pick, per session, which of the pair opens it: the owner
+ * ("Terminal") or a driver of the owner ("GUI"). `storedChoice` is that pick (`session_meta.opener`). It is
+ * accepted when it names the owner itself, or a LAUNCHABLE built-in driver whose `transcriptsOf` is the
+ * owner — without the transport match the marker branch needs, because choosing a view is exactly what
+ * the marker cannot express. Anything else (a driver switched off or not installed, an id that is neither
+ * owner nor driver) falls through to the marker routing below, and the stored value is left alone by the
+ * caller: it takes effect again once its backend is back. A stored "Terminal" with the owner switched off
+ * falls through too, and the marker then decides as it would for a row nobody chose for.
+ *
+ * `launchable` is the set of ids that may launch right now — ready AND enabled AND `available !== false` —
+ * resolved ONCE per build by the caller (`launchableIds()`), because this runs per row. Left out, it is
+ * resolved here from the enable switches alone (ready AND enabled, no probe), which is what this function
+ * asked before #670 and what a caller that never resolves availability still gets.
+ *
+ * **Templates are never owner or driver here.** A template row's owner is the template's own id, a
+ * template does not inherit `transcriptsOf` (`test/template-descriptor-shape.test.js`), and only built-ins
+ * are walked — so a template row answers its own id, whatever is stored for it. Deliberate, not a gap.
  */
-function openerFor(row) {
+function openerFor(row, storedChoice, launchable) {
   const owner = row && row.backendId;
   if (!owner) return owner || null;
   const transport = row.transport;
+  if (!transport && !storedChoice) return owner;
+  const canLaunch = launchable && typeof launchable.has === 'function'
+    ? (b) => launchable.has(b.id)
+    : (() => {
+      const enabledMap = (_getGlobalSettings() || {}).backendEnabled || {};
+      return (b) => b.status === 'ready' && isEnabled(b, enabledMap);
+    })();
+  if (storedChoice) {
+    if (storedChoice === owner) {
+      const own = registry.get(owner);
+      if (!own || canLaunch(own)) return owner;
+    } else {
+      const driver = registry.get(storedChoice);
+      if (driver && driver.transcriptsOf === owner && canLaunch(driver)) return driver.id;
+    }
+  }
   if (!transport) return owner;
-  const enabledMap = (_getGlobalSettings() || {}).backendEnabled || {};
   for (const b of registry.values()) {
-    if (b.transcriptsOf === owner && b.transport === transport && b.status === 'ready' && isEnabled(b, enabledMap)) {
+    if (b.transcriptsOf === owner && b.transport === transport && canLaunch(b)) {
       return b.id;
     }
   }
   return owner;
+}
+
+/**
+ * The ids that may launch right now in the sense #670 uses throughout: ready AND enabled AND not known to
+ * be missing (`available !== false`). One `list()`, so a caller that asks per row resolves it once per
+ * build and hands the Set to `openerFor` / `isOpenerFor`.
+ */
+function launchableIds() {
+  const out = new Set();
+  for (const b of list()) {
+    if (b.status === 'ready' && b.enabled && b.available !== false) out.add(b.id);
+  }
+  return out;
+}
+
+/**
+ * May `candidate` open a row owned by `owner` as an explicit choice (#670)? The owner itself, or a
+ * launchable built-in driver of it. The spawn path asks this before it accepts a requested view; a refusal
+ * there is a sentence, never a silent fallback. The owner is accepted whether or not it launches — the
+ * spawn's own gate refuses a disabled one with its usual reason.
+ */
+function isOpenerFor(owner, candidate, launchable) {
+  if (!owner || !candidate) return false;
+  if (candidate === owner) return true;
+  const d = registry.get(candidate);
+  if (!d || d.transcriptsOf !== owner) return false;
+  const set = launchable && typeof launchable.has === 'function' ? launchable : launchableIds();
+  return set.has(d.id);
 }
 
 /**
@@ -675,6 +736,6 @@ _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, storeIsRead, profileToDescriptor,
+  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, launchableIds, isOpenerFor, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, storeIsRead, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };

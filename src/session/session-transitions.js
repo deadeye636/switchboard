@@ -14,6 +14,7 @@ const LEGACY_SESSION_BACKEND = 'claude';
  * Call init(ctx) once with shared context.
  */
 let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer, rekeySessionBackend, recordLineage;
+let copyOpener = () => {};
 // Which backend spawned a live session — read from the launch overlay (session-backends.js), injected so
 // this module stays loadable under `node --test`. Absent (tests, a pre-#161 session) → null, and the
 // caller falls back to the named legacy default.
@@ -33,6 +34,9 @@ function init(ctx) {
   // Multi-LLM (T-1.4): rekey the backend/profile overlay on temp->real id transition, so a
   // session's backend follows it across fork/clear. No-op if not injected.
   rekeySessionBackend = ctx.rekeySessionBackend || (() => {});
+  // #670: the view the user chose for the session (`session_meta.opener`) follows a re-key too — a fork's
+  // temp id, a `/clear` and a CLI naming its own session all land here. No-op if not injected.
+  copyOpener = typeof ctx.copyOpener === 'function' ? ctx.copyOpener : () => {};
   // Record a /clear child's soft lineage link the moment we resolve it (#193). No-op if not injected
   // (the tests drive detectSessionTransitions without a DB).
   recordLineage = ctx.recordLineage || (() => {});
@@ -372,6 +376,8 @@ function applyRekey(fromId, session, toId, origin) {
   rekeyMcpServer(fromId, toId);
   // Re-key the backend/profile overlay too (T-1.4) so provenance follows the id.
   rekeySessionBackend(fromId, toId);
+  // …and the view the user chose for it (#670), which lives in the database rather than the overlay.
+  try { copyOpener(fromId, toId); } catch { /* the database may be gone during a quit */ }
   // …and the window that renders it (#2). Output is sent under the NEW id, so a detached window
   // registered under the old one would fall silent mid-run while its bytes went to the main window.
   try { require('../app/detach').rekey(fromId, toId); } catch { /* module not wired in a test build */ }

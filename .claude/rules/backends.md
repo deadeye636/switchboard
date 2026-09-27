@@ -435,6 +435,19 @@ switched off hands the row back to the owner. `test/backend-parity.test.js` pins
 the reasoning. `claude-native` is the second such driver (`transcriptsOf: 'claude'`, #653), and spec 32 says
 what it shares with pi-native and what it deliberately does not.
 
+**The user may pick the view per session, and it goes through the SAME function (#670).**
+`openerFor(row, storedChoice, launchable)` takes the stored choice (`session_meta.opener`) as its second
+argument and honours it before the marker, without the transport match: the owner, or a built-in driver with
+`transcriptsOf === owner` that is in `launchable`. Anything else falls through to the marker routing and the
+stored value is kept. `launchable` is `backends.launchableIds()` — ready AND enabled AND `available !== false`
+— resolved ONCE per build by the caller, because the payload asks per row; left out, `openerFor` falls back to
+the enable switches alone, which is what it asked before. `isOpenerFor(owner, candidate)` is the spawn path's
+validation of an explicit choice (`sessionOptions.openerChoice`, a key of its own — never the generic
+`backendId`, which a fork and the launch-options resolver set). **Templates are never owner or driver**: a
+template's owner is its own id and it does not inherit `transcriptsOf`, so no choice is ever offered or
+honoured on a template row. Do not "fix" that. Do not add a second reading of the choice beside the function
+either — the payload, the spawn's stored-choice branch and the cache fallback all ask it.
+
 **Two more answers the registry owns for such a pair (#658), and neither is spelled twice.** `rowOwnerOf(id)`
 turns the id a launch RECORDED into the row's owner — Claude's provenance stamp reads the launch overlay,
 which names the driver, and stamping that would put the row outside Claude's own reconcile. It is not
@@ -444,7 +457,8 @@ switch OR any launchable driver's (#653 E12), so a session the driver writes rea
 owner off. Claude's indexer (`claudeEnabled`), the other stores' roster (`axisBRoster`) and the store
 watcher all ask it. **What that costs, stated:** the WHOLE store is read then, not only what the driver
 wrote — so with the owner off, sessions run outside the app appear too, under the owner's id, and opening
-one is refused as disabled (`openerFor` hands the driver only a row that carries its `transport`). The
+one is refused as disabled (`openerFor` hands the driver only a row that carries its `transport`, or one the
+user explicitly put there — #670). The
 older line "a disabled backend's store is not re-scanned" holds for a store nobody drives. A driver's marker is its owner's format and lives in the owner's folder — Pi's is a
 `custom` entry the driver writes, Claude's is the `entrypoint` Claude Code writes itself from
 `CLAUDE_CODE_ENTRYPOINT` (`claude/transport-marker.js`).

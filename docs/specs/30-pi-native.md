@@ -44,6 +44,16 @@ field of its own:
    cache fallback asks the same function. The renderer resolves badge, surface and resume from the one
    field it always read.
 
+   **A stored choice sits beside the marker (#670), in the same function.** `openerFor(row, storedChoice,
+   launchable)` takes the view the user picked for this session (`session_meta.opener`, a backend id) and
+   honours it before the marker, without requiring the transport match: the owner itself, or a driver of
+   the owner that can launch right now (ready, enabled, not known to be missing). A stored choice that
+   cannot launch falls back to the marker routing and stays stored, so it applies again once the driver is
+   back. The payload carries the owner (`ownerBackendId`) and whether a choice is stored (`openerStored`)
+   beside the effective opener. The spawn path reads the stored choice before the launch record, accepts an
+   explicit one only through `isOpenerFor`, stores it only after a successful spawn, and the choice is
+   copied to the new id at every re-key.
+
 The marker says the session was driven over RPC **at least once**. Only this backend writes it and
 nothing removes it, so a session that went native once opens native afterwards, even if someone later
 resumed it in Pi's TUI by hand. That is the price of a marker only one side writes. Switching the backend

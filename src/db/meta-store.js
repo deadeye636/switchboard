@@ -1,8 +1,9 @@
 // Session and project metadata — what the USER decided about a session or a project (#217 step 8).
 //
 // Everything here is a user's own annotation, not something derived from a transcript: a renamed session,
-// a star, an archive flag, a favourited project, and the register (#167) — one row per project, where the
-// ROW IS THE LIST the sidebar builds from, instead of the list being re-derived from the folders on disk.
+// a star, an archive flag, the view a session opens in (#670), a favourited project, and the register
+// (#167) — one row per project, where the ROW IS THE LIST the sidebar builds from, instead of the list being
+// re-derived from the folders on disk.
 // Auto-hide (#57) lives here too: it writes the same project_meta row.
 //
 // It reads settings for one thing only: getProjectDisplayNames pulls the display name out of each
@@ -31,6 +32,11 @@ const stmts = {
   upsertArchived: db.prepare(`
     INSERT INTO session_meta (sessionId, archived) VALUES (?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET archived = excluded.archived
+  `),
+  // The view a session opens in (#670): a backend id, or NULL for "nobody chose, route as usual".
+  upsertOpener: db.prepare(`
+    INSERT INTO session_meta (sessionId, opener) VALUES (?, ?)
+    ON CONFLICT(sessionId) DO UPDATE SET opener = excluded.opener
   `),
   // Project favorites (toggle on the real projectPath, analog to upsertStar)
   projectFavoriteToggle: db.prepare(`
@@ -82,6 +88,30 @@ function toggleStar(sessionId) {
 
 function setArchived(sessionId, archived) {
   runWithBusyRetry(() => stmts.upsertArchived.run(sessionId, archived ? 1 : 0));
+}
+
+// The backend a session opens with, as the user chose it (#670). `null` clears the choice, and the row
+// goes back to the automatic route. Validation is the caller's: the spawn path stores only a choice it has
+// just launched successfully.
+function setOpener(sessionId, backendId) {
+  if (!sessionId) return;
+  runWithBusyRetry(() => stmts.upsertOpener.run(sessionId, backendId || null));
+}
+
+function getOpener(sessionId) {
+  const row = sessionId ? stmts.get.get(sessionId) : null;
+  return (row && row.opener) || null;
+}
+
+// A re-key keeps the choice (#670, F3): a fork, a `/clear` and an adoption all move a session to a new id,
+// and the view the user put it in goes with it. Copies only when the old id HAS a choice, and never
+// overwrites one the new id already carries.
+function copyOpener(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return false;
+  const chosen = getOpener(fromId);
+  if (!chosen || getOpener(toId)) return false;
+  setOpener(toId, chosen);
+  return true;
 }
 
 function toggleProjectFavorite(projectPath) {
@@ -187,7 +217,7 @@ function getProjectDisplayNames() {
 }
 
 module.exports = {
-  getMeta, getAllMeta, setName, toggleStar, setArchived,
+  getMeta, getAllMeta, setName, toggleStar, setArchived, setOpener, getOpener, copyOpener,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones,
