@@ -201,6 +201,22 @@ This cost real time in #2: the exit banner and the no-respawn fix both read as b
 rounds of live checks that were, in fact, exercising the previous main process. Restart with
 `npm run stop:dev && node scripts/demo-start.js --debug` and take the reading again.
 
+**Saving a file does the restart for you since #665** — `src/app/dev-reload.js` restarts a dev or demo
+run on any edit under `src/` outside `src/renderer/`, and reloads the windows for an edit inside it. The
+old `electron-reloader` restarted only for the modules `main.js` had loaded above its own line, so an
+edit to `spawn.js`, `lifecycle.js`, `db/` and most of `src/app/` reloaded the renderer and left the old
+main process running — a likely part of what #2 ran into. What to expect after a save:
+
+- The window closes and a new one opens a few seconds later. The quit waits for running PTYs first
+  (`session-shutdown.js`), so a run with terminals open takes longer. The log shows
+  `[dev-reload] <file> changed — restarting the app`, the `[shutdown]` steps, then a fresh boot.
+- **The launcher does not follow the restart.** Electron's relauncher starts the new process on its
+  own, so `npm start` / `demo:start` exits (code 0) when the old process does, and a background task
+  running it reports "completed" while the app is running. The new process keeps the debug port and
+  its log file; `npm run stop:dev` still finds it.
+- Wait for the debug port before driving: `drive-app.js` against a port that is not up yet fails, and
+  one that answers belongs to the new process — the old one has closed its port by then.
+
 ## `--target` matches the title AND the URL — which is ambiguous here
 
 The needle is tested against `"<title> <url>"`, and every window of this app has `switchboard` in its

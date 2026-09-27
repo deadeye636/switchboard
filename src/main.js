@@ -9,9 +9,6 @@ const log = require('electron-log');
 const { readableError, guardIpcHandlers } = require('./app/readable-error');
 // The one write core every save goes through (#441) — a preview tab's Save is not a lesser save.
 const { writeTextFile: writeTextAtomic } = require('./app/safe-write');
-// Generated output and fetched dependencies — what a walk does not enter and a watch does not follow
-// (#483). Used a few lines down by the dev reloader, and by the lists that walk a project.
-const { BUILD_DIR_NAMES } = require('./app/build-dirs');
 
 // FIRST, before a single handler is registered anywhere — in this file or in any `src/app/` module that
 // takes `ipcMain` from here. A handler registered before this line keeps the old behaviour, and the
@@ -111,20 +108,15 @@ if (!app.isPackaged && !process.env.SWITCHBOARD_USER_DATA) {
   app.setPath('userData', process.env.SWITCHBOARD_USER_DATA);
 }
 
-// The dev hot-reload watcher, and the `ignore` is not a tidiness pass (#483). `watchRenderer` hands
-// chokidar the WHOLE repository — its only exclusions are dotfiles, `node_modules` and source maps — so
-// it descended into `dist/` and statted the packaged `app.asar` that a previous `npm run build:win` had
-// left there. One stat is enough: Electron caches an asar archive open for the life of the process and
-// offers no way to close it, so `electron-builder` could no longer unlink the file and every build failed
-// while a dev instance of the same checkout ran. `src/app/build-dirs.js` has the measurement.
-// What the names reach here, measured rather than assumed: chokidar resolves a relative entry against
-// its `cwd` (the repository root) and drops that directory and everything under it — `dist/` and the rest
-// of the list sit exactly there. A nested one is NOT dropped, and a file-level pattern would not help,
-// because chokidar lstats every entry it enumerates and filters afterwards: only refusing the directory
-// keeps the stat from happening at all. `src/app/build-dirs.js` records both measurements and the residue.
+// The dev run follows an edit under `src/` (#665): a renderer file reloads the windows, anything else
+// restarts the app through its own quit, so the teardown below runs and the relaunched process finds the
+// lock and the debug port free. HERE, this early, on purpose: an edit that breaks a require further down
+// still leaves the watch running, and the save that fixes it restarts the app. Why it is not
+// `electron-reloader` any more (an `app.exit` that skipped the teardown and hung with a terminal open, and
+// a main-process set frozen at this line) is in the module's header.
 try {
-  require('electron-reloader')(module, { watchRenderer: true, ignore: BUILD_DIR_NAMES });
-} catch {};
+  require('./app/dev-reload').start({ app, BrowserWindow, srcDir: __dirname, log });
+} catch { /* a dev convenience never holds up the boot */ }
 
 // Clean env for child processes — strip Electron internals that cause nested
 // Electron apps (or node-pty inside them) to malfunction. ELECTRON_NO_ATTACH_CONSOLE is the one

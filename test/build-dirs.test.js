@@ -7,9 +7,10 @@
 // asar archive open for the life of the process, so `electron-builder` could not unlink the file and
 // every `npm run build:win` failed while a dev instance of the same checkout ran.
 //
-// The wiring half is a SOURCE check: `src/main.js` requires Electron at line one, so there is no seam to
-// call. It is weaker than a behavioural test and pins exactly one thing — that the option is still passed
-// — because the way this comes back is somebody tidying an argument whose reason is not local to it.
+// That reloader is gone since #665; its replacement (`src/app/dev-reload.js`) watches `src/` only. The
+// wiring half is a SOURCE check: `src/main.js` requires Electron at line one, so there is no seam to call.
+// It is weaker than a behavioural test and pins exactly one thing — that the watch root is still `src/` —
+// because the way this comes back is somebody widening an argument whose reason is not local to it.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -60,16 +61,26 @@ test('an asar is recognised by name, before anything builds a path to it', () =>
   assert.equal(isAsarArchive(null), false);
 });
 
-test('main.js hands the list to the dev reloader', () => {
+test('the dev reloader watches src/ and nothing wider', () => {
+  // Since #665 the reloader is `src/app/dev-reload.js`, and what keeps it out of `dist/` is its ROOT: it
+  // watches `src/`, which holds no packaged build. The old one was handed the whole repository and walked
+  // into `dist/`. `srcDir: __dirname` in main.js IS `src/`; widening it to the repository root brings the
+  // #483 defect straight back, which is the regression this pins.
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8'));
-  const call = src.match(/require\('electron-reloader'\)\(module,\s*\{[\s\S]*?\}\s*\)/);
+  const call = src.match(/require\('\.\/app\/dev-reload'\)\.start\(\{[\s\S]*?\}\)/);
   assert.ok(call, 'the dev reloader is still wired here');
   assert.match(
     call[0],
-    /ignore:\s*BUILD_DIR_NAMES/,
-    'without this the watcher walks dist/ and holds the packaged app.asar open, and no build can run '
-    + 'while a dev instance does — pass `ignore: BUILD_DIR_NAMES` from src/app/build-dirs.js. It has to '
-    + 'be the DIRECTORY names: chokidar lstats every entry it enumerates and filters afterwards, so a '
-    + 'file-level pattern removes the archive from the watch set long after the handle was taken.',
+    /srcDir:\s*__dirname\b/,
+    'the watch root must be src/ (main.js lives there) — a wider root walks dist/ and holds the packaged '
+    + 'app.asar open, and no build can run while a dev instance does.',
   );
+  assert.doesNotMatch(src, /electron-reloader/, 'the old reloader restarted with app.exit and is gone (#665)');
+});
+
+test('a build directory inside src/ is skipped by the dev reloader too', () => {
+  const { classifyChange } = require('../src/app/dev-reload');
+  for (const name of ['dist', 'node_modules', 'coverage']) {
+    assert.equal(classifyChange(`app/${name}/x.js`), null, `${name} is on the list and is not followed`);
+  }
 });

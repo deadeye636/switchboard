@@ -84,6 +84,9 @@ answers no turn line is asked first through `agentRpc.turnQueueOf`, which counts
 wrote while a turn ran — #660), `session-shutdown.js` (stopping every CLI
 process and CHECKING that it stopped — #424), `db-upkeep.js` (when the database is compacted and how
 much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here),
+`dev-reload.js` (a dev run following an edit under `src/` — `src/renderer/**` reloads the windows, the
+rest of `src/` restarts the app through `app.relaunch()` + `app.quit()` so the teardown runs, #665; it
+replaced `electron-reloader`, and the module header has the two measured defects that retired it),
 `vcs-ignore.js` (will this directory be committed — the two questions asked before the app suggests writing into one; shared by the plans convention and the handoff writer since #468),
 `build-dirs.js` (generated output, fetched dependencies and the VCS stores, by NAME — what a walk does
 not enter and a watch does not follow, #483. Its second export is the one that is not guessable:
@@ -92,9 +95,10 @@ not enter and a watch does not follow, #483. Its second export is the one that i
 throws ENOENT; a plain `readdir` of the parent does not. Electron reads such a path as an archive root and
 caches the `Archive` with its descriptor open, and there is no API to close it — so "read it and let go"
 is not available and the only move is not to touch the file. That is what made every `npm run build:win`
-fail while a dev instance of the same checkout ran: `electron-reloader` hands chokidar the whole
+fail while a dev instance of the same checkout ran: `electron-reloader` handed chokidar the whole
 repository, it walked `dist/`, and `electron-builder` could no longer unlink `app.asar`. Its callers are
-`main.js` (the reloader's `ignore`), `plans-memory.js` and `backends/resource-expand.js`. Deliberately NOT
+`dev-reload.js` (the reloader that replaced it at #665 — it watches `src/` only and skips a build
+directory inside it by name), `plans-memory.js` and `backends/resource-expand.js`. Deliberately NOT
 `backends/file-store.js`: a store walk that quietly returns fewer transcripts feeds a reconcile that
 purges history it only failed to read, #197),
 `index-sweep.js` (WHEN the index-repair sweep a `get-projects` asks for actually runs — #590; the
@@ -243,6 +247,13 @@ not tell a finished teardown from a stuck one. `lifecycle.js`'s `step()` writes 
 last of them comes **after** `closeDb()`: a log that stops before it names the step that hung, and one
 that reaches it says the handle belongs to something this file never opened. Keep that ordering, and do
 not make the good path silent again to save lines — quitting happens once.
+
+**A restart is a quit too: `app.relaunch()` then `app.quit()`, never `app.exit()` (#665).** `exit` emits
+neither `before-quit` nor `will-quit`, so none of the above runs. `electron-reloader` restarted a dev run
+that way, and with a terminal open the old main process never finished exiting — window gone, debug port
+closed, threads alive — while Electron's relauncher waited for it to die before starting the new one.
+Nothing came back until the old process was killed by hand. `app/dev-reload.js` replaced it and restarts
+through the quit; any other restart this app grows goes the same way.
 
 **And the other half of quitting: a write that lands AFTER `closeDb()` (#76).** The teardown above is
 about processes; this is about continuations. `will-quit` runs synchronously, closes the database, and

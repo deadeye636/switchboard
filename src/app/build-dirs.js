@@ -21,9 +21,9 @@
 // could not `unlink dist/win-unpacked/resources/app.asar`, and only that one file survived a recursive
 // delete of the directory around it — a handle, not a permission. The holder was the DEV Electron's main
 // process (Restart Manager), and what put the stat there was `electron-reloader`: with `watchRenderer`
-// it hands chokidar the whole repository, whose only exclusions are dotfiles, `node_modules` and source
-// maps. An installed build never loads it (`electron-is-dev`), which is why building while the INSTALLED
-// app runs was always fine.
+// it handed chokidar the whole repository, whose only exclusions were dotfiles, `node_modules` and source
+// maps. An installed build never loaded it (`electron-is-dev`), which is why building while the INSTALLED
+// app runs was always fine. Its replacement since #665, `dev-reload.js`, watches `src/` only.
 //
 // The list itself is the plain answer to a second question the same defect asked: none of these
 // directories ever holds an agent file, a plan or a work file, and walking one costs a directory that

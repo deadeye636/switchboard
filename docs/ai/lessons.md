@@ -1270,3 +1270,29 @@ setting over, in the plans convention, where the preview refused what the prompt
 reader again, not by a test, which is why there is now a sweep of `src/` for either key, with `SECOND_READERS`
 in `test/convention-dirs.test.js` as the only door out of it. An addition to that map is a claim that one
 more surface may answer this question itself, and the claim has been wrong both times it was made.
+
+## A dev restart that skipped the teardown, and a reloader that forgot most of the app (#665)
+
+A dev run restarted after an edit and did not come back: the window was gone, the debug port was dead,
+the log stopped, and it stayed that way until `npm run stop:dev`. The issue listed four suspects — the
+single-instance lock, the debug port, the wrapper, a detached child — and the cause was none of them.
+
+`electron-reloader` restarted with `app.relaunch()` and then `app.exit(0)`. `exit` skips `before-quit`
+and `will-quit`, so the whole ordered teardown in `lifecycle.js` never ran. Reproduced on an isolated demo
+run: with no terminal open the old process exited, and Electron's relauncher started a new one. With two
+plain terminals open the old process lost its window and closed its port, and then it never exited. The
+relauncher waits for the old process to die before it starts the new one, so it waited indefinitely.
+Killing the old process by pid was enough for the relauncher to start the new one at once. The lock and
+the port were released because the process died. Neither was ever held by a live instance in the way.
+
+The same reproduction turned up a second defect. The reloader decided what counted as "main process"
+from `module.children` at the line where `main.js` required it, near the top. `spawn.js`, `db/`,
+`windows.js`, `lifecycle.js` and most of `src/app/` are required further down. A touch of `build-dirs.js`
+restarted the app. A touch of `spawn.js` only reloaded the renderer and left the old main process
+running, with nothing on screen to say so. That is the stale-code reading `driving-the-app.md` already
+warned about, produced by the tool that was supposed to prevent it.
+
+`src/app/dev-reload.js` replaced it. It restarts through `app.quit()` so the teardown runs, and it decides
+by place: `src/renderer/**` reloads, the rest of `src/` restarts. One launcher behaviour stays: the
+relaunched process belongs to Electron's relauncher and not to `npm start` or `demo:start`, so those exit
+when the old process does. Changing that would take a supervising launcher, which is a separate decision.
