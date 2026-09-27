@@ -30,6 +30,11 @@
 //   6. A local slash command (`/cost`, `/context`, `/login`) answers with an assistant line whose model is
 //      `<synthetic>` and an ordinary `result`. It is an entry like any other, NOT a `localCommand` op — that
 //      op is a `!` shell line of the core's own and is dropped for an id the core did not start.
+//      The TRANSCRIPT writes the same output differently (#681, measured on 2.1.283 with `/cost`): a
+//      `type: 'system'`, `subtype: 'local_command'` line whose top-level `content` is the text wrapped in
+//      `<local-command-stdout>`, under the SAME uuid as the synthetic assistant line. The typed command is a
+//      user line of `<command-name>` markup the stream does not replay. So an attach turns that system line
+//      into the entry the stream sent (`localCommandEntry`), and the key matches without a second mapping.
 //   7. A tool that needs an approval asks over the control channel (`control_request`, `can_use_tool`) only
 //      with `--permission-prompt-tool stdio`. The answer echoes the tool's input back as `updatedInput`, which
 //      is why `answerCommand` is handed the question it answers. A request the CLI withdraws
@@ -515,18 +520,53 @@ function responseOf(msg) {
 }
 
 // What an attach draws from the transcript file: the lines of this conversation that the stream sends as
-// entries too — user and assistant turns, not a subagent's, not the CLI's own bookkeeping (`isMeta`). The
+// entries too — user and assistant turns, and a local command's output in the shape the stream gives it
+// (point 6), not a subagent's, not the CLI's own bookkeeping (`isMeta`). The
 // file holds more kinds of line (attachments, queue operations, titles), which the history viewer shows and
 // a live conversation never sends; keeping them out is what makes a mounted view read like a live one.
 function conversationEntries(lines) {
   const out = [];
   for (const line of Array.isArray(lines) ? lines : []) {
+    if (line && line.type === 'system' && line.subtype === 'local_command') {
+      const entry = localCommandEntry(line);
+      if (entry) out.push(entry);
+      continue;
+    }
     if (!line || (line.type !== 'user' && line.type !== 'assistant')) continue;
     if (line.isSidechain || line.isMeta || !line.message || typeof line.uuid !== 'string') continue;
     const shown = displayedLine(line);
     if (shown) out.push(shown);
   }
   return out;
+}
+
+// A local command's output as the transcript keeps it (a `system/local_command` line, point 6) turned into
+// the entry the live stream sends for it: an assistant line from the `<synthetic>` model, same uuid, the
+// output as its text. `null` for an output that is empty or a line without a uuid — nothing to draw, and
+// nothing a key could match.
+function localCommandEntry(line) {
+  if (typeof line.uuid !== 'string' || !line.uuid || line.isSidechain || line.isMeta) return null;
+  const content = typeof line.content === 'string' ? line.content : '';
+  // A command typed while a turn ran is written as a system/local_command line of `<command-name>` markup
+  // too (the queued `/model` case, see Claude's session-reader). It reads as what the user typed, the same
+  // as the idle-prompt form, which is a user line.
+  const typed = typedCommand(content);
+  if (typed) {
+    return {
+      type: 'user',
+      uuid: line.uuid,
+      timestamp: typeof line.timestamp === 'string' ? line.timestamp : undefined,
+      message: { role: 'user', content: typed },
+    };
+  }
+  const text = localCommandOutput(content);
+  if (!text) return null;
+  return {
+    type: 'assistant',
+    uuid: line.uuid,
+    timestamp: typeof line.timestamp === 'string' ? line.timestamp : undefined,
+    message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text }] },
+  };
 }
 
 // The key the core stamps on an `append` and an attach answers for its snapshot: the line's uuid, which the

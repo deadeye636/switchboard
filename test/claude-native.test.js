@@ -302,6 +302,38 @@ test('an attach reads the conversation\'s own lines out of the transcript', () =
   assert.deepEqual(protocol.conversationEntries(lines).map(l => l.uuid), ['u1', 'a1']);
 });
 
+test('a reopened session shows a local command\'s output as the same entry the live stream sent (#681)', () => {
+  // The shapes measured on Claude Code 2.1.283 for `/cost`: the stream sends a synthetic assistant line, the
+  // transcript keeps a system/local_command line under the same uuid.
+  const text = 'You are currently using your subscription to power your Claude Code usage';
+  const transcript = [
+    { type: 'user', uuid: 'cav', isMeta: true, message: { role: 'user', content: '<local-command-caveat>Caveat: …</local-command-caveat>' } },
+    { type: 'user', uuid: 'cmd', message: { role: 'user', content: '<command-name>/usage</command-name>\n            <command-message>usage</command-message>\n            <command-args></command-args>' } },
+    { type: 'system', subtype: 'local_command', uuid: 'out', level: 'info', isMeta: false, timestamp: '2026-09-27T21:00:00.000Z', content: `<local-command-stdout>${text}</local-command-stdout>` },
+    { type: 'system', subtype: 'local_command', uuid: 'empty', content: '<local-command-stdout></local-command-stdout>' },
+    { type: 'system', subtype: 'local_command', content: `<local-command-stdout>${text}</local-command-stdout>` },
+    { type: 'system', subtype: 'compact_boundary', uuid: 'cb', content: 'Conversation compacted' },
+    { type: 'system', subtype: 'local_command', uuid: 'meta', isMeta: true, content: `<local-command-stdout>${text}</local-command-stdout>` },
+    { type: 'system', subtype: 'local_command', uuid: 'side', isSidechain: true, content: `<local-command-stdout>${text}</local-command-stdout>` },
+    // A command typed while a turn ran is written as a system line of command markup; it reads as typed.
+    { type: 'system', subtype: 'local_command', uuid: 'queued', content: '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>' },
+  ];
+  const attached = protocol.conversationEntries(transcript);
+  assert.deepEqual(attached.map(e => e.uuid), ['cmd', 'out', 'queued'],
+    'the empty output, the uuid-less, meta and sidechain lines and other system lines stay out');
+  assert.equal(attached[2].type, 'user');
+  assert.equal(attached[2].message.content, '/model opus');
+
+  const live = decodeAll([
+    { type: 'assistant', uuid: 'out', message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text }] } },
+  ]).find(o => o.op === 'append').entry;
+  const reopened = attached[1];
+  assert.equal(protocol.entryKey(reopened), protocol.entryKey(live), 'one key, so the view never draws it twice');
+  assert.equal(reopened.type, live.type);
+  assert.deepEqual(reopened.message.content, live.message.content);
+  assert.equal(reopened.message.model, '<synthetic>');
+});
+
 test('slash-command markup reads as the command, and a local command\'s output as its text (#680)', () => {
   const clear = '<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>';
   const lines = [
