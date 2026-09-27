@@ -33,6 +33,12 @@ const AUDITED_EXCLUDED = new Set([
   // `--permission-prompt-tool stdio`. This flag is not that: measured on 2.1.283, `--permission-prompts host`
   // on its own refuses every approval on the spot.
   '--permission-prompts',
+  // A signed configuration document is set up by whoever administers the Claude install, not chosen per
+  // session: the CLI exits at start when it cannot load the document or the document does not cover the
+  // model, so a per-session field would be a way to kill a launch with a typo. The help itself points to
+  // CLAUDE_CODE_CLIENT_DATA_URL instead, which keeps the URL out of the process list, and a spawned CLI
+  // inherits that variable from the environment without this app doing anything.
+  '--client-data-url',
   // #537. A cloud session is not a session this app can follow: there is no local transcript for the scan
   // to find, adopt or resume, so offering it would produce a tab that goes nowhere.
   '--cloud',
