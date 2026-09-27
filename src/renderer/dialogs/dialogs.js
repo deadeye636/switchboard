@@ -3,6 +3,10 @@
 // pendingSessions, openSessions, activePtyIds, refreshSidebar, pollActiveSessions (app.js)
 // Depends on: ICONS (icons.js), backend-registry.js (launchableBackends/getBackend/refreshBackendCaches),
 //   backend-icons.js (renderBackendIcon)
+// The Add Project dialog (#675) also reaches for: window.settingsProjectTags (panels/settings-project-tags.js,
+//   the tag chip editor), window.bookmarksTags.pickColor (bookmarks-tags.js, a tag's default colour),
+//   window._refreshProjectTagFilter (shell/sidebar-filters.js), loadProjects (app.js), showControlMessage
+//   (control-dialogs.js) and settingsOwnerPath (shared/worktree-path.js) — all resolved at call time.
 
 // Terminal glyphs, shared by the Terminal group of the launch picker (plain terminal, external
 // terminal, custom command, saved launchers) so the rows read as one family.
@@ -1000,6 +1004,30 @@ async function showResumeSessionDialog(session) {
   }
 }
 
+// Add Project (#675: plus its name, its tags, and "Add & Edit").
+//
+// The order is the contract: the PATH is settled first — validation, `addProject`, its refusal shown in the
+// dialog — and only a project that was added gets a name, tags or a settings window. Every one of those is
+// keyed on the path `addProject` ANSWERS with (the register's spelling), not on what was typed.
+//
+// - Name: the display name, written exactly the way the Projects manager's rename writes it
+//   (`startRename` in panels/projects-admin.js) — a read-modify-write of `project:<the row's own path>`.
+//   Identity, not a cascading setting, so no `settingsOwnerPath` (CLAUDE.md reflex 17). Empty = not written.
+// - Tags: the project tag chip editor from panels/settings-project-tags.js, the same one the settings
+//   window uses, minus the colour picker (settings-tags.js is not loaded here) — a new tag takes its
+//   default colour, a typed name of an existing tag keeps that tag's (`readChipTags`, resolved against
+//   the definitions fetched at write time). Written to `settingsOwnerPath(addedPath)` (shared/worktree-path.js),
+//   NOT the row's own path: a worktree's tags are its project's — the key the settings window's tag editor
+//   edits, since that window opens a worktree as its project (owner decision, #675). So adding a worktree
+//   with tags tags the project it belongs to, while its NAME stays on the worktree's own row. Merged into
+//   the tags that owner already has, because `projectTagsSet` REPLACES the set and re-adding a listed
+//   project must not drop its tags. No projects-changed push follows a tag write, so the tag filter bar is
+//   refreshed here.
+// - Add & Edit opens the settings window only AFTER both writes landed: that window is a snapshot seeded
+//   on open (renderer rule #146).
+//
+// Dismissal: once the name or tags hold input a backdrop click no longer closes the dialog (Escape still
+// does). Enter submits, except in the tag input, where it makes a chip.
 function showAddProjectDialog() {
   const overlay = document.createElement('div');
   overlay.className = 'add-project-overlay';
@@ -1014,9 +1042,24 @@ function showAddProjectDialog() {
       <input type="text" id="add-project-path" placeholder="/path/to/project" autocomplete="off" spellcheck="false">
       <button class="add-project-browse-btn">Browse</button>
     </div>
+    <div class="add-project-field">
+      <label class="add-project-field-label" for="add-project-name">Name <span class="add-project-optional">optional</span></label>
+      <input type="text" class="settings-input" id="add-project-name" placeholder="The folder name" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="add-project-field">
+      <label class="add-project-field-label" for="sv-project-tags-input">Tags <span class="add-project-optional">optional</span></label>
+      <div id="sv-project-tags" class="settings-tag-editor">
+        <span id="sv-project-tags-chips" class="settings-tag-chips"></span>
+        <input type="text" id="sv-project-tags-input" class="settings-tag-input" placeholder="Add a tag…"
+               autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list"
+               aria-controls="sv-project-tags-suggest">
+        <div id="sv-project-tags-suggest" class="settings-tag-suggest" role="listbox" hidden></div>
+      </div>
+    </div>
     <div class="add-project-error" id="add-project-error"></div>
     <div class="add-project-actions">
       <button class="add-project-cancel-btn">Cancel</button>
+      <button class="add-project-edit-btn" title="Add the project, then open its settings">Add &amp; Edit</button>
       <button class="add-project-add-btn">Add</button>
     </div>
   `;
@@ -1025,15 +1068,42 @@ function showAddProjectDialog() {
   document.body.appendChild(overlay);
 
   const pathInput = dialog.querySelector('#add-project-path');
+  const nameInput = dialog.querySelector('#add-project-name');
+  const tagsInput = dialog.querySelector('#sv-project-tags-input');
+  const chipsBox = dialog.querySelector('#sv-project-tags-chips');
   const errorEl = dialog.querySelector('#add-project-error');
   pathInput.focus();
 
+  // The tag editor's click-away listener hangs off this; close() takes it with it.
+  const listeners = new AbortController();
+  // Deterministic tag hue, shared with session-tag chips (bookmarks-tags.js) — the settings panel's rule.
+  const tagColor = (tag) => (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
+    ? window.bookmarksTags.pickColor(tag)
+    : '#61afef';
+  // The suggestions are filled in when the tag definitions arrive; the editor reads the array per keystroke.
+  const allProjectTags = [];
+  const tagEditor = window.settingsProjectTags.create({ body: dialog, allProjectTags, tagColor, signal: listeners.signal });
+  tagEditor.initProjectTagsEditor();
+  Promise.resolve(window.api.projectTagsListAll ? window.api.projectTagsListAll() : [])
+    .then((rows) => {
+      // The settings panel's filter: hidden means "stop showing it", disabled means "not assignable".
+      for (const r of (rows || [])) {
+        if (r && r.tag && !r.hidden && !r.disabled) allProjectTags.push({ tag: r.tag, color: r.color || null });
+      }
+    })
+    .catch(() => {});
+
+  const holdsInput = () => !!(nameInput.value.trim() || tagsInput.value.trim() || chipsBox.querySelector('.settings-tag-chip'));
+
   function close() {
+    listeners.abort();
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   }
 
-  async function addProject() {
+  let busy = false;   // Enter and a click can both land while the first add is still awaiting main
+  async function addProject({ edit = false } = {}) {
+    if (busy) return;
     const projectPath = pathInput.value.trim();
     if (!projectPath) {
       errorEl.textContent = 'Please enter a folder path.';
@@ -1041,15 +1111,68 @@ function showAddProjectDialog() {
       return;
     }
     errorEl.style.display = 'none';
-    const result = await window.api.addProject(projectPath);
-    if (result.error) {
-      errorEl.textContent = result.error;
-      errorEl.style.display = 'block';
-      return;
-    }
-    close();
+    busy = true;
+    try {
+      const result = await window.api.addProject(projectPath);
+      if (result.error) {
+        errorEl.textContent = result.error;
+        errorEl.style.display = 'block';
+        return;
+      }
+      // The spelling the register holds, which is what the sidebar, the tags and the settings key on.
+      const addedPath = result.projectPath || projectPath;
+      // A tag still being typed counts, the way leaving the field would have made it a chip.
+      if (tagsInput.value.trim()) tagsInput.blur();
+      const name = nameInput.value.trim();
+      // Resolved against the definitions as they are NOW, not the suggestion list (which may not have
+      // arrived): a typed name of an existing tag keeps that tag's colour instead of recolouring it.
+      const hasChips = !!chipsBox.querySelector('.settings-tag-chip');
+      const defs = hasChips ? ((await window.api.projectTagsListAll().catch(() => [])) || []) : [];
+      const tags = tagEditor.readChipTags(defs);
+      close();
 
-    await loadProjects();
+      const failed = [];
+      if (name) {
+        try {
+          // The row's OWN path, as `startRename` writes it: a display name is identity, not a setting.
+          const settingsKey = 'project:' + addedPath;
+          const existing = (await window.api.getSetting(settingsKey)) || {};
+          existing.displayName = name;
+          await window.api.setSetting(settingsKey, existing);
+        } catch (err) {
+          failed.push({ label: 'Name', value: (err && err.message) || String(err) });
+        }
+      }
+      if (tags.length) {
+        try {
+          // A worktree's tags are its PROJECT's — the same key the settings window's tag editor edits.
+          const tagsOwner = settingsOwnerPath(addedPath) || addedPath;
+          const current = (await window.api.projectTagsGet(tagsOwner).catch(() => [])) || [];
+          const have = new Set(current.map(t => t.tag));
+          // The project's own tags go back with their stored colour — null writes none, so nothing is recoloured.
+          const merged = current.map(t => ({ tag: t.tag, color: t.color || null }))
+            .concat(tags.filter(t => !have.has(t.tag)));
+          await window.api.projectTagsSet(tagsOwner, merged);
+        } catch (err) {
+          failed.push({ label: 'Tags', value: (err && err.message) || String(err) });
+        }
+      }
+
+      await loadProjects();
+      if (tags.length) window._refreshProjectTagFilter?.();
+
+      if (failed.length && typeof showControlMessage === 'function') {
+        showControlMessage({
+          title: 'Project added',
+          tone: 'warning',
+          message: 'The project was added, but not everything could be saved with it. You can set it in the project settings.',
+          details: failed,
+        });
+      }
+      if (edit) window.api.openSettingsWindow('project', addedPath);
+    } finally {
+      busy = false;
+    }
   }
 
   dialog.querySelector('.add-project-browse-btn').onclick = async () => {
@@ -1058,12 +1181,16 @@ function showAddProjectDialog() {
   };
 
   dialog.querySelector('.add-project-cancel-btn').onclick = close;
-  dialog.querySelector('.add-project-add-btn').onclick = addProject;
-  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  dialog.querySelector('.add-project-add-btn').onclick = () => addProject();
+  dialog.querySelector('.add-project-edit-btn').onclick = () => addProject({ edit: true });
+  // A stray click beside the dialog must not throw away a name and tags somebody typed.
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && !holdsInput()) close(); });
 
   function onKey(e) {
     if (e.key === 'Escape') close();
-    if (e.key === 'Enter') addProject();
+    // In the tag input Enter makes a chip (the editor only preventDefaults it), so it must not also add.
+    // On a focused button Enter is that button's own click — Add & Edit must not turn into a plain Add.
+    if (e.key === 'Enter' && e.target !== tagsInput && !(e.target.closest && e.target.closest('button'))) addProject();
   }
   document.addEventListener('keydown', onKey);
 }

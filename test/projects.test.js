@@ -194,6 +194,26 @@ test('addProject refuses a file, and brings back a project that was removed', ()
   } finally { t.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// #675: the Add Project dialog writes the new project's name and tags and opens its settings with the path
+// `addProject` answers — every one of those is keyed on a path string. So the answer is the spelling the
+// register row is filed under, and a re-add typed with another spelling of the same directory must name
+// the row that already exists rather than echo the input back. The mismatch is a trailing separator,
+// which folds on every platform (see the #579 test below).
+test('#675: addProject answers with the REGISTERED spelling, not the one it was given', () => {
+  const t = makeCtx();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'proj-'));
+  try {
+    const first = projects.addProject(dir);
+    assert.strictEqual(first.projectPath, dir, 'a first add answers with the row it just wrote');
+
+    const again = projects.addProject(dir + path.sep);
+    assert.strictEqual(again.ok, true);
+    assert.strictEqual(again.projectPath, dir,
+      'a second spelling of a registered directory answers with the registered one');
+    assert.strictEqual(t.state(dir + path.sep), null, 'and no second register row was opened for it');
+  } finally { t.cleanup(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('hide keeps the project on the list; remove takes it off and tombstones it', () => {
   const t = makeCtx();
   try {

@@ -1,31 +1,42 @@
-// --- Settings: the project tag chip editor (#218, #98, #134) ---
+// --- Settings: the project tag chip editor (#218, #98, #134, #675) ---
 //
-// Project-panel only. Type a tag and press Enter (or comma) and it becomes a chip; × removes it;
+// Loaded by BOTH pages: settings.html (the project panel) and, since #675, index.html, where the Add
+// Project dialog in dialogs/dialogs.js builds one for the new project's tags. Either host renders the
+// same markup — `#sv-project-tags-chips`, `#sv-project-tags-input`, `#sv-project-tags-suggest` inside its
+// `body` — and fills the chip box with `renderTagChip`, which this module hands back from `create` so the
+// two pages share one copy of the chip markup.
+//
+// Type a tag and press Enter (or comma) and it becomes a chip; × removes it;
 // Backspace on an empty input eats the last one; clicking a chip opens the colour picker. The suggestion
 // list is an in-app combobox rather than a native <datalist>: the native one ignored the app's styling,
 // and picking an entry only filled the input, leaving the user to guess that Enter was still needed to
 // turn it into a chip (#134).
 //
 // NOTHING HERE IS SAVED BY THIS FILE, and that is the thing to know before changing it: the chips ARE the
-// state. `persistSettings` reads them straight back out of the DOM — it re-queries `#sv-project-tags-chips`
-// itself and collects `.settings-tag-chip` (settings-panel.js, "Everything Save writes"). So a chip that
-// is in the box is a tag that will be saved, and the colour lives on the chip's `data-color`. Change the
-// markup these produce and you change what Save writes, with nothing in between to catch it.
+// state. Both hosts read them straight back out of the DOM through `readChipTags` below — `persistSettings`
+// (settings-panel.js, "Everything Save writes") and the Add Project dialog when it adds (dialogs.js). So a
+// chip that is in the box is a tag that will be saved, and the colour lives on the chip's `data-color`
+// (and, for a colour nobody chose, `data-unchosen`). Change the markup these produce and you change what
+// both write, with nothing in between to catch it.
 //
 // It came out of `openSettingsViewer` in settings-panel.js — see settings-tags.js's header for why a cut
 // out of that function hands a module what it used to close over. This is the fourth.
 //
-// ctx: { body, allProjectTags, tagColor(tag) -> hex, renderTagChip(tag, color) -> html,
-//        buildColorPopover(anchor, initialColor, onPick) -> Element, signal: AbortSignal }
+// ctx: { body, allProjectTags, tagColor(tag) -> hex,
+//        buildColorPopover(anchor, initialColor, onPick) -> Element  (optional), signal: AbortSignal }
+// returns: { initProjectTagsEditor(), renderTagChip(tag, color) -> html,
+//            readChipTags(defs) -> [{ tag, color }]  — what both hosts hand `projectTagsSet` }
 //
 // `create(ctx)` is a FACTORY and here that is a necessity, not symmetry (unlike settings-maintenance.js):
 // the palette's dismiss-on-outside-click listener at the bottom hangs off `signal`, and openSettingsViewer
-// aborts its controller and makes a new one on EVERY open. A listener bound to a stale signal never fires,
-// so the picker would never dismiss.
+// aborts its controller and makes a new one on EVERY open (the Add Project dialog aborts its own on close).
+// A listener bound to a stale signal never fires, so the picker would never dismiss.
 //
 // `buildColorPopover` comes from panels/settings-tags.js — this ctx member is the seam between two modules
 // that were both cut out of the same function. The picker is shared on purpose: the chips here and the tag
-// definition lists there must offer the same colours, and two copies would drift.
+// definition lists there must offer the same colours, and two copies would drift. It is OPTIONAL because
+// settings-tags.js is a settings.html module: the Add Project dialog does not load it and offers no
+// recolouring, so there a chip is not clickable, says nothing about colour, and a new tag gets its default.
 //
 // `escapeHtml` is NOT in the ctx: lib/utils.js declares it at the top level of a classic script, so it
 // resolves at call time from the shared global lexical scope, like every other renderer file's use of it.
@@ -37,9 +48,43 @@
     const settingsViewerBody = ctx.body;
     const allProjectTags = ctx.allProjectTags;
     const tagColor = ctx.tagColor;
-    const renderTagChip = ctx.renderTagChip;
-    const buildColorPopover = ctx.buildColorPopover;
+    const buildColorPopover = typeof ctx.buildColorPopover === 'function' ? ctx.buildColorPopover : null;
     const listenerSignal = ctx.signal;
+
+    // One chip's markup — the only copy; settings-panel.js seeds its chip box with it and the Add Project
+    // dialog would otherwise have needed a second one (#675). The "click to recolour" promise is made only
+    // where a picker exists to keep it.
+    // `unchosen` marks a chip whose colour nobody picked — typed, or taken from a suggestion that carried
+    // no colour. See `readChipTags` for why that has to survive until the write.
+    function renderTagChip(tag, color, unchosen) {
+      const c = color || tagColor(tag);
+      const title = buildColorPopover ? ' title="Click to change color"' : '';
+      const mark = unchosen ? ' data-unchosen="1"' : '';
+      return `<span class="settings-tag-chip" data-tag="${escapeHtml(tag)}" data-color="${escapeHtml(c)}"${mark} style="background:${c}1a;border-color:${c};color:${c}"${title}><span class="settings-tag-label">${escapeHtml(tag)}</span><button type="button" class="settings-tag-remove" aria-label="Remove tag ${escapeHtml(tag)}">&times;</button></span>`;
+    }
+
+    // What a host WRITES for the chips: `[{ tag, color }]` for `projectTagsSet`. Saving a tag also sets the
+    // colour of its global definition (`setProjectTagsTx`, db/tags-store.js), so a chip whose colour nobody
+    // chose must not send a made-up one for a tag that already exists — typing an existing tag's name would
+    // otherwise recolour that tag everywhere. Such a chip sends the definition's own colour (null when it
+    // has none, which writes nothing). `defs` is the full definition list (`projectTagsListAll`), hidden
+    // and disabled included, fetched by the caller AT WRITE TIME: the suggestion list may not have arrived
+    // when the chip was made, and a definition can have been created since. Names compare exactly, as the
+    // store's primary key does. A chip whose colour was chosen — seeded from the project, picked from a
+    // coloured suggestion, recoloured with the picker — sends its own.
+    function readChipTags(defs) {
+      const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
+      if (!chipsBox) return [];
+      const byName = new Map((defs || []).filter(d => d && d.tag).map(d => [d.tag, d]));
+      return Array.from(chipsBox.querySelectorAll('.settings-tag-chip'))
+        .filter(c => c.dataset.tag)
+        .map((c) => {
+          const tag = c.dataset.tag;
+          const def = c.dataset.unchosen === '1' ? byName.get(tag) : null;
+          if (def) return { tag, color: def.color || null };
+          return { tag, color: c.dataset.color || tagColor(tag) };
+        });
+    }
 
     function initProjectTagsEditor() {
       const tagsInput = settingsViewerBody.querySelector('#sv-project-tags-input');
@@ -49,7 +94,9 @@
       const addTag = (raw, color) => {
         const tag = String(raw || '').trim();
         if (!tag || currentTags().includes(tag)) return;
-        chipsBox.insertAdjacentHTML('beforeend', renderTagChip(tag, color));
+        // A typed name that is an existing tag wears that tag's colour on screen too, when it is known yet.
+        const known = color ? null : allProjectTags.find(t => t.tag === tag);
+        chipsBox.insertAdjacentHTML('beforeend', renderTagChip(tag, color || (known && known.color) || null, !color));
       };
 
       if (tagsInput && suggestBox) {
@@ -172,13 +219,14 @@
         const rm = e.target.closest('.settings-tag-remove');
         if (rm) { rm.closest('.settings-tag-chip').remove(); closePalette(); return; }
         const chip = e.target.closest('.settings-tag-chip');
-        if (!chip) return;
+        if (!chip || !buildColorPopover) return;   // no picker in this host: × is the only action
         // Toggle a small palette popover to recolor this chip (#98).
         const reopenSame = paletteEl && paletteEl._chip === chip;
         closePalette();
         if (reopenSame) return;
         const applyColor = (col) => {
           chip.dataset.color = col;
+          delete chip.dataset.unchosen;   // a picked colour IS a choice, and recolouring the tag is the point
           chip.style.background = col + '1a';
           chip.style.borderColor = col;
           chip.style.color = col;
@@ -197,7 +245,7 @@
       }, { signal: listenerSignal });
     }
 
-    return { initProjectTagsEditor };
+    return { initProjectTagsEditor, renderTagChip, readChipTags };
   }
 
   window.settingsProjectTags = { create };

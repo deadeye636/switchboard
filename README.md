@@ -253,7 +253,8 @@ off in the settings and the CLI goes back to discovering your real editor.
 
 ![Projects](docs/images/projects.png)
 
-Add projects manually or automatically, hide or remove them (and a removal *sticks* — the sessions it
+Add projects manually (naming and tagging one as you add it, or going straight on to its settings with
+**Add & Edit**) or automatically, hide or remove them (and a removal *sticks* — the sessions it
 left behind do not bring it back, but a new one does), rename them, set per-project trust, or delete
 one backend's history without touching another's. A worktree row is the exception: it can be hidden and
 renamed, and it is deleted from the sidebar's own header rather than removed here.

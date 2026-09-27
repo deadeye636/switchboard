@@ -97,6 +97,7 @@
     "composer-completion.js",
     "branch-tree-dialog.js",
     "conversation-view.js",
+    "settings-project-tags.js",
     "dialogs.js",
     "welcome-tour.js",
     "handoff.js",

@@ -82,10 +82,6 @@
     const tagPalette = (window.bookmarksTags && Array.isArray(window.bookmarksTags.palette) && window.bookmarksTags.palette.length)
       ? window.bookmarksTags.palette
       : ['#e06c75', '#e5c07b', '#98c379', '#56b6c2', '#61afef', '#c678dd', '#d19a66'];
-    const renderTagChip = (tag, color) => {
-      const c = color || tagColor(tag);
-      return `<span class="settings-tag-chip" data-tag="${escapeHtml(tag)}" data-color="${escapeHtml(c)}" style="background:${c}1a;border-color:${c};color:${c}" title="Click to change color"><span class="settings-tag-label">${escapeHtml(tag)}</span><button type="button" class="settings-tag-remove" aria-label="Remove tag ${escapeHtml(tag)}">&times;</button></span>`;
-    };
 
     // The tag management lists, their live-update push and the colour picker moved to
     // panels/settings-tags.js (#218). They are built per OPEN because the click-away listener must hang
@@ -93,6 +89,21 @@
     // signal is already aborted, so the picker would never dismiss.
     const { initTagDefsSection, buildColorPopover } =
       window.settingsTags.create({ body: settingsViewerBody, tagColor, tagPalette, signal: listenerSignal });
+
+    // The project tag chip editor moved to panels/settings-project-tags.js (#218, #98, #134). It is built
+    // here, before the markup, because the chip markup is ITS — `renderTagChip` seeds the chip box below,
+    // and the Add Project dialog in index.html renders its chips with the same function (#675). The
+    // editor is wired further down, once the markup is in.
+    const projectTags = isProject
+      ? window.settingsProjectTags.create({
+          body: settingsViewerBody,
+          allProjectTags,
+          tagColor,
+          buildColorPopover,
+          signal: listenerSignal,
+        })
+      : null;
+    const renderTagChip = projectTags ? projectTags.renderTagChip : () => '';
 
     // The Maintenance section (export / import / rebuild) moved to panels/settings-maintenance.js
     // (#218). It takes `openSettingsViewer` as `reopen` because a successful import has to re-render
@@ -1006,19 +1017,10 @@
     });
     initShortcutSection();
 
-    // The project tag chip editor moved to panels/settings-project-tags.js (#218, #98, #134). The chips
-    // it produces ARE the state: persistSettings below re-queries the chip box out of the DOM rather than
-    // being handed anything from here, so nothing about the save path changes with this.
-    if (isProject) {
-      window.settingsProjectTags.create({
-        body: settingsViewerBody,
-        allProjectTags,
-        tagColor,
-        renderTagChip,
-        buildColorPopover,
-        signal: listenerSignal,
-      }).initProjectTagsEditor();
-    }
+    // The project tag chip editor (created above, with the chip markup). The chips it produces ARE the
+    // state: persistSettings below re-queries the chip box out of the DOM rather than being handed
+    // anything from here, so nothing about the save path changes with this.
+    if (projectTags) projectTags.initProjectTagsEditor();
 
     // #450 — pointing this project's CLIs at its plans directory.
     //
@@ -1178,10 +1180,11 @@
         }
 
         const chipsBox = settingsViewerBody.querySelector('#sv-project-tags-chips');
-        if (chipsBox) {
-          const tags = Array.from(chipsBox.querySelectorAll('.settings-tag-chip'))
-            .filter(c => c.dataset.tag)
-            .map(c => ({ tag: c.dataset.tag, color: c.dataset.color || tagColor(c.dataset.tag) }));
+        if (chipsBox && projectTags) {
+          // Definitions read NOW, not at open: a typed chip for an existing tag sends that tag's colour
+          // rather than recolouring it (#675), and the tag lists above can create one mid-edit.
+          const defs = (await window.api.projectTagsListAll().catch(() => [])) || [];
+          const tags = projectTags.readChipTags(defs);
           try { await window.api.projectTagsSet(projectPath, tags); } catch {}
         }
       } else {

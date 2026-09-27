@@ -169,12 +169,91 @@ test('settings-project-tags: create + init binds against the project-tags DOM wi
         body: document.getElementById('settings-viewer-body'),
         allProjectTags: [{ tag: 'x', color: '#fff' }],
         tagColor: () => '#61afef',
-        renderTagChip: (t) => '<span class="settings-tag-chip" data-tag="' + t + '"></span>',
         buildColorPopover: () => document.createElement('div'),
         signal: new AbortController().signal,
       });
       p.initProjectTagsEditor();
+      if (typeof p.renderTagChip !== 'function') throw new Error('renderTagChip not returned — settings-panel.js seeds its chips with it');
+      if (!/title="Click to change color"/.test(p.renderTagChip('x'))) throw new Error('a recolourable chip lost its title');
     `);
+  } finally { destroy(); }
+});
+
+// #675: the Add Project dialog (index.html) builds the editor WITHOUT buildColorPopover — settings-tags.js
+// is a settings.html module. The chip then promises no recolouring, and clicking one must not reach for a
+// picker that is not there.
+test('settings-project-tags: without buildColorPopover the chips render and a chip click throws nothing', () => {
+  const { inCtx, destroy } = setup();
+  try {
+    inCtx(`
+      const p = window.settingsProjectTags.create({
+        body: document.getElementById('settings-viewer-body'),
+        allProjectTags: [],
+        tagColor: () => '#61afef',
+        signal: new AbortController().signal,
+      });
+      p.initProjectTagsEditor();
+      const html = p.renderTagChip('alpha');
+      if (/title=/.test(html)) throw new Error('a chip nobody can recolour says it can be');
+      const box = document.getElementById('sv-project-tags-chips');
+      box.innerHTML = html;
+      // A throw inside a listener is REPORTED, not thrown out of click() — collect it.
+      const errs = [];
+      window.addEventListener('error', (e) => errs.push(e.message));
+      box.querySelector('.settings-tag-label').click();
+      if (errs.length) throw new Error('chip click threw: ' + errs[0]);
+      box.querySelector('.settings-tag-remove').click();
+      if (box.querySelector('.settings-tag-chip')) throw new Error('× did not remove the chip');
+    `);
+  } finally { destroy(); }
+});
+
+// #675: saving a project's tags also sets each tag DEFINITION's colour (setProjectTagsTx), so a typed name
+// of an existing tag must carry that tag's colour, not a default — even when it was typed before the
+// suggestion list arrived (the Add Project dialog loads it asynchronously). A chip whose colour somebody
+// chose keeps its own, and a genuinely new tag gets the default.
+test('settings-project-tags: a typed existing tag keeps its colour, resolved again at write time', () => {
+  const { inCtx, destroy } = setup();
+  try {
+    const out = inCtx(`
+      (() => {
+        const known = [];   // empty at first: the suggestions have not arrived yet
+        const p = window.settingsProjectTags.create({
+          body: document.getElementById('settings-viewer-body'),
+          allProjectTags: known,
+          tagColor: () => '#000001',
+          signal: new AbortController().signal,
+        });
+        p.initProjectTagsEditor();
+        const input = document.getElementById('sv-project-tags-input');
+        const type = (text) => {
+          input.value = text;
+          input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        };
+        type('early');                           // typed before the list is known
+        known.push({ tag: 'late', color: '#abcdef' });
+        type('late');                            // typed after: the chip itself wears the colour
+        type('fresh');                           // a new tag
+        const box = document.getElementById('sv-project-tags-chips');
+        box.insertAdjacentHTML('beforeend', p.renderTagChip('seeded', '#123456'));
+        const lateChip = box.querySelector('[data-tag="late"]');
+        const defs = [
+          { tag: 'early', color: '#fedcba' },
+          { tag: 'late', color: '#abcdef' },
+          { tag: 'seeded', color: '#999999' },
+          { tag: 'Fresh', color: '#777777' },   // a different name: the store compares exactly
+        ];
+        return JSON.stringify({ lateChipColor: lateChip.dataset.color, written: p.readChipTags(defs) });
+      })()
+    `);
+    const { lateChipColor, written } = JSON.parse(out);
+    assert.equal(lateChipColor, '#abcdef', 'a typed existing tag wears its colour when the list is known');
+    assert.deepStrictEqual(written, [
+      { tag: 'early', color: '#fedcba' },     // resolved at write time, not from the default the chip got
+      { tag: 'late', color: '#abcdef' },
+      { tag: 'fresh', color: '#000001' },     // new: the default colour
+      { tag: 'seeded', color: '#123456' },    // chosen (the project's stored colour): its own
+    ]);
   } finally { destroy(); }
 });
 

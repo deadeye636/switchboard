@@ -327,6 +327,27 @@ test('settingsOwnerPath is the project for a worktree and the path itself for an
   assert.equal(settingsOwnerPath(null), '');
 });
 
+// #675, owner decision: the Add Project dialog writes a worktree's TAGS to the project that owns it — the
+// key the settings window's tag editor edits — and its DISPLAY NAME to the worktree's own row (identity,
+// reflex 17's exception). A wiring guard, and it says so: the dialog is renderer code behind IPC with no
+// seam a test can call, so what this pins is the realistic regression — the tag read and write drifting
+// back onto the row's own path, or the name "tidied" onto the owner.
+test('the Add Project dialog tags a worktree\'s project and names the worktree itself (#675)', () => {
+  const code = stripComments(fs.readFileSync(path.join(ROOT, 'src/renderer/dialogs/dialogs.js'), 'utf8'));
+  const start = code.indexOf('function showAddProjectDialog(');
+  assert.ok(start >= 0, 'showAddProjectDialog not found — did it move? Point this guard at it');
+  const next = code.indexOf('\nfunction ', start + 1);
+  const body = code.slice(start, next < 0 ? undefined : next);
+
+  const owner = body.match(/const (\w+) = settingsOwnerPath\(addedPath\)/);
+  assert.ok(owner, 'the tag write no longer resolves the owner with settingsOwnerPath(addedPath)');
+  const ownerVar = owner[1];
+  assert.match(body, new RegExp(`projectTagsGet\\(${ownerVar}\\)`), 'the merge must read the OWNER\'s existing tags');
+  assert.match(body, new RegExp(`projectTagsSet\\(${ownerVar},`), 'the tags must be written to the owner');
+  assert.doesNotMatch(body, /projectTags(Get|Set)\(addedPath\b/, 'a tag call on the row\'s own path is back');
+  assert.match(body, /'project:' \+ addedPath/, 'the display name is identity: written against the row\'s own path');
+});
+
 test('the two readers that build the settings key by hand resolve the owner (#593)', () => {
   // A wiring guard, and it says so: these two do not go through `effectiveSettings`, they assemble
   // `project:<path>` themselves. Nothing else can see them — `spawn.js` requires node-pty at module

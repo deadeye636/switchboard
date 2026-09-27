@@ -408,6 +408,11 @@ async function browseFolder() {
  * This used to create `~/.claude/projects/<encoded>/` and write a FAKE transcript into it — a session
  * that never happened, saying "New project" — because a project the app could not derive from a
  * transcript could not exist. It exists now because it is on the list, so the forgery is gone.
+ *
+ * The `projectPath` it answers with is the spelling the register row is filed under, not the one typed
+ * into the dialog (#675): the dialog goes on to write the new project's name and tags and to open its
+ * settings, and each of those is keyed on a path string. Re-adding a project that is registered under
+ * another spelling of the same directory must reach the row the sidebar shows, not open a second key.
  */
 function addProject(projectPath) {
   try {
@@ -415,6 +420,8 @@ function addProject(projectPath) {
     if (!stat.isDirectory()) return { error: 'Path is not a directory' };
 
     ensureProjectAdded(projectPath);
+    // Asked AFTER the registration, so a first add answers with the row it just wrote.
+    const registeredPath = registeredPathFor(projectPath);
 
     // If the store already holds sessions for it (a project that was removed, or one Claude has been used
     // in outside Switchboard), index them NOW — all of them, from every folder that belongs to it — so
@@ -422,7 +429,7 @@ function addProject(projectPath) {
     refreshProjectFolders(projectPath);
     ctx.cache.notifyRendererProjectsChanged();
 
-    return { ok: true, folder: encodeProjectPath(projectPath), projectPath };
+    return { ok: true, folder: encodeProjectPath(projectPath), projectPath: registeredPath };
   } catch (err) {
     return { error: readableError(err, 'That project could not be added.', ctx && ctx.log) };
   }
