@@ -7,8 +7,17 @@
 // toggle; the decrypted value is prefilled via get-saved-variable but never
 // unmasked until the user clicks the eye.
 //
-// Depends on globals: escapeHtml (utils.js), showControlToast (control-dialogs.js),
-// window.api (preload).
+// The list is the user's MANUAL order (#676) — one order across every scope, and the same order every
+// picker shows. This tab is where it is set: drag a row by its grip — only the grip starts a drag, so text
+// in the table stays selectable (a real HTML5 drag, so `scripts/drive-app.js drag` can test it), or Alt+ArrowUp / Alt+ArrowDown on a focused row. "Sort by name"
+// puts the whole list back into alphabetical order in one step, with an Undo on the toast. While the text
+// filter holds anything, none of the three is offered: a drop between two rows that are not neighbours in
+// the full list has no one right answer. A SCOPE filter keeps them, because a moved row lands directly
+// before or after the row it was dropped on and every hidden row keeps its place (lib/variable-order.js).
+//
+// Depends on globals: escapeHtml (utils.js), showControlToast / showControlDialog (control-dialogs.js),
+// moveVariableInOrder / stepVariableInOrder / variableIdsByName / orderVariableRows / sameVariableOrder
+// (lib/variable-order.js), window.api (preload) — reorderSavedVariables among them.
 
 (function () {
   const container = document.getElementById('variables-admin-content');
@@ -19,6 +28,10 @@
   let scopeFilter = 'all'; // 'all' | 'global' | <projectPath>
   let search = '';
   let loaded = false;     // has fetchData ever populated variables/projects (for ensureLoaded)
+  let reorderSeq = 0;     // the latest reorder request; an older reply must not repaint over a newer move
+  let dragId = null;      // the row in flight during a drag
+  let armedRow = null;    // the row whose grip the pointer is down on — the only row that may start a drag
+  let undoToast = null;   // the "sorted by name — Undo" toast while it is on screen
 
   function shortName(p) {
     return String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/') || p || '';
@@ -133,10 +146,19 @@
     return { el: wrap, getValue, setValue };
   }
 
+  // The same six-dot grip the sidebar's project drag handle draws.
+  const GRIP_SVG = '<svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="3" r="1.3"/><circle cx="8.5" cy="3" r="1.3"/><circle cx="3.5" cy="7" r="1.3"/><circle cx="8.5" cy="7" r="1.3"/><circle cx="3.5" cy="11" r="1.3"/><circle cx="8.5" cy="11" r="1.3"/></svg>';
+
+  // Reordering is off while the TEXT filter holds anything — see the header.
+  function reorderLocked() { return !!search; }
+  const LOCKED_HINT = 'Clear the filter to reorder';
+
   function rowHtml(row) {
     const tags = (row.tags || []).map(t => `<span class="va-tag">${escapeHtml(t)}</span>`).join('');
+    const locked = reorderLocked();
     return `
-      <tr data-id="${escapeHtml(row.id)}">
+      <tr data-id="${escapeHtml(row.id)}" tabindex="0"${locked ? ' class="va-reorder-locked"' : ''}>
+        <td class="va-grip" title="${locked ? LOCKED_HINT : 'Drag to reorder (Alt+Up / Alt+Down)'}">${GRIP_SVG}</td>
         <td class="va-name">${escapeHtml(row.name)}</td>
         <td class="va-scope">${escapeHtml(scopeLabel(row))}</td>
         <td class="va-center">${row.secret ? '<span class="va-secret-pill">Secret</span>' : ''}</td>
@@ -153,7 +175,7 @@
     const rows = variables.filter(matches);
     return rows.length
       ? rows.map(rowHtml).join('')
-      : '<tr><td colspan="5" class="va-empty">No variables match.</td></tr>';
+      : '<tr><td colspan="6" class="va-empty">No variables match.</td></tr>';
   }
 
   function render() {
@@ -163,13 +185,14 @@
         <span class="va-scope-mount"></span>
         <input type="text" class="va-search" placeholder="Filter variables…" value="${escapeHtml(search)}">
         <button class="va-add" data-action="new">+ New variable</button>
+        <button class="va-sort" data-action="sort-name">Sort by name</button>
         <button class="va-refresh" data-action="refresh" title="Reload">⟳</button>
         <button class="viewer-header-close" data-close-admin title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
       <div class="va-table-wrap">
         <table class="va-table">
           <thead>
-            <tr><th>Name</th><th>Project</th><th>Secret</th><th>Tags</th><th>Actions</th></tr>
+            <tr><th class="va-grip-col" aria-label="Order"></th><th>Name</th><th>Project</th><th>Secret</th><th>Tags</th><th>Actions</th></tr>
           </thead>
           <tbody>${rowsHtml()}</tbody>
         </table>
@@ -181,17 +204,31 @@
       placeholder: 'All projects',
       onChange: (val) => {
         scopeFilter = val;
-        const tbody = container.querySelector('.va-table tbody');
-        if (tbody) tbody.innerHTML = rowsHtml();
+        renderRows();
       },
     });
     container.querySelector('.va-scope-mount').replaceWith(filterCombo.el);
     const searchInput = container.querySelector('.va-search');
     searchInput.addEventListener('input', () => {
       search = searchInput.value.trim().toLowerCase();
-      const tbody = container.querySelector('.va-table tbody');
-      if (tbody) tbody.innerHTML = rowsHtml();
+      renderRows();
     });
+    syncSortButton();
+  }
+
+  // Repaint the rows only — the header, the filter box and its caret stay as they are.
+  function renderRows() {
+    const tbody = container.querySelector('.va-table tbody');
+    if (tbody) tbody.innerHTML = rowsHtml();
+    syncSortButton();
+  }
+
+  function syncSortButton() {
+    const btn = container.querySelector('.va-sort');
+    if (!btn) return;
+    const locked = reorderLocked();
+    btn.disabled = locked || variables.length < 2;
+    btn.title = locked ? LOCKED_HINT : 'Put the whole list into alphabetical order';
   }
 
   async function fetchData() {
@@ -401,7 +438,9 @@
 
     // --- the variable picker ------------------------------------------------------------------------
     // Lists what THIS row could reference: globals plus, for a project-scoped row, that project's. The row
-    // being edited is excluded — a self-reference is an instant cycle, so it is not offered.
+    // being edited is excluded — a self-reference is an instant cycle, so it is not offered. One list in the
+    // manual order (#676), each row badged with its scope; which one a `{var:name}` binds to is still the
+    // resolver's rule (project over global), never the position in this list.
     function openVarPicker(anchor, onPick) {
       const existingPop = overlay.querySelector('.va-var-picker');
       if (existingPop) { existingPop.remove(); return; }
@@ -419,7 +458,7 @@
              <button type="button" class="va-var-row" data-name="${escapeHtml(v.name)}">
                <span class="va-var-name">${escapeHtml(v.name)}</span>
                ${v.secret ? '<span class="va-secret-pill">Secret</span>' : ''}
-               <span class="va-var-scope">${v.scope === 'project' ? 'Project' : 'Global'}</span>
+               <span class="va-tag va-scope-badge">${v.scope === 'project' ? 'Project' : 'Global'}</span>
              </button>`).join('')}</div>`
         : '<div class="va-var-empty">No other variables to reference.</div>';
       anchor.parentElement.appendChild(pop);
@@ -729,9 +768,163 @@
 
   function findRow(id) { return variables.find(v => v.id === id); }
 
+  // --- The manual order (#676) ------------------------------------------------------------------------
+
+  // Show `ids` at once, then store it. The store answers with the order it actually wrote — it drops an id
+  // another window deleted meanwhile and keeps a row this window never saw — and that answer is shown, unless
+  // a newer move has been made since, in which case that one's answer is the one that counts.
+  async function applyOrder(ids, { focusId = null } = {}) {
+    // Any move — including the Undo itself — ends the Undo on offer: it restores the order from BEFORE the
+    // sort, so pressing it after a later move would silently revert that move too.
+    dismissUndo();
+    const seq = ++reorderSeq;
+    variables = orderVariableRows(variables, ids);
+    renderRows();
+    if (focusId) focusRow(focusId);
+    let res = null;
+    try { res = await window.api.reorderSavedVariables(ids); } catch (err) { res = { ok: false, error: err && err.message }; }
+    if (seq !== reorderSeq) return !!(res && res.ok);
+    if (!res || !res.ok) {
+      toast('Reorder: ' + (res?.error || 'failed'));
+      await load();
+      if (focusId) focusRow(focusId);
+      return false;
+    }
+    if (Array.isArray(res.order) && !sameVariableOrder(res.order, variables.map(v => v.id))) {
+      variables = orderVariableRows(variables, res.order);
+      renderRows();
+      if (focusId) focusRow(focusId);
+    }
+    return true;
+  }
+
+  function focusRow(id) {
+    const tr = [...container.querySelectorAll('.va-table tbody tr[data-id]')].find(r => r.dataset.id === id);
+    if (tr) tr.focus();
+  }
+
+  function dismissUndo() {
+    if (undoToast) { undoToast.remove(); undoToast = null; }
+  }
+
+  async function sortByName() {
+    if (reorderLocked()) return;
+    const before = variables.map(v => v.id);
+    const sorted = variableIdsByName(variables);
+    if (sameVariableOrder(before, sorted)) { toast('Already in name order'); return; }
+    const ok = await applyOrder(sorted);
+    const seq = reorderSeq;
+    // A move made while the sort was on its way is newer than the sort: no Undo for it then.
+    if (!ok || seq !== reorderSeq || typeof showControlToast !== 'function') return;
+    undoToast = showControlToast({
+      message: 'Variables sorted by name',
+      actionLabel: 'Undo',
+      onAction: () => { undoToast = null; return applyOrder(before); },
+      timeoutMs: 8000,
+    });
+  }
+
+  function clearDropMarks() {
+    container.querySelectorAll('.va-drop-before, .va-drop-after').forEach(el => el.classList.remove('va-drop-before', 'va-drop-after'));
+  }
+
+  function dropPlace(tr, clientY) {
+    const r = tr.getBoundingClientRect();
+    return clientY < r.top + r.height / 2 ? 'before' : 'after';
+  }
+
+  function rowOf(target) {
+    return (target && target.closest) ? target.closest('.va-table tbody tr[data-id]') : null;
+  }
+
+  // Only the GRIP starts a drag. A row is made draggable while the pointer is down on its grip and not
+  // otherwise, so pressing on a name or a button and moving selects text as it always did. The row stays the
+  // drag source (a real HTML5 drag, which `scripts/drive-app.js drag '<grip>' '<row>' top|bottom` performs
+  // from the grip's centre).
+  function disarmRow() {
+    if (armedRow) { armedRow.removeAttribute('draggable'); armedRow = null; }
+  }
+
+  container.addEventListener('pointerdown', (e) => {
+    disarmRow();
+    if (e.button !== 0 || reorderLocked()) return;
+    const grip = e.target.closest && e.target.closest('.va-grip');
+    const tr = grip ? rowOf(grip) : null;
+    if (!tr) return;
+    tr.setAttribute('draggable', 'true');
+    armedRow = tr;
+    window.addEventListener('pointerup', disarmRow, { once: true });
+  });
+
+  container.addEventListener('dragstart', (e) => {
+    const tr = rowOf(e.target);
+    if (!tr) return;
+    if (reorderLocked() || tr !== armedRow) { e.preventDefault(); dragId = null; return; }
+    dragId = tr.dataset.id;
+    tr.classList.add('dragging');
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragId);
+    } catch {}
+  });
+
+  container.addEventListener('dragover', (e) => {
+    if (!dragId) return;
+    const tr = rowOf(e.target);
+    if (!tr) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch {}
+    clearDropMarks();
+    if (tr.dataset.id === dragId) return;
+    tr.classList.add(dropPlace(tr, e.clientY) === 'before' ? 'va-drop-before' : 'va-drop-after');
+  });
+
+  container.addEventListener('dragleave', (e) => {
+    if (!dragId) return;
+    if (!container.contains(e.relatedTarget)) clearDropMarks();
+  });
+
+  container.addEventListener('drop', (e) => {
+    if (!dragId) return;
+    const tr = rowOf(e.target);
+    const moved = dragId;
+    dragId = null;
+    clearDropMarks();
+    if (!tr) return;
+    e.preventDefault();
+    const before = variables.map(v => v.id);
+    const next = moveVariableInOrder(before, moved, tr.dataset.id, dropPlace(tr, e.clientY));
+    if (!sameVariableOrder(before, next)) applyOrder(next);
+  });
+
+  container.addEventListener('dragend', () => {
+    dragId = null;
+    disarmRow();
+    clearDropMarks();
+    container.querySelectorAll('.va-table tbody tr.dragging').forEach(el => el.classList.remove('dragging'));
+  });
+
+  // Alt+ArrowUp / Alt+ArrowDown moves the focused row one place among the rows shown, and the focus goes
+  // with it. Plain arrows are left alone: they scroll the table.
+  container.addEventListener('keydown', (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const tr = rowOf(e.target);
+    if (!tr || e.target !== tr) return;
+    e.preventDefault();
+    if (reorderLocked()) { toast(LOCKED_HINT); return; }
+    const id = tr.dataset.id;
+    const all = variables.map(v => v.id);
+    const shown = variables.filter(matches).map(v => v.id);
+    const next = stepVariableInOrder(all, shown, id, e.key === 'ArrowUp' ? -1 : 1);
+    if (!next || sameVariableOrder(all, next)) return;
+    applyOrder(next, { focusId: id });
+  });
+
   async function handleAction(action, id) {
     if (action === 'refresh') { load(); return; }
     if (action === 'new') { openDialog(null); return; }
+    if (action === 'sort-name') { sortByName(); return; }
     const row = findRow(id);
     if (!row) return;
     if (action === 'edit') { openDialog(row); return; }
@@ -763,7 +956,7 @@
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
-    if (action === 'refresh' || action === 'new') { handleAction(action, null); return; }
+    if (action === 'refresh' || action === 'new' || action === 'sort-name') { handleAction(action, null); return; }
     const tr = btn.closest('tr');
     handleAction(action, tr ? tr.dataset.id : null);
   });

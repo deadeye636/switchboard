@@ -26,7 +26,8 @@
 //   filter(rows, query, ctx)  — the query applied; the ORDER it returns is the order the arrows walk
 //   groups(rows, ctx)         — optional; `[{ label, rows }]` to draw headings, or null for a flat list
 //   rowKey(row)   — the identity a click maps back to a row
-//   row(row)      — `{ main, meta, metaClass }`, all escaped here
+//   row(row)      — `{ main, meta, metaClass, badge, badgeClass }`, all escaped here. `badge` is a second
+//                   chip after `meta`, drawn with `badgeClass` (the variable picker's scope, #676)
 //   emptyText(ctx)      — the status when the picker holds nothing: a string, or `{ before, key, after }`
 //                         for the one case that wants a <kbd> in the middle
 //   noMatchText(query)  — the status when the filter matched nothing
@@ -217,12 +218,13 @@
   function rowId(i) { return paletteState.config.id + '-pal-row-' + i; }
 
   function rowHtml(row, i, active) {
-    const { main, meta, metaClass } = paletteState.config.row(row) || {};
+    const { main, meta, metaClass, badge, badgeClass } = paletteState.config.row(row) || {};
     const key = paletteState.config.rowKey(row);
     return `
       <div class="vpal-row${active ? ' active' : ''}" id="${rowId(i)}" data-key="${esc(key)}" role="option" aria-selected="${active ? 'true' : 'false'}">
         <span class="vpal-name">${esc(main)}</span>
         ${meta ? `<span class="vpal-secret${metaClass ? ' ' + metaClass : ''}">${esc(meta)}</span>` : ''}
+        ${badge ? `<span class="${esc(badgeClass || 'vpal-secret')}">${esc(badge)}</span>` : ''}
       </div>`;
   }
 

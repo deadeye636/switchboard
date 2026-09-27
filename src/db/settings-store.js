@@ -14,6 +14,7 @@
 
 const { db } = require('./connection');
 const { runWithBusyRetry } = require('./sqlite-busy-retry');
+const { mergeVariableOrder } = require('./saved-variable-order');
 
 const stmts = {
   settingsGet: db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -25,27 +26,29 @@ const stmts = {
   // Remap moves the `project:<path>` blob to the new key (#55).
   settingsRename: db.prepare('UPDATE settings SET key = ? WHERE key = ?'),
   // Saved variables (Saved Variables panel)
+  // ONE manual order across every scope (#676): `sortOrder` 1..n, set by the user in the variables manager.
+  // The name tiebreak only orders a row that has none, and it is the order the migration numbered from.
   // insertTemplate is NOT a secret (it only describes how to insert, not the
   // value) so it is safe to carry in the list statements; `value` stays excluded.
   savedVariablesList: db.prepare(`
-    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt
+    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, sortOrder, createdAt, updatedAt, lastUsedAt
     FROM saved_variables
     WHERE scope = 'global' OR (scope = 'project' AND projectPath = ?)
-    ORDER BY LOWER(name), updatedAt DESC
+    ORDER BY sortOrder IS NULL, sortOrder, LOWER(name), updatedAt DESC
   `),
   // Every variable regardless of scope/project — used by the Variables admin tab
   // which needs the full CRUD list (not just the ones applicable to one project).
   savedVariablesListAll: db.prepare(`
-    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt
+    SELECT id, name, secret, scope, projectPath, tags, insertTemplate, sortOrder, createdAt, updatedAt, lastUsedAt
     FROM saved_variables
-    ORDER BY LOWER(name), updatedAt DESC
+    ORDER BY sortOrder IS NULL, sortOrder, LOWER(name), updatedAt DESC
   `),
   savedVariableGet: db.prepare('SELECT * FROM saved_variables WHERE id = ?'),
   savedVariableUpsert: db.prepare(`
     INSERT INTO saved_variables
-      (id, name, value, valueEncoding, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt)
+      (id, name, value, valueEncoding, secret, scope, projectPath, tags, insertTemplate, createdAt, updatedAt, lastUsedAt, sortOrder)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sortOrder), 0) + 1 FROM saved_variables))
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       value = excluded.value,
@@ -57,6 +60,12 @@ const stmts = {
       insertTemplate = excluded.insertTemplate,
       updatedAt = excluded.updatedAt
   `),
+  // A NEW row goes to the end of the list (the subquery above); an edit keeps its place, which is why
+  // sortOrder is absent from the DO UPDATE list. Only reorderSavedVariables moves a row.
+  savedVariableOrderIds: db.prepare(`
+    SELECT id FROM saved_variables ORDER BY sortOrder IS NULL, sortOrder, LOWER(name), updatedAt DESC
+  `),
+  savedVariableSetOrder: db.prepare('UPDATE saved_variables SET sortOrder = ? WHERE id = ?'),
   savedVariableDelete: db.prepare('DELETE FROM saved_variables WHERE id = ?'),
   savedVariableTouch: db.prepare('UPDATE saved_variables SET lastUsedAt = ? WHERE id = ?'),
   settingsByPrefix: db.prepare('SELECT key, value FROM settings WHERE key LIKE ?'),
@@ -150,6 +159,23 @@ function deleteSavedVariable(id) {
   runWithBusyRetry(() => stmts.savedVariableDelete.run(id));
 }
 
+// Renumber the whole table 1..n in one transaction. `ids` is the order the manager shows; it may be stale,
+// and mergeVariableOrder says what happens to the ids it gets wrong. Never routed through save: that would
+// re-encrypt every value and move every updatedAt for what is only a change of place.
+// Returns `{ order, changed }`: the order written, and whether it differs from the one before — the IPC
+// tells the other windows only when it does.
+const reorderSavedVariablesTx = db.transaction((ids) => {
+  const current = stmts.savedVariableOrderIds.all().map(row => row.id);
+  const order = mergeVariableOrder(current, ids);
+  order.forEach((id, i) => stmts.savedVariableSetOrder.run(i + 1, id));
+  const changed = order.length !== current.length || order.some((id, i) => id !== current[i]);
+  return { order, changed };
+});
+
+function reorderSavedVariables(ids) {
+  return runWithBusyRetry(() => reorderSavedVariablesTx(ids));
+}
+
 function touchSavedVariable(id) {
   runWithBusyRetry(() => stmts.savedVariableTouch.run(new Date().toISOString(), id));
 }
@@ -157,7 +183,7 @@ function touchSavedVariable(id) {
 module.exports = {
   getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable,
-  touchSavedVariable,
+  touchSavedVariable, reorderSavedVariables,
   // For project-refs.js's cross-domain transactions only — see the header.
   stmts,
 };

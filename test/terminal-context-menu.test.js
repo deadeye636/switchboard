@@ -87,6 +87,32 @@ test('menu with no link and no selection: no link separator, no copy', () => {
   assert.ok(!ids.includes('copy'));
 });
 
+// #676: the Variables submenu is ONE list in the order it is handed (the manual order), global and project
+// mixed, each row badged with its scope — no submenu per scope, which would regroup the user's order.
+test('#676: the Variables submenu is one flat list in the given order, each row with a scope badge', () => {
+  const variables = [
+    { id: 'b', name: 'beta', scope: 'project' },
+    { id: 'a', name: 'alpha', scope: 'global', secret: true },
+    { id: 'c', name: 'beta', scope: 'global' },
+  ];
+  const items = buildTerminalMenuItems({ linkUri: null, hasSelection: false, variables });
+  const sub = items.find((i) => i && i.id === 'variables');
+  assert.ok(sub, 'the Variables submenu is added');
+  const leaves = sub.children.filter(Boolean);
+  assert.deepStrictEqual(leaves.map((i) => i.id),
+    ['insert-variable:b', 'insert-variable:a', 'insert-variable:c', 'manage-variables']);
+  assert.ok(!leaves.some((i) => i.children), 'no nested per-scope submenu');
+  assert.deepStrictEqual(leaves.slice(0, 3).map((i) => i.badge), ['Project', 'Global', 'Global']);
+  // A project and a global variable of one name both appear, told apart by the badge.
+  assert.deepStrictEqual(leaves.slice(0, 3).map((i) => i.label), ['beta', 'alpha  ·secret', 'beta']);
+  assert.strictEqual(leaves[3].badge, undefined, 'Manage… carries no badge');
+});
+
+test('#676: no variables → no Variables submenu', () => {
+  const ids = buildTerminalMenuItems({ linkUri: null, hasSelection: false, variables: [] }).filter(Boolean).map((i) => i.id);
+  assert.ok(!ids.includes('variables'));
+});
+
 test('Copy only appears when there is a selection', () => {
   const withSel = buildTerminalMenuItems({ linkUri: null, hasSelection: true }).filter(Boolean).map((i) => i.id);
   assert.ok(withSel.includes('copy'));

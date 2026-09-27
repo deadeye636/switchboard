@@ -195,6 +195,7 @@ const {
   searchByType, isSearchIndexPopulated, searchFtsRecreated,
   getSetting, setSetting, deleteSetting, listSettings,
   listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable,
+  reorderSavedVariables,
   getDailyMetrics, getDailyModelTokens, getModelUsage, getTotalCounts,
   getDailyBackendTokens, getDailyCost, getHourlyActivity,
   recordTimelineEvent, getTimelineEvents, getTimelineEventsSince, deleteTimelineForSession, rekeyTimeline,
@@ -1389,7 +1390,7 @@ variables.init({
   getSetting,
   getSecretRefDir,
   safeStorage,
-  db: { listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable },
+  db: { listSavedVariables, listAllSavedVariables, getSavedVariable, saveSavedVariable, deleteSavedVariable, touchSavedVariable, reorderSavedVariables },
   log,
   // For a template naming a convention directory ({handoffDir} and friends) — resolved for the project
   // the inserting session belongs to, never for the one the variable was defined in.

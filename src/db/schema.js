@@ -193,6 +193,8 @@ function applySchema(db) {
   // Idempotently add insertTemplate to DBs created before the insert-template
   // feature (the CREATE TABLE above already has it for fresh installs).
   try { db.exec("ALTER TABLE saved_variables ADD COLUMN insertTemplate TEXT DEFAULT ''"); } catch {}
+  // `sortOrder` (the user's manual order, #676) is added by its migration only, which also backfills it —
+  // a fresh database runs every migration too, so both paths end with the column.
   db.exec('CREATE INDEX IF NOT EXISTS idx_saved_variables_scope_project ON saved_variables(scope, projectPath)');
 
   // Session timeline — what happened to a session, over time (#396). One row per event, one history

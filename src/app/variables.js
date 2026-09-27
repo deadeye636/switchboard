@@ -51,7 +51,7 @@ const secretRefBySession = new Map(); // sessionId -> Set<path>
  * @param {() => string} context.getSecretRefDir  where the 0600 temp files go. It hangs off userData,
  *   which a dev build separates from the installed app's (#216) — so this is resolved, not captured.
  * @param {object} context.safeStorage  Electron's; injected so this module needs no electron require.
- * @param {object} context.db  the saved-variable queries: list/listAll/get/save/delete/touch.
+ * @param {object} context.db  the saved-variable queries: list/listAll/get/save/delete/touch/reorder.
  * @param {object} context.log
  * @param {() => ({kind: string, path?: string, text?: string})} [context.clipboardInsert]  what the system
  *   clipboard holds, for a template naming {clipboard} (#491). Injected like everything else Electron owns,
@@ -506,6 +506,22 @@ function registerIpc(ipc) {
       return { ok: true };
     } catch (err) {
       return failed(err, 'Could not delete that variable.');
+    }
+  });
+
+  // The manual order (#676): one order across every scope, set in the variables manager. The renderer sends
+  // every id it shows, in the order it wants; the store renumbers 1..n in one transaction and ignores what the
+  // list gets wrong (see src/db/saved-variable-order.js). "Sort by name" and its undo are this same call with
+  // a different list. Not routed through save: a change of place re-encrypts nothing and moves no updatedAt.
+  ipc.handle('reorder-saved-variables', (event, ids) => {
+    try {
+      if (!Array.isArray(ids)) return { ok: false, error: 'Expected a list of variable ids' };
+      const { order, changed } = ctx.db.reorderSavedVariables(ids.filter(id => typeof id === 'string'));
+      // An order that did not move is nothing the other windows need to reload for.
+      if (changed) announceVariablesChanged(event);
+      return { ok: true, order };
+    } catch (err) {
+      return failed(err, 'Could not save the new order of your variables.');
     }
   });
 

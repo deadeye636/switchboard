@@ -105,6 +105,7 @@
         <div class="vqp-row-name">
           <span class="vqp-name">${html(variable.name)}</span>
           ${variable.secret ? '<span class="vqp-secret-pill">Secret</span>' : ''}
+          <span class="va-tag va-scope-badge">${variable.scope === 'project' ? 'Project' : 'Global'}</span>
         </div>
         <div class="vqp-row-actions">
           <button type="button" data-vqp-action="insert" ${disabled} title="Insert (no newline)">Insert</button>
@@ -112,13 +113,6 @@
           <button type="button" data-vqp-action="copy" title="Copy value">Copy</button>
         </div>
       </div>`;
-  }
-
-  function groupHtml(label, variables, running) {
-    if (!variables.length) return '';
-    return `
-      <div class="vqp-group-label">${html(label)}</div>
-      ${variables.map(v => rowHtml(v, running)).join('')}`;
   }
 
   function position(anchor) {
@@ -173,15 +167,15 @@
     const rows = await window.api.listSavedVariables(projectPath).catch(() => []);
     if (!popover) return; // closed while awaiting
 
-    const list = Array.isArray(rows) ? rows : [];
-    const global = list.filter(v => v.scope !== 'project');
-    const project = list.filter(v => v.scope === 'project');
+    // ONE list in the order main hands it over — the manual order from the variables manager (#676), global
+    // and project mixed, the scope on each row's badge. No Global/Project headings: they would regroup it.
+    const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
 
     const body = popover.querySelector('.vqp-body');
     if (!list.length) {
       body.innerHTML = '<div class="vqp-empty">No variables. Use Manage… to add some.</div>';
     } else {
-      body.innerHTML = groupHtml('Global', global, running) + groupHtml('Project', project, running);
+      body.innerHTML = list.map(v => rowHtml(v, running)).join('');
     }
     if (context.anchor) position(context.anchor);
 

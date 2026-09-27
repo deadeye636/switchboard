@@ -10456,13 +10456,6 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 }
 .vqp-manage:hover { color: #fff; text-decoration: underline; }
 .vqp-loading, .vqp-empty { padding: 12px 8px; color: #7a7a90; font-size: 12px; }
-.vqp-group-label {
-  padding: 6px 8px 3px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #6a6a80;
-}
 .vqp-row {
   display: flex;
   align-items: center;
@@ -10571,7 +10564,7 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 /* In the dialog the combobox is a full-width field like the others, not the header's fixed-width control. */
 .va-field .va-combo { display: block; }
 .va-field .va-combo-input { width: 100%; min-width: 0; }
-.va-add, .va-refresh {
+.va-add, .va-refresh, .va-sort {
   padding: 5px 10px;
   background: #23232c;
   border: 1px solid rgba(255,255,255,0.1);
@@ -10581,7 +10574,8 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   cursor: pointer;
 }
 .va-add { margin-left: auto; }
-.va-add:hover, .va-refresh:hover { border-color: #d97757; color: #fff; }
+.va-add:hover, .va-refresh:hover, .va-sort:hover:not(:disabled) { border-color: #d97757; color: #fff; }
+.va-sort:disabled { opacity: 0.4; cursor: default; }
 .va-loading { padding: 24px; color: #7a7a90; font-size: 13px; }
 .va-table-wrap { flex: 1; overflow: auto; padding: 12px 16px; }
 .va-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -10603,6 +10597,18 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   vertical-align: middle;
 }
 .va-table tr:hover td { background: rgba(255,255,255,0.02); }
+/* The manual order (#676): a grip per row, the dragged row at the 0.5 every other drag in the app uses,
+   and a 2px line where it will land — the project list's drop hint, drawn on the cells because a <tr>
+   does not paint a box-shadow. */
+.va-grip-col { width: 18px; }
+.va-table td.va-grip { width: 18px; padding-right: 0; color: #7a7a90; cursor: grab; opacity: 0.55; }
+.va-table tr:hover td.va-grip { opacity: 0.95; }
+.va-table tr.va-reorder-locked td.va-grip { opacity: 0.2; cursor: default; }
+.va-table tr.dragging { opacity: 0.5; }
+.va-table tr.va-drop-before td { box-shadow: inset 0 2px 0 0 rgba(120,130,255,0.8); }
+.va-table tr.va-drop-after td { box-shadow: inset 0 -2px 0 0 rgba(120,130,255,0.8); }
+.va-table tbody tr[data-id]:focus { outline: none; }
+.va-table tbody tr[data-id]:focus-visible td { background: rgba(128,136,255,0.10); }
 .va-center { text-align: center; }
 .va-empty { padding: 18px 10px; color: #7a7a90; }
 .va-name { font-weight: 500; }
@@ -10616,6 +10622,10 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   padding: 1px 6px;
   margin: 0 4px 2px 0;
 }
+/* A variable's scope on a picker row (#676) — the tag chip, pushed to the row's end so it reads as a
+   column. Every picker lists global and project variables mixed now, so this is the only place the scope
+   is said. */
+.va-tag.va-scope-badge { flex: none; margin: 0 0 0 auto; font-size: 10px; }
 .va-actions { white-space: nowrap; text-align: right; }
 .va-actions button {
   padding: 4px 9px;
@@ -10764,7 +10774,6 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 }
 .va-var-row:hover { background: rgba(255,255,255,0.07); }
 .va-var-name { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.va-var-scope { color: #7a7a90; font-size: 10px; }
 .va-var-empty { color: #7a7a90; font-size: 12px; padding: 6px; }
 
 .va-preview-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9a9ab0; margin-top: 2px; }

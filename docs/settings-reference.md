@@ -223,6 +223,9 @@ on the system clipboard when you insert. A copied file or screenshot inserts its
 word, text is inserted with control characters removed, and a secret's template does not resolve it at all
 (#491). → [spec 12](specs/12-saved-variables.md)
 
+The **order** of the saved variables (#676) is not a setting either: it is stored per variable
+(`saved_variables.sortOrder`), set in the variables manager, and used by every picker. → [spec 12](specs/12-saved-variables.md)
+
 ## Secrets
 
 | Key | Label | Values | Default | Scope |

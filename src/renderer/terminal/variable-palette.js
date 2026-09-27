@@ -9,11 +9,15 @@
 // Anything about geometry, focus recovery, outside clicks or the listbox lives there, once.
 //
 // Deliberately NOT a merge: the terminal-header quick-pick (variables-panel.js) and the right-click
-// Variables submenu (terminal-context-menu.js) keep their own design and are untouched.
+// Variables submenu (terminal-context-menu.js) keep their own design. What all of them share since #676
+// is the ORDER: one list, in the user's manual order from the variables manager, global and project
+// variables mixed, each row carrying a scope badge. No picker groups by scope any more — a grouping would
+// undo the order the user set. The order never decides which value `{var:name}` binds to; project still
+// wins over global (src/shared/variable-insert.js), and two rows of one name both appear, badged.
 //
 // No value preview. `list-saved-variables` serializes without the value (`includeValue = false` in
 // src/app/variables.js), and that is the right default — the renderer has no business holding a
-// secret's plaintext. Rows show the name, the scope group and a secret marker.
+// secret's plaintext. Rows show the name, a secret marker and the scope badge.
 //
 // SECURITY: Enter never TYPES a plaintext secret. It goes through the same main-process path the other
 // two pickers use — `resolveVariableInsert` returns an insert template (raw value, temp-file path or a
@@ -49,21 +53,18 @@
     return list.filter(v => String(v.name || '').toLowerCase().includes(q));
   }
 
-  // Global first, then project — the same order the other pickers use.
-  function groupForList(rows) {
-    const global = rows.filter(v => v.scope !== 'project');
-    const project = rows.filter(v => v.scope === 'project');
-    return [
-      { key: 'global', label: 'Global', rows: global },
-      { key: 'project', label: 'Project', rows: project },
-    ].filter(g => g.rows.length);
+  // The badge every picker puts on a row (#676). The store hands the rows over in the manual order with
+  // the scopes interleaved, and they are SHOWN that way — so the scope is said per row rather than by a
+  // heading.
+  function variableScopeBadge(v) {
+    return v && v.scope === 'project' ? 'Project' : 'Global';
   }
 
-  // The list the arrow keys walk MUST be the list the eye reads. The rows arrive sorted by name with
-  // the scopes interleaved, while the groups render global-then-project — so walking the raw order
-  // made the highlight jump around the screen. Everything downstream uses this flattened order.
+  // The list the arrow keys walk MUST be the list the eye reads. It used to be regrouped global-then-
+  // project here; since #676 the list renders flat, in the order it arrives, so the walked order is that
+  // order unchanged. Kept as a named step so the invariant stays stated where the picker is configured.
   function displayOrder(rows) {
-    return groupForList(rows).flatMap(g => g.rows);
+    return Array.isArray(rows) ? rows.filter(Boolean) : [];
   }
 
   // Insert the picked variable: resolved value plus ONE trailing space and no newline, so the line is
@@ -99,9 +100,9 @@
     swallowOpeningPaste: true,
     load: async ({ projectPath }) => ({ rows: await window.api.listSavedVariables(projectPath) }),
     filter: (rows, query) => displayOrder(filterVariables(rows, query)),
-    groups: (rows) => groupForList(rows),
+    // No `groups`: a flat list in the manual order (#676), the scope on each row instead of a heading.
     rowKey: (v) => v.id,
-    row: (v) => ({ main: v.name, meta: v.secret ? 'secret' : null }),
+    row: (v) => ({ main: v.name, meta: v.secret ? 'secret' : null, badge: variableScopeBadge(v), badgeClass: 'va-tag va-scope-badge' }),
     // The picker this replaced offered "No variables — manage…" as a real menu item, so the hotkey
     // must not become a dead end when there is nothing to insert (#207 / the old #89 behaviour).
     emptyText: () => ({ before: 'No variables yet. Press ', key: 'Enter', after: ' to open the Variables tab.' }),
@@ -114,7 +115,7 @@
     return window.openPalette(VARIABLE_PICKER, terminal, sessionId);
   }
 
-  return { filterVariables, groupForList, displayOrder, openVariablePalette };
+  return { filterVariables, variableScopeBadge, displayOrder, openVariablePalette, variablePickerConfig: VARIABLE_PICKER };
 });
 
 // --- The command-palette route to this picker (#489) -----------------------------------------------

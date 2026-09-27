@@ -154,6 +154,7 @@ module.exports = {
   saveSavedVariable: settingsStore.saveSavedVariable,
   deleteSavedVariable: settingsStore.deleteSavedVariable,
   touchSavedVariable: settingsStore.touchSavedVariable,
+  reorderSavedVariables: settingsStore.reorderSavedVariables,
   // --- the session timeline, the record behind the recap (timeline-store.js) ---
   recordTimelineEvent: timelineStore.recordTimelineEvent,
   getTimelineEvents: timelineStore.getTimelineEvents,

@@ -215,6 +215,8 @@ contextBridge.exposeInMainWorld('api', {
   getSavedVariable: (id) => ipcRenderer.invoke('get-saved-variable', id),
   saveSavedVariable: (variable) => ipcRenderer.invoke('save-saved-variable', variable),
   deleteSavedVariable: (id) => ipcRenderer.invoke('delete-saved-variable', id),
+  // The manual order (#676): every id in the order the manager shows. Stale ids are ignored by the store.
+  reorderSavedVariables: (ids) => ipcRenderer.invoke('reorder-saved-variables', ids),
   savedVariableReferences: (name) => ipcRenderer.invoke('saved-variable-references', name),
   // The set moved in ANOTHER window (#382). Never sent to the window that made the change — it has the
   // answer in its own reply, and reloading there would race its own update.

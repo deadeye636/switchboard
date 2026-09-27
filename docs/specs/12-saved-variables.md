@@ -205,8 +205,9 @@ constrained them.
    real. `updatedAt` would identify "recently touched", not "the one you meant", and it moves whenever either
    duplicate is edited.
 
-Matching is **case-sensitive**: `Server` and `server` are two legitimate rows. (The `LOWER(name)` in the list
-queries' ORDER BY is a sort, not a matching rule.)
+Matching is **case-sensitive**: `Server` and `server` are two legitimate rows. (The list queries' ORDER BY —
+the manual order, then `LOWER(name)` as its tiebreak — is a sort, not a matching rule. Where a row stands in
+a list never decides what a reference binds to; see "The order" below.)
 
 **Deliberately NOT a `UNIQUE` index.** Nothing in cross-referencing requires uniqueness; a constraint would
 mean **renaming rows in databases we cannot see** (the feature shipped in v0.7.3–v0.7.6, so installed users
@@ -223,6 +224,49 @@ resolves is empty, so the command still runs — with an empty value where the c
 `parseVarRefs`, not a SQL `LIKE`: `'%{var:' || name || '}%'` turns a name containing `%` or `_` into a
 wildcard that over-matches, and the parser agrees with the resolver by construction because it *is* the
 resolver's parser.
+
+---
+
+## The order (#676)
+
+The variables are listed in **one order the user sets**, and every surface that lists them uses it: the
+variables manager, the variable palette (the `insertVariable` hotkey), the terminal context menu's Variables
+submenu, the terminal-header quick-pick and the `{var:}` picker in the New/Edit dialog. Arranging them once
+arranges them everywhere.
+
+**One order across every scope, not one per scope.** Global and project variables share it. A picker shows
+the variables that apply to its project — the globals plus that project's — as **one mixed list** in that
+order, each row with a **Global** / **Project** badge. The pickers used to group by scope under two headings;
+that grouping would have regrouped the user's order, so it is gone and the badge says the scope instead. A
+project variable and a global one of the same name both appear, told apart by the badge. Which of them a
+`{var:name}` resolves to is still the rule above — project beats global — and the list order has no say in it.
+So in the `{var:}` picker, picking either of two same-named rows inserts the same `{var:name}`, and that binds
+to the project one; neither the position in the list nor the badge decides the binding. (The terminal pickers
+are different: they insert the row that was picked, by its id, not a reference by name.)
+
+**Stored per variable**: `saved_variables.sortOrder`, 1..n over the whole table. The migration that added it
+numbered the existing rows by the order the lists used before (`LOWER(name)`, then the newest edit first), so
+nobody's list moved on the update. The list queries sort `sortOrder IS NULL, sortOrder, LOWER(name),
+updatedAt DESC` — the tail only orders a row without a number, which nothing writes.
+
+- **A new variable goes to the end** (`MAX(sortOrder) + 1` at insert). **An edit keeps its place**:
+  `sortOrder` is not in the upsert's `ON CONFLICT DO UPDATE` list, so a rename does not move the row.
+- **Reordering is its own IPC** (`reorder-saved-variables`, `src/app/variables.js`), never a save: a save
+  re-encrypts the value and moves `updatedAt`, and a change of place is neither. The renderer sends every id
+  in the order it shows; the store renumbers the whole table 1..n in one transaction and answers with the
+  order it wrote. The list may be stale — another window may have created or deleted a variable — so ids
+  that no longer exist are ignored, and rows the list does not name keep their relative order **after** the
+  named ones. That rule is `src/db/saved-variable-order.js`, where a test can reach it.
+- **Where it is set: the variables manager.** A row is dragged by its grip, and only the grip starts a
+  drag, so text in the table stays selectable (an HTML5 drag, so `scripts/drive-app.js drag` can exercise
+  it from the grip), or moved one place with **Alt+ArrowUp / Alt+ArrowDown** on
+  the focused row, which keeps the focus. **Sort by name** puts the whole list back into alphabetical order
+  in one step — the same order the migration numbered from — and its toast carries an **Undo** that sends
+  the previous order back.
+- **Under a text filter none of the three is offered.** A drop between two rows that are not neighbours in
+  the full list has no single right answer. A **scope** filter keeps them, because the answer is defined
+  there: the moved row lands directly before or after the row it was dropped on (or stepped past), and every
+  hidden row keeps its place. The pure half is `src/renderer/lib/variable-order.js`.
 
 ---
 

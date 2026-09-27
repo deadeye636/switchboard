@@ -114,6 +114,7 @@
     "session-tags-logic.js",
     "bookmarks-tags.js",
     "projects-admin.js",
+    "variable-order.js",
     "variables-admin.js",
     "tasks-logic.js",
     "tasks-view.js",

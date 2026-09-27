@@ -94,10 +94,12 @@ function classifyLinkUri(uri) {
 // nested item array) to render a flyout submenu. Pure — the caller
 // (runTerminalMenuAction) maps each leaf id to an effect.
 //
-// `isBookmarked` toggles the bookmark label add↔remove. `variableGroups` (when
-// provided as an array of { key, label, vars:[{id,name,secret}] }) appends the
-// Variables submenu; omit it (null) to leave the menu unchanged (e.g. tests).
-function buildTerminalMenuItems({ linkUri, hasSelection, variableGroups = null, externalEditor = false }) {
+// `isBookmarked` toggles the bookmark label add↔remove. `variables` (when provided
+// as an array of { id, name, secret, scope }) appends the Variables submenu: ONE
+// list in the order given — the manual order from the variables manager (#676) —
+// with a Global/Project badge per row instead of a submenu per scope. Omit it
+// (null) to leave the menu unchanged (e.g. tests).
+function buildTerminalMenuItems({ linkUri, hasSelection, variables = null, externalEditor = false }) {
   const items = [];
   const link = classifyLinkUri(linkUri);
   if (link.kind === 'file') {
@@ -115,19 +117,12 @@ function buildTerminalMenuItems({ linkUri, hasSelection, variableGroups = null, 
   items.push({ id: 'select-all', label: 'Select all' });
   items.push(null);
   items.push({ id: 'create-task', label: 'Create task' });
-  if (Array.isArray(variableGroups)) {
-    const children = [];
-    for (const group of variableGroups) {
-      if (!group || !group.vars || !group.vars.length) continue;
-      children.push({
-        id: `varscope:${group.key}`,
-        label: group.label,
-        children: group.vars.map(v => ({
-          id: `insert-variable:${v.id}`,
-          label: v.secret ? `${v.name}  ·secret` : v.name,
-        })),
-      });
-    }
+  if (Array.isArray(variables)) {
+    const children = variables.filter(Boolean).map(v => ({
+      id: `insert-variable:${v.id}`,
+      label: v.secret ? `${v.name}  ·secret` : v.name,
+      badge: v.scope === 'project' ? 'Project' : 'Global',
+    }));
     if (children.length) {
       children.push(null);
       children.push({ id: 'manage-variables', label: 'Manage variables…' });
@@ -201,18 +196,13 @@ function insertResolvedText(terminal, sessionId, text, { trailing = '', submit =
   return true;
 }
 
-// Fetch saved variables for the session's project and group them by scope for
-// the Variables submenu. Returns [] on any error (submenu then shows Manage only).
-async function fetchVariableGroups(projectPath) {
+// Fetch the saved variables that apply to the session's project for the Variables
+// submenu, in the order main hands them over — the manual order (#676), global and
+// project mixed. Returns [] on any error (the submenu is then not added).
+async function fetchMenuVariables(projectPath) {
   let rows;
   try { rows = await window.api.listSavedVariables(projectPath || null); } catch { return []; }
-  if (!Array.isArray(rows)) return [];
-  const project = rows.filter(r => r.scope === 'project');
-  const global = rows.filter(r => r.scope !== 'project');
-  const groups = [];
-  if (global.length) groups.push({ key: 'global', label: 'Global', vars: global });
-  if (project.length) groups.push({ key: 'project', label: 'Project', vars: project });
-  return groups;
+  return Array.isArray(rows) ? rows.filter(Boolean) : [];
 }
 
 // Execute the effect for a chosen menu item.
@@ -378,6 +368,13 @@ function renderMenuItems(container, items, ctx) {
     const btn = document.createElement('button');
     btn.className = 'popover-option';
     btn.textContent = item.label;
+    if (item.badge) {
+      // A variable's scope (#676): the submenu is one list now, so the scope is said on the row.
+      const badge = document.createElement('span');
+      badge.className = 'va-tag va-scope-badge';
+      badge.textContent = item.badge;
+      btn.appendChild(badge);
+    }
     btn.addEventListener('click', () => {
       closeTerminalContextMenu();
       runTerminalMenuAction(item.id, ctx);
@@ -433,16 +430,15 @@ function showTerminalContextMenu(event, ctx) {
 // menu is still open. No-op when there are no variables (e.g. the api bindings
 // are absent under test).
 async function enhanceTerminalMenu(menu, ctx, base) {
-  let variableGroups = [];
+  let variables = [];
   try {
-    variableGroups = await fetchVariableGroups(ctx.projectPath);
+    variables = await fetchMenuVariables(ctx.projectPath);
   } catch { return; }
   if (activeTerminalMenu !== menu) return; // closed or replaced while awaiting
-  const hasVars = Array.isArray(variableGroups) && variableGroups.some(g => g && g.vars && g.vars.length);
-  if (!hasVars) return;
+  if (!variables.length) return;
   menu.replaceChildren();
   renderMenuItems(menu, buildTerminalMenuItems({
-    linkUri: base.linkUri, hasSelection: base.hasSelection, externalEditor: base.externalEditor, variableGroups,
+    linkUri: base.linkUri, hasSelection: base.hasSelection, externalEditor: base.externalEditor, variables,
   }), ctx);
   positionTerminalMenu(menu, base.x, base.y);
 }
@@ -450,7 +446,7 @@ async function enhanceTerminalMenu(menu, ctx, base) {
 // The hotkey's variable picker used to live here — a context menu at the caret (#89). It moved to
 // terminal/variable-palette.js (#207), which anchors in the terminal's lower half and takes the
 // keyboard. The right-click Variables submenu above is unaffected and still uses this file's
-// fetchVariableGroups + insert-variable action.
+// fetchMenuVariables + insert-variable action.
 
 // --- Selection action bar (mode 'action-bar', #88) ---
 // A small floating toolbar that appears above a fresh text selection (Office-

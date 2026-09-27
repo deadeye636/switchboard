@@ -337,6 +337,8 @@
        render loops call the hooks) and before app.js (keydown dispatcher). -->
   <script src="bookmarks/bookmarks-tags.js"></script>
   <script src="panels/projects-admin.js"></script>
+  <!-- variable-order.js (pure manual-order helpers, #676) is called by variables-admin.js at call time. -->
+  <script src="lib/variable-order.js"></script>
   <script src="panels/variables-admin.js"></script>
   <!-- tasks-logic.js (pure filter/sort helpers) must load before tasks-view.js;
        tasks-view.js uses window.bookmarksTags for jumps (load after it). -->

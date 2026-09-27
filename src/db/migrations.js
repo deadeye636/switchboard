@@ -519,6 +519,23 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE session_cache ADD COLUMN transport TEXT'); } catch {}
   },
+
+  // The user's own order of the saved variables (#676). One order across every scope, 1..n. The backfill
+  // numbers the existing rows exactly as the list statements sorted them until now — LOWER(name), then the
+  // newest edit first — so nobody's list moves on the update. A row with a NULL sortOrder is sorted after
+  // the numbered ones by the list statements; nothing writes one, but a row restored from elsewhere could.
+  (db) => {
+    try { db.exec('ALTER TABLE saved_variables ADD COLUMN sortOrder INTEGER'); } catch {}
+    try {
+      db.exec(`
+        UPDATE saved_variables SET sortOrder = (
+          SELECT r.rn FROM (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY LOWER(name), updatedAt DESC) AS rn FROM saved_variables
+          ) r WHERE r.id = saved_variables.id
+        )
+      `);
+    } catch {}
+  },
 ];
 
 /**

@@ -828,6 +828,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
     content the app has never seen, so it is treated exactly like another variable's value: resolved once,
     never rescanned, and seen by the check that catches a file reference someone has quoted. A secret's
     template does not resolve it at all — a clipboard usually holds someone's last password.
+  - **Your own order** (#676): drag a variable in the manager, or move it with Alt+Up/Alt+Down, and every
+    picker lists them that way — one list with global and project variables mixed, each row badged with its
+    scope. New variables go to the end; **Sort by name** restores alphabetical order, with an Undo.
   - Design record: [`docs/specs/12-saved-variables.md`](specs/12-saved-variables.md).
 - **File preview** — the integrated file panel renders **Markdown**, a **sandboxed HTML preview**
   (`allow-same-origin`, no scripts), and **images** (PNG/JPG/GIF/WebP/SVG/… via a size-capped
