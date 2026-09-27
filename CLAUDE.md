@@ -418,7 +418,9 @@ absent from the installer.
   seeded stores under `C:\temp\switchboard`. Backend limitations and the explicit read-only usage
   exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds
   without launching; `npm run demo:auth` copies credentials into the isolated home. See
-  `docs/demo-env.md`.
+  `docs/demo-env.md`. **Leave it clean after every test** — stop and close every session, quit cleanly, and
+  take back what the test wrote into the demo's CLI homes (`docs/demo-env.md`, "Leave the demo clean after a
+  test"); a demo left dirty relaunches the last test's sessions and skews the next measurement.
 - `npm start` — stamps `build-info.json`, bundles CodeMirror and PDF.js, then launches Electron against the **real** stores. The exception,
   for when you deliberately want live data.
 - `npm run start:debug` — the same with DevTools port 9222 open → `docs/ai/driving-the-app.md`.

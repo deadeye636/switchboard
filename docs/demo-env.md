@@ -109,6 +109,35 @@ touches nothing real. `test/store-isolation.test.js` is the guard.
   in `<demo>/stores/claude/settings.json`, so later demo sessions and the context-fill resolver read it.
   Remove the key after a measurement.
 
+## Leave the demo clean after a test
+
+Every click test leaves something behind, and the next test inherits it. Tabs and running sessions are
+saved for a restart, so a demo that was not cleaned up relaunches every session the last test opened —
+seven CLI processes at one start is what that looked like — and each of them writes its transcript, raises
+attention and moves the sidebar while you are trying to test something else. A rule or a setting written
+for one measurement keeps shaping every later one: an `ask: ["Bash"]` rule left in the demo's Claude
+settings made every Bash call ask with no "for this session" button, which then read like a defect of the
+approval card.
+
+So at the end of every test run, and before handing the demo to the next one:
+
+1. **Stop every running session and close every tab.** In the renderer (`node scripts/drive-app.js eval`):
+   for each id in `activePtyIds`, add it to `userStoppedSessions` and call `window.api.stopSession(id)`; then
+   `destroySession(id)` for each key of `openSessions`. Clear the pane layout too
+   (`localStorage.removeItem('paneTree')`), or its dormant tabs come back.
+2. **Quit cleanly, not with `npm run stop:dev`.** Closing the main window (`window.close()`) runs the unload
+   that saves the now empty set of open sessions; a kill keeps the old one. Start once more and check the log:
+   no `[spawn]` line after the boot means nothing was restored.
+3. **Take back what the test wrote into the demo's CLI homes:** permission rules and a `model` key in
+   `<demo>/stores/claude/settings.json`, a trust entry added for a scratch folder, a copied credential in a
+   scratch home. A measurement that needed its own home deletes that home afterwards.
+4. **Remove scratch folders the test created** under the demo directory (a repro copy of the app, a
+   measurement working directory). The sessions a test wrote into the stores may stay: they are ordinary demo
+   history, and the sidebar is meant to hold plenty of it.
+
+A test agent's prompt says this too — an agent that finishes without cleaning up leaves the mess to the next
+run, which is where it was found.
+
 ## What is seeded
 
 `scripts/seed-demo.js` writes valid, minimal transcripts for the **file** backends (Claude, Codex, Pi).
