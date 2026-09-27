@@ -105,8 +105,8 @@ chart rather than a row of zeroes.
   conversation itself: streamed replies, tool calls with their output and diffs, and a question before
   it runs a command or changes a file. `/login`, `/model`, `/thinking` and `/compact` work there too, so
   logging in and switching models do not need Pi's terminal, and `/tree` walks the session's branches and
-  switches it to an earlier point. Its sessions are ordinary Pi sessions and
-  reopen where they were driven.
+  switches it to an earlier point, and images you paste or drop go out with your message. Its sessions are
+  ordinary Pi sessions and reopen where they were driven.
   → [`docs/specs/30-pi-native.md`](docs/specs/30-pi-native.md)
 - **Claude without a terminal** — a second Claude backend that drives the `claude` you installed over its
   stream-json protocol and draws the conversation in the same view: streamed replies, tool calls, Claude's

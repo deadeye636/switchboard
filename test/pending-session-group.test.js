@@ -16,11 +16,35 @@ const { stripComments } = require('./helpers/strip-comments');
 // Every place the renderer puts a new session into a cached project list asks the one lookup. The click test
 // found a second copy of the raw compare in `launchNewSession` after the first fix — a typed path, a handoff
 // or a launcher went through it — so the guard counts the places rather than trusting one.
-test('no renderer code picks a project group by comparing its path as a raw string', () => {
-  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8'));
-  assert.doesNotMatch(src, /projList\.find\(\s*p\s*=>\s*p\.projectPath\s*===/,
-    'a group for a new session is found with findProjectGroup (#671)');
-  assert.ok((src.match(/findProjectGroup\(/g) || []).length >= 2, 'injectPendingSession and launchNewSession both ask it');
+// The places that still find something by `projectPath ===`, each because both sides come from ONE source —
+// never a session's spelling against a group's. A new one fails until it either asks findProjectGroup or is
+// named here with its reason; an entry whose line is gone fails too.
+const SAME_SOURCE = {
+  'lib/project-name.js': 'the exact-spelling first step of findProjectGroup itself',
+  'panels/projects-admin.js': 'a row of main\'s admin answer, looked up by a path taken from that same answer',
+  'shell/sidebar-events.js': 'a sidebar group looked up by the path its own DOM element carries',
+  'shell/sidebar.js': 'the previous sort order, keyed by paths out of the same project lists',
+  'views/panes-view.js': 'the fallback when lib/project-name.js is not loaded (a test page without it)',
+};
+
+test('no renderer code picks a project group by comparing a session\'s path as a raw string', () => {
+  const root = path.join(__dirname, '..', 'src', 'renderer');
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const p = path.join(dir, d.name);
+    if (d.isDirectory()) return walk(p);
+    return d.name.endsWith('.js') && !/bundle|pdf-worker/.test(d.name) ? [p] : [];
+  });
+  const hits = new Set();
+  for (const file of walk(root)) {
+    const src = stripComments(fs.readFileSync(file, 'utf8'));
+    if (/\.find\([^\n]*\.projectPath\s*===/.test(src)) hits.add(path.relative(root, file).split(path.sep).join('/'));
+  }
+  const unexplained = [...hits].filter(f => !Object.prototype.hasOwnProperty.call(SAME_SOURCE, f));
+  assert.deepEqual(unexplained, [], 'find the group with findProjectGroup (#671), or name the file in SAME_SOURCE with its reason');
+  const stale = Object.keys(SAME_SOURCE).filter(f => !hits.has(f));
+  assert.deepEqual(stale, [], 'SAME_SOURCE names a file that no longer compares that way');
+  const app = stripComments(fs.readFileSync(path.join(root, 'app.js'), 'utf8'));
+  assert.ok((app.match(/findProjectGroup\(/g) || []).length >= 2, 'injectPendingSession and launchNewSession both ask it');
 });
 
 const SLASHED = '/work/alpha';

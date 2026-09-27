@@ -853,11 +853,16 @@ window.__sessionDragId = null;
       ? sessionOfId(activeSessionId) : null;
     const projectPath = session && session.projectPath;
     if (!projectPath) return null;
-    for (const list of [
+    const lists = [
       typeof cachedProjects !== 'undefined' ? cachedProjects : [],
       typeof cachedAllProjects !== 'undefined' ? cachedAllProjects : [],
-    ]) {
-      const found = (list || []).find((p) => p && p.projectPath === projectPath);
+    ];
+    // The group main holds for this directory, whichever spelling the session carries (#671,
+    // `lib/project-name.js`) — or the tooltip loses the project's display name.
+    for (const list of lists) {
+      const found = typeof findProjectGroup === 'function'
+        ? findProjectGroup(list || [], projectPath, lists)
+        : (list || []).find((p) => p && p.projectPath === projectPath);
       if (found) return found;
     }
     return { projectPath };

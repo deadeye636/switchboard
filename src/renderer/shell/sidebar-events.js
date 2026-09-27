@@ -458,8 +458,10 @@ async function toggleProjectFavorite(project) {
   const fav = !!favorited;
   // Update the flag in both cached lists so either view re-sorts correctly, then a light re-render —
   // not a full loadProjects() (2× getProjects IPC), matching the session-pin path (issue #78).
-  for (const list of [cachedProjects, cachedAllProjects]) {
-    const p = list && list.find(x => x.projectPath === project.projectPath);
+  // The two lists can spell one directory's group differently (#671), so each is asked for ITS group.
+  const lists = [cachedProjects, cachedAllProjects];
+  for (const list of lists) {
+    const p = list && findProjectGroup(list, project.projectPath, lists);
     if (p) p.favorited = fav;
   }
   refreshSidebar({ resort: true });
