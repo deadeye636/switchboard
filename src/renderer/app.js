@@ -320,10 +320,14 @@ function launchPending(sessionId) {
 // or an otherwise-empty project looks non-empty and the sidebar's "all filtered
 // out" guard drops the whole project (kept in the archived list so undo still
 // works). Re-injection on refresh is deduped by sessionId.
+// The group is the one main already holds for the directory, in whichever spelling its sessions carry
+// (`findProjectGroup` in lib/project-name.js, #671) — a raw compare on the group's own spelling opened a
+// second group for one directory spelled two ways. A spelling no group holds still opens a new one.
 function injectPendingSession(session, projectPath, folder) {
+  const lists = [cachedAllProjects, cachedProjects];
   for (const projList of [cachedProjects, cachedAllProjects]) {
     if (projList === cachedProjects && session && session.archived) continue;
-    let proj = projList.find(p => p.projectPath === projectPath);
+    let proj = findProjectGroup(projList, projectPath, lists);
     if (!proj) {
       proj = { folder, projectPath, sessions: [] };
       projList.unshift(proj);

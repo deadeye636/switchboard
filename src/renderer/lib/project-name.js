@@ -1,6 +1,7 @@
-// Pure helper: pick the label shown for a project.
-// Custom displayName wins (trimmed); empty/whitespace falls back to the
-// directory-derived shortName. Electron-free so it can be unit-tested.
+// Pure helpers about a project GROUP as main sent it: the label shown for it, the display name a session
+// inherits from it, and which group a session not yet in any belongs to. Custom displayName wins
+// (trimmed); empty/whitespace falls back to the directory-derived shortName. Electron-free so it can be
+// unit-tested.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
@@ -33,11 +34,9 @@
       for (const project of list || []) {
         const name = project && typeof project.displayName === 'string' ? project.displayName.trim() : '';
         if (!name) continue;
-        if (project.projectPath) byPath.set(project.projectPath, name);
+        for (const spelling of bucketSpellings(project)) byPath.set(spelling, name);
         for (const session of project.sessions || []) {
-          if (!session) continue;
-          if (session.sessionId) bySession.set(session.sessionId, name);
-          if (session.projectPath) byPath.set(session.projectPath, name);
+          if (session && session.sessionId) bySession.set(session.sessionId, name);
         }
       }
     }
@@ -53,5 +52,45 @@
       || '';
   }
 
-  return { projectDisplayLabel, projectDisplayNameIndex, projectDisplayNameOf };
+  // Every spelling main put into one bucket: the one the bucket carries, and each of its sessions' own.
+  // Main bucketed those rows by `pathKey` (#245), so this set IS its answer to "same directory" — read,
+  // never recomputed. The two lookups here and in findProjectGroup share it so they cannot drift.
+  function bucketSpellings(project) {
+    const out = new Set();
+    if (!project) return out;
+    if (project.projectPath) out.add(project.projectPath);
+    for (const session of project.sessions || []) {
+      if (session && session.projectPath) out.add(session.projectPath);
+    }
+    return out;
+  }
+
+  // The group in `list` that main already holds for the directory `projectPath` names, or null (#671).
+  //
+  // A session that is running but not indexed yet has no bucket of its own, so the sidebar has to place it.
+  // Its spelling is the spawn's, and the group carries the spelling of the first row main read, so the two
+  // can differ in slash direction or drive-letter case while naming one directory; an exact compare on the
+  // group's spelling alone then opened a second group for it. The group's own spelling is tried first, then
+  // every spelling of its sessions, gathered across `projectLists` (both lists main sent) so a group the
+  // default list carries in another spelling than the archive-inclusive one is still found. Nothing here
+  // compares two paths itself: a spelling no bucket holds matches nothing, and the caller opens a new group,
+  // which is right for a directory whose first session this is.
+  function findProjectGroup(list, projectPath, projectLists) {
+    if (!list || !projectPath) return null;
+    const exact = list.find(p => p && p.projectPath === projectPath);
+    if (exact) return exact;
+    const spellings = new Set([projectPath]);
+    for (const other of projectLists || [list]) {
+      for (const project of other || []) {
+        const own = bucketSpellings(project);
+        if (own.has(projectPath)) for (const spelling of own) spellings.add(spelling);
+      }
+    }
+    return list.find(p => {
+      for (const spelling of bucketSpellings(p)) if (spellings.has(spelling)) return true;
+      return false;
+    }) || null;
+  }
+
+  return { projectDisplayLabel, projectDisplayNameIndex, projectDisplayNameOf, findProjectGroup };
 });
