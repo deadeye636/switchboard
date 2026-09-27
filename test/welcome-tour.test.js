@@ -15,6 +15,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const { stripComments } = require('./helpers/strip-comments');
+const { pageScripts } = require('./helpers/page-scripts');
 
 const ROOT = path.join(__dirname, '..');
 const read = (rel) => stripComments(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
@@ -244,8 +245,7 @@ test('the documents figure draws what the app will use, and asks the shared rule
   }
 
   // And the rule really is shared — loaded by the page, not required, because the renderer has no require.
-  const html = fs.readFileSync(path.join(ROOT, 'src/renderer/index.html'), 'utf8');
-  assert.match(html, /shared\/convention-dir-name\.js/,
+  assert.ok(pageScripts('index.html').some(s => s.endsWith('shared/convention-dir-name.js')),
     'index.html has to load the shared rule or the tour throws on the first keystroke');
   const app = read('src/app/convention-dirs.js');
   assert.match(app, /unusableConventionDirName/,

@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
+const { pageScripts } = require('./helpers/page-scripts');
 
 // It moved out of `away-overview-view.js` at #673, so the pages that never load that file report too.
 const RENDERER = path.join(__dirname, '..', 'src', 'renderer');
@@ -97,8 +98,7 @@ test('#673: every page loads the reporter — review in the settings, changes or
   // The recap fired for time spent reviewing in a window of the app's own, because those pages never
   // loaded the file the listeners lived in. A page added later that omits the tag fails here by name.
   for (const page of ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html']) {
-    const html = fs.readFileSync(path.join(RENDERER, page), 'utf8');
-    assert.match(html, /<script\s+src="shell\/presence-report\.js"><\/script>/,
+    assert.ok(pageScripts(page).includes('shell/presence-report.js'),
       `${page} must load shell/presence-report.js`);
   }
 });

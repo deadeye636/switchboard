@@ -26,6 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
+const { pageScripts } = require('./helpers/page-scripts');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 
@@ -37,8 +38,7 @@ const PROJECT_PATH = '/projects/example/alpha';
 // settings-window.js is left out: it is the bootstrap that opens the panel from the URL, and this test
 // opens it itself with the scope it wants.
 function settingsScripts() {
-  const html = fs.readFileSync(path.join(REN, 'settings.html'), 'utf8');
-  const srcs = [...html.matchAll(/<script\s+src="([^"]+)"><\/script>/g)].map(m => m[1]);
+  const srcs = pageScripts('settings.html');
   assert.ok(srcs.length > 5, 'settings.html script list not found — did the page change shape?');
   return srcs.filter(s => !s.endsWith('settings-window.js'));
 }

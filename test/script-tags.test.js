@@ -25,6 +25,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { pageRefsOf } = require('./helpers/page-scripts');
 
 const ROOT = path.join(__dirname, '..');
 const PAGES = ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html'];
@@ -39,11 +40,7 @@ function pageDir() {
 
 /** The `src` of every `<script>` and the `href` of every stylesheet `<link>`, in document order. */
 function refsOf(html) {
-  const out = [];
-  const re = /<script\b[^>]*\bsrc\s*=\s*"([^"]+)"|<link\b[^>]*\bhref\s*=\s*"([^"]+)"[^>]*>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) out.push(m[1] || m[2]);
-  return out;
+  return pageRefsOf(html).map(r => r.ref);
 }
 
 const dirCache = new Map();

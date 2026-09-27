@@ -36,6 +36,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
+const { pageScripts } = require('./helpers/page-scripts');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 
@@ -125,8 +126,7 @@ const CAP_TWO = 'neither value could be drawn here — the defaults are shown in
 // The two scripts, read out of index.html so the list cannot drift away from the page. `endsWith` rather
 // than an index: the page's order is asserted separately, and only these two are loaded.
 function tourScripts() {
-  const html = fs.readFileSync(path.join(REN, 'index.html'), 'utf8');
-  const srcs = [...html.matchAll(/<script\s+src="([^"]+)"><\/script>/g)].map(m => m[1]);
+  const srcs = pageScripts('index.html');
   const rule = srcs.findIndex(s => s.endsWith('shared/convention-dir-name.js'));
   const tour = srcs.findIndex(s => s.endsWith('dialogs/welcome-tour.js'));
   assert.ok(rule >= 0, 'index.html must load src/shared/convention-dir-name.js — the tour asks it what a name means');

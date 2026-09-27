@@ -24,6 +24,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Linter } = require('eslint');
 const espree = require('espree');
+const { pageScripts } = require('./helpers/page-scripts');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 const ORDER = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'script-order.json'), 'utf8'));
@@ -31,10 +32,8 @@ const ORDER = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'scrip
 // Resolve a script-order basename to its path under src/renderer. The fixture stores basenames; the actual
 // files live in subfolders, so build a basename -> relpath index from the HTML the environment names.
 function htmlScriptPaths(htmlFile) {
-  const html = fs.readFileSync(path.join(REN, htmlFile), 'utf8');
   const out = new Map();
-  for (const m of html.matchAll(/<script src="([^"]+)"><\/script>/g)) {
-    const rel = m[1];
+  for (const rel of pageScripts(htmlFile)) {
     if (rel.startsWith('http')) continue;
     // `../shared/foo.js` from src/renderer resolves to src/shared/foo.js — a real classic script the
     // environment loads (the four shared modules both processes use). Keep it, resolved relative to REN.
