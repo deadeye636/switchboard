@@ -10512,6 +10512,7 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   background: #18181f;
   border-bottom: 1px solid rgba(255,255,255,0.06);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .va-title { font-size: 13px; color: #b0b0c4; font-weight: 500; }
 .va-combo-input, .va-search {
@@ -10524,7 +10525,9 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   font-family: inherit;
   transition: all 0.2s;
 }
-.va-search { flex: 1; max-width: 320px; padding: 7px 12px; }
+/* In a narrow pane the header wraps instead of squeezing: the search keeps a usable width and the buttons
+   keep their label on one line (#678). */
+.va-search { flex: 1; min-width: 140px; max-width: 320px; padding: 7px 12px; }
 .va-combo-input:focus, .va-search:focus { background: rgba(255,255,255,0.06); border-color: rgba(120,130,255,0.4); box-shadow: 0 0 0 3px rgba(120,130,255,0.08); }
 
 /* Filterable scope combobox (replaces the native scope <select>) — header filter and dialog scope. */
@@ -10572,6 +10575,8 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   color: #d0d0dc;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .va-add { margin-left: auto; }
 .va-add:hover, .va-refresh:hover, .va-sort:hover:not(:disabled) { border-color: #d97757; color: #fff; }
