@@ -1,0 +1,285 @@
+# 32 — Claude driven through its stream protocol, not through a terminal
+
+Issue #653, built in #657, #658, #655, #659, #660 and #661. The backend is `src/backends/claude-native/`,
+the core half is `src/app/agent-rpc.js`, and the surface is `src/renderer/session/conversation-view.js`,
+the same three places spec 30 describes for Pi. This spec covers what is different for Claude. Where the
+mechanism is the shared one, it points to spec 30 instead of describing it again.
+
+Every "measured" in this spec is Claude Code 2.1.283, driven over the pipe in an isolated home while
+#653 to #661 were built. The larger measurements are recorded on those issues' comments; the smaller ones
+are recorded here and, where the code depends on them, in the comment beside that code.
+
+## What changes for the user
+
+Claude Code has a print mode that speaks JSON on both sides:
+`claude -p --input-format stream-json --output-format stream-json` takes one line per turn or control
+request and writes the turn back as events. The Claude Agent SDK is a wrapper around exactly this: it starts
+the Claude Code binary and speaks this protocol to it. `Claude (native)` does the same without the SDK. It
+starts the `claude` the user installed, draws the conversation in the conversation view, and sends turns
+and answers down the same pipe.
+
+Skills, commands, `CLAUDE.md`, hooks, MCP servers and plugins load from `.claude/` and `~/.claude/` the way
+they do in the terminal, because it is the same binary reading the same files. The terminal Claude backend
+stays as it is. Anyone who wants Claude's own TUI keeps it, and neither backend has to keep two surfaces
+in step.
+
+## Decisions
+
+| | Decision | Why |
+|---|---|---|
+| E1 | Speak stream-json directly to the installed `claude`. No npm Agent SDK. | The SDK runs the same binary over the same pipe. It would add an ESM dependency and nothing the app needs. |
+| E2 | No billing notice in the UI. | See "Billing, for the record" below. |
+| E3 | A separate backend, `claude-native`, beside the terminal one. | The same split as pi-native: one surface per backend. |
+| E4 | **No login flow, no token.** The backend starts the CLI the user installed and signed in to, as that user, and handles no credential of any kind. | Anthropic's Agent SDK documentation says third-party developers may not offer claude.ai login for their products unless approved. The backend stays on the right side of that line by not touching authentication at all. A CLI that is not signed in says so in its own words, on screen, and `/login` answers that it is not available in this environment. |
+| E5 | **No trust, no start** (#655). | Print mode skips Claude's workspace trust dialog. See "The trust gate". |
+| E6 | The permission mode follows the usual cascade, global → project → session (`backendDefaults.claude-native`). Unset sends no `--permission-mode`, so Claude's own `defaultMode` applies. | An unset option describes what the CLI does anyway (`.claude/rules/backends.md`). |
+| E7 | One implementation per concept. What is not one CLI's is shared with pi-native. The backend keeps only its protocol translator, its launch and its marker. | See "Shared with pi-native, and what is not". |
+| E9 | The marker means "driven over the pipe at least once", as for Pi. | See "Who owns a row". |
+| E10 | Image input is in scope, through the same view code as pi-native's (#656). | Tracked in #662. |
+| E11 | No AFK timeout for a piped child, for now. | `CLAUDE_AFK_TIMEOUT_MS` is about a terminal left alone. |
+| E12 | A driver's store is read while the driver is on, even with its owner switched off. | Without it a new session never reached the sidebar with the owner off (#658). |
+| E14 | A stop waits only where the CLI needs time to finish its transcript. | Measured: a child killed the moment its `result` arrived had already written the turn's last line, so claude-native declares no `gracefulStopMs`. |
+| E16 | Approving a plan is a plain allow. No "approve and accept edits". | `ExitPlanMode` carries no permission suggestion, so there is no mode to take over. An app-built one was measured working and left out by the owner (#661). |
+| E17 | "For this session" hands back only suggestions whose destination is the session. | A suggestion naming a settings file would outlive the session and write a file of the user's (#661). |
+| E18 | No special order for `default_to_no`. | No request in any measurement carried the field (#661). |
+
+E8 and E13 are pi-native's half of the trust gate and are recorded in spec 30 (its E5). E15 is not
+recorded on any issue and is left out here.
+
+### Billing, for the record
+
+As of September 2026, `claude -p` and Agent SDK usage draws from the user's existing subscription, the same
+as the interactive CLI. A move to a separate monthly credit, with overflow at API rates, was announced for
+2026-06-15 and paused that day, not cancelled. If it comes back, sessions of this backend fall under it and
+sessions of the terminal backend do not. The app shows no notice about it (E2). `/cost` in the view prints
+the CLI's own sentence about what the usage draws on.
+
+## The trust gate
+
+Measured on Claude Code 2.1.283, in a folder Claude had never trusted: the project's `SessionStart` hook
+started, the project's `CLAUDE.md` was read, and nothing was recorded in Claude's trust store afterwards.
+`claude --help` says the same: the trust dialog is skipped in non-interactive mode. A checked-out
+repository's hooks and MCP servers would therefore run without the question the terminal asks.
+
+So the descriptor declares `trustBeforeStart`, and the spawn path asks Claude's saved answer through
+`projectTrust` before anything is built. `null`, an error and anything but `true` all refuse. The app
+then asks the trust question itself, with the confirm the Projects manager uses, and starts again on a yes.
+Claude's trust can cover a whole repository, which every checkout of it shares, so the refusal carries that
+scope (`sharedGate`) and the launch confirm shows the same "every checkout is trusted too" line the manager
+shows. A launch nobody made at the keyboard, such as the restore at start, asks nothing and leaves the
+refusal in the tab. The gate is one implementation for both runtime-driven backends; the launch paths and
+their tests are listed on #655.
+
+There is no start with the project half left out. A session that silently has less than the user expects
+is worse than one that does not start.
+
+## Who owns a row
+
+The rule is spec 30's: two backends over one store cannot both own a row, so the row stays Claude's and
+how it was driven is a field of its own. Only the marker is different.
+
+1. **Claude Code writes the marker itself.** `CLAUDE_CODE_ENTRYPOINT` in the child's environment is
+   written verbatim into every transcript line (measured): `sdk-switchboard` comes out as
+   `"entrypoint":"sdk-switchboard"`, where a terminal session writes `cli` and a user's own `claude -p`
+   script writes `sdk-cli`. Nothing of the app's is written into Claude's store.
+   `src/backends/claude/transport-marker.js` spells it once, beside the reader.
+2. Claude's reader sets `row.transport` once any line carries it. The flag lives in the incremental parse
+   state, so an append keeps it.
+3. **The launch record names the driver; the row names the owner.** The launch overlay records
+   `claude-native`, and Claude's indexer used to stamp that onto the row, which would have put it outside
+   Claude's own reconcile. `rowOwnerOf(id)` in `src/backends/index.js` turns the recorded id into the owner
+   before the stamp.
+4. `backends.openerFor(row)` hands a marked row to claude-native while it can launch, and back to the
+   terminal backend when it is off. The transcript is Claude's either way, so resume and fork work from
+   both.
+
+**Claude's own `/resume` picker does not list these sessions.** It hides every `sdk-*` entrypoint
+(measured), so a session started here is found in Switchboard, not in the CLI's picker. The terminal
+backend opens it from the sidebar like any other Claude row.
+
+## How the child is driven
+
+The launch, in `buildLaunch`:
+
+```
+claude -p --input-format stream-json --output-format stream-json --verbose
+       --include-partial-messages --replay-user-messages --permission-prompt-tool stdio
+       --session-id=<id> | --resume=<id> | --resume=<parent> --fork-session --session-id=<new>
+       [--permission-mode <mode>] [--model <model>]
+```
+
+Each flag is there for a measured reason, and the reasons are in the comment above `buildLaunch`. Session
+values are passed as `--flag=value`, so an id can never be read as a flag. The child is started with argv
+and no shell (`spawnMode: 'argv'`). On Windows that needs the native `claude.exe`, because an npm
+`claude.cmd` cannot start without a shell, and the probe says so rather than failing at spawn.
+
+The version floor is checked only when a session is about to start (`probe({ launch: true })`), because
+reading `claude --version` costs a child process and the registry's probe runs on every scan. The floor is
+2.1.283 because that is the version every measurement here was taken against, not because an older one is
+known to fail.
+
+**Not applied to this backend**, each gated on the descriptor's `transport` and never on an id: the live
+binding's settings file, the MCP IDE bridge and `--ide`, the terminal title heuristic, and
+`CLAUDE_AFK_TIMEOUT_MS`. The attention hooks the app writes into Claude's global settings reach a piped
+child too (measured for a global `SessionStart` hook, inferred for the app's own hooks, spec 05).
+`src/app/hooks.js` drops their attention delivery for a session with `transport` and keeps the
+per-turn transcript refresh (spec 05, #659).
+
+### Turns, steering and Stop
+
+A turn line is never answered. The core takes the write as the send (`sendAcknowledged: false`), and a
+write to an idle session is its busy edge. `result` ends the turn.
+
+The view's three modes map onto the user line's `priority` (measured with a turn of three sequential Bash
+calls):
+
+| View | Line | What Claude does |
+|---|---|---|
+| Send, idle | no `priority` | runs the turn |
+| Queue (Enter while a turn runs) | no `priority` | queues the line and runs it as its own turn after the running one ends |
+| Steer (Ctrl+Enter while a turn runs) | `priority: 'next'` | injects the line into the running turn at its next tool boundary; the turn ends in one `result` |
+
+The protocol's `follow_up` mode maps to `priority: 'later'`, which queues the same way. The view sends
+nothing in that mode today. Claude's third priority, `now`, cuts the running turn off and runs the line at
+once. It is not offered.
+
+A queued turn starts with nothing written by the app, so the decoder reads every turn's `system/init` as a
+busy edge too. A queued line without a priority is written into the transcript as an `enqueue` at once, but
+a `later` line is kept in memory and its `enqueue` is written only as the turn before it ends (both
+measured), so the transcript cannot always tell the turn-hold that a turn is owed. The core counts the turn
+lines it wrote while a turn ran (`agentRpc.turnQueueOf`), and the turn-hold asks that before the row's own
+`readTurnQueue`.
+
+Stop sends an `interrupt` control request. The process stays, and the running turn ends with an ordinary
+`result` of subtype `error_during_execution`, the same shape a turn that really failed has. The decoder
+hears the lines the core writes (`noteSent`) and draws that result as "Stopped." only when a Stop went out
+before it. A queued `later` line survives a Stop and runs right after (measured); a queued line without a
+priority was not measured against a Stop.
+
+### Identity
+
+The CLI names its session on every line. The decoder announces a new id as an `identity` op and the core
+re-keys through the shared re-key. That covers three moves with one path: a fork, whose first line names
+the fork's id; `/clear`, which answers `conversation_reset` and continues under a new id in the same
+process; and nothing else, because `/compact` keeps the id (measured). There is no `stateCommand`, since
+nothing in the protocol answers "which session are you on".
+
+A fork is launched with its own `--session-id` beside `--fork-session`, so the tab is keyed on the fork
+from the first frame. Claude writes the fork's file only with its first turn (measured). Until then an
+attach reads the parent's file, which holds the same lines under the same uuids.
+
+### History
+
+A view that mounts reads the conversation from Claude's own transcript file (`entriesFromTranscript`),
+because the CLI cannot be asked for it. The entries are Claude's transcript lines, which the Message History
+viewer already draws, so a live session and its history look the same. The stream and the file share each
+line's uuid, which is the entry key the view skips a duplicate by. The race between the file and the pipe
+is handled in the core, as for any backend that reads a transcript (`attachFromTranscript` in
+`src/app/agent-rpc.js`).
+
+## Approvals and questions
+
+Claude asks before a tool runs over the control channel (`control_request` / `can_use_tool`), but only with
+`--permission-prompt-tool stdio`. With `--permission-prompts host` alone, a `Write` was refused on the spot
+and the host was never asked (measured).
+
+This is the difference from pi-native that matters most. **The question here is Claude's own**, asked under
+the user's own permission rules, the question the terminal would put. A tool the user's rules allow never
+reaches the card. A user whose `defaultMode` is `auto` sees few or no questions, because the CLI asks none
+(measured). The card carries one line saying that Claude asks this under its own permission rules, as it
+would in a terminal. Pi has no approval step, so pi-native builds its own gate in a
+per-spawn extension and calls it a convenience, not a security boundary (spec 30). Claude needs no such
+extension.
+
+Three kinds of question arrive, all as `can_use_tool`:
+
+- **An ordinary tool.** The card offers Allow once and Refuse. It offers "For this session" only when the
+  CLI sent `permission_suggestions` with `destination: 'session'` (E17), and the button says what it allows:
+  the measured suggestion for a `Write` is `setMode acceptEdits`, which lets every later edit through, so the
+  button reads "Allow all edits for this session". An allow hands the tool's input back unchanged as
+  `updatedInput`, which is why `answerCommand` gets the question it answers. A refusal tells the model the
+  user refused the call.
+- **`AskUserQuestion`** is a question, not a permission. The card draws its questions with their options,
+  checkboxes where several may be picked, and a free answer. The answer is an allow whose `updatedInput`
+  carries `answers`. Several choices are joined with ", ", and a free answer is taken as written (both
+  measured).
+- **`ExitPlanMode`** carries the plan as markdown. Approve is a plain allow, and the session goes back to its
+  mode from before planning (E16). Keep planning is a deny with `interrupt: true`. It ends the turn with the
+  same result a Stop gets, and the decoder draws it as "Kept planning".
+
+A request the CLI withdraws (`control_cancel_request`) closes its card and is not answered. The ask/answer
+flow, the registry of open questions and the cards are the shared ones; the two kinds `questions` and
+`plan` are neutral vocabulary, and the renderer names no Claude tool.
+
+## Slash commands
+
+Claude's local commands work over the pipe: `/cost`, `/context`, `/model` and `/compact` answer, and `/clear`
+starts a new session in the same process (measured). A local command answers with an assistant line whose
+model is `<synthetic>` and an ordinary `result`, so it is drawn as an entry and busy/ready come from the
+same `result` as for any turn. `/login` answers that it is not available in this environment.
+
+The list a `/` completes to comes from the CLI's `initialize` control request, which may be sent more than
+once (measured). It is sent when the view asks for the list, not at start: turns work without it, and the
+session's capabilities arrive with the first turn's `system/init` anyway. The completion in the view,
+`/clear` in the sidebar and images are #662.
+
+## Shared with pi-native, and what is not
+
+**Shared**, one implementation each (E7):
+
+- the pipe, the line framing, the request/response wait, the stop and the tree kill: `src/app/agent-rpc.js`;
+- the neutral ops the decoder produces (`append`, `partial`, `tool`, `busy`, `notice`, `ask`, `answered`,
+  `reset`, and `identity`, which the core handles itself) and the one channel that carries them to the view;
+- the attach sequence contract, the re-key, the open-question registry and its answers, and the count of
+  owed turns;
+- the conversation view, its composer, its cards and the pickers anchored in it;
+- the trust gate (`trustBeforeStart`, #655);
+- the row ownership: `transcriptsOf`, `openerFor`, `rowOwnerOf`, `storesRead` (#658);
+- busy/ready from the pipe only (#659).
+
+The core learned these as declarations of the `rpc` half in #657, where it used to assume Pi's shape.
+`.claude/rules/backends.md` lists them.
+
+**Not shared, on purpose:**
+
+| What | Pi (native) | Claude (native) | Why they differ |
+|---|---|---|---|
+| The marker | a `custom` entry the runtime extension appends | the `entrypoint` Claude Code writes from the environment | each is the owner's format, and Claude needs nothing written into its store |
+| A per-spawn extension | yes: marker, approval gate, session commands | none | Claude asks its own approvals and runs its own slash commands over the pipe |
+| Approvals | the app's gate, a convenience | Claude's own permission prompt | Pi has no approval step; Claude has one |
+| Identity | asked with `get_state` | read off every line | Claude cannot be asked |
+| History on attach | `get_messages` | the transcript file | Claude cannot be asked |
+| Turn acknowledgement | every command is answered | a turn line is never answered | the protocols differ |
+| Stop | `abort`, plus `abort_bash` for a shell line | an `interrupt` control request | the protocols differ |
+| `/login`, `/model`, `/session`, `/tree` | built by the app in the extension | Claude's own, or not available | Pi's are TUI commands that mean nothing over RPC; Claude's local commands answer over the pipe |
+
+Whether any code in the two backend folders is still the same logic written twice is #664.
+
+## The settings
+
+`permissionMode` (Claude's choices without Dangerous Skip: a session in which no card could ever appear is
+already on the list as `bypassPermissions`, in the CLI's own vocabulary, so a second switch for it is left out) and `model`. The terminal backend's other
+options are not offered yet. Every key, its default and what it means: `docs/settings-reference.md`.
+
+## Known gaps
+
+- **The marker leaks into tool children.** A Bash call of a driven session inherits
+  `CLAUDE_CODE_ENTRYPOINT`, and a `--settings` env override does not stop it (measured). A nested `claude -p`
+  run through that tool would therefore mark its own session as driven, and it would open in claude-native.
+  The strip is app-side only: the app removes the variable from every spawn of its own.
+- **Settings that fail validation are dropped without a word.** The terminal shows a dialog for them; print
+  mode ignores them silently (`claude --help`), and nothing in the stream says so. The view has nothing to
+  show.
+- **With the terminal Claude backend off and claude-native on**, nothing shows project meta, usage or live
+  owners. Each is answered once, by the terminal backend, which reads the same files (see the capability
+  notes in `src/backends/claude-native/index.js`).
+- **The attention caption stays after a question is answered** in the view. Shared with pi-native: #666.
+- **While a question or plan card is open, the activity line can still say the turn is running.** Those two
+  cards do not mark the view as waiting the way an approval card does.
+- **Restoring a tab** can show the session as not running while it runs (#668), or resume the session from
+  before a `/clear` (#669). After `/clear` the tab header can show the folder name instead of the project's
+  display name (#667).
+- **The redraw rate on a streamed turn** is not measured. The stream is about 40 small events a second
+  (measured, and cheap for the pipe); what the view's redraw costs at that rate is still open.
+- **The version floor is the measured version.** Features are not detected from the `system/init`
+  capabilities list, which would be the finer check.

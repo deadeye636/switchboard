@@ -428,7 +428,8 @@ transcript. The row stays the owner's; the owner's parser records HOW it was dri
 marker the driver's per-spawn extension writes), and `backends.openerFor(row)` is the one answer to which
 backend OPENS it — the sidebar payload and the spawn path's cache fallback both ask it. A driver that is
 switched off hands the row back to the owner. `test/backend-parity.test.js` pins that shape, spec 30 has
-the reasoning.
+the reasoning. `claude-native` is the second such driver (`transcriptsOf: 'claude'`, #653), and spec 32 says
+what it shares with pi-native and what it deliberately does not.
 
 **Two more answers the registry owns for such a pair (#658), and neither is spelled twice.** `rowOwnerOf(id)`
 turns the id a launch RECORDED into the row's owner — Claude's provenance stamp reads the launch overlay,

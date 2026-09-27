@@ -92,6 +92,16 @@ is resolved from your environment at launch and never written to disk. Pasting a
 A profile that points at a third-party endpoint while still inheriting your Anthropic key is blocked
 outright — that combination would send your key to someone else.
 
+## Claude without a terminal
+
+**Claude (native)** drives the same `claude` over its stream-json protocol and draws the conversation in
+Switchboard's own view: streamed replies, tool calls with their output, and Claude's permission questions,
+its questions to you and its plans as cards. It is off by default; switch it on under **Settings →
+Backends**. It needs the native Claude Code build (`claude.exe` on Windows), starts only in a project Claude
+trusts, and asks the trust question at launch when there is none. It has no login of its own: it runs the
+`claude` you already signed in to. Its sessions are ordinary Claude sessions, so switching the backend off
+opens them in the terminal again. Details: [`specs/32-claude-native.md`](specs/32-claude-native.md).
+
 ## Pi: without a terminal, and with another CLI's setup
 
 Pi comes as two backends. **Pi** runs Pi's own terminal interface. **Pi (native)** drives the same `pi`

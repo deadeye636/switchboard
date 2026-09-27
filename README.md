@@ -108,6 +108,12 @@ chart rather than a row of zeroes.
   switches it to an earlier point. Its sessions are ordinary Pi sessions and
   reopen where they were driven.
   → [`docs/specs/30-pi-native.md`](docs/specs/30-pi-native.md)
+- **Claude without a terminal** — a second Claude backend that drives the `claude` you installed over its
+  stream-json protocol and draws the conversation in the same view: streamed replies, tool calls, Claude's
+  own permission questions, its questions to you and its plans as cards you answer in place. It starts only
+  in a project Claude trusts, and it has no login of its own. Its sessions are ordinary Claude sessions and
+  reopen where they were driven.
+  → [`docs/specs/32-claude-native.md`](docs/specs/32-claude-native.md)
 - **Subagents for Pi** — an opt-in `subagent` tool that hands one task to an agent from a markdown
   definition, run as a separate Pi process with a fresh context; the result says what it cost.
   → [`docs/settings-reference.md`](docs/settings-reference.md)

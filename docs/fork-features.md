@@ -373,6 +373,17 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Pi's commands, prompt templates and skills, `/model`, `/thinking`, `/login` and `/logout` list their
   arguments, and `@` lists the project's files. Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).
+- **Claude driven through its stream protocol (#653)** — `Claude (native)` starts the installed `claude` in
+  print mode with stream-json on both sides, the protocol the Claude Agent SDK wraps, and draws the
+  conversation in the same view as `Pi (native)`. Tool approvals are Claude's own permission prompt,
+  answered on a card: allow once, refuse, and "for this session" where Claude suggests something for the
+  session, worded as what it allows. `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
+  plan card. A text field sends, queues and steers turns, and Stop interrupts the turn without ending the
+  process. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
+  and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
+  itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:
+  [`specs/32-claude-native.md`](specs/32-claude-native.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says

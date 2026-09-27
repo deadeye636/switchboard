@@ -42,6 +42,7 @@ table is the fallback and it is binding.
 | skills — the picker, a backend's skill invocation | `docs/specs/21-skills.md` |
 | the command palette | `docs/specs/23-command-palette.md` |
 | a session with no terminal — a backend driven over a pipe, the conversation view | `docs/specs/30-pi-native.md` (why) + `.claude/rules/backends.md` (the driver/owner rule) + `.claude/rules/renderer.md` (the terminal-less entry) |
+| Claude driven over its stream-json pipe (`claude-native`) — the launch, the marker, approvals, questions and plans on cards | `docs/specs/32-claude-native.md` (why) + `.claude/rules/backends.md` (the `rpc` half's declarations) + `src/backends/claude-native/rpc-protocol.js` (the measured protocol, in its header) |
 | "Resources from" — a Pi session taking over another CLI's skills, commands, agents, MCP servers and hooks, a per-spawn extension section, a select whose choices the core fills | `docs/specs/31-resources-from.md` (why) + `.claude/rules/backends.md` (the declarations, sections not hook pairs) + `src/app/resource-sources.js` (the one resolver) |
 | a release, a tag, an installer | `docs/ai/release.md` |
 | the human-facing build/run/package instructions | `docs/development.md` |
