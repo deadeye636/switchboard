@@ -162,7 +162,12 @@ const cleanPtyEnv = Object.fromEntries(
     k !== 'CLAUDE_CODE_CHILD_SESSION' &&
     k !== 'CLAUDE_CODE_SSE_PORT' &&
     k !== 'CLAUDE_CODE_SESSION_ID' &&
-    k !== 'CLAUDECODE'
+    k !== 'CLAUDECODE' &&
+    // …and the parent's ENTRYPOINT, which the CLI writes verbatim into every transcript line (#660). It is
+    // how a pipe-driven session is marked (`src/backends/claude/transport-marker.js`), and the CLI hands it
+    // on to its tool children: a Switchboard started from inside such a session would otherwise mark every
+    // terminal session it launches as driven over the pipe. A spawn that wants it sets it itself.
+    k !== 'CLAUDE_CODE_ENTRYPOINT'
   )
 );
 
@@ -1470,6 +1475,11 @@ const turnHold = require('./app/turn-hold');
 turnHold.init({
   log,
   readTurnQueue: (sessionId, sinceMs) => {
+    // A session driven over a pipe whose runtime answers no turn line: the core knows what it wrote while a
+    // turn ran, and that is the only answer in time for the idle it holds (#660 — Claude writes a `later`
+    // line's queue entry only as the turn before it ends). Lazy: agentRpc is required further down.
+    const live = agentRpc.turnQueueOf(sessionId, sinceMs);
+    if (live && live.queued > 0) return live;
     const row = getCachedSession(sessionId);
     const backend = row && row.backendId ? backends.get(row.backendId) : null;
     if (!backend || typeof backend.readTurnQueue !== 'function') return null;

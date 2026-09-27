@@ -1,0 +1,342 @@
+'use strict';
+// claude-native (#660): Claude Code driven over its stream-json pipe. This file holds what can be asked without
+// a child — the translator, the launch, the version floor, the descriptor's wiring. The core driving a real
+// child through this backend's protocol half is `claude-native-rpc.test.js`.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const backends = require('../src/backends');
+const claude = require('../src/backends/claude');
+const protocol = require('../src/backends/claude-native/rpc-protocol');
+const version = require('../src/backends/claude-native/version');
+const { TRANSPORT_ENTRYPOINT_ENV, TRANSPORT_ENTRYPOINT } = require('../src/backends/claude/transport-marker');
+const { encodeProjectPath } = require('../src/session/encode-project-path');
+
+const native = () => backends.get('claude-native');
+const decodeAll = (lines) => { const d = protocol.createDecoder(); return lines.flatMap(l => d.decode(l)); };
+const opNames = (ops) => ops.map(o => o.op);
+
+// --- the translator ---
+
+test('a streamed reply is drawn as it is written, and each finished block becomes an entry under its uuid', () => {
+  const d = protocol.createDecoder();
+  const s = { session_id: 's1', parent_tool_use_id: null };
+  assert.deepEqual(opNames(d.decode({ ...s, type: 'stream_event', event: { type: 'message_start' } })), ['identity', 'partial']);
+  d.decode({ ...s, type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } });
+  const delta = d.decode({ ...s, type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hel' } } });
+  assert.deepEqual(delta[0].entry.message.content, [{ type: 'text', text: 'Hel' }]);
+  d.decode({ ...s, type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'lo' } } });
+  assert.equal(d.currentPartial().message.content[0].text, 'Hello');
+  const done = d.decode({ ...s, type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] } });
+  assert.deepEqual(opNames(done), ['partial', 'append']);
+  assert.equal(done[0].entry, null, 'the finished block leaves the partial, so it is not drawn twice');
+  assert.equal(done[1].entry.uuid, 'a1');
+  assert.equal(protocol.entryKey(done[1].entry), 'a1');
+  // The next block of the same model message streams into an emptied partial.
+  d.decode({ ...s, type: 'stream_event', event: { type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 't1', name: 'Bash' } } });
+  const args = d.decode({ ...s, type: 'stream_event', event: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"command":"l' } } });
+  assert.deepEqual(args[0].entry.message.content, [{ type: 'tool_use', id: 't1', name: 'Bash', input: { _partial: '{"command":"l' } }]);
+  assert.deepEqual(d.decode({ ...s, type: 'stream_event', event: { type: 'message_stop' } }), [{ op: 'partial', entry: null }]);
+});
+
+test('a tool call runs from its block to its result', () => {
+  const ops = decodeAll([
+    { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } },
+    { type: 'user', uuid: 'u2', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'out', is_error: false }] } },
+    { type: 'user', uuid: 'u3', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't2', content: [{ type: 'text', text: 'bad' }], is_error: true }] } },
+  ]);
+  assert.deepEqual(ops.filter(o => o.op === 'tool'), [
+    { op: 'tool', id: 't1', status: 'running', output: '' },
+    { op: 'tool', id: 't1', status: 'done', output: 'out' },
+    { op: 'tool', id: 't2', status: 'error', output: 'bad' },
+  ]);
+});
+
+test('every turn opens with system/init and ends with result — the busy edges of a turn nothing of ours wrote', () => {
+  const ops = decodeAll([
+    { type: 'result', subtype: 'success', is_error: false, result: 'A' },
+    { type: 'system', subtype: 'init' },
+    { type: 'user', uuid: 'u9', isReplay: true, message: { role: 'user', content: 'queued' } },
+    { type: 'result', subtype: 'success', is_error: false, result: 'B' },
+  ]);
+  assert.deepEqual(ops.filter(o => o.op === 'busy').map(o => o.busy), [false, true, false]);
+  assert.equal(ops.find(o => o.op === 'append').entry.message.content, 'queued', 'the queued line is drawn when it runs');
+});
+
+test('a failed turn says so, in the CLI\'s own words', () => {
+  const ops = decodeAll([{ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Credit balance is too low'] }]);
+  assert.deepEqual(ops, [{ op: 'notice', level: 'error', text: 'Credit balance is too low' }, { op: 'busy', busy: false }]);
+  const failedCall = decodeAll([{ type: 'assistant', uuid: 'a1', error: 'authentication_failed', message: { role: 'assistant', content: [{ type: 'text', text: 'Please run /login' }] } }]);
+  assert.deepEqual(failedCall.find(o => o.op === 'notice'), { op: 'notice', level: 'error', text: 'Please run /login' });
+});
+
+test('a turn ended by Stop is drawn as stopped; a Stop that ended nothing leaves the next failure alone', () => {
+  const stopped = protocol.createDecoder();
+  stopped.noteSent(protocol.abortCommand('i1'));
+  const ops = stopped.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] });
+  assert.deepEqual(ops, [{ op: 'notice', level: 'info', text: 'Stopped.' }, { op: 'busy', busy: false }]);
+  const after = stopped.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Credit balance is too low'] });
+  assert.equal(after[0].level, 'error', 'the stop is spent by the turn it ended');
+
+  const idleStop = protocol.createDecoder();
+  idleStop.noteSent(protocol.abortCommand('i2'));
+  idleStop.noteSent(protocol.sendCommand({ text: 'next' }));
+  idleStop.decode({ type: 'system', subtype: 'init' });
+  const failed = idleStop.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Credit balance is too low'] });
+  assert.deepEqual(failed[0], { op: 'notice', level: 'error', text: 'Credit balance is too low' }, 'a turn that starts after the Stop is not the one it stopped');
+});
+
+test('a local command\'s <synthetic> reply is an entry, never a shell line of the core\'s', () => {
+  const ops = decodeAll([{ type: 'assistant', uuid: 'a1', message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'Total cost: $0.00' }] } }]);
+  assert.deepEqual(opNames(ops), ['append']);
+  assert.ok(!ops.some(o => o.op === 'localCommand'));
+});
+
+test('/clear: the conversation is reset, and the new id is announced before anything about the new session', () => {
+  const ops = decodeAll([
+    { type: 'result', session_id: 'old', subtype: 'success', is_error: false },
+    { type: 'conversation_reset' },
+    { type: 'system', subtype: 'init', session_id: 'new' },
+    { type: 'result', session_id: 'new', subtype: 'success', is_error: false },
+  ]);
+  assert.deepEqual(opNames(ops), ['identity', 'busy', 'partial', 'reset', 'identity', 'busy', 'busy']);
+  assert.deepEqual(ops.filter(o => o.op === 'identity').map(o => o.sessionId), ['old', 'new']);
+  // The ordering the hooks depend on (#659): the re-key comes first on the line that names the new id, so the
+  // busy edge of the new session is already reported under the new id.
+  const newAt = ops.findIndex(o => o.op === 'identity' && o.sessionId === 'new');
+  assert.equal(ops[newAt + 1].op, 'busy');
+  assert.deepEqual(decodeAll([{ type: 'result', session_id: 'x' }, { type: 'result', session_id: 'x' }]).filter(o => o.op === 'identity').length, 1,
+    'an id is announced once, not on every line');
+});
+
+test('a subagent\'s own stream is not a turn of this conversation', () => {
+  const ops = decodeAll([
+    { type: 'stream_event', parent_tool_use_id: 't1', event: { type: 'message_start' } },
+    { type: 'assistant', parent_tool_use_id: 't1', uuid: 'x', message: { role: 'assistant', content: [{ type: 'text', text: 'sub' }] } },
+    { type: 'user', parent_tool_use_id: 't1', uuid: 'y', message: { role: 'user', content: 'sub prompt' } },
+  ]);
+  assert.deepEqual(ops, []);
+});
+
+test('an approval arrives as an ask, a withdrawn one closes, and the answer echoes the tool\'s input', () => {
+  const [ask] = decodeAll([{ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: 'Bash', tool_use_id: 't1', input: { command: 'ls' }, description: 'List' } }]);
+  assert.equal(ask.op, 'ask');
+  assert.equal(ask.request.id, 'r1');
+  assert.equal(ask.request.kind, 'approval');
+  assert.equal(ask.request.toolCallId, 't1');
+  assert.equal(ask.request.message, 'List');
+  assert.match(ask.request.note, /Claude Code asks this under its own permission rules/,
+    'the card says whose question it is — not the pi-native gate\'s "convenience, not a boundary"');
+  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'refuse'], '"for this session" is #661\'s');
+  assert.deepEqual(decodeAll([{ type: 'control_cancel_request', request_id: 'r1' }]), [{ op: 'answered', id: 'r1' }]);
+  assert.deepEqual(decodeAll([{ type: 'control_request', request_id: 'r2', request: { subtype: 'hook_callback' } }]), []);
+
+  const allow = protocol.answerCommand('r1', { value: ask.request.answers.once }, ask.request);
+  assert.deepEqual(allow, { type: 'control_response', response: { subtype: 'success', request_id: 'r1', response: { behavior: 'allow', updatedInput: { command: 'ls' } } } });
+  for (const answer of [{ value: ask.request.answers.refuse }, { cancelled: true }, {}]) {
+    const r = protocol.answerCommand('r1', answer, ask.request).response.response;
+    assert.equal(r.behavior, 'deny', JSON.stringify(answer));
+    assert.ok(r.message);
+  }
+});
+
+test('the CLI\'s bookkeeping lines are not drawn', () => {
+  assert.deepEqual(decodeAll([
+    { type: 'user', uuid: 'm', isMeta: true, message: { role: 'user', content: '<local-command-caveat>' } },
+    { type: 'rate_limit_event' },
+    { type: 'system', subtype: 'status', status: 'requesting' },
+    { type: 'system', subtype: 'commands_changed', commands: [] },
+  ]), []);
+  assert.deepEqual(decodeAll([{ type: 'system', subtype: 'compact_boundary' }]).map(o => o.level), ['info']);
+});
+
+// --- commands ---
+
+test('the three send modes map onto Claude\'s priorities', () => {
+  assert.equal(protocol.sendCommand({ text: 'a', mode: 'prompt' }).priority, undefined);
+  assert.equal(protocol.sendCommand({ text: 'a', mode: 'prompt', busy: true }).priority, undefined, 'a plain line queues by itself');
+  assert.equal(protocol.sendCommand({ text: 'a', mode: 'steer' }).priority, 'next');
+  assert.equal(protocol.sendCommand({ text: 'a', mode: 'follow_up' }).priority, 'later');
+  assert.deepEqual(protocol.sendCommand({ text: 'hi' }).message, { role: 'user', content: 'hi' });
+});
+
+test('a control response answers the request it names, success and refusal alike', () => {
+  assert.deepEqual(protocol.responseOf({ type: 'control_response', response: { subtype: 'success', request_id: 'x', response: { a: 1 } } }),
+    { id: 'x', payload: { success: true, data: { a: 1 } } });
+  assert.deepEqual(protocol.responseOf({ type: 'control_response', response: { subtype: 'error', request_id: 'x', error: 'no' } }),
+    { id: 'x', payload: { success: false, error: 'no' } });
+  assert.equal(protocol.responseOf({ type: 'assistant' }), null);
+  assert.equal(protocol.abortCommand('i').request.subtype, 'interrupt');
+  assert.equal(protocol.commandsCommand('c').request.subtype, 'initialize');
+  assert.deepEqual(protocol.commandsFromResponse({ data: { commands: [{ name: 'compact', description: 'a\n  b' }, { name: '' }, null] } }),
+    [{ name: 'compact', description: 'a b', kind: 'command', arguments: false }]);
+});
+
+test('an attach reads the conversation\'s own lines out of the transcript', () => {
+  const lines = [
+    { type: 'user', uuid: 'u1', message: { role: 'user', content: 'hi' } },
+    { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [] } },
+    { type: 'user', uuid: 'm1', isMeta: true, message: { role: 'user', content: 'meta' } },
+    { type: 'assistant', uuid: 's1', isSidechain: true, message: { role: 'assistant', content: [] } },
+    { type: 'attachment', uuid: 'x1' },
+    { type: 'queue-operation' },
+    { type: 'user', message: { role: 'user', content: 'no uuid' } },
+  ];
+  assert.deepEqual(protocol.conversationEntries(lines).map(l => l.uuid), ['u1', 'a1']);
+});
+
+test('entriesFromTranscript finds the session under the project\'s folder, and by its id when the folder differs', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-claude-native-'));
+  const before = claude._roots();
+  claude.setRoots([root]);
+  t.after(() => { claude.setRoots(before); fs.rmSync(root, { recursive: true, force: true }); });
+  const cwd = path.join(root, 'work', 'proj');
+  const line = (uuid) => JSON.stringify({ type: 'user', uuid, message: { role: 'user', content: uuid } });
+  fs.mkdirSync(path.join(root, encodeProjectPath(cwd)), { recursive: true });
+  fs.writeFileSync(path.join(root, encodeProjectPath(cwd), 's1.jsonl'), line('u1') + '\n{"half\n');
+  fs.mkdirSync(path.join(root, 'elsewhere'));
+  fs.writeFileSync(path.join(root, 'elsewhere', 's2.jsonl'), line('u2') + '\n');
+  const read = native().rpc.entriesFromTranscript;
+  assert.deepEqual((await read({ sessionId: 's1', cwd })).map(e => e.uuid), ['u1'], 'a half-written line is skipped');
+  assert.deepEqual((await read({ sessionId: 's2', cwd })).map(e => e.uuid), ['u2']);
+  assert.deepEqual(await read({ sessionId: 'nothing-yet', cwd }), [], 'no file yet is an empty conversation');
+  assert.deepEqual((await read({ sessionId: 'fork-1', cwd, forkFrom: 's1' })).map(e => e.uuid), ['u1'],
+    'a fork with no file of its own yet reads the one it was forked from');
+  fs.writeFileSync(path.join(root, encodeProjectPath(cwd), 'fork-1.jsonl'), line('u1') + '\n' + line('u3') + '\n');
+  assert.deepEqual((await read({ sessionId: 'fork-1', cwd, forkFrom: 's1' })).map(e => e.uuid), ['u1', 'u3'],
+    'once the fork has written its file, that file answers');
+});
+
+// --- the descriptor ---
+
+test('the launch: print mode, stream-json both ways, approvals over the pipe, the marker, no shell', () => {
+  const d = native();
+  const fresh = d.buildLaunch({ cwd: '/p', sessionId: 'abc', options: {} });
+  assert.deepEqual(fresh.args.slice(0, 10), ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+    '--include-partial-messages', '--replay-user-messages', '--permission-prompt-tool', 'stdio']);
+  assert.ok(fresh.args.includes('--session-id=abc'), 'a value is joined to its flag');
+  assert.equal(fresh.spawnMode, 'argv');
+  assert.deepEqual(fresh.env, { [TRANSPORT_ENTRYPOINT_ENV]: TRANSPORT_ENTRYPOINT });
+  assert.ok(d.buildLaunch({ sessionId: 'abc', resume: true }).args.includes('--resume=abc'));
+  const fork = d.buildLaunch({ sessionId: 'new', forkFrom: 'old' }).args;
+  assert.ok(fork.includes('--resume=old') && fork.includes('--fork-session'));
+  assert.ok(fork.includes('--session-id=new'), 'a fork is started under the id its tab is keyed on (measured: the CLI takes it)');
+});
+
+test('the permission mode is sent only when chosen, and the skip flag is not offered (#653 E6)', () => {
+  const d = native();
+  const argsFor = (options) => d.buildLaunch({ sessionId: 's', options }).args;
+  assert.ok(!argsFor({}).includes('--permission-mode'), 'unset: Claude\'s own defaultMode applies');
+  assert.ok(!argsFor({ permissionMode: 'default' }).includes('--permission-mode'));
+  assert.deepEqual(argsFor({ permissionMode: 'plan', model: 'haiku' }).slice(-4), ['--permission-mode', 'plan', '--model', 'haiku']);
+  assert.ok(!argsFor({ permissionMode: 'dangerously-skip', dangerouslySkipPermissions: true }).some(a => /dangerously|permission-mode/.test(a)));
+  const field = d.configFields.find(f => f.id === 'permissionMode');
+  assert.ok(!field.choices.includes('dangerously-skip'));
+  assert.equal(field.default, 'default');
+  assert.ok(!d.configFields.some(f => f.appliesAt === 'spawn'), 'nothing here is applied at a terminal spawn site');
+});
+
+test('the descriptor drives Claude\'s rows: the marker, the trust gate, off by default, Claude\'s store answers', () => {
+  const d = native();
+  assert.equal(d.transport, 'rpc');
+  assert.equal(d.transcriptsOf, 'claude');
+  assert.equal(d.trustBeforeStart, true);
+  assert.equal(d.rpc.sendAcknowledged, false);
+  assert.equal(d.rpc.stateCommand, undefined, 'the stream names the session itself');
+  assert.equal(d.rpc.gracefulStopMs, undefined, 'measured: nothing is lost on an immediate stop');
+  for (const k of ['projectTrust', 'transcriptPathFor', 'deleteSessions', 'rewriteProjectPath', 'resolveLineage', 'contextWindow', 'PARSER_SCHEMA_VERSION', 'cliHomeEnv', 'listResources']) {
+    assert.strictEqual(d[k], claude[k], `${k} is Claude's own answer, forwarded`);
+  }
+  for (const k of ['supportsLiveRebinding', 'buildLiveBinding', 'projectMeta', 'usage', 'liveOwnersCached', 'discoverSessions', 'parseSession']) {
+    assert.ok(!d[k], `${k} stays with the terminal backend`);
+  }
+  assert.equal(backends.isEnabled(d, {}), false, 'off until the user switches it on');
+  try {
+    backends.init({ getGlobalSettings: () => ({ backendEnabled: { 'claude-native': true } }) });
+    assert.equal(backends.openerFor({ backendId: 'claude', transport: 'rpc' }), 'claude-native');
+    assert.equal(backends.openerFor({ backendId: 'claude' }), 'claude');
+    backends.init({ getGlobalSettings: () => ({ backendEnabled: { 'claude-native': false } }) });
+    assert.equal(backends.openerFor({ backendId: 'claude', transport: 'rpc' }), 'claude', 'switched off, the row is the terminal backend\'s');
+  } finally {
+    backends.init({ getGlobalSettings: () => ({}) });
+  }
+});
+
+// The descriptor's `rpc` object is copied out of the protocol module by hand, and the core reaches the protocol
+// ONLY through it — the same guard pi-native carries, for the same reason.
+test('every part of the protocol the core could use is handed to it', () => {
+  const NOT_HANDED_OVER = {
+    // The filter an attach applies to the transcript; the core is handed `entriesFromTranscript`, which uses it.
+    conversationEntries: true,
+  };
+  const exported = Object.keys(protocol).filter(k => typeof protocol[k] === 'function');
+  const rpc = native().rpc;
+  const missing = exported.filter(k => rpc[k] !== protocol[k] && !NOT_HANDED_OVER[k]);
+  assert.deepEqual(missing, [], `rpc-protocol.js exports these and the descriptor's \`rpc\` does not pass them on: ${missing.join(', ')}`);
+  assert.deepEqual(Object.keys(NOT_HANDED_OVER).filter(k => !exported.includes(k)), []);
+});
+
+// What hangs off `launch.command === 'claude'` in the spawn path is about a terminal, and claude-native's
+// command IS `claude`. A source check, because node-pty is required at module load and there is no seam that
+// reaches the spawn site (the same answer `spawn-first-resize.test.js` gives).
+test('spawn.js gives a pipe-driven session no MCP bridge, no OSC-title heuristic and no AFK variable', () => {
+  const { stripComments } = require('./helpers/strip-comments');
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8'));
+  assert.match(src, /const isClaudeBinary = launch\.command === 'claude' && !backend\.transport;/);
+  assert.match(src, /if \(!backend\.transport\) \{\s*const g = \(\(ctx\.getSetting\('global'\)/, 'the AFK block is skipped for a piped child (#653 E11)');
+});
+
+// --- the version floor ---
+
+test('a Claude Code older than the one this was measured against is refused; one that cannot be read is not', async (t) => {
+  assert.deepEqual(version.parseVersion('2.1.283 (Claude Code)'), [2, 1, 283]);
+  assert.equal(version.parseVersion('nonsense'), null);
+  assert.equal(version.olderThan([2, 1, 282]), true);
+  assert.equal(version.olderThan([2, 1, 283]), false);
+  assert.equal(version.olderThan([2, 2, 0]), false);
+  assert.equal(version.olderThan([1, 99, 999]), true);
+
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-cn-ver-')), 'claude.exe');
+  fs.writeFileSync(file, 'x');
+  t.after(() => { version.resetCache(); fs.rmSync(path.dirname(file), { recursive: true, force: true }); });
+  let runs = 0;
+  const run = (out, status = 0) => async () => { runs += 1; return { status, stdout: out }; };
+  version.resetCache();
+  assert.deepEqual(await version.installedVersion(file, { run: run('2.1.300 (Claude Code)') }), [2, 1, 300]);
+  assert.deepEqual(await version.installedVersion(file, { run: run('9.9.9') }), [2, 1, 300], 'an answer is kept while the binary is the same file');
+  assert.equal(runs, 1);
+  fs.writeFileSync(file, 'xy');
+  assert.deepEqual(await version.installedVersion(file, { run: run('2.1.301') }), [2, 1, 301], 'a changed binary is asked again');
+  version.resetCache();
+  assert.equal(await version.installedVersion(file, { run: run('', 1) }), null, 'a failed probe asserts nothing');
+});
+
+// F4 of the #660 review: `list()` asks every registered backend's probe on the scan path, switched on or not,
+// so the probe it gets may not start a child. Only the spawn path's `{ launch: true }` reaches the version.
+test('the registry\'s probe walks PATH only; the version is asked only for a launch', async (t) => {
+  const d = native();
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sb-cn-probe-')), process.platform === 'win32' ? 'claude.exe' : 'claude');
+  fs.writeFileSync(file, 'x');
+  const { findOnPath } = require('../src/backends/file-store');
+  const realPath = process.env.PATH;
+  process.env.PATH = path.dirname(file);
+  t.after(() => {
+    process.env.PATH = realPath;
+    version.resetCache();
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  });
+  assert.equal(String(findOnPath('claude')).toLowerCase(), file.toLowerCase(), 'the stand-in is what the probe finds (PATHEXT spells the extension its own way)');
+  version.resetCache();
+  assert.deepEqual(d.probe(), { ok: true }, 'the registry\'s answer is synchronous');
+  // Nothing was asked: the version cache is still empty, so the next read runs its child.
+  let runs = 0;
+  await version.installedVersion(file, { run: async () => { runs += 1; return { status: 1, stdout: '' }; } });
+  assert.equal(runs, 1, 'the registry\'s probe started no child');
+  version.resetCache();
+  const launch = d.probe({ launch: true });
+  assert.equal(typeof launch.then, 'function', 'a launch gets a Promise');
+  assert.deepEqual(await launch, { ok: true }, 'a version that could not be read does not refuse the launch');
+});

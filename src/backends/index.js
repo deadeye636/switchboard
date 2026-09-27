@@ -666,6 +666,9 @@ function _seedDefaults() {
   // #568 — the same binary over its RPC mode. After `pi` on purpose: it forwards that descriptor's store
   // and format answers, and it sits beside it in Settings > Backends.
   register(require('./pi-native'));
+  // #653 — Claude over its stream-json pipe. Last, like pi-native: it forwards `claude`'s store and format
+  // answers, and appending keeps every existing row where it was in Settings > Backends.
+  register(require('./claude-native'));
 }
 
 _seedDefaults();

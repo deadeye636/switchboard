@@ -472,11 +472,14 @@ function createConversationView(getSession, container) {
       detail.textContent = request.message;
       card.appendChild(detail);
     }
-    const note = document.createElement('div');
-    note.className = 'conversation-ask-message conversation-approval-note';
-    note.textContent = 'Asked by Switchboard inside this session. A convenience, not a security boundary: '
-      + 'the same agent started outside Switchboard asks nothing.';
-    card.appendChild(note);
+    // WHO is asking, and what the question is worth, is the backend's to say: one runtime's approvals are an
+    // extension of this app's (a convenience, not a boundary), another's are the CLI's own permission rules.
+    if (request.note) {
+      const note = document.createElement('div');
+      note.className = 'conversation-ask-message conversation-approval-note';
+      note.textContent = String(request.note);
+      card.appendChild(note);
+    }
     const actions = document.createElement('div');
     actions.className = 'conversation-ask-actions';
     const answers = request.answers || {};

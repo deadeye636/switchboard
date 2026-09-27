@@ -28,7 +28,8 @@ test('...and the gate is set from the binary, not from the backend id', () => {
   // A Claude TEMPLATE (Axis-A) runs the claude binary and therefore spins Claude's spinner — it must
   // keep the heuristic. Keying on `backend.id === 'claude'` would have silently dropped it.
   assert.match(MAIN, /oscTitleState = isClaudeBinary;/);
-  assert.match(MAIN, /const isClaudeBinary = launch\.command === 'claude';/);
+  // …and a session driven over a pipe has no title at all, whatever its binary (#660).
+  assert.match(MAIN, /const isClaudeBinary = launch\.command === 'claude' && !backend\.transport;/);
 });
 
 test('the session carries the flag, so the data handler can see it', () => {

@@ -5,10 +5,16 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const { findOnPath } = require('../src/backends/file-store');
 const claude = require('../src/backends/claude');
-const { optionBlocks, auditFlags, auditChoices } = require('./managed-flags');
+const claudeNative = require('../src/backends/claude-native');
+const { optionBlocks, auditFlags, auditChoices, managedFlags } = require('./managed-flags');
 
 // What this app SENDS is derived from the descriptor, never listed here (#548) — see managed-flags.js.
 // It covers `buildLaunch` (every option, every launch shape) and `buildLiveBinding`'s `--settings`.
+//
+// TWO descriptors start this binary: the terminal backend and claude-native, which drives it in print mode
+// over a pipe (#660). Both are audited against the one help text — a flag either of them sends is managed,
+// and a flag either of them sends that the CLI stopped taking is reported — so this file keeps no list of
+// what claude-native sends either.
 //
 // The audit also asks what a select field's VALUES are worth (#617): a flag that keeps its name while its
 // enum loses an entry passes the flag half of this check and kills a session at spawn.
@@ -23,7 +29,9 @@ const AUDITED_EXCLUDED = new Set([
   // #537, one decision each. The test every flag has to pass is whether it changes what an INTERACTIVE
   // session does — that is the only kind Switchboard spawns.
   //
-  // Only meaningful with `--print`, which this app never runs.
+  // #537, revisited for #660. claude-native runs `--print`, and answers approvals over the pipe with
+  // `--permission-prompt-tool stdio`. This flag is not that: measured on 2.1.283, `--permission-prompts host`
+  // on its own refuses every approval on the spot.
   '--permission-prompts',
   // #537. A cloud session is not a session this app can follow: there is no local transcript for the scan
   // to find, adopt or resume, so offering it would produce a tab that goes nowhere.
@@ -69,29 +77,23 @@ const AUDITED_EXCLUDED = new Set([
   '--from-pr',
   '--help',
   '--include-hook-events',
-  '--include-partial-messages',
-  '--input-format',
   '--json-schema',
   '--max-budget-usd',
   '--mcp-config',
   '--name',
   '--no-chrome',
   '--no-session-persistence',
-  '--output-format',
   '--plugin-dir',
   '--plugin-url',
-  '--print',
   '--prompt-suggestions',
   '--remote-control',
   '--remote-control-session-name-prefix',
-  '--replay-user-messages',
   '--safe-mode',
   '--setting-sources',
   '--strict-mcp-config',
   '--system-prompt',
   '--tmux',
   '--tools',
-  '--verbose',
   '--version',
 ]);
 
@@ -103,6 +105,21 @@ const AUDITED_EXCLUDED = new Set([
 // Empty, and that is an answer rather than an omission: Claude's `--permission-mode` prints commander's own
 // `(choices: …)` list, so every value the Permission mode field can send is compared against it.
 const CHOICES_NOT_ENUMERATED = new Set([]);
+
+// A flag the CLI takes and does not list in `--help`, so the flag half of the audit would call it gone. Each
+// entry says where it is sent and how it was confirmed. Stale BOTH ways: one the help starts listing is
+// reported, and so is one neither Claude backend sends any more (also held in `npm test`, by
+// `test/backend-launch-flags.test.js`, which needs no CLI).
+//
+// What an entry CANNOT be is proven to exist. The help is the only list the CLI prints, and it leaves these
+// out, so the audit has nothing to compare them against — the measurement named in the entry and claude-
+// native's version floor (`src/backends/claude-native/version.js`) are what stand in for that check. A CLI
+// that drops one of these fails at the launch, not here.
+const HIDDEN_BUT_TAKEN = new Set([
+  // claude-native's approvals (#660): with `stdio` the CLI asks each approval over the control channel.
+  // The help names it only inside the description of `--permission-prompts`; measured working on 2.1.283.
+  '--permission-prompt-tool',
+]);
 
 /** The option DEFINITIONS in Claude's `Options:` block, each with the description lines that belong to it. */
 function extractOptions(help) {
@@ -118,6 +135,16 @@ function extractOptions(help) {
 }
 
 function main() {
+  // Before the CLI is looked for: whether an exemption still exempts anything is a question about this app.
+  const sentAtAll = new Set([...managedFlags(claude), ...managedFlags(claudeNative)]);
+  const unsentHidden = [...HIDDEN_BUT_TAKEN].filter(f => !sentAtAll.has(f));
+  if (unsentHidden.length) {
+    console.error('HIDDEN_BUT_TAKEN names flags no Claude backend sends any more:');
+    for (const f of unsentHidden) console.error('  ' + f);
+    console.error('Take them out of HIDDEN_BUT_TAKEN in this file.');
+    process.exit(1);
+  }
+
   const exe = findOnPath('claude');
   if (!exe) {
     console.error('Claude executable not found on PATH.');
@@ -134,14 +161,24 @@ function main() {
 
   const blocks = extractOptions(help);
   const groups = blocks.map(b => b.flags);
-  const { advertised, unknown, missing } = auditFlags({
-    backend: claude, groups, excluded: AUDITED_EXCLUDED, alsoSent: SENT_ELSEWHERE,
+  // claude-native first, so the terminal backend's audit counts what IT sends as managed too.
+  const native = auditFlags({ backend: claudeNative, groups, excluded: AUDITED_EXCLUDED });
+  const sentByNative = new Set([...native.managed, ...HIDDEN_BUT_TAKEN]);
+  const terminal = auditFlags({
+    backend: claude, groups, excluded: new Set([...AUDITED_EXCLUDED, ...sentByNative]), alsoSent: SENT_ELSEWHERE,
   });
+  const advertised = terminal.advertised;
+  const unknown = terminal.unknown;
+  const missing = [...new Set([...terminal.missing, ...native.missing])].filter(f => !HIDDEN_BUT_TAKEN.has(f)).sort();
+  const staleHidden = [...HIDDEN_BUT_TAKEN].filter(f => advertised.includes(f));
 
   // The VALUES audit runs BEFORE the unaudited-flag report, and the order is deliberate: a dead value kills
   // a session at spawn, while an unaudited flag is a decision somebody still owes. A CLI that grows one
   // flag would otherwise hide every dead value behind it until that decision is made.
-  const choices = auditChoices({ backend: claude, blocks, excluded: CHOICES_NOT_ENUMERATED });
+  const terminalChoices = auditChoices({ backend: claude, blocks, excluded: CHOICES_NOT_ENUMERATED });
+  const nativeChoices = auditChoices({ backend: claudeNative, blocks, excluded: CHOICES_NOT_ENUMERATED });
+  const choices = {};
+  for (const k of Object.keys(terminalChoices)) choices[k] = [...terminalChoices[k], ...(nativeChoices[k] || [])];
 
   if (choices.dead.length) {
     console.error('Claude no longer accepts values this app offers:');
@@ -163,6 +200,13 @@ function main() {
     process.exit(1);
   }
 
+  if (staleHidden.length) {
+    console.error('The help now lists flags this audit treats as hidden:');
+    for (const f of staleHidden) console.error('  ' + f);
+    console.error('Take them out of HIDDEN_BUT_TAKEN in this file.');
+    process.exit(1);
+  }
+
   if (unknown.length) {
     console.error('Claude exposes unaudited top-level options:');
     for (const opt of unknown) console.error('  ' + opt);
@@ -173,7 +217,7 @@ function main() {
   if (missing.length) {
     console.error('Claude no longer takes options this app sends:');
     for (const opt of missing) console.error('  ' + opt);
-    console.error('Fix src/backends/claude/index.js (buildLaunch / configFields), docs and tests for the installed Claude CLI.');
+    console.error('Fix src/backends/claude/index.js or src/backends/claude-native/index.js (buildLaunch / configFields), docs and tests for the installed Claude CLI.');
     process.exit(1);
   }
 

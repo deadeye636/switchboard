@@ -21,8 +21,10 @@ const TAG = 'tag-1';
 const SESSION_CWD = path.join(__dirname, '..');
 
 // `rpc` and `fixture` swap in another protocol half and the child that speaks it
-// (`agent-rpc-stream.test.js`); the default is pi-native's own half against the Pi stand-in.
-function harness({ dataDir, env, timeouts, rpc, fixture } = {}) {
+// (`agent-rpc-stream.test.js`); the default is pi-native's own half against the Pi stand-in. `forkFrom` is
+// what spawn.js hands a fork's start; `onSignal` runs at the moment a state report is delivered, which is when
+// the turn-hold asks its question.
+function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, onSignal } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
@@ -48,14 +50,17 @@ function harness({ dataDir, env, timeouts, rpc, fixture } = {}) {
       }
       return null;
     },
-    deliverBindSignal: (sessionId, hook) => signals.push({ sessionId, ...hook }),
+    deliverBindSignal: (sessionId, hook) => {
+      signals.push({ sessionId, ...hook });
+      if (typeof onSignal === 'function') onSignal(sessionId, hook);
+    },
     // Electron's own parts arrive through ctx, which is what keeps this module loadable here at all.
     dataDir,
     clipboard: { writeText: (text) => clipped.push(text) },
     log: { info: (line) => logged.push(line), warn() {}, debug() {} },
   });
   const proc = agentRpc.start({
-    tag: TAG, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts,
+    tag: TAG, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom,
   });
   activeSessions.set('launch-id', { pty: proc, _terminalTag: TAG, exited: false });
   return { activeSessions, sent, signals, rekeys, clipped, logged, proc };

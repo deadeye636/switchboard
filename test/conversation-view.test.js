@@ -209,11 +209,11 @@ test('an approval is drawn with the call it is about, answers with the value it 
   conv.apply({ op: 'busy', busy: true, seq: 1 });
   conv.apply({ op: 'append', seq: 2, entry: { type: 'message', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'Bash', input: { command: 'rm -rf build' } }] } } });
   conv.apply({ op: 'tool', id: 'c1', status: 'running', output: '', seq: 3 });
-  conv.apply({ op: 'ask', seq: 4, request: { id: 'q1', kind: 'approval', tool: 'bash', toolCallId: 'c1', answers: { once: 'A1', session: 'A2', refuse: 'A3' } } });
+  conv.apply({ op: 'ask', seq: 4, request: { id: 'q1', kind: 'approval', tool: 'bash', toolCallId: 'c1', answers: { once: 'A1', session: 'A2', refuse: 'A3' }, note: 'the backend\'s own words about who asks' } });
   const card = h.entry.element.querySelector('.conversation-approval');
   assert.ok(card);
   assert.match(card.textContent, /rm -rf build/, 'the command is on the card');
-  assert.match(card.textContent, /not a security boundary/);
+  assert.match(card.textContent, /the backend's own words about who asks/, 'what the question is worth is the backend\'s sentence (#660)');
   assert.match(h.entry.element.querySelector('.conversation-status').textContent, /Waiting for your answer/);
   assert.match(h.entry.element.querySelector('.conversation-activity').textContent, /Waiting for your approval/);
   [...card.querySelectorAll('button')].find(b => b.textContent === 'Allow for this session').click();

@@ -464,13 +464,19 @@ answers instead of the core learning its format:
   `{ op: 'identity', sessionId }` op instead. Both paths re-key through the one shared re-key.
 - `sendAcknowledged: false` — a runtime that answers no turn line. The write is the send, and the write
   of a turn to an idle session is its busy edge, because nothing in such a stream says a turn began.
-- `messagesCommand` + `entriesFromMessages`, or `entriesFromTranscript({ sessionId, cwd })` with an
+  A turn line written while one runs (anything but a steer) is counted as OWED until a turn starts, and
+  the turn-hold asks `agentRpc.turnQueueOf` before the row's `readTurnQueue` (#660): Claude Code keeps a
+  `priority: 'later'` line in memory and writes its `enqueue` only as the turn before it ends (measured),
+  so the transcript cannot hold the idle between the two turns.
+- `messagesCommand` + `entriesFromMessages`, or `entriesFromTranscript({ sessionId, cwd, forkFrom })` with an
   optional `entryKey(entry)` — where an attach gets the conversation so far: asked of the runtime, or
   read from the transcript the backend knows how to find. The file can be behind the pipe or ahead of it,
   so the core adds the recently sent entries the file lacks and stamps each `append` op with its key, and
   the view skips an op for an entry its snapshot already holds (the sequence contract in
   `attachFromTranscript`). **An `entryKey` must be unique for the life of a conversation**: the view skips
-  an op by its key, so a key used twice hides the second entry.
+  an op by its key, so a key used twice hides the second entry. `forkFrom` is the session a fork was
+  started from: Claude writes a fork's file only with its first turn (measured), so until then
+  claude-native reads the parent's, which holds the same lines under the same uuids.
 - `gracefulStopMs` — a runtime that still writes on the way out: stdin closes first, the tree is killed
   after that long, and nothing more is written to it meanwhile. Pi declares none (#653 E14: a wait only
   where the CLI needs one). Its session manager writes each entry synchronously once the session has an
@@ -478,6 +484,10 @@ answers instead of the core learning its format:
   would save nothing, and a pi-native attach reads `get_messages`, not the file.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
+- The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own
+  format, for an answer that means something only against what was asked. Claude ends a turn it was told to
+  stop with the same `error_during_execution` result a failed turn gets (measured), so claude-native's
+  decoder draws that result as "Stopped." only when a Stop went out before it.
 
 **The per-spawn hooks that exist, and the order they were added in.** `supportsLiveRebinding` +
 `buildLiveBinding` / `releaseLiveBinding` (the terminal backends' busy/idle binding); `providesPromptTemplates`
@@ -658,6 +668,12 @@ install Node, and held that for five minutes. Two rules come out of it:
 - **A cache is for an answer.** An unanswered probe is held for seconds, not minutes — long enough that
   the 15-second scan does not shell out on every pass (#155), short enough that one unlucky exec does
   not decide the next five minutes. Pi keeps both numbers side by side with the reason for each.
+
+**A descriptor's `probe()` is asked on every `backends.list()`, which is on the scan path, switched on or
+not** — so it stays a PATH walk. A check that needs a child answers only `probe({ launch: true })`, which
+the spawn path passes when a session is about to start, and may return a Promise there (the spawn path
+awaits it and re-checks for a quit afterwards). claude-native reads `claude --version` that way (#660);
+in `list()` it cost every Claude user a synchronous child on the main thread after each auto-update.
 
 The siblings were swept: agy, Codex and Hermes `probe()` only resolve a path (no child, nothing to
 collapse), and the two model probes got the same fix under #540. `src/vcs/git.js`'s provider probe still

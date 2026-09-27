@@ -83,6 +83,12 @@ const PARTIAL_INTERVAL_MS = 60;
 // is a bound on a window of milliseconds rather than a second log of the session.
 const RECENT_APPENDS_CAP = 64;
 
+// How long a turn the runtime owes may take to start after the one before it ended. Measured on Claude Code:
+// a queued line's `system/init` follows the previous `result` within tens of milliseconds, so this is a
+// bound on a miscount, not a wait anyone sees. It is above the turn-hold's first recheck (4 s), so a hold
+// asks at least once while the count still stands.
+const OWED_GRACE_MS = 10000;
+
 // The session this state belongs to, found by the tag spawn.js minted for it. The TAG, not an id: the id is
 // what changes when the session is re-keyed onto the one Pi names, and the tag is what `adoptSessionId` and
 // every other re-key already follow.
@@ -148,10 +154,11 @@ function sendOp(state, op) {
  * Start one runtime-driven session.
  *
  * `rpc` is the backend's protocol half (its descriptor's `rpc`), `command`/`args` are the resolved launch,
- * `tag` is the terminal tag spawn.js minted. Answers the PTY-shaped process spawn.js stores as
+ * `tag` is the terminal tag spawn.js minted, `forkFrom` the session a fork was started from (handed to the
+ * backend's transcript read, see `attachFromTranscript`). Answers the PTY-shaped process spawn.js stores as
  * `session.pty`. Throws if the child cannot be started, so spawn.js's own catch releases what it allocated.
  */
-function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
+function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom }) {
   if (!ctx) throw new Error('agent-rpc is not initialised');
   if (!rpc || typeof rpc.createDecoder !== 'function' || typeof rpc.responseOf !== 'function') {
     throw new Error('this backend declares no protocol');
@@ -182,6 +189,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
     child,
     label: label || 'The agent',
     cwd,                     // the session's project: what an `@` in its input completes against
+    forkFrom: forkFrom || null, // the session this one was forked from, for a transcript read before its first turn
     decoder: rpc.createDecoder(),
     pending: new Map(),      // request id -> { resolve, timer }
     asks: new Map(),         // request id -> the ask the renderer has not answered yet
@@ -207,6 +215,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
     // can name an entry (`entryKey`), because a merge without a key could only guess what is a repeat.
     recentAppends: [],
     resets: 0,               // how many times the conversation was replaced — see `attachFromTranscript`
+    owed: 0,                 // turn lines written while busy that have not started yet — see `turnQueueOf`
+    owedTimer: null,
+    turnStartedAt: 0,        // when the last turn began, for the turn-hold's "did the queued one start"
     stopping: false,         // a graceful stop is waiting for the child — see `kill`
   };
   // The tests shorten both; the app never passes them.
@@ -240,9 +251,17 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
 
   // Nothing is written once a stop has closed stdin: the stream is not destroyed yet, so a write would be
   // accepted and then fail asynchronously, and a turn or an answer would report success about nothing.
+  //
+  // A decoder that declares `noteSent(line)` hears every line that went out, in its own format. Some of what
+  // a runtime answers only means something against what it was asked — Claude ends a turn it was told to
+  // stop with the same error it gives a failed one — and the decoder is the only place that reads the answer.
   function write(obj) {
     if (state.exited || state.stopping || !child.stdin || child.stdin.destroyed || child.stdin.writableEnded) return false;
-    try { child.stdin.write(JSON.stringify(obj) + '\n'); return true; } catch { return false; }
+    try { child.stdin.write(JSON.stringify(obj) + '\n'); } catch { return false; }
+    if (typeof state.decoder.noteSent === 'function') {
+      try { state.decoder.noteSent(obj); } catch (err) { ctx.log.warn(`[agent-rpc] decoder did not take a sent line: ${err.message}`); }
+    }
+    return true;
   }
 
   // One request, one response. The runtime answers under the `id` it was given — where it spells that id is
@@ -348,6 +367,23 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
 
   state.report = report;
 
+  // The owed-turn count, kept at the busy edges (`turnQueueOf`). A turn beginning is the one fact that proves
+  // a queued line ran, so it takes one off. A count that no turn ever answers — a line the runtime folded
+  // into the running turn after all — is dropped once the session has stayed idle for OWED_GRACE_MS, so a
+  // miscount costs one late "finished" and never holds every later one.
+  function noteTurnEdge(busy) {
+    if (state.owedTimer) { clearTimeout(state.owedTimer); state.owedTimer = null; }
+    if (busy) {
+      state.turnStartedAt = Date.now();
+      if (state.owed > 0) state.owed -= 1;
+      return;
+    }
+    if (state.owed > 0) {
+      state.owedTimer = setTimeout(() => { state.owedTimer = null; state.owed = 0; }, OWED_GRACE_MS);
+      if (typeof state.owedTimer.unref === 'function') state.owedTimer.unref();
+    }
+  }
+
   // Questions Pi stopped waiting on — a run that settled, a process that ended — are closed here too, or
   // every later mount would draw a dialog nobody can answer any more. A `lasting` question belongs to
   // something outside the run (a command the user typed) and Pi keeps waiting on it, so a settled run leaves
@@ -392,6 +428,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
         flushPartial();
         if (state.busy === op.busy) return;
         state.busy = op.busy;
+        noteTurnEdge(op.busy);
         ctx.log.info(`[agent-rpc] session=${(findSession(tag) || {}).id || tag.slice(0, 8)} → ${op.busy ? 'BUSY' : 'IDLE'}`);
         // `turn_start` because an RPC `agent_start` IS a turn beginning — the one fact that releases a
         // held "finished" (#495) — and only the start says so, never the settle.
@@ -678,6 +715,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
       if (!write(rpc.sendCommand({ id: crypto.randomUUID(), text, mode, busy: wasBusy }))) {
         return Promise.resolve({ success: false, error: 'not running' });
       }
+      // A turn line written while one runs is a turn the runtime now owes (`turnQueueOf`). A steer is not:
+      // it goes into the running turn and starts none of its own.
+      if (wasBusy && mode !== 'steer') state.owed += 1;
       if (!wasBusy) handleOp({ op: 'busy', busy: true });
       return Promise.resolve({ success: true });
     }
@@ -767,6 +807,22 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts }) {
   };
 }
 
+/**
+ * Does this session still owe a turn? `{ queued, turnStarted }` in the turn-hold's shape (#495), or null when
+ * this module cannot tell — a session it is not running, or a runtime that acknowledges its turn lines and
+ * reports its own queue through the row's backend instead.
+ *
+ * Asked for a runtime that answers no turn line (`sendAcknowledged: false`). Such a runtime ends one turn and
+ * starts the next with nothing in between, and its transcript cannot be asked either: Claude Code keeps a
+ * line queued with `priority: 'later'` in memory and writes its `enqueue` only as the turn before it ends
+ * (measured) — after the "finished" this answer exists to hold. What it CAN count is what the core wrote.
+ */
+function turnQueueOf(sessionId, sinceMs = 0) {
+  const state = stateFor(sessionId);
+  if (!state || state.rpc.sendAcknowledged !== false) return null;
+  return { queued: state.owed, turnStarted: sinceMs > 0 && state.turnStartedAt > sinceMs };
+}
+
 // --- IPC ---
 
 // What a view needs to draw a session it has just mounted: the conversation so far, the turn being
@@ -802,8 +858,9 @@ async function attach(sessionId) {
 }
 
 // The conversation of a runtime that cannot be asked for it, read from the transcript the runtime writes.
-// The backend reads its own file (`entriesFromTranscript({ sessionId, cwd })`, sync or a Promise): which
-// file and what is in it are its format, and this process names none.
+// The backend reads its own file (`entriesFromTranscript({ sessionId, cwd, forkFrom })`, sync or a Promise):
+// which file and what is in it are its format, and this process names none. `forkFrom` is the session a fork
+// was started from, for a runtime that writes a fork's file only with its first turn.
 //
 // THE SEQUENCE CONTRACT. The view replays every op newer than the `seq` an attach answers and nothing older
 // (see `sendOp`). A snapshot taken from a FILE is not taken at one moment the way a runtime's answer is: the
@@ -837,7 +894,7 @@ async function attachFromTranscript(sessionId, state) {
   for (let attempt = 0; attempt < 2 && !settled; attempt++) {
     const resetsBefore = state.resets;
     try {
-      entries = await rpc.entriesFromTranscript({ sessionId, cwd: state.cwd });
+      entries = await rpc.entriesFromTranscript({ sessionId, cwd: state.cwd, forkFrom: state.forkFrom });
     } catch (err) {
       ctx.log.info(`[agent-rpc] attach ${sessionId}: the transcript was not read (${err.code || err.message})`);
       return { ok: false, error: 'The session could not load its conversation.' };
@@ -1016,6 +1073,8 @@ function registerIpc(ipc) {
 
 module.exports = {
   init, registerIpc, start,
+  // The turn-hold's question about a session this module drives (main.js wires it in front of the descriptor).
+  turnQueueOf,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,

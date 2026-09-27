@@ -335,7 +335,8 @@ async function grantTrustForLaunch(untrusted) {
   // The CLI the answer belongs to, which for a backend driving another's binary is the owner (spawn.js).
   const label = untrusted.trustLabel || untrusted.backendLabel || untrusted.backendId;
   const projectName = String(untrusted.projectPath).split(/[\\/]/).filter(Boolean).pop() || untrusted.projectPath;
-  const ok = await confirmProjectTrustGrant({ label, projectName });
+  // Where the backend keeps the answer when that is a whole repository (spawn.js reads it from the backend).
+  const ok = await confirmProjectTrustGrant({ label, projectName, sharedGate: untrusted.sharedGate || null });
   if (!ok) return false;
   let res = null;
   try { res = await window.api.setProjectTrust(untrusted.projectPath, untrusted.backendId, true); } catch { res = null; }

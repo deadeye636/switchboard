@@ -39,6 +39,9 @@ function probeValue(field) {
 function flagsIn(args) {
   return (args || [])
     .map(a => String(a))
+    // A value joined to its flag (`--resume=<id>`, how claude-native passes a session id) is that flag all the
+    // same. Skipped, it would be a way for a launch to send a flag the help check never compares (#660).
+    .map(a => (/^--[a-z0-9][a-z0-9-]*=/i.test(a) ? a.slice(0, a.indexOf('=')) : a))
     .filter(a => /^--?[a-z0-9][a-z0-9-]*$/i.test(a));
 }
 

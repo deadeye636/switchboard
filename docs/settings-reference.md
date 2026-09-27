@@ -442,6 +442,7 @@ own `config.toml`.)
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `mcpServers` (**off**, applied at spawn), `sourceHooks` (**off**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
 | `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, and `approval`, because pi-native starts only in a project Pi trusts and the saved answer is the only one that counts (a stored value is ignored, #655), plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30). It has no login of its own: it uses Pi's saved logins, so log in once through the terminal Pi backend (`/login`) |
+| `claude-native` | `permissionMode` (`default` = no flag, so the `defaultMode` in your Claude settings applies; the choices are Claude's without Dangerous Skip), `model`. Nothing else: the terminal backend's worktree, Chrome, directory, restricted and auto-compact options are not offered yet, and its `mcpEmulation` and `afkTimeoutSec` are about a terminal and never apply to a piped session (#653 E11). Off by default; its sessions are Claude's rows (#653). It starts only in a project Claude trusts, asking the trust question at launch when there is no saved answer (#655), and it needs the native Claude Code build (`claude.exe` on Windows), 2.1.283 or newer. No login of its own: it runs the `claude` you signed in to |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
 
@@ -787,7 +788,7 @@ Claude's two AFK variables (an inherited AFK value must not overrule the per-ses
 the mere presence of `CLAUDE_AFK_TIMEOUT_MS` enables auto-continue, an inherited one would switch it on
 for every session with nothing on screen to say so), and the four markers a running Claude Code session
 exports into its children: `CLAUDE_CODE_CHILD_SESSION` (inherited, the CLI writes no transcript at all),
-`CLAUDE_CODE_SSE_PORT`, `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE` (#243).
+`CLAUDE_CODE_SSE_PORT`, `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE` (#243), and `CLAUDE_CODE_ENTRYPOINT`, which the CLI writes into every transcript line and which marks a claude-native session — inherited from one, it would mark terminal sessions as driven over the pipe (#660).
 
 `ELECTRON_NO_ATTACH_CONSOLE` is the one `ELECTRON_` variable that survives that strip, because a value
 you set for it is a decision about your own terminals. Switchboard does not set it for every PTY.
@@ -796,7 +797,7 @@ you set for it is a decision about your own terminals. Switchboard does not set 
 `TERM_PROGRAM=iTerm.app`, `TERM_PROGRAM_VERSION`, `FORCE_COLOR=3`, `ITERM_SESSION_ID` — the iTerm identity
 is not cosmetic: Claude Code checks it before emitting the OSC-9 "needs your attention" signal. Plus
 `CLAUDE_CODE_SSE_PORT` when this session has an MCP bridge, and `CLAUDE_AFK_TIMEOUT_MS` **only** when a
-positive timeout was actually chosen (empty and `0` send nothing, so the CLI's own
+positive timeout was actually chosen and the session has a terminal (empty and `0` send nothing, so the CLI's own
 `askUserQuestionTimeout` stands — see `afkTimeoutSec` above).
 
 It also adds `ELECTRON_NO_ATTACH_CONSOLE=1`. An Electron app started from the session's shell with no

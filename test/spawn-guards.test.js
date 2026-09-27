@@ -458,7 +458,9 @@ test("cleanPtyEnv strips a parent Claude session's markers, and only those (#243
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
   const filter = src.slice(src.indexOf('const cleanPtyEnv'), src.indexOf('const cleanPtyEnv') + 3000);
 
-  for (const key of ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_SESSION_ID', 'CLAUDECODE']) {
+  // CLAUDE_CODE_ENTRYPOINT since #660: the parent's value is written into every transcript line, and a
+  // pipe-driven session's value marks its row as driven — inherited, it would mark terminal sessions too.
+  for (const key of ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_SESSION_ID', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT']) {
     assert.ok(
       filter.includes(`k !== '${key}'`),
       `cleanPtyEnv must strip ${key} — inherited from the session that launched Switchboard, it breaks ` +
@@ -520,8 +522,31 @@ test('an untrusted project is refused before the launch is built, naming the bac
   const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
   assert.equal(r.ok, false);
   assert.match(r.error, /starts only in a project Codex trusts/);
-  assert.deepEqual(r.untrusted, { backendId: 'codex', backendLabel: 'Codex', trustLabel: 'Codex', projectPath: CWD });
+  assert.deepEqual(r.untrusted, { backendId: 'codex', backendLabel: 'Codex', trustLabel: 'Codex', projectPath: CWD, sharedGate: null });
   assert.deepEqual(calls, [CWD], 'asked about the directory the child would start in');
+});
+
+// #660: a backend that keeps the answer for a whole repository says so, and the refusal carries where — so the
+// launch confirm names it the way the Projects manager's confirm does. Only a SHARED scope does: an answer that
+// is the folder's own, or one a trusted folder above decides, is not what granting it here would write.
+test('an untrusted project names the repository-wide gate its answer would be kept for', async () => {
+  for (const [described, gate] of [
+    [{ trusted: false, scope: 'shared', gate: '/repo' }, '/repo'],
+    [{ trusted: false, scope: 'own', gate: CWD }, null],
+    [null, null],
+  ]) {
+    const calls = [];
+    const backend = trustBackend(false, calls);
+    backend.projectTrust.describeMany = (paths) => new Map(described ? paths.map(p => [p, described]) : []);
+    setup({ backend });
+    const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+    assert.equal(r.untrusted.sharedGate, gate, JSON.stringify(described));
+  }
+  const backend = trustBackend(false, []);
+  backend.projectTrust.describeMany = () => { throw new Error('unreadable'); };
+  setup({ backend });
+  const r = await spawn.openTerminal('s', CWD, true, { backendId: 'codex' });
+  assert.equal(r.untrusted.sharedGate, null, 'a description that cannot be read leaves the plain question');
 });
 
 test('a project with no saved answer, or a trust read that throws, is refused the same way', async () => {

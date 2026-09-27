@@ -632,11 +632,26 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // Availability: a backend may declare that its binary is missing. Without this the user gets a
       // raw `'hermes' is not recognized...` from the shell inside a terminal tab, with no hint what to
       // install — the descriptor already knows the answer, so say it here instead of spawning.
+      //
+      // `{ launch: true }` says this probe is about to be acted on. The registry asks the same hook on every
+      // `list()`, which is on the scan path, so a probe keeps that answer to what is cheap (a PATH walk) and
+      // may do the costlier check only here — Claude (native) asks the binary for its version only when a
+      // session is about to start, and answers with a Promise for it.
       if (typeof backend.probe === 'function') {
         let avail;
         // A probe that THREW says nothing a user can act on, and its message names the binary it looked
         // for (#457). The line below already reports the descriptor's own reason when there is one.
-        try { avail = backend.probe(); } catch (err) { avail = { ok: false, reason: readableError(err, `${backend.label || backend.id} could not be checked for.`, ctx && ctx.log) }; }
+        try {
+          avail = backend.probe({ launch: true });
+          if (avail && typeof avail.then === 'function') {
+            avail = await avail;
+            // The same re-check as after the session resources below: nothing is allocated yet, but a quit
+            // may have begun during the wait, or a second open of this session may have registered it.
+            if (ctx.getAppQuitting()) return { ok: false, error: 'The app is quitting.' };
+            const raced = ctx.activeSessions.get(sessionId);
+            if (raced && !raced.exited) return openTerminal(sessionId, projectPath, isNew, sessionOptions);
+          }
+        } catch (err) { avail = { ok: false, reason: readableError(err, `${backend.label || backend.id} could not be checked for.`, ctx && ctx.log) }; }
         if (avail && avail.ok === false) {
           ctx.log.info(`[spawn] backend=${backend.id} unavailable: ${avail.reason}`);
           return { ok: false, error: avail.reason || `${backend.label || backend.id} is not available.` };
@@ -664,12 +679,21 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           const owner = typeof ctx.backends.cliOwnerOf === 'function' ? ctx.backends.cliOwnerOf(backend)
             : (backend.transcriptsOf ? ctx.backends.get(backend.transcriptsOf) : null);
           const trustLabel = (owner && owner.label) || label;
+          // Where the answer would be kept, when the backend can say and it reaches further than this folder: a
+          // repository root every checkout shares (#627). The launch confirm then says what the Projects
+          // manager's confirm says, because granting it trusts every checkout of that repository too.
+          let sharedGate = null;
+          try {
+            const describe = backend.projectTrust && typeof backend.projectTrust.describeMany === 'function' ? backend.projectTrust.describeMany : null;
+            const d = describe ? describe([projectPath]).get(projectPath) : null;
+            sharedGate = d && d.scope === 'shared' && d.gate ? String(d.gate) : null;
+          } catch { sharedGate = null; }
           ctx.log.info(`[spawn] refused: backend=${backend.id} does not trust the project (${trusted === false ? 'untrusted' : 'no answer'})`);
           return {
             ok: false,
             error: `${label} starts only in a project ${trustLabel} trusts, and this one is not trusted yet. `
               + `Grant it trust for ${trustLabel} to start the session.`,
-            untrusted: { backendId: backend.id, backendLabel: label, trustLabel, projectPath },
+            untrusted: { backendId: backend.id, backendLabel: label, trustLabel, projectPath, sharedGate },
           };
         }
       }
@@ -946,7 +970,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // The MCP IDE bridge stays CLAUDE's: `--ide` is a claude flag and the bridge speaks Claude's own
       // protocol. Handing it to Codex would be a flag it does not know. (`preLaunchCmd` used to be gated
       // here too, for a reason that turned out to be about the spawn mode — see above.)
-      const isClaudeBinary = launch.command === 'claude';
+      // All three that hang off this — the bridge, `--ide` and the OSC-title heuristic — are about a TERMINAL,
+      // so a backend driven over a pipe has none of them however its binary is called (#660): there is no
+      // title to read, and a diff the bridge opened would wait on a review nobody is shown.
+      const isClaudeBinary = launch.command === 'claude' && !backend.transport;
       oscTitleState = isClaudeBinary;
 
       let claudeCmd = null;
@@ -993,7 +1020,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // turn on what it was asked to turn off.
       // The project/global halves now come from backendDefaults.claude (§4a), where every backend's
       // launch options live; the session half still overrides both.
-      {
+      // Not for a session driven over a pipe (#653 E11): the variable answers a question on the TERMINAL's
+      // behalf, and the setting it reads is the terminal backend's.
+      if (!backend.transport) {
         const g = ((ctx.getSetting('global') || {}).backendDefaults || {}).claude || {};
         // Through the same owner resolution `effectiveSettings` uses — this reads the project blob by
         // hand rather than going through the cascade, so it has to ask the same question or a worktree
@@ -1091,6 +1120,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           cwd: projectPath,
           env: ptyEnv,
           label: backend.label || backend.id,
+          forkFrom: sessionOptions?.forkFrom || null,
         });
       } else if (useArgvSpawn) {
         // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the

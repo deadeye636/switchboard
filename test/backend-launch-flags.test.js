@@ -206,6 +206,33 @@ test('a flag this app SENDS is never also on the audit-excluded list (#537, #548
         `${name}: ${flag} is sent on the command line, so it cannot also be audited away`);
     }
   }
+  // A backend that drives another's binary is audited in the OWNER's help check (#660), so what it sends is
+  // held against that list too. claude-native sends the print-mode flags the terminal backend never did.
+  const claudeNative = require('../src/backends/claude-native');
+  for (const flag of managedFlags(claudeNative)) {
+    assert.equal(excludedFlags('claude').includes(flag), false,
+      `claude-native sends ${flag}, so check-claude-help.js cannot also audit it away`);
+  }
+  assert.ok(auditCode('claude').includes("require('../src/backends/claude-native')"),
+    'and the owner\'s help check audits the driver at all');
+});
+
+// The help check reports this too, but only when someone runs it with a Claude installed; here it holds on
+// every run. An exemption for a flag nothing sends is a place a finding could later be silenced.
+test('every flag Claude\'s help check treats as hidden is one a Claude backend still sends (#660)', () => {
+  const claudeNative = require('../src/backends/claude-native');
+  const hidden = flagSet('claude', 'HIDDEN_BUT_TAKEN');
+  assert.ok(hidden.length > 0, 'the set is read at all');
+  const sent = new Set([...managedFlags(claude), ...managedFlags(claudeNative)]);
+  for (const flag of hidden) {
+    assert.ok(sent.has(flag), `${flag} is in HIDDEN_BUT_TAKEN, and neither Claude backend sends it any more`);
+  }
+  assert.ok(auditCode('claude').includes('unsentHidden'), 'and the script itself refuses a stale entry');
+});
+
+test('a value joined to its flag is still the flag (#660)', () => {
+  const { flagsIn } = require('../scripts/managed-flags');
+  assert.deepEqual(flagsIn(['--resume=abc', '--fork-session', 'x=y', '--session-id=a=b', '-p']), ['--resume', '--fork-session', '--session-id', '-p']);
 });
 
 // --- #548: the managed set is DERIVED, so a flag cannot be missing from the CLI and from the list at once

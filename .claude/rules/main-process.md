@@ -79,7 +79,9 @@ session has one history however its windows come and go), `turn-hold.js` (a "the
 is about to be wrong — #495; a CLI announces the end and the start of a turn through two events and
 nothing orders them, so a `Stop` arriving while a prompt is still queued is held rather than delivered.
 Reads no transcript: the `readTurnQueue` descriptor hook answers whether a turn is still owed, and a
-backend that declines gets the behaviour that shipped before it), `session-shutdown.js` (stopping every CLI
+backend that declines gets the behaviour that shipped before it. A session driven over a pipe whose runtime
+answers no turn line is asked first through `agentRpc.turnQueueOf`, which counts the turn lines the core
+wrote while a turn ran — #660), `session-shutdown.js` (stopping every CLI
 process and CHECKING that it stopped — #424), `db-upkeep.js` (when the database is compacted and how
 much of it — #430; the SQL is `src/db/compact.js`, what needs to know about the app is here),
 `vcs-ignore.js` (will this directory be committed — the two questions asked before the app suggests writing into one; shared by the plans convention and the handoff writer since #468),

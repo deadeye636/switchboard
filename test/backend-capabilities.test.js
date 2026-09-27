@@ -76,6 +76,19 @@ const PINNED = {
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'no',
   },
+  // Claude driven over its stream-json pipe (#660). The binary's and the store's answers are Claude's; the
+  // ones that differ are either about how it is driven (no terminal, no binding, no queue count on the stream)
+  // or answered ONCE by the terminal backend, because a second answer over the same file would be drawn twice
+  // (the endpoint, the account's quota, the project config, the live owners, the subagent rows).
+  'claude-native': {
+    fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
+    contextFill: 'limited',
+    modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
+    queuedTurn: 'no', quota: 'no',
+    resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'no', projectConfig: 'no',
+    viewportPaging: 'no',
+  },
   agy: {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)

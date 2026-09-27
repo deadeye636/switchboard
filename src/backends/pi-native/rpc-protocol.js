@@ -224,6 +224,9 @@ function createDecoder() {
                 requestedBy: approval.by || '',
                 options: [],
                 answers: { once: CHOICES.once, session: CHOICES.session, refuse: CHOICES.refuse },
+                // What this question is worth, for the card: the gate is this app's extension, not Pi's.
+                note: 'Asked by Switchboard inside this session. A convenience, not a security boundary: '
+                  + 'the same agent started outside Switchboard asks nothing.',
               },
             }];
           }
