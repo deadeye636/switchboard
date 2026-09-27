@@ -1724,6 +1724,9 @@ ipcMain.handle('backends-list', () => {
       // How the session is driven (#568): absent for a CLI in a PTY, the transport's name for one driven
       // over a pipe. The renderer mounts a conversation view instead of a terminal on it, naming no backend.
       transport: b.transport || null,
+      // Which images a turn of such a session may carry (#662): `{ types, maxBytes }`, or null for none. The
+      // conversation view offers attaching only where this is set and refuses what it does not allow.
+      imageInput: (b.rpc && b.rpc.imageInput) || null,
       modelDiscovery: typeof b.listModels === 'function',
       resourceDiscovery: typeof b.listResources === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable

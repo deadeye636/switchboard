@@ -2998,6 +2998,30 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   border-top: 1px solid rgba(255,255,255,0.06);
 }
 .conversation-composer.disabled { opacity: 0.5; }
+/* Images attached to the next turn (#662): a row of thumbnails above the input, each with its remove ×. */
+.conversation-attachments {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.conversation-attachments[hidden] { display: none; }
+.conversation-attachments:not([hidden]) + .conversation-composer { border-top: none; }
+.conversation-attachment {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.conversation-attachment img {
+  max-width: 96px;
+  max-height: 72px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+  object-fit: cover;
+}
 /* The input's autocomplete (#643): the palette's rows, standing on the composer's top edge. */
 .conversation-composer { position: relative; }
 .composer-completion {

@@ -709,10 +709,10 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
   // would time every turn out as "no answer" while the runtime works on it. There the write IS the send,
   // and — since nothing in such a stream says a turn began — the write is also the moment the session turns
   // busy. A line written while a turn runs (a steer, a follow-up) changes nothing about that.
-  function send({ text, mode }) {
+  function send({ text, mode, images }) {
     if (rpc.sendAcknowledged === false) {
       const wasBusy = state.busy;
-      if (!write(rpc.sendCommand({ id: crypto.randomUUID(), text, mode, busy: wasBusy }))) {
+      if (!write(rpc.sendCommand({ id: crypto.randomUUID(), text, mode, busy: wasBusy, images }))) {
         return Promise.resolve({ success: false, error: 'not running' });
       }
       // A turn line written while one runs is a turn the runtime now owes (`turnQueueOf`). A steer is not:
@@ -721,7 +721,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
       if (!wasBusy) handleOp({ op: 'busy', busy: true });
       return Promise.resolve({ success: true });
     }
-    return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy }));
+    return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy, images }));
   }
 
   // A turn written as keys — the seed prompt, the trigger watcher, a launcher — has nobody waiting on its
@@ -943,14 +943,42 @@ function attachFailure(reason, waitedMs) {
 
 const SEND_MODES = new Set(['prompt', 'steer', 'follow_up']);
 
+// The images a turn carries (#662), checked against what the runtime declared it takes (`rpc.imageInput`:
+// `{ types, maxBytes }`). The view checks the same declaration before it attaches anything; this is the
+// check that holds whoever sends. Answers the images to send, or a sentence saying why not.
+function imagesFor(rpc, raw) {
+  if (raw == null) return { images: [] };
+  if (!Array.isArray(raw)) return { error: 'The images could not be read.' };
+  if (!raw.length) return { images: [] };
+  const accepts = rpc.imageInput && typeof rpc.imageInput === 'object' ? rpc.imageInput : null;
+  if (!accepts) return { error: 'This session does not take images.' };
+  const types = new Set(Array.isArray(accepts.types) ? accepts.types : []);
+  const images = [];
+  for (const img of raw) {
+    const mimeType = img && typeof img.mimeType === 'string' ? img.mimeType : '';
+    const data = img && typeof img.data === 'string' ? img.data : '';
+    if (!types.has(mimeType)) return { error: 'This session does not take that kind of image.' };
+    if (!data || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return { error: 'The images could not be read.' };
+    // Counted on the ENCODED size, the stricter of the two readings: whether the API's limit counts the
+    // file or its base64 text is not measured, and the stricter one cannot let through an image that the
+    // API then refuses. The view counts the same way.
+    if (data.length > Number(accepts.maxBytes || 0)) return { error: 'An image is too large for this session.' };
+    images.push({ mimeType, data });
+  }
+  return { images };
+}
+
 async function sendTurn(sessionId, payload) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
   const text = String((payload && payload.text) || '');
-  if (!text.trim()) return { ok: false, error: 'Nothing to send.' };
+  const checked = imagesFor(state.rpc, payload && payload.images);
+  if (checked.error) return { ok: false, error: checked.error };
+  const { images } = checked;
+  if (!text.trim() && !images.length) return { ok: false, error: 'Nothing to send.' };
   const mode = SEND_MODES.has(payload && payload.mode) ? payload.mode : 'prompt';
-  state.noteComposerLine(text);
-  const res = await state.send({ text, mode });
+  if (text.trim()) state.noteComposerLine(text);
+  const res = await state.send(images.length ? { text, mode, images } : { text, mode });
   // A runtime's refusal is its own sentence about the request (Pi's "Agent is streaming…"), not a thrown
   // error that could carry a path, so it is passed on.
   return res && res.success !== false ? { ok: true } : { ok: false, error: (res && res.error) || 'The session refused the message.' };

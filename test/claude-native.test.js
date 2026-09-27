@@ -223,6 +223,19 @@ test('the three send modes map onto Claude\'s priorities', () => {
   assert.deepEqual(protocol.sendCommand({ text: 'hi' }).message, { role: 'user', content: 'hi' });
 });
 
+test('a turn with images is a content array, images first, and a turn without stays a string (#662)', () => {
+  const img = { mimeType: 'image/png', data: 'AAAA' };
+  const block = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } };
+  assert.deepEqual(protocol.sendCommand({ text: 'what is this', images: [img] }).message.content,
+    [block, { type: 'text', text: 'what is this' }]);
+  assert.deepEqual(protocol.sendCommand({ text: '  ', images: [img, img] }).message.content, [block, block],
+    'no empty text block beside images alone');
+  assert.equal(protocol.sendCommand({ text: 'hi', images: [] }).message.content, 'hi');
+  assert.equal(protocol.sendCommand({ text: 'a', mode: 'steer', images: [img] }).priority, 'next', 'images change no priority');
+  assert.deepEqual(native().rpc.imageInput, protocol.IMAGE_INPUT, 'the declaration the core and the view read');
+  assert.ok(protocol.IMAGE_INPUT.types.includes('image/png') && protocol.IMAGE_INPUT.maxBytes > 0);
+});
+
 test('a control response answers the request it names, success and refusal alike', () => {
   assert.deepEqual(protocol.responseOf({ type: 'control_response', response: { subtype: 'success', request_id: 'x', response: { a: 1 } } }),
     { id: 'x', payload: { success: true, data: { a: 1 } } });

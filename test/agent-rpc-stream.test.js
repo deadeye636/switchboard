@@ -85,6 +85,35 @@ test('an unacknowledged turn is sent by the write: busy at once, idle from the s
   assert.deepEqual(ops(h).filter((o) => o.op === 'append').map((o) => o.entry.message.role), ['user', 'assistant']);
 });
 
+// #662: a turn may carry images, checked against what the runtime declared it takes, whoever sends.
+test('images reach the runtime only as it declared it takes them', async (t) => {
+  const seen = [];
+  const PNG = Buffer.from('fake png bytes').toString('base64');
+  const h = streamHarness(t, { rpc: {
+    imageInput: { types: ['image/png'], maxBytes: 64 },
+    sendCommand: (args) => { seen.push(args); return { type: 'user', text: args.text }; },
+  } });
+  t.after(() => stopped(h));
+  const send = (payload) => agentRpc.sendTurn('launch-id', { mode: 'prompt', ...payload });
+  assert.equal((await send({ text: 'look', images: [{ mimeType: 'image/gif', data: PNG }] })).ok, false, 'a type it did not declare');
+  assert.equal((await send({ text: 'look', images: [{ mimeType: 'image/png', data: 'A'.repeat(200) }] })).ok, false, 'larger than it takes');
+  assert.equal((await send({ text: 'look', images: [{ mimeType: 'image/png', data: 'not base64!' }] })).ok, false, 'not base64');
+  assert.equal((await send({ text: 'look', images: [{ mimeType: 'image/png', data: 'AAAAA' }] })).ok, false, 'not a whole base64 length');
+  assert.equal((await send({ text: 'look', images: 'nope' })).ok, false, 'not a list');
+  assert.equal(seen.length, 0, 'nothing refused was written');
+  assert.deepEqual(await send({ text: '', images: [{ mimeType: 'image/png', data: PNG }] }), { ok: true }, 'an image alone is a turn');
+  assert.deepEqual(seen[0].images, [{ mimeType: 'image/png', data: PNG }]);
+  await send({ text: 'plain' });
+  assert.equal(seen[1].images, undefined, 'a turn without images carries none');
+});
+
+test('a runtime that declares no image input refuses a turn with images', async (t) => {
+  const h = streamHarness(t);
+  t.after(() => stopped(h));
+  const res = await agentRpc.sendTurn('launch-id', { text: 'look', mode: 'prompt', images: [{ mimeType: 'image/png', data: 'AAAA' }] });
+  assert.deepEqual(res, { ok: false, error: 'This session does not take images.' });
+});
+
 test('a line written while a turn runs does not start a second busy edge', async (t) => {
   const h = streamHarness(t);
   t.after(() => stopped(h));

@@ -12,7 +12,7 @@ const { JSDOM } = require('jsdom');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'session', 'conversation-view.js'), 'utf8');
 
-function setup({ attachAnswer } = {}) {
+function setup({ attachAnswer, imageInput } = {}) {
   const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>');
   const w = dom.window;
   const calls = { send: [], abort: 0, attach: 0 };
@@ -46,6 +46,12 @@ function setup({ attachAnswer } = {}) {
       return d;
     }
   `, ctx);
+  // The descriptor the renderer caches, reduced to the one field the image attachment reads (#662).
+  ctx.__imageInput = imageInput || null;
+  vm.runInContext(`
+    function sessionBackendId() { return 'b1'; }
+    function getBackend() { return { id: 'b1', transport: 'rpc', imageInput: __imageInput }; }
+  `, ctx);
   vm.runInContext(SRC, ctx);
   const entry = vm.runInContext("createConversationEntry({ sessionId: 's1', projectPath: '/p' })", ctx);
   const input = entry.element.querySelector('.conversation-input');
@@ -64,6 +70,87 @@ test('Enter sends a plain turn; Shift+Enter does not; the send mode is decided i
   h.answerSend({ ok: true });
   await h.settle();
   assert.equal(h.input.value, '');
+});
+
+// #662: an image pasted into the input goes out with the next turn, is shown until then, can be taken back,
+// and one the session would refuse is refused before it is attached.
+function pasteImages(h, files, text = '') {
+  const ev = new h.w.Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'clipboardData', { value: {
+    items: files.map(f => ({ kind: 'file', type: f.type, getAsFile: () => f })),
+    getData: () => text,
+  } });
+  h.input.dispatchEvent(ev);
+  return ev;
+}
+const until = async (cond) => { for (let i = 0; i < 50 && !cond(); i++) await new Promise(r => setTimeout(r, 10)); };
+
+test('a pasted image is attached, shown, removable, and sent with the turn', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  const png = new h.w.File(['png-bytes'], 'shot.png', { type: 'image/png' });
+  const ev = pasteImages(h, [png]);
+  assert.equal(ev.defaultPrevented, true, 'a paste that carries only an image puts nothing into the text');
+  const strip = h.entry.element.querySelector('.conversation-attachments');
+  await until(() => strip.querySelectorAll('.conversation-attachment').length === 1);
+  assert.equal(strip.hidden, false);
+  assert.equal(strip.querySelector('img').alt, 'shot.png');
+  pasteImages(h, [new h.w.File(['more'], 'two.png', { type: 'image/png' })]);
+  await until(() => strip.querySelectorAll('.conversation-attachment').length === 2);
+  strip.querySelectorAll('.conversation-attachment button')[1].click();
+  assert.equal(strip.querySelectorAll('.conversation-attachment').length, 1, 'the × takes one back');
+  h.input.value = 'what is this';
+  h.key({ key: 'Enter' });
+  assert.equal(h.calls.send.length, 1);
+  // Through JSON: the array was built in the jsdom realm, and deepEqual compares prototypes across realms.
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.send[0].images)),
+    [{ mimeType: 'image/png', data: Buffer.from('png-bytes').toString('base64') }]);
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(strip.hidden, true, 'what was sent is no longer attached');
+});
+
+test('a copy that carries text pastes only the text; an image alone is a turn', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  // Excel and Word put a picture of the selection beside the text of a few copied cells.
+  const withText = pasteImages(h, [new h.w.File(['x'], 'cells.png', { type: 'image/png' })], 'a cell');
+  assert.equal(withText.defaultPrevented, false, 'the text pastes as usual');
+  await h.settle();
+  assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 0, 'and the picture beside it is not attached');
+  pasteImages(h, [new h.w.File(['x'], 'a.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
+  h.key({ key: 'Enter' });
+  assert.equal(h.calls.send.length, 1, 'the empty field sends because an image is attached');
+  assert.equal(h.calls.send[0].text, '');
+});
+
+test('an image dropped on the conversation is attached; a drop without one says so', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  const drop = (files) => {
+    const ev = new h.w.Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'dataTransfer', { value: { types: ['Files'], files } });
+    h.input.dispatchEvent(ev);
+    return ev;
+  };
+  assert.equal(drop([new h.w.File(['x'], 'd.png', { type: 'image/png' })]).defaultPrevented, true);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
+  drop([new h.w.File(['x'], 'notes.txt', { type: 'text/plain' })]);
+  await h.settle();
+  assert.match(h.entry.element.textContent, /Only images can be dropped/);
+  assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 1);
+});
+
+test('an image the session would refuse is refused before it is attached', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 4 } });
+  pasteImages(h, [new h.w.File(['x'], 'a.gif', { type: 'image/gif' })]);
+  pasteImages(h, [new h.w.File(['too large'], 'big.png', { type: 'image/png' })]);
+  await h.settle();
+  assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 0);
+  assert.match(h.entry.element.textContent, /a\.gif was not attached: only PNG images/);
+  assert.match(h.entry.element.textContent, /big\.png was not attached: it is too large/);
+  const none = setup();
+  pasteImages(none, [new none.w.File(['x'], 'a.png', { type: 'image/png' })]);
+  await none.settle();
+  assert.match(none.entry.element.textContent, /does not take images/, 'a backend that declares none says so');
 });
 
 test('while a turn runs: Ctrl+Enter steers, Escape stops, Enter is still a plain turn', async () => {

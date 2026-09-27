@@ -35,7 +35,7 @@ in step.
 | E6 | The permission mode follows the usual cascade, global → project → session (`backendDefaults.claude-native`). Unset sends no `--permission-mode`, so Claude's own `defaultMode` applies. | An unset option describes what the CLI does anyway (`.claude/rules/backends.md`). |
 | E7 | One implementation per concept. What is not one CLI's is shared with pi-native. The backend keeps only its protocol translator, its launch and its marker. | See "Shared with pi-native, and what is not". |
 | E9 | The marker means "driven over the pipe at least once", as for Pi. | See "Who owns a row". |
-| E10 | Image input is in scope, through the same view code as pi-native's (#656). | Tracked in #662. |
+| E10 | Image input is in scope, through the same view code as pi-native's (#656). | Built in #662; see "Images". Paste and drop only, no file picker; the view refuses a format or size the backend does not declare, and a model that cannot read images gets the CLI's own error (owner, #662). |
 | E11 | No AFK timeout for a piped child, for now. | `CLAUDE_AFK_TIMEOUT_MS` is about a terminal left alone. |
 | E12 | A driver's store is read while the driver is on, even with its owner switched off. | Without it a new session never reached the sidebar with the owner off (#658). |
 | E14 | A stop waits only where the CLI needs time to finish its transcript. | Measured: a child killed the moment its `result` arrived had already written the turn's last line, so claude-native declares no `gracefulStopMs`. |
@@ -220,8 +220,37 @@ same `result` as for any turn. `/login` answers that it is not available in this
 
 The list a `/` completes to comes from the CLI's `initialize` control request, which may be sent more than
 once (measured). It is sent when the view asks for the list, not at start: turns work without it, and the
-session's capabilities arrive with the first turn's `system/init` anyway. The completion in the view,
-`/clear` in the sidebar and images are #662.
+session's capabilities arrive with the first turn's `system/init` anyway. The view's completion (spec 30,
+"The input completes as you type") offers the CLI's commands and skills from that list with nothing of
+Claude's in the view. `/clear` re-keys the tab and the sidebar row through the shared re-key and empties the
+view (checked in the demo for #662).
+
+## Images (#662)
+
+An image pasted into the input or dropped on the conversation goes out with the next turn. It is shown above
+the input as a thumbnail with a × to take it back, and an image alone is a turn.
+
+- **Which images a session takes is the backend's declaration**: `rpc.imageInput` = `{ types, maxBytes }`,
+  carried to the renderer by `backends-list`. claude-native declares the formats and the per-image size
+  Anthropic's Messages API documents (PNG, JPEG, GIF and WebP, 5 MB). The view refuses anything else before
+  it is attached and says why, and `agent-rpc.js` checks the same declaration again on every turn, whoever
+  sent it. A backend that declares nothing takes no images, and the view says so when one is pasted.
+  pi-native declares nothing yet: its half is #656, which adds only its own translation.
+- **On the wire** the turn becomes a content array, the images first and then the text, which is the order
+  Anthropic's documentation recommends. A turn without images stays a plain string.
+- **What Claude Code does with it** (measured): it keeps the image block in the transcript, stores a copy of
+  the image under its own temporary directory, and adds a line naming that copy's path. A model may then
+  `Read` the copy as well, which asks for an approval under the default permission mode. The history viewer
+  draws the image block in the user's message, live and after a remount.
+- **A copy that carries text pastes only the text.** Excel and Word put a rendered picture of the selection
+  on the clipboard beside the text, so attaching the image as well would add an unwanted thumbnail to every
+  paste of a few cells. An image is attached from a paste only when the clipboard holds no text.
+- **The size is counted on the encoded image**, the base64 text that goes over the pipe, by the view and by
+  main alike. Whether the API's 5 MB counts the file or its encoding is not measured, and the stricter
+  reading cannot let through an image the API then refuses; a file of about 3.75 MB is therefore the
+  largest that attaches. There is no limit on how many images one turn carries: several large ones can
+  still be refused by the API's limit on a whole request, and that answer comes back as the CLI's error.
+- **A drop that holds no image** says so rather than doing nothing.
 
 ## Shared with pi-native, and what is not
 

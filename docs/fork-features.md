@@ -379,7 +379,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   answered on a card: allow once, refuse, and "for this session" where Claude suggests something for the
   session, worded as what it allows. `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
   plan card. A text field sends, queues and steers turns, and Stop interrupts the turn without ending the
-  process. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  process. An image pasted or dropped into the conversation goes out with the next turn (#662); `/`
+  completes Claude's commands and skills, and `/clear` moves the tab to the new session. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:

@@ -111,7 +111,13 @@ function createConversationView(getSession, container) {
     })
     : null;
 
+  // Images waiting to go out with the next turn (#662), drawn above the input with a way to take each back.
+  const attachStrip = document.createElement('div');
+  attachStrip.className = 'conversation-attachments';
+  attachStrip.hidden = true;
+
   container.appendChild(log);
+  container.appendChild(attachStrip);
   container.appendChild(composer);
   container.appendChild(status);
 
@@ -128,6 +134,8 @@ function createConversationView(getSession, container) {
     queue: { steering: [], followUp: [] },
     // Shell lines still running: the runtime's id -> { index, command }. See `localCommand`.
     localCommands: new Map(),
+    // Images attached to the next turn: { mimeType, data (base64), name, url (a data: URL for the thumbnail) }.
+    attachments: [],
     exited: false,
     attached: false,
     attaching: false,        // an attach is in flight — see renderStatus
@@ -272,19 +280,27 @@ function createConversationView(getSession, container) {
   let submitAgain = null;
   async function submit(mode) {
     const text = input.value;
-    if (!text.trim() || view.exited) return;
+    const attached = view.attachments.slice();
+    if ((!text.trim() && !attached.length) || view.exited) return;
     if (sending) { submitAgain = mode; return; }
     // Focus goes back to the field afterwards only if it was here to begin with — in panes mode the user
     // may have moved to another pane while the send was in flight.
     const hadFocus = container.contains(document.activeElement);
     sending = true;
     renderComposer();
+    const payload = { text, mode };
+    if (attached.length) payload.images = attached.map(a => ({ mimeType: a.mimeType, data: a.data }));
     let res;
-    try { res = await window.api.agent.send(view.session.sessionId, { text, mode }); } catch { res = null; }
+    try { res = await window.api.agent.send(view.session.sessionId, payload); } catch { res = null; }
     sending = false;
     if (res && res.ok) {
-      // Only what was sent is taken away — something typed while the send was in flight stays.
+      // Only what was sent is taken away — something typed while the send was in flight stays, and so does
+      // an image attached meanwhile.
       if (input.value.startsWith(text)) input.value = input.value.slice(text.length).replace(/^\s+/, '');
+      if (attached.length) {
+        view.attachments = view.attachments.filter(a => !attached.includes(a));
+        renderAttachments();
+      }
     } else {
       notice('error', (res && res.error) || 'The message did not reach the session.');
     }
@@ -372,6 +388,101 @@ function createConversationView(getSession, container) {
     if (andSend) submit('prompt');
     return true;
   }
+
+  // --- Images for the next turn (#662) ---
+  // Which images this session's backend takes, from the descriptor the renderer already caches: `{ types,
+  // maxBytes }`, or null. The same declaration main checks every turn against, so nothing is attached here
+  // that the send would refuse.
+  function imagePolicy() {
+    const id = typeof sessionBackendId === 'function' ? sessionBackendId(view.session) : '';
+    const backend = id && typeof getBackend === 'function' ? getBackend(id) : null;
+    return backend && backend.imageInput && Array.isArray(backend.imageInput.types) ? backend.imageInput : null;
+  }
+
+  function renderAttachments() {
+    attachStrip.replaceChildren();
+    attachStrip.hidden = !view.attachments.length;
+    for (const a of view.attachments) {
+      const item = document.createElement('div');
+      item.className = 'conversation-attachment';
+      const img = document.createElement('img');
+      img.src = a.url;
+      img.alt = a.name || 'Attached image';
+      img.title = a.name || 'Attached image';
+      item.appendChild(img);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'viewer-header-close';
+      remove.textContent = '×';
+      remove.title = 'Remove this image';
+      remove.setAttribute('aria-label', 'Remove this image');
+      remove.addEventListener('click', () => {
+        view.attachments = view.attachments.filter(x => x !== a);
+        renderAttachments();
+        input.focus();
+      });
+      item.appendChild(remove);
+      attachStrip.appendChild(item);
+    }
+  }
+
+  const readAsDataUrl = (file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(file);
+  });
+
+  // Attach the image files among `files`, refusing up front what the session would refuse on send.
+  async function attachImages(files) {
+    const images = [...files].filter(f => f && typeof f.type === 'string' && f.type.startsWith('image/'));
+    if (!images.length || view.exited) return;
+    const policy = imagePolicy();
+    if (!policy) { notice('error', 'This session does not take images.'); return; }
+    const kinds = policy.types.map(t => t.replace(/^image\//, '').toUpperCase()).join(', ');
+    const limit = `${Math.round(Number(policy.maxBytes) / (1024 * 1024))} MB`;
+    for (const file of images) {
+      const name = file.name || 'Pasted image';
+      if (!policy.types.includes(file.type)) { notice('error', `${name} was not attached: only ${kinds} images can be sent here.`); continue; }
+      // The size the image will have as base64, which is what main checks (`imagesFor` in agent-rpc.js).
+      if (Math.ceil(file.size / 3) * 4 > Number(policy.maxBytes)) { notice('error', `${name} was not attached: it is too large (the limit is ${limit} encoded, about ${Math.round(Number(policy.maxBytes) * 3 / 4 / (1024 * 1024) * 10) / 10} MB as a file).`); continue; }
+      const url = await readAsDataUrl(file);
+      const comma = url.indexOf(',');
+      if (comma < 0) { notice('error', `${name} could not be read.`); continue; }
+      view.attachments.push({ mimeType: file.type, data: url.slice(comma + 1), name, url });
+    }
+    renderAttachments();
+  }
+
+  input.addEventListener('paste', (e) => {
+    const data = e.clipboardData;
+    if (!data) return;
+    const files = [...(data.items || [])].filter(i => i.kind === 'file' && /^image\//.test(i.type)).map(i => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    // A copy that carries text pastes the text and nothing else. Excel and Word put a rendered picture of the
+    // selection on the clipboard beside the text, so attaching the image too would add an unwanted
+    // thumbnail to every paste of a few cells.
+    if (data.getData('text/plain')) return;
+    e.preventDefault();
+    attachImages(files);
+  });
+  const draggingFiles = (e) => !!(e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files'));
+  container.addEventListener('dragover', (e) => {
+    if (!draggingFiles(e) || view.exited) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  container.addEventListener('drop', (e) => {
+    if (!draggingFiles(e) || view.exited) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const files = [...(e.dataTransfer.files || [])];
+    if (files.length && !files.some(f => f && typeof f.type === 'string' && f.type.startsWith('image/'))) {
+      notice('error', 'Only images can be dropped into the conversation.');
+      return;
+    }
+    attachImages(files);
+  });
 
   function renderStatus() {
     renderComposer();

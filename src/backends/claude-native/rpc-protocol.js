@@ -339,10 +339,27 @@ function createDecoder() {
 // running turn at its next tool boundary (`next`); `follow_up` waits until it is done (`later`). Claude's
 // third priority, `now`, cuts the running turn off and is not offered.
 const PRIORITIES = { steer: 'next', follow_up: 'later' };
-function sendCommand({ text, mode } = {}) {
+
+// The images a turn may carry (#662): the formats and the per-image size Anthropic's Messages API documents
+// for an image content block. The core refuses anything else before it is written, and the view refuses it
+// before it is attached, both from this one declaration.
+const IMAGE_INPUT = Object.freeze({
+  types: Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+  maxBytes: 5 * 1024 * 1024,
+});
+
+// A turn with images is a content array: the images first, then the text, which is the order Anthropic's
+// documentation recommends. A turn without any stays a plain string, as it always was.
+function sendCommand({ text, mode, images } = {}) {
+  const body = String(text == null ? '' : text);
+  const list = Array.isArray(images) ? images : [];
+  const content = list.length
+    ? [...list.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.data } })),
+      ...(body.trim() ? [{ type: 'text', text: body }] : [])]
+    : body;
   const line = {
     type: 'user',
-    message: { role: 'user', content: String(text == null ? '' : text) },
+    message: { role: 'user', content },
     parent_tool_use_id: null,
     session_id: '',
   };
@@ -449,6 +466,7 @@ module.exports = {
   answerCommand,
   conversationEntries,
   entryKey,
+  IMAGE_INPUT,
   ALLOW,
   ALLOW_SESSION,
   REFUSE,
