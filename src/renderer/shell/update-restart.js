@@ -104,6 +104,40 @@
     return null;
   }
 
+  // The saved blob, with a session that moved to a new id (a `/clear`, a fork) renamed in it (#669). Null
+  // when the blob does not name the old id, so the caller writes nothing.
+  //
+  // The blob is written on the unload that goes with a quit, and on nothing else. A session re-keyed after
+  // the last unload is therefore still under its retired id in there, and a quit that never unloads the
+  // window — a crash, a killed process — hands that blob to the next launch, which resumes the session from
+  // before the `/clear`. The pane layout and the detached-window record are persisted on the re-key itself
+  // (#346, #371); this is the same move for the third place a session id is saved.
+  //
+  // Only the id is renamed: the set of sessions, their order and which list they are in stay what the last
+  // unload wrote. Where the new id is already in the same list, the old entry goes instead of making two.
+  function rekeyRestoreState(state, oldId, newId) {
+    if (!state || typeof state !== 'object' || !oldId || !newId || oldId === newId) return null;
+    let changed = false;
+    const rename = (list) => {
+      if (!Array.isArray(list)) return list;
+      if (!list.some((item) => item && item.sessionId === oldId)) return list;
+      changed = true;
+      const hasNew = list.some((item) => item && item.sessionId === newId);
+      const out = [];
+      for (const item of list) {
+        if (item && item.sessionId === oldId) {
+          if (!hasNew) out.push({ ...item, sessionId: newId });
+        } else {
+          out.push(item);
+        }
+      }
+      return out;
+    };
+    const next = { ...state, sessions: rename(state.sessions), headless: rename(state.headless) };
+    if (state.activeSessionId === oldId) { next.activeSessionId = newId; changed = true; }
+    return changed ? next : null;
+  }
+
   return {
     UPDATE_RESTART_STATE_KEY,
     OPEN_SESSIONS_STATE_KEY,
@@ -111,5 +145,6 @@
     hasRestorableUpdateSessions,
     selectRestorableSessions,
     resolveRestoreFocusId,
+    rekeyRestoreState,
   };
 });

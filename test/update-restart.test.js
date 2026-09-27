@@ -8,6 +8,7 @@ const {
   hasRestorableUpdateSessions,
   selectRestorableSessions,
   resolveRestoreFocusId,
+  rekeyRestoreState,
 } = require('../src/renderer/shell/update-restart');
 
 test('collectUpdateRestartState stores resumable Claude sessions only', () => {
@@ -175,4 +176,96 @@ test('selectRestorableSessions returns empty for malformed input', () => {
   assert.deepEqual(selectRestorableSessions(null, {}), []);
   assert.deepEqual(selectRestorableSessions({ sessions: 'nope' }, {}), []);
   assert.deepEqual(selectRestorableSessions({ sessions: [] }, {}), []);
+});
+
+// --- #669: a session re-keyed after the last unload is renamed in the saved blob ---
+//
+// The blob is written on unload only. A `/clear` after that, then a quit that never unloads (a crash, a
+// killed process), used to hand the next launch the retired id, and the restore resumed the session from
+// before the `/clear`.
+
+test('rekeyRestoreState renames a re-keyed session in whichever list holds it (#669)', () => {
+  const saved = {
+    activeSessionId: 'before-clear',
+    gridViewActive: false,
+    sessions: [{ sessionId: 'other', projectPath: '/repo/a' }, { sessionId: 'before-clear', projectPath: '/repo/b' }],
+    headless: [],
+    savedAt: '2026-01-01T00:00:00.000Z',
+  };
+  const next = rekeyRestoreState(saved, 'before-clear', 'after-clear');
+  assert.deepEqual(next.sessions, [
+    { sessionId: 'other', projectPath: '/repo/a' },
+    { sessionId: 'after-clear', projectPath: '/repo/b' },
+  ], 'same place in the order, same directory, new id');
+  assert.equal(next.activeSessionId, 'after-clear');
+  assert.equal(next.savedAt, saved.savedAt, 'only the id moves');
+  assert.equal(saved.sessions[1].sessionId, 'before-clear', 'the input is not mutated');
+
+  const headless = rekeyRestoreState({ sessions: [], headless: [{ sessionId: 'x', projectPath: '/p' }] }, 'x', 'y');
+  assert.deepEqual(headless.headless, [{ sessionId: 'y', projectPath: '/p' }]);
+  assert.deepEqual(headless.sessions, []);
+});
+
+test('rekeyRestoreState answers null when there is nothing to rename, so nothing is written', () => {
+  const saved = { activeSessionId: null, sessions: [{ sessionId: 'a', projectPath: '/p' }], headless: [] };
+  assert.equal(rekeyRestoreState(saved, 'unknown', 'new'), null);
+  assert.equal(rekeyRestoreState(saved, 'a', 'a'), null);
+  assert.equal(rekeyRestoreState(null, 'a', 'b'), null);
+  assert.equal(rekeyRestoreState(saved, '', 'b'), null);
+});
+
+test('rekeyRestoreState does not make two entries when the new id is already saved', () => {
+  const saved = { sessions: [{ sessionId: 'old', projectPath: '/p' }, { sessionId: 'new', projectPath: '/p' }] };
+  assert.deepEqual(rekeyRestoreState(saved, 'old', 'new').sessions, [{ sessionId: 'new', projectPath: '/p' }]);
+});
+
+// The glue in shell/session-restore.js, run as the classic script it is: it reads the key, renames, writes
+// back — and a detached window, which never owns this key, leaves it alone.
+function loadSessionRestore({ suppress = false, stored = null } = {}) {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const src = path.join(__dirname, '..', 'src', 'renderer', 'shell', 'session-restore.js');
+  const store = new Map(stored == null ? [] : [[OPEN_SESSIONS_STATE_KEY, stored]]);
+  const sandbox = {
+    localStorage: {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+    },
+    addEventListener: () => {},
+    OPEN_SESSIONS_STATE_KEY,
+    rekeyRestoreState,
+    __suppressLaunchRestore: suppress,
+  };
+  vm.createContext(sandbox);
+  sandbox.window = sandbox;
+  vm.runInContext(fs.readFileSync(src, 'utf8'), sandbox, { filename: src });
+  return { sandbox, store };
+}
+
+test('rekeySavedOpenSessions writes the renamed blob back, and only in the main window (#669)', () => {
+  const blob = JSON.stringify({ activeSessionId: null, sessions: [], headless: [{ sessionId: 'old', projectPath: '/p' }] });
+
+  const main = loadSessionRestore({ stored: blob });
+  main.sandbox.rekeySavedOpenSessions('old', 'new');
+  assert.deepEqual(JSON.parse(main.store.get(OPEN_SESSIONS_STATE_KEY)).headless, [{ sessionId: 'new', projectPath: '/p' }]);
+
+  const detached = loadSessionRestore({ stored: blob, suppress: true });
+  detached.sandbox.rekeySavedOpenSessions('old', 'new');
+  assert.equal(detached.store.get(OPEN_SESSIONS_STATE_KEY), blob);
+
+  const empty = loadSessionRestore();
+  empty.sandbox.rekeySavedOpenSessions('old', 'new');
+  assert.equal(empty.store.has(OPEN_SESSIONS_STATE_KEY), false, 'no blob, nothing written');
+
+  const broken = loadSessionRestore({ stored: '{not json' });
+  assert.doesNotThrow(() => broken.sandbox.rekeySavedOpenSessions('old', 'new'));
+});
+
+test('a renamed blob still restores through the ordinary reader', () => {
+  const next = rekeyRestoreState({ sessions: [{ sessionId: 'old', projectPath: '/p' }] }, 'old', 'new');
+  assert.equal(hasRestorableUpdateSessions(next), true);
+  const found = selectRestorableSessions(next, { lookup: (id) => ({ sessionId: id }) });
+  assert.deepEqual(found.map((s) => s.sessionId), ['new']);
 });

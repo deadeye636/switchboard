@@ -28,7 +28,8 @@
 //   handles (placeholder, terminalHeader, terminalHeaderName/PtyTitle, gridViewerCount) and
 //   `refreshSessionHeaderChrome` for the facts that live in the name's tooltip (#358).
 //   Cross-module: setActivity / applyAttention (shell/attention-engine.js), recordFileTouched
-//   (shell/away-overview-view.js), classifyAttentionSignal (shared/attention-source.js).
+//   (shell/away-overview-view.js), classifyAttentionSignal (shared/attention-source.js),
+//   rekeySavedOpenSessions (shell/session-restore.js, #669).
 
 // --- IPC listeners from main process ---
 
@@ -157,6 +158,9 @@ function rekeyStatusState(oldId, newId) {
 window.rekeySessionState = function (oldId, newId) {
   if (!oldId || !newId || oldId === newId) return false;
   rekeyStatusState(oldId, newId);
+  // …and the saved restore set (#669), before the early return below: the blob can name a session this
+  // window holds nothing for (it was saved at the last unload), and the rename is idempotent.
+  if (typeof rekeySavedOpenSessions === 'function') rekeySavedOpenSessions(oldId, newId);
   const entry = openSessions.get(oldId);
   const pendingEntry = pendingSessions.get(oldId);
   // The one record, wherever this window is holding it. It is the same object in all three maps by

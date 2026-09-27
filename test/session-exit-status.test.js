@@ -283,6 +283,21 @@ test('a re-key onto an id this window already knows: its state wins, the later t
   assert.equal(sandbox.sessionBusyState.has('launch-id') || sandbox.finishedAt.has('launch-id'), false);
 });
 
+// #669: the saved restore set is renamed on the re-key, not at the next unload — and before the early
+// return, because the blob was written at the last unload and can name a session this window no longer
+// holds anything for.
+test('a re-key renames the saved restore set, whether or not this window holds the session (#669)', () => {
+  const { sandbox } = loadSessionIpc();
+  const renamed = [];
+  sandbox.rekeySavedOpenSessions = (from, to) => { renamed.push([from, to]); };
+  pendingSession(sandbox, 'launch-id');
+  sandbox.window.rekeySessionState('launch-id', 'real-id');
+  assert.equal(sandbox.window.rekeySessionState('elsewhere', 'other-id'), false);
+  assert.deepEqual(renamed, [['launch-id', 'real-id'], ['elsewhere', 'other-id']]);
+  assert.equal(sandbox.window.rekeySessionState('same', 'same'), false);
+  assert.equal(renamed.length, 2, 'a non-move renames nothing');
+});
+
 test('the status moves even where this window holds no record of the session', () => {
   const { sandbox } = loadSessionIpc();
   sandbox.sessionBusyState.set('elsewhere', true);

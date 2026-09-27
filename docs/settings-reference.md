@@ -684,7 +684,7 @@ and because a second window can corrupt them.
 | `paneTree` | the panes-mode split layout: the tree, with sizes as fractions (#309) |
 | `gridViewActive` | is the grid mosaic on. `gridModePref` sat beside it until #369 — grid remembered whether it had been showing the mosaic or a single session, and restored that on a mode switch. A switch into grid is always the mosaic now, so nothing read it |
 | `gridLayout`, `gridStatusFilter` | per-session `{order, colSpan, rowSpan}`; the grid's status filter |
-| `persistedOpenSessions` | the set to reopen on the next launch — deliberately durable, so it survives a crash |
+| `persistedOpenSessions` | the set to reopen on the next launch — deliberately durable, so it survives a crash. Written on the unload that goes with a quit; a session re-keyed after that (a `/clear`, a fork) is renamed in it on the spot, because a crash never unloads (#669) |
 | `filePanelWidth`, `filePanelDiffMode` | the side panel's width; side-by-side vs inline diff |
 | `projectCollapseState`, `projectOrder` | sidebar arrangement — these two are localStorage-only |
 | `projectSortMode`, `favoritesOwnList` | a **boot cache** of two real global settings (see the table above). The blob is the source of truth; the mirror is what lets the first paint sort before the settings arrive |

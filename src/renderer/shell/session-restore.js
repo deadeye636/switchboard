@@ -24,7 +24,10 @@
 //   terminal/terminal-manager.js   showSession
 //   shell/update-restart.js    OPEN_SESSIONS_STATE_KEY, collectUpdateRestartState,
 //                              hasRestorableUpdateSessions, selectRestorableSessions,
-//                              resolveRestoreFocusId (UMD → window properties)
+//                              resolveRestoreFocusId, rekeyRestoreState (UMD → window properties)
+//
+// And one caller from outside: shell/session-ipc.js calls `rekeySavedOpenSessions` from
+// `rekeySessionState` (#669).
 //
 // It reads app.js's state; it writes none of it. Everything it changes is the DOM, localStorage, or
 // window.__restoringOpenSessions.
@@ -88,6 +91,21 @@ function saveOpenSessionsState() {
       localStorage.removeItem(OPEN_SESSIONS_STATE_KEY);
     }
   } catch {}
+}
+
+// A session moved to a new id (#669): rename it in the saved blob now, rather than waiting for the next
+// unload to write the whole set again. That unload never comes when the app is killed or crashes, and the
+// launch after it then resumed the session from before a `/clear`. `rekeyRestoreState` says why only the
+// id moves. Runs from `rekeySessionState` (shell/session-ipc.js), in every window that hears of the move;
+// a detached window never writes this key, for the reason `saveOpenSessionsState` gives.
+function rekeySavedOpenSessions(oldId, newId) {
+  if (window.__suppressLaunchRestore || typeof rekeyRestoreState !== 'function') return;
+  try {
+    const raw = localStorage.getItem(OPEN_SESSIONS_STATE_KEY);
+    if (!raw) return;
+    const next = rekeyRestoreState(JSON.parse(raw), oldId, newId);
+    if (next) localStorage.setItem(OPEN_SESSIONS_STATE_KEY, JSON.stringify(next));
+  } catch { /* an unreadable blob is the next unload's to replace */ }
 }
 
 // Determinate restore progress shown inside the placeholder. The restore knows
