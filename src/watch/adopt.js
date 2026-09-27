@@ -214,6 +214,8 @@ function claimLiveRecord(sessionId, session, backend, candidatePaths) {
       // A record in the store matched this session, which says nothing about whether the CLI can take a
       // prompt — the seed path reads this origin and waits on (#640).
       mainWindow.webContents.send('session-forked', sessionId, realId, 'store');
+      // …and make the renderer's renamed restore state survive a kill (#669, `app/storage-flush.js`).
+      require('../app/storage-flush').flushStorageSoon(mainWindow.webContents);
     }
   } else {
     // No adoption needed (or the target id is somehow already live). NOTE: the claim is deliberately

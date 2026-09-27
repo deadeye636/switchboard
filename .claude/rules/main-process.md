@@ -87,6 +87,10 @@ much of it — #430; the SQL is `src/db/compact.js`, what needs to know about th
 `dev-reload.js` (a dev run following an edit under `src/` — `src/renderer/**` reloads the windows, the
 rest of `src/` restarts the app through `app.relaunch()` + `app.quit()` so the teardown runs, #665; it
 replaced `electron-reloader`, and the module header has the two measured defects that retired it),
+`storage-flush.js` (after a re-key, ask Chromium once to commit the renderer's localStorage — #669; the
+renamed restore set and pane layout were measured lost to a kill fourteen seconds after the re-key, because
+Chromium commits localStorage on a delay of its own. Called right after both `session-forked` sends, never on
+every write),
 `vcs-ignore.js` (will this directory be committed — the two questions asked before the app suggests writing into one; shared by the plans convention and the handoff writer since #468),
 `build-dirs.js` (generated output, fetched dependencies and the VCS stores, by NAME — what a walk does
 not enter and a watch does not follow, #483. Its second export is the one that is not guessable:

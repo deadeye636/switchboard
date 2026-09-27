@@ -391,6 +391,8 @@ function applyRekey(fromId, session, toId, origin) {
     // before its own report and before it will accept a prompt — so a reader that cannot tell them apart
     // would read a file's birth as readiness. `undefined` here means "not the CLI's own word".
     mainWindow.webContents.send('session-forked', fromId, toId, origin);
+    // The renderer renames the session in what it saves for a restart; make that survive a kill (#669).
+    require('../app/storage-flush').flushStorageSoon(mainWindow.webContents);
   }
 }
 
