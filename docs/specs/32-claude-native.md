@@ -199,6 +199,16 @@ Three kinds of question arrive, all as `can_use_tool`:
   button reads "Allow all edits for this session". An allow hands the tool's input back unchanged as
   `updatedInput`, which is why `answerCommand` gets the question it answers. A refusal tells the model the
   user refused the call.
+
+  **What Claude suggests for Bash** (measured on 2.1.283, default mode, no rule of the user's matching):
+  `sleep 1; echo 1`, `ls` and `git status` ran without a question at all — Claude allows read-only commands
+  itself. `mkdir -p <dir>` asked, with three suggestions: an `addRules` allow for that exact command with
+  destination `localSettings` (Claude's "don't ask again for this command in this project"), an
+  `addDirectories` for the working directory and a `setMode acceptEdits`, both for the session. The card
+  offers the two session ones behind "Allow all edits for this session" and drops the settings-file rule
+  (E17). A Bash call under an `ask` rule of the user's carries no suggestion at all, so the card then offers
+  only Allow once and Refuse — the demo home carried `ask: ["Bash"]` from the #661 measurements, which is
+  why every Bash call there asks with no session button.
 - **`AskUserQuestion`** is a question, not a permission. The card draws its questions with their options,
   checkboxes where several may be picked, and a free answer. The answer is an allow whose `updatedInput`
   carries `answers`. Several choices are joined with ", ", and a free answer is taken as written (both
