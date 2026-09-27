@@ -172,6 +172,16 @@ same object. The rows used to be absent rather than broken, which is why the gua
 What goes into the pipe directly — the seed, a staged prompt, the trigger watcher — still takes the PTY
 path (`write()`), and that path treats text plus a carriage return as a turn.
 
+**Images (#656).** An image pasted into the field or dropped on the conversation goes out with the next
+turn, in the optional `images` field Pi's `prompt`, `steer` and `follow_up` all take (`{ type: 'image', data,
+mimeType }`, Pi's `docs/rpc.md`). The attaching, the thumbnails and the checks are the view's and the core's,
+built with claude-native (#662, spec 32, "Images"); this backend only declares `rpc.imageInput` — the shared
+limits in `src/backends/rpc-shared.js`, the strictest common provider's, since Pi hands the image to whichever
+provider the session uses — and puts the images into its command. Whether the session's model reads images
+is not checked up front: a model that cannot answers with Pi's own error. Pi's normaliser already drew an
+image block in a user message, so the history shows the image where it was sent. Measured in the demo: an
+image pasted into a pi-native session was described correctly by the model and drawn in the message.
+
 ## Approvals and tool rendering (step C)
 
 Pi has no approval step. Its project trust decides what gets **loaded**, and an enabled tool then runs

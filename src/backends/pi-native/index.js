@@ -113,6 +113,9 @@ module.exports = {
     // save nothing, so it is stopped at once as before.
     responseOf: protocol.responseOf,
     sendCommand: protocol.sendCommand,
+    // A turn may carry images (#656), in Pi's `images` field; the limits are the shared ones in
+    // `../rpc-shared.js`, since Pi hands the image to whichever provider the session uses.
+    imageInput: require('../rpc-shared').IMAGE_INPUT,
     abortCommand: protocol.abortCommand,
     // The input's autocomplete (#643): the commands a `/` can complete to, and one command's arguments.
     commandsCommand: protocol.commandsCommand,

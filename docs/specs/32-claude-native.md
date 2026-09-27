@@ -262,11 +262,12 @@ An image pasted into the input or dropped on the conversation goes out with the 
 the input as a thumbnail with a × to take it back, and an image alone is a turn.
 
 - **Which images a session takes is the backend's declaration**: `rpc.imageInput` = `{ types, maxBytes }`,
-  carried to the renderer by `backends-list`. claude-native declares the formats and the per-image size
-  Anthropic's Messages API documents (PNG, JPEG, GIF and WebP, 5 MB). The view refuses anything else before
-  it is attached and says why, and `agent-rpc.js` checks the same declaration again on every turn, whoever
-  sent it. A backend that declares nothing takes no images, and the view says so when one is pasted.
-  pi-native declares nothing yet: its half is #656, which adds only its own translation.
+  carried to the renderer by `backends-list`. Both runtime-driven backends declare the one `IMAGE_INPUT` in
+  `src/backends/rpc-shared.js`: the formats and the per-image size Anthropic's Messages API documents (PNG,
+  JPEG, GIF and WebP, 5 MB). The view refuses anything else before it is attached and says why, and
+  `agent-rpc.js` checks the same declaration again on every turn, whoever sent it. A backend that declares
+  nothing takes no images, and the view says so when one is pasted. pi-native (#656) sends the images in
+  Pi's `images` field and adds nothing else; spec 30 has its half.
 - **On the wire** the turn becomes a content array, the images first and then the text, which is the order
   Anthropic's documentation recommends. A turn without images stays a plain string.
 - **What Claude Code does with it** (measured): it keeps the image block in the transcript, stores a copy of

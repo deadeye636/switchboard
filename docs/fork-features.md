@@ -383,7 +383,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   a picked message of the user's goes back into the text field. Pi's other terminal commands say where the
   function lives instead of going to the model as a prompt. The text field completes as you type: `/` lists
   Pi's commands, prompt templates and skills, `/model`, `/thinking`, `/login` and `/logout` list their
-  arguments, and `@` lists the project's files. Spec:
+  arguments, and `@` lists the project's files. An image pasted or dropped into the conversation goes out
+  with the next turn (#656). Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).
 - **Claude driven through its stream protocol (#653)** — `Claude (native)` starts the installed `claude` in
   print mode with stream-json on both sides, the protocol the Claude Agent SDK wraps, and draws the

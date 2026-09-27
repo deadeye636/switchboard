@@ -40,9 +40,20 @@ const NOTICES = Object.freeze({
   compacted: 'Conversation compacted.',
 });
 
+// The images a turn may carry, for a runtime that takes them (`rpc.imageInput`, #662/#656): the formats and the
+// per-image size Anthropic's Messages API documents for an image content block. Claude Code sends to that API
+// directly; Pi hands an image to whichever provider the session uses, and Anthropic's limits are the strictest
+// of the common ones, so the same declaration is the safe one for both. The core refuses anything else before
+// it is written (counting the encoded size, `imagesFor` in `src/app/agent-rpc.js`), and the view before it is
+// attached.
+const IMAGE_INPUT = Object.freeze({
+  types: Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+  maxBytes: 5 * 1024 * 1024,
+});
+
 // The fields an `ask` of kind `approval` carries, whichever runtime asked: what the conversation view's
 // approval card (`renderApproval`) reads, plus the `kind` that routes it there. A translator that leaves one
 // out draws a card with a hole in it. The test derives the card's reads and compares them with this list.
 const APPROVAL_ASK_KEYS = Object.freeze(['id', 'kind', 'tool', 'toolCallId', 'message', 'requestedBy', 'answers', 'note']);
 
-module.exports = { textOf, argsFromText, oneLineDescription, NOTICES, APPROVAL_ASK_KEYS };
+module.exports = { textOf, argsFromText, oneLineDescription, NOTICES, IMAGE_INPUT, APPROVAL_ASK_KEYS };

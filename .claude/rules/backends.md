@@ -490,8 +490,9 @@ answers instead of the core learning its format:
 - `imageInput: { types, maxBytes }` — the images a turn may carry (#662). `sendCommand` then receives
   `images: [{ mimeType, data }]` beside the text and puts them into its own protocol's shape. The core refuses
   anything outside the declaration before it writes, and `backends-list` carries it to the conversation view,
-  which refuses it before it attaches. A half that declares nothing takes no images. claude-native declares
-  it; pi-native's is #656.
+  which refuses it before it attaches. A half that declares nothing takes no images. Both runtime-driven
+  backends declare it, with the one `IMAGE_INPUT` in `src/backends/rpc-shared.js` (#656): claude-native
+  sends image content blocks, pi-native Pi's `images` field.
 - `gracefulStopMs` — a runtime that still writes on the way out: stdin closes first, the tree is killed
   after that long, and nothing more is written to it meanwhile. Pi declares none (#653 E14: a wait only
   where the CLI needs one). Its session manager writes each entry synchronously once the session has an

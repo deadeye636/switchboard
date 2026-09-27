@@ -317,11 +317,17 @@ function createDecoder() {
 // interrupts the running one between tool calls, `follow_up` waits until it is done. A `prompt` sent
 // while the agent is streaming is REFUSED by Pi unless it says what to do, so a busy session turns a plain
 // prompt into a follow-up rather than into an error.
-function sendCommand({ id, text, mode, busy } = {}) {
+//
+// Images (#656) go in the optional `images` field all three commands take, as Pi's `ImageContent`
+// (`{ type: 'image', data, mimeType }`, Pi's docs/rpc.md). A turn without images carries no field.
+function sendCommand({ id, text, mode, busy, images } = {}) {
   const message = String(text == null ? '' : text);
-  if (mode === 'steer') return { id, type: 'steer', message };
-  if (mode === 'follow_up') return { id, type: 'follow_up', message };
-  return busy ? { id, type: 'prompt', message, streamingBehavior: 'followUp' } : { id, type: 'prompt', message };
+  const extra = Array.isArray(images) && images.length
+    ? { images: images.map(img => ({ type: 'image', data: img.data, mimeType: img.mimeType })) }
+    : {};
+  if (mode === 'steer') return { id, type: 'steer', message, ...extra };
+  if (mode === 'follow_up') return { id, type: 'follow_up', message, ...extra };
+  return busy ? { id, type: 'prompt', message, ...extra, streamingBehavior: 'followUp' } : { id, type: 'prompt', message, ...extra };
 }
 
 const abortCommand = (id) => ({ id, type: 'abort' });

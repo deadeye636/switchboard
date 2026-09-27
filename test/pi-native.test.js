@@ -88,6 +88,20 @@ test('an extension dialog becomes an ask; notify becomes a notice; an extension 
   assert.ok(!/secret|ENOENT/.test(err.text), 'a thrown message can name any path — it is not passed on (#444)');
 });
 
+test('images go in Pi\'s images field of whichever command the turn goes out as (#656)', () => {
+  const img = { mimeType: 'image/png', data: 'AAAA' };
+  const pi = [{ type: 'image', data: 'AAAA', mimeType: 'image/png' }];
+  assert.deepEqual(protocol.sendCommand({ id: 'a', text: 'look', mode: 'prompt', busy: false, images: [img] }),
+    { id: 'a', type: 'prompt', message: 'look', images: pi });
+  assert.deepEqual(protocol.sendCommand({ id: 'a', text: 'look', mode: 'prompt', busy: true, images: [img] }),
+    { id: 'a', type: 'prompt', message: 'look', images: pi, streamingBehavior: 'followUp' });
+  assert.deepEqual(protocol.sendCommand({ id: 'a', text: 'x', mode: 'steer', images: [img] }).images, pi);
+  assert.deepEqual(protocol.sendCommand({ id: 'a', text: 'x', mode: 'follow_up', images: [img] }).images, pi);
+  assert.equal('images' in protocol.sendCommand({ id: 'a', text: 'x', mode: 'prompt', images: [] }), false, 'no images, no field');
+  assert.equal(backends.get('pi-native').rpc.imageInput, require('../src/backends/rpc-shared').IMAGE_INPUT,
+    'the view and the core read the shared declaration');
+});
+
 test('commands: a busy session turns a prompt into a follow-up instead of an error Pi would answer', () => {
   assert.deepEqual(protocol.sendCommand({ id: 'a', text: 'x', mode: 'prompt', busy: false }), { id: 'a', type: 'prompt', message: 'x' });
   assert.deepEqual(protocol.sendCommand({ id: 'a', text: 'x', mode: 'prompt', busy: true }), { id: 'a', type: 'prompt', message: 'x', streamingBehavior: 'followUp' });

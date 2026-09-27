@@ -53,7 +53,9 @@
 //        so `noteSent` reads that answer the way it reads a Stop.
 'use strict';
 
-const { textOf, argsFromText, oneLineDescription, NOTICES } = require('../rpc-shared');
+// IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
+// limits; re-exported below, where the descriptor takes it from.
+const { textOf, argsFromText, oneLineDescription, NOTICES, IMAGE_INPUT } = require('../rpc-shared');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
 // session (point 9). "In this project" only where it suggested an allow rule for the project's LOCAL settings
@@ -383,14 +385,6 @@ function createDecoder() {
 // running turn at its next tool boundary (`next`); `follow_up` waits until it is done (`later`). Claude's
 // third priority, `now`, cuts the running turn off and is not offered.
 const PRIORITIES = { steer: 'next', follow_up: 'later' };
-
-// The images a turn may carry (#662): the formats and the per-image size Anthropic's Messages API documents
-// for an image content block. The core refuses anything else before it is written, and the view refuses it
-// before it is attached, both from this one declaration.
-const IMAGE_INPUT = Object.freeze({
-  types: Object.freeze(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
-  maxBytes: 5 * 1024 * 1024,
-});
 
 // A turn with images is a content array: the images first, then the text, which is the order Anthropic's
 // documentation recommends. A turn without any stays a plain string, as it always was.
