@@ -31,6 +31,9 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
   open transaction — that is why `project-refs.js` takes the stores' raw statements),
   `search-query-util.js` (the MATCH cap shared with the search worker, #79), `stats-queries.js`
   (the Stats SQL, Electron-free so it can be tested)
+- `saved-variable-order.js` (#676) — the one rule for renumbering the saved variables' manual order from a
+  possibly stale list, kept out of `settings-store.js` for the same reason: no test loads a module that
+  opens the database (below), so a rule a store applies and a test must reach is a pure file beside it
 
 `src/index/session-cache.js` is a **façade** (#199) over `index-writes.js`,
 `index-worker-client.js`, `search-worker-client.js`, `projects-view.js`, `folder-index-state.js` and

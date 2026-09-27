@@ -74,7 +74,12 @@ moved out of main.js because it only ever told the main window and kept no refco
 `vcs.js` (the VCS poller + its standalone windows — #277), `detach.js` (detached session
 windows — #2, and since #316 which window renders which session), `presence.js` (is the USER at the
 machine — #386; one global fact, because every renderer has its own `windowFocused` and none can see
-the others), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
+the others. Since #673 "at the machine" means input ANYWHERE: main polls `powerMonitor.getSystemIdleTime()`
+every `SYSTEM_IDLE_POLL_MS`, and the windows' own reports (`shell/presence-report.js`, loaded by all four
+pages) stay the fast path. A gap counts as an absence only where an OS reading vouches for it, and a
+`resume` only stops a pre-sleep reading from vouching. The reader and the resume subscription arrive through
+ctx, and the poll starts in `lifecycle.js` after `ready`, not at wiring — `powerMonitor` cannot be read
+before it), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
 session has one history however its windows come and go), `turn-hold.js` (a "the agent finished" that
 is about to be wrong — #495; a CLI announces the end and the start of a turn through two events and
 nothing orders them, so a `Stop` arriving while a prompt is still queued is held rather than delivered.

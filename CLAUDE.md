@@ -315,7 +315,9 @@ table is the fallback and it is binding.
     says it is a wiring guard.
     **The exception is identity, not settings.** `displayName` is written against the row's OWN path,
     because renaming a worktree must not rename the project it sits in — the same blob holds both, and
-    only the cascading half resolves.
+    only the cascading half resolves. The Add Project dialog holds both halves in one function since #675
+    — the name at the row's own key, a worktree's tags at `settingsOwnerPath`, where the settings editor
+    shows them — and the same test file pins each half.
     **`worktreeRootOf` beside it answers "whose sub-unit am I", and since #586 that is what EVERY
     ownership question asks** — the register, the admin rows, the settings cascade, the sidebar's nesting,
     the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather

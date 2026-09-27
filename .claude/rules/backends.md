@@ -166,6 +166,10 @@ pass it already makes. The two that do not are the two whose path came out of th
 place: the tombstone sweep iterates `getProjectTombstones()`, and `remapProject` writes at the path
 `renameProjectRefs` has just filed the row under. **A new caller that hands `setProjectState` a path from
 anywhere else is the same bug again**, and it fails the way this one did: silently, reporting success.
+The ANSWER goes back out in that spelling too: `addProject` returns `registeredPathFor`'s path, asked after
+the registration (#675), because the Add Project dialog then writes the name and the tags and opens the
+settings, each keyed on the path string it gets back — a re-add under another spelling would otherwise
+write them to a key the sidebar never reads.
 
 **And two of them live outside this file**, which is how they were missed when #566 was written — an
 enumeration that only looked where the fix was. The settings **import** writes a register row per project

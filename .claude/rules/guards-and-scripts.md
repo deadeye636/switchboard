@@ -112,6 +112,14 @@ supposed to face. When a file is read BOTH ways on purpose, say which half each 
 code: the flags come from the stripped source, the exclusion reasons from the prose, because the reason
 genuinely IS a comment and a sibling test asserts it exists.
 
+**The same for a page's script list: `test/helpers/page-scripts.js` (#677).** A test that asks which
+scripts or stylesheets a renderer page loads calls `pageScripts(page)`, `scriptSrcsOf(html)` or
+`pageRefsOf(html)` — never its own `<script src>` pattern. The copies it replaced had drifted apart on spacing, none saw a
+second attribute, and CodeQL flagged each as `js/bad-tag-filter`, one alert per new copy. The helper reads
+only the opening tag, with any attribute order, spacing or quoting. `test/page-scripts.test.js` walks
+`test/` (not `scripts/`) for a line naming the tag while building or running a pattern, with no exemption
+list, and asserts the copy shapes it must catch.
+
 ## Code this app GENERATES is tested by running it
 
 Pi's per-spawn extensions (`src/backends/pi/*-extension.js`, `subagent-tool.js`, `command-bridge.js`,

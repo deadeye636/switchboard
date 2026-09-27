@@ -70,6 +70,10 @@ The app has standalone windows beside `index.html`/`settings.html` — the chang
 with its own script list, so adding one means: `PAGES` in `test/script-tags.test.js`, its own key in
 `test/fixtures/script-order.json`, and its own `lintEnvironment(...)` test in
 `test/renderer-no-undef.test.js`. Miss one and the page is simply unguarded — nothing fails.
+**And every page loads `shell/presence-report.js`** (#673): review in a window of the app's own is presence,
+and a page without the tag counts as time away. `test/presence-reporting.test.js` checks it over a
+hard-coded page list, as `test/page-scripts.test.js` reads one — a new page goes into both by hand, or
+neither covers it.
 
 Two things these pages do differently, both forced by the CSP (`script-src 'self'`, set in
 `src/app/lifecycle.js`): the script is **external**, never inline, and `codemirror-bundle.js` is pulled in
@@ -639,6 +643,27 @@ one in the patch, is the #229 trap wearing a different hat — it agrees today a
 Report structural change (a thing that has to appear or disappear) back to the caller and let it rebuild.
 #516 (closed) took a full render from 63-100 ms to 9-16 ms on the measured instance; the two rules above are
 what keeps it there.
+
+## A project group is found by SPELLING, through one lookup (#671)
+
+A group carries the spelling of the first row main read (#245); a session the index has not read yet
+carries the spawn's, and the two can name one directory with different slashes or drive-letter case. So
+`.find(p => p.projectPath === …)` opened a second group for a running session until the index caught up.
+`findProjectGroup` in `lib/project-name.js` is the one answer: the group's own spelling first, then every
+spelling its sessions carry, across both project lists — main's bucketing by `pathKey`, READ, never
+recomputed. The renderer still compares no two paths itself: a spelling no bucket holds matches nothing, and
+a new group is right for a directory whose first session this is. `test/pending-session-group.test.js` walks
+the renderer for the raw compare; `SAME_SOURCE` there names the files whose two sides come from one source,
+with the reason, and a stale entry fails. The click found the second copy (`launchNewSession`) after the
+first fix, so count the callers there rather than here.
+
+**A background refresh of the Projects manager morphs, it does not reload (#672).** A working session pushes
+`projects-changed` on transcript writes, and answering each with the "Loading…" rebuild threw the table back
+to the top, took the caret out of the search and dropped a half-typed rename. The push is debounced on its
+own timer in `app.js` and calls `refreshProjectsAdmin`, which morphs only the `<tbody>`, keyed by
+`data-path`, and leaves a row under rename alone. A `load()` already out answers for itself, and with no
+table on screen (an error screen) it falls back to the ordinary `load()`; an added or removed project is a row morphdom adds or removes, which is
+what #382 wanted the reload for.
 
 ## Session health is a field the core measured, and the callers pass the threshold (#620)
 
