@@ -287,6 +287,9 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.session-reattach-btn')) { e.stopPropagation(); window.reattachSession?.(session.sessionId); return; }
     if (t.closest('.session-stop-btn')) { e.stopPropagation(); confirmAndStopSession(session.sessionId); return; }
     if (t.closest('.session-launch-config-btn')) { e.stopPropagation(); showResumeSessionDialog(session); return; }
+    // Open a dormant session in the other view of its pair (#670). `openSessionInOtherView` (dialogs.js) asks
+    // again whether it is still dormant and still has a pair, and does nothing otherwise.
+    if (t.closest('.session-view-switch-btn')) { e.stopPropagation(); openSessionInOtherView(session); return; }
     if (t.closest('.session-handoff-btn') || t.closest('.session-health-chip')) { e.stopPropagation(); showHandoffPrompt(session); return; }
     // A backend that cannot fork now gets the button anyway, dimmed and saying so, instead of nothing at
     // all (#446). It is marked `aria-disabled` rather than `disabled` — a disabled control gets no hover

@@ -2001,6 +2001,9 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   if (requestedView && typeof sessionMap !== 'undefined') {
     const known = sessionMap.get(sessionId);
     if (known) { known.backendId = requestedView; known.openerStored = true; }
+    // The row's view symbol and switch button are built from this row; nothing else re-renders it (the
+    // pty edge only patches a class), so without this the row keeps saying the old view.
+    refreshSidebar();
   }
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 

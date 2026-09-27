@@ -93,7 +93,8 @@ how it was driven is a field of its own. Only the marker is different.
 4. `backends.openerFor(row)` hands a marked row to claude-native while it can launch, and back to the
    terminal backend when it is off. The transcript is Claude's either way, so resume and fork work from
    both.
-5. **The user can choose, per session (#670).** A view picked in the Resume dialog (Terminal / GUI) is
+5. **The user can choose, per session (#670).** A view picked for a dormant session (Terminal / GUI) — in
+   the Resume dialog, with the sidebar row's switch button or from the command palette — is
    stored in `session_meta.opener` and wins over the marker while its backend can launch — the same
    function, with the choice as a second argument, as spec 30 describes. The marker keeps meaning "driven
    over the pipe at least once" (E9 is unchanged); the stored choice is what lets a session driven here go
@@ -102,6 +103,9 @@ how it was driven is a field of its own. Only the marker is different.
    knowing: a stored Terminal on a MARKED row with the terminal backend switched off opens in the GUI,
    because the marker then decides. "Can launch" means ready, enabled and installed, the same set for the
    sidebar and the spawn.
+   The sidebar row of such a session keeps the owner's backend badge and shows where it opens (a terminal
+   or a conversation glyph) right after it, and *Use the default view* in the palette clears the choice. While either half cannot
+   launch, the row keeps its badge and no surface offers a view.
 
 **Claude's own `/resume` picker does not list these sessions.** It hides every `sdk-*` entrypoint
 (measured), so a session started here is found in Switchboard, not in the CLI's picker. The terminal

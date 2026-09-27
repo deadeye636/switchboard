@@ -135,6 +135,23 @@ the palette may have been open while the session ended.
 The resolution happens in `listCommandActions()`, not at each reader, so nothing downstream has to know a
 field can be a function: the row builder, the ranker and anything later see the shape they always saw.
 
+## Which view a session opens in (#670)
+
+Two more focus-dependent actions, registered in `dialogs/dialogs.js` beside the Resume dialog's View field,
+because all three read one answer: `sessionViewOf`, which says whether the session belongs to an
+owner/driver pair (a CLI in a terminal and the same CLI driven in the GUI) and which half it opens in.
+
+- **`Open “…” in GUI` / `Open “…” in terminal`** opens the focused session in the other view and stores that
+  choice. Offered only for a DORMANT session: switching a running one is a separate act with a busy gate.
+- **`Use the default view for “…”`** clears a stored choice, so the session opens the automatic way again.
+  Offered only while a choice is stored. It is the one write about views that is not a spawn, so it goes
+  through its own channel (`src/app/session-view.js`), and main pushes `projects-changed` afterwards because
+  the automatic view is derived there.
+
+Both are absent when either half of the pair cannot launch right now (disabled, not ready, known missing),
+and both ask again inside `run`. The group is `View`, not `Session`, for the reason the handoff action
+avoids it: sessions print that word in the same place.
+
 ## What a row does
 
 | Kind | Enter |
@@ -163,6 +180,9 @@ picker configs — scanning only `terminal/` left the fourth picker unguarded.
 and not at registration, that a resolver which throws still leaves the row standing, and that a hidden
 action never pays for a name nobody reads. `test/handoff-command-action.test.js` covers the action itself
 — absent with no session, named with one, and reaching the same flow the health chip opens.
+`test/session-view.test.js` (#670) covers the two view actions against the real `dialogs.js`: offered for a
+dormant session of a pair, absent while it runs or when a half cannot launch, and the reset only while a
+choice is stored.
 
 The keyboard path has no test and cannot have a useful one: `node scripts/drive-app.js` is what proves
 F1 opens it from a focused terminal, that the same key closes it, and that a chord no longer

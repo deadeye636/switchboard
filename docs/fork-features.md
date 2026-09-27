@@ -402,6 +402,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:
   [`specs/32-claude-native.md`](specs/32-claude-native.md).
+- **Terminal or GUI, per session (#670)** — a session of an owner/driver pair (`Claude` / `Claude (native)`,
+  `Pi` / `Pi (native)`) opens where the user last put it, stored per session in `session_meta.opener`.
+  Without a stored choice the old routing applies: the transcript marker while the driver can launch,
+  otherwise the terminal. The sidebar row keeps the owner's backend badge and shows a terminal or a
+  conversation glyph beside it; a hover button, a palette action and the View field of *Resume with config* open a dormant session
+  in the other view and store the choice, and *Use the default view* clears it. When either half cannot
+  launch, none of this is shown and a stored choice waits until it can. Specs:
+  [`specs/32-claude-native.md`](specs/32-claude-native.md), [`specs/23-command-palette.md`](specs/23-command-palette.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says

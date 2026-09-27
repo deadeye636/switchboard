@@ -2314,6 +2314,12 @@ spawn.init({
 });
 spawn.registerIpc(ipcMain);
 
+// Which view a session opens in (#670): taking a stored choice back. Setting one is an open, and the spawn
+// above stores it; the clear is the one write that is not a spawn.
+const sessionView = require('./app/session-view');
+sessionView.init({ getOpener, setOpener, notifyRendererProjectsChanged, log });
+sessionView.registerIpc(ipcMain);
+
 
 // --- IPC: app version ---
 ipcMain.handle('get-app-version', () => app.getVersion());

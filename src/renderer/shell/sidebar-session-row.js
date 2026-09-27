@@ -19,13 +19,24 @@
 // What it reaches back into sidebar.js for: `getSessionRuntimeState`, and nothing else. Everything else
 // it needs comes from app.js's maps (activePtyIds, attentionSessions, responseReadySessions,
 // sessionBusyState, subagentActiveSessions, lastActivityTime), the UMD helpers (getSessionStatus,
-// getSessionHealth, getQuietDetailParts, getWorktreeLabel, ariaButton), `ICONS`, and the backend
-// registry — all at call time, from a render. (The row's click/keyboard activation is delegated to a
+// getSessionHealth, getQuietDetailParts, getWorktreeLabel, ariaButton), `ICONS`, the backend
+// registry, and `sessionViewOf` / `sessionIsDormant` from dialogs/dialogs.js (#670, the view of an
+// owner/driver pair; both rest on `viewPairFor`, which the Resume dialog asks too) — all at call time, from a render. (The row's click/keyboard activation is delegated to a
 // single listener on sidebarContent in sidebar-events.js — #218 opt6 — so this only sets the ARIA state.)
 //
 // (This list said shortSessionLabel/getSessionProjectLabel/folderId until a verifier checked: none of
 // the three is in this file. In a renderer whose only import graph IS these headers, a wrong one is not
 // untidy, it is misinformation — the next reader has nothing else to go on.)
+
+// The two views of an owner/driver pair (#670): a terminal, and a conversation (the GUI). One drawing each, at
+// the row symbol's size and at the action buttons' size, so the symbol and the switch button read as one family.
+const VIEW_ICON_TERMINAL_PATHS = '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 6l2.2 2L4 10M7.5 10.5h4"/>';
+const VIEW_ICON_GUI_PATHS = '<path d="M2.5 3.5h11a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5v-2.5H2.5a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z"/><path d="M4.5 6.5h7M4.5 8.5h4.5"/>';
+const viewIconSvg = (size, paths) => `<svg width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const VIEW_ICON_TERMINAL = viewIconSvg(12, VIEW_ICON_TERMINAL_PATHS);
+const VIEW_ICON_GUI = viewIconSvg(12, VIEW_ICON_GUI_PATHS);
+const VIEW_ICON_TERMINAL_14 = viewIconSvg(14, VIEW_ICON_TERMINAL_PATHS);
+const VIEW_ICON_GUI_14 = viewIconSvg(14, VIEW_ICON_GUI_PATHS);
 
 // opts.noLineageThread — do NOT append this row's own folded-ancestors thread. Set when a row is itself
 // being rendered AS an ancestor inside another head's thread, so the flat chain does not recurse (#193).
@@ -98,8 +109,17 @@ function buildSessionItem(session, opts = {}) {
   // came from the same CLI would be pure noise. It appears in "mixed mode" — ≥2 backends are in play
   // (computeShowAllBadges) — and on any individual row that is not the default, so a session can never be
   // mistaken for one of the default backend's. That second half needs a KNOWN default; see below.
+  //
+  // A session of an owner/driver pair (#670 E3, E21a) says two things: WHICH CLI it belongs to and WHERE it
+  // opens. The badge keeps the first and names the pair's OWNER ("C", not "Cn"), because the driver is not
+  // another CLI but another view of the same one; the view is a terminal or conversation glyph right after
+  // it. Replacing the badge with the glyph (the first cut of E13) made a Claude row and a Pi row look the
+  // same. Both halves come from one field — the effective opener the core stamped on the row — through
+  // `sessionViewOf` in dialogs.js, which the switch button below and the command palette read too. With no
+  // pair, or one half not launchable (E8), it answers null and the row keeps its badge exactly as before.
+  const view = (session.type !== 'terminal' && typeof sessionViewOf === 'function') ? sessionViewOf(session) : null;
   if (session.type !== 'terminal' && window.sessionBackendId) {
-    const backendId = window.sessionBackendId(session);
+    const backendId = view ? view.pair.terminal.id : window.sessionBackendId(session);
     // The badge means "this row is NOT the one you would assume". That claim needs a default to compare
     // against, and `_defaultBackendId` is '' until the registry answers — and stays '' when nothing is
     // launchable at all (#225). With no default there is no assumption to correct, so the claim is not
@@ -119,6 +139,14 @@ function buildSessionItem(session, opts = {}) {
       if (window.backendIconColour) badge.style.background = window.backendIconColour(descriptor?.icon || backendId);
       indicators.appendChild(badge);
     }
+  }
+  if (view) {
+    const symbol = document.createElement('span');
+    symbol.className = 'session-view-symbol ' + (view.inGui ? 'view-gui' : 'view-terminal');
+    symbol.title = view.inGui ? 'Opens in the GUI' : 'Opens in the terminal';
+    symbol.setAttribute('aria-label', symbol.title);
+    setIcon(symbol, view.inGui ? VIEW_ICON_GUI : VIEW_ICON_TERMINAL);
+    indicators.appendChild(symbol);
   }
 
   // Info block
@@ -413,6 +441,19 @@ function buildSessionItem(session, opts = {}) {
     // "Resume with config" sits next to the other session-starting actions; Archive is the odd one out
     // (it removes the row), so it goes last, away from the buttons that launch something.
     actions.appendChild(launchConfigBtn);
+    // Open in the other view (#670, surface 2): offered for a DORMANT session of a pair only. Its icon is
+    // the view it switches TO. It is built for every pair row that is not detached and the CSS hides it while
+    // the row has a process (`.has-running-pty`): a session that exits patches only that class and does not
+    // rebuild its row, and the button has to be there right then, which is when it is wanted most. The click
+    // asks `sessionIsDormant` again, so a stale row can never switch a running session.
+    if (view && !(typeof window.isSessionDetached === 'function' && window.isSessionDetached(session.sessionId))) {
+      const viewSwitchBtn = document.createElement('button');
+      viewSwitchBtn.className = 'session-view-switch-btn';
+      viewSwitchBtn.title = view.inGui ? 'Open in terminal' : 'Open in GUI';
+      viewSwitchBtn.setAttribute('aria-label', viewSwitchBtn.title);
+      setIcon(viewSwitchBtn, view.inGui ? VIEW_ICON_TERMINAL_14 : VIEW_ICON_GUI_14);
+      actions.appendChild(viewSwitchBtn);
+    }
     actions.appendChild(archiveBtn);
   }
 

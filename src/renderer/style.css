@@ -2336,6 +2336,7 @@ body.window-hidden .sidebar-tab *,
 .session-tags-btn,
 .session-timeline-btn,
 .session-handoff-btn,
+.session-view-switch-btn,
 .session-archive-btn {
   cursor: pointer;
   background: none;
@@ -2574,6 +2575,16 @@ body.window-hidden .sidebar-tab *,
   background: rgba(120,130,255,0.1);
 }
 
+/* Open in the other view (#670): the glyph is the view it switches TO. */
+.session-view-switch-btn {
+  color: #7a8aa8;
+}
+
+.session-view-switch-btn:hover {
+  color: #b0c0e8;
+  background: rgba(176,192,232,0.1);
+}
+
 /* Scoped to the row's OWN `.session-row`, like hover/active above: a `.session-item` can contain other
    `.session-item`s (a lineage ancestor, a nested subagent), and a descendant selector handed the head's
    state to every row inside it — an idle ancestor wearing the head's Stop button (#288). */
@@ -2582,6 +2593,13 @@ body.window-hidden .sidebar-tab *,
 }
 
 .session-item.has-running-pty > .session-row .session-launch-config-btn {
+  display: none;
+}
+
+/* Switching a RUNNING session's view is its own act (#670, a later step). The builder puts the button on every
+   pair row that is not detached, and this hides it while the row has a process, so it is already there the
+   moment a session exits (an exit patches this class and does not rebuild the row). */
+.session-item.has-running-pty > .session-row .session-view-switch-btn {
   display: none;
 }
 
@@ -7306,6 +7324,18 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
 .popover-option-gear:hover {
   background: rgba(255,255,255,0.08);
   color: #d0d0e8;
+}
+
+/* Where a session of an owner/driver pair opens (#670, E21a): a terminal or a conversation glyph right after
+   the badge, which names the pair's owner. */
+.session-view-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 14px;
+  color: #9a9ab0;
+  flex-shrink: 0;
 }
 
 /* Sidebar provider badge (T-3.4). Only rendered in mixed mode or for a non-default backend, so a

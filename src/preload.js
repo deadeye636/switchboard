@@ -368,6 +368,9 @@ contextBridge.exposeInMainWorld('api', {
   // Answers `{ ok: true, alreadyGone, pid }` or `{ ok: false, error }` — a pid that had already exited is
   // a success, because it is the state the caller asked for.
   stopLiveOwner: (sessionId) => ipcRenderer.invoke('live-owners:stop', sessionId),
+  // Take back the view the user chose for a session (#670), so it opens the automatic way again. A session
+  // id only. Answers `{ ok: true, cleared }` or `{ ok: false, error }`; main pushes `projects-changed`.
+  resetSessionView: (sessionId) => ipcRenderer.invoke('session-view:reset', sessionId),
   // The same set `getActiveSessions` returns as bare ids, with enough on each to draw a row for it (#461):
   // `{ sessionId, projectPath, backendId, isPlainTerminal, startedAt }`. A session whose backend never
   // recorded it is in no index, so this is the only place a window can learn what it is.

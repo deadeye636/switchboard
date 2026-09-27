@@ -7,6 +7,10 @@
 //   the tag chip editor), window.bookmarksTags.pickColor (bookmarks-tags.js, a tag's default colour),
 //   window._refreshProjectTagFilter (shell/sidebar-filters.js), loadProjects (app.js), showControlMessage
 //   (control-dialogs.js) and settingsOwnerPath (shared/worktree-path.js) — all resolved at call time.
+// The view of an owner/driver pair (#670) — `sessionViewOf`, also read by shell/sidebar-session-row.js —
+//   registers two palette actions at parse time through registerCommandAction (shell/command-actions.js,
+//   loaded earlier), and reaches at call time for focusedActionSession and openSession (app.js),
+//   cleanDisplayName, showControlToast (control-dialogs.js) and window.api.resetSessionView.
 
 // Terminal glyphs, shared by the Terminal group of the launch picker (plain terminal, external
 // terminal, custom command, saved launchers) so the rows read as one family.
@@ -898,7 +902,9 @@ function viewPairFor(session) {
   const ownerId = (session && session.ownerBackendId) || (currentBackend && currentBackend.transcriptsOf) || current;
   const owner = byId[ownerId];
   if (!owner || owner.isProfile || owner.transcriptsOf || !canLaunch(owner)) return null;
-  const gui = Object.values(byId).find(b => b && !b.isProfile && b.transcriptsOf === ownerId && canLaunch(b));
+  // The driver the session is on now, if it is one; otherwise the first launchable one (one per owner today).
+  const isDriver = (b) => b && !b.isProfile && b.transcriptsOf === ownerId && canLaunch(b);
+  const gui = isDriver(byId[current]) ? byId[current] : Object.values(byId).find(isDriver);
   if (!gui) return null;
   return { terminal: owner, gui, current: current === gui.id ? gui.id : owner.id };
 }
@@ -913,6 +919,107 @@ function sessionIsDormant(session) {
   if (typeof openSessions !== 'undefined' && openSessions.has(id) && !openSessions.get(id).closed) return false;
   if (typeof activePtyIds !== 'undefined' && activePtyIds.has(id)) return false;
   return true;
+}
+
+// Which view of its pair a session opens in, and which one is the OTHER (#670) — the one answer the sidebar
+// row's symbol, its switch button and the command palette all read, so the symbol and the offer cannot
+// disagree. Null for a row with no pair to choose from: a plain terminal, a subagent transcript, a template,
+// a backend with no driver, or a pair one of whose halves cannot launch right now (E8). Null means the row
+// shows its ordinary backend badge and nothing about views at all; a stored choice stays stored.
+//
+// `inGui` is read off `viewPairFor`, which reads the effective opener the core stamped on the row
+// (`backendId`) — the renderer compares it with the pair and derives nothing about a backend itself.
+function sessionViewOf(session) {
+  if (!session || session.type === 'terminal' || session.parentSessionId) return null;
+  const pair = viewPairFor(session);
+  if (!pair) return null;
+  const inGui = pair.current === pair.gui.id;
+  return {
+    pair,
+    inGui,
+    otherId: inGui ? pair.terminal.id : pair.gui.id,
+    // The wording is fixed by #670 E9: the pair is Terminal / GUI.
+    otherLabel: inGui ? 'terminal' : 'GUI',
+  };
+}
+
+// Open a DORMANT session in the other view of its pair, and remember that choice (#670 E5 — every explicit
+// choice is stored; main stores it once the spawn succeeded). Asked again here rather than trusted from the
+// caller: the row or the palette may have been drawn while the session was dormant and it has started since.
+// A running session is not switched by this (that is its own act, with a busy gate) — nothing happens.
+function openSessionInOtherView(session) {
+  if (!session || !sessionIsDormant(session)) return false;
+  const view = sessionViewOf(session);
+  if (!view) return false;
+  openSession(session, null, { openerChoice: view.otherId });
+  return true;
+}
+
+// Take back the view the user chose, so the session opens the automatic way again (#670). Main clears it and
+// pushes projects-changed, because the automatic view is derived there (`openerFor`) and cannot be here.
+async function resetSessionView(session) {
+  if (!session || !session.sessionId || !window.api || typeof window.api.resetSessionView !== 'function') return false;
+  let result = null;
+  try { result = await window.api.resetSessionView(session.sessionId); } catch (err) { result = { ok: false, error: err && err.message }; }
+  if (!result || !result.ok) {
+    if (typeof showControlToast === 'function') {
+      showControlToast({ message: (result && result.error) || 'The stored view could not be cleared.' });
+    }
+    return false;
+  }
+  const known = typeof sessionMap !== 'undefined' ? sessionMap.get(session.sessionId) : null;
+  if (known) known.openerStored = false;
+  return true;
+}
+
+// The palette's name for a session, so the row says WHICH one it means (renderer rule, #473).
+function sessionViewSubjectName(session) {
+  if (!session) return '';
+  const raw = session.name || session.aiTitle || session.summary || '';
+  return (typeof cleanDisplayName === 'function' ? cleanDisplayName(raw) : raw) || session.sessionId || '';
+}
+
+// The command palette's half of #670. Both act on the FOCUSED session (`focusedActionSession`, app.js), are
+// absent where they do not apply — no pair, both halves not launchable (E8), not dormant, nothing stored —
+// and ask again inside `run`, because the palette may have been open while the session started or ended.
+if (typeof registerCommandAction === 'function') {
+  registerCommandAction({
+    id: 'session.view.open-other',
+    title: () => {
+      const session = focusedActionSession();
+      const view = sessionViewOf(session);
+      const label = view ? view.otherLabel : 'the other view';
+      const name = sessionViewSubjectName(session);
+      return name ? `Open “${name}” in ${label}` : `Open in ${label}`;
+    },
+    group: 'View',
+    keywords: 'view terminal gui conversation native switch open in',
+    available: () => {
+      const session = focusedActionSession();
+      return !!(session && sessionIsDormant(session) && sessionViewOf(session));
+    },
+    run: () => {
+      const session = focusedActionSession();
+      if (session) openSessionInOtherView(session);
+    },
+  });
+  registerCommandAction({
+    id: 'session.view.reset',
+    title: () => {
+      const name = sessionViewSubjectName(focusedActionSession());
+      return name ? `Use the default view for “${name}”` : 'Use the default view for this session';
+    },
+    group: 'View',
+    keywords: 'view terminal gui default automatic reset forget clear',
+    available: () => {
+      const session = focusedActionSession();
+      return !!(session && session.openerStored && sessionViewOf(session));
+    },
+    run: () => {
+      const session = focusedActionSession();
+      if (session && session.openerStored && sessionViewOf(session)) return resetSessionView(session);
+    },
+  });
 }
 
 async function showGeneratedResumeDialog(session, initialBackend) {

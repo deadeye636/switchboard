@@ -42,7 +42,10 @@ field of its own:
    launch. Switched off, the row goes back to its owner, which runs the same binary over the same file.
 4. `src/index/projects-view.js` puts that answer in the payload's `backendId`, and the spawn path's
    cache fallback asks the same function. The renderer resolves badge, surface and resume from the one
-   field it always read.
+   field it always read. For a row whose owner and a driver of it can both launch, the sidebar keeps the
+   OWNER's badge and draws a terminal or conversation glyph from that field beside it (#670, `sessionViewOf`
+   in `src/renderer/dialogs/dialogs.js`). The badge names the CLI, the glyph the view; replacing the badge
+   made a Claude row and a Pi row look alike.
 
    **A stored choice sits beside the marker (#670), in the same function.** `openerFor(row, storedChoice,
    launchable)` takes the view the user picked for this session (`session_meta.opener`, a backend id) and

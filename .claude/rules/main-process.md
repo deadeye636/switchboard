@@ -149,6 +149,9 @@ about when a session is finished),
 except in how an MCP definition's `${VAR}` expands, against the session's environment at spawn and the app's in the preview.
 It also fills the choices of a `configFields` select that declares `choicesFrom: 'sharedResourceSources'`,
 at the `backends-list` projection, because a backend's own folder cannot name the other backends),
+`session-view.js` (which view a session of an owner/driver pair opens in — #670; the write that is not a
+spawn, taking a stored `session_meta.opener` back, which pushes `projects-changed` because only main can
+re-derive the row's view through `openerFor`. Setting a view is always an open, stored by the spawn),
 `path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
 `readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
 measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it
@@ -495,6 +498,7 @@ line there, in the same commit.
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
 | Which of another backend's skills, commands, agents and MCP servers a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |
+| Which view (terminal or GUI) a session opens in, when that is not a spawn | `src/app/session-view.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;
