@@ -1508,8 +1508,11 @@ async function launchNewSession(project, sessionOptions, seedText) {
   sessionMap.set(sessionId, session);
   // 'started' is recorded by the spawn itself (#396), after the PTY exists — so a launch that fails
   // never claims to have started anything.
+  // The group main already holds for this directory, whichever spelling the launch was handed (#671) — the
+  // same lookup `injectPendingSession` uses, so a typed path, a handoff or a launcher does not open a second
+  // group for a project that is listed.
   for (const projList of [cachedProjects, cachedAllProjects]) {
-    let proj = projList.find(p => p.projectPath === projectPath);
+    let proj = findProjectGroup(projList, projectPath, [cachedAllProjects, cachedProjects]);
     if (!proj) {
       proj = { folder, projectPath, sessions: [] };
       projList.unshift(proj);

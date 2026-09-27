@@ -11,6 +11,17 @@ const path = require('path');
 const vm = require('vm');
 
 const { findProjectGroup } = require('../src/renderer/lib/project-name.js');
+const { stripComments } = require('./helpers/strip-comments');
+
+// Every place the renderer puts a new session into a cached project list asks the one lookup. The click test
+// found a second copy of the raw compare in `launchNewSession` after the first fix — a typed path, a handoff
+// or a launcher went through it — so the guard counts the places rather than trusting one.
+test('no renderer code picks a project group by comparing its path as a raw string', () => {
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8'));
+  assert.doesNotMatch(src, /projList\.find\(\s*p\s*=>\s*p\.projectPath\s*===/,
+    'a group for a new session is found with findProjectGroup (#671)');
+  assert.ok((src.match(/findProjectGroup\(/g) || []).length >= 2, 'injectPendingSession and launchNewSession both ask it');
+});
 
 const SLASHED = '/work/alpha';
 const BACKSLASHED = '\\work\\alpha';
