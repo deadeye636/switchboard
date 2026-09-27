@@ -382,7 +382,13 @@
     }
   }
 
-  async function load() {
+  let loadInFlight = null;
+  function load() {
+    loadInFlight = loadNow();
+    return loadInFlight.finally(() => { loadInFlight = null; });
+  }
+
+  async function loadNow() {
     // Set by the sidebar's "not on your list" notice (#183) right before it switches to this tab.
     // Consumed once: opening the manager again shows everything, as it always did.
     if (window._paUnlistedOnly) {
@@ -403,6 +409,62 @@
       render();
     } catch (err) {
       viewer.innerHTML = `<div class="pa-loading">Error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  // The answer to a `projects-changed` push while the table is on screen (#672). A running session pushes
+  // on transcript writes — every few seconds with several sessions working — and `load()` answered each
+  // one with the "Loading…" placeholder and a full rebuild: the table flashed, scrolled back to the top,
+  // took the caret out of the search box and threw away a half-typed rename. This reads the same answer and morphs only the `<tbody>`, keyed by row
+  // path, so the header, the search box and the scroll position survive and an unchanged row is left
+  // alone. A project that appeared or went away is still a row morphdom adds or removes, which is what
+  // #382 added the reload for. No table on screen yet: a `load()` still out will show the fresh answer by itself, an error
+  // screen gets the ordinary `load()`.
+  let quietInFlight = null;
+  let quietAgain = false;
+  async function refreshQuietly() {
+    // Pushes that land while a read is in flight collapse into one more read after it.
+    if (quietInFlight) { quietAgain = true; return quietInFlight; }
+    quietInFlight = (async () => {
+      do {
+        quietAgain = false;
+        await refreshOnce();
+      } while (quietAgain && getComputedStyle(viewer).display !== 'none');
+    })();
+    try { await quietInFlight; } finally { quietInFlight = null; }
+  }
+
+  async function refreshOnce() {
+    const tbody = viewer.querySelector('.pa-table tbody');
+    if (loadInFlight) return;
+    if (!tbody || typeof morphdom !== 'function') { await load(); return; }
+    let res;
+    try {
+      res = await window.api.getProjectsAdmin();
+    } catch {
+      return; // a background refresh has nobody to tell; the next push or ⟳ tries again
+    }
+    if (!res || res.error) return;
+    data = res.projects || [];
+    const wasAutoAdd = autoAdd;
+    autoAdd = res.autoAdd !== false;
+    trustable = res.trustable || [];
+    metaBackends = res.metaBackends || [];
+    // The table may have been replaced while the read was out (⟳, a rename commit, Escape).
+    const live = viewer.querySelector('.pa-table tbody');
+    if (!live) return;
+    const next = document.createElement('tbody');
+    next.innerHTML = rowsHtml();
+    morphdom(live, next, {
+      childrenOnly: true,
+      getNodeKey: (node) => (node.nodeType === 1 && node.dataset && node.dataset.path) || undefined,
+      // A row whose name is being edited is left as it is, like the sidebar's rename (#229).
+      onBeforeElUpdated: (fromEl, toEl) => !fromEl.querySelector('.pa-rename-input')
+        && !fromEl.isEqualNode(toEl),
+    });
+    if (wasAutoAdd !== autoAdd) {
+      const mode = viewer.querySelector('.pa-mode');
+      if (mode) mode.textContent = autoAdd ? 'Auto-add: on' : 'Manual mode';
     }
   }
 
@@ -760,4 +822,6 @@
 
   // Public entry point, called from the tab handler in app.js.
   window.loadProjectsAdmin = load;
+  // Called from app.js's `projects-changed` handler (#672).
+  window.refreshProjectsAdmin = refreshQuietly;
 })();

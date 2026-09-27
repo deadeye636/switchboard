@@ -2694,6 +2694,7 @@ if (window.api && typeof window.api.onShowWelcomeTour === 'function') {
 
 // Live-reload sidebar when filesystem changes are detected
 let projectsChangedTimer = null;
+let projectsAdminChangedTimer = null;
 let projectsChangedWhileAway = false;
 /**
  * Is one of the app's own surfaces actually on screen in THIS window?
@@ -2715,7 +2716,15 @@ window.api.onProjectsChanged(() => {
   // project added while you were looking at it simply did not appear. In a detached window it is the
   // only thing on screen, so there it was the whole of the staleness — but the main window was stale
   // too, for as long as the table was the tab you were on.
-  if (viewSurfaceOnScreen('projects-viewer') && typeof loadProjectsAdmin === 'function') loadProjectsAdmin();
+  // A working session pushes on every transcript write, so this is debounced too and refreshes in
+  // place rather than reloading (#672) — a full reload per push made the table unusable while it worked.
+  if (projectsAdminChangedTimer) clearTimeout(projectsAdminChangedTimer);
+  projectsAdminChangedTimer = setTimeout(() => {
+    projectsAdminChangedTimer = null;
+    if (viewSurfaceOnScreen('projects-viewer') && typeof refreshProjectsAdmin === 'function') {
+      refreshProjectsAdmin().catch(err => console.warn('[projects-admin] refresh failed:', err));
+    }
+  }, 500);
   if (activeTab !== 'sessions') {
     projectsChangedWhileAway = true;
     return;
