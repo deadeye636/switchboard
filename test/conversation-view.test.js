@@ -349,6 +349,24 @@ test('a questions card answers every question at once, with several choices and 
   assert.equal(h.entry.element.querySelector('.conversation-questions'), null);
 });
 
+// #674: the lasting allow names what it allows, its tooltip says where it lands, and it sits before Refuse.
+test('an approval\'s project button names the rule, carries its note, and answers with its value', async () => {
+  const h = setup();
+  const sent = [];
+  h.w.api.agent.answer = (id, rid, payload) => { sent.push(payload); return Promise.resolve({ ok: true }); };
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'p1', kind: 'approval', tool: 'Bash',
+    answers: { once: 'A', session: 'S', project: 'P', refuse: 'R' }, sessionLabel: 'Allow all edits for this session',
+    projectLabel: 'Always allow “mkdir -p x” in this project', projectNote: 'Written to .claude/settings.local.json.' } });
+  const buttons = [...h.entry.element.querySelectorAll('.conversation-approval button')];
+  assert.deepEqual(buttons.map(b => b.textContent),
+    ['Allow once', 'Allow all edits for this session', 'Always allow “mkdir -p x” in this project', 'Refuse']);
+  const project = buttons[2];
+  assert.equal(project.title, 'Written to .claude/settings.local.json.');
+  project.click();
+  await h.settle();
+  assert.equal(sent[0].value, 'P');
+});
+
 test('an approval\'s session button says what it allows, and a refused answer re-checks the questions card', async () => {
   const h = setup();
   h.w.api.agent.answer = () => Promise.resolve({ ok: false, error: 'gone' });

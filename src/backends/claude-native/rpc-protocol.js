@@ -41,7 +41,9 @@
 //   9. Three kinds of approval (#661), all `can_use_tool`:
 //      - An ordinary tool may carry `permission_suggestions` — only when no rule of the user's matched
 //        (measured: a Bash call under an `ask` rule carried none, a Write carried `setMode acceptEdits` for
-//        the session). Handed back as `updatedPermissions`, the CLI applies them.
+//        the session, `mkdir` carried an allow rule for `localSettings` beside two for the session). Handed
+//        back as `updatedPermissions`, the CLI applies them — a `localSettings` rule by writing it into the
+//        project's `.claude/settings.local.json` itself (#674, measured).
 //      - `AskUserQuestion` is a question, not a permission. Its answer is an allow whose `updatedInput`
 //        carries `answers: { <question>: <text> }`; a multi-select answer is the labels joined with ", ",
 //        and any text is taken as a free answer (both measured).
@@ -54,9 +56,13 @@
 const { textOf, argsFromText, oneLineDescription, NOTICES } = require('../rpc-shared');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
-// session (point 9); a suggestion that would write the user's settings files is not offered (#661 E17).
+// session (point 9). "In this project" only where it suggested an allow rule for the project's LOCAL settings
+// (#674, which narrowed #661 E17): Claude writes that rule into `.claude/settings.local.json` itself, and a
+// suggestion for the shared project settings or the user's settings is still not offered — one click must not
+// change the rules for a whole team or for every project on the machine.
 const ALLOW = 'allow';
 const ALLOW_SESSION = 'allow-session';
+const ALLOW_PROJECT = 'allow-project';
 const REFUSE = 'deny';
 
 // The two answers of a plan (point 9). No "approve and accept edits": measured working, left out by the
@@ -96,6 +102,38 @@ function questionsOf(input) {
 // One naming a settings file would outlive the session and write a file of the user's (#661 E17).
 function sessionPermissions(suggestions) {
   return (Array.isArray(suggestions) ? suggestions : []).filter(s => s && typeof s === 'object' && s.destination === 'session');
+}
+
+// The suggestions "in this project" hands back (#674): allow rules for the project's local settings, nothing
+// else. Measured on 2.1.283: handed back as `updatedPermissions`, Claude wrote `Bash(mkdir -p <dir>)` into
+// `.claude/settings.local.json`, and a new session ran that command without asking while a different one
+// still asked.
+function projectPermissions(suggestions) {
+  return (Array.isArray(suggestions) ? suggestions : []).filter(s => s && typeof s === 'object'
+    && s.destination === 'localSettings' && s.type === 'addRules' && s.behavior === 'allow'
+    && Array.isArray(s.rules) && s.rules.length);
+}
+
+// The button names what it allows, because the rule outlasts the session: the command for a rule with
+// content, the tool for a rule without.
+const rulesOf = (permissions) => permissions.flatMap(p => p.rules).filter(r => r && typeof r.toolName === 'string' && r.toolName);
+// A rule as Claude spells it in its settings: `Tool(content)`, or the bare tool for a rule without content.
+const ruleText = (r) => (typeof r.ruleContent === 'string' && r.ruleContent ? `${r.toolName}(${r.ruleContent})` : r.toolName);
+function projectLabel(permissions) {
+  const rules = rulesOf(permissions);
+  if (rules.length !== 1) return 'Always allow these in this project';
+  const r = rules[0];
+  // A rule without content allows every call of the tool, and the button says so.
+  if (!(typeof r.ruleContent === 'string' && r.ruleContent)) return `Always allow every ${r.toolName} call in this project`;
+  // A Bash rule reads best as the command alone; any other tool's content (a domain, a path glob) says nothing
+  // without the tool, so it is shown the way the settings file spells it.
+  const what = r.toolName === 'Bash' ? r.ruleContent : ruleText(r);
+  return `Always allow “${what.length > 60 ? what.slice(0, 57) + '…' : what}” in this project`;
+}
+// Where the rule lands and how it is taken back — the app does not show it again once it is written. The full
+// rule leads, because the label may have cut a long command short.
+function projectNote(permissions) {
+  return `Rule: ${rulesOf(permissions).map(ruleText).join(', ')}. Claude Code writes it into .claude/settings.local.json in the project. Remove it there, or with /permissions in Claude.`;
 }
 
 // What "for this session" actually allows, in the button's own words. A mode switch reaches every later call,
@@ -281,6 +319,11 @@ function createDecoder() {
       return [{ op: 'ask', request: { ...base, kind: 'plan', plan: input.plan, answers: { approve: APPROVE_PLAN, keep: KEEP_PLANNING } } }];
     }
     const permissions = sessionPermissions(r.permission_suggestions);
+    const project = projectPermissions(r.permission_suggestions);
+    const answers = { once: ALLOW };
+    if (permissions.length) answers.session = ALLOW_SESSION;
+    if (project.length) answers.project = ALLOW_PROJECT;
+    answers.refuse = REFUSE;
     return [{
       op: 'ask',
       request: {
@@ -288,12 +331,13 @@ function createDecoder() {
         kind: 'approval',
         // Claude's own words about the call, where it gave some (a Bash call's description).
         message: typeof r.description === 'string' ? r.description : '',
-        answers: permissions.length ? { once: ALLOW, session: ALLOW_SESSION, refuse: REFUSE } : { once: ALLOW, refuse: REFUSE },
+        answers,
         // What this question is worth, for the card: Claude asks it under its own permission rules, the same
         // question its terminal would put, and a tool its rules allow never reaches this card.
         note: 'Claude Code asks this under its own permission rules, as it would in a terminal.',
         permissions,
         ...(permissions.length ? { sessionLabel: sessionLabel(permissions) } : {}),
+        ...(project.length ? { projectPermissions: project, projectLabel: projectLabel(project), projectNote: projectNote(project) } : {}),
       },
     }];
   }
@@ -422,6 +466,12 @@ function answerCommand(requestId, answer = {}, ask = null) {
   if (!answer.cancelled && answer.value === ALLOW_SESSION && ask && Array.isArray(ask.permissions) && ask.permissions.length) {
     return reply({ behavior: 'allow', updatedInput: input, updatedPermissions: ask.permissions });
   }
+  // "In this project" hands back only the local-settings allow rules the card offered, re-filtered here so an
+  // ask that somehow carries more can never write a shared or user settings file (#674).
+  const project = ask ? projectPermissions(ask.projectPermissions) : [];
+  if (!answer.cancelled && answer.value === ALLOW_PROJECT && project.length) {
+    return reply({ behavior: 'allow', updatedInput: input, updatedPermissions: project });
+  }
   return !answer.cancelled && answer.value === ALLOW
     ? reply({ behavior: 'allow', updatedInput: input })
     : reply({ behavior: 'deny', message: REFUSED_MESSAGE });
@@ -469,6 +519,7 @@ module.exports = {
   IMAGE_INPUT,
   ALLOW,
   ALLOW_SESSION,
+  ALLOW_PROJECT,
   REFUSE,
   APPROVE_PLAN,
   KEEP_PLANNING,

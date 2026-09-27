@@ -389,7 +389,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   print mode with stream-json on both sides, the protocol the Claude Agent SDK wraps, and draws the
   conversation in the same view as `Pi (native)`. Tool approvals are Claude's own permission prompt,
   answered on a card: allow once, refuse, and "for this session" where Claude suggests something for the
-  session, worded as what it allows. `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
+  session, worded as what it allows, and "always allow in this project" where Claude suggests a rule for the
+  project's local settings, which Claude then writes itself (#674). `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
   plan card. A text field sends, queues and steers turns, and Stop interrupts the turn without ending the
   process. An image pasted or dropped into the conversation goes out with the next turn (#662); `/`
   completes Claude's commands and skills, and `/clear` moves the tab to the new session. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and

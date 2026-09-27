@@ -150,16 +150,57 @@ test('"allow for this session" is offered only for what the CLI suggested for th
     { type: 'addRules', rules: [{ toolName: 'Write' }], behavior: 'allow', destination: 'localSettings' },
   ];
   const [ask] = decodeAll([{ type: 'control_request', request_id: 'w1', request: { subtype: 'can_use_tool', tool_name: 'Write', tool_use_id: 't2', input: { file_path: 'b.txt', content: 'hi' }, permission_suggestions: suggestions } }]);
-  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'session', 'refuse']);
+  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'session', 'project', 'refuse']);
   assert.equal(ask.request.sessionLabel, 'Allow all edits for this session', 'the button says a mode switch reaches every later edit');
   const r = protocol.answerCommand('w1', { value: ask.request.answers.session }, ask.request).response.response;
   assert.equal(r.behavior, 'allow');
   assert.deepEqual(r.updatedInput, { file_path: 'b.txt', content: 'hi' });
-  assert.deepEqual(r.updatedPermissions, [suggestions[0]], 'a suggestion that writes a settings file is not taken (#661 E17)');
+  assert.deepEqual(r.updatedPermissions, [suggestions[0]], '"for this session" hands back only what is for the session');
 
   const [onlyFile] = decodeAll([{ type: 'control_request', request_id: 'w2', request: { subtype: 'can_use_tool', tool_name: 'Write', input: {}, permission_suggestions: [suggestions[1]] } }]);
-  assert.deepEqual(Object.keys(onlyFile.request.answers), ['once', 'refuse'], 'nothing for the session, no session button');
+  assert.deepEqual(Object.keys(onlyFile.request.answers), ['once', 'project', 'refuse'], 'nothing for the session, no session button');
   assert.equal(protocol.answerCommand('w2', { value: protocol.ALLOW_SESSION }, onlyFile.request).response.response.updatedPermissions, undefined);
+});
+
+// #674: the lasting allow Claude's own terminal offers — the project's LOCAL settings only.
+test('"in this project" hands back only the local-settings allow rule, and names the command', () => {
+  const measured = [   // the suggestions a `mkdir` carried, measured on 2.1.283
+    { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'mkdir -p m7dir' }], behavior: 'allow', destination: 'localSettings' },
+    { type: 'addDirectories', directories: ['/work'], destination: 'session' },
+    { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+  ];
+  const [ask] = decodeAll([{ type: 'control_request', request_id: 'b1', request: { subtype: 'can_use_tool', tool_name: 'Bash', tool_use_id: 't9', input: { command: 'mkdir -p m7dir' }, permission_suggestions: measured } }]);
+  assert.deepEqual(Object.keys(ask.request.answers), ['once', 'session', 'project', 'refuse']);
+  assert.equal(ask.request.projectLabel, 'Always allow “mkdir -p m7dir” in this project');
+  assert.match(ask.request.projectNote, /settings\.local\.json/, 'the tooltip says where the rule lands and how it is taken back');
+  assert.match(ask.request.projectNote, /^Rule: Bash\(mkdir -p m7dir\)\./, 'and leads with the full rule, which the label may cut short');
+  const label = (rules) => decodeAll([{ type: 'control_request', request_id: 'l', request: { subtype: 'can_use_tool', tool_name: 'X', input: {},
+    permission_suggestions: [{ type: 'addRules', rules, behavior: 'allow', destination: 'localSettings' }] } }])[0].request.projectLabel;
+  assert.equal(label([{ toolName: 'WebFetch', ruleContent: 'domain:example.com' }]), 'Always allow “WebFetch(domain:example.com)” in this project',
+    'another tool\'s content is shown with its tool');
+  assert.equal(label([{ toolName: 'Bash' }]), 'Always allow every Bash call in this project', 'a rule without content says it allows every call');
+  assert.match(label([{ toolName: 'Bash', ruleContent: 'x'.repeat(100) }]), /…” in this project$/, 'a long command is cut in the label');
+  const r = protocol.answerCommand('b1', { value: protocol.ALLOW_PROJECT }, ask.request).response.response;
+  assert.equal(r.behavior, 'allow');
+  assert.deepEqual(r.updatedInput, { command: 'mkdir -p m7dir' });
+  assert.deepEqual(r.updatedPermissions, [measured[0]], 'only the project rule, not the session ones');
+
+  // A rule for the shared project settings or the user's settings is not offered, and a crafted ask carrying
+  // one cannot hand it back either.
+  const wide = [
+    { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'rm -rf x' }], behavior: 'allow', destination: 'projectSettings' },
+    { type: 'addRules', rules: [{ toolName: 'Bash' }], behavior: 'allow', destination: 'userSettings' },
+    { type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'curl' }], behavior: 'deny', destination: 'localSettings' },
+  ];
+  const [none] = decodeAll([{ type: 'control_request', request_id: 'b2', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'x' }, permission_suggestions: wide } }]);
+  assert.deepEqual(Object.keys(none.request.answers), ['once', 'refuse']);
+  const crafted = { ...none.request, projectPermissions: wide };
+  const c = protocol.answerCommand('b2', { value: protocol.ALLOW_PROJECT }, crafted).response.response;
+  assert.equal(c.behavior, 'deny', 'no local allow rule to hand back: the answer is not an allow');
+  assert.equal(c.updatedPermissions, undefined);
+
+  // A dismissed card never writes a rule.
+  assert.equal(protocol.answerCommand('b1', { cancelled: true, value: protocol.ALLOW_PROJECT }, ask.request).response.response.behavior, 'deny');
 });
 
 test('AskUserQuestion is a question card, and its answers go back in updatedInput', () => {

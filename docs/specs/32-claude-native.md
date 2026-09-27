@@ -40,8 +40,9 @@ in step.
 | E12 | A driver's store is read while the driver is on, even with its owner switched off. | Without it a new session never reached the sidebar with the owner off (#658). |
 | E14 | A stop waits only where the CLI needs time to finish its transcript. | Measured: a child killed the moment its `result` arrived had already written the turn's last line, so claude-native declares no `gracefulStopMs`. |
 | E16 | Approving a plan is a plain allow. No "approve and accept edits". | `ExitPlanMode` carries no permission suggestion, so there is no mode to take over. An app-built one was measured working and left out by the owner (#661). |
-| E17 | "For this session" hands back only suggestions whose destination is the session. | A suggestion naming a settings file would outlive the session and write a file of the user's (#661). |
+| E17 | "For this session" hands back only suggestions whose destination is the session. | A suggestion naming a settings file would outlive the session and write a file of the user's (#661). **Narrowed by E19 (#674):** the project's local settings are offered behind a button of their own. |
 | E18 | No special order for `default_to_no`. | No request in any measurement carried the field (#661). |
+| E19 | **A lasting allow for the project is offered after all** (#674, route A; narrows E17): the card hands back Claude's own `localSettings` allow rule, and Claude writes it into `.claude/settings.local.json`. Suggestions for the shared project settings and the user's settings stay unoffered. | The same one-click choice Claude's terminal offers, without the app writing a file of the CLI's (CLAUDE.md rule 11). The price: a click on a card changes a file in the project that outlives the session, and the app does not show the rule afterwards. |
 
 E8 and E13 are pi-native's half of the trust gate and are recorded in spec 30 (its E5). E15 is not
 recorded on any issue and is left out here.
@@ -205,10 +206,24 @@ Three kinds of question arrive, all as `can_use_tool`:
   itself. `mkdir -p <dir>` asked, with three suggestions: an `addRules` allow for that exact command with
   destination `localSettings` (Claude's "don't ask again for this command in this project"), an
   `addDirectories` for the working directory and a `setMode acceptEdits`, both for the session. The card
-  offers the two session ones behind "Allow all edits for this session" and drops the settings-file rule
-  (E17). A Bash call under an `ask` rule of the user's carries no suggestion at all, so the card then offers
-  only Allow once and Refuse — the demo home carried `ask: ["Bash"]` from the #661 measurements, which is
-  why every Bash call there asks with no session button.
+  offers the two session ones behind "Allow all edits for this session" and the rule behind "Always allow
+  “mkdir -p <dir>” in this project" (E19). A Bash call under an `ask` rule of the user's carries no
+  suggestion at all, so the card then offers only Allow once and Refuse — the demo home carried
+  `ask: ["Bash"]` from the #661 measurements, which is why every Bash call there asked with no session
+  button until the rule was removed.
+
+  **"In this project" (#674).** Offered only where Claude suggested an `addRules` allow for `localSettings`;
+  the answer hands back exactly those rules as `updatedPermissions`, and `answerCommand` filters them again,
+  so an ask that somehow carried more can never reach another settings file. **Claude writes the rule
+  itself** (measured on 2.1.283): `Bash(mkdir -p m8dir)` appeared under `permissions.allow` in the project's
+  `.claude/settings.local.json`, the next identical call in that session asked nothing, and a new session ran
+  it without a question while a different command still asked. The app writes no file and learns no settings
+  format. The button names what it allows — the command for Bash, `Tool(content)` for any other tool, and
+  "every <Tool> call" for a rule without content — cut at 60 characters; its tooltip leads with the full rule
+  as the settings file spells it, then says where it lands and that it is taken back there or with Claude's
+  `/permissions` — the app does not show the rule again once it is written. Rules for
+  `projectSettings` (usually committed, so the whole team's) and `userSettings` (every project on the
+  machine) are still not offered.
 - **`AskUserQuestion`** is a question, not a permission. The card draws its questions with their options,
   checkboxes where several may be picked, and a free answer. The answer is an allow whose `updatedInput`
   carries `answers`. Several choices are joined with ", ", and a free answer is taken as written (both

@@ -635,12 +635,17 @@ function createConversationView(getSession, container) {
     // "For this session" says what it allows when the backend can say it (a mode switch reaches every later
     // call, not only this one); the plain words otherwise.
     const sessionText = typeof request.sessionLabel === 'string' && request.sessionLabel ? request.sessionLabel : 'Allow for this session';
-    for (const [key, label, primary] of [['once', 'Allow once', true], ['session', sessionText], ['refuse', 'Refuse']]) {
+    // A lasting allow (#674) names what it allows, and its tooltip says where the rule lands and how it is
+    // taken back — both the backend's words, since the rule is the CLI's.
+    const projectText = typeof request.projectLabel === 'string' && request.projectLabel ? request.projectLabel : 'Always allow in this project';
+    const titles = { project: typeof request.projectNote === 'string' ? request.projectNote : '' };
+    for (const [key, label, primary] of [['once', 'Allow once', true], ['session', sessionText], ['project', projectText], ['refuse', 'Refuse']]) {
       if (!answers[key]) continue;
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'new-session-secondary-btn' + (primary ? ' conversation-ask-primary' : '');
       b.textContent = label;
+      if (titles[key]) b.title = titles[key];
       b.addEventListener('click', () => answer(answers[key]));
       actions.appendChild(b);
     }
