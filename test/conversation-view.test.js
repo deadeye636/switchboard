@@ -34,6 +34,9 @@ function setup({ attachAnswer, imageInput } = {}) {
     var terminalsEl = document.getElementById('terminals');
     var lastActivityTime = new Map();
     var isMac = false;
+    // The attention caption's one write path (terminal/terminal-attention-notice.js), recorded (#666).
+    var captionCleared = [];
+    function clearTerminalAttentionNotice(id) { captionCleared.push(id); }
     function buildToolResultMap() { return new Map(); }
     function renderJsonlEntry(entry) {
       const d = document.createElement('div');
@@ -568,4 +571,74 @@ test('a reset drops earlier notices and keeps an open question below the convers
   const ask = kids.findIndex(el => el.classList.contains('conversation-ask'));
   assert.ok(ask > 1, 'the open question is below the conversation');
   assert.ok(text.some(t => t.includes('about the reset')), 'a notice after the reset is drawn');
+});
+
+// #666 — a session with no terminal takes its attention caption down where the user acts in the view, the
+// way a keystroke does through `sendSessionInput`, and keeps it while a question is still open.
+const cleared = (h) => vm.runInContext('captionCleared.length', h.w);
+
+test('the last open question closing takes the attention caption down; one still open keeps it', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'ask', seq: 1, request: { id: 'a1', kind: 'approval', tool: 'bash', answers: { once: 'A', refuse: 'R' } } });
+  conv.apply({ op: 'ask', seq: 2, request: { id: 'u1', kind: 'questions', questions: [{ question: 'Q?', header: '', multiSelect: false, options: [{ label: 'x', description: '' }] }] } });
+  conv.apply({ op: 'answered', id: 'a1', seq: 3 });
+  assert.equal(cleared(h), 0, 'the questions card is still open, so the caption is still true');
+  conv.apply({ op: 'answered', id: 'u1', seq: 4 });
+  assert.equal(cleared(h), 1);
+  assert.equal(vm.runInContext('captionCleared[0]', h.w), 's1', 'for this session');
+});
+
+test('a turn sent takes the caption down; a failed send and a send beside an open question do not', async () => {
+  const h = setup();
+  h.input.value = 'nope';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: false, error: 'The session is not running.' });
+  await h.settle();
+  assert.equal(cleared(h), 0, 'nothing reached the session');
+  h.input.value = 'go on';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(cleared(h), 1);
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'p1', kind: 'plan', plan: 'x', answers: { approve: 'OK', keep: 'KEEP' } } });
+  h.input.value = 'and this';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(cleared(h), 1, 'the plan still waits on the user');
+});
+
+test('Stop takes the caption down, and with an approval open it waits for that approval to be dropped', async () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'busy', busy: true, seq: 1 });
+  h.key({ key: 'Escape' });
+  await h.settle();
+  assert.equal(cleared(h), 1, 'a Stop with nothing open is the user acting');
+  conv.apply({ op: 'ask', seq: 2, request: { id: 'a1', kind: 'approval', tool: 'bash', answers: { once: 'A', refuse: 'R' } } });
+  h.key({ key: 'Escape' });
+  await h.settle();
+  assert.equal(h.calls.abort, 2);
+  assert.equal(cleared(h), 1, 'the approval is still on screen');
+  // What main sends when the stopped run settles and takes its questions with it.
+  conv.apply({ op: 'answered', id: 'a1', seq: 3 });
+  assert.equal(cleared(h), 2);
+});
+
+test('a questions or a plan card holds its call: the activity line waits, it does not say running', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const activity = () => h.entry.element.querySelector('.conversation-activity').textContent;
+  conv.apply({ op: 'busy', busy: true, seq: 1 });
+  conv.apply({ op: 'tool', id: 't1', status: 'running', output: '', seq: 2 });
+  assert.match(activity(), /Running/);
+  conv.apply({ op: 'ask', seq: 3, request: { id: 'u1', kind: 'questions', toolCallId: 't1', questions: [{ question: 'Q?', header: '', multiSelect: false, options: [{ label: 'x', description: '' }] }] } });
+  assert.match(activity(), /Waiting for your answer/);
+  assert.doesNotMatch(activity(), /Running/);
+  conv.apply({ op: 'answered', id: 'u1', seq: 4 });
+  assert.match(activity(), /Running/, 'answered, the call runs on');
+  conv.apply({ op: 'tool', id: 't2', status: 'running', output: '', seq: 5 });
+  conv.apply({ op: 'ask', seq: 6, request: { id: 'p1', kind: 'plan', toolCallId: 't2', plan: 'x', answers: { approve: 'OK', keep: 'KEEP' } } });
+  assert.match(activity(), /Waiting for you to review the plan/);
 });

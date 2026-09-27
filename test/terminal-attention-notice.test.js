@@ -497,6 +497,7 @@ const WIRED = [
   ['src/renderer/shell/session-ipc.js', 'clearTerminalAttentionNotice', 'a dead pty is asking nothing — the sentence goes with the process'],
   ['src/renderer/shell/session-ipc.js', 'rekeyTerminalAttentionNotice', 'a fork moves the caption with the entry'],
   ['src/renderer/app.js', 'clearTerminalAttentionNotice', 'a dismissal is the user answering “gone”'],
+  ['src/renderer/session/conversation-view.js', 'clearTerminalAttentionNotice', 'a session with no terminal is answered, sent to and stopped over window.api.agent.*, which never passes the input seam (#666)'],
 ];
 
 test('every caller the notice depends on is still there', () => {

@@ -211,6 +211,12 @@ A request the CLI withdraws (`control_cancel_request`) closes its card and is no
 flow, the registry of open questions and the cards are the shared ones; the two kinds `questions` and
 `plan` are neutral vocabulary, and the renderer names no Claude tool.
 
+Every card that holds a tool call marks it, so while a card is open the activity line says the call is
+waiting on the user ("Waiting for your answer", "Waiting for you to review the plan") and not that it runs.
+Before #666 only the approval card did this. When the last open card closes, and when a turn is sent or a
+Stop is taken, the view takes down the attention caption the way a keystroke does in a terminal (spec 05,
+#666).
+
 ## Slash commands
 
 Claude's local commands work over the pipe: `/cost`, `/context`, `/model` and `/compact` answer, and `/clear`
@@ -338,9 +344,6 @@ options are not offered yet. Every key, its default and what it means: `docs/set
 - **With the terminal Claude backend off and claude-native on**, nothing shows project meta, usage or live
   owners. Each is answered once, by the terminal backend, which reads the same files (see the capability
   notes in `src/backends/claude-native/index.js`).
-- **The attention caption stays after a question is answered** in the view. Shared with pi-native: #666.
-- **While a question or plan card is open, the activity line can still say the turn is running.** Those two
-  cards do not mark the view as waiting the way an approval card does.
 - **Restoring a tab** can show the session as not running while it runs (#668), or resume the session from
   before a `/clear` (#669). After `/clear` the tab header can show the folder name instead of the project's
   display name (#667).

@@ -238,3 +238,30 @@ So `src/app/hooks.js` drops the hook's attention delivery for a session whose ac
 `transport` — no `attention-signal`, no turn-hold, no timeline echo — and keeps its transcript refresh, so a
 rename still shows the moment the turn ends. The key is how the session is driven, never which backend
 drives it. A terminal session is untouched.
+
+## The caption on a session with no terminal (#666)
+
+The attention caption (#615, `src/renderer/terminal/terminal-attention-notice.js`) is painted on the
+session's `.terminal-container`, and a session driven over a pipe has one too: its conversation view sits in
+a container of that class. In a terminal the caption comes down on the first write into the session, because
+every writer passes `sendSessionInput`. The conversation view does not write there. Its turns, its Stop and
+its answers go to main over `window.api.agent.*`, so the caption stayed until something unrelated cleared it.
+
+The view now clears it itself (`settleAttentionCaption` in `src/renderer/session/conversation-view.js`), at
+the places the user acts:
+
+- a turn that main accepted (a refused send reached nothing, and the caption stays);
+- a Stop that main accepted;
+- an `answered` op that closes the last open question. That covers an answer, a dismissal, an allow and a
+  refusal, and also a question the runtime closed by itself or a stopped run dropped.
+
+While any question is still open in the view, the caption stays. That is the one difference from a terminal.
+A terminal cannot tell whether the question is still on its screen, so any keystroke clears it. The view
+holds the open questions, so a Stop with an approval open clears the caption only when the settled run drops
+that approval. The key is the surface: only a session whose backend declares `transport` gets this view, and
+the view names no backend.
+
+This does not touch the attention inbox or the "Needs You" status. Those live in `attentionSessions`, which
+is set only for a session the user is not looking at and is settled by focusing it or dismissing the row
+(`clearNotifications`, `dismissAttentionItem` in `app.js`), never by input. That holds for a terminal session
+too.

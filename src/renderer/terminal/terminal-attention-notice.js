@@ -55,6 +55,12 @@
 // #614's decision and not this feature's, is also the one that keeps the caption standing over it. If
 // that delivery ever moves onto the seam, this becomes a real question and not a bookkeeping note.
 //
+// A SESSION WITH NO TERMINAL (#568) has the same caption on its `.terminal-container` and no seam to take it
+// down: its turns, its Stop and its answers go to main over `window.api.agent.*`. So its view clears it
+// itself (`session/conversation-view.js`, `settleAttentionCaption`) at the three places the user acts — a
+// turn sent, a Stop taken, the last open question closed — and keeps it while a question is still open,
+// which the view can tell and a terminal cannot (#666).
+//
 // WHY IT IS ITS OWN STATE, and not a read of `attentionSessions`: focusing a session settles the inbox
 // (`clearNotifications` → `settleAttentionState` in app.js), so by the time the user is looking at the
 // terminal the session is no longer flagged. A caption that read the flag would be gone exactly when it is
@@ -81,6 +87,9 @@
 //   shell/session-ipc.js, onProcessExited              clearTerminalAttentionNotice the pty is gone
 //   shell/session-ipc.js, rekeySessionState            rekeyTerminalAttentionNotice a fork
 //   app.js, dismissAttentionItem                       clearTerminalAttentionNotice the user said "gone"
+//   session/conversation-view.js, settleAttentionCaption clearTerminalAttentionNotice a view with no terminal
+//                                                      answered, sent or stopped (#666) — its input never
+//                                                      passes sendSessionInput
 // The test enforces that list in BOTH directions — every call is there, and the names appear nowhere
 // else under `src/renderer/**` — so "and nothing else does" is checked rather than asserted.
 

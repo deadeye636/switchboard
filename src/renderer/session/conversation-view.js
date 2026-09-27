@@ -25,7 +25,8 @@
 // buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
-// read when a view is built), and showBranchTreeDialog (session/branch-tree-dialog.js, #646).
+// read when a view is built), showBranchTreeDialog (session/branch-tree-dialog.js, #646), and
+// clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666).
 
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
@@ -129,7 +130,7 @@ function createConversationView(getSession, container) {
     partial: null,
     tools: new Map(),        // tool call id -> { status, output }
     asks: new Map(),         // request id -> card element
-    approvals: new Map(),    // tool call id -> request id, while an approval for that call is open
+    approvals: new Map(),    // tool call id -> { id, kind } of the card holding that call, while it is open
     busy: false,
     queue: { steering: [], followUp: [] },
     // Shell lines still running: the runtime's id -> { index, command }. See `localCommand`.
@@ -253,10 +254,14 @@ function createConversationView(getSession, container) {
       const row = document.createElement('div');
       row.className = 'jsonl-entry jsonl-meta-entry conversation-tool-running';
       const head = document.createElement('div');
-      // A call held by an approval question is not running yet, whatever the protocol says (spec 30).
-      head.textContent = view.approvals.has(id)
-        ? `Waiting for your approval to run ${conversationToolName(view, id)}`
-        : `Running ${conversationToolName(view, id)}…`;
+      // A call held by a card is not running yet, whatever the protocol says (spec 30). An approval holds
+      // the call it is about; a questions or plan card IS the call, waiting on the user's reply (#666).
+      const held = view.approvals.get(id);
+      head.textContent = !held
+        ? `Running ${conversationToolName(view, id)}…`
+        : held.kind === 'questions' ? 'Waiting for your answer'
+          : held.kind === 'plan' ? 'Waiting for you to review the plan'
+            : `Waiting for your approval to run ${conversationToolName(view, id)}`;
       row.appendChild(head);
       const lines = String(t.output || '').split('\n');
       const tail = lines.slice(-CONVERSATION_TOOL_TAIL_LINES).join('\n').trim();
@@ -301,6 +306,7 @@ function createConversationView(getSession, container) {
         view.attachments = view.attachments.filter(a => !attached.includes(a));
         renderAttachments();
       }
+      settleAttentionCaption();
     } else {
       notice('error', (res && res.error) || 'The message did not reach the session.');
     }
@@ -320,6 +326,22 @@ function createConversationView(getSession, container) {
     let res;
     try { res = await window.api.agent.abort(view.session.sessionId); } catch { res = null; }
     if (!res || !res.ok) notice('error', (res && res.error) || 'The session did not stop.');
+    else settleAttentionCaption();
+  }
+
+  // The attention caption (#615, terminal/terminal-attention-notice.js) goes on the first write into a
+  // terminal, through `sendSessionInput`. Nothing here passes that seam — a turn, a Stop and an answer go to
+  // main over `window.api.agent.*` — so without this the caption sat over the view until something
+  // unrelated took it down (#666). The view does what the keystroke does, at the three places the user
+  // acts: a turn sent, a Stop taken, and a question no longer open (`answered`, whoever closed it).
+  //
+  // One difference from a terminal, and it is the view knowing more: a terminal cannot tell whether the
+  // question is still on its screen, so any keystroke clears. The view holds every open question, so while
+  // one still is — a second card, or a Stop whose drop has not arrived yet — the caption stays, and the
+  // `answered` that closes the last card takes it down.
+  function settleAttentionCaption() {
+    if (view.asks.size || typeof clearTerminalAttentionNotice !== 'function') return;
+    try { clearTerminalAttentionNotice(view.session.sessionId); } catch { /* never worth an answer */ }
   }
 
   function renderComposer() {
@@ -555,6 +577,13 @@ function createConversationView(getSession, container) {
     return null;
   }
 
+  // A card that holds a tool call marks it, so the activity line says the call waits on the user rather than
+  // that it runs. The approval card did this from the start; the questions and plan cards (#661) are the
+  // call itself and did not, so a turn waiting on one read "Running …" (#666).
+  function holdCall(request) {
+    if (request.toolCallId) view.approvals.set(request.toolCallId, { id: request.id, kind: request.kind });
+  }
+
   // The session's own extension asking before a tool that changes something runs (step C of #568). Drawn
   // with the call it is about — the command, the diff, the content — through the viewer's own tool
   // renderer, because "allow bash?" without the command is not a question anybody can answer.
@@ -617,7 +646,7 @@ function createConversationView(getSession, container) {
     }
     card.appendChild(actions);
     view.asks.set(request.id, card);
-    if (request.toolCallId) view.approvals.set(request.toolCallId, request.id);
+    holdCall(request);
     log.insertBefore(card, partialEl);
     renderActivity();
   }
@@ -724,7 +753,9 @@ function createConversationView(getSession, container) {
     actions.appendChild(dismiss);
     card.appendChild(actions);
     view.asks.set(request.id, card);
+    holdCall(request);
     log.insertBefore(card, partialEl);
+    renderActivity();
   }
 
   // The agent's plan, put to the user before it leaves plan mode (#661). Drawn as the markdown it is, through
@@ -755,7 +786,9 @@ function createConversationView(getSession, container) {
     }
     card.appendChild(actions);
     view.asks.set(request.id, card);
+    holdCall(request);
     log.insertBefore(card, partialEl);
+    renderActivity();
   }
 
   function renderAsk(request) {
@@ -867,9 +900,10 @@ function createConversationView(getSession, container) {
       case 'answered': {
         const card = view.asks.get(op.id);
         if (card) { card.remove(); view.asks.delete(op.id); }
-        for (const [callId, reqId] of view.approvals) if (reqId === op.id) view.approvals.delete(callId);
+        for (const [callId, held] of view.approvals) if (held.id === op.id) view.approvals.delete(callId);
         renderActivity();
         renderStatus();
+        settleAttentionCaption();
         break;
       }
       default: return;
