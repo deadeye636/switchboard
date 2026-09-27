@@ -343,6 +343,12 @@ shows the override, or it becomes invisible state.
 
 Warn/crit pairs are clamped so warn < crit; an invalid pair falls back to the defaults above.
 
+`awayIdleMinutes` counts minutes with **no input anywhere on the machine**, not only in Switchboard
+(#673): main polls the operating system's idle time every 20 s, and input in any Switchboard window —
+main, detached, settings, changes, diff — counts at once. Below one minute falls back to the default.
+Where the OS reports no idle time (some Wayland setups answer 0), nobody is ever counted away.
+`docs/specs/03-what-changed.md` has the reasoning.
+
 **One key here is written by the main process rather than by the screen**, and it decides behaviour
 rather than appearance:
 

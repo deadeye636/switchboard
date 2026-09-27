@@ -69,6 +69,7 @@
     "detach-window.js",
     "statusbar-usage.js",
     "away-overview-view.js",
+    "presence-report.js",
     "shortcuts.js",
     "terminal-themes.js",
     "selection-text.js",
@@ -134,6 +135,7 @@
   ],
   "settings.html": [
     "utils.js",
+    "presence-report.js",
     "color-utils.js",
     "shortcuts.js",
     "terminal-themes.js",
@@ -154,9 +156,11 @@
     "settings-window.js"
   ],
   "changed-files.html": [
+    "presence-report.js",
     "changed-files.js"
   ],
   "diff-window.html": [
+    "presence-report.js",
     "diff-window.js"
   ]
 }

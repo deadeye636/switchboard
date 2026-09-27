@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, net, safeStorage, screen, session, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, safeStorage, screen, session, shell } = require('electron');
 const { Worker } = require('worker_threads');
 const { execFile } = require('child_process');
 const path = require('path');
@@ -381,12 +381,18 @@ const recordAndRouteTimelineSignal = (sessionId, signal) => {
 
 // --- Is the user at the machine (#386) -> app/presence.js ---
 // One global fact, so it cannot live in a renderer: each window knows only about itself. Every window
-// reports focus and input here, and this is what tells them all when an ABSENCE ended.
+// reports focus and input here, and this is what tells them all when an ABSENCE ended. Since #673 the OS
+// idle time is a source too, polled from the boot — input in another application is presence as well.
 const presence = require('./app/presence');
 presence.init({
   getMainWindow: () => mainWindow,
   getDetachedWindows: () => [...detach.detachedWindows.values()],
   getSetting,
+  // Read lazily: `powerMonitor` answers only once the app is ready, and the poll starts after that.
+  getSystemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
+  // A resume says the time asleep was real (#673); presence subscribes while its poll runs.
+  onSystemResume: (fn) => powerMonitor.on('resume', fn),
+  offSystemResume: (fn) => powerMonitor.removeListener('resume', fn),
   log,
 });
 presence.registerIpc(ipcMain);
@@ -2397,6 +2403,7 @@ const lifecycleCtx = {
   startBackendWatchers,
   startAttentionHookServer,
   startLiveOwners: () => liveOwners.start(),
+  startPresencePoll: () => presence.startSystemIdlePoll(),
   startDbUpkeep: () => dbUpkeep.start(),
   cleanStaleLockFiles,
   populateCacheViaWorker,
@@ -2422,6 +2429,7 @@ const lifecycleCtx = {
   },
   shutdownAllMcp,
   destroyTray: () => notifications.destroyTray(),
+  stopPresencePoll: () => presence.stopSystemIdlePoll(),
   stopProjectsWatcher,
   stopBackendWatchers,
   flushSessionBackends: () => sessionBackends.flushNow(),

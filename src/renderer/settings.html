@@ -24,6 +24,8 @@
        settings-window.js sets the standalone-window marker and opens the panel;
        it must load AFTER settings-panel.js. -->
   <script src="lib/utils.js"></script>
+  <!-- Review in this window is presence too (#673). -->
+  <script src="shell/presence-report.js"></script>
   <!-- color-utils.js backs the tag colour picker in settings-panel.js. Without it
        buildColorPopover throws on its first line (hexToHsv is undefined) and the
        picker opens dead — which is what the Tags tab did in THIS window (#174). -->

@@ -217,8 +217,10 @@ context switch. Each feature has a full design doc under `docs/specs/`.
 
 - Tracks whether **you** were away — not whether a window lost focus (#386).
   `src/app/presence.js` owns it: every window reports focus and input, and main
-  is the only place that can see all of them. Switching windows and sessions
-  while you work shows nothing; the attention inbox is the surface for that.
+  is the only place that can see all of them. Since #673 main also polls the
+  OS idle time, so working in another application is not an absence either.
+  Switching windows and sessions while you work shows nothing; the attention
+  inbox is the surface for that.
 - On coming back after a real absence you get **one entry in the attention
   inbox**, and opening it shows **one overview of every session that changed**:
   rows expand to that session's events and the files it touched, and each row

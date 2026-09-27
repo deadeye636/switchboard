@@ -1,4 +1,4 @@
-// #426 — the renderer half of presence: does ordinary use still report a sign of life?
+// #426, #673 — the renderer half of presence: does ordinary use still report a sign of life, in EVERY window?
 //
 // `app/presence.js` can only answer "the user was away" if something reports activity, and the listeners
 // that did lived in the banner #402 deleted. Nothing took them over, so `lastActivityAt` never left null
@@ -15,7 +15,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
-const SRC = path.join(__dirname, '..', 'src', 'renderer', 'shell', 'away-overview-view.js');
+// It moved out of `away-overview-view.js` at #673, so the pages that never load that file report too.
+const RENDERER = path.join(__dirname, '..', 'src', 'renderer');
+const SRC = path.join(RENDERER, 'shell', 'presence-report.js');
 
 /** The file in a jsdom window, with the one thing it touches at parse time stubbed. */
 function loadInDom() {
@@ -27,15 +29,12 @@ function loadInDom() {
   Object.defineProperty(window, 'api', {
     value: {
       reportPresenceActivity: () => reports.push(Date.now()),
-      onPresenceReturned: () => {},
-      getPendingAbsence: async () => null,
-      discardAbsence: async () => true,
     },
     writable: true,
     configurable: true,
   });
   vm.runInContext(fs.readFileSync(SRC, 'utf8'), dom.getInternalVMContext(),
-    { filename: 'away-overview-view.js' });
+    { filename: 'presence-report.js' });
   return { window, reports };
 }
 
@@ -73,12 +72,40 @@ test('#426: the window coming back reports even inside the throttle window', () 
     'coming back IS the moment the answer changes — that report is the one that must not be skipped');
 });
 
+test('#673: a focus does not use up the throttle — the first keystroke after it reports at once', () => {
+  // A focus may carry no input (an unlock, a focus the app caused), and main discards such a report
+  // against the OS idle time. The keystroke that follows is the real return and must not wait 15 s.
+  const { window, reports } = loadInDom();
+  window.dispatchEvent(new window.Event('focus'));
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a' }));
+  assert.equal(reports.length, 2);
+  window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'b' }));
+  assert.equal(reports.length, 2, 'the keystroke started the throttle as usual');
+});
+
 test('#426: a main process without the channel does not take the renderer down', () => {
   const dom = new JSDOM('<!DOCTYPE html><body></body>', {
     url: 'http://localhost/', runScripts: 'outside-only',
   });
   Object.defineProperty(dom.window, 'api', { value: {}, writable: true, configurable: true });
   vm.runInContext(fs.readFileSync(SRC, 'utf8'), dom.getInternalVMContext(),
-    { filename: 'away-overview-view.js' });
+    { filename: 'presence-report.js' });
   assert.doesNotThrow(() => dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'a' })));
+});
+
+test('#673: every page loads the reporter — review in the settings, changes or diff window is presence', () => {
+  // The recap fired for time spent reviewing in a window of the app's own, because those pages never
+  // loaded the file the listeners lived in. A page added later that omits the tag fails here by name.
+  for (const page of ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html']) {
+    const html = fs.readFileSync(path.join(RENDERER, page), 'utf8');
+    assert.match(html, /<script\s+src="shell\/presence-report\.js"><\/script>/,
+      `${page} must load shell/presence-report.js`);
+  }
+});
+
+test('#673: the reporter is the only one — the recap view no longer registers a second copy', () => {
+  // Two copies would mean two throttles, so a keystroke in the main window would send two reports.
+  const view = fs.readFileSync(path.join(RENDERER, 'shell', 'away-overview-view.js'), 'utf8');
+  const { stripComments } = require('./helpers/strip-comments');
+  assert.doesNotMatch(stripComments(view), /reportPresenceActivity/);
 });

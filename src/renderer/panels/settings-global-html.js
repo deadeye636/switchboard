@@ -1181,7 +1181,7 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Count as away after</span>
-                    <div class="settings-description">How long with no focus and no input anywhere in Switchboard counts as having left the machine.</div>
+                    <div class="settings-description">How long with no input anywhere on the machine, in any application, counts as having left it.</div>
                   </div>
                   <div class="settings-field-control">
                     <input type="number" class="settings-input settings-input-compact" id="sv-away-idle-minutes" min="1" max="240" value="${awayIdleMinutesValue}">

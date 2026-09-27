@@ -131,6 +131,11 @@ function start(ctx) {
     // Who else is running one of our sessions (#172). Its own first fetch is delayed — nothing on screen
     // needs the answer while the cold-start scan is running.
     try { ctx.startLiveOwners(); } catch { /* a build without the module still boots */ }
+    // Is the user at the machine (#673): the OS idle time, polled. Here and not at wiring because
+    // `powerMonitor` cannot be read before the app is ready.
+    try { ctx.startPresencePoll?.(); } catch (err) {
+      ctx.log.warn('[presence] the system idle poll could not start:', err?.message || err);
+    }
     // The database's own upkeep (#430) — deliberately NOT on this path: it arms a timer and returns, so
     // the merge and the reclaim land well after the first render and after the cold-start scan that
     // writes the very tables they touch.
@@ -268,6 +273,10 @@ function registerQuitHandlers(ctx) {
 
     // Remove the tray icon
     ctx.destroyTray();
+
+    // The presence poll (#673) — unref'd, so it never holds the quit, but nothing should ask the OS on
+    // behalf of an app that is going.
+    try { ctx.stopPresencePoll?.(); } catch { /* best effort */ }
 
     // Close filesystem watchers
     ctx.stopProjectsWatcher();

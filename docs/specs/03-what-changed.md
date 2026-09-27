@@ -22,24 +22,63 @@ apart on purpose. See [Why it is like this](#why-it-is-like-this).
 
 ### Presence is one global fact — `src/app/presence.js`
 
-The user is here if **any** Switchboard window has focus or is receiving input. Every window reports
-focus and input, throttled to 15 s (this is a keystroke-rate path); `focus` clears the throttle before
-reporting, because coming back IS the moment the answer changes.
+"Away" means away from the **machine**, not from Switchboard (#673). The user is here while there is
+input anywhere on the machine, and two sources report it:
+
+| Source | What it sees | How fast |
+|---|---|---|
+| The operating system's idle time — main polls `powerMonitor.getSystemIdleTime()` every 20 s (`SYSTEM_IDLE_POLL_MS`) | input in **any** application, dated to when it happened (`now − idle`) | a return is noticed on the next poll |
+| Every Switchboard window — main, detached, settings, changes and diff | focus and input in that window, throttled to 15 s (a keystroke-rate path); `focus` reports past the throttle, because coming back IS the moment the answer changes, and does not use it up, so the first keystroke after an input-less focus reports at once | at once — the fast path |
+
+A poll records its input only when it is newer than the last sign of life, so it never moves that
+backwards past a window's report, and a return a window already announced is not announced twice.
+Input from before the poll started is not recorded while nothing else has been: an untouched relaunch
+(a crash restart, an update) would otherwise stamp its start as a sign of life, and the first return
+would be "away since the app started" — which is no absence anyone had from the app.
+
+Three rules keep the two sources from disagreeing:
+
+- **A window's report asks the OS first** (`recordWindowActivity`), so input elsewhere since the last
+  reading is recorded before the report measures a gap from it — and a report the OS contradicts is not
+  input. A focus the app caused itself (a detached window closing hands the main one the focus) arrives
+  while nobody touched anything; when that reading says the machine has been idle for more than a few
+  seconds, the report adds nothing and the reading's own input time stays the last sign of life. So it
+  neither ends an absence with nobody there nor dates a later one late.
+- **A gap counts only as far as the OS vouched for it** (`gapIsConfirmed`). The idle time answers "since
+  the LAST input", so input between two readings that is followed by more input is never seen: nine and
+  a half minutes of reading, a line typed in an IDE just after a poll and a keystroke in Switchboard
+  before the next one would otherwise measure ten minutes away. An absence is reported only when the
+  span from the last sign of life to the previous reading reaches the threshold. The same rule vetoes a
+  wall clock that jumps forward (a restored VM, an NTP step) while the user works elsewhere: the reading
+  before the jump covered seconds of quiet, whatever the clock says now.
+- **Gaps are measured in wall time, and a reading vouches only while the poll kept firing.** A suspend is
+  time away, and the monotonic clocks stop through one on a Mac or Linux, so they cannot measure it. The
+  monotonic clock answers one question only: did the poll keep running since the last reading? A reading
+  more than two intervals old on that clock, or one taken before `powerMonitor` reported a `resume`,
+  vouches for nothing, and the wall-clock gap stands. The resume is asked for rather than inferred,
+  because a suspend on a stopped clock and a forward wall jump look the same from the clocks alone. It
+  only says the time asleep was real; it neither starts nor ends an absence.
 
 Main derives an **absence**, not a state:
 
 | | |
 |---|---|
-| **When** a recap appears | no focus and no input in any window for longer than `awayIdleMinutes`, then activity returns |
+| **When** a recap appears | no input anywhere on the machine, and no focus or input in any window, for longer than `awayIdleMinutes`, then activity returns |
 | **What** it lists | events since the absence BEGAN — everything before that happened while the user was present |
 | **How often** | once per session per absence. Returning and opening four sessions gives four recaps; opening one again gives none |
 
-`mousemove` is deliberately not a presence signal. The threshold has a **one-minute floor**.
+The windows deliberately do not listen for `mousemove`. The OS idle time does not make that
+distinction — any mouse movement resets it — so at the machine level a moved mouse IS a sign of life
+(see Known limits). The threshold has a **one-minute floor**.
 
 The listeners (`keydown` / `pointerdown` / `wheel` / `focus` → `reportPresenceActivity()`) live in
-`shell/away-overview-view.js`, beside the surface they feed. `test/presence-reporting.test.js` runs
-that real file in a jsdom window and dispatches real events at it — it is the guard against both ways
-of losing them (delete the block, the assertion fails; delete the file, it cannot load).
+`shell/presence-report.js`, which every page loads — `index.html`, `settings.html`, `changed-files.html`
+and `diff-window.html`. They lived in `shell/away-overview-view.js` until #673, which only the main and
+the detached windows load, so review in the other three counted as time away.
+`test/presence-reporting.test.js` runs that real file in a jsdom window and dispatches real events at
+it — the guard against both ways of losing them (delete the block, the assertion fails; delete the
+file, it cannot load) — and checks that every page names it. The poll's decisions are driven without
+Electron in `test/presence.test.js`: the idle reader arrives through ctx.
 
 ### The record is a table, written only by main — `#396`
 
@@ -118,7 +157,8 @@ whose user switched the feature off).
 
 ### Settings
 
-`awaySummary` (default on) turns the whole thing off. `awayIdleMinutes` (default 10) is the threshold.
+`awaySummary` (default on) turns the whole thing off. `awayIdleMinutes` (default 10) is the threshold:
+how long the machine goes without input before the time counts as away.
 
 ---
 
@@ -130,8 +170,20 @@ inbox. The first version measured "away" as a per-session `lastViewedTime`, so i
 there switching sessions and stayed silent when you walked away from a window that stayed in front
 (#386).
 
-**`mousemove` is not presence, and the threshold has a floor.** A nudged desk is not a person; below a
-minute every pause for thought is an absence — the original defect reached from the other side.
+**Presence is the machine, not the app (#673).** Until then only input in Switchboard's own windows
+counted, on purpose — #386 defined "away from Switchboard" as away. In practice that made an hour in an
+IDE or a browser, with the app on a second monitor, an hour away, and the recap then listed what the
+user had been watching all along; the settings, changes and diff windows did not even report. The OS
+idle time answers the question the setting always claimed to ask. Chosen over two alternatives: counting
+a visible or focused window as presence (a window in front with nobody there is exactly #386's case,
+and "visible" on a second monitor would never report an absence), and keeping the model with a higher
+default (the reported problem stays). Lock and suspend as the definite start of an absence were left out
+deliberately: the last input starts the absence either way.
+
+**The windows ignore `mousemove`, and the threshold has a floor.** A nudged desk is not a person, so no
+window infers presence from a moved pointer. The OS source cannot be told the same: its idle time is
+reset by any input, a moved mouse included, and there is no finer reading to ask for (Known limits).
+Below a minute every pause for thought is an absence — the original defect reached from the other side.
 
 **The recap is an inbox entry, not a banner (#402).** The banner was the wrong shape and each of its
 three costs showed on first real use: it appeared over the terminal of the session it was about, in
@@ -183,6 +235,25 @@ run in every window, so touched files land where the session is.
   absence standing — on purpose. There is nothing to discard, the user was never shown an entry, and
   the record can still grow into that absence, in which case a reload correctly finds it.
 - **Retention is 500 events per session / 30 days.** A long absence can be truncated.
+- **Reading without touching anything is away.** After `awayIdleMinutes` with no input on the machine,
+  the time counts as an absence even if the user was at the screen — the same as before #673, now for
+  the whole machine rather than one app.
+- **An OS that cannot answer reads as present.** On some Linux setups (Wayland) the idle time comes back
+  as 0, so every poll finds fresh input and no absence is ever detected from it; the windows' own reports
+  cannot produce one either, since the poll keeps the last sign of life current. The safe direction:
+  no recap, rather than a false one.
+- **A nudged mouse ends an absence.** The OS idle time counts any mouse movement, so a desk bumped
+  while the user is away ends the absence there — and a real return within the threshold after it gets
+  no recap, because that return is measured from the nudge. The windows' own listeners still ignore
+  `mousemove`; the OS source cannot.
+- **A return within one poll interval of the threshold may go unreported.** An absence is confirmed by
+  the span the OS last vouched for, which can be up to a poll interval shorter than the real one.
+- **A lock or a suspend does not start an absence by itself.** The absence starts at the last input; a
+  lock shorter than the threshold is no absence.
+- **A night can be lost when the resume is late or missing.** On macOS and Linux nothing orders
+  `powerMonitor`'s `resume` before the first report after waking, and on Linux without logind it may never
+  fire; if the last reading was taken shortly before the lid closed, that reading still vouches and the
+  night is dropped as no absence.
 
 ## What this feature cost to get right
 
