@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { flushStorageSoon, FLUSH_DELAY_MS } = require('../src/app/storage-flush');
+const { stripComments } = require('./helpers/strip-comments');
 
 function fakeContents({ destroyed = false, throws = false } = {}) {
   const wc = { flushed: 0, destroyed, isDestroyed: () => wc.destroyed,
@@ -22,6 +23,19 @@ test('flushes once, after the delay, not at once', (t) => {
   assert.equal(wc.flushed, 0, 'the renderer has not written yet');
   t.mock.timers.tick(FLUSH_DELAY_MS);
   assert.equal(wc.flushed, 1);
+});
+
+test('several re-keys in a row flush once', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const wc = fakeContents();
+  flushStorageSoon(wc);
+  flushStorageSoon(wc);
+  flushStorageSoon(wc);
+  t.mock.timers.tick(FLUSH_DELAY_MS);
+  assert.equal(wc.flushed, 1);
+  flushStorageSoon(wc);
+  t.mock.timers.tick(FLUSH_DELAY_MS);
+  assert.equal(wc.flushed, 2, 'a later re-key flushes again');
 });
 
 test('a window gone meanwhile, a throw, or nothing to flush breaks nothing', (t) => {
@@ -40,7 +54,8 @@ test('a window gone meanwhile, a throw, or nothing to flush breaks nothing', (t)
 // Wiring: both places that tell the renderer about a re-key ask for the flush right after.
 test('both re-key broadcasts ask for the flush', () => {
   for (const rel of ['src/session/session-transitions.js', 'src/watch/adopt.js']) {
-    const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+    // Code only: a call left in a comment is not a call (CLAUDE.md reflex 14).
+    const src = stripComments(fs.readFileSync(path.join(__dirname, '..', rel), 'utf8'));
     const send = src.indexOf("send('session-forked'");
     assert.ok(send >= 0, `${rel} sends session-forked`);
     const flush = src.indexOf('flushStorageSoon(', send);

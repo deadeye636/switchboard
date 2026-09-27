@@ -303,7 +303,10 @@ Smaller but important changes (mostly in main/Node-side files).
   The set is written on the unload that goes with a quit, and a crash or a killed process never unloads.
   A session re-keyed while the app runs (a `/clear`, a fork) is therefore renamed in the saved set on the
   spot, as the pane layout and a window of its own already were (#669); otherwise the next launch resumed
-  the session from before the `/clear`.
+  the session from before the `/clear`. Chromium writes that state to disk on a delay of its own, so the app
+  asks it to commit shortly after each re-key, or a kill right after it would lose the rename. The price:
+  after a crash, a fork re-keyed before its first turn has no transcript under its new id yet and is skipped
+  by the restore instead of resuming its parent — which is what a normal quit already did.
 
   A window of its own restores its own sessions the same way, telling the two apart by its saved pane
   arrangement. A plain terminal stays excluded: it has no transcript, so a reopened one would be a

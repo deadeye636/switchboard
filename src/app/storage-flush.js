@@ -16,10 +16,15 @@
 
 const FLUSH_DELAY_MS = 1500;
 
+// One pending flush per window: a start that re-keys many sessions at once flushes once.
+const pending = new WeakSet();
+
 /** Ask Chromium to write `webContents`' storage to disk shortly. Safe on a window that is going away. */
 function flushStorageSoon(webContents) {
-  if (!webContents) return;
+  if (!webContents || typeof webContents !== 'object' || pending.has(webContents)) return;
+  pending.add(webContents);
   const timer = setTimeout(() => {
+    pending.delete(webContents);
     try {
       if (webContents.isDestroyed && webContents.isDestroyed()) return;
       const session = webContents.session;
