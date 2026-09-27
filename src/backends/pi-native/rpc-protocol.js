@@ -59,6 +59,7 @@
 'use strict';
 
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
+const { textOf, argsFromText, oneLineDescription, NOTICES } = require('../rpc-shared');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
 const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, parseShell, parseTree, parseNavigated, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, NAVIGATE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
@@ -67,19 +68,6 @@ function entriesFor(message) {
   if (!message || typeof message !== 'object') return [];
   const timestamp = typeof message.timestamp === 'number' ? new Date(message.timestamp).toISOString() : undefined;
   return normalizeTranscriptEntries([{ type: 'message', timestamp, message }]);
-}
-
-function textOf(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map(c => (c && typeof c.text === 'string' ? c.text : '')).filter(Boolean).join('\n');
-}
-
-// Arguments stream as JSON text. Until they parse, the tool block shows what has arrived so far rather than
-// an empty object — a long `write` would otherwise look like a call with no content for several seconds.
-function argsFromText(text) {
-  if (!text) return {};
-  try { return JSON.parse(text); } catch { return { _partial: text }; }
 }
 
 // The methods an extension can open that wait for an answer (Pi's RPC doc, "Extension UI Protocol").
@@ -161,9 +149,9 @@ function createDecoder() {
         if (m && m.role === 'assistant') { partial = null; ops.push({ op: 'partial', entry: null }); }
         for (const entry of entriesFor(m)) ops.push({ op: 'append', entry });
         if (m && m.role === 'assistant' && m.stopReason === 'error') {
-          ops.push({ op: 'notice', level: 'error', text: String(m.errorMessage || 'The model call failed.') });
+          ops.push({ op: 'notice', level: 'error', text: String(m.errorMessage || NOTICES.modelFailed) });
         } else if (m && m.role === 'assistant' && m.stopReason === 'aborted') {
-          ops.push({ op: 'notice', level: 'info', text: 'Stopped.' });
+          ops.push({ op: 'notice', level: 'info', text: NOTICES.stopped });
         }
         return ops;
       }
@@ -187,7 +175,7 @@ function createDecoder() {
       case 'queue_update':
         return [{ op: 'queue', steering: Array.isArray(msg.steering) ? msg.steering : [], followUp: Array.isArray(msg.followUp) ? msg.followUp : [] }];
       case 'compaction_start':
-        return [{ op: 'notice', level: 'info', text: 'Compacting the conversation…' }];
+        return [{ op: 'notice', level: 'info', text: NOTICES.compacting }];
       case 'compaction_end':
         if (msg.aborted) return [{ op: 'notice', level: 'info', text: 'Compaction stopped.' }];
         if (!msg.result) {
@@ -195,7 +183,7 @@ function createDecoder() {
           const why = String(msg.errorMessage || '');
           return [{ op: 'notice', level: 'error', text: !why ? 'Compaction failed.' : /^compaction failed/i.test(why) ? why : `Compaction failed: ${why}` }];
         }
-        return [{ op: 'notice', level: 'info', text: 'Conversation compacted.' }];
+        return [{ op: 'notice', level: 'info', text: NOTICES.compacted }];
       case 'auto_retry_start':
         return [{ op: 'notice', level: 'warning', text: `Retrying (${msg.attempt}/${msg.maxAttempts}) after: ${msg.errorMessage || 'an error'}` }];
       case 'auto_retry_end':
@@ -355,7 +343,7 @@ function commandsFromResponse(response) {
     if (c.source === 'extension' && Object.prototype.hasOwnProperty.call(TUI_ONLY, c.name)) continue;
     out.push({
       name: c.name,
-      description: typeof c.description === 'string' ? c.description.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
+      description: oneLineDescription(c.description),
       kind: KINDS[c.source] || 'command',
       arguments: answers && c.source === 'extension' && ARGUMENT_COMMANDS.includes(c.name),
     });
@@ -577,8 +565,8 @@ function treeEntry(entry, isLeaf) {
           if (text) return { kind: 'assistant', text };
           // Pi's own tree hides a turn that only called tools — the calls' results carry what happened —
           // unless it failed or was stopped, or the session is standing on it.
-          if (m.stopReason === 'error') return { kind: 'assistant', text: clip(m.errorMessage || 'The model call failed.') };
-          if (m.stopReason === 'aborted') return { kind: 'assistant', text: 'Stopped.' };
+          if (m.stopReason === 'error') return { kind: 'assistant', text: clip(m.errorMessage || NOTICES.modelFailed) };
+          if (m.stopReason === 'aborted') return { kind: 'assistant', text: NOTICES.stopped };
           const calls = (Array.isArray(m.content) ? m.content : []).filter(c => c && c.type === 'toolCall').map(c => c.name).filter(Boolean);
           return isLeaf ? { kind: 'assistant', text: calls.length ? 'Called ' + calls.join(', ') : '' } : null;
         }

@@ -325,19 +325,8 @@ test('the descriptor drives Claude\'s rows: the marker, the trust gate, off by d
   }
 });
 
-// The descriptor's `rpc` object is copied out of the protocol module by hand, and the core reaches the protocol
-// ONLY through it — the same guard pi-native carries, for the same reason.
-test('every part of the protocol the core could use is handed to it', () => {
-  const NOT_HANDED_OVER = {
-    // The filter an attach applies to the transcript; the core is handed `entriesFromTranscript`, which uses it.
-    conversationEntries: true,
-  };
-  const exported = Object.keys(protocol).filter(k => typeof protocol[k] === 'function');
-  const rpc = native().rpc;
-  const missing = exported.filter(k => rpc[k] !== protocol[k] && !NOT_HANDED_OVER[k]);
-  assert.deepEqual(missing, [], `rpc-protocol.js exports these and the descriptor's \`rpc\` does not pass them on: ${missing.join(', ')}`);
-  assert.deepEqual(Object.keys(NOT_HANDED_OVER).filter(k => !exported.includes(k)), []);
-});
+// "Every part of the protocol is handed to the core" is one loop over every runtime-driven backend now, in
+// `test/runtime-backends.test.js` (#664).
 
 // What hangs off `launch.command === 'claude'` in the spawn path is about a terminal, and claude-native's
 // command IS `claude`. A source check, because node-pty is required at module load and there is no seam that

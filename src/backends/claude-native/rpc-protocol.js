@@ -51,6 +51,8 @@
 //        so `noteSent` reads that answer the way it reads a Stop.
 'use strict';
 
+const { textOf, argsFromText, oneLineDescription, NOTICES } = require('../rpc-shared');
+
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
 // session (point 9); a suggestion that would write the user's settings files is not offered (#661 E17).
 const ALLOW = 'allow';
@@ -75,19 +77,6 @@ const PLAN_TOOL = 'ExitPlanMode';
 // that started it. Those are the subagent's, drawn under that call by Claude's history reader, not turns of
 // this conversation.
 const ofSubagent = (msg) => !!(msg && msg.parent_tool_use_id);
-
-function textOf(content) {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.map(c => (c && typeof c.text === 'string' ? c.text : '')).filter(Boolean).join('\n');
-}
-
-// A tool call's arguments stream as JSON text. Until they parse, the block shows what has arrived so far
-// rather than an empty object — the same answer Pi's decoder gives.
-function argsFromText(text) {
-  if (!text) return {};
-  try { return JSON.parse(text); } catch { return { _partial: text }; }
-}
 
 // The questions of an `AskUserQuestion` call as the card draws them, or [] when the input is not that shape.
 function questionsOf(input) {
@@ -217,7 +206,7 @@ function createDecoder() {
     }
     // A failed model call (a lapsed login, an exhausted account) arrives as an assistant line with an
     // `error` and a sentence as its text. Said as a notice too, so it is not read as an ordinary reply.
-    if (msg.error) ops.push({ op: 'notice', level: 'error', text: textOf(m.content) || 'The model call failed.' });
+    if (msg.error) ops.push({ op: 'notice', level: 'error', text: textOf(m.content) || NOTICES.modelFailed });
     return ops;
   }
 
@@ -256,9 +245,9 @@ function createDecoder() {
       // Every turn opens with it — the busy edge for a turn nothing of ours started (point 2 above).
       case 'init': stopping = null; return [{ op: 'busy', busy: true }];
       case 'status':
-        return msg.status === 'compacting' ? [{ op: 'notice', level: 'info', text: 'Compacting the conversation…' }] : [];
+        return msg.status === 'compacting' ? [{ op: 'notice', level: 'info', text: NOTICES.compacting }] : [];
       case 'compact_boundary':
-        return [{ op: 'notice', level: 'info', text: 'Conversation compacted.' }];
+        return [{ op: 'notice', level: 'info', text: NOTICES.compacted }];
       case 'api_retry':
         return [{ op: 'notice', level: 'warning', text: 'The model call failed and is being retried.' }];
       case 'permission_denied':
@@ -335,7 +324,7 @@ function createDecoder() {
   // answer that interrupts, which is "keep planning" (point 9).
   function noteSent(line) {
     if (!line) return;
-    if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = 'Stopped.';
+    if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = NOTICES.stopped;
     const answer = line.type === 'control_response' && line.response && line.response.response;
     if (answer && answer.behavior === 'deny' && answer.interrupt === true) stopping = 'Kept planning. Say what to change.';
   }
@@ -379,7 +368,7 @@ function commandsFromResponse(response) {
     if (!c || typeof c.name !== 'string' || !c.name) continue;
     out.push({
       name: c.name,
-      description: typeof c.description === 'string' ? c.description.replace(/\s+/g, ' ').trim().slice(0, 200) : '',
+      description: oneLineDescription(c.description),
       kind: 'command',
       arguments: false,
     });

@@ -240,6 +240,11 @@ function toolBlock(color, label, summary, content) {
 function renderToolUse(block) {
   const name = block.name || 'unknown';
   const input = block.input || {};
+  // Arguments still streaming (`src/shared/partial-args.js`): the text so far, not a renderer handed half an
+  // object — a Write would draw with no path and no content until the call finished.
+  if (isPartialArgs(input)) {
+    return toolBlock('#8888a0', name, '', makeCollapsible('jsonl-tool-result', 'Input', input[PARTIAL_ARGS_KEY], true));
+  }
   const renderer = toolRenderers[name];
   if (renderer) {
     try { return renderer(input, block); } catch {}

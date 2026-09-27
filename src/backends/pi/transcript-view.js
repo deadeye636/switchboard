@@ -7,6 +7,7 @@
 'use strict';
 
 const { TRANSPORT_MARKER_TYPE } = require('./transport-marker');
+const { isPartialArgs } = require('../../shared/partial-args');
 
 function activeEntries(entries) {
   const list = Array.isArray(entries) ? entries : [];
@@ -89,7 +90,7 @@ const PI_TOOLS = {
 
 function toolUse(block) {
   const args = block.arguments && typeof block.arguments === 'object' ? block.arguments : {};
-  const mapped = !args._partial && PI_TOOLS[block.name] ? PI_TOOLS[block.name](args) : null;
+  const mapped = !isPartialArgs(args) && PI_TOOLS[block.name] ? PI_TOOLS[block.name](args) : null;
   // An optional argument Pi did not send stays absent rather than arriving as `undefined`.
   if (mapped) for (const k of Object.keys(mapped.input)) if (mapped.input[k] === undefined) delete mapped.input[k];
   return {

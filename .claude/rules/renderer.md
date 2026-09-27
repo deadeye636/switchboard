@@ -681,7 +681,7 @@ while the app runs, so routing it would make the copy correct only until somethi
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,
-`preview-kind`, `worktree-path` (#582) and `convention-dir-name` (#630). **List the directory rather than trusting this line.**
+`preview-kind`, `worktree-path` (#582), `convention-dir-name` (#630) and `partial-args` (#664). **List the directory rather than trusting this line.**
 `require()`d in main, a global in the renderer (which has no require — plain `<script>` tags). The
 preview in main must compute with the same code the insert runs in the renderer; two copies would be
 a bug factory. `worktree-path` is what that reads like when it is ignored: the pairing that decides

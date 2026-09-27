@@ -253,7 +253,43 @@ The core learned these as declarations of the `rpc` half in #657, where it used 
 | Stop | `abort`, plus `abort_bash` for a shell line | an `interrupt` control request | the protocols differ |
 | `/login`, `/model`, `/session`, `/tree` | built by the app in the extension | Claude's own, or not available | Pi's are TUI commands that mean nothing over RPC; Claude's local commands answer over the pipe |
 
-Whether any code in the two backend folders is still the same logic written twice is #664.
+### Written twice, and the guard against it (#664)
+
+A side-by-side read of the two backend folders after this backend landed found no line reader, no ask
+registry and no busy tracker in either: those were already the core's. What was written twice was small,
+and it moved:
+
+- `textOf` and `argsFromText` were word for word the same in both translators, and so were the `/` list's
+  one-line description with its 200-character cap and the notice sentences both say in the same situation. They live in
+  `src/backends/rpc-shared.js` now. A backend folder may not import `src/app/`, which is why that module
+  sits beside the backends.
+- The key a tool call carries while its arguments are still streaming is the app's own word, written by
+  both decoders and read by Pi's normaliser and by the viewer. It is `src/shared/partial-args.js`, which
+  both processes load. The viewer used to hand a Claude call with half its arguments to the finished call's
+  renderer, so a streaming `Write` drew with no path and no content until it finished. Both backends'
+  streaming calls now draw the text that has arrived so far; a Pi call used to show it wrapped in a JSON
+  object under that key.
+- The test that checks every protocol export is handed to the core was copied into both backends' test
+  files. It is one loop now.
+
+Deliberately NOT merged, because the protocol differs even where the shape looks alike: the assembly of
+the streamed message, `answerCommand`, `responseOf`, `sendCommand`, the stop, and how an approval is built
+from each CLI's request.
+
+**The guard is `test/runtime-backends.test.js`**, over every backend that declares `transport`, derived from
+the registry:
+
+- what a protocol module exports, the descriptor hands to the core, by identity;
+- what the `rpc` half declares and what `createDecoder()` returns, `src/app/agent-rpc.js` reads — derived from
+  that file's own source, so a backend that grows an `asks()`, an `isBusy()` or an `onData` of its own fails
+  by name;
+- every op a backend's folder emits is one the core or the conversation view handles;
+- no backend folder defines a helper of `rpc-shared.js` again, and every approval it asks carries the fields
+  the approval card reads (`APPROVAL_ASK_KEYS`).
+
+What it does not see is private state inside a closure: a busy flag a decoder keeps and never exports. That
+limit was accepted when the shape was chosen, over a text scan for such state, which would have needed an
+allow-list and read generated TypeScript as code.
 
 ## The settings
 

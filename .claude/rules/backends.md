@@ -453,6 +453,15 @@ the way the binding and the templates are, so a spawn-applied option (`approvalG
 `appliedBy`. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
 to read them, and the terminal-key tests check the absence.
 
+**A runtime-driven backend keeps its translator and nothing the core already has (#664).** The pipe's line
+reader, the open-question registry and the busy/owed tracking are `src/app/agent-rpc.js`'s, once. What two
+translators need that is not either protocol — `textOf`, `argsFromText`, the `/` list's one-line
+description, the shared notice sentences, the fields an approval carries — is `src/backends/rpc-shared.js`.
+`test/runtime-backends.test.js` holds it: an `rpc` key or a decoder member that agent-rpc.js does not read
+fails by name, as does an op nobody handles, a helper defined again in a backend folder, and an approval
+missing a field the card reads. A new optional hook is therefore read in agent-rpc.js FIRST, then declared.
+Spec 32 records what was merged and what stays apart on purpose.
+
 **What the `rpc` half declares, because runtimes differ (#657).** The core used to assume Pi's shape in each
 of the places below; each is a declaration of the half now, and a second runtime-driven backend states its
 answers instead of the core learning its format:
