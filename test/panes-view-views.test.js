@@ -325,6 +325,53 @@ test('a dormant session with no review still gets the launch placeholder (#403)'
   } finally { h.destroy(); }
 });
 
+// --- The placeholder follows the process it describes (#668) ----------------------------------
+//
+// The launch restore starts a tabless session's process headless (#438), after the pane body was drawn.
+// The poll then puts it into `activePtyIds`, and the status repaint that follows is `refreshChrome`, not a
+// render — so the placeholder has to be redrawn from there, or the tab says "not running" while it runs.
+
+test('a dormant tab whose process starts after the body was drawn stops offering Launch (#668)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    h.window.filePanelReviewHostFor = () => null;
+    assert.equal(h.panes.openDormantTab('dorm-1'), true);
+    await h.settle();
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 1, 'drawn before the start');
+
+    // What the headless start plus the closing poll leave behind: the process is live, nothing rendered.
+    h.activePtyIds.add('dorm-1');
+    h.panes.refreshChrome();
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 0,
+      'a running session is not offered a Launch');
+    assert.match(h.document.querySelector('.pane-empty').textContent, /not open/);
+
+    // …and the other way round: the process behind the dormant tab ends.
+    h.activePtyIds.delete('dorm-1');
+    h.panes.refreshChrome();
+    assert.equal(h.document.querySelectorAll('.pane-empty-launch').length, 1);
+  } finally { h.destroy(); }
+});
+
+test('a placeholder that still says the right thing is left alone by a chrome refresh (#668)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('live-1');
+    h.sessionMap.set('dorm-1', { sessionId: 'dorm-1', name: 'Dormant one', type: 'agent' });
+    h.window.filePanelReviewHostFor = () => null;
+    assert.equal(h.panes.openDormantTab('dorm-1'), true);
+    await h.settle();
+    const before = h.document.querySelector('.pane-empty');
+    h.panes.refreshChrome();
+    assert.equal(h.document.querySelector('.pane-empty'), before,
+      'refreshChrome runs on every busy edge; it must not rebuild a placeholder that is still true');
+  } finally { h.destroy(); }
+});
+
 // --- A dormant session moved into this window (#332) -------------------------------------------
 //
 // Its sibling — that a dormant session arriving gets a TAB at all — sits with the rest of the tab

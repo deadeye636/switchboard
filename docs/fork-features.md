@@ -296,6 +296,10 @@ Smaller but important changes (mostly in main/Node-side files).
     counts it) gets its **process back and no tab**. The sidebar marks it running and a click
     reattaches it with its scrollback, exactly as before the quit.
 
+  In panes mode such a session keeps its tab in the saved layout, drawn dormant. Its placeholder follows
+  the process it describes: once the poll has seen the restarted process it stops saying "not running"
+  and offering Launch, and says so again if the process ends (#668).
+
   A window of its own restores its own sessions the same way, telling the two apart by its saved pane
   arrangement. A plain terminal stays excluded: it has no transcript, so a reopened one would be a
   fresh shell wearing the old session's name.

@@ -906,6 +906,12 @@ window.__sessionDragId = null;
       return empty;
     }
     const sessionId = sessionOfTab(activeTab);
+    // Which answer this placeholder was drawn for, so `refreshEmptyState` can tell when it went stale
+    // (#668). The two sentences below are the two answers to "is its process running".
+    if (sessionId) {
+      empty.dataset.sessionId = sessionId;
+      empty.dataset.live = sessionIsLive(sessionId) ? '1' : '0';
+    }
     if (!sessionId || sessionIsLive(sessionId)) {
       empty.textContent = 'This session is not open — click its tab to open it here.';
       return empty;
@@ -3739,6 +3745,7 @@ window.__sessionDragId = null;
       const strip = pane.querySelector('.pane-strip');
       if (!leaf || !strip) continue;
       pane.replaceChild(buildStrip(leaf), strip);
+      refreshEmptyState(pane, leaf);
       const bar = pane.querySelector('.pane-actionbar');
       if (toolsPlacement !== 'bar') {
         if (bar) bar.remove();
@@ -3757,6 +3764,24 @@ window.__sessionDragId = null;
     // A chrome refresh rebuilds the strips, which resets their scroll offset — so the active tab has
     // to be brought back into view here too, not only after a full render.
     updateStripChrome();
+  }
+
+  // The placeholder of an unmounted tab says whether its session is running, and that answer can change
+  // without anything rebuilding the pane body (#668). The launch restore starts a tabless session's process
+  // headless (`startSessionProcess`, #438): the body was drawn before the process existed, the poll then put
+  // it into `activePtyIds`, and the status repaint that follows reaches the chrome only — so the tab kept
+  // saying "not running" while main had spawned it, and its Launch button re-attached. A process that dies
+  // behind a dormant tab is the same staleness the other way round. Only the placeholder is replaced, and
+  // only when the answer it was drawn for is no longer the answer; a pane whose body holds a mounted
+  // session is never touched.
+  function refreshEmptyState(pane, leaf) {
+    const empty = pane.querySelector('.pane-body > .pane-empty');
+    const sessionId = empty && empty.dataset.sessionId;
+    if (!sessionId) return;
+    if ((sessionIsLive(sessionId) ? '1' : '0') === empty.dataset.live) return;
+    const activeTab = leaf.tabs.find((t) => t.id === leaf.activeTabId);
+    if (!activeTab || sessionOfTab(activeTab) !== sessionId) return;
+    empty.replaceWith(buildEmptyState(leaf, activeTab));
   }
 
   function applySettings(g, opts) {
