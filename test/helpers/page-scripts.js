@@ -42,4 +42,9 @@ function pageScripts(page) {
   return scriptSrcsOf(fs.readFileSync(path.join(RENDERER, page), 'utf8'));
 }
 
-module.exports = { pageRefsOf, scriptSrcsOf, pageScripts, RENDERER };
+/** Every page under `src/renderer/`, read from the directory so a page added tomorrow is covered today. */
+function rendererPages() {
+  return fs.readdirSync(RENDERER).filter(f => f.endsWith('.html')).sort();
+}
+
+module.exports = { pageRefsOf, scriptSrcsOf, pageScripts, rendererPages, RENDERER };

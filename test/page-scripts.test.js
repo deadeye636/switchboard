@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { pageRefsOf, scriptSrcsOf, pageScripts } = require('./helpers/page-scripts');
+const { pageRefsOf, scriptSrcsOf, pageScripts, rendererPages } = require('./helpers/page-scripts');
 const { stripComments } = require('./helpers/strip-comments');
 
 const TEST_DIR = __dirname;
@@ -36,7 +36,7 @@ test('reads every script src in document order, whatever the spacing and attribu
 });
 
 test('reads the real pages', () => {
-  for (const page of ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html']) {
+  for (const page of rendererPages()) {
     const srcs = pageScripts(page);
     assert.ok(srcs.length > 0, `${page} should load at least one script`);
     assert.ok(srcs.every(s => s.endsWith('.js')), `${page}: every script ref should be a .js file`);

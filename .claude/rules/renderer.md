@@ -71,9 +71,9 @@ with its own script list, so adding one means: `PAGES` in `test/script-tags.test
 `test/fixtures/script-order.json`, and its own `lintEnvironment(...)` test in
 `test/renderer-no-undef.test.js`. Miss one and the page is simply unguarded — nothing fails.
 **And every page loads `shell/presence-report.js`** (#673): review in a window of the app's own is presence,
-and a page without the tag counts as time away. `test/presence-reporting.test.js` checks it over a
-hard-coded page list, as `test/page-scripts.test.js` reads one — a new page goes into both by hand, or
-neither covers it.
+and a page without the tag counts as time away. `test/presence-reporting.test.js` checks it over every
+page in the directory (`rendererPages()` in `test/helpers/page-scripts.js`), so a new page without the
+tag fails there by name.
 
 Two things these pages do differently, both forced by the CSP (`script-src 'self'`, set in
 `src/app/lifecycle.js`): the script is **external**, never inline, and `codemirror-bundle.js` is pulled in

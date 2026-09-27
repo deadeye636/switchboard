@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
-const { pageScripts } = require('./helpers/page-scripts');
+const { pageScripts, rendererPages } = require('./helpers/page-scripts');
 
 // It moved out of `away-overview-view.js` at #673, so the pages that never load that file report too.
 const RENDERER = path.join(__dirname, '..', 'src', 'renderer');
@@ -96,8 +96,11 @@ test('#426: a main process without the channel does not take the renderer down',
 
 test('#673: every page loads the reporter — review in the settings, changes or diff window is presence', () => {
   // The recap fired for time spent reviewing in a window of the app's own, because those pages never
-  // loaded the file the listeners lived in. A page added later that omits the tag fails here by name.
-  for (const page of ['index.html', 'settings.html', 'changed-files.html', 'diff-window.html']) {
+  // loaded the file the listeners lived in. The pages are read from the directory, so a page added later
+  // that omits the tag fails here by name.
+  const pages = rendererPages();
+  assert.ok(pages.length >= 4, `expected the renderer's pages, found: ${pages.join(', ')}`);
+  for (const page of pages) {
     assert.ok(pageScripts(page).includes('shell/presence-report.js'),
       `${page} must load shell/presence-report.js`);
   }
