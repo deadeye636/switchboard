@@ -262,7 +262,7 @@ updatedAt DESC` — the tail only orders a row without a number, which nothing w
   it from the grip), or moved one place with **Alt+ArrowUp / Alt+ArrowDown** on
   the focused row, which keeps the focus. **Sort by name** puts the whole list back into alphabetical order
   in one step — the same order the migration numbered from — and its toast carries an **Undo** that sends
-  the previous order back.
+  the previous order back. Any later move, the Undo included, ends that offer.
 - **Under a text filter none of the three is offered.** A drop between two rows that are not neighbours in
   the full list has no single right answer. A **scope** filter keeps them, because the answer is defined
   there: the moved row lands directly before or after the row it was dropped on (or stepped past), and every

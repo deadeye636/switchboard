@@ -213,7 +213,8 @@ context switch. Each feature has a full design doc under `docs/specs/`.
   with the decision logic unit-tested.
 
 ### 03 — "While you were away" recap
-`src/renderer/shell/away-summary.js`, `src/renderer/shell/away-overview-view.js`
+`src/renderer/shell/away-summary.js`, `src/renderer/shell/away-overview-view.js`,
+`src/renderer/shell/presence-report.js`
 
 - Tracks whether **you** were away — not whether a window lost focus (#386).
   `src/app/presence.js` owns it: every window reports focus and input, and main
@@ -646,7 +647,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 
 ### Projects & sidebar
 - **Projects tab** — dedicated project management: add manually vs. automatically, hide /
-  restore, and rename.
+  restore, and rename. The Add Project dialog also takes an optional name and tags, and **Add & Edit**
+  opens the new project's settings once they are written (#675). While sessions work, the table refreshes
+  in place — scroll position, search text and an open rename survive (#672).
 - **The project list is a stored list, not a derivation** (#167) — it used to be read out of the
   transcripts on disk, so a project without one could not exist however often you added it (the
   old "add" wrote a **fake transcript** to fake one up), and "remove" could not be implemented at

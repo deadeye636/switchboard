@@ -110,7 +110,8 @@ chart rather than a row of zeroes.
   → [`docs/specs/30-pi-native.md`](docs/specs/30-pi-native.md)
 - **Claude without a terminal** — a second Claude backend that drives the `claude` you installed over its
   stream-json protocol and draws the conversation in the same view: streamed replies, tool calls, Claude's
-  own permission questions, its questions to you and its plans as cards you answer in place, and images you
+  own permission questions (with "always allow in this project" where Claude suggests that rule), its
+  questions to you and its plans as cards you answer in place, and images you
   paste or drop go out with your message. It starts only
   in a project Claude trusts, and it has no login of its own. Its sessions are ordinary Claude sessions and
   reopen where they were driven.
@@ -158,7 +159,8 @@ chart rather than a row of zeroes.
   time, so it stays out of your history, your scrollback and the transcript your CLI uploads. A template
   can also name the project's plan and handoff directories, and `{clipboard}` composes whatever was
   copied last with the stored ones — a file or a screenshot as its path, text with the control characters
-  a terminal would obey removed.
+  a terminal would obey removed. Arrange them in your own order in the manager, and every picker lists
+  them that way.
   → [spec 12](docs/specs/12-saved-variables.md)
 - **IDE emulation** — Switchboard registers as an IDE for the Claude CLI: file opens and proposed
   edits appear in a side panel with inline or side-by-side diffs, where you accept, reject or edit
