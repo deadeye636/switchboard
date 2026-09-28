@@ -401,7 +401,9 @@ the two figures are compared:
   sidebar shows nothing, because the transcript holds no usage yet.
 - **After a compaction** the lag runs the other way: the line shows the compacted fill at once (33 % → 17 %
   in the measurement), and the sidebar keeps the old value until the next API call writes a new usage line.
-  Measured for `/compact`; assumed the same for an automatic compaction.
+  Measured for `/compact`. An automatic compaction writes the same `compact_boundary` line to the transcript
+  and no usage line either, so the sidebar lags the same way. The boundary's `postTokens` counts only the
+  kept conversation and is not the fill; the measurement is in spec 28, "Why the LAST turn" (#698).
 
 ## The permission mode (#696)
 

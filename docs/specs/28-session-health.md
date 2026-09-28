@@ -43,7 +43,31 @@ keep the last usage record with a **non-zero** input, not a total. The zero is a
 zero record on an aborted turn. Taking either would read a full window as an empty one.
 
 After a compaction the next turn's input drops, measured on Claude (966 912 → 77 995) and on Pi (about
-260k → 30k), so no special handling is needed there.
+260k → 30k). That settles the fill from the next API call on. **It does not settle the gap between the
+compaction and that call (#698):** until then the last usage record is the one from before, so the reader
+shows the pre-compaction fill.
+
+What Claude's transcript records at a compaction, measured on 2.1.283 (`/compact` over the pipe, Haiku, 200k)
+and read back from five automatic compactions on 2.1.251–2.1.280: one `system` line with
+`subtype: "compact_boundary"`, followed by the summary (`isCompactSummary`) and re-injected attachments, with
+no assistant `usage` line. Its `compactMetadata` carries `trigger` (`manual`, `auto`, and once `refusal`),
+`preTokens` and `postTokens`. Both triggers write the same shape, and a sidechain compacts the same way.
+
+`postTokens` is **not** the fill after the compaction. It counts only the kept conversation, not the system
+prompt, the tools and the re-injected context:
+
+| Trigger | `preTokens` | `postTokens` | Runtime right after | Next API call's usage |
+|---|---|---|---|---|
+| manual (2.1.283, Haiku) | 68 016 | 6 519 | 47 335 (`get_context_usage`) | 50 669 |
+| auto (2.1.260, Opus) | 967 317 | 13 811 | not asked | 77 995 |
+| auto (2.1.270, Opus) | 967 097 | 12 603 | not asked | 85 839 |
+| auto (2.1.270, Opus) | 968 227 | 23 909 | not asked | 103 652 |
+| auto (2.1.280, Opus) | 966 213 | 15 894 | not asked | 89 807 |
+
+On the main thread `preTokens` matched the last usage record before the boundary within 1 %; on the one
+sidechain it did not (164 925 against 132 540). The difference between
+`postTokens` and the next call ran from 44k to 80k, so the fill after a compaction cannot be read from the
+boundary line alone. How the sidebar handles the gap is open in #698.
 
 | Backend | Numerator | Where it is read |
 |---|---|---|
