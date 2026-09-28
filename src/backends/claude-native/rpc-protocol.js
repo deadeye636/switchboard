@@ -560,6 +560,10 @@ function createDecoder() {
     const ops = followId(msg);
     switch (msg.type) {
       case 'stream_event': return ops.concat(onStreamEvent(msg.event));
+      // A next prompt the CLI proposes after a turn (#693, `--prompt-suggestions`; spec 32). The text only.
+      case 'prompt_suggestion':
+        return typeof msg.suggestion === 'string' && msg.suggestion.trim()
+          ? ops.concat([{ op: 'suggestion', text: msg.suggestion.trim() }]) : ops;
       case 'assistant': return ops.concat(onAssistant(msg));
       case 'user': return ops.concat(onUser(msg));
       case 'result': return ops.concat(onResult(msg));

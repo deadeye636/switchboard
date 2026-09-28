@@ -421,12 +421,24 @@ test('the permission mode is sent only when chosen, and the skip flag is not off
   const argsFor = (options) => d.buildLaunch({ sessionId: 's', options }).args;
   assert.ok(!argsFor({}).includes('--permission-mode'), 'unset: Claude\'s own defaultMode applies');
   assert.ok(!argsFor({ permissionMode: 'default' }).includes('--permission-mode'));
-  assert.deepEqual(argsFor({ permissionMode: 'plan', model: 'haiku' }).slice(-4), ['--permission-mode', 'plan', '--model', 'haiku']);
+  const planned = argsFor({ permissionMode: 'plan', model: 'haiku' });
+  assert.deepEqual(planned.slice(planned.indexOf('--permission-mode'), planned.indexOf('--permission-mode') + 4), ['--permission-mode', 'plan', '--model', 'haiku']);
   assert.ok(!argsFor({ permissionMode: 'dangerously-skip', dangerouslySkipPermissions: true }).some(a => /dangerously|permission-mode/.test(a)));
   const field = d.configFields.find(f => f.id === 'permissionMode');
   assert.ok(!field.choices.includes('dangerously-skip'));
   assert.equal(field.default, 'default');
   assert.ok(!d.configFields.some(f => f.appliesAt === 'spawn'), 'nothing here is applied at a terminal spawn site');
+});
+
+test('prompt suggestions are on unless switched off, and a suggestion becomes the app\'s op (#693)', () => {
+  const d = native();
+  const argsFor = (options) => d.buildLaunch({ sessionId: 's', options }).args;
+  assert.ok(argsFor({}).includes('--prompt-suggestions'), 'on by default');
+  assert.ok(!argsFor({ promptSuggestionsOff: true }).includes('--prompt-suggestions'), 'an explicit off leaves it out');
+  const field = d.configFields.find(f => f.id === 'promptSuggestionsOff');
+  assert.equal(field.default, false, 'an opt-out whose default sends nothing');
+  assert.deepEqual(protocol.createDecoder().decode({ type: 'prompt_suggestion', suggestion: ' write it ', uuid: 'x', session_id: '' }).filter(o => o.op === 'suggestion'), [{ op: 'suggestion', text: 'write it' }]);
+  assert.deepEqual(protocol.createDecoder().decode({ type: 'prompt_suggestion', suggestion: '', session_id: '' }).filter(o => o.op === 'suggestion'), []);
 });
 
 test('the terminal backend\'s argv options are offered and sent; the two spawn-site ones are not (#685)', () => {

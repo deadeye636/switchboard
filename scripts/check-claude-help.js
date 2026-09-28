@@ -91,7 +91,6 @@ const AUDITED_EXCLUDED = new Set([
   '--no-session-persistence',
   '--plugin-dir',
   '--plugin-url',
-  '--prompt-suggestions',
   '--remote-control',
   '--remote-control-session-name-prefix',
   '--safe-mode',

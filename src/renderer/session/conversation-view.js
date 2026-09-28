@@ -93,6 +93,10 @@ function createConversationView(getSession, container) {
   bgPop.setAttribute('aria-label', 'Background tasks');
   log.appendChild(partialEl);
   log.appendChild(activity);
+  // Messages sent from here that the runtime has not played back yet (#694), at the very end of the log.
+  const pendingEl = document.createElement('div');
+  pendingEl.className = 'conversation-pending-sends';
+  log.appendChild(pendingEl);
 
   const composer = document.createElement('div');
   composer.className = 'conversation-composer';
@@ -174,6 +178,8 @@ function createConversationView(getSession, container) {
     attached: false,
     attaching: false,        // an attach is in flight — see renderStatus
     busySince: null,         // when the running turn began, for its elapsed time; null when not known (#691)
+    suggestion: null,        // the next prompt the runtime proposed, offered in the empty input (#693)
+    pendingSends: [],        // messages sent from here that the runtime has not played back yet: { text, el, at } (#694)
     tasks: [],               // what runs in the background: { id, kind, description, detail, toolUseId, startedAt } (#691)
     context: null,           // { percent, tokens, window, model } as the backend last read them (#691)
   };
@@ -252,7 +258,53 @@ function createConversationView(getSession, container) {
     log.insertBefore(el, partialEl);
   }
 
+  // --- A sent message, until the runtime plays it back (#694) ---
+  // The runtime returns a sent line when its turn STARTS (0.6 s later, 2 s on the first turn, a whole turn
+  // later while one runs), so the view shows it at once, dimmed, at the end of the log. The played-back entry
+  // takes its place wherever its turn runs; a refusal takes it away. A `!` shell line is not a turn and is
+  // drawn as its own entry, so it gets none.
+  const normText = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  function userTextOf(entry) {
+    const m = entry && entry.message;
+    if (!m || m.role !== 'user') return null;
+    if (typeof m.content === 'string') return m.content;
+    if (!Array.isArray(m.content) || m.content.some(b => b && b.type === 'tool_result')) return null;
+    return m.content.filter(b => b && b.type === 'text').map(b => b.text).join('\n');
+  }
+  function addPendingSend(text, queued) {
+    if (!normText(text) || /^\s*!/.test(text)) return null;
+    const el = renderJsonlEntry({ type: 'user', message: { role: 'user', content: text } }, new Map());
+    if (!el) return null;
+    el.classList.add('conversation-pending');
+    const tag = document.createElement('span');
+    tag.className = 'conversation-pending-tag';
+    tag.textContent = queued ? 'queued' : 'sending…';
+    el.appendChild(tag);
+    pendingEl.appendChild(el);
+    const p = { text: normText(text), el, at: Date.now() };
+    view.pendingSends.push(p);
+    toEnd();
+    return p;
+  }
+  function dropPendingSend(p) {
+    if (!p) return;
+    p.el.remove();
+    view.pendingSends = view.pendingSends.filter(x => x !== p);
+  }
+  function settlePendingSend(entry) {
+    if (!view.pendingSends.length) return;
+    const text = userTextOf(entry);
+    if (text == null) return;
+    // Equal, or beginning with what was sent: a `/` command a runtime answers by itself can come back as the
+    // command followed by its output (claude-native point 6). The earliest match wins, so two identical
+    // messages settle in the order they were sent.
+    const played = normText(text);
+    const p = view.pendingSends.find(x => played === x.text || played.startsWith(`${x.text} `));
+    if (p) dropPendingSend(p);
+  }
+
   function appendEntry(entry) {
+    settlePendingSend(entry);
     const index = view.entries.push(entry) - 1;
     const resultIds = conversationResultIds(entry);
     if (resultIds) {
@@ -313,6 +365,8 @@ function createConversationView(getSession, container) {
 
   function reset(entries) {
     for (const el of view.elements) if (el) el.remove();
+    // A message still waiting to be played back belongs to the conversation just replaced (#694).
+    for (const p of view.pendingSends.slice()) dropPendingSend(p);
     // A notice has no place in the runtime's snapshot, so once the entries around it are redrawn it would
     // sit above the whole conversation (#654). A reset used to happen only on an empty log at mount; a
     // branch switch (#646) resets a log that has notices in it, and the one about the switch itself is sent
@@ -393,9 +447,13 @@ function createConversationView(getSession, container) {
     // In attach order, which is the order of their numbers: the text says `[Image #n]` and the n-th image is
     // the one it means, the same pairing Claude's CLI relies on (#688).
     if (attached.length) payload.images = attached.map(a => ({ mimeType: a.mimeType, data: a.data }));
+    // Shown at once (#694), before the runtime plays it back — made BEFORE the send, so a playback that
+    // arrives before the send's answer still finds it to replace.
+    const pending = addPendingSend(text, view.busy);
     let res;
     try { res = await window.api.agent.send(view.session.sessionId, payload); } catch { res = null; }
     sending = false;
+    if (!(res && res.ok)) dropPendingSend(pending);
     if (res && res.ok) {
       // Only what was sent is taken away — something typed while the send was in flight stays, and so does
       // an image attached meanwhile.
@@ -478,6 +536,18 @@ function createConversationView(getSession, container) {
     // An open suggestion list takes the arrows, Tab, Enter and Escape first — Escape then closes the list
     // rather than stopping the running turn.
     if (completion && completion.handleKey(e)) return;
+    // A suggested next prompt (#693): Tab takes it, Escape throws it away — only while the input is empty,
+    // which is the only time it is shown, and only when no modifier asks for something else.
+    if (view.suggestion && !input.value && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        input.value = view.suggestion;
+        input.setSelectionRange(input.value.length, input.value.length);
+        setSuggestion(null);
+        return;
+      }
+      if (e.key === 'Escape' && !somethingRunning()) { e.preventDefault(); setSuggestion(null); return; }
+    }
     if (typeof matchShortcut === 'function' && typeof appShortcuts !== 'undefined') {
       const macNow = typeof isMac !== 'undefined' && isMac;
       for (const [id, opener] of Object.entries(PALETTES)) {
@@ -573,6 +643,21 @@ function createConversationView(getSession, container) {
     renderAttachments();
   }
   input.addEventListener('input', syncAttachmentsToText);
+
+  // --- A suggested next prompt (#693) ---
+  // Shown as the empty input's placeholder, greyed, with the key that takes it. Typing anything discards it,
+  // as the TUI does; a turn starting discards it too.
+  const basePlaceholder = input.placeholder;
+  function setSuggestion(text) {
+    view.suggestion = text && String(text).trim() ? String(text).trim() : null;
+    renderSuggestion();
+  }
+  function renderSuggestion() {
+    const on = !!view.suggestion && !input.value;
+    input.placeholder = on ? `${view.suggestion}    — Tab to use it` : basePlaceholder;
+    input.classList.toggle('has-suggestion', on);
+  }
+  input.addEventListener('input', () => { if (view.suggestion && input.value) setSuggestion(null); });
 
   function renderAttachments() {
     attachStrip.replaceChildren();
@@ -1354,9 +1439,11 @@ function createConversationView(getSession, container) {
       case 'busy':
         if (op.busy && !view.busy) view.busySince = Date.now();
         view.busy = !!op.busy;
+        if (view.busy && view.suggestion) setSuggestion(null);
         if (!view.busy) { view.busySince = null; view.tools.clear(); renderActivity(); }
         renderStatus();
         break;
+      case 'suggestion': setSuggestion(op.text); break;
       // What runs in the background, and the session's figures (#691).
       case 'tasks': view.tasks = Array.isArray(op.tasks) ? op.tasks : []; renderStatus(); break;
       case 'context': view.context = op.context || null; renderStatus(); break;
@@ -1454,6 +1541,7 @@ function createConversationView(getSession, container) {
     view.queue = res.queue || { steering: [], followUp: [] };
     view.tasks = Array.isArray(res.tasks) ? res.tasks : [];
     view.context = res.context || null;
+    setSuggestion(res.suggestion || null);
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();
     toEnd();
@@ -1471,6 +1559,9 @@ function createConversationView(getSession, container) {
     // A background task does not outlive the process that ran it (#691).
     view.tasks = [];
     if (!bgPop.hidden) closeBackground();
+    // Nothing sent is played back by a process that has ended (#694), and no suggestion is taken (#693).
+    for (const p of view.pendingSends.slice()) dropPendingSend(p);
+    setSuggestion(null);
     // A shell line running when the session died can never report back, so it stops counting as running.
     // The disabled composer hides Stop anyway today; this is so that stays true if that gate is ever
     // relaxed, rather than leaving `somethingRunning()` permanently true for a dead session.

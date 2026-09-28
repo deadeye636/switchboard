@@ -235,6 +235,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     turnStartedAt: 0,        // when the last turn began, for the turn-hold's "did the queued one start"
     stopping: false,         // a graceful stop is waiting for the child — see `kill`
     tasks: [],               // what runs in the background, as the backend last listed it (#691)
+    suggestion: null,        // the next prompt the runtime proposed after the last turn (#693)
     context: null,           // the context fill and the model, as the backend last read them (#691)
   };
   // The tests shorten both; the app never passes them.
@@ -464,6 +465,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
         flushPartial();
         if (state.busy === op.busy) return;
         state.busy = op.busy;
+        if (op.busy) state.suggestion = null;
         noteTurnEdge(op.busy);
         ctx.log.info(`[agent-rpc] session=${(findSession(tag) || {}).id || tag.slice(0, 8)} → ${op.busy ? 'BUSY' : 'IDLE'}`);
         // `turn_start` because an RPC `agent_start` IS a turn beginning — the one fact that releases a
@@ -477,6 +479,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
         }
         sendOp(state, op);
         if (!op.busy) { followIdentity(); followContext(); }
+        return;
+      case 'suggestion':
+        // A next prompt the runtime proposes (#693). Kept until a turn starts, so a view mounted meanwhile
+        // offers it too.
+        state.suggestion = typeof op.text === 'string' ? op.text : null;
+        flushPartial();
+        sendOp(state, op);
         return;
       case 'tasks':
         // What runs in the background (#691): the view draws the list, and the main window's sidebar counts it
@@ -903,6 +912,7 @@ async function attach(sessionId) {
     asks: [...state.asks.values()],
     tasks: state.tasks,
     context: state.context,
+    suggestion: state.suggestion,
   };
 }
 
@@ -977,6 +987,7 @@ async function attachFromTranscript(sessionId, state) {
     asks: [...state.asks.values()],
     tasks: state.tasks,
     context: state.context,
+    suggestion: state.suggestion,
   };
 }
 

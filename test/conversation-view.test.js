@@ -815,3 +815,73 @@ test('Stop in the Background list stops that one task', async () => {
   await h.settle();
   assert.deepEqual(stopped, [['s1', 't1']]);
 });
+
+// #693: a suggested next prompt, offered in the empty input and taken with Tab.
+test('a suggestion shows in the empty input; Tab takes it, typing drops it, a turn starting drops it', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'suggestion', text: 'write the script' });
+  assert.match(h.input.placeholder, /write the script/);
+  assert.ok(h.input.classList.contains('has-suggestion'));
+  const tab = new h.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  h.input.dispatchEvent(tab);
+  assert.equal(tab.defaultPrevented, true);
+  assert.equal(h.input.value, 'write the script');
+  assert.ok(!h.input.classList.contains('has-suggestion'));
+  h.input.value = '';
+  conv.apply({ op: 'suggestion', text: 'next' });
+  h.input.value = 'x';
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  h.input.value = '';
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.doesNotMatch(h.input.placeholder, /next/, 'typing threw it away for good');
+  conv.apply({ op: 'suggestion', text: 'again' });
+  conv.apply({ op: 'busy', busy: true });
+  assert.doesNotMatch(h.input.placeholder, /again/);
+  const plainTab = new h.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  h.input.dispatchEvent(plainTab);
+  assert.equal(plainTab.defaultPrevented, false, 'without a suggestion Tab is left alone');
+});
+
+// #694: a sent message is on screen at once, and the played-back entry takes its place.
+test('a sent message shows at once as pending and goes when the runtime plays it back; a refusal takes it away', async () => {
+  const h = setup();
+  const pending = () => [...h.entry.element.querySelectorAll('.conversation-pending')].map(e => e.textContent);
+  h.input.value = 'hello there';
+  h.key({ key: 'Enter' });
+  assert.equal(pending().length, 1, 'shown before the send is answered');
+  assert.match(pending()[0], /sending/);
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(pending().length, 1, 'still waiting for its turn');
+  h.entry.conversation.apply({ op: 'append', entry: { type: 'user', message: { role: 'user', content: 'hello there' } } });
+  assert.equal(pending().length, 0, 'the played-back line replaced it');
+  h.entry.conversation.apply({ op: 'busy', busy: true });
+  h.input.value = 'while it runs';
+  h.key({ key: 'Enter' });
+  assert.match(pending()[0], /queued/);
+  h.answerSend({ ok: false, error: 'refused' });
+  await h.settle();
+  assert.equal(pending().length, 0, 'a refused line leaves no bubble');
+  h.input.value = '!ls';
+  h.key({ key: 'Enter' });
+  assert.equal(pending().length, 0, 'a shell line is not a turn and gets no bubble');
+});
+
+test('a slash command played back with its output settles its bubble; a reset drops what is pending (#694)', async () => {
+  const h = setup();
+  const pending = () => h.entry.element.querySelectorAll('.conversation-pending').length;
+  h.input.value = '/cost';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  assert.equal(pending(), 1);
+  h.entry.conversation.apply({ op: 'append', entry: { type: 'user', message: { role: 'user', content: '/cost\nTotal cost: $0.01' } } });
+  assert.equal(pending(), 0, 'the command came back with its output after it');
+  h.input.value = 'lost in a switch';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.entry.conversation.apply({ op: 'reset', entries: [] });
+  assert.equal(pending(), 0);
+});

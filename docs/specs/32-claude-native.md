@@ -363,6 +363,45 @@ pipe. pi-native has no background tasks of its own: Pi runs a tool inside its tu
 lines are already tracked by the view. Its context fill and window come from `get_session_stats`
 (`contextUsage.percent`, `contextWindow`) and its model from `get_state`.
 
+## Prompt suggestions (#693)
+
+The view shows a suggestion as the empty input's placeholder, greyed and in italics with "Tab to use it";
+**Tab** takes it into the input, typing anything or Escape throws it away, and a turn starting drops it. The
+launch carries `--prompt-suggestions` the way it carries `--verbose`, so suggestions are on; the backend option
+`promptSuggestionsOff` (default `false`) is the way out and leaves the flag off. An opt-out, because a
+`configFields` default describes and is never sent — a default of "on" that put the flag on the command line
+would be exactly what that rule forbids. The decoder turns the message into a neutral `suggestion` op; the core keeps the last one until
+a turn starts, so a view mounted meanwhile offers it too.
+
+Measured on Claude Code 2.1.283 over the pipe, with the app's own launch flags and Haiku:
+
+- **`--prompt-suggestions` alone turns them on.** The CLI decides in this order: the environment variable
+  `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` if set; otherwise a server-side feature flag, and even then never in
+  non-interactive (`-p`) mode. The flag is the pipe's own switch past that last rule — the CLI's error text
+  says it "requires --print and --output-format=stream-json (prompt_suggestion messages are only surfaced in
+  stream-json output)". Measured with the flag and without the variable: suggestions arrive.
+- **The message** is `{ type: 'prompt_suggestion', suggestion, uuid, session_id }`, one per turn, sent after
+  the turn's `result` — measured 4-12 s later — and before the next turn is written.
+- **Not every turn gets one.** Two trivial prompts ("Say hi in two words.") got none; a coding conversation got
+  one after every turn ("write it", "Take filename from command line arguments?"). The CLI's reasons for
+  skipping include `early_conversation`, `last_response_error` and `evaluative` (listed in the binary; which
+  applied was not measured).
+- **Cost:** the suggestion is a model call of its own, made from the conversation's cached prompt. It does not
+  appear in the turn's `result`; what it costs was not measured separately.
+- A control request `set_prompt_suggestions_paused` exists; not measured.
+
+## A sent message, before its turn starts (#694)
+
+Point 3 of the protocol notes means a sent line comes back only when its turn starts. Measured on 2.1.283: about
+2.2 s for the first turn after the start (the CLI is still starting), about 0.6 s for every later one, and a
+line sent while a turn runs not until that turn has ended. So the view draws the message at once, dimmed, at the
+end of the log with "sending…" or "queued", and the played-back entry takes its place where its turn runs —
+the rule that a queued line is drawn where it ran stays. Matched by text: the played-back line equals the sent
+one, or begins with it — a `/` command Claude answers by itself comes back as the command followed by its
+output (#680's `typedCommand`). A refused send removes it, a branch switch (a reset of the conversation) drops
+any still pending, and a `!` shell line gets none (it is not a turn). Shared with pi-native, which plays a line
+back the same way.
+
 ## Shared with pi-native, and what is not
 
 **Shared**, one implementation each (E7):

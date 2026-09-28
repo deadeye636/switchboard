@@ -55,6 +55,12 @@ const configFields = [
   { id: 'restricted', label: 'Restricted mode', type: 'toggle', default: false,
     description: 'Removes the tools that run commands or code, and WebFetch. Also ignores your settings files, and refuses the Bypass permission mode: that combination fails to start.' },
   ...['autocompact'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
+  // Claude's suggested next prompt, greyed out in the input and taken with Tab (#693). `--prompt-suggestions` is
+  // part of this backend's launch, like `--verbose` (the CLI keeps them off in print mode without it — measured,
+  // spec 32), and this option is the way OUT: an opt-out whose default, off, sends nothing — the configFields
+  // rule (a default describes, it is never sent). Each suggestion is a model call of its own; hence the switch.
+  { id: 'promptSuggestionsOff', label: 'Turn off prompt suggestions', type: 'toggle', default: false,
+    description: 'After a turn, Claude suggests a next prompt; Tab takes it into the input. Each suggestion is a small model call of its own — switch this on to stop them.' },
   // NOT offered, and why (#685):
   // - `mcpEmulation` starts the IDE bridge and adds `--ide` at the terminal spawn site. A piped session asks
   //   its approvals over the pipe (`--permission-prompt-tool stdio`) and draws them on a card, so a diff review
@@ -126,6 +132,8 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
   }
   if (opts.restricted) args.push('--restricted');
   if (opts.autocompact) args.push(`--autocompact=${opts.autocompact}`);
+  // Part of the launch unless the user turned it off (#693, the field's comment says why it is an opt-out).
+  if (!opts.promptSuggestionsOff) args.push('--prompt-suggestions');
   return {
     command: 'claude',
     args,

@@ -3209,6 +3209,13 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 .task-notice-output { background: none; border: none; padding: 0; color: #7c8cff; font: inherit; font-size: 11px; cursor: pointer; }
 .task-notice-output:hover { text-decoration: underline; }
 .task-notice-text { margin: -4px 0 8px; max-height: 260px; overflow: auto; }
+/* A message sent, not yet played back by the runtime (#694): the user's bubble, dimmed, with what it waits on. */
+.conversation-pending { opacity: 0.6; position: relative; }
+.conversation-pending-tag {
+  display: block; margin-top: 4px; font-size: 11px; font-style: italic; color: #9090a8;
+}
+/* A suggested next prompt in the empty input (#693): the placeholder, a shade brighter than the usual hint. */
+.conversation-input.has-suggestion::placeholder { color: #9aa0c8; font-style: italic; }
 /* The call a background agent's "Open" jumped to, marked for a moment. */
 .conversation-flash { outline: 1px solid #7c8cff; outline-offset: 2px; border-radius: 4px; transition: outline-color 1s; }
 /* The branch tree (#646, session/branch-tree-dialog.js): a control dialog, wider, holding a list. The rows
