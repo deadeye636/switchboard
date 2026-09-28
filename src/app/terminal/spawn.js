@@ -240,6 +240,16 @@ function liveOwnerMessage(owner) {
 }
 
 /**
+ * The shell a pasted or dropped path is quoted for, or null when the receiver is not a shell (#700).
+ *
+ * Only a plain terminal answers. In a CLI session `shellType` is the shell the CLI was launched THROUGH,
+ * while the text is read by the CLI itself — so that session keeps the renderer's default quoting.
+ */
+function pathShellOf(session) {
+  return session && session.isPlainTerminal ? (session.shellType || null) : null;
+}
+
+/**
  * What a spawn-applied option resolves to for THIS backend, in THIS project (#569).
  *
  * `global → project → session`, read for whichever backend is being spawned. **The id is not a backend
@@ -355,7 +365,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       sendTerminalData(sessionId, '\x1b[?25l');
     }
 
-    return { ok: true, reattached: true, mcpActive: !!session.mcpServer };
+    return { ok: true, reattached: true, mcpActive: !!session.mcpServer, pathShell: pathShellOf(session) };
   }
 
   // Spawn new PTY
@@ -1712,7 +1722,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     }
   }
 
-  return { ok: true, reattached: false, mcpActive: !!mcpServer };
+  return { ok: true, reattached: false, mcpActive: !!mcpServer, pathShell: pathShellOf(session) };
 }
 
 /**

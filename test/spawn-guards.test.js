@@ -93,11 +93,19 @@ test('reattaching to a live session replays its buffer and does not spawn', asyn
   const ctx = setup({ sessions: [['s', session]] });
 
   const r = await spawn.openTerminal('s', CWD, false, {});
-  assert.deepEqual(r, { ok: true, reattached: true, mcpActive: true });
+  // A CLI session names no shell to quote a dropped path for (#700): its receiver is the CLI.
+  assert.deepEqual(r, { ok: true, reattached: true, mcpActive: true, pathShell: null });
   assert.equal(session.rendererAttached, true);
   assert.equal(session.firstResize, true, 'so the TUI gets its repaint nudge');
   assert.deepEqual(ctx.sent.map((a) => a[2]), ['\x1b[?1049h', 'hello', 'world', '\x1b[?25l'],
     'alt-screen escape, then the buffer, then the cursor hide');
+});
+
+test('a plain terminal names its shell family for a pasted or dropped path (#700)', async () => {
+  const session = { exited: false, outputBuffer: [], isPlainTerminal: true, shellType: 'cmd' };
+  setup({ sessions: [['t', session]] });
+  const r = await spawn.openTerminal('t', CWD, false, {});
+  assert.equal(r.pathShell, 'cmd');
 });
 
 test('a session whose PTY is already dead is NOT reattached — it falls through to a fresh spawn (#130)', async () => {

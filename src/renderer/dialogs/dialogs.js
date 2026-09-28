@@ -734,6 +734,7 @@ async function launchTerminalSession(project, launcher = null) {
     showSession(sessionId); // surface the failure instead of leaving it in an invisible terminal (issue #78)
     return;
   }
+  entry.pathShell = result.pathShell || null; // how a pasted or dropped path is quoted (#700)
 
   syncPtySize(sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
   showSession(sessionId);

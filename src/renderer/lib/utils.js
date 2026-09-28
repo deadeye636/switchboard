@@ -73,7 +73,19 @@ function readLsJson(key, fallbackJson) {
   return value;
 }
 
-function shellEscape(path) {
+// A pasted or dropped path as one word for whoever reads the terminal (#700). `shell` is the plain
+// terminal's shell family as main classified it; anything else — a CLI session, WSL, fish, a shell main
+// could not name — gets POSIX single quotes, which is what every path got before the family was known.
+// Unlike `shellQuotePath` (shared/variable-insert.js) an unknown shell is still quoted: a path the user
+// dropped has to survive a space, and single quotes are the best guess there is.
+// What it cannot see is the program behind the shell: a launcher's command or a `bash` started inside a cmd
+// terminal reads the text too, and still gets the outer shell's quoting.
+function shellEscape(path, shell) {
+  // PowerShell reads the typographic single quotes as quotes as well, so each is doubled like `'`.
+  if (shell === 'pwsh' || shell === 'powershell') return "'" + path.replace(/['‘’‚‛]/g, m => m + m) + "'";
+  // cmd has no escape inside double quotes, and a Windows path cannot contain one. A `%NAME%` in a file name
+  // is still expanded when NAME is defined; cmd offers no way around that inside quotes.
+  if (shell === 'cmd') return '"' + path + '"';
   return "'" + path.replace(/'/g, "'\\''") + "'";
 }
 

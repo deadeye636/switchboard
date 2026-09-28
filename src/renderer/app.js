@@ -1567,6 +1567,7 @@ async function launchNewSession(project, sessionOptions, seedText) {
     showSession(sessionId);
     return null;
   }
+  entry.pathShell = result.pathShell || null; // how a pasted or dropped path is quoted (#700)
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   syncPtySize(sessionId); // PTY spawned at 120x30 — push the real dimensions (#81)
@@ -2032,6 +2033,7 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
     // pty edge only patches a class), so without this the row keeps saying the old view.
     refreshSidebar();
   }
+  entry.pathShell = result.pathShell || null; // how a pasted or dropped path is quoted (#700)
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
 
   syncPtySize(sessionId); // push real dimensions to the (re)spawned/reattached PTY (#81)
@@ -2108,6 +2110,7 @@ async function attachRunningSession(session) {
     return false;
   }
   attachEntrySurface(entry);
+  entry.pathShell = result.pathShell || null; // how a pasted or dropped path is quoted (#700)
   if (typeof setSessionMcpActive === 'function') setSessionMcpActive(sessionId, !!result.mcpActive);
   syncPtySize(sessionId); // see openSession (#81)
   return true;

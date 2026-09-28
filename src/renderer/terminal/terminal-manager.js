@@ -108,7 +108,8 @@ async function insertFromDataTransfer(dt, terminal, sessionId, { clipboardBitmap
   if (!dt) return;
   const send = (s) => { if (s) pasteIntoTerminal(terminal, sessionId, s); };
   const sendPaths = (paths) => {
-    const escaped = paths.map(p => shellEscape(p)).filter(Boolean);
+    const entry = openSessions.get(sessionId);
+    const escaped = paths.map(p => shellEscape(p, entry && entry.pathShell)).filter(Boolean);
     if (!escaped.length) return false;
     send(escaped.join(' ') + ' ');
     return true;
