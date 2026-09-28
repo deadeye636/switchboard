@@ -257,8 +257,13 @@
     // worktree's transcripts per backend, and THAT half worked. The project's settings screen is not a
     // substitute — it resolves to the project (#593), so it would delete the project's history.
     // Hide (the sidebar's worktree header) and "Delete worktree from disk" beside it are what remain.
+    //
+    // A worktree whose checkout is GONE gets Delete instead (#679): the "Clean up missing" flow for this one
+    // row, which deletes the history and the config entry — the two things that really take a worktree off
+    // the list — and writes no tombstone, which is the part Remove got wrong. A present worktree still has
+    // nothing here; its way out is the sidebar's "Delete worktree from disk".
     const actions = isWorktree
-      ? ''
+      ? (row.missing ? '<button data-action="delete-missing" class="pa-danger" title="Its checkout is gone: delete its history and config entry so it leaves the list">Delete</button>' : '')
       : '<button data-action="remove" class="pa-danger" title="Remove from Switchboard (off the list, cached sessions cleared)">Remove</button>';
     return `
       <tr data-path="${escapeHtml(row.projectPath)}" class="${rowClass}">
@@ -351,6 +356,7 @@
         <input type="text" class="pa-search" placeholder="Filter projects…" value="${escapeHtml(filter)}">
         ${unlistedOnly ? '<button type="button" class="pa-chip" data-action="clear-unlisted" title="Showing only projects that have sessions but are not on the list. Click the tick under “Listed” to add one.">Not on the list &times;</button>' : ''}
         <span class="pa-mode">${autoAdd ? 'Auto-add: on' : 'Manual mode'}</span>
+        <span class="pa-cleanup-slot">${cleanupButtonHtml()}</span>
         <button class="pa-add" data-action="add">+ Add project</button>
         <button class="pa-refresh" data-action="refresh" title="Reload">⟳</button>
         <button class="viewer-header-close" data-close-admin title="Close (Esc)" aria-label="Close">&times;</button>
@@ -462,6 +468,11 @@
       onBeforeElUpdated: (fromEl, toEl) => !fromEl.querySelector('.pa-rename-input')
         && !fromEl.isEqualNode(toEl),
     });
+    const slot = viewer.querySelector('.pa-cleanup-slot');
+    if (slot) {
+      const html = cleanupButtonHtml();
+      if (slot.innerHTML !== html) slot.innerHTML = html;
+    }
     if (wasAutoAdd !== autoAdd) {
       const mode = viewer.querySelector('.pa-mode');
       if (mode) mode.textContent = autoAdd ? 'Auto-add: on' : 'Manual mode';
@@ -598,6 +609,174 @@
     return data.find(r => r.projectPath === path);
   }
 
+  function missingCount() {
+    return data.filter(r => r.missing).length;
+  }
+
+  // The header's "Clean up missing (n)", or nothing while every directory is there. In a slot of its own so a
+  // quiet refresh can redraw the count without rebuilding the header and the search box in it.
+  function cleanupButtonHtml() {
+    const n = missingCount();
+    return n
+      ? `<button class="pa-add pa-cleanup" data-action="cleanup-missing" title="Projects and worktree checkouts whose directory is gone — review them and clean them up in one step">Clean up missing (${n})</button>`
+      : '';
+  }
+
+  // The "Clean up missing" dialog (#679). `entries` is main's answer (`missingProjects`); `only` narrows it to
+  // one row for the per-row Delete. Resolves to the entries to clean up, each with the backends whose history
+  // and config entry go, or null on cancel.
+  //
+  // What starts ticked is the decision in #679: a worktree whose checkout is gone is almost always an agent's
+  // finished one, so it and its history are ticked; a top-level project may sit on a drive that is not
+  // plugged in, so it starts unticked and says so. Deleting history cannot be undone, and the dialog says that
+  // before anything is pressed. Built like `confirmRemove`, and for the same reason: the shared dialog has no
+  // shape for a list of switches.
+  async function confirmCleanup(entries, { only = null } = {}) {
+    const list = only ? entries.filter(e => e.projectPath === only) : entries;
+    if (!list.length) {
+      // For one row this means main does not list it as missing (yet) — a checkout that vanished after the
+      // last sweep has no row there — not that the directory is back.
+      toast(only
+        ? 'This entry is not on the list of missing directories yet. Reload, then try again.'
+        : 'Nothing to clean up — every directory is there.');
+      return null;
+    }
+    const wtEntries = list.filter(e => e.worktree);
+    const projectsGone = list.filter(e => !e.worktree);
+
+    const entryHtml = (e, i) => {
+      const tick = e.worktree && !e.live;
+      const name = e.displayName || (e.worktree ? worktreeName({ projectPath: e.projectPath, worktreeRoot: e.worktreeRoot }) : shortName(e.projectPath));
+      const parts = [];
+      for (const h of e.history || []) {
+        parts.push(h.deletable
+          ? `<label class="pa-check-row"><input type="checkbox" class="pa-cl-history" data-backend="${escapeHtml(h.id)}"${tick ? ' checked' : ''}>
+               ${escapeHtml(h.label)} history <span class="pa-check-note">${h.sessions} session${h.sessions === 1 ? '' : 's'}</span></label>`
+          : `<label class="pa-check-row pa-check-disabled"><input type="checkbox" disabled>
+               ${escapeHtml(h.label)} history <span class="pa-check-note">${escapeHtml(h.reason || '')}</span></label>`);
+      }
+      for (const c of e.config || []) {
+        parts.push(`<label class="pa-check-row"><input type="checkbox" class="pa-cl-config" data-backend="${escapeHtml(c.id)}"${tick ? ' checked' : ''}>
+             ${escapeHtml(c.removeLabel || `${c.label} config entry`)}</label>`);
+      }
+      const note = e.live
+        ? `<span class="pa-check-note">a session is running in it</span>`
+        : (!e.worktree ? '<span class="pa-check-note">the directory may be on a drive that is not connected</span>' : '');
+      return `
+        <div class="pa-cleanup-entry" data-index="${i}">
+          <label class="pa-check-row${e.live ? ' pa-check-disabled' : ''}"><input type="checkbox" class="pa-cl-entry"${tick ? ' checked' : ''}${e.live ? ' disabled' : ''}>
+            ${e.worktree ? BRANCH : ''}${escapeHtml(name)} ${note}</label>
+          <div class="pa-cleanup-path">${escapeHtml(e.projectPath)}</div>
+          ${parts.length ? `<div class="pa-cleanup-parts">${parts.join('')}</div>` : ''}
+        </div>`;
+    };
+
+    return new Promise((resolve) => {
+      const titleId = controlDialogId('pa-cleanup-title');
+      const descId = controlDialogId('pa-cleanup-desc');
+      const overlay = document.createElement('div');
+      overlay.className = 'control-dialog-overlay';
+      const dialog = document.createElement('div');
+      dialog.className = 'control-dialog control-dialog-danger';
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      dialog.setAttribute('aria-labelledby', titleId);
+      dialog.setAttribute('aria-describedby', descId);
+
+      let index = 0;
+      const group = (title, items) => items.length
+        ? `<div class="pa-cleanup-group">${escapeHtml(title)}</div>${items.map(e => entryHtml(e, index++)).join('')}`
+        : '';
+      const ordered = [...wtEntries, ...projectsGone];
+      dialog.innerHTML = `
+        <div class="control-dialog-kicker">Destructive Action</div>
+        <h3 id="${titleId}">${only ? 'Delete missing entry' : 'Clean up missing projects'}</h3>
+        <p id="${descId}">These directories no longer exist. A worktree leaves the list once its history and
+        config entry are gone; a project is removed the way Remove removes it. Deleting history removes those
+        transcripts from disk — that is irreversible.</p>
+        <div class="pa-cleanup-list">
+          ${group(`Worktree checkouts (${wtEntries.length})`, wtEntries)}
+          ${group(`Projects (${projectsGone.length})`, projectsGone)}
+        </div>
+        <div class="control-dialog-actions">
+          <button type="button" class="control-dialog-cancel">Cancel</button>
+          <button type="button" class="control-dialog-confirm">Clean up</button>
+        </div>`;
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+      const releaseFocus = trapControlDialogFocus(overlay, dialog);
+
+      const confirm = dialog.querySelector('.control-dialog-confirm');
+      const chosen = () => [...dialog.querySelectorAll('.pa-cleanup-entry')].filter(el => {
+        const box = el.querySelector('.pa-cl-entry');
+        return box && box.checked && !box.disabled;
+      });
+      const update = () => {
+        const n = chosen().length;
+        confirm.textContent = n ? `Clean up (${n})` : 'Clean up';
+        confirm.disabled = !n;
+      };
+      // An entry's own switches are what it deletes, so unticking the entry greys them out rather than
+      // leaving three ticked boxes under an entry that will not run.
+      dialog.addEventListener('change', (ev) => {
+        const entryEl = ev.target.closest('.pa-cleanup-entry');
+        if (entryEl && ev.target.classList.contains('pa-cl-entry')) {
+          for (const box of entryEl.querySelectorAll('.pa-cleanup-parts input:not([disabled])')) {
+            box.closest('.pa-check-row').classList.toggle('pa-check-disabled', !ev.target.checked);
+          }
+        }
+        update();
+      });
+      for (const el of dialog.querySelectorAll('.pa-cleanup-entry')) {
+        const box = el.querySelector('.pa-cl-entry');
+        if (box && !box.checked) for (const row of el.querySelectorAll('.pa-cleanup-parts .pa-check-row')) row.classList.add('pa-check-disabled');
+      }
+      update();
+
+      const close = (result) => {
+        document.removeEventListener('keydown', onKey);
+        overlay.remove();
+        resolve(result);
+        releaseFocus();
+      };
+      function onKey(e) { if (e.key === 'Escape') close(null); }
+      dialog.querySelector('.control-dialog-cancel').addEventListener('click', () => close(null));
+      confirm.addEventListener('click', () => close(chosen().map(el => {
+        const e = ordered[Number(el.dataset.index)];
+        return {
+          projectPath: e.projectPath,
+          backendIds: [...el.querySelectorAll('.pa-cl-history:checked')].map(c => c.dataset.backend),
+          configBackendIds: [...el.querySelectorAll('.pa-cl-config:checked')].map(c => c.dataset.backend),
+        };
+      })));
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+      document.addEventListener('keydown', onKey);
+      // Cancel first, as in the Remove dialog (#501): this one deletes transcripts too.
+      dialog.querySelector('.control-dialog-cancel').focus();
+    });
+  }
+
+  // Run the clean-up and say what happened, including what did not (#580): a skipped entry names its reason,
+  // and an entry whose kept history can bring it back says so rather than reading as gone for good.
+  async function runCleanup(only) {
+    const listed = await window.api.missingProjects();
+    if (!listed || listed.error) { toast('Clean up: ' + ((listed && listed.error) || 'the list could not be read.')); return; }
+    const choice = await confirmCleanup(listed.entries || [], { only });
+    if (!choice || !choice.length) return;
+    const res = await window.api.cleanupMissingProjects(choice);
+    if (!res || res.error) { toast('Clean up: ' + ((res && res.error) || 'nothing was done.')); return; }
+    const results = res.results || [];
+    const done = results.filter(r => r.ok);
+    const skipped = results.filter(r => !r.ok);
+    const back = done.filter(r => r.stays).length;
+    const configFailed = done.flatMap(r => r.configErrors || []);
+    const parts = [`Cleaned up ${done.length} of ${results.length}.`];
+    if (back) parts.push(`${back} can come back: kept history, a store folder that is not empty, or a config entry still names ${back === 1 ? 'it' : 'them'}.`);
+    if (skipped.length) parts.push('Skipped: ' + skipped.map(r => `${shortName(r.projectPath)} — ${r.error}`).join('; '));
+    if (configFailed.length) parts.push('Config: ' + configFailed.join('; '));
+    toast(parts.join(' '));
+  }
+
   async function handleAction(action, path, tr, trustBackendId) {
     const row = findRow(path);
     try {
@@ -689,7 +868,16 @@
           // not stay unticked.
           const r = await window.api.removeProject(path);
           if (r && r.error) { toast('Remove: ' + r.error); return; }
-        } else await window.api.addProject(path);
+        } else {
+          // It threw the answer away too (#679 F5): ticking a row whose directory is gone looked like a tick
+          // that would not stay, with nothing said.
+          const r = await window.api.addProject(path);
+          if (r && r.error) { toast('Add: ' + r.error); return; }
+        }
+      } else if (action === 'delete-missing') {
+        await runCleanup(path);
+      } else if (action === 'cleanup-missing') {
+        await runCleanup(null);
       } else if (action === 'remove') {
         const choice = await confirmRemove(path);
         if (!choice) return;
@@ -813,7 +1001,7 @@
     const tr = btn.closest('tr');
     const path = tr ? tr.dataset.path : null;
     if (action === 'clear-unlisted') { unlistedOnly = false; render(); return; }   // #183
-    if (action === 'refresh' || action === 'add') { handleAction(action, null, null); return; }
+    if (action === 'refresh' || action === 'add' || action === 'cleanup-missing') { handleAction(action, null, null); return; }
     if (!path) return;
     // A trust chip carries the backend it speaks for (#171) — there is one per backend that has a
     // trust gate, so the click has to say WHICH.
@@ -822,6 +1010,8 @@
 
   // Public entry point, called from the tab handler in app.js.
   window.loadProjectsAdmin = load;
+  // The sidebar's Delete on a worktree whose checkout is gone runs the same clean-up for that one entry (#679).
+  window.cleanupMissingEntry = (projectPath) => runCleanup(projectPath);
   // Called from app.js's `projects-changed` handler (#672).
   window.refreshProjectsAdmin = refreshQuietly;
 })();

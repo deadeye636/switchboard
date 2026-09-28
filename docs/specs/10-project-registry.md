@@ -794,6 +794,44 @@ offered, and the removal clears the cached rows the delete reads to find the tra
 cannot even ask again. Both steps stop the whole action now, and so does the on-the-list toggle, which
 used to throw the answer away entirely.
 
+## Cleaning up what is gone (#679)
+
+"Missing" means `existsSync` said no. A deleted directory and an unplugged drive look the same, so the
+cleanup treats the two kinds of row differently.
+
+A worktree whose checkout is gone is almost always an agent's finished one. A tombstone does nothing for
+it (see c3d67b07 in the manager's comment), so it leaves the list only when its transcripts and its config
+entry are gone. That is what the cleanup deletes for it, followed by the prune, which also drops its
+display name. No tombstone is written. After the whole act each repository involved is asked once to forget
+its gone checkouts, through the VCS seam (`pruneWorktreesArgs`, `git worktree prune` for git), so
+`git worktree list` stops reporting them as prunable. That prune is not scoped to the ticked entries: git
+forgets every checkout of the repository whose directory is missing, an unticked one included. Accepted,
+because a worktree lives inside its repository and the unplugged-drive case is a project's, not a checkout's.
+
+A top-level project may only be offline, so it starts unticked and goes through the same steps as the
+Remove dialog. Its tombstone is kept while any of its history was kept: the prune that follows a config
+removal decides by the cached rows and by Claude's store alone, and `removeProject` has just purged those
+rows, so a project whose Codex or Pi history was kept would read as gone and lose its tombstone. The cleanup
+therefore asks whether history was kept before the removal, and skips that prune when it was. The Remove
+dialog runs the same steps in the same order and still has that hole.
+
+A cleaned entry can still come back when something names it: kept history, a store folder that is not
+empty (Claude removes a folder only once nothing is left in it), or a config entry. The summary says so
+instead of promising the row is gone.
+
+The routes in: "Clean up missing (n)" in the manager's header for everything, and Delete on a missing
+worktree row, in the manager or in the sidebar, for one entry. Both open the same dialog and call
+`cleanupMissing`. Each entry runs on its own. A refused entry (a running session, a delete that removed
+nothing, a directory that has come back) is skipped with its reason, and the others still run.
+
+**A cached row whose transcript is already gone is dropped before the delete.** Measured in the demo: a
+store folder deleted by hand kept its rows through rescans, and the delete answered "nothing was removed"
+for them. That stopped the entry (#580), so no act could ever clear the row.
+
+**When a missing worktree row exists at all.** A transcript read after its checkout was deleted is folded
+into the parent project (`resolveWorktreePath`), so it never gets a row of its own. The missing row is one
+whose session was indexed while the checkout was still there, and whose file has not changed since.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was
@@ -802,7 +840,9 @@ used to throw the answer away entirely.
   rediscovered one at a time.** A worktree the user hid, whose project is later removed, is on no
   discovery surface at all — the project manager's row is the only thing that still names it (#599).
   The manager no longer offers "Remove" on a worktree row — three of its four effects there were wrong,
-  and the one that worked (deleting the transcripts per backend) went with it, which is #602. And the settings import writes a
+  and the one that worked (deleting the transcripts per backend) went with it, which was #602. A worktree
+  whose checkout is gone has that route back through the cleanup (#679); one whose checkout is still there
+  does not, and its way out is the sidebar's "Delete worktree from disk". And the settings import writes a
   worktree's `hidden` flag at the raw path, so restoring a project can hide or un-hide its worktrees.
 - The sweep's "no session anywhere" check sees a backend store only once that backend has been scanned in
   the current run. It errs on the safe side: an unscanned store means the tombstone is **kept**.

@@ -16,6 +16,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+// The VCS seam (#277): which VCS owns a directory, and the argv it forgets a gone worktree with (#679).
+const vcs = require('../vcs');
 
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { deriveProjectPath } = require('../session/derive-project-path');
@@ -416,6 +419,11 @@ async function browseFolder() {
  */
 function addProject(projectPath) {
   try {
+    // A missing directory is the common way here (#679 F5): the Listed tick on a row whose checkout is gone.
+    // Say what to do about it rather than an errno.
+    if (!projectPath || !fs.existsSync(projectPath)) {
+      return { error: 'This directory no longer exists. Remap the project, or clean it up with "Clean up missing".' };
+    }
     const stat = fs.statSync(projectPath);
     if (!stat.isDirectory()) return { error: 'Path is not a directory' };
 
@@ -497,7 +505,7 @@ function hideProject(projectPath) {
  *
  * It refuses while this app is running a session in the project (#578) — see the guard below.
  */
-function removeProject(projectPath) {
+function removeProject(projectPath, { quiet = false } = {}) {
   try {
     if (!projectPath) return { error: 'No project path' };
 
@@ -549,7 +557,7 @@ function removeProject(projectPath) {
     ctx.db.deleteSetting('project:' + projectPath);
     if (registeredPath !== projectPath) ctx.db.deleteSetting('project:' + registeredPath);
 
-    ctx.cache.notifyRendererProjectsChanged();
+    if (!quiet) ctx.cache.notifyRendererProjectsChanged();
     return { ok: true, cleared: rows.length };
   } catch (err) {
     return { error: readableError(err, "That project's settings could not be cleared.", ctx && ctx.log) };
@@ -1340,7 +1348,7 @@ function deletableBackends(projectPath) {
  *          `refused` is every backend that KEPT its history and why (#580) — `ok: true` with entries in
  *          it is a partial delete, not a success, and the renderer stops on a `failed` or `empty` one.
  */
-function deleteProjectSessions(projectPath, backendIds) {
+function deleteProjectSessions(projectPath, backendIds, { quiet = false } = {}) {
   try {
     if (!projectPath) return { error: 'No project path' };
 
@@ -1433,7 +1441,7 @@ function deleteProjectSessions(projectPath, backendIds) {
     }
 
     pruneProjectIfGone(projectPath);
-    ctx.cache.notifyRendererProjectsChanged();
+    if (!quiet) ctx.cache.notifyRendererProjectsChanged();
     return { ok: true, removed, deleted, refused };
   } catch (err) {
     return { error: readableError(err, 'That project could not be removed.', ctx && ctx.log) };
@@ -1445,7 +1453,7 @@ function deleteProjectSessions(projectPath, backendIds) {
  * MCP, allowedTools, cost). The backend does the atomic write; the core just names no backend (#211).
  * `backendId` omitted picks the first backend that keeps such a store, for an older renderer.
  */
-function removeProjectConfig(projectPath, backendId) {
+function removeProjectConfig(projectPath, backendId, { quiet = false, prune = true } = {}) {
   const metaBackends = listBackendsWithMeta();
   const backend = backendId ? metaBackends.find(b => b.id === backendId) : metaBackends[0];
   if (!backend || typeof backend.projectMeta.remove !== 'function') {
@@ -1453,10 +1461,199 @@ function removeProjectConfig(projectPath, backendId) {
   }
   const result = backend.projectMeta.remove(projectPath);
   if (result && result.ok) {
-    pruneProjectIfGone(projectPath);
-    ctx.cache.notifyRendererProjectsChanged();
+    if (prune) pruneProjectIfGone(projectPath);
+    if (!quiet) ctx.cache.notifyRendererProjectsChanged();
   }
   return result;
+}
+
+/**
+ * Every project or worktree whose directory is gone, with what can be deleted for it (#679).
+ *
+ * "Gone" is `existsSync` answering false, the same test every missing marker uses — which is also why a
+ * directory on an unplugged drive or an unreachable share is in this list. The renderer therefore starts a
+ * top-level project unticked and says so; this function only reports.
+ *
+ * A worktree is flagged, because it is cleaned up differently: a tombstone does nothing for it (c3d67b07), so
+ * only its history and its config entry take it off the list for good.
+ */
+function missingProjects() {
+  try {
+    const admin = getProjectsAdmin();
+    if (admin.error) return admin;
+    const metaBackends = listBackendsWithMeta();
+    const entries = [];
+    for (const r of admin.projects || []) {
+      if (!r.missing) continue;
+      const config = [];
+      for (const b of metaBackends) {
+        let known = false;
+        try { known = typeof b.projectMeta.has === 'function' && b.projectMeta.has(r.projectPath); } catch { known = false; }
+        if (known) config.push({ id: b.id, label: b.label || b.id, removeLabel: b.projectMeta.removeLabel || null });
+      }
+      entries.push({
+        projectPath: r.projectPath,
+        displayName: r.displayName || '',
+        worktree: !!parseWorktreePath(r.projectPath),
+        worktreeRoot: r.worktreeRoot || null,
+        registered: !!r.registered,
+        history: deletableBackends(r.projectPath),
+        config,
+        live: liveSessionsIn(r.projectPath),
+      });
+    }
+    return { ok: true, entries };
+  } catch (err) {
+    return { error: readableError(err, 'The missing projects could not be read.', ctx && ctx.log) };
+  }
+}
+
+/**
+ * Clean up entries whose directory is gone, in one act (#679).
+ *
+ * `entries` is `[{ projectPath, backendIds, configBackendIds }]`: the backends whose history to delete and
+ * the backends whose config entry to drop, as the user ticked them. Each entry runs on its own and reports
+ * on its own — one that is refused is skipped and the rest go on, because the user ticked a list, not a
+ * sequence where each step depends on the one before. Within an entry the order of the Remove dialog still
+ * holds, and a step that does not do what it was asked stops that entry (#574, #580).
+ *
+ * A worktree is never tombstoned: its history and config entry are what take it off the list, and the prune
+ * that follows drops its display name with the rest (#586). A top-level project goes through `removeProject`
+ * like the Remove dialog, so a project on an unplugged drive whose history was kept comes back only with a
+ * session started after this.
+ *
+ * It refuses a directory that EXISTS at the time of the act, whatever the list said when it was drawn: this
+ * route is for the missing, and a present project has the Remove dialog.
+ *
+ * One push at the end instead of one per step.
+ */
+function cleanupMissing(entries) {
+  if (!Array.isArray(entries) || !entries.length) return { error: 'Nothing was chosen to clean up.' };
+  const results = [];
+  try {
+    for (const entry of entries) results.push(cleanupOneMissing(entry));
+  } finally {
+    // One prune per repository, not one per entry: forty worktrees of one repository are forty entries and
+    // one bookkeeping directory.
+    const roots = new Set(results.filter(r => r.ok && r.repoRoot).map(r => r.repoRoot));
+    for (const root of roots) pruneVcsWorktrees(root);
+    for (const r of results) delete r.repoRoot;
+    ctx.cache.notifyRendererProjectsChanged();
+  }
+  return { ok: true, results };
+}
+
+/**
+ * Ask a repository whose worktrees were cleaned up to forget the gone ones (#679, A5). Through the VCS seam,
+ * so this file names no VCS: the provider that owns the directory says which argv does it, and one that has
+ * no such thing is skipped. Asynchronous and best effort — the entries are already off the list, and what is
+ * left is a line in the repository's own bookkeeping that the VCS would expire by itself eventually. The
+ * command reads no standard input, so it is started with none.
+ *
+ * It is not scoped to the entries the user ticked: git's prune forgets EVERY checkout of that repository whose
+ * directory is missing, an unticked one included. Accepted in #679 — a worktree lives inside its repository,
+ * so a checkout on a drive that is merely unplugged is not the case this guards against for projects.
+ */
+function pruneVcsWorktrees(root) {
+  try {
+    if (!root || !fs.existsSync(root)) return;
+    const provider = vcs.detect(root);
+    if (!provider || typeof provider.pruneWorktreesArgs !== 'function') return;
+    execFile(provider.bin, provider.pruneWorktreesArgs(), { cwd: root, windowsHide: true, timeout: 15000 }, (err) => {
+      if (err) ctx.log.warn('[cleanup] worktree prune failed: ' + (err.code || 'error'));
+    }).stdin?.end();
+  } catch (err) {
+    ctx.log.warn('[cleanup] worktree prune skipped: ' + (err.code || 'error'));
+  }
+}
+
+// Drop the cached rows of these backends whose transcript file is gone, and say how many. A backend that
+// cannot name a file for a row (no `transcriptPathFor`, or no answer) keeps the row: absence is the claim
+// that needs the evidence, and "could not tell" is not it.
+function dropRowsWithoutTranscript(projectPath, backendIds) {
+  let rows = [];
+  try { rows = ctx.db.getCachedByProjectPath(projectPath) || []; } catch { rows = []; }
+  let dropped = 0;
+  for (const r of rows) {
+    if (!backendIds.includes(r.backendId)) continue;
+    const backend = ctx.backends.get(r.backendId);
+    if (!backend || typeof backend.transcriptPathFor !== 'function') continue;
+    let file = null;
+    try { file = backend.transcriptPathFor(r); } catch { file = null; }
+    if (!file || fs.existsSync(file)) continue;
+    try { ctx.db.deleteCachedSession(r.sessionId); } catch { continue; }
+    try { ctx.db.deleteSearchSession(r.sessionId); } catch { /* best effort */ }
+    dropped++;
+  }
+  return dropped;
+}
+
+function cleanupOneMissing(entry) {
+  const projectPath = entry && entry.projectPath;
+  const out = { projectPath: projectPath || '', ok: false, removed: 0, configErrors: [] };
+  if (!projectPath) { out.error = 'No project path'; return out; }
+  try {
+    if (fs.existsSync(projectPath)) {
+      out.error = 'The directory exists again, so it was left alone.';
+      return out;
+    }
+    const live = liveSessionsIn(projectPath);
+    if (live) {
+      out.error = live === 1 ? 'A session is running in it.' : `${live} sessions are running in it.`;
+      return out;
+    }
+
+    const history = Array.isArray(entry.backendIds) ? entry.backendIds.filter(Boolean) : [];
+    // A cached row whose transcript is no longer on disk has nothing left to delete, and handed to the delete
+    // it reads as "nothing was removed" — which stops the entry (#580) and leaves a row no act could ever
+    // clear. Measured in the demo: a store folder deleted by hand kept its project's rows through rescans.
+    // So those rows are dropped here first; only a transcript that IS there goes to the backend's delete.
+    if (history.length) out.removed += dropRowsWithoutTranscript(projectPath, history);
+    if (history.length) {
+      const del = deleteProjectSessions(projectPath, history, { quiet: true });
+      if (del.error) { out.error = del.error; return out; }
+      out.removed += del.removed || 0;
+      const stop = (del.refused || []).find(r => r.kind !== 'unsupported');
+      if (stop) { out.error = `${stop.label}: ${stop.reason}`; return out; }
+    }
+
+    const isWorktree = !!parseWorktreePath(projectPath);
+    // Asked BEFORE `removeProject`, which purges the cached rows: whether any history was kept. The prune that
+    // follows a config removal decides by those rows and by Claude's store alone, so after the purge a project
+    // whose Codex or Pi history was kept would read as gone — and the prune would take its tombstone with it,
+    // letting the next scan register it straight back. The Remove dialog has the same order and the same hole;
+    // here the prune is simply not run while history was kept.
+    let keptHistory = false;
+    try { keptHistory = (ctx.db.getCachedByProjectPath(projectPath) || []).length > 0; } catch { keptHistory = true; }
+    if (!isWorktree) {
+      const rm = removeProject(projectPath, { quiet: true });
+      if (rm.error) { out.error = rm.error; return out; }
+    }
+
+    const config = Array.isArray(entry.configBackendIds) ? entry.configBackendIds.filter(Boolean) : [];
+    for (const backendId of config) {
+      const res = removeProjectConfig(projectPath, backendId, { quiet: true, prune: isWorktree || !keptHistory });
+      if (!res || res.error || !res.ok) {
+        const backend = ctx.backends.get(backendId);
+        out.configErrors.push(`${backend ? (backend.label || backendId) : backendId}: ${(res && res.error) || 'its config entry could not be removed.'}`);
+      }
+    }
+    // The delete and the config removal prune on their own. A worktree for which the user ticked neither may
+    // still have nothing left. A top-level project is not pruned here, for the reason above.
+    if (isWorktree) {
+      pruneProjectIfGone(projectPath);
+      out.repoRoot = worktreeRootOf(projectPath) || null;
+    }
+
+    out.ok = true;
+    // Whether the row can come back: something still names it — kept history, a store folder that is not
+    // empty, a config entry. Said, so the summary does not promise more than happened.
+    out.stays = keptHistory && !isWorktree ? true : (projectHasSessionsLeft(projectPath) || projectKnownToAnyBackend(projectPath));
+    return out;
+  } catch (err) {
+    out.error = readableError(err, 'It could not be cleaned up.', ctx && ctx.log);
+    return out;
+  }
 }
 
 function toggleFavorite(projectPath) {
@@ -1482,6 +1679,8 @@ function registerIpc(ipcMain) {
   ipcMain.handle('delete-project-sessions', (_e, projectPath, backendIds) => deleteProjectSessions(projectPath, backendIds));
   ipcMain.handle('project-deletable-backends', (_e, projectPath) => deletableBackends(projectPath));
   ipcMain.handle('remove-project-config', (_e, projectPath, backendId) => removeProjectConfig(projectPath, backendId));
+  ipcMain.handle('missing-projects', () => missingProjects());
+  ipcMain.handle('cleanup-missing-projects', (_e, entries) => cleanupMissing(entries));
   ipcMain.handle('toggle-project-favorite', (_e, projectPath) => toggleFavorite(projectPath));
 }
 
@@ -1491,7 +1690,7 @@ module.exports = {
   // operations (exported for tests, and for main.js where it calls them directly)
   browseFolder, addProject, hideProject, removeProject, getHiddenProjects, unhideProject, setProjectAutoAdd,
   remapProject, getProjectsAdmin, unlistedProjects, setProjectTrust, deleteProjectSessions, deletableBackends,
-  removeProjectConfig, toggleFavorite,
+  removeProjectConfig, toggleFavorite, missingProjects, cleanupMissing,
   // helpers main.js still calls on other paths (a spawn adds the project; the app start hides stale ones)
   ensureProjectAdded, applyAutoHide, syncRegistry,
   // The one way to address a register row (#566). Exported because two writers live outside this file —

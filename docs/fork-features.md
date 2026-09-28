@@ -679,9 +679,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   wherever a filter breaks the grouping — and its Settings button names the project it opens, because a
   worktree carries none of its own. Hiding a worktree works and is undone from the manager's eye;
   **Remove is not offered on a worktree row at all**, because three of its four effects were wrong there
-  and one of them silently destroyed the checkout's own display name. What that costs is #602: there is
-  no route left to delete a worktree's transcripts on their own.
+  and one of them silently destroyed the checkout's own display name.
   Design record: `docs/specs/10-project-registry.md`.
+- **Clean up what is gone in one step** (#679, #602). "Clean up missing (n)" in the project manager lists
+  every project and worktree whose directory no longer exists. Worktrees start ticked, with their history
+  and config entry. Projects start unticked, because an unplugged drive looks the same as a deleted
+  directory. A missing worktree also gets a Delete button of its own, in the manager and in the sidebar,
+  and the repository is told to forget the checkout. Design record: `docs/specs/10-project-registry.md`.
 - **Sidebar** — favorite projects, an own favorites list, and a startup-collapse setting.
 - **View menu** — the project order (Activity / A–Z / Manual) sits in the
   sidebar, where the list is, instead of only behind the settings dialog. What it sets is an override

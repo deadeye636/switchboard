@@ -263,7 +263,9 @@ Add projects manually (naming and tagging one as you add it, or going straight o
 **Add & Edit**) or automatically, hide or remove them (and a removal *sticks* — the sessions it
 left behind do not bring it back, but a new one does), rename them, set per-project trust, or delete
 one backend's history without touching another's. A worktree row is the exception: it can be hidden and
-renamed, and it is deleted from the sidebar's own header rather than removed here.
+renamed, and it is deleted from the sidebar's own header rather than removed here. Projects and worktrees
+whose directory is gone are cleaned up in one step with **Clean up missing**. Worktrees start ticked;
+projects start unticked, because a drive that is not plugged in looks the same.
 
 ## Tasks & notes
 

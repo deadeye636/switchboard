@@ -757,14 +757,17 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       const wtFId = folderId(wt.projectPath);
 
       const wtGroup = document.createElement('div');
-      wtGroup.className = 'worktree-group';
+      // A worktree whose checkout is gone looks it (#679): the same dimming and marker a missing project gets,
+      // no new-session button, and Delete becomes the clean-up of its history rather than a `git worktree
+      // remove` against a directory that is not there.
+      wtGroup.className = 'worktree-group' + (wt.missing ? ' missing' : '');
       wtGroup.id = wtFId;
       wtGroup.dataset.projectPath = wt.projectPath; // lets the delegated listener resolve the worktree (#218 opt6)
 
       const wtHeader = document.createElement('div');
       wtHeader.className = 'worktree-header';
       wtHeader.id = 'ph-' + wtFId;
-      wtHeader.innerHTML = `<span class="worktree-branch-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg></span> <span class="worktree-name">${escapeHtml(wtName)}</span>`;
+      wtHeader.innerHTML = `<span class="worktree-branch-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8c0-2.76-2.46-5-5.5-5S2 5.24 2 8h2l1-1 1 1h4"/><path d="M13 7.14A5.82 5.82 0 0 1 16.5 6c3.04 0 5.5 2.24 5.5 5h-3l-1-1-1 1h-3"/><path d="M5.89 9.71c-2.15 2.15-2.3 5.47-.35 7.43l4.24-4.25.7-.7.71-.71 2.12-2.12c-1.95-1.96-5.27-1.8-7.42.35"/><path d="M11 15.5c.5 2.5-.17 4.5-1 6.5h4c2-5.5-.5-12-1-14"/></svg></span> ${wt.missing ? '<span class="project-missing-icon" role="button" tabindex="0" title="The checkout no longer exists — click to re-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span> ' : ''}<span class="worktree-name">${escapeHtml(wtName)}</span>`;
       ariaButton(wtHeader, `Toggle ${wtName} worktree sessions`); // click/keyboard delegated (#218 opt6)
 
       const wtHideBtn = document.createElement('button');
@@ -775,7 +778,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
 
       const wtDeleteBtn = document.createElement('button');
       wtDeleteBtn.className = 'worktree-delete-btn';
-      wtDeleteBtn.title = 'Delete worktree from disk';
+      wtDeleteBtn.title = wt.missing ? 'Its checkout is gone — clean up its history and config entry' : 'Delete worktree from disk';
       wtDeleteBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
       wtHeader.appendChild(wtDeleteBtn);
 
@@ -783,7 +786,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       wtNewBtn.className = 'project-new-btn worktree-new-btn';
       wtNewBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="6" y1="2" x2="6" y2="10"/><line x1="2" y1="6" x2="10" y2="6"/></svg>';
       wtNewBtn.title = 'New session in worktree';
-      wtHeader.appendChild(wtNewBtn);
+      if (!wt.missing) wtHeader.appendChild(wtNewBtn);
 
       const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older, buildSubagentIndex(wt.sessions), wt.projectPath, buildKnownSessionIds(wt.sessions));
       wtSessionsList.className = 'worktree-sessions';

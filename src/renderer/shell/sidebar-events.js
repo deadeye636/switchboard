@@ -46,9 +46,12 @@ function rebindSidebarEvents(projects) {
 
   // Sessions under a missing project can't be opened — the path no longer exists. This is DOM state
   // (a class + a title), not an event, so it is applied per render; the open dispatch also bails on it.
-  sidebarContent.querySelectorAll('.project-group.missing .session-item').forEach(item => {
+  // A worktree whose checkout is gone the same way (#679): its sessions cannot start where they ran either.
+  sidebarContent.querySelectorAll('.project-group.missing .session-item, .worktree-group.missing .session-item').forEach(item => {
     item.classList.add('disabled');
-    item.title = 'Project path no longer exists — use "Change path" to fix';
+    item.title = item.closest('.worktree-group.missing')
+      ? 'The worktree checkout no longer exists — its Delete button cleans it up'
+      : 'Project path no longer exists — use "Change path" to fix';
     // Not an actionable button — the old code left missing rows without role/tabindex/aria (it never ran
     // makeButtonLike on them), so strip what the builder set unconditionally.
     item.removeAttribute('role');
@@ -260,7 +263,9 @@ function dispatchSidebarActivation(e) {
     if (!session) return;
     // A row under a missing project is inert — the path is gone. The old code bound NO handlers on such a
     // row (it early-returned before any), so no action fires here either, not just the open.
-    if (sessionEl.closest('.project-group.missing')) return;
+    // A worktree whose checkout is gone the same way (#679): it sits inside a PRESENT project's group, so the
+    // project's class alone let its rows through to `openSession` in a directory that does not exist.
+    if (sessionEl.closest('.project-group.missing, .worktree-group.missing')) return;
 
     // Lineage thread (#193): the "N earlier" toggle folds/unfolds the ancestors. It sits inside the item,
     // so it is checked before the row-open.
@@ -304,7 +309,7 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.session-archive-btn')) { e.stopPropagation(); archiveSessionFromRow(session); return; }
 
     // Row open (least specific). Clicks in the actions area / pin / health-chip never open the row.
-    // (Missing-project rows already returned above.)
+    // (Rows of a missing project or a missing worktree already returned above.)
     if (t.closest('.session-actions, .session-pin, .session-health-chip')) return;
     // The lineage thread is BOTH chrome and rows (#288): its toggle and its indent gutter belong to the
     // head and must not open anything, while an ancestor row inside it is a real session row that must
@@ -333,6 +338,7 @@ function dispatchSidebarActivation(e) {
     if (t.closest('.worktree-new-btn')) { e.stopPropagation(); showNewSessionPopover(wtProject, t.closest('.worktree-new-btn')); return; }
     if (t.closest('.worktree-hide-btn')) { e.stopPropagation(); hideWorktree(wtProject); return; }
     if (t.closest('.worktree-delete-btn')) { e.stopPropagation(); deleteWorktree(wtProject); return; }
+    if (t.closest('.project-missing-icon')) { e.stopPropagation(); loadProjects(); return; }   // #679 re-check
     wtHeader.classList.toggle('collapsed');
     return;
   }
@@ -633,6 +639,13 @@ async function hideWorktree(wtProject) {
 }
 
 async function deleteWorktree(wtProject) {
+  // A checkout that is already gone has nothing for git to remove (#679). What keeps its row is its history
+  // and its config entry, so the button opens the Projects manager's clean-up for this one entry instead.
+  if (wtProject.missing && typeof window.cleanupMissingEntry === 'function') {
+    await window.cleanupMissingEntry(wtProject.projectPath);
+    loadProjects();
+    return;
+  }
   // Through the shared helper for the same two reasons the hide dialog above is: `split('/')` handed a
   // Windows path to the dialog whole, and the last segment alone cannot tell two nested checkouts apart.
   const label = typeof worktreeLabelOf === 'function' ? worktreeLabelOf(wtProject.projectPath) : null;

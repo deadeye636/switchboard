@@ -1557,10 +1557,12 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
 }
 
 /* Missing project path */
-.project-group.missing {
+.project-group.missing,
+.worktree-group.missing {
   opacity: 0.55;
 }
-.project-group.missing:hover {
+.project-group.missing:hover,
+.worktree-group.missing:hover {
   opacity: 0.8;
 }
 .project-missing-icon {
@@ -10164,6 +10166,38 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   border-radius: 4px;
   font-size: 12px;
   color: #c0a0d0;
+}
+
+/* The "Clean up missing" dialog (#679): one entry per project or worktree whose directory is gone, in two
+   groups, each entry with its own history and config switches indented under it. Forty worktrees is an
+   ordinary afternoon of agent work, so the list scrolls inside the dialog rather than growing past it. */
+.pa-cleanup-list {
+  max-height: 50vh;
+  overflow-y: auto;
+  margin: 8px 0;
+  padding-right: 4px;
+}
+.pa-cleanup-group {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8a8a9c;
+}
+.pa-cleanup-entry { margin: 6px 0 10px; }
+.pa-cleanup-entry > .pa-check-row { margin: 4px 0; }
+.pa-cleanup-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin-left: 24px;
+}
+.pa-cleanup-parts .pa-check-row { margin: 2px 0; font-size: 12px; }
+.pa-cleanup-path {
+  margin-left: 24px;
+  font-size: 11px;
+  color: #6a6a80;
+  word-break: break-all;
 }
 
 /* ---- Statusbar zoom buttons (#34) ---- */

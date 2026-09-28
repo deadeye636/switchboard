@@ -89,6 +89,14 @@ function showArgs({ ref, path } = {}) {
   return ['--no-optional-locks', 'show', `${ref || ''}:${path}`];
 }
 
+// Argv that forgets the checkouts whose directory is gone (#679). A deleted worktree leaves its entry under
+// `.git/worktrees/`, and `git worktree list` reports it as prunable until this runs. It removes every entry of
+// the repository whose directory is missing at that moment (a locked one excepted) — not only the one that was
+// cleaned up, and including a checkout on a drive that is only unplugged. It never touches a checkout that is there.
+function pruneWorktreesArgs() {
+  return ['worktree', 'prune'];
+}
+
 let _probe = null;
 function probe() {
   if (_probe) return _probe;
@@ -116,6 +124,7 @@ module.exports = {
   statusArgs,
   diffArgs,
   showArgs,
+  pruneWorktreesArgs,
   parse,
   probe,
   _resetProbeForTests() { _probe = null; },

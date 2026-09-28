@@ -274,6 +274,9 @@ contextBridge.exposeInMainWorld('api', {
   // store is read-only to us). The Remove dialog is built from this.
   projectDeletableBackends: (projectPath) => ipcRenderer.invoke('project-deletable-backends', projectPath),
   removeProjectConfig: (projectPath, backendId) => ipcRenderer.invoke('remove-project-config', projectPath, backendId),
+  // The projects and worktrees whose directory is gone, and cleaning them up in one act (#679).
+  missingProjects: () => ipcRenderer.invoke('missing-projects'),
+  cleanupMissingProjects: (entries) => ipcRenderer.invoke('cleanup-missing-projects', entries),
   getZoomLevel: () => ipcRenderer.invoke('get-zoom-level'),
   nudgeZoom: (delta) => ipcRenderer.invoke('nudge-zoom', delta),
   onZoomChanged: (cb) => ipcRenderer.on('zoom-changed', (_e, level) => cb(level)),

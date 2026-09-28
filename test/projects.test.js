@@ -2313,3 +2313,178 @@ test('the manager does not offer Remove on a worktree row', () => {
   assert.doesNotMatch(src, /<button data-action="remove"[\s\S]{0,200}<\/td>/,
     'and it is not written straight into the actions cell');
 });
+
+// --- #679: cleaning up the entries whose directory is gone ------------------------------------------
+
+// A path that does not exist, under the temp directory so it is invented on every platform.
+function gonePath(name) {
+  return path.join(os.tmpdir(), `sb-gone-${process.pid}-${Date.now()}-${name}`);
+}
+
+test('#679: a missing worktree loses its history and config entry, gets no tombstone, and is forgotten', () => {
+  const t = makeCtx();
+  const parent = gonePath('parent');
+  const worktree = path.join(parent, '.claude', 'worktrees', 'agent-a');
+  try {
+    withClaudeConfig({ [worktree]: { hasTrustDialogAccepted: true } }, () => {
+      t.setCachedRows([{ sessionId: 'w1', folder: 'f', projectPath: worktree, filePath: 'x.jsonl', backendId: 'demo' }]);
+      t.ctx.db.setSetting('project:' + worktree, { displayName: 'mine' });
+      withFakeBackends(t, { demo: fakeBackend('demo', 'Demo', (files) => ({ removed: files.length })) });
+      const notifiedBefore = t.calls.notified;
+
+      const res = projects.cleanupMissing([{ projectPath: worktree, backendIds: ['demo'], configBackendIds: ['claude'] }]);
+      assert.strictEqual(res.ok, true);
+      const [r] = res.results;
+      assert.strictEqual(r.ok, true, r.error);
+      assert.strictEqual(r.removed, 1);
+      assert.deepStrictEqual(r.configErrors, []);
+      assert.strictEqual(r.stays, false, 'nothing is left that would bring it back');
+      assert.strictEqual(t.state(worktree), null, 'no tombstone: a worktree is never removed that way');
+      // `deleteProjectRefs` is what drops the `project:<path>` blob with its display name (db/project-refs.js).
+      assert.ok(t.calls.prunedProjects.includes(worktree), 'the prune dropped its refs, display name included');
+      assert.strictEqual(t.calls.notified - notifiedBefore, 1, 'one push for the whole act');
+    });
+  } finally { t.cleanup(); }
+});
+
+test('#679: a missing top-level project with its history kept is removed with a tombstone and says it can come back', () => {
+  const t = makeCtx();
+  const projectPath = gonePath('drive');
+  try {
+    withClaudeConfig({}, () => {
+      // Its transcript is in the store, not on the drive that is gone.
+      const folder = encodeProjectPath(projectPath);
+      fs.mkdirSync(path.join(t.store, folder), { recursive: true });
+      fs.writeFileSync(path.join(t.store, folder, 'p1.jsonl'), JSON.stringify({ type: 'user', cwd: projectPath }) + '\n');
+      t.ctx.db.setProjectState(projectPath, { registered: 1 });
+      t.setCachedRows([{ sessionId: 'p1', folder, projectPath, backendId: 'claude' }]);
+      const res = projects.cleanupMissing([{ projectPath, backendIds: [], configBackendIds: [] }]);
+      const [r] = res.results;
+      assert.strictEqual(r.ok, true, r.error);
+      assert.ok(t.state(projectPath).removedAt, 'removed the way the Remove dialog removes, tombstone kept');
+      assert.strictEqual(t.state(projectPath).registered, 0);
+      assert.strictEqual(r.stays, true, 'its kept history can bring it back with a new session');
+    });
+  } finally { t.cleanup(); }
+});
+
+test('#679: an entry that exists again, runs a session or fails its delete is skipped, and the rest go on', () => {
+  const t = makeCtx();
+  const present = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-present-'));
+  const running = path.join(gonePath('p'), '.claude', 'worktrees', 'agent-run');
+  const failing = path.join(gonePath('q'), '.claude', 'worktrees', 'agent-fail');
+  const fine = path.join(gonePath('r'), '.claude', 'worktrees', 'agent-ok');
+  // Transcripts that exist, so the delete is really asked — a row without one is dropped before it (below).
+  const files = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-transcripts-'));
+  const failFile = path.join(files, 'f.jsonl');
+  const okFile = path.join(files, 'o.jsonl');
+  fs.writeFileSync(failFile, '{}\n');
+  fs.writeFileSync(okFile, '{}\n');
+  try {
+    t.setCachedRows([
+      { sessionId: 'f1', folder: 'f', projectPath: failing, filePath: failFile, backendId: 'empty' },
+      { sessionId: 'o1', folder: 'f', projectPath: fine, filePath: okFile, backendId: 'demo' },
+    ]);
+    withFakeBackends(t, {
+      empty: fakeBackend('empty', 'Empty', () => ({ removed: 0 })),
+      demo: fakeBackend('demo', 'Demo', (files) => ({ removed: files.length })),
+    });
+    t.ctx.activeSessions.set('s1', { exited: false, projectPath: running });
+
+    const res = withClaudeConfig({}, () => projects.cleanupMissing([
+      { projectPath: present, backendIds: [], configBackendIds: [] },
+      { projectPath: running, backendIds: [], configBackendIds: [] },
+      { projectPath: failing, backendIds: ['empty'], configBackendIds: [] },
+      { projectPath: fine, backendIds: ['demo'], configBackendIds: [] },
+    ]));
+    const byPath = new Map(res.results.map(r => [r.projectPath, r]));
+    assert.match(byPath.get(present).error, /exists again/);
+    assert.match(byPath.get(running).error, /running/);
+    assert.match(byPath.get(failing).error, /Empty/, 'a delete that removed nothing stops that entry (#580)');
+    assert.strictEqual(byPath.get(fine).ok, true, 'and the next entry still runs');
+    assert.deepStrictEqual(t.calls.deletedSessions, ['o1']);
+  } finally {
+    t.cleanup();
+    fs.rmSync(present, { recursive: true, force: true });
+    fs.rmSync(files, { recursive: true, force: true });
+  }
+});
+
+// Measured in the demo: a store folder deleted by hand left its rows in the cache through rescans, and the
+// delete answered "nothing was removed" for them, which stopped the entry — a row no act could clear.
+test('#679: rows whose transcript is already gone are dropped, and the entry is cleaned up', () => {
+  const t = makeCtx();
+  const wt = path.join(gonePath('stale'), '.claude', 'worktrees', 'agent-stale');
+  let asked = 0;
+  try {
+    t.setCachedRows([{ sessionId: 's1', folder: 'f', projectPath: wt, filePath: path.join(gonePath('nofile'), 's1.jsonl'), backendId: 'empty' }]);
+    withFakeBackends(t, { empty: fakeBackend('empty', 'Empty', () => { asked++; return { removed: 0 }; }) });
+    const res = withClaudeConfig({}, () => projects.cleanupMissing([{ projectPath: wt, backendIds: ['empty'], configBackendIds: [] }]));
+    const [r] = res.results;
+    assert.strictEqual(r.ok, true, r.error);
+    assert.strictEqual(r.removed, 1, 'the stale row counts as removed');
+    assert.strictEqual(asked, 0, 'the backend is not asked to delete a file that is not there');
+    assert.deepStrictEqual(t.calls.deletedSessions, ['s1']);
+  } finally { t.cleanup(); }
+});
+
+test('#679: the missing list holds only entries whose directory is gone, and flags the worktrees', () => {
+  const t = makeCtx();
+  const present = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-present-'));
+  const gone = gonePath('top');
+  const wt = path.join(gonePath('top2'), '.claude', 'worktrees', 'agent-b');
+  try {
+    t.setAdminRows([
+      { projectPath: present, missing: false, registered: true },
+      { projectPath: gone, missing: true, registered: true },
+      { projectPath: wt, missing: true, registered: false, worktreeRoot: path.dirname(path.dirname(path.dirname(wt))) },
+    ]);
+    t.setCachedRows([{ sessionId: 'w', folder: 'f', projectPath: wt, backendId: 'claude' }]);
+    // An isolated Claude config: the manager folds in every project a backend's own config knows, and the
+    // machine running the suite has its own.
+    withClaudeConfig({ [gone]: { hasTrustDialogAccepted: true } }, () => {
+      const res = projects.missingProjects();
+      assert.strictEqual(res.ok, true, res.error);
+      assert.deepStrictEqual(res.entries.map(e => [e.projectPath, e.worktree]), [[gone, false], [wt, true]]);
+      const w = res.entries.find(e => e.worktree);
+      assert.deepStrictEqual(w.history.map(h => [h.id, h.sessions]), [['claude', 1]]);
+      assert.deepStrictEqual(res.entries.find(e => !e.worktree).config.map(c => c.id), ['claude'], 'the config entry is offered');
+    });
+  } finally {
+    t.cleanup();
+    fs.rmSync(present, { recursive: true, force: true });
+  }
+});
+
+test('#679 F5: adding a directory that is gone says what to do, instead of an errno', () => {
+  const t = makeCtx();
+  try {
+    assert.match(projects.addProject(gonePath('x')).error, /no longer exists/);
+  } finally { t.cleanup(); }
+});
+
+// Verifier finding on #679: a config removal prunes, and after `removeProject` purged the rows a project whose
+// Codex or Pi history was kept read as gone — the prune took its tombstone and the next scan brought it back.
+test('#679: a missing project whose history was kept keeps its tombstone even when its config entry goes', () => {
+  const t = makeCtx();
+  const projectPath = gonePath('kept');
+  try {
+    withClaudeConfig({ [projectPath]: { hasTrustDialogAccepted: true } }, () => {
+      t.ctx.db.setProjectState(projectPath, { registered: 1 });
+      t.setCachedRows([{ sessionId: 'c1', folder: 'f', projectPath, backendId: 'codex', filePath: 'x.jsonl' }]);
+      const res = projects.cleanupMissing([{ projectPath, backendIds: [], configBackendIds: ['claude'] }]);
+      const [r] = res.results;
+      assert.strictEqual(r.ok, true, r.error);
+      assert.ok(t.state(projectPath) && t.state(projectPath).removedAt, 'the tombstone survived the config removal');
+      assert.strictEqual(r.stays, true);
+      assert.ok(!('repoRoot' in r), 'the internal repository key does not reach the renderer');
+    });
+  } finally { t.cleanup(); }
+});
+
+// Verifier finding on #679: a missing worktree sits inside a PRESENT project's group, so the click bail that
+// named only `.project-group.missing` let its rows through to `openSession`. A wiring guard over the source.
+test('#679: the sidebar click bails on a row under a missing worktree too', () => {
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'shell', 'sidebar-events.js'), 'utf8'));
+  assert.match(src, /sessionEl\.closest\('\.project-group\.missing, \.worktree-group\.missing'\)\) return;/);
+});
