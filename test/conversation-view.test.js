@@ -46,7 +46,6 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
     // The attention caption's one write path (terminal/terminal-attention-notice.js), recorded (#666).
     var captionCleared = [];
     function clearTerminalAttentionNotice(id) { captionCleared.push(id); }
-    function buildToolResultMap() { return new Map(); }
     function renderJsonlEntry(entry) {
       const d = document.createElement('div');
       d.className = 'jsonl-entry';
@@ -466,6 +465,29 @@ test('a refused written turn goes back into an empty input, and is quoted when t
   h.entry.conversation.apply({ op: 'unsent', text: 'second seed', seq: 2 });
   assert.equal(h.input.value, 'my own draft', 'what the user typed is theirs');
   assert.match(h.entry.element.textContent, /was not sent:\nsecond seed/);
+});
+
+// #707: each draw is handed the results for its own calls, from a running index, rather than a map rebuilt
+// over the whole conversation for every entry drawn (which made loading one quadratic).
+test('a call is drawn with its own result, live and after a reset, and sees no other call\'s', () => {
+  const h = setup();
+  const seen = [];
+  vm.runInContext(`function renderJsonlEntry(entry, map) {
+    __seen.push({ ids: (entry.message.content || []).map(b => b.id || b.tool_use_id), map: [...map.entries()] });
+    const d = document.createElement('div'); d.className = 'jsonl-entry'; return d;
+  }`, Object.assign(h.w, { __seen: seen }));
+  const use = (id) => ({ type: 'message', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: {} }] } });
+  const result = (id, out) => ({ type: 'message', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: out }] } });
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'append', seq: 1, entry: use('c1') });
+  conv.apply({ op: 'append', seq: 2, entry: use('c2') });
+  conv.apply({ op: 'append', seq: 3, entry: result('c1', 'one') });
+  assert.equal(JSON.stringify(seen.map(s => s.map)), JSON.stringify([[], [], [['c1', 'one']]]),
+    'drawn without a result, then redrawn with its own when it arrives; c2 is not handed c1\'s');
+  seen.length = 0;
+  conv.apply({ op: 'reset', entries: [use('c1'), result('c1', 'one'), use('c2'), result('c2', 'two')] });
+  assert.equal(JSON.stringify(seen.at(-1).map), JSON.stringify([['c2', 'two']]));
+  assert.ok(seen.some(s => JSON.stringify(s.map) === JSON.stringify([['c1', 'one']])), 'c1 is redrawn with its result after the reset');
 });
 
 test('an approval is drawn with the call it is about, answers with the value it was given, and holds the status', async () => {

@@ -2,7 +2,7 @@
 //
 // A backend that declares `transport` is driven over a pipe (`src/app/agent-rpc.js`), so there is no PTY and
 // no xterm. This file is what its tab shows instead: the conversation, drawn by the SAME functions the
-// Message History viewer uses (`renderJsonlEntry`, `buildToolResultMap` — `jsonl/jsonl-viewer.js`), so a live
+// Message History viewer uses (`renderJsonlEntry` — `jsonl/jsonl-viewer.js`), so a live
 // session and its history read the same, plus what only a live session has — the turn being streamed, the
 // tools running right now, a question the agent is waiting on.
 //
@@ -22,7 +22,7 @@
 // entry for a conversation before it reaches for a PTY.
 //
 // Free globals it reads at CALL time (none at parse time except `window.api`): renderJsonlEntry,
-// buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
+// renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
 // read when a view is built), composerPathToken (session/composer-completion.js, #699 — how a pasted or
@@ -57,6 +57,30 @@ function conversationResultIds(entry) {
   if (!blocks || !blocks.length) return null;
   if (!blocks.every(b => b && b.type === 'tool_result')) return null;
   return blocks.map(b => b.tool_use_id).filter(Boolean);
+}
+
+// The tool results a conversation has so far, by the call they answer (#707): the pairs `buildToolResultMap`
+// collects, kept up to date one entry at a time. Rebuilding that map over every entry for every entry drawn
+// made loading a conversation quadratic — about a second of renderer time at 1280 entries, before any DOM.
+const conversationBlocksOf = (entry) => {
+  const blocks = entry && ((entry.message && entry.message.content) || entry.content);
+  return Array.isArray(blocks) ? blocks : [];
+};
+function conversationNoteResults(results, entry) {
+  for (const b of conversationBlocksOf(entry)) {
+    if (b && b.type === 'tool_result' && b.tool_use_id) results.set(b.tool_use_id, b.content || b.output || '');
+  }
+}
+// What one entry's draw may see: the results for its own calls and its own result blocks — the only ids
+// `renderJsonlEntry` asks the map about. A fresh map each time, because the draw CLAIMS what it uses by
+// deleting it.
+function conversationEntryResults(results, entry) {
+  const map = new Map();
+  for (const b of conversationBlocksOf(entry)) {
+    const id = b && (b.type === 'tool_use' ? b.id : b.type === 'tool_result' ? b.tool_use_id : null);
+    if (id && results.has(id)) map.set(id, results.get(id));
+  }
+  return map;
 }
 
 function conversationOwnerIndex(view, toolUseId) {
@@ -179,6 +203,7 @@ function createConversationView(getSession, container) {
     container,
     entries: [],
     elements: [],            // parallel to entries; null where an entry draws nothing
+    results: new Map(),      // tool call id -> its result, over `entries` (#707)
     partial: null,
     tools: new Map(),        // tool call id -> { status, output }
     asks: new Map(),         // request id -> card element
@@ -272,7 +297,7 @@ function createConversationView(getSession, container) {
     const entry = view.entries[index];
     // A fresh map per draw: `renderJsonlEntry` CLAIMS the results it draws under a call by deleting them,
     // so a shared one would hand each result to whichever call happened to be drawn first.
-    const el = renderJsonlEntry(entry, buildToolResultMap(view.entries));
+    const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry));
     if (el) el.dataset.entryIndex = String(index);
     return el;
   }
@@ -400,6 +425,7 @@ function createConversationView(getSession, container) {
   function appendEntry(entry) {
     settlePendingSend(entry);
     const index = view.entries.push(entry) - 1;
+    conversationNoteResults(view.results, entry);
     const resultIds = conversationResultIds(entry);
     if (resultIds) {
       view.elements[index] = null;
@@ -468,6 +494,7 @@ function createConversationView(getSession, container) {
     for (const el of log.querySelectorAll(':scope > .conversation-notice')) el.remove();
     view.entries = [];
     view.elements = [];
+    view.results = new Map();
     // A re-mount re-reads the conversation from the runtime, and a finished shell line is in it as an
     // ordinary entry — so nothing here may still claim an index into the list just thrown away.
     view.localCommands.clear();
