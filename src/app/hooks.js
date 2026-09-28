@@ -26,6 +26,7 @@ const attentionSource = require('../shared/attention-source');
 const clearClaims = require('../session/clear-claims');
 // The CLI's own settings file lives under the user's home, so a failure to write it must not say where.
 const { readableError } = require('./readable-error');
+const { noteWork } = require('../perf');
 // The one writer for a file a CLI also owns (CLAUDE.md rule 11). This file is the one spec 24 names as its
 // motivating case, and it was the last place still writing it with a raw `writeFileSync` (#542).
 const { writeTextFile } = require('./safe-write');
@@ -131,6 +132,7 @@ function handleHookRequest(req, res, token = attentionHookToken) {
     if (body.length > 1_000_000) req.destroy(); // guard against runaway payloads
   });
   req.on('end', () => {
+    noteWork(isClearBind ? 'hook:clear-bind' : isSessionBind ? 'hook:session-bind' : 'hook:attention');
     try {
       const hook = JSON.parse(body || '{}');
       const sessionId = hook.session_id || hook.sessionId;

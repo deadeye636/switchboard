@@ -247,6 +247,28 @@ small, since everything after it happens off-thread. Use it to verify a change b
 high-output session; do not scatter raw `Date.now()` deltas, and if you need a span that is not there,
 add it through `src/perf.js` rather than beside it.
 
+### A stalled main thread
+
+A span only reports work somebody thought to wrap. A freeze of the whole app is the opposite case: the
+windows stop, Claude Code's attention hook times out after a second because the hook server cannot
+answer, and the log simply goes quiet. The one freeze measured so far had every process at 0% CPU, so the
+main thread was waiting synchronously (a SQLite busy wait, a `spawnSync`, a sync file read), not computing.
+
+`startLoopLagMonitor` in `src/perf.js`, started from `src/app/lifecycle.js` once boot is done, watches for
+that. A timer due every 250 ms measures how late it ran, and at a second or more it logs at **info**:
+
+```
+[loop-lag] main event loop blocked ~2771ms; work started in that window: ipc:get-projects, index-apply:file
+```
+
+The lag says THAT the loop was blocked, never by what, because the blocking call has returned by the
+time the timer runs. The list after it holds the breadcrumbs `noteWork` recorded since the previous
+tick, and one of them held the loop. Only entry points leave one: every IPC call from a renderer
+(`noteIpcCalls`, wired in `src/main.js` next to `guardIpcHandlers`), the attention hook server, the
+application of an index-worker reply, a message on the MCP bridge, and a trigger file. `nothing noted`
+means the stall came from somewhere else: a timer, a watcher callback or a child process's output.
+The fix in that case is another breadcrumb at that entry point, not a guess.
+
 ## A spawned CLI's first frame is a performance surface this app can break (#560, #567)
 
 Every measurement above is about the app staying responsive. This one is about what the app costs the

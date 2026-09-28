@@ -51,3 +51,54 @@ test('timedAsync awaits the value and logs when slow', async () => {
   assert.equal(lines.length, 1);
   assert.match(lines[0], /^\[perf\] async\.block /);
 });
+
+const { performance } = require('perf_hooks');
+const { noteWork, createLoopLagCheck } = require('../src/perf');
+
+test('loop-lag check stays silent while the timer runs on time', () => {
+  const lines = [];
+  const t0 = performance.now();
+  const check = createLoopLagCheck({ log: { info: (m) => lines.push(m) }, intervalMs: 250, thresholdMs: 1000, now: () => t0 });
+  assert.equal(check.tick(t0 + 250), null);
+  assert.equal(check.tick(t0 + 500 + 900), null, 'late, but under the threshold');
+  assert.equal(lines.length, 0);
+});
+
+test('loop-lag check names the work that started since the previous tick', () => {
+  const lines = [];
+  const t0 = performance.now();
+  const check = createLoopLagCheck({ log: { info: (m) => lines.push(m) }, intervalMs: 250, thresholdMs: 1000, now: () => t0 });
+  noteWork('ipc:get-projects');
+  noteWork('index-apply:file');
+  noteWork('ipc:get-projects');
+  const line = check.tick(performance.now() + 250 + 3000);
+  assert.equal(lines.length, 1);
+  assert.equal(line, lines[0]);
+  assert.match(line, /^\[loop-lag\] main event loop blocked ~\d+ms; work started in that window: ipc:get-projects, index-apply:file$/);
+});
+
+test('loop-lag check does not name work from before the previous tick', () => {
+  noteWork('ipc:old-call');
+  const t1 = performance.now() + 1;
+  const check = createLoopLagCheck({ log: null, intervalMs: 250, thresholdMs: 1000, now: () => t1 });
+  const line = check.tick(t1 + 250 + 2000);
+  assert.match(line, /work started in that window: nothing noted$/);
+});
+
+test('noteIpcCalls leaves a breadcrumb for handle and on, and passes the call through', () => {
+  const { noteIpcCalls } = require('../src/perf');
+  const listeners = new Map();
+  const ipc = {
+    handle(channel, fn) { listeners.set(`handle:${channel}`, fn); },
+    on(channel, fn) { listeners.set(`on:${channel}`, fn); },
+  };
+  noteIpcCalls(ipc);
+  assert.strictEqual(noteIpcCalls(ipc), ipc, 'a second wrap is refused');
+  ipc.handle('ask', (_e, n) => n * 2);
+  ipc.on('tell', () => 'told');
+  const t0 = performance.now();
+  const check = createLoopLagCheck({ log: null, intervalMs: 250, thresholdMs: 1000, now: () => t0 });
+  assert.equal(listeners.get('handle:ask')({}, 21), 42);
+  assert.equal(listeners.get('on:tell')({}), 'told');
+  assert.match(check.tick(performance.now() + 250 + 2000), /work started in that window: ipc:ask, ipc:tell$/);
+});

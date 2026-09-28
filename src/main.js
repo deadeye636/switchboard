@@ -14,6 +14,8 @@ const { writeTextFile: writeTextAtomic } = require('./app/safe-write');
 // takes `ipcMain` from here. A handler registered before this line keeps the old behaviour, and the
 // failure is invisible: it only shows up the day that one throws. The reasoning is in the helper.
 guardIpcHandlers(ipcMain, log);
+// Same placement, same reason: every IPC call leaves the breadcrumb a main-loop stall names (src/perf.js).
+require('./perf').noteIpcCalls(ipcMain);
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
 const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');

@@ -15,6 +15,7 @@
 const path = require('path');
 const sessionShutdown = require('./session-shutdown');
 const { markTurnSubmitted } = require('./terminal/live-record-notice');
+const { startLoopLagMonitor } = require('../perf');
 
 /**
  * Does this build take the single-instance lock? Everything does now, unless it opts out (#220).
@@ -202,6 +203,10 @@ function start(ctx) {
     // already the FULL one whenever this is true, so the shared Promise is the
     // right one to be handed; this line is kept as the belt to that braces.
     if (ftsRecreated) ctx.populateCacheViaWorker();
+
+    // A main thread that stops answering shows nowhere else: the windows freeze, the hook server times
+    // out, and the log simply goes quiet. Started here, after boot, so the boot itself is not reported.
+    startLoopLagMonitor({ log: ctx.log });
 
     app.on('activate', () => {
       if (ctx.BrowserWindow.getAllWindows().length === 0) ctx.createWindow();

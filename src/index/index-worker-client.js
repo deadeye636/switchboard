@@ -17,6 +17,7 @@
 
 const path = require('path');
 const { Worker } = require('worker_threads');
+const { noteWork } = require('../perf');
 
 const storeIndexer = require('../backends/claude/store-indexer');
 const backendScan = require('../backends/scan');
@@ -382,6 +383,7 @@ function onReply(msg) {
   // BEFORE any apply. Terminate-then-close alone can't cover an already-posted reply.
   if (isAppQuitting()) { pruneDeleted(); p.resolve(); if (p.gate) clearReconcileGate(); return; }
 
+  noteWork(`index-apply:${msg.kind}`);
   try {
     if (msg.kind === 'file') applyFileReply(msg, p);
     else if (msg.kind === 'reconcile' || msg.kind === 'rebuild') applyReconcileReply(msg, p);

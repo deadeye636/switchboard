@@ -37,6 +37,7 @@ const fs     = require('fs');
 const path   = require('path');
 const os     = require('os');
 const crypto = require('crypto');
+const { noteWork } = require('../perf');
 
 // Where an instance keeps its triggers when nothing overrides it (#587). Resolved per call, never at
 // module load: main.js sets SWITCHBOARD_DATA_DIR for an unpackaged run, and it does that AFTER this
@@ -884,6 +885,7 @@ function start(ctx) {
   }
 
   function dispatch(filename) {
+    noteWork('trigger:dispatch');
     inFlight.add(filename);
     processTriggerFile(filename, ctx, triggersDir, processedDir).finally(() => {
       inFlight.delete(filename);

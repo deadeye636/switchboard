@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { noteWork } = require('../perf');
 
 // Where Claude looks for IDE lock files. Follows the isolated home (#241): SWITCHBOARD_STORE_CLAUDE
 // names the projects dir, the home is its parent. Resolved per call — the bridge is required at load,
@@ -111,6 +112,8 @@ function handleMessage(entry, raw, log) {
     log.warn('[mcp] Received invalid JSON');
     return;
   }
+  // A main-thread entry of its own, with synchronous file reads behind it (src/perf.js has the why).
+  noteWork(`mcp:${(msg && msg.method) || 'reply'}`);
 
   const { id, method, params } = msg;
 

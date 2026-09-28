@@ -53,4 +53,78 @@ async function timedAsync(label, fn, { slowMs = 50, log } = {}) {
   }
 }
 
-module.exports = { startTimer, timed, timedAsync };
+// --- main event-loop stalls ---------------------------------------------------------------------------
+//
+// The installed app froze for seconds at a time with every process at 0% CPU and nothing in the log: the
+// main thread was WAITING synchronously (a better-sqlite3 busy wait, a `spawnSync`), not computing. The
+// only outside sign was Claude Code's attention hook timing out after 1 s. A stall leaves no line of its
+// own, so this watches for one: a timer that should fire every `intervalMs` measures how late it ran.
+//
+// Late tells THAT the loop was blocked, never by what — the work that blocked it has already returned by
+// the time the timer runs. So the likely entry points leave a breadcrumb (`noteWork`) when they start, and
+// the stall line names every breadcrumb dropped since the previous tick. One of them held the loop. A stall
+// that names none came from somewhere not yet instrumented, and that is itself the next thing to know.
+
+const NOTE_RING_SIZE = 64;
+const _notes = [];
+
+/** Record that `label` is about to run on this thread. Cheap enough for every IPC call. */
+function noteWork(label) {
+  _notes.push({ label, at: performance.now() });
+  if (_notes.length > NOTE_RING_SIZE) _notes.shift();
+}
+
+/**
+ * Leave a breadcrumb for every IPC message the renderer sends, both kinds: `handle` (invoke) and `on`
+ * (send). Wraps the REGISTRATION, like `guardIpcHandlers`, so a handler registered later is covered too —
+ * which means it must run before the first one is registered. Idempotent. The listener Electron holds is
+ * the wrapper, so `removeListener(channel, original)` would find nothing; no caller removes one today.
+ */
+function noteIpcCalls(ipc) {
+  if (!ipc || ipc.__sbIpcNoted) return ipc;
+  for (const method of ['handle', 'on']) {
+    if (typeof ipc[method] !== 'function') continue;
+    const raw = ipc[method].bind(ipc);
+    ipc[method] = (channel, listener) => raw(channel, (...args) => {
+      noteWork(`ipc:${channel}`);
+      return listener(...args);
+    });
+  }
+  ipc.__sbIpcNoted = true;
+  return ipc;
+}
+
+/**
+ * The stall check, apart from the timer so a test can drive it with its own clock. `tick(now)` returns
+ * the logged line, or null when the loop was on time.
+ */
+function createLoopLagCheck({ log, intervalMs = 250, thresholdMs = 1000, now = () => performance.now() } = {}) {
+  let last = now();
+  return {
+    tick(at = now()) {
+      const lagMs = at - last - intervalMs;
+      const since = last;
+      last = at;
+      if (lagMs < thresholdMs) return null;
+      const seen = [];
+      for (const n of _notes) {
+        if (n.at >= since && !seen.includes(n.label)) seen.push(n.label);
+      }
+      const work = seen.length ? seen.slice(-8).join(', ') : 'nothing noted';
+      const line = `[loop-lag] main event loop blocked ~${Math.round(lagMs)}ms; work started in that window: ${work}`;
+      if (log) log.info(line);
+      return line;
+    },
+  };
+}
+
+/** Start watching this thread's event loop. The timer is unref'd, so it never holds the process open. */
+function startLoopLagMonitor(opts = {}) {
+  const intervalMs = opts.intervalMs || 250;
+  const check = createLoopLagCheck({ ...opts, intervalMs });
+  const timer = setInterval(() => check.tick(), intervalMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  return () => clearInterval(timer);
+}
+
+module.exports = { startTimer, timed, timedAsync, noteWork, noteIpcCalls, createLoopLagCheck, startLoopLagMonitor };
