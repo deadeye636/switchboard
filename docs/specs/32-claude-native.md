@@ -308,6 +308,36 @@ the input as a thumbnail with a × to take it back, and an image alone is a turn
   still be refused by the API's limit on a whole request, and that answer comes back as the CLI's error.
 - **A drop that holds no image** says so rather than doing nothing.
 
+## Background tasks and session figures (measured for #691, not yet drawn)
+
+Measured on Claude Code 2.1.283 over the pipe (`-p`, stream-json both ways, Haiku), with two background Bash
+calls and one background agent. What the stream carries, all as `system` lines the decoder drops today:
+
+- **`background_tasks_changed`** — `tasks: [{ task_id, task_type, description }]`, the WHOLE list of what is
+  still running, sent on every change (a start, an end, a stop) and `[]` when nothing is. `task_type` is
+  `local_bash` for a shell and `local_agent` for an agent. This is the one answer to "how many shells and
+  agents are running", without counting starts against ends.
+- **`task_started`** — `task_id`, `tool_use_id` (the call that started it), `description`, `task_type`,
+  `is_backgrounded`; an agent adds `subagent_type`, `prompt` and `spawn_depth`.
+- **`task_updated`** — `task_id` and a `patch` such as `{ status: 'completed' | 'killed', end_time }`.
+- **`task_notification`** — `task_id`, `tool_use_id`, `status` (`completed`, `stopped`), `summary`, and the
+  path of the task's `output_file` (under Claude's temporary directory); an agent's adds
+  `usage: { total_tokens, tool_uses, duration_ms }`. Claude then **starts a turn of its own** (a fresh
+  `system/init`) to tell the model, and puts the notification into the conversation as a user message that
+  begins `<task-notification>`. Replayed to the app (`--replay-user-messages`), that message is what the view
+  currently draws as raw text.
+- **Stopping one task**: the control request `{ subtype: 'stop_task', task_id }` answers success, the task
+  ends at once (`task_updated` `killed`, `task_notification` `stopped`, the list shrinks) and the others keep
+  running. Sent for a task that has already ended, it also answers success.
+- **The session's figures**: the control request `{ subtype: 'get_context_usage' }` answers `totalTokens`,
+  `maxTokens`, `percentage`, `model` and a breakdown by category. Every `result` line also carries
+  `modelUsage.<model>.contextWindow`, and `system/init` names the `model`.
+
+Found by listing the control and message subtypes in the CLI binary first; each one above was then seen on the
+pipe. pi-native has no background tasks of its own: Pi runs a tool inside its turn, and the user's own shell
+lines are already tracked by the view. Its context fill and window come from `get_session_stats`
+(`contextUsage.percent`, `contextWindow`) and its model from `get_state`.
+
 ## Shared with pi-native, and what is not
 
 **Shared**, one implementation each (E7):
