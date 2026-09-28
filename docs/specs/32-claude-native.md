@@ -368,8 +368,30 @@ allow-list and read generated TypeScript as code.
 ## The settings
 
 `permissionMode` (Claude's choices without Dangerous Skip: a session in which no card could ever appear is
-already on the list as `bypassPermissions`, in the CLI's own vocabulary, so a second switch for it is left out) and `model`. The terminal backend's other
-options are not offered yet. Every key, its default and what it means: `docs/settings-reference.md`.
+already on the list as `bypassPermissions`, in the CLI's own vocabulary, so a second switch for it is left out) and `model`.
+
+Since #685 also the terminal backend's argv options: `worktree` + `worktreeName`, `chrome`, `addDirs`,
+`restricted` and `autocompact`, taken from Claude's own declarations. Each was measured on the pipe (Claude
+Code 2.1.283, `-p` with stream-json both ways) before it was offered: `--worktree` moves the session into the
+worktree, and `system/init` reports that directory as its `cwd`; `--chrome` adds the `claude-in-chrome` MCP
+server; `--restricted` removes Bash and WebFetch, and together with `bypassPermissions` fails to start just as
+in a terminal; `--add-dir` and `--autocompact` start without complaint. Values ride in the flag
+(`--worktree=<name>`), like the session ids. `restricted` carries its own description here: Claude's warns
+that it turns off the attention hook, and a piped session takes its busy state from the stream, not the hook.
+
+Two options stay with the terminal. `mcpEmulation` starts the IDE bridge and adds `--ide` at the terminal
+spawn site; a piped session answers its approvals on a card, so a diff review through the bridge would be a
+second place to answer the same edit. `afkTimeoutSec` times the TUI's question dialog, and a piped session has
+no such dialog: the question waits on a card. That one is reasoned, not measured, because there is no dialog
+to time out.
+
+A worktree name is typed by the user and becomes part of a path Claude creates, and Claude refuses a worktree
+whose path git spells differently from the one it was given (measured on Windows: a project opened with a
+folder name in lower case, while git reports it capitalised, failed with "Refusing to use … as an isolation
+worktree"; the same project opened with git's spelling worked). That is the CLI's own check, not the pipe's; whether the terminal backend meets it with
+the same spelling was not measured.
+
+Every key, its default and what it means: `docs/settings-reference.md`.
 
 ## Known gaps
 

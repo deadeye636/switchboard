@@ -42,6 +42,25 @@ const configFields = [
     default: 'default',
     description: 'Which tool calls Claude asks about before running them. Default sends nothing, so the mode in your Claude settings applies.' },
   { id: 'model', label: 'Model', type: 'text', default: '' },
+  // The terminal backend's argv options, measured on the pipe (#685, Claude Code 2.1.283, `-p` with
+  // stream-json both ways): each one starts and is honoured. `--worktree` moves the session into the worktree
+  // (system/init reports its cwd), `--chrome` adds the claude-in-chrome MCP server, `--restricted` removes
+  // Bash and WebFetch, and `--add-dir` / `--autocompact` start without complaint. Taken as Claude's own
+  // declarations, so a label or a caveat changed there reaches this dialog too — except where driving it over
+  // a pipe changes what the caveat says.
+  ...['worktree', 'worktreeName', 'chrome', 'addDirs'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
+  // Claude's description warns that restricted mode turns off the attention hook. A piped session does not
+  // use that hook — its busy state comes from the stream — so that half is left out; the refusal of Bypass is
+  // the same CLI check and stays (measured: "bypassPermissions not supported in restricted mode", exit 1).
+  { id: 'restricted', label: 'Restricted mode', type: 'toggle', default: false,
+    description: 'Removes the tools that run commands or code, and WebFetch. Also ignores your settings files, and refuses the Bypass permission mode: that combination fails to start.' },
+  ...['autocompact'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
+  // NOT offered, and why (#685):
+  // - `mcpEmulation` starts the IDE bridge and adds `--ide` at the terminal spawn site. A piped session asks
+  //   its approvals over the pipe (`--permission-prompt-tool stdio`) and draws them on a card, so a diff review
+  //   through the bridge would be a second place to answer the same edit.
+  // - `afkTimeoutSec` sets the timer of the TUI's question dialog. A piped session shows no such dialog: the
+  //   question comes over the pipe and waits on a card. Not measured, because no dialog exists to time out.
 ];
 
 /**
@@ -98,6 +117,15 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
     args.push('--permission-mode', String(opts.permissionMode));
   }
   if (opts.model) args.push('--model', String(opts.model));
+  // The flags the terminal backend sends for these options (#685), with a value joined to its flag as above
+  // rather than a separate argv entry — both spellings were measured to start.
+  if (opts.worktree) args.push(opts.worktreeName ? `--worktree=${opts.worktreeName}` : '--worktree');
+  if (opts.chrome) args.push('--chrome');
+  if (opts.addDirs) {
+    for (const dir of String(opts.addDirs).split(',').map(d => d.trim()).filter(Boolean)) args.push(`--add-dir=${dir}`);
+  }
+  if (opts.restricted) args.push('--restricted');
+  if (opts.autocompact) args.push(`--autocompact=${opts.autocompact}`);
   return {
     command: 'claude',
     args,

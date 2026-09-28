@@ -426,6 +426,23 @@ test('the permission mode is sent only when chosen, and the skip flag is not off
   assert.ok(!d.configFields.some(f => f.appliesAt === 'spawn'), 'nothing here is applied at a terminal spawn site');
 });
 
+test('the terminal backend\'s argv options are offered and sent; the two spawn-site ones are not (#685)', () => {
+  const d = native();
+  const argsFor = (options) => d.buildLaunch({ sessionId: 's', options }).args;
+  const ids = d.configFields.map(f => f.id);
+  for (const id of ['worktree', 'worktreeName', 'chrome', 'addDirs', 'restricted', 'autocompact']) assert.ok(ids.includes(id), id);
+  for (const id of ['mcpEmulation', 'afkTimeoutSec']) assert.ok(!ids.includes(id), `${id} needs a terminal`);
+  assert.equal(d.configFields.find(f => f.id === 'worktreeName').requires, 'worktree', 'Claude\'s declaration, taken as it is');
+  assert.doesNotMatch(d.configFields.find(f => f.id === 'restricted').description, /attention hook/, 'no hook to lose on a pipe');
+  assert.deepEqual(argsFor({}).filter(a => /worktree|chrome|add-dir|restricted|autocompact/.test(a)), [], 'nothing unchosen is sent');
+  assert.ok(argsFor({ worktree: true }).includes('--worktree'));
+  assert.ok(argsFor({ worktree: true, worktreeName: 'b1' }).includes('--worktree=b1'));
+  assert.ok(!argsFor({ worktreeName: 'b1' }).some(a => a.startsWith('--worktree')), 'a name alone means nothing');
+  assert.deepEqual(argsFor({ addDirs: 'a, b' }).filter(a => a.startsWith('--add-dir')), ['--add-dir=a', '--add-dir=b']);
+  const all = argsFor({ chrome: true, restricted: true, autocompact: '500k' });
+  for (const flag of ['--chrome', '--restricted', '--autocompact=500k']) assert.ok(all.includes(flag), flag);
+});
+
 test('the descriptor drives Claude\'s rows: the marker, the trust gate, off by default, Claude\'s store answers', () => {
   const d = native();
   assert.equal(d.transport, 'rpc');
