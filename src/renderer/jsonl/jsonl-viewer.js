@@ -220,6 +220,53 @@ function makeCollapsible(className, headerText, bodyContent, startExpanded) {
 // --- Tool use rendering ---
 // Renders tool calls in a bullet + indented content style matching Claude Code's terminal.
 
+// Whether a tool call's body — its input and its output — starts open (#687). Global setting, default OFF:
+// in a long session the tool output is most of the screen. Read at draw time, so a change applies to what is
+// drawn next. `appGlobalSettings` belongs to app.js; a page or a test without it gets the default.
+function toolOutputStartsExpanded() {
+  return typeof appGlobalSettings !== 'undefined' && !!appGlobalSettings && appGlobalSettings.expandToolOutput === true;
+}
+
+// A header click, remembered by tool_use id: the result arriving redraws the whole entry (the conversation
+// view replaces its element), and a call the user just opened must not snap shut under them.
+const toolExpandChoices = new Map();
+
+function makeToolCollapsible(toolEl, toolUseId) {
+  // An Agent block already opens and closes on a click of its own — it fetches the subagent's transcript —
+  // and a second toggle on the same click would do both at once.
+  if (toolEl.classList.contains('jsonl-agent-expandable')) return;
+  const header = toolEl.querySelector(':scope > .jsonl-tool-header');
+  const content = toolEl.querySelector(':scope > .jsonl-tool-content');
+  if (!header || !content) return;
+  const expanded = toolUseId && toolExpandChoices.has(toolUseId)
+    ? toolExpandChoices.get(toolUseId)
+    : toolOutputStartsExpanded();
+  toolEl.classList.add('jsonl-tool-collapsible');
+  toolEl.classList.toggle('jsonl-tool-collapsed', !expanded);
+  // A call whose header says only its name (Bash keeps its command in the body) would read as a bare
+  // "Bash" once closed, so the header carries the command's first line — shown only while closed.
+  const cmd = content.querySelector(':scope > .jsonl-tool-cmd-block');
+  if (cmd && !header.querySelector('.jsonl-tool-summary')) {
+    const line = (cmd.textContent || '').split('\n')[0].trim();
+    if (line) {
+      const peek = document.createElement('span');
+      peek.className = 'jsonl-tool-summary jsonl-tool-peek';
+      const code = document.createElement('code');
+      code.textContent = line;
+      peek.appendChild(code);
+      header.appendChild(peek);
+    }
+  }
+  header.addEventListener('click', (e) => {
+    // A link in the summary keeps its own click, and a drag that selected text is a copy, not a toggle.
+    if (e.target.closest('a, button')) return;
+    const sel = window.getSelection && window.getSelection();
+    if (sel && !sel.isCollapsed && header.contains(sel.anchorNode)) return;
+    const nowExpanded = toolEl.classList.toggle('jsonl-tool-collapsed') === false;
+    if (toolUseId) toolExpandChoices.set(toolUseId, nowExpanded);
+  });
+}
+
 function toolBlock(color, label, summary, content) {
   const el = document.createElement('div');
   el.className = 'jsonl-tool-block';
@@ -728,7 +775,7 @@ function renderJsonlEntry(entry, toolResultMap) {
       div.innerHTML = '<span class="jsonl-meta-icon">&#9658;</span> Bash output' + escapeHtml(elapsed);
       if (data.output || data.fullOutput) {
         const output = data.fullOutput || data.output || '';
-        div.appendChild(makeCollapsible('jsonl-tool-result', 'Output', output, true));
+        div.appendChild(makeCollapsible('jsonl-tool-result', 'Output', output, toolOutputStartsExpanded()));
       }
       return div;
     }
@@ -837,6 +884,7 @@ function renderJsonlEntry(entry, toolResultMap) {
         }
         renderToolResult(resultData, contentEl);
       }
+      makeToolCollapsible(toolEl, block.id);
       div.appendChild(toolEl);
     } else if (block.type === 'tool_result') {
       // Skip if already claimed by a tool_use above

@@ -105,6 +105,10 @@
     activeHit = (i % hits.length + hits.length) % hits.length;
     const mark = hits[activeHit];
     mark.classList.add('jsonl-search-hit-active');
+    // A hit inside a closed tool call (#687) is opened first: a hidden mark has no position to scroll to, and
+    // the user asked to see it.
+    const closed = mark.closest('.jsonl-tool-collapsed');
+    if (closed) closed.classList.remove('jsonl-tool-collapsed');
     // Scroll within the body only (mirrors scrollToJsonlEntry rationale).
     const bodyRect = body.getBoundingClientRect();
     const markRect = mark.getBoundingClientRect();

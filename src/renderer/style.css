@@ -5221,6 +5221,21 @@ mark.jsonl-search-hit-active {
   color: #606878;
 }
 
+/* A tool call's body opens and closes on its header (#687); the caret says which state it is in. */
+.jsonl-tool-collapsible > .jsonl-tool-header { cursor: pointer; }
+.jsonl-tool-collapsible > .jsonl-tool-header::after {
+  content: '\25B6';
+  font-size: 7px;
+  color: #606878;
+  flex-shrink: 0;
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+.jsonl-tool-collapsible.jsonl-tool-collapsed > .jsonl-tool-header::after { transform: none; }
+.jsonl-tool-collapsible.jsonl-tool-collapsed > .jsonl-tool-content { display: none; }
+.jsonl-tool-peek { white-space: nowrap; min-width: 0; }
+.jsonl-tool-collapsible:not(.jsonl-tool-collapsed) .jsonl-tool-peek { display: none; }
+
 .jsonl-tool-content {
   margin-left: 6px;
   border-left: 1.5px solid rgba(255,255,255,0.15);

@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -126,6 +126,15 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-confirm-quit" ${confirmQuitValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Show tool calls expanded</span>
+                    <div class="settings-description">In the conversation view and the session history, a tool call's input and output start open. Off: click the tool's name to open it. Applies to what is drawn next.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-expand-tool-output" ${expandToolOutputValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">
