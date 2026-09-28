@@ -326,6 +326,7 @@ contextBridge.exposeInMainWorld('api', {
     // Background tasks (#691): stop one, and read the end of one's output. A task is named, never a path.
     stopTask: (id, taskId) => ipcRenderer.invoke('agent-stop-task', id, taskId),
     taskOutput: (id, taskId) => ipcRenderer.invoke('agent-task-output', id, taskId),
+    cycleMode: (id) => ipcRenderer.invoke('agent-cycle-mode', id),
   },
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)

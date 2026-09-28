@@ -318,6 +318,26 @@ test('background tasks and the context reach the view, the sidebar count reaches
   assert.equal((await agentRpc.taskOutput('launch-id', '../../etc/passwd')).ok, false, 'a name is not a path');
 });
 
+// #697: the fill grows with every call inside a turn, so a runtime that answers mid-turn is asked then too.
+test('the context is asked again during a turn only where the half declares that its runtime answers then', async (t) => {
+  const ctx = { contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }), contextFromResponse: () => ({ percent: 10 }) };
+  const timeouts = { contextFollowMs: 30 };
+  const during = streamHarness(t, { rpc: { ...ctx, contextDuringTurn: true }, timeouts });
+  t.after(() => stopped(during));
+  await until(() => ops(during).some((o) => o.op === 'context'));   // the one at the start
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });   // a turn that stays open
+  await until(() => ops(during).filter((o) => o.op === 'context').length >= 2);
+  assert.ok(!during.signals.some((s) => s.kind === 'idle'), 'asked while the turn still ran');
+  await stopped(during);
+
+  const settledOnly = streamHarness(t, { rpc: ctx, timeouts });
+  t.after(() => stopped(settledOnly));
+  await until(() => ops(settledOnly).some((o) => o.op === 'context'));
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(ops(settledOnly).filter((o) => o.op === 'context').length, 1, 'no ask inside the turn without the declaration');
+});
+
 test('a runtime that cannot stop a single task says so, and one that reads no context is not asked', async (t) => {
   const h = streamHarness(t);
   t.after(() => stopped(h));
@@ -325,4 +345,52 @@ test('a runtime that cannot stop a single task says so, and one that reads no co
   await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
   await until(() => h.signals.some((s) => s.kind === 'idle'));
   assert.ok(!ops(h).some((o) => o.op === 'context'));
+});
+
+// #696: the permission mode is the session's, switched in the backend's order; a mode the runtime refuses is
+// skipped, and a backend without modes switches nothing.
+test('the permission mode cycles in the declared order, skips a refused mode, and reaches a later view', async (t) => {
+  const asked = [];
+  const info = (id) => ({ id, label: `${id} words`, symbol: '', tone: '' });
+  const h = streamHarness(t, { rpc: {
+    modeCycle: ['one', 'two', 'three'],
+    modeInfo: info,
+    setModeCommand: (id, mode) => { asked.push(mode); return { type: 'ctl', request_id: id, what: mode === 'two' ? 'fail' : `mode ${mode}` }; },
+  } });
+  t.after(() => stopped(h));
+  const first = await agentRpc.cycleMode('launch-id');
+  assert.deepEqual(asked, ['two', 'three'], 'no mode heard yet counts as the first; the refused one is skipped');
+  assert.deepEqual(first, { ok: true, mode: info('three') });
+  assert.deepEqual(ops(h).filter((o) => o.op === 'mode').pop().mode, info('three'));
+  assert.deepEqual((await agentRpc.cycleMode('launch-id')).mode, info('one'), 'past the end it starts over');
+  const attached = await agentRpc.attach('launch-id');
+  assert.deepEqual(attached.mode, info('one'));
+  assert.equal(attached.canSwitchMode, true);
+});
+
+test('a backend without permission modes switches nothing and says so', async (t) => {
+  const h = streamHarness(t);
+  t.after(() => stopped(h));
+  const res = await agentRpc.cycleMode('launch-id');
+  assert.equal(res.ok, false);
+  assert.equal((await agentRpc.attach('launch-id')).canSwitchMode, false);
+});
+
+test('a mode outside the declared order goes to the first mode on the next switch', async (t) => {
+  const asked = [];
+  const info = (id) => ({ id, label: id, symbol: '', tone: '' });
+  const h = streamHarness(t, { rpc: {
+    createDecoder: () => ({
+      decode: (msg) => (msg.ev === 'result' ? [{ op: 'mode', mode: info('outside') }, { op: 'busy', busy: false }] : []),
+      currentPartial: () => null,
+    }),
+    modeCycle: ['one', 'two', 'three'],
+    modeInfo: info,
+    setModeCommand: (id, mode) => { asked.push(mode); return { type: 'ctl', request_id: id, what: `mode ${mode}` }; },
+  } });
+  t.after(() => stopped(h));
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => ops(h).some((o) => o.op === 'mode'));
+  assert.deepEqual((await agentRpc.cycleMode('launch-id')).mode, info('one'));
+  assert.deepEqual(asked, ['one']);
 });

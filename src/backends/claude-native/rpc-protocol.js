@@ -89,6 +89,12 @@ const UNANSWERED_MESSAGE = 'The user dismissed the question without answering it
 const QUESTION_TOOL = 'AskUserQuestion';
 const PLAN_TOOL = 'ExitPlanMode';
 
+// Which subagent an agent task is (#695). Measured on 2.1.283, for a background and a foreground agent alike:
+// the `task_id` Claude gives a `local_agent` task IS the `agentId` its subagent transcript carries
+// (`subagents/agent-<id>.jsonl`, and the same id in every line of it), so the task names its subagent row
+// with no lookup. A shell or another task has none.
+const subagentIdOf = (taskId, kind) => (kind === 'agent' && taskId ? taskId : null);
+
 // A stream event, a message or a result that belongs to a subagent's own conversation carries the tool call
 // that started it. Those are the subagent's, drawn under that call by Claude's history reader, not turns of
 // this conversation.
@@ -221,14 +227,17 @@ function taskNoticeEntry(line, toolKinds) {
   const exit = /exit code (-?\d+)/.exec(summary);
   const usage = tagOf(text, 'usage');
   const num = (tag) => { const v = Number(tagOf(usage, tag)); return Number.isFinite(v) && tagOf(usage, tag) !== '' ? v : null; };
+  const id = tagOf(text, 'task-id');
+  const kind = (toolKinds && toolKinds.get(toolUseId)) || 'task';
   return {
     type: 'task-notice',
     uuid: typeof line.uuid === 'string' ? line.uuid : undefined,
     timestamp: typeof line.timestamp === 'string' ? line.timestamp : new Date().toISOString(),
     _task: {
-      id: tagOf(text, 'task-id'),
+      id,
       toolUseId,
-      kind: (toolKinds && toolKinds.get(toolUseId)) || 'task',
+      kind,
+      subagentId: subagentIdOf(id, kind),
       status: tagOf(text, 'status'),
       description: quoted ? quoted[1] : summary,
       summary,
@@ -307,6 +316,7 @@ function createDecoder() {
         id,
         toolUseId,
         kind,
+        subagentId: subagentIdOf(id, kind),
         status: typeof msg.status === 'string' ? msg.status : '',
         description: s.description || (quoted ? quoted[1] : summary),
         summary,
@@ -328,6 +338,7 @@ function createDecoder() {
         description: t.description || s.description || '',
         detail: (s.toolUseId && toolDetails.get(s.toolUseId)) || s.detail || '',
         toolUseId: s.toolUseId || null,
+        subagentId: subagentIdOf(t.id, t.kind),
         startedAt: s.startedAt || null,
       };
     }),
@@ -464,9 +475,19 @@ function createDecoder() {
   function onSystem(msg) {
     switch (msg.subtype) {
       // Every turn opens with it — the busy edge for a turn nothing of ours started (point 2 above).
-      case 'init': stopping = null; return [{ op: 'busy', busy: true }];
-      case 'status':
-        return msg.status === 'compacting' ? [{ op: 'notice', level: 'info', text: NOTICES.compacting }] : [];
+      // It names the permission mode as well (#696).
+      case 'init': {
+        stopping = null;
+        const mode = modeInfo(msg.permissionMode);
+        return mode ? [{ op: 'busy', busy: true }, { op: 'mode', mode }] : [{ op: 'busy', busy: true }];
+      }
+      case 'status': {
+        // A status line follows every change of the permission mode (#696).
+        const out = msg.status === 'compacting' ? [{ op: 'notice', level: 'info', text: NOTICES.compacting }] : [];
+        const mode = modeInfo(msg.permissionMode);
+        if (mode) out.push({ op: 'mode', mode });
+        return out;
+      }
       case 'compact_boundary':
         return [{ op: 'notice', level: 'info', text: NOTICES.compacted }];
       case 'api_retry':
@@ -636,6 +657,37 @@ const stopTaskCommand = (id, taskId) => control(id, { subtype: 'stop_task', task
 // The session's figures for the line under the input (#691): `get_context_usage` answers `totalTokens`,
 // `maxTokens`, `percentage` and `model` (measured). The model id becomes the name the TUI shows for it.
 const contextCommand = (id) => control(id, { subtype: 'get_context_usage' });
+
+// The permission mode of the running session (#696), measured on 2.1.283:
+//   - `{ subtype: 'set_permission_mode', mode }` answers success with `{ mode }` and is followed at once by a
+//     `system/status` line carrying `permissionMode`; every turn's `system/init` names the mode too. A change
+//     applies to the RUNNING turn: set to `acceptEdits` while a Write waited on a card, the next Write of the
+//     same turn asked nothing.
+//   - A mode the session cannot enter is REFUSED and changes nothing: `auto` on a model without it
+//     (`auto_mode_model`, on Haiku; Sonnet and Opus accepted it), `bypassPermissions` on a session not launched
+//     so that it may (`bypass_not_launched`). So the cycle tries the next mode and skips a refusal, which is the
+//     TUI's "skip what is unavailable" answered by the CLI itself rather than guessed here.
+// The cycle is the TUI's Shift+Tab order, read from the binary: default → acceptEdits → plan → bypassPermissions
+// (where allowed) → auto (where available) → default. `dontAsk` is never entered by the cycle; from it the next
+// press goes to default. The labels and glyphs are the TUI's status-line words for each mode.
+const MODE_CYCLE = ['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'];
+const PERMISSION_MODES = {
+  default: { label: 'manual mode', symbol: '⏸', tone: '' },
+  acceptEdits: { label: 'accept edits', symbol: '⏵⏵', tone: 'accept' },
+  plan: { label: 'plan mode', symbol: '⏸', tone: 'plan' },
+  bypassPermissions: { label: 'bypass permissions', symbol: '⏵⏵', tone: 'danger' },
+  dontAsk: { label: 'don\'t ask', symbol: '⏵⏵', tone: 'danger' },
+  auto: { label: 'auto mode', symbol: '⏵⏵', tone: 'warn' },
+};
+// A mode as the view draws it: `{ id, label, symbol, tone }` in the app's words. A mode this table does not
+// know is shown by its own name, so a new one in a later CLI is still visible.
+function modeInfo(mode) {
+  const id = typeof mode === 'string' ? mode : '';
+  if (!id) return null;
+  const m = PERMISSION_MODES[id];
+  return m ? { id, ...m } : { id, label: id, symbol: '', tone: '' };
+}
+const setModeCommand = (id, mode) => control(id, { subtype: 'set_permission_mode', mode: String(mode) });
 
 // `claude-opus-5-5`, `claude-haiku-4-5-20251001`, `claude-opus-5-5[1m]` → `Opus 5.5`, `Haiku 4.5`. An id of
 // another shape is shown as it is.
@@ -809,6 +861,9 @@ module.exports = {
   stopTaskCommand,
   contextCommand,
   contextFromResponse,
+  setModeCommand,
+  modeInfo,
+  MODE_CYCLE,
   commandsCommand,
   commandsFromResponse,
   answerCommand,

@@ -233,6 +233,14 @@ module.exports = {
     // The context fill and the model for the line under the input (#691).
     contextCommand: protocol.contextCommand,
     contextFromResponse: protocol.contextFromResponse,
+    // …asked during a turn as well (#697): measured on 2.1.283, `get_context_usage` sent mid-turn was answered
+    // within 250 ms every time, with the fill as it stood after the last API call.
+    contextDuringTurn: true,
+    // The permission mode of the running session, switched from the view (#696): the order a switch walks,
+    // the request, and the words a mode is drawn with.
+    modeCycle: protocol.MODE_CYCLE,
+    setModeCommand: protocol.setModeCommand,
+    modeInfo: protocol.modeInfo,
     commandsCommand: protocol.commandsCommand,
     commandsFromResponse: protocol.commandsFromResponse,
     answerCommand: protocol.answerCommand,

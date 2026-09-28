@@ -43,6 +43,7 @@ in step.
 | E17 | "For this session" hands back only suggestions whose destination is the session. | A suggestion naming a settings file would outlive the session and write a file of the user's (#661). **Narrowed by E19 (#674):** the project's local settings are offered behind a button of their own. |
 | E18 | No special order for `default_to_no`. | No request in any measurement carried the field (#661). |
 | E19 | **A lasting allow for the project is offered after all** (#674, route A; narrows E17): the card hands back Claude's own `localSettings` allow rule, and Claude writes it into `.claude/settings.local.json`. Suggestions for the shared project settings and the user's settings stay unoffered. | The same one-click choice Claude's terminal offers, without the app writing a file of the CLI's (CLAUDE.md rule 11). The price: a click on a card changes a file in the project that outlives the session, and the app does not show the rule afterwards. |
+| E20 | **The permission mode can be switched in a running session** (#696): Shift+Tab in the input and a click on the mode in the session line walk the TUI's order. The switch is the session's; it writes nothing to the stored `permissionMode` option (E6), so the next launch starts where that says. | The TUI can do it and the view could not even show the mode. A session-only switch keeps the cascade the one answer to "how does a session start". |
 
 E8 and E13 are pi-native's half of the trust gate and are recorded in spec 30 (its E5). E15 is not
 recorded on any issue and is left out here.
@@ -314,20 +315,26 @@ What the view draws from it, since #691:
 
 - **The session line** under the input: the context fill with a small meter, the model with its window
   (`ctx 34 % · Opus 5.5 (1M)`), and the working state with its elapsed time. The fill turns warm at the
-  handoff threshold the sidebar's health badge uses (spec 28). Asked with `get_context_usage` at the start and
-  after every settled turn (`contextCommand` + `contextFromResponse` on the `rpc` half); the model id is shown
-  as the TUI names it (`claude-haiku-4-5-…` → `Haiku 4.5`).
+  handoff threshold the sidebar's health badge uses (spec 28). Asked with `get_context_usage` at the start,
+  after every settled turn, and during a turn at most 1.5 s after each finished entry (`contextCommand` +
+  `contextFromResponse` + `contextDuringTurn` on the `rpc` half, #697); the model id is shown as the TUI names
+  it (`claude-haiku-4-5-…` → `Haiku 4.5`).
 - **Background buttons** beside it, `2 shells` / `1 agent`, only while something runs, from the `tasks` op the
   decoder sends for every `background_tasks_changed`. A click opens the Background list: per task its
   description, its command or agent type, its elapsed time, **Output** (a shell: the end of the file Claude
-  named for that task, read in main by task id — the view never names a path) or **Open** (an agent: the call
-  that started it), and **Stop** (`stop_task` for that one task). ↑/↓, Enter, X and Esc work in the list.
+  named for that task, read in main by task id — the view never names a path) or **Open** (an agent: its own
+  transcript, see below), and **Stop** (`stop_task` for that one task). ↑/↓, Enter, X and Esc work in the list.
 - **A card for a task that ended** (`task-notice` entry): ✓ finished, ■ stopped, ✗ failed, with the exit code
   or an agent's time and tokens, and an Output link for a shell. Measured in the app: the injected
   `<task-notification>` user line is **not** sent on the pipe, only written to the transcript, so the live
   card is built from the `task_notification` system line and an injected line for the same task is dropped.
   An attach reads the card back from the transcript line (`origin.kind: 'task-notification'`). A stopped task
   writes no injected line, so its card exists only while the process that drew it runs.
+- **Open on an agent (#695)**, in the Background list and on an agent's notice card, opens the view a click on
+  its subagent row in the sidebar opens: the agent's own transcript, tailed while it runs. The decoder stamps
+  the task with a neutral `subagentId`, and the view looks up the row of this session whose `agentId` is that
+  id. Until the scan has listed the row, Open scrolls to the call that started the agent, as it did before,
+  and says so.
 - **The sidebar row** says `◉ n` beside the state while n shells and agents run in the background
   (`showBackgroundTasks`, default on). Main sends the counts to the MAIN window (`agent-background`),
   whichever window renders the session.
@@ -358,10 +365,79 @@ calls and one background agent. What the stream carries, all as `system` lines t
   `maxTokens`, `percentage`, `model` and a breakdown by category. Every `result` line also carries
   `modelUsage.<model>.contextWindow`, and `system/init` names the `model`.
 
+- **An agent task names its subagent** (#695): the `task_id` of a `local_agent` task is the `agentId` of its
+  subagent transcript, character for character — the file is `subagents/agent-<task_id>.jsonl` and every line
+  in it carries that `agentId`. Measured for a background and a foreground agent in one turn. A foreground
+  agent gets a `task_started`, a `task_updated` and a `task_notification` too, but never appears in
+  `background_tasks_changed`. The transcript lines carry no `tool_use` id; the call that started the agent is
+  named in the `agent-<task_id>.meta.json` beside it (`toolUseId`, `requestShape: background|foreground`).
+  The `.output` file of a finished agent was empty in both runs, so it is no stand-in for the transcript.
+
 Found by listing the control and message subtypes in the CLI binary first; each one above was then seen on the
 pipe. pi-native has no background tasks of its own: Pi runs a tool inside its turn, and the user's own shell
 lines are already tracked by the view. Its context fill and window come from `get_session_stats`
 (`contextUsage.percent`, `contextWindow`) and its model from `get_state`.
+
+### Why the line and the sidebar drifted apart (#697)
+
+The session line and the sidebar row measure the fill from two sources: the line asks the runtime, the row
+reads the last assistant line's `usage` from the transcript (`contextWindow`, spec 28). Measured on 2.1.283
+(Haiku, 200k window), they count the same tokens: after every settled turn the runtime's `totalTokens` was
+the last API call's `input + cache_read + cache_creation`, the sum the transcript reader takes, within 1 to 8
+tokens. The system prompt, tools and memory files in the runtime's breakdown are already inside `cache_read`.
+For `opus`, `opus[1m]`, `sonnet` and `sonnet[1m]` the runtime's `maxTokens` matched the window
+`resolveClaudeWindow` picks.
+
+What differed was WHEN. The line was asked only when a run settled, while the transcript gains a line with
+every API call. In one turn of five sequential `Read` calls the line stayed at 17 % while the sidebar read
+18, 34, 43 and 52 %, and the runtime, asked at the same moments, answered 26, 42, 51 and 60 %; both met at
+61 % once the turn settled. A request sent mid-turn was answered within 250 ms every time (six of six), so a
+busy runtime drops nothing. The fix asks during the turn as well.
+
+Two differences remain and are known. The fill's tooltip on the session line names both, because that is where
+the two figures are compared:
+
+- **Before the first turn** the runtime answers an estimate (about 15 % for a fresh Haiku session) and the
+  sidebar shows nothing, because the transcript holds no usage yet.
+- **After a compaction** the lag runs the other way: the line shows the compacted fill at once (33 % → 17 %
+  in the measurement), and the sidebar keeps the old value until the next API call writes a new usage line.
+  Measured for `/compact`; assumed the same for an automatic compaction.
+
+## The permission mode (#696)
+
+The session line shows the mode first, in the TUI's words and glyphs (`⏵⏵ accept edits · ctx 34 % · Opus 5.5
+(1M)`), coloured like the TUI's (accept edits violet, plan teal, auto amber, bypass and don't-ask red).
+**Shift+Tab** in the input and a click on the mode switch to the next one. pi-native has no modes: its line
+shows none and Shift+Tab moves the focus as in any text field.
+
+Measured on 2.1.283 over the pipe, before any of it was built:
+
+- **The request** is `{ subtype: 'set_permission_mode', mode }`. It answers success with `{ mode }` in about
+  10 ms, needs no `initialize` first and is taken before the first turn as well.
+- **Which modes it takes.** `default`, `acceptEdits`, `plan` and `dontAsk` always. `auto` depends on the model:
+  refused on Haiku (`auto_mode_model`), taken on Sonnet and Opus. `bypassPermissions` is refused unless the
+  session was launched so that it may (`bypass_not_launched`); `--allow-dangerously-skip-permissions` is enough
+  for that. An unknown mode is refused with the list of valid ones (`invalid_mode`). A refusal changes nothing
+  and sends no status line.
+- **Where the CLI says which mode it is in.** A `system/status` line with `permissionMode` follows every change
+  at once, even between turns; setting the mode it already has answers success with no status line. Every
+  turn's `system/init` names the mode too.
+- **When it applies: at once, to the running turn.** Started in `default`, a turn of two sequential `Write`
+  calls asked for the first; `acceptEdits` was set while that card was open, and the second `Write` of the
+  same turn asked nothing.
+- **The TUI's order** (read from the binary, not seen on screen): default → accept edits → plan → bypass
+  permissions, where allowed → auto, where available → default. `dontAsk` is never entered by the cycle.
+
+The view walks that order and skips a mode the CLI refuses, so "what this session can enter" is the CLI's own
+answer rather than a guess about models and launch flags. A press while the previous one is still out is
+dropped.
+
+**Known gap: before the first turn the mode is not known.** Nothing in the protocol answers "which mode are you
+in"; the first `system/init` arrives with the first turn. Until then the line shows no mode, and a Shift+Tab
+counts the session as being in `default`, so a session launched in another mode takes one press more than
+expected — and one launched in `plan` goes to accept edits on that first press, where the TUI would have
+gone on to the next mode after plan. A mode outside the cycle (`dontAsk`, which only a launch sets) goes to
+`default` on the next press.
 
 ## Prompt suggestions (#693)
 

@@ -78,6 +78,13 @@ const STARTUP_TIMEOUT_MS = 120000;
 // out, and anything else that happens flushes it first, so nothing is reordered and nothing is dropped.
 const PARTIAL_INTERVAL_MS = 60;
 
+// How often the context fill is asked again WHILE a turn runs, for a backend whose runtime answers then
+// (`contextDuringTurn`, #697). A turn with several tool calls grows the context with every one, and the
+// sidebar reads that growth from the transcript line by line; asked only when the run settles, the session
+// line sat at the previous settle — measured 17 % against the sidebar's 52 % in one five-call turn. Each
+// finished entry schedules one ask at most this long after it, so a burst of entries costs one request.
+const CONTEXT_FOLLOW_MS = 1500;
+
 // How many finished entries are kept for an attach that reads the conversation from the transcript file
 // (see `attach`). The file can lag the stream by the entry being written, never by a whole turn, so this
 // is a bound on a window of milliseconds rather than a second log of the session.
@@ -237,10 +244,15 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     tasks: [],               // what runs in the background, as the backend last listed it (#691)
     suggestion: null,        // the next prompt the runtime proposed after the last turn (#693)
     context: null,           // the context fill and the model, as the backend last read them (#691)
+    mode: null,              // the permission mode the runtime last named, in the backend's words (#696)
+    contextTimer: null,      // an ask of the fill scheduled during a turn (#697)
+    contextAsked: 0,         // the number of the last ask of the fill sent, and of the last one applied —
+    contextApplied: 0,       //   an answer older than one already drawn is dropped
   };
-  // The tests shorten both; the app never passes them.
+  // The tests shorten these; the app never passes them.
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
   const startupMs = (timeouts && timeouts.startupMs) || STARTUP_TIMEOUT_MS;
+  const contextFollowMs = (timeouts && timeouts.contextFollowMs) || CONTEXT_FOLLOW_MS;
 
   // Both streamed things at once: the assistant turn being written, and any shell line writing beside it.
   // They are separate streams and can run together, but they share ONE order in the view, so whatever
@@ -349,18 +361,33 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
   state.followIdentity = followIdentity;
 
   // The context fill and the model (#691), asked where the backend can be asked (`contextCommand` +
-  // `contextFromResponse`), at the start and after every settled run — the two moments the figures move.
+  // `contextFromResponse`), at the start and after every settled run — and, where the half declares
+  // `contextDuringTurn`, during a turn as well (`followContextSoon`, #697).
   // Not awaited by anyone: an answer that never comes leaves the line as it was.
   async function followContext() {
     if (typeof rpc.contextCommand !== 'function' || typeof rpc.contextFromResponse !== 'function') return;
+    const asked = ++state.contextAsked;
     const res = await request(rpc.contextCommand);
     let context = null;
     try { context = res && res.success !== false ? rpc.contextFromResponse(res) : null; } catch { context = null; }
-    if (!context) return;
+    if (!context || asked < state.contextApplied) return;
+    state.contextApplied = asked;
     state.context = context;
     sendOp(state, { op: 'context', context });
   }
   state.followContext = followContext;
+
+  // One ask of the fill, CONTEXT_FOLLOW_MS after the entry that scheduled it, while a turn runs. Only for a
+  // runtime measured to answer mid-turn: one that queues the request behind the turn would answer it at the
+  // settle anyway, and one that never answers would hold a pending request per entry for the full timeout.
+  function followContextSoon() {
+    if (rpc.contextDuringTurn !== true || state.contextTimer || state.exited) return;
+    state.contextTimer = setTimeout(() => {
+      state.contextTimer = null;
+      if (state.busy && !state.exited) followContext();
+    }, contextFollowMs);
+    if (typeof state.contextTimer.unref === 'function') state.contextTimer.unref();
+  }
 
   // A SHELL LINE RUNS ONLY IF THIS WINDOW'S COMPOSER SENT IT.
   //
@@ -484,6 +511,12 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
         // A next prompt the runtime proposes (#693). Kept until a turn starts, so a view mounted meanwhile
         // offers it too.
         state.suggestion = typeof op.text === 'string' ? op.text : null;
+        flushPartial();
+        sendOp(state, op);
+        return;
+      case 'mode':
+        // The permission mode the runtime is in now (#696) — kept for a view that mounts later.
+        state.mode = op.mode || null;
         flushPartial();
         sendOp(state, op);
         return;
@@ -660,6 +693,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
           if (state.recentAppends.length > RECENT_APPENDS_CAP) state.recentAppends.shift();
         }
         sendOp(state, key ? { ...op, key: String(key) } : op);
+        // A finished entry inside a turn is where the context has grown (#697).
+        if (state.busy) followContextSoon();
         return;
       }
       case 'reset':
@@ -726,6 +761,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     if (state.exited) return;
     state.exited = true;
     flushPartial();
+    if (state.contextTimer) { clearTimeout(state.contextTimer); state.contextTimer = null; }
     dropAsks();
     // A background task does not outlive the process that ran it; the sidebar stops counting it (#691).
     if (state.tasks.length) { state.tasks = []; announceBackground(state); }
@@ -913,6 +949,8 @@ async function attach(sessionId) {
     tasks: state.tasks,
     context: state.context,
     suggestion: state.suggestion,
+    mode: state.mode,
+    canSwitchMode: canSwitchMode(state),
   };
 }
 
@@ -988,6 +1026,8 @@ async function attachFromTranscript(sessionId, state) {
     tasks: state.tasks,
     context: state.context,
     suggestion: state.suggestion,
+    mode: state.mode,
+    canSwitchMode: canSwitchMode(state),
   };
 }
 
@@ -1149,6 +1189,45 @@ function answerAsk(sessionId, requestId, answer) {
   return ok ? { ok: true } : { ok: false, error: 'The session is not running.' };
 }
 
+// --- the permission mode (#696) ---
+
+// Whether this session's mode can be switched from the view: the half declares the order, the request and the
+// words. Pi has no such modes and declares none, so its view shows and changes nothing.
+function canSwitchMode(state) {
+  const rpc = state.rpc;
+  return Array.isArray(rpc.modeCycle) && rpc.modeCycle.length > 1
+    && typeof rpc.setModeCommand === 'function' && typeof rpc.modeInfo === 'function';
+}
+
+// The next mode in the backend's order. A mode the runtime refuses — one this session cannot enter — is
+// skipped and the one after it is tried, so what is available is the runtime's answer, not a guess here. A
+// mode outside the order (or none heard yet) counts as its first. The change is the SESSION's: nothing is
+// written to the backend's stored option, and the next launch starts where that option says.
+async function cycleMode(sessionId) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (!canSwitchMode(state)) return { ok: false, error: 'This session has no permission modes to switch.' };
+  const cycle = state.rpc.modeCycle;
+  // None heard yet counts as the first mode; a mode outside the order (one only a launch can set) goes to the
+  // first mode next, as the TUI's cycle does.
+  const current = (state.mode && state.mode.id) || cycle[0];
+  const at = cycle.indexOf(current);
+  const order = at < 0 ? cycle.slice() : cycle.slice(at + 1).concat(cycle.slice(0, at));
+  for (const next of order) {
+    const res = await state.request((rid) => state.rpc.setModeCommand(rid, next));
+    if (!res || res.success === false) {
+      ctx.log.info(`[agent-rpc] permission mode ${next} refused: ${(res && res.error) || 'no answer'}`);
+      continue;
+    }
+    // The runtime also announces the change on its stream; this makes the view right even if that line is late.
+    const mode = state.rpc.modeInfo(next);
+    state.mode = mode;
+    sendOp(state, { op: 'mode', mode });
+    return { ok: true, mode };
+  }
+  return { ok: false, error: 'No other permission mode is available in this session.' };
+}
+
 // --- background tasks (#691) ---
 
 // Stop one background task and leave the turn and the other tasks alone. A backend that cannot stop a single
@@ -1193,6 +1272,7 @@ async function taskOutput(sessionId, taskId) {
 /** @param {Electron.IpcMain} ipc */
 function registerIpc(ipc) {
   ipc.handle('agent-stop-task', (_event, sessionId, taskId) => stopTask(sessionId, taskId));
+  ipc.handle('agent-cycle-mode', (_event, sessionId) => cycleMode(sessionId));
   ipc.handle('agent-task-output', (_event, sessionId, taskId) => taskOutput(sessionId, taskId));
   ipc.handle('agent-attach', (_event, sessionId) => attach(sessionId));
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
@@ -1210,6 +1290,6 @@ module.exports = {
   turnQueueOf,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
-  stopTask, taskOutput,
+  stopTask, taskOutput, cycleMode,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

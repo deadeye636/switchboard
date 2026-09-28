@@ -518,10 +518,18 @@ answers instead of the core learning its format:
   would save nothing, and a pi-native attach reads `get_messages`, not the file.
 - `contextCommand` + `contextFromResponse` — optional, a pair (#691). The session line's context fill and
   model, answered as `{ percent, tokens, window, model }`; asked at the start and after every settled run.
-  claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`.
+  claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`. `contextDuringTurn: true`
+  asks it inside a turn too, once per burst of finished entries (#697) — only for a runtime MEASURED to answer
+  mid-turn; claude-native declares it, pi-native does not.
+- `modeCycle` + `setModeCommand(id, mode)` + `modeInfo(mode)` — optional, together (#696). The session's
+  permission mode, switched from the view: `agentRpc.cycleMode` walks `modeCycle` from the mode last named and
+  SKIPS a mode the runtime refuses, so what the session can enter is the runtime's answer. The decoder names the
+  current mode as a `mode` op (`modeInfo`'s `{ id, label, symbol, tone }`), which the core keeps for a later
+  attach. The switch is the session's; nothing writes the backend's stored option. pi-native declares none.
 - `stopTaskCommand(id, taskId)` — optional (#691). Stops ONE background task and leaves the turn alone; a
   half without it offers no Stop in the Background list. The running list itself is a `tasks` op the decoder
-  sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, startedAt }`), and a finished
+  sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, subagentId, startedAt }` — `subagentId` is
+  the `agentId` of the subagent row an agent task is, or `null`; #695), and a finished
   task is a neutral `task-notice` entry — the renderer reads neither CLI's markup. The decoder may declare
   `taskOutputFile(taskId)`: the file its runtime named for that task, which the core reads by task id so the
   view never names a path.

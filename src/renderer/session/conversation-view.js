@@ -182,6 +182,8 @@ function createConversationView(getSession, container) {
     pendingSends: [],        // messages sent from here that the runtime has not played back yet: { text, el, at } (#694)
     tasks: [],               // what runs in the background: { id, kind, description, detail, toolUseId, startedAt } (#691)
     context: null,           // { percent, tokens, window, model } as the backend last read them (#691)
+    mode: null,              // the permission mode, { id, label, symbol, tone } in the backend's words (#696)
+    canSwitchMode: false,    // whether the backend can switch it — Pi has no such modes (#696)
   };
 
   // Whether the user is reading the end (#689). REMEMBERED from the user's own scrolling, not measured when an
@@ -559,6 +561,13 @@ function createConversationView(getSession, container) {
       }
     }
     if (e.key === 'Escape' && somethingRunning()) { e.preventDefault(); stop(); return; }
+    // Shift+Tab switches the permission mode, as in the TUI (#696) — only where the backend has modes, so
+    // anywhere else it keeps moving the focus back as in any text field.
+    if (e.key === 'Tab' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && view.canSwitchMode && !view.exited) {
+      e.preventDefault();
+      cycleMode();
+      return;
+    }
     if (e.key !== 'Enter') return;
     if (e.shiftKey) return;   // a new line, as in any text field
     const chord = (typeof isMac !== 'undefined' && isMac) ? e.metaKey : e.ctrlKey;
@@ -818,6 +827,20 @@ function createConversationView(getSession, container) {
       s.textContent = text;
       return s;
     };
+    // The permission mode first (#696), as the TUI's status line shows it; a click switches to the next one,
+    // as Shift+Tab in the input does. Only where the backend has modes and one has been named.
+    if (view.mode && view.mode.label) {
+      const m = document.createElement('button');
+      m.type = 'button';
+      m.className = 'conversation-mode' + (view.mode.tone ? ` conversation-mode-${view.mode.tone}` : '');
+      m.textContent = [view.mode.symbol, view.mode.label].filter(Boolean).join(' ');
+      m.disabled = !view.canSwitchMode || !!view.exited;
+      m.title = view.canSwitchMode ? 'Permission mode of this session — click or Shift+Tab to switch' : 'Permission mode of this session';
+      // The line is rebuilt with the new mode, which takes the clicked button away — the caret goes back to the
+      // input rather than to nowhere.
+      m.addEventListener('click', () => { input.focus(); cycleMode(); });
+      add(m);
+    }
     // The context fill and the model (#691), as the backend read them. Warm once the fill reaches the handoff
     // threshold the sidebar's health badge uses (spec 28), so the two never disagree about "getting full".
     const c = view.context;
@@ -832,7 +855,12 @@ function createConversationView(getSession, container) {
       ctxEl.appendChild(document.createTextNode(`ctx ${Math.round(c.percent)} %`));
       const threshold = typeof sessionHealthOptions === 'function' ? Number(sessionHealthOptions().handoffPercent) || 80 : 80;
       ctxEl.classList.toggle('hot', c.percent >= threshold);
-      if (Number.isFinite(c.tokens) && Number.isFinite(c.window)) ctxEl.title = `${c.tokens.toLocaleString()} of ${c.window.toLocaleString()} tokens`;
+      // Where this figure can differ from the sidebar's, said where the two are compared (#697): the line asks the
+      // session, the sidebar reads the last model reply in the transcript.
+      const why = 'Asked from the running session. The sidebar reads the last reply in the transcript, so it shows nothing before the first turn and the size from before a compaction until the next reply.';
+      ctxEl.title = Number.isFinite(c.tokens) && Number.isFinite(c.window)
+        ? `${c.tokens.toLocaleString()} of ${c.window.toLocaleString()} tokens\n${why}`
+        : why;
       add(ctxEl);
     }
     if (c && (c.model || Number.isFinite(c.window))) {
@@ -974,7 +1002,7 @@ function createConversationView(getSession, container) {
         open.type = 'button';
         open.className = 'new-session-secondary-btn conversation-bg-btn';
         open.textContent = kind === 'agent' ? 'Open' : 'Output';
-        open.title = kind === 'agent' ? 'Go to the call that started this agent' : 'Show the end of this task\'s output';
+        open.title = kind === 'agent' ? 'Open this agent\'s transcript' : 'Show the end of this task\'s output';
         open.addEventListener('click', () => { bgSelected = i; openTask(t); });
         const stopBtn = document.createElement('button');
         stopBtn.type = 'button';
@@ -1003,17 +1031,35 @@ function createConversationView(getSession, container) {
     foot.textContent = '↑/↓ select · Enter open · X stop · Esc close';
     bgPop.appendChild(foot);
   }
-  async function openTask(t) {
-    if (t.kind === 'agent') {
-      // The call that started the agent, where its block and its result are drawn.
-      const el = t.toolUseId ? log.querySelector(`[data-tool-use-id="${CSS.escape(t.toolUseId)}"]`) : null;
-      if (!el) { notice('info', 'The call that started this agent is not in the conversation on screen.'); return; }
+  // The sidebar row of the subagent a task names (#695): a row of this session whose `agentId` is the id the
+  // backend stamped on the task. The backend answers which subagent it is; this only looks the row up.
+  function subagentRowFor(subagentId) {
+    if (!subagentId || typeof sessionMap === 'undefined') return null;
+    const parent = view.session.sessionId;
+    for (const s of sessionMap.values()) {
+      if (s && s.parentSessionId === parent && s.agentId === subagentId) return s;
+    }
+    return null;
+  }
+  // An agent opens where a click on its subagent row opens it: its own transcript, tailed while it runs. Until
+  // the scan has seen that row, the call that started the agent is the next best place, and the view says so.
+  function openAgent(subagentId, toolUseId) {
+    const row = subagentRowFor(subagentId);
+    if (row && typeof showSubagentTranscript === 'function') {
       closeBackground();
-      el.scrollIntoView({ block: 'center' });
-      el.classList.add('conversation-flash');
-      setTimeout(() => el.classList.remove('conversation-flash'), 1200);
+      showSubagentTranscript(row);
       return;
     }
+    const el = toolUseId ? log.querySelector(`[data-tool-use-id="${CSS.escape(toolUseId)}"]`) : null;
+    if (!el) { notice('info', 'This agent\'s transcript is not listed yet, and the call that started it is not in the conversation on screen.'); return; }
+    closeBackground();
+    el.scrollIntoView({ block: 'center' });
+    el.classList.add('conversation-flash');
+    setTimeout(() => el.classList.remove('conversation-flash'), 1200);
+    notice('info', 'This agent\'s transcript is not listed yet — showing the call that started it instead.');
+  }
+  async function openTask(t) {
+    if (t.kind === 'agent') { openAgent(t.subagentId, t.toolUseId); return; }
     if (bgOutputFor && bgOutputFor.id === t.id) { bgOutputFor = null; renderBackgroundList(); return; }
     let res;
     try { res = await window.api.agent.taskOutput(view.session.sessionId, t.id); } catch { res = null; }
@@ -1021,6 +1067,17 @@ function createConversationView(getSession, container) {
     const text = String(res.text || '').replace(/\s+$/, '');
     bgOutputFor = { id: t.id, text: (res.truncated ? '…\n' : '') + (text || '(no output yet)') };
     renderBackgroundList();
+  }
+  // One press, one switch: a second press while the first is still out is dropped rather than queued, so a
+  // quick double press cannot land on a mode the user never saw.
+  let modeSwitching = false;
+  async function cycleMode() {
+    if (modeSwitching || !view.canSwitchMode || view.exited) return;
+    modeSwitching = true;
+    let res;
+    try { res = await window.api.agent.cycleMode(view.session.sessionId); } catch { res = null; } finally { modeSwitching = false; }
+    if (!res || !res.ok) { notice('warning', (res && res.error) || 'The permission mode did not change.'); return; }
+    if (res.mode) { view.mode = res.mode; renderStatus(); }
   }
   async function stopTask(t) {
     let res;
@@ -1045,6 +1102,9 @@ function createConversationView(getSession, container) {
   });
   // The Output button on a task's notice in the conversation (#691), drawn by jsonl-viewer.js.
   log.addEventListener('click', (e) => {
+    // …and the Open button on an agent's notice (#695), the same way the Background list opens one.
+    const openBtn = e.target.closest('.task-notice-open');
+    if (openBtn && openBtn.dataset.subagentId) { openAgent(openBtn.dataset.subagentId, openBtn.dataset.toolUseId || ''); return; }
     const btn = e.target.closest('.task-notice-output');
     if (!btn || !btn.dataset.taskId) return;
     showNoticeOutput(btn);
@@ -1447,6 +1507,7 @@ function createConversationView(getSession, container) {
       // What runs in the background, and the session's figures (#691).
       case 'tasks': view.tasks = Array.isArray(op.tasks) ? op.tasks : []; renderStatus(); break;
       case 'context': view.context = op.context || null; renderStatus(); break;
+      case 'mode': view.mode = op.mode || null; renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
       case 'notice': notice(op.level, op.text, op.links, op.files); break;
       case 'localCommand': localCommand(op); break;
@@ -1541,6 +1602,8 @@ function createConversationView(getSession, container) {
     view.queue = res.queue || { steering: [], followUp: [] };
     view.tasks = Array.isArray(res.tasks) ? res.tasks : [];
     view.context = res.context || null;
+    view.mode = res.mode || null;
+    view.canSwitchMode = !!res.canSwitchMode;
     setSuggestion(res.suggestion || null);
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();

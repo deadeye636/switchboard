@@ -737,7 +737,8 @@ function renderJsonlEntry(entry, toolResultMap) {
   // --- a background task that ended (#691) ---
   // A backend-neutral entry: the backend turns its own notification into `{ type: 'task-notice', _task }`,
   // so nothing here reads a CLI's markup. The Output button is answered by the conversation view, which knows
-  // the session; it is offered for a shell or a task of no known kind, not for an agent, whose result is here.
+  // the session; it is offered for a shell or a task of no known kind, not for an agent, whose result is here
+  // and whose transcript the Open button below reaches.
   if (entry.type === 'task-notice' && entry._task) {
     const t = entry._task;
     const div = document.createElement('div');
@@ -773,6 +774,17 @@ function renderJsonlEntry(entry, toolResultMap) {
       out.textContent = 'output';
       out.title = 'Show the end of this task\'s output';
       div.appendChild(out);
+    }
+    // An agent whose subagent the backend named (#695) opens its transcript; the conversation view answers it.
+    if (t.kind === 'agent' && t.subagentId) {
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'task-notice-output task-notice-open';
+      open.dataset.subagentId = t.subagentId;
+      if (t.toolUseId) open.dataset.toolUseId = t.toolUseId;
+      open.textContent = 'open';
+      open.title = 'Open this agent\'s transcript';
+      div.appendChild(open);
     }
     if (t.kind === 'agent' && t.result) div.title = t.result;
     return div;

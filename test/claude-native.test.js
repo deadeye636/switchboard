@@ -570,7 +570,7 @@ test('background tasks: the running list is Claude\'s own, a start adds the call
   assert.equal(live.length, 1);
   assert.equal(live[0].entry.type, 'task-notice');
   assert.deepEqual({ ...live[0].entry._task, tokens: undefined, toolUses: undefined, durationMs: undefined }, {
-    id: 'b1', toolUseId: 'toolu_1', kind: 'shell', status: 'completed', description: 'Dev server',
+    id: 'b1', toolUseId: 'toolu_1', kind: 'shell', subagentId: null, status: 'completed', description: 'Dev server',
     summary: 'Background command "Dev server" completed (exit code 0)', result: '', exitCode: 0,
     tokens: undefined, toolUses: undefined, durationMs: undefined,
   });
@@ -591,6 +591,20 @@ test('background tasks: the running list is Claude\'s own, a start adds the call
   assert.equal(protocol.entryKey({ type: 'user', uuid: 'u9' }), 'u9', 'every other entry keeps its uuid');
 });
 
+// #695, measured on 2.1.283: the task id of a `local_agent` task IS the agentId of its subagent transcript.
+test('an agent task names its subagent, live and in its notice; a shell names none', () => {
+  const d = protocol.createDecoder();
+  d.decode({ type: 'assistant', uuid: 'u1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_a', name: 'Agent', input: { subagent_type: 'general-purpose', run_in_background: true } }] } });
+  d.decode({ type: 'system', subtype: 'task_started', task_id: 'a276f270c03197f1c', tool_use_id: 'toolu_a', description: 'bg date', task_type: 'local_agent', is_backgrounded: true });
+  const [t] = d.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'a276f270c03197f1c', task_type: 'local_agent', description: 'bg date' }] })[0].tasks;
+  assert.equal(t.kind, 'agent');
+  assert.equal(t.subagentId, 'a276f270c03197f1c');
+  const [live] = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'a276f270c03197f1c', tool_use_id: 'toolu_a', status: 'completed', summary: 'done' });
+  assert.equal(live.entry._task.subagentId, 'a276f270c03197f1c');
+  const shell = protocol.createDecoder().decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'x' }] })[0].tasks[0];
+  assert.equal(shell.subagentId, null);
+});
+
 test('an agent\'s notice from the transcript carries its kind and cost, and stop and the figures are control requests', () => {
   const lines = [
     { type: 'assistant', uuid: 'a', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_9', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } },
@@ -599,6 +613,7 @@ test('an agent\'s notice from the transcript carries its kind and cost, and stop
   const entries = protocol.conversationEntries(lines);
   const notice = entries.find(e => e.type === 'task-notice');
   assert.equal(notice._task.kind, 'agent');
+  assert.equal(notice._task.subagentId, 'a9', 'an agent\'s task id is its subagent\'s id (#695)');
   assert.equal(notice._task.description, 'Review');
   assert.equal(notice._task.result, 'all good');
   assert.deepEqual([notice._task.tokens, notice._task.toolUses, notice._task.durationMs], [24212, 3, 1229]);
@@ -609,4 +624,21 @@ test('an agent\'s notice from the transcript carries its kind and cost, and stop
     { percent: 19, tokens: 37984, window: 200000, model: 'Haiku 4.5' });
   assert.equal(protocol.contextFromResponse({ success: true, data: { model: 'claude-opus-5-5[1m]' } }).model, 'Opus 5.5');
   assert.equal(protocol.contextFromResponse({ success: false, error: 'no' }), null);
+});
+
+// #696, in the shapes measured on 2.1.283.
+test('the permission mode: named by init and by the status line after a change, switched by a control request', () => {
+  const d = protocol.createDecoder();
+  const init = d.decode({ type: 'system', subtype: 'init', permissionMode: 'default', session_id: 's1' });
+  assert.deepEqual(init.find(o => o.op === 'mode').mode, { id: 'default', label: 'manual mode', symbol: '⏸', tone: '' });
+  const status = d.decode({ type: 'system', subtype: 'status', status: null, permissionMode: 'acceptEdits', session_id: 's1' });
+  assert.deepEqual(status, [{ op: 'mode', mode: { id: 'acceptEdits', label: 'accept edits', symbol: '⏵⏵', tone: 'accept' } }]);
+  assert.deepEqual(d.decode({ type: 'system', subtype: 'status', status: 'compacting', session_id: 's1' }).map(o => o.op), ['notice'], 'a status without a mode names none');
+  assert.deepEqual(protocol.setModeCommand('r2', 'plan'), { type: 'control_request', request_id: 'r2', request: { subtype: 'set_permission_mode', mode: 'plan' } });
+  assert.deepEqual(protocol.MODE_CYCLE, ['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'], 'the TUI\'s order; dontAsk is never entered');
+  assert.deepEqual(protocol.modeInfo('someNewMode'), { id: 'someNewMode', label: 'someNewMode', symbol: '', tone: '' }, 'an unknown mode is shown by its name');
+  assert.equal(protocol.modeInfo(undefined), null);
+  // A refusal carries the CLI's sentence, and the cycle reads it as "skip this one".
+  const refused = protocol.responseOf({ type: 'control_response', response: { subtype: 'error', request_id: 'r4', error: 'Cannot set permission mode to auto: auto mode unavailable for this model', error_code: 'auto_mode_model' } });
+  assert.equal(refused.payload.success, false);
 });
