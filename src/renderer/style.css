@@ -3221,6 +3221,16 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 .task-notice-meta { color: #7a7a90; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; margin-left: auto; white-space: nowrap; }
 .task-notice-output { background: none; border: none; padding: 0; color: #7c8cff; font: inherit; font-size: 11px; cursor: pointer; }
 .task-notice-output:hover { text-decoration: underline; }
+/* A subagent's report (#701): a reply with a line above it saying who sent it. */
+.agent-report-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(124,140,255,0.18);
+  font-size: 12px;
+}
 .task-notice-text { margin: -4px 0 8px; max-height: 260px; overflow: auto; }
 /* A message sent, not yet played back by the runtime (#694): the user's bubble, dimmed, with what it waits on. */
 .conversation-pending { opacity: 0.6; position: relative; }

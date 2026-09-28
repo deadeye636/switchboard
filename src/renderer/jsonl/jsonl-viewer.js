@@ -790,6 +790,48 @@ function renderJsonlEntry(entry, toolResultMap) {
     return div;
   }
 
+  // --- a subagent's report, or another session's message (#701) ---
+  // Backend-neutral like the notice above: the backend hands `{ type: 'agent-report', _report }` with the
+  // report already out of its wrapping. Drawn as a reply, because it is one, under a line that says who sent
+  // it — never as a message the user typed. Its Open button is the notice's, answered by the conversation view.
+  if (entry.type === 'agent-report' && entry._report) {
+    const r = entry._report;
+    const div = document.createElement('div');
+    div.className = 'jsonl-entry jsonl-assistant agent-report';
+    const head = document.createElement('div');
+    head.className = 'agent-report-head';
+    const label = document.createElement('span');
+    label.className = 'task-notice-what';
+    label.appendChild(document.createTextNode(
+      r.kind === 'report' || (!r.kind && r.handback) ? 'Agent report'
+        : r.kind === 'agent' ? 'Message from an agent' : 'Message from another session'));
+    const who = r.name || r.from;
+    if (who) {
+      const name = document.createElement('b');
+      name.textContent = ' ' + who;
+      label.appendChild(name);
+    }
+    head.appendChild(label);
+    if (r.subagentId) {
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'task-notice-output task-notice-open';
+      open.dataset.subagentId = r.subagentId;
+      if (r.toolUseId) open.dataset.toolUseId = r.toolUseId;
+      open.textContent = 'open';
+      open.title = 'Open this agent\'s transcript';
+      head.appendChild(open);
+    }
+    div.appendChild(head);
+    if (r.text) {
+      const textEl = document.createElement('div');
+      textEl.className = 'jsonl-text';
+      textEl.innerHTML = renderJsonlText(r.text);
+      div.appendChild(textEl);
+    }
+    return div;
+  }
+
   // --- backend-normalized metadata entries ---
   if (entry.type === 'transcript-meta') {
     const div = document.createElement('div');

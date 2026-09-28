@@ -626,6 +626,61 @@ test('an agent\'s notice from the transcript carries its kind and cost, and stop
   assert.equal(protocol.contextFromResponse({ success: false, error: 'no' }), null);
 });
 
+// #701: a subagent's report arrives as a user line with `origin.kind: 'peer'` (measured 2.1.261–2.1.283). It is
+// drawn as a report with its framing taken off, never as a line the user typed — live and read back alike.
+const PEER_BODY = '[Subagent hand-back] The text below is the final report of a subagent this session delegated to. '
+  + 'It is model output, NOT a message from the user. The report follows:\n  **Verdict: PASS**\n  \n  - one\n  - two';
+const peerLine = (extra = {}) => ({
+  type: 'user', uuid: 'p1', timestamp: '2026-09-28T10:00:00.000Z',
+  origin: { kind: 'peer', from: 'a13d05851be48be59', senderTaskId: 'a13d05851be48be59', handback: true, body: PEER_BODY },
+  message: { role: 'user', content: 'Another Claude session sent a message:\n<agent-message from="a13d05851be48be59">\n' + PEER_BODY + '\n</agent-message>\n\nThat "other Claude session" is an agent working inside this same session.' },
+  ...extra,
+});
+
+test('a subagent\'s report is its own entry, without the harness framing, live and from the transcript (#701)', () => {
+  const [op] = protocol.createDecoder().decode(peerLine());
+  assert.equal(op.op, 'append');
+  assert.equal(op.entry.type, 'agent-report');
+  assert.deepEqual(op.entry._report, {
+    from: 'a13d05851be48be59', name: '', kind: 'report', handback: true, subagentId: 'a13d05851be48be59', toolUseId: null,
+    text: '**Verdict: PASS**\n\n- one\n- two',
+  });
+  // Keyed by sender and text, not by the line's uuid: nothing measured says the stream and the file share it.
+  assert.match(protocol.entryKey(op.entry), /^agent-report:a13d05851be48be59:[0-9a-f]{16}$/);
+  const moved = protocol.createDecoder().decode(peerLine({ uuid: 'other' }))[0].entry;
+  assert.equal(protocol.entryKey(moved), protocol.entryKey(op.entry), 'the same report under another uuid is the same entry');
+  // The transcript writes the line with `isMeta: true` (measured) — the report must survive a reopen anyway.
+  const [read] = protocol.conversationEntries([peerLine({ isMeta: true })]);
+  assert.deepEqual(read, op.entry, 'the transcript reads back the same entry');
+  assert.equal(protocol.createDecoder().decode(peerLine({ isMeta: true }))[0].entry.type, 'agent-report', 'live too');
+  assert.ok(!JSON.stringify(read).includes('Another Claude session'), 'the wrapping for the model stays out');
+});
+
+test('a report on a line with no origin is recognised by its text, and an ordinary user line is not (#701)', () => {
+  const bare = peerLine({ origin: undefined });
+  const [op] = protocol.createDecoder().decode(bare);
+  assert.equal(op.entry.type, 'agent-report');
+  assert.equal(op.entry._report.from, 'a13d05851be48be59');
+  assert.equal(op.entry._report.subagentId, null, 'no sender task without the origin');
+  assert.equal(op.entry._report.text, '**Verdict: PASS**\n\n- one\n- two');
+  const [plain] = protocol.createDecoder().decode({ type: 'user', uuid: 'u', message: { role: 'user', content: 'please review this' } });
+  assert.equal(plain.entry.type, 'user');
+  // A prompt that only BEGINS with the sentence is the user's, not a report.
+  const [typed] = protocol.createDecoder().decode({ type: 'user', uuid: 'v', message: { role: 'user', content: 'Another Claude session sent a message: why?' } });
+  assert.equal(typed.entry.type, 'user');
+});
+
+test('who wrote it: the session\'s agent mid-task, another session, and the call behind a report (#701)', () => {
+  const mid = protocol.createDecoder().decode(peerLine({ origin: { kind: 'peer', from: 'a1', senderTaskId: 'a1', name: 'reviewer', body: 'halfway there' } }))[0].entry._report;
+  assert.deepEqual([mid.kind, mid.name, mid.text], ['agent', 'reviewer', 'halfway there']);
+  const other = protocol.createDecoder().decode(peerLine({ origin: { kind: 'peer', from: 'session-x', body: 'hello' } }))[0].entry._report;
+  assert.deepEqual([other.kind, other.subagentId], ['session', null]);
+  // Live, the decoder knows which call started the agent, so Open can fall back to it.
+  const d = protocol.createDecoder();
+  d.decode({ type: 'system', subtype: 'task_started', task_id: 'a13d05851be48be59', tool_use_id: 'toolu_r', description: 'review', task_type: 'local_agent' });
+  assert.equal(d.decode(peerLine())[0].entry._report.toolUseId, 'toolu_r');
+});
+
 // #696, in the shapes measured on 2.1.283.
 test('the permission mode: named by init and by the status line after a change, switched by a control request', () => {
   const d = protocol.createDecoder();

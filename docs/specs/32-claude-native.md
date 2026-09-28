@@ -335,6 +335,27 @@ What the view draws from it, since #691:
   the task with a neutral `subagentId`, and the view looks up the row of this session whose `agentId` is that
   id. Until the scan has listed the row, Open scrolls to the call that started the agent, as it did before,
   and says so.
+- **A subagent's report (#701)** is an `agent-report` entry: "Agent report" and the sender above the report,
+  rendered like a reply, with Open when the line names the sender's task. Claude injects the report as a user
+  line with `origin: { kind: 'peer', from, senderTaskId, body, handback }` — measured over the transcripts of
+  2.1.261–2.1.283, some 700 lines, all this shape, `handback` since 2.1.267. Its text is the same report
+  wrapped for the model ("Another Claude session sent a message:", an `<agent-message from="…">` block and a
+  paragraph about authority after it), which is what the view drew before. The decoder takes the report from
+  `body`, drops the harness's opening paragraph up to "The report follows:", and removes the two-space indent
+  the harness puts on every line. A line with no `origin` is recognised only by its whole wrapping (the
+  sentence and the `<agent-message from="…">` tag), so a prompt that merely begins with the sentence stays the
+  user's. Who wrote it is read from what the line carries: `handback` is a subagent's final report ("Agent
+  report"), a `senderTaskId` without it is the session's own subagent writing mid-task ("Message from an
+  agent", six such lines measured, with a `name`), and neither is another session writing in ("Message from
+  another session", one line measured). The entry is keyed by sender and a hash of its text, not by the
+  line's uuid: nothing measured says the stream and the file give an injected line the same one, which is
+  the same reason a task notice is keyed by its task. Live, Open carries the call that started the agent
+  (from `task_started`), so it can scroll there while the subagent's row is not listed yet. The transcript writes the
+  line with `isMeta: true` (measured on 2.1.283 in a session this app drove), so both the decoder and the
+  transcript reader take it before their `isMeta` filter, or the report would vanish on a reopen. A
+  background agent started over a bare `-p` pipe reported through `task_notification` instead and wrote no
+  peer line (measured the same day), so the report shape belongs to the hand-back of an agent the session
+  delegated to, not to every background task.
 - **The sidebar row** says `◉ n` beside the state while n shells and agents run in the background
   (`showBackgroundTasks`, default on). Main sends the counts to the MAIN window (`agent-background`),
   whichever window renders the session.

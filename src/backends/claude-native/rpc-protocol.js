@@ -60,6 +60,7 @@
 
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
 // limits; re-exported below, where the descriptor takes it from.
+const crypto = require('crypto');
 const { textOf, argsFromText, oneLineDescription, NOTICES, IMAGE_INPUT } = require('../rpc-shared');
 // Claude's slash-command grammar, from Claude's own reader — one copy of it, beside the transcript format
 // it belongs to (#229, #680).
@@ -250,6 +251,66 @@ function taskNoticeEntry(line, toolKinds) {
   };
 }
 
+// A subagent's final report, or a message another session sent (#701). Claude injects it as a user line whose
+// `origin.kind` is `peer`, with `from`, `senderTaskId` and `body` beside it, and `handback: true` for a subagent's
+// report (measured over the transcripts of 2.1.261–2.1.283, some 700 lines, all this shape; `handback` since
+// 2.1.267). The text is the same message wrapped for the model — "Another Claude session sent a message:" and an
+// `<agent-message from="…">` block — and is the fallback for a line that carries no origin.
+function isPeerMessage(line) {
+  if (line && line.origin && line.origin.kind === 'peer') return true;
+  // The text alone is asked for the whole wrapping, not its first words: a prompt the user types may begin
+  // with the same sentence, and no measured line lacked its origin.
+  const text = plainUserText(line && line.message);
+  return typeof text === 'string' && text.trimStart().startsWith('Another Claude session sent a message')
+    && /<agent-message from="/.test(text);
+}
+
+// A hand-back's body opens with a paragraph the harness writes for the model — the report is model output, not
+// the user's words — and ends it with this sentence; the report follows with every line indented two spaces.
+const REPORT_FOLLOWS = /The report follows:\r?\n/;
+
+function peerReportText(line) {
+  const origin = line.origin || {};
+  let body = typeof origin.body === 'string' ? origin.body : '';
+  if (!body) {
+    const text = plainUserText(line.message) || '';
+    const m = /<agent-message[^>]*>\r?\n?([\s\S]*?)(?:<\/agent-message>|$)/.exec(text);
+    body = m ? m[1] : text;
+  }
+  const follows = REPORT_FOLLOWS.exec(body);
+  if (follows) body = body.slice(follows.index + follows[0].length).replace(/^ {2}/gm, '');
+  return body.trim();
+}
+
+// The report as the view draws it: who sent it, which subagent to open, and the report itself. The harness's
+// framing stays out — it is addressed to the model.
+//
+// `kind` says who wrote it, by what the line carries (measured): `report` is a subagent's final hand-back,
+// `agent` is the session's own subagent writing mid-task (a `senderTaskId` without `handback`), and `session` is
+// another session writing in (no sender task). `toolUseId` is the call that started the sender, where the caller
+// knows it, so Open can fall back to that call while the subagent's row is not listed yet.
+function peerReportEntry(line, toolUseIdOf) {
+  const origin = line.origin || {};
+  const text = plainUserText(line.message) || '';
+  const fromTag = /<agent-message from="([^"]*)"/.exec(text);
+  const from = typeof origin.from === 'string' ? origin.from : (fromTag ? fromTag[1] : '');
+  const sender = typeof origin.senderTaskId === 'string' ? origin.senderTaskId : '';
+  return {
+    type: 'agent-report',
+    uuid: typeof line.uuid === 'string' ? line.uuid : undefined,
+    timestamp: typeof line.timestamp === 'string' ? line.timestamp : new Date().toISOString(),
+    _report: {
+      from,
+      name: typeof origin.name === 'string' ? origin.name : '',
+      kind: origin.handback === true ? 'report' : sender ? 'agent' : 'session',
+      handback: origin.handback === true,
+      subagentId: sender || null,
+      toolUseId: (sender && typeof toolUseIdOf === 'function' && toolUseIdOf(sender)) || null,
+      text: peerReportText(line),
+    },
+  };
+}
+
 // Where a background shell writes its output, as the tool result that started it says (measured: "Command
 // running in background with ID: <id>. Output is being written to: <path>"). The notification names the same
 // file when the task ends; this is what makes it readable while the task still runs.
@@ -430,6 +491,12 @@ function createDecoder() {
 
   function onUser(msg) {
     const m = msg.message;
+    // A subagent's report or another session's message (#701): its own entry, not a line the user typed. Asked
+    // before the `isMeta` gate, because the transcript writes this line with `isMeta: true` (measured on 2.1.283
+    // in a session this app drove) — it is still the one place the report reaches the conversation.
+    if (m && typeof m === 'object' && isPeerMessage(msg)) {
+      return [{ op: 'append', entry: peerReportEntry(msg, (taskId) => (started.get(taskId) || {}).toolUseId) }];
+    }
     if (!m || typeof m !== 'object' || msg.isMeta) return [];
     // A task ending (#691): drawn as a notice of its own, not as the tags Claude wrote for the model — once,
     // whichever of the two lines about it arrives first.
@@ -799,6 +866,11 @@ function conversationEntries(lines) {
       out.push(taskNoticeEntry(line, toolKinds));
       continue;
     }
+    // A report is written with `isMeta: true`, so it is taken before the filter below drops that (#701).
+    if (line && line.type === 'user' && !line.isSidechain && typeof line.uuid === 'string' && isPeerMessage(line)) {
+      out.push(peerReportEntry(line));
+      continue;
+    }
     if (line && line.type === 'system' && line.subtype === 'local_command') {
       const entry = localCommandEntry(line);
       if (entry) out.push(entry);
@@ -850,6 +922,14 @@ function localCommandEntry(line) {
 // caught up with yet, and not draw it twice once the file has.
 const entryKey = (entry) => {
   if (entry && entry.type === 'task-notice' && entry._task && entry._task.id) return `task-notice:${entry._task.id}`;
+  // A report is keyed by its sender and its text (#701), for the same reason: it is an injected line, and nothing
+  // measured says the stream and the file give it the same uuid. One sender can write several messages, so the
+  // sender alone would merge them; its text tells them apart and is the same on both paths.
+  if (entry && entry.type === 'agent-report' && entry._report) {
+    const r = entry._report;
+    const hash = crypto.createHash('sha1').update(String(r.text || '')).digest('hex').slice(0, 16);
+    return `agent-report:${r.subagentId || r.from || ''}:${hash}`;
+  }
   return entry && typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : null;
 };
 
