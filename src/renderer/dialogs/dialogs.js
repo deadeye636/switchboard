@@ -1083,9 +1083,12 @@ async function showGeneratedResumeDialog(session, initialBackend) {
       </div>
     </div>` : '';
 
+  // The OPTIONS scroll, the title and the buttons do not — the New Session dialog's frame, for the same
+  // reason: Claude's options plus the View field are taller than a laptop screen.
+  dialog.classList.add('new-session-dialog-scroll');
   dialog.innerHTML = `
     <h3 class="resume-dialog-title"></h3>
-    <div class="resume-dialog-fields"></div>
+    <div class="resume-dialog-fields new-session-dialog-body"></div>
     <div class="new-session-actions">
       <button class="new-session-cancel-btn">Cancel</button>
       <button class="new-session-start-btn">Resume</button>

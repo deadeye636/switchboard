@@ -6813,6 +6813,11 @@ details.settings-adv .settings-section > .settings-field:last-child { border-rad
   padding-right: 6px;
   margin-right: -6px;
 }
+/* The app's thin dark bar, as in the sidebar — the default one is a white strip in a dark dialog. */
+.new-session-dialog-body::-webkit-scrollbar { width: 5px; }
+.new-session-dialog-body::-webkit-scrollbar-track { background: transparent; }
+.new-session-dialog-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
+.new-session-dialog-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.1); }
 
 .new-session-dialog-scroll .new-session-actions {
   flex: 0 0 auto;
