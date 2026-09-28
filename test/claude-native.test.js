@@ -223,6 +223,30 @@ test('AskUserQuestion is a question card, and its answers go back in updatedInpu
   assert.equal(odd.request.kind, 'approval', 'a question the card cannot draw is still asked, as an approval');
 });
 
+// #704, in the shapes read from the CLI's own AskUserQuestion handling on 2.1.283.
+test('a note and the picked option\'s preview go back as annotations; "chat about this" declines with the text', () => {
+  const input = { questions: [
+    { question: 'Which route?', header: 'Route', multiSelect: false, options: [{ label: 'A', preview: '# A\ncode' }, { label: 'B' }] },
+    { question: 'Which size?', header: 'Size', multiSelect: false, options: [{ label: 'Small' }, { label: 'Large' }] },
+  ] };
+  const [ask] = decodeAll([{ type: 'control_request', request_id: 'q1', request: { subtype: 'can_use_tool', tool_name: 'AskUserQuestion', input } }]);
+  const r = protocol.answerCommand('q1', { answers: { 'Which route?': 'A', 'Which size?': 'Large' }, notes: { 'Which size?': ' for the demo ' } }, ask.request).response.response;
+  assert.equal(r.behavior, 'allow');
+  assert.deepEqual(r.updatedInput.annotations, {
+    'Which route?': { preview: '# A\ncode' },
+    'Which size?': { notes: 'for the demo' },
+  });
+  const plain = protocol.answerCommand('q1', { answers: { 'Which route?': 'B', 'Which size?': 'Small' } }, ask.request).response.response;
+  assert.equal(plain.updatedInput.annotations, undefined, 'nothing to say beside the answers, nothing sent');
+
+  const chat = protocol.answerCommand('q1', { answers: { 'Which route?': 'A', 'Which size?': '' }, notes: {}, chat: 'Neither — what about C?' }, ask.request).response.response;
+  assert.equal(chat.behavior, 'deny');
+  assert.match(chat.message, /^The user wants to clarify these questions\./);
+  assert.match(chat.message, /- "Which route\?"\n {2}Answer: A/);
+  assert.match(chat.message, /- "Which size\?"\n {2}\(No answer provided\)/);
+  assert.match(chat.message, /What the user wrote:\nNeither — what about C\?$/);
+});
+
 test('ExitPlanMode is a plan card: approve lets it start, keep planning ends the turn as kept, not failed', () => {
   const input = { plan: '# Plan\n\n1. Do it', planFilePath: 'plans/x.md' };
   const decoder = protocol.createDecoder();

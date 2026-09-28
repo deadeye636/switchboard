@@ -3306,10 +3306,64 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   color: #c0c4ff;
   font-size: 11px;
 }
-.conversation-question-option { display: flex; align-items: baseline; gap: 6px; padding: 2px 0; cursor: pointer; color: #d0d0e0; }
-.conversation-question-option input { accent-color: #8088ff; margin: 0; }
-.conversation-question-desc { color: #8a8aa0; font-size: 12px; }
-.conversation-question-other { margin-top: 4px; }
+/* Laid out like the CLI's (#704): tabs for the questions and the review, the options on the left, the option's
+   text graphic on the right (under the list when the view is narrow). */
+.conversation-question-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; border-bottom: 1px solid rgba(128, 136, 255, 0.25); }
+.conversation-question-tab {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: #9a9ab8;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.conversation-question-tab:hover { color: #e0e0f0; }
+.conversation-question-tab.active { color: #e0e0f0; background: rgba(128, 136, 255, 0.16); border-color: rgba(128, 136, 255, 0.35); }
+.conversation-question-body { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.conversation-question-list { flex: 1 1 260px; min-width: 0; }
+.conversation-question-preview {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-height: 40vh;
+  overflow: auto;
+  margin: 2px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  color: #d0d0e0;
+  font-family: 'SF Mono', 'Fira Code', Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: pre;
+}
+.conversation-question-preview.empty { color: #6a6a80; font-style: italic; font-family: inherit; white-space: normal; }
+.conversation-question-option { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; padding: 3px 0; color: #d0d0e0; }
+.conversation-question-pick { display: flex; align-items: baseline; gap: 8px; cursor: pointer; }
+.conversation-question-pick input { accent-color: #8088ff; margin: 0; }
+.conversation-question-option:hover .conversation-question-label { color: #fff; }
+.conversation-question-desc { flex-basis: 100%; margin-left: 21px; color: #8a8aa0; font-size: 12px; }
+.conversation-question-note-btn { opacity: 0.55; }
+.conversation-question-option:hover .conversation-question-note-btn,
+.conversation-question-note-btn:focus-visible { opacity: 1; }
+.conversation-questions .conversation-question-other { margin: 4px 0 0 21px; width: calc(100% - 21px); flex-basis: 100%; }
+/* A note on a choice (#704), and the key that reaches a card when it could not take the focus itself. */
+.conversation-questions .conversation-question-note { margin: 2px 0 6px 21px; width: calc(100% - 21px); }
+.conversation-ask-key { font-weight: normal; font-size: 11px; color: #8a8a9c; }
+.conversation-question-review { margin-top: 10px; }
+/* The dock (#704, P1): a card waiting on the user stands where the input was, kept to a height that leaves the
+   conversation readable, and scrolls inside itself when a preview or a plan is long. */
+.conversation-ask-dock { max-height: 60vh; overflow-y: auto; padding: 0 12px; }
+.conversation-ask-dock > .conversation-ask { margin: 6px 0; }
+.conversation-ask-more { margin-top: 6px; font-size: 11px; color: #8a8a9c; }
+.conversation-question-chat { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(128, 136, 255, 0.2); }
+.conversation-questions .conversation-question-chat-input { margin-top: 6px; }
+.conversation-question-hint { margin-top: 8px; font-size: 11px; color: #7a7a90; }
+.conversation-question-summary-line { color: #d0d0e0; }
+.conversation-question-summary-warn { margin-top: 4px; color: #e0a040; }
 /* A plan the agent wants approved before it starts (#661): the markdown it wrote, kept to a readable height. */
 .conversation-plan-body { margin-top: 6px; max-height: 50vh; overflow: auto; color: #d0d0e0; }
 .conversation-ask-input {

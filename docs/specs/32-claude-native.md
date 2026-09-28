@@ -260,6 +260,59 @@ Three kinds of question arrive, all as `can_use_tool`:
   checkboxes where several may be picked, and a free answer. The answer is an allow whose `updatedInput`
   carries `answers`. Several choices are joined with ", ", and a free answer is taken as written (both
   measured).
+
+  **Answered like the CLI (#704).** Read from the CLI's own handling on 2.1.283 (its AskUserQuestion answer
+  and decline code in the binary): an answer is `allow` with `updatedInput = { …input, answers, annotations }`,
+  where `annotations` is `{ <question>: { preview?, notes? } }` — the picked option's `preview`, and the
+  user's note on a single-choice question. "Chat about this" is a `deny` whose feedback begins "The user
+  wants to clarify these questions." and lists each question with its answer so far and any note; the model
+  then asks what to clarify. In the CLI the user types after that; here the text is typed first, so it is
+  added to the decline under "What the user wrote:". The CLI offers notes only where the options carry
+  previews; the card offers one on every single-choice question.
+
+  **A card stands in the input's place** (owner decision P1, replacing the first version's A1, where the
+  input stayed and doubled as the chat field). As in the CLI, a question, an approval, a plan or a pi-native
+  dialog waiting on the user is drawn in a dock where the input was; the input, Send and Steer are hidden,
+  and what was typed in the input is kept and comes back with it when the last card closes. Stop stays, so
+  the turn can still be ended. Several cards wait one after the other ("1 of 2 waiting for you"). A send that
+  still arrives while a card is open (a picker's "insert and send") goes to the card instead. "Chat about
+  this" is the question card's last row: its field opens on a click or `c`, Enter sends the decline with the
+  text, and a second Enter while the first is out sends nothing; a refused decline leaves the text there.
+  The dock is kept to 60 % of the view's height and scrolls inside itself.
+
+  **The card is laid out like the CLI's** (D1–D4, looked at in a terminal on 2.1.283): one question at a time
+  behind a row of tabs that tick off as they are answered, and a Submit tab that lists every answer, says
+  when one is missing, and holds Submit answers and Dismiss (a single question has no tabs and its buttons
+  sit under it). Options are numbered with their description under the label. An option's `preview` — the
+  text graphic Claude often attaches, a mock-up or a diagram — is kept by the decoder (it used to be dropped)
+  and drawn in a monospace box beside the list for the option in focus or picked, under the list when the view
+  is narrow. Each single-choice option has a "note" button that picks it and opens the note field under it
+  (the CLI's `n`); "Type something" is the free answer, whose field appears once it is chosen. A line of key
+  hints closes the card, as in the CLI.
+
+  Every card is answered from the keyboard, questions, approvals, plans and pi-native's dialogs alike. A card
+  takes the focus when it appears only when nobody is typing anywhere else: the focus is on this view's input
+  (whatever is typed there, since it is hidden behind the card and kept) or its log, or on nothing (V1). It
+  never takes it from another pane's terminal or a
+  settings field, where the next Enter would answer a card the user has not read. Otherwise its title names
+  the key that reaches it, Alt+A (by key code, so Option+A works on macOS), from anywhere in the view. In a
+  card: a digit picks the n-th option of the question in view, or presses the n-th button when the focus is on
+  one (buttons are numbered as they stand, and a digit on a disabled one does nothing); the arrows move between
+  the options (a radio follows the focus, without pulling it into the free answer's field); Tab or ←/→ switch
+  questions; `n` opens a note and `c` "Chat about this"; Enter picks the option in focus and moves on — on a
+  checkbox it only moves on, on "Type something" it goes into the field — and answers on the review; a dialog that asks
+  for text is focused in its field, not on its OK. Escape dismisses a question card or refuses an approval,
+  and never stops the turn — only in the input does it. In a text field Escape only leaves the field. **On a
+  plan card Escape does nothing (V2):** "keep planning" ends the turn the way a Stop does, too much for a key
+  pressed to get out of a card; it is the second button; Stop ends the turn. A card that had the focus hands
+  it to the next card, or back to the input, when it closes — but not when the user has since clicked
+  somewhere else.
+
+  **pi-native differs.** It never sends a `questions` card, only its extensions' dialogs (select, confirm,
+  input), so "Chat about this", notes and previews do not apply there. Its dialogs are docked in the input's
+  place like every card, and the keyboard applies to them the same way. When the view is handed the focus (a
+  tab switched to, a grid card, a pane), it goes to the card waiting on the user, not to the hidden input; an
+  insert into the hidden input (a picker, a paste, a message taken back to rewrite) is kept there and said so.
 - **`ExitPlanMode`** carries the plan as markdown. Approve is a plain allow, and the session goes back to its
   mode from before planning (E16). Keep planning is a deny with `interrupt: true`. It ends the turn with the
   same result a Stop gets, and the decoder draws it as "Kept planning".

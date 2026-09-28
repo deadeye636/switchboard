@@ -17,7 +17,7 @@
 //                                    `request.lasting` says it belongs to a command, not to a run, so a run
 //                                    settling does not end it. `request.kind` 'approval' is a tool asking
 //                                    to run; claude-native also sends 'questions' (`questions`, answered
-//                                    `{ answers }`) and 'plan' (`plan` markdown, answered `{ value }`), #661
+//                                    `{ answers, notes?, chat? }`, #704) and 'plan' (`plan` markdown, answered `{ value }`), #661
 //   { op: 'answered', id }           the runtime stopped waiting on a question without an answer from us
 //   { op: 'figures' }                the user asked the session what it has cost so far (#643). It carries
 //                                    no numbers: the core answers it by sending `statsCommand` and drawing

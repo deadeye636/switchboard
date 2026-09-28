@@ -446,9 +446,13 @@ test('a questions card answers every question at once, with several choices and 
   assert.equal(card.querySelectorAll('.conversation-question').length, 2);
   assert.equal(card.querySelectorAll('.conversation-question-desc').length, 1, 'a description is drawn once, where there is one');
   const [q1, q2] = card.querySelectorAll('.conversation-question');
-  assert.equal(q1.querySelectorAll('input[type=checkbox]').length, 3, 'two options and Other, several allowed');
+  assert.equal(q1.querySelectorAll('input[type=checkbox]').length, 3, 'two options and "Type something", several allowed');
   assert.equal(q2.querySelectorAll('input[type=radio]').length, 3);
-  const submit = [...card.querySelectorAll('button')].find(b => b.textContent === 'Answer');
+  // #704: one question at a time behind tabs, a review tab, and the options numbered as in the CLI.
+  assert.deepEqual([...card.querySelectorAll('.conversation-question-tab')].map(t => t.textContent), ['☐ Toppings', '☐ Size', 'Submit']);
+  assert.equal(q2.hidden, true, 'the second question waits behind its tab');
+  assert.match(q1.querySelector('.conversation-question-label').textContent, /^1. Cheese$/);
+  const submit = [...card.querySelectorAll('button')].find(b => b.textContent === 'Submit answers');
   assert.equal(submit.disabled, true, 'nothing answered yet');
   const tick = (box) => { box.checked = true; box.dispatchEvent(new h.w.Event('change', { bubbles: true })); };
   const [cheese, ham] = q1.querySelectorAll('input[type=checkbox]');
@@ -456,14 +460,203 @@ test('a questions card answers every question at once, with several choices and 
   tick(ham);
   assert.equal(submit.disabled, true, 'the second question is still open');
   const other = q2.querySelector('.conversation-question-other');
+  assert.equal(other.hidden, true, 'the free answer shows once it is chosen');
+  tick(q2.querySelectorAll('input[type=radio]')[2]);
+  assert.equal(other.hidden, false);
   other.value = 'Medium';
   other.dispatchEvent(new h.w.Event('input', { bubbles: true }));
   assert.equal(submit.disabled, false);
   submit.click();
   await h.settle();
-  assert.equal(JSON.stringify(answers), JSON.stringify([['u1', { answers: { 'Which toppings?': 'Cheese, Ham', 'Which size?': 'Medium' } }]]));
+  assert.equal(JSON.stringify(answers), JSON.stringify([['u1', { answers: { 'Which toppings?': 'Cheese, Ham', 'Which size?': 'Medium' }, notes: {} }]]));
   h.entry.conversation.apply({ op: 'answered', id: 'u1', seq: 2 });
   assert.equal(h.entry.element.querySelector('.conversation-questions'), null);
+});
+
+// #704: a card is answered from the keyboard — digits pick, Enter answers, Escape dismisses — and it takes the
+// focus when it appears only if the input is empty.
+test('a questions card takes the focus from an empty input and answers from the keyboard', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push(a); return Promise.resolve({ ok: true }); };
+  h.input.focus();
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'k1', kind: 'questions', questions: [
+    { question: 'Which size?', header: 'Size', multiSelect: false, options: [{ label: 'Small', description: '' }, { label: 'Large', description: '' }] },
+  ] } });
+  const card = h.entry.element.querySelector('.conversation-questions');
+  assert.ok(card.contains(h.w.document.activeElement), 'the card has the focus');
+  const press = (key) => h.w.document.activeElement.dispatchEvent(new h.w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  press('2');
+  assert.equal(card.querySelectorAll('input[type=radio]')[1].checked, true, 'the second option is picked');
+  press('Enter');
+  await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(answers)), [{ answers: { 'Which size?': 'Large' }, notes: {} }]);
+});
+
+// #704 P1: a card stands in the input's place. The input and what was typed in it are hidden, not lost, and
+// come back when the last card closes; the focus goes to the card and back.
+test('a card stands in the input\'s place and gives it back with its text when it closes', () => {
+  const h = setup();
+  h.input.focus();
+  h.input.value = 'half a sentence';
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'k2', kind: 'plan', plan: '# P', answers: { approve: 'A', keep: 'K' } } });
+  const dock = h.entry.element.querySelector('.conversation-ask-dock');
+  assert.equal(dock.hidden, false);
+  assert.ok(dock.querySelector('.conversation-plan'), 'the card is in the dock');
+  assert.equal(h.input.hidden, true, 'the input is out of the way');
+  assert.ok(dock.contains(h.w.document.activeElement), 'the focus went with it');
+  const stop = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  assert.ok(stop, 'Stop is still there to end the turn');
+  h.entry.conversation.apply({ op: 'answered', id: 'k2', seq: 2 });
+  assert.equal(dock.hidden, true);
+  assert.equal(h.input.hidden, false);
+  assert.equal(h.input.value, 'half a sentence', 'what was typed is kept');
+  assert.equal(h.w.document.activeElement, h.input, 'and the focus is back');
+});
+
+test('a view handed the focus gives it to the waiting card, not to the hidden input', () => {
+  const h = setup();
+  const elsewhere = h.w.document.createElement('input');
+  h.w.document.body.appendChild(elsewhere);
+  elsewhere.focus();
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'f1', kind: 'approval', tool: 'Bash', answers: { once: 'A', refuse: 'R' } } });
+  assert.equal(h.w.document.activeElement, elsewhere, 'it arrived while the user was elsewhere');
+  h.entry.conversation.focus();
+  assert.ok(h.entry.element.querySelector('.conversation-ask-dock').contains(h.w.document.activeElement), 'switching to the view lands on the card');
+});
+
+test('two cards wait one after the other in the dock', () => {
+  const h = setup();
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'm1', kind: 'approval', tool: 'Bash', answers: { once: 'A', refuse: 'R' } } });
+  h.entry.conversation.apply({ op: 'ask', seq: 2, request: { id: 'm2', kind: 'approval', tool: 'Write', answers: { once: 'A', refuse: 'R' } } });
+  const cards = [...h.entry.element.querySelectorAll('.conversation-ask-dock .conversation-ask')];
+  assert.deepEqual(cards.map(c => c.hidden), [false, true], 'the first is shown, the second waits');
+  assert.match(h.entry.element.querySelector('.conversation-ask-more').textContent, /1 of 2/);
+  h.entry.conversation.apply({ op: 'answered', id: 'm1', seq: 3 });
+  assert.equal(cards[1].hidden, false, 'the next follows');
+  assert.equal(h.entry.element.querySelector('.conversation-ask-more'), null);
+});
+
+test('Escape on a card declines it and never stops the turn; a digit presses the n-th button', async () => {
+  const h = setup();
+  const sent = [];
+  h.w.api.agent.answer = (id, rid, payload) => { sent.push(payload); return Promise.resolve({ ok: true }); };
+  h.input.focus();
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'e1', kind: 'approval', tool: 'Bash', answers: { once: 'A', refuse: 'R' } } });
+  const press = (key) => h.w.document.activeElement.dispatchEvent(new h.w.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+  press('Escape');
+  await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent)), [{ value: 'R' }]);
+  assert.equal(h.calls.abort, 0, 'Escape in a card is not Stop');
+  h.entry.conversation.apply({ op: 'answered', id: 'e1', seq: 2 });
+  h.entry.conversation.apply({ op: 'ask', seq: 3, request: { id: 'e2', kind: 'approval', tool: 'Bash', answers: { once: 'A', refuse: 'R' } } });
+  press('1');
+  await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(sent[1])), { value: 'A' });
+});
+
+// #704: "Chat about this" is the card's last row, as in the CLI — the question is declined with what the user
+// writes there, and nothing becomes a turn.
+test('"chat about this" in the card declines the question with the text, and a send past the card goes nowhere', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push(a); return Promise.resolve({ ok: true }); };
+  h.input.focus();
+  h.input.value = 'kept for later';
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'c1', kind: 'questions', questions: [
+    { question: 'Which size?', header: 'Size', multiSelect: false, options: [{ label: 'Small', description: '' }] },
+  ] } });
+  const card = h.entry.element.querySelector('.conversation-questions');
+  h.w.document.activeElement.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true }));
+  const box = card.querySelector('.conversation-question-chat-input');
+  assert.equal(box.hidden, false, 'c opens the field');
+  assert.equal(h.w.document.activeElement, box);
+  box.value = 'Neither, explain the sizes first';
+  box.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  await h.settle();
+  assert.equal(h.calls.send.length, 0, 'no turn was sent');
+  assert.deepEqual(JSON.parse(JSON.stringify(answers)), [{ answers: { 'Which size?': '' }, notes: {}, chat: 'Neither, explain the sizes first' }]);
+  assert.equal(h.input.value, 'kept for later', 'the input was not touched');
+});
+
+// #704 D1–D4: an option's text graphic is shown beside the list for the option in focus, a note button opens
+// the note under its option and picks it, and Tab moves between the questions.
+test('a question card shows the preview of the option in focus, opens a note from its button, and tabs between questions', async () => {
+  const h = setup();
+  const answers = [];
+  h.w.api.agent.answer = (id, req, a) => { answers.push(a); return Promise.resolve({ ok: true }); };
+  h.input.focus();
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'd1', kind: 'questions', questions: [
+    { question: 'Route?', header: 'Route', multiSelect: false, options: [{ label: 'Stream', description: '', preview: 'a --> b' }, { label: 'Whole', description: '', preview: 'x ==> y' }] },
+    { question: 'Log?', header: 'Log', multiSelect: false, options: [{ label: 'File', description: '' }] },
+  ] } });
+  const card = h.entry.element.querySelector('.conversation-questions');
+  const [q1, q2] = card.querySelectorAll('.conversation-question');
+  const pre = q1.querySelector('.conversation-question-preview');
+  assert.equal(pre.textContent, 'a --> b', 'the first option\'s graphic to begin with');
+  const radios = q1.querySelectorAll('input[type=radio]');
+  radios[1].dispatchEvent(new h.w.Event('focus'));
+  assert.equal(pre.textContent, 'x ==> y', 'it follows the focus');
+  assert.equal(q2.querySelector('.conversation-question-preview'), null, 'no box where no option has a graphic');
+  // The note button on the second option picks it and opens the note field under it.
+  q1.querySelectorAll('.conversation-question-note-btn')[1].click();
+  assert.equal(radios[1].checked, true);
+  const note = q1.querySelector('.conversation-question-note');
+  assert.equal(note.hidden, false);
+  assert.equal(note.previousElementSibling, radios[1].closest('.conversation-question-option'), 'under its option');
+  note.value = 'keep the log';
+  // Tab from an option moves to the next question.
+  radios[1].focus();
+  radios[1].dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  assert.equal(q1.hidden, true);
+  assert.equal(q2.hidden, false);
+  const file = q2.querySelector('input[type=radio]');
+  file.focus();
+  file.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  assert.equal(file.checked, true, 'Enter picks');
+  assert.equal(card.querySelector('.conversation-question-review').hidden, false, 'and moves on to the review');
+  [...card.querySelectorAll('button')].find(b => b.textContent === 'Submit answers').click();
+  await h.settle();
+  assert.deepEqual(JSON.parse(JSON.stringify(answers)), [{ answers: { 'Route?': 'Whole', 'Log?': 'File' }, notes: { 'Route?': 'keep the log' } }]);
+});
+
+test('a card does not take the focus from a field outside the view (V1), and Escape on a plan card does nothing (V2)', async () => {
+  const h = setup();
+  const sent = [];
+  h.w.api.agent.answer = (id, rid, payload) => { sent.push(payload); return Promise.resolve({ ok: true }); };
+  const elsewhere = h.w.document.createElement('input');
+  h.w.document.body.appendChild(elsewhere);
+  elsewhere.focus();
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'v1', kind: 'approval', tool: 'Bash', answers: { once: 'A', refuse: 'R' } } });
+  assert.equal(h.w.document.activeElement, elsewhere, 'the typing elsewhere keeps its caret');
+  h.entry.conversation.apply({ op: 'answered', id: 'v1', seq: 2 });
+  h.input.focus();
+  h.entry.conversation.apply({ op: 'ask', seq: 3, request: { id: 'v2', kind: 'plan', plan: '# P', answers: { approve: 'P-OK', keep: 'P-KEEP' } } });
+  h.w.document.activeElement.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  await h.settle();
+  assert.deepEqual(sent, [], 'Escape keeps nothing and approves nothing');
+  assert.equal(h.calls.abort, 0);
+});
+
+test('"chat about this" keeps its text when the decline is refused, and goes out once', async () => {
+  const h = setup();
+  const answers = [];
+  let settle;
+  h.w.api.agent.answer = (id, req, a) => { answers.push(a); return new Promise((r) => { settle = r; }); };
+  h.entry.conversation.apply({ op: 'ask', seq: 1, request: { id: 'c2', kind: 'questions', questions: [
+    { question: 'Q?', header: 'Q', multiSelect: false, options: [{ label: 'a', description: '' }] },
+  ] } });
+  const card = h.entry.element.querySelector('.conversation-questions');
+  card.querySelector('.conversation-question-chat .task-notice-output').click();
+  const box = card.querySelector('.conversation-question-chat-input');
+  box.value = 'why?';
+  const enter = () => box.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  enter();
+  enter();
+  assert.equal(answers.length, 1, 'a second Enter while the first is out sends nothing');
+  settle({ ok: false, error: 'gone' });
+  await h.settle();
+  assert.equal(box.value, 'why?', 'a refused decline leaves the text where it was');
 });
 
 // #674: the lasting allow names what it allows, its tooltip says where it lands, and it sits before Refuse.
@@ -494,7 +687,7 @@ test('an approval\'s session button says what it allows, and a refused answer re
     { question: 'B?', header: '', multiSelect: false, options: [{ label: 'y', description: '' }] },
   ] } });
   const card = h.entry.element.querySelector('.conversation-questions');
-  const submit = [...card.querySelectorAll('button')].find(b => b.textContent === 'Answer');
+  const submit = [...card.querySelectorAll('button')].find(b => b.textContent === 'Submit answers');
   [...card.querySelectorAll('button')].find(b => b.textContent === 'Dismiss').click();
   await h.settle();
   assert.equal(submit.disabled, true, 'after a refused send, Answer still waits for every question');
@@ -703,8 +896,9 @@ test('a reset drops earlier notices and keeps an open question below the convers
   const text = kids.map(el => el.textContent);
   assert.ok(!text.some(t => t.includes('an old notice')), 'the notice from before the reset is gone');
   assert.ok(text[0].includes('one') && text[1].includes('two'), 'the conversation comes first');
-  const ask = kids.findIndex(el => el.classList.contains('conversation-ask'));
-  assert.ok(ask > 1, 'the open question is below the conversation');
+  // Since #704 P1 an open question waits in the dock, in the input's place, and a reset leaves it there.
+  assert.equal(kids.findIndex(el => el.classList.contains('conversation-ask')), -1, 'not in the log');
+  assert.ok(h.entry.element.querySelector('.conversation-ask-dock .conversation-ask'), 'still open, in the dock');
   assert.ok(text.some(t => t.includes('about the reset')), 'a notice after the reset is drawn');
 });
 

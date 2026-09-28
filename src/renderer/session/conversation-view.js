@@ -109,6 +109,9 @@ function createConversationView(getSession, container) {
   input.rows = 3;
   const mod = (typeof isMac !== 'undefined' && isMac) ? 'Cmd' : 'Ctrl';
   input.placeholder = `Message the agent — / for commands, @ for files. Enter sends, Shift+Enter adds a line, ${mod}+Enter steers a running turn, Esc stops it`;
+  const defaultPlaceholder = input.placeholder;
+  // The key that reaches an open question card from anywhere in the view (#704).
+  const CARD_KEY = 'Alt+A';
   const actions = document.createElement('div');
   actions.className = 'conversation-composer-actions';
   const makeButton = (label, title, onClick) => {
@@ -156,8 +159,16 @@ function createConversationView(getSession, container) {
   logWrap.appendChild(log);
   logWrap.appendChild(jumpBtn);
 
+  // Where a card waiting on the user sits (#704, P1): in the input's place, as in the CLI, which puts a question
+  // or an approval where the prompt was until it is answered. One at a time; the next one follows. The input
+  // keeps what was typed in it, hidden, and comes back when the last card closes.
+  const askDock = document.createElement('div');
+  askDock.className = 'conversation-ask-dock';
+  askDock.hidden = true;
+
   container.appendChild(logWrap);
   container.appendChild(attachStrip);
+  container.appendChild(askDock);
   container.appendChild(composer);
   container.appendChild(status);
   container.appendChild(bgPop);
@@ -223,7 +234,7 @@ function createConversationView(getSession, container) {
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(() => { restore(); renderJump(); tick(); }).observe(log);
   }
-  jumpBtn.addEventListener('click', () => { toEnd(); input.focus(); });
+  jumpBtn.addEventListener('click', () => { toEnd(); focusView(); });
 
   // The CLI's keys for its history (#689): Ctrl+Home / Ctrl+End to either end, PageUp / PageDown a page at a
   // time. Taken from the input too, where Ctrl+Home/End would otherwise move the caret — a composer rarely
@@ -245,6 +256,12 @@ function createConversationView(getSession, container) {
   }
   container.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.isComposing) return;
+    // Alt+A reaches the oldest open card from anywhere in the view (#704).
+    // By its code, not its character: on macOS Option+A types "å".
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.code === 'KeyA' || e.key === 'a' || e.key === 'A')) {
+      const card = openCards()[0];
+      if (card && focusCard(card)) { e.preventDefault(); return; }
+    }
     if (e.target !== input && e.target !== log) return;
     if (e.target === input && completion && completion.isOpen && completion.isOpen()) return;
     if (pageKey(e)) e.preventDefault();
@@ -454,8 +471,7 @@ function createConversationView(getSession, container) {
     // ordinary entry — so nothing here may still claim an index into the list just thrown away.
     view.localCommands.clear();
     for (const entry of entries || []) appendEntry(entry);
-    // A question still open stays open, below the conversation it is about — where it was before.
-    for (const card of view.asks.values()) log.insertBefore(card, partialEl);
+    // A question still open stays open, in the dock, where it was before.
     renderComposer();
   }
 
@@ -512,6 +528,11 @@ function createConversationView(getSession, container) {
     syncAttachmentsToText();
     const text = input.value;
     const attached = view.attachments.slice();
+    // While a card waits on the user it stands in the input's place (#704, P1), and nothing is sent past it — a
+    // send that still arrives (a picker's "insert and send", a steer chord) goes to the card instead, and what
+    // it would have sent stays in the input for after.
+    const waiting = view.exited ? null : openCards()[0];
+    if (waiting) { focusCard(waiting); return; }
     if ((!text.trim() && !attached.length) || view.exited) return;
     if (sending) { submitAgain = mode; return; }
     // Focus goes back to the field afterwards only if it was here to begin with — in panes mode the user
@@ -546,7 +567,9 @@ function createConversationView(getSession, container) {
     }
     renderComposer();
     if (hadFocus) input.focus();
-    if (submitAgain) { const next = submitAgain; submitAgain = null; submit(next); }
+    // A send asked for meanwhile is dropped if a card arrived since: it would only be turned into a focus move,
+    // and that one without asking whether the user is typing elsewhere.
+    if (submitAgain) { const next = submitAgain; submitAgain = null; if (!openCards().length) submit(next); }
   }
 
   // What Stop and Escape can end. A turn is the obvious one; a shell line the user ran (#643) is the
@@ -588,6 +611,13 @@ function createConversationView(getSession, container) {
     steerBtn.disabled = sending;
     stopBtn.style.display = somethingRunning() && !off ? '' : 'none';
     composer.classList.toggle('disabled', off);
+    // While a card waits on the user it stands in the input's place (#704, P1): the input and its Send and Steer
+    // go, what was typed stays in it for later, and Stop stays — the turn can still be stopped from here.
+    const docked = !off && openCards().length > 0;
+    composer.classList.toggle('docked', docked);
+    input.hidden = docked;
+    if (docked) { sendBtn.style.display = 'none'; steerBtn.style.display = 'none'; } else sendBtn.style.display = '';
+    renderSuggestion();
   }
 
   // The pickers a terminal opens on the same chords. They are handed an ANCHOR where a terminal would go: the
@@ -661,6 +691,7 @@ function createConversationView(getSession, container) {
     input.setSelectionRange(caret, caret);
     input.focus();
     syncAttachmentsToText();
+    saidKeptBehindCard();
     if (andSend) submit('prompt');
     return true;
   }
@@ -730,14 +761,13 @@ function createConversationView(getSession, container) {
   // --- A suggested next prompt (#693) ---
   // Shown as the empty input's placeholder, greyed, with the key that takes it. Typing anything discards it,
   // as the TUI does; a turn starting discards it too.
-  const basePlaceholder = input.placeholder;
   function setSuggestion(text) {
     view.suggestion = text && String(text).trim() ? String(text).trim() : null;
     renderSuggestion();
   }
   function renderSuggestion() {
     const on = !!view.suggestion && !input.value;
-    input.placeholder = on ? `${view.suggestion}    — Tab to use it` : basePlaceholder;
+    input.placeholder = on ? `${view.suggestion}    — Tab to use it` : defaultPlaceholder;
     input.classList.toggle('has-suggestion', on);
   }
   input.addEventListener('input', () => { if (view.suggestion && input.value) setSuggestion(null); });
@@ -836,6 +866,7 @@ function createConversationView(getSession, container) {
       input.focus();
       input.setRangeText(text, input.selectionStart, input.selectionEnd, 'end');
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      saidKeptBehindCard();
     }).catch(() => {});
   }
   // A selection of only whitespace is a stray drag, and copying it would lose what the user meant to paste.
@@ -1027,7 +1058,7 @@ function createConversationView(getSession, container) {
     bgPop.hidden = true;
     bgOutputFor = null;
     for (const chip of bgChips.children) chip.classList.remove('on');
-    if (container.contains(document.activeElement) || document.activeElement === document.body) input.focus();
+    if (container.contains(document.activeElement) || document.activeElement === document.body) focusView();
   }
   function renderBackgroundList() {
     bgPop.replaceChildren();
@@ -1326,7 +1357,12 @@ function createConversationView(getSession, container) {
     card.appendChild(actions);
     view.asks.set(request.id, card);
     holdCall(request);
-    log.insertBefore(card, partialEl);
+    placeCard(card);
+    // Enter allows once; Escape refuses, as declining is what the CLI's Escape does.
+    armCard(card, {
+      primary: () => { if (answers.once) answer(answers.once); },
+      escape: () => { if (answers.refuse) answer(answers.refuse); },
+    });
     renderActivity();
   }
 
@@ -1335,18 +1371,23 @@ function createConversationView(getSession, container) {
   function sendAnswer(card, request, payload, unlocked) {
     const controls = () => card.querySelectorAll('button, textarea, input');
     for (const c of controls()) c.disabled = true;
-    window.api.agent.answer(view.session.sessionId, request.id, payload).then((res) => {
+    return window.api.agent.answer(view.session.sessionId, request.id, payload).then((res) => {
       if (!res || !res.ok) {
         for (const c of controls()) c.disabled = false;
         if (typeof unlocked === 'function') unlocked();
         notice('error', (res && res.error) || 'The answer did not reach the session.');
       }
+      return res;
     });
   }
 
-  // The agent asking the user one or more questions at once (#661). Each question offers its options — one
-  // of them, or several where it says so — and a free answer of the user's own; one Answer sends them all,
-  // because the backend takes them as a single reply. What an answer becomes on the wire is the backend's.
+  // The agent asking the user one or more questions at once (#661), laid out the way the CLI lays them out
+  // (#704, read from 2.1.283 in a terminal): one question at a time behind a row of tabs, a tab of its own to
+  // review and submit, the options numbered with their description under the label, and the text graphic an
+  // option may carry (`preview`) beside the list for the option in focus. Each single-choice option has a
+  // "note" button that opens a note field under it (the CLI's `n`); "Type something" is the free answer, its
+  // field shown once it is chosen. One Answer sends every question, because the backend takes them as a single
+  // reply. What an answer becomes on the wire is the backend's.
   function renderQuestions(request) {
     const card = document.createElement('div');
     card.className = 'jsonl-entry conversation-ask conversation-questions';
@@ -1354,13 +1395,27 @@ function createConversationView(getSession, container) {
     title.className = 'conversation-ask-title';
     title.textContent = request.questions.length > 1 ? 'The agent is asking you some questions' : 'The agent is asking you a question';
     card.appendChild(title);
+
+    const many = request.questions.length > 1;
     const readers = [];
+    const panels = [];
+    const tabs = [];
+    let active = 0;
     const submit = document.createElement('button');
-    // Answer waits until every question has one — the CLI takes them as a single reply.
-    const refresh = () => { submit.disabled = !readers.every(r => r.value()); };
+    const dismiss = document.createElement('button');
+    const summary = document.createElement('div');
+    summary.className = 'conversation-question-summary';
+
+    const tabBar = many ? document.createElement('div') : null;
+    if (tabBar) {
+      tabBar.className = 'conversation-question-tabs';
+      tabBar.setAttribute('role', 'tablist');
+      card.appendChild(tabBar);
+    }
+
     request.questions.forEach((q, qi) => {
-      const block = document.createElement('div');
-      block.className = 'conversation-question';
+      const panel = document.createElement('div');
+      panel.className = 'conversation-question';
       const head = document.createElement('div');
       head.className = 'conversation-question-text';
       if (q.header) {
@@ -1370,71 +1425,417 @@ function createConversationView(getSession, container) {
         head.appendChild(chip);
       }
       head.appendChild(document.createTextNode(q.question));
-      block.appendChild(head);
+      panel.appendChild(head);
+
+      const body = document.createElement('div');
+      body.className = 'conversation-question-body';
+      const list = document.createElement('div');
+      list.className = 'conversation-question-list';
+      body.appendChild(list);
+      const hasPreview = q.options.some(o => o.preview);
+      const preview = hasPreview ? document.createElement('pre') : null;
+      if (preview) { preview.className = 'conversation-question-preview'; body.appendChild(preview); }
+      panel.appendChild(body);
+
       const type = q.multiSelect ? 'checkbox' : 'radio';
       const name = `q-${request.id}-${qi}`;
       const choices = [];
-      const addChoice = (labelText, description) => {
-        const row = document.createElement('label');
+      // One note per question, as the CLI keeps it; it moves under the option whose button opened it.
+      const noteField = q.multiSelect ? null : document.createElement('input');
+      if (noteField) {
+        noteField.type = 'text';
+        noteField.className = 'conversation-ask-input conversation-question-note';
+        noteField.placeholder = 'Note on your choice';
+        noteField.hidden = true;
+      }
+      const showPreview = (text) => {
+        if (!preview) return;
+        preview.textContent = text || 'No preview for this option.';
+        preview.classList.toggle('empty', !text);
+      };
+      const addChoice = (n, labelText, description, previewText, { note = true } = {}) => {
+        const row = document.createElement('div');
         row.className = 'conversation-question-option';
+        const label = document.createElement('label');
+        label.className = 'conversation-question-pick';
         const box = document.createElement('input');
         box.type = type;
         box.name = name;
         box.addEventListener('change', refresh);
-        row.appendChild(box);
+        label.appendChild(box);
         const text = document.createElement('span');
         text.className = 'conversation-question-label';
-        text.textContent = labelText;
-        row.appendChild(text);
+        text.textContent = `${n}. ${labelText}`;
+        label.appendChild(text);
+        row.appendChild(label);
+        if (noteField && note) {
+          const noteBtn = document.createElement('button');
+          noteBtn.type = 'button';
+          noteBtn.className = 'task-notice-output conversation-question-note-btn';
+          noteBtn.textContent = 'note';
+          noteBtn.title = 'Add a note to this choice (n)';
+          noteBtn.addEventListener('click', () => openNote(row, box));
+          row.appendChild(noteBtn);
+        }
         if (description) {
-          const desc = document.createElement('span');
+          const desc = document.createElement('div');
           desc.className = 'conversation-question-desc';
           desc.textContent = description;
           row.appendChild(desc);
         }
-        block.appendChild(row);
-        return box;
+        const show = () => showPreview(previewText);
+        box.addEventListener('focus', show);
+        box.addEventListener('change', () => { if (box.checked) show(); });
+        row.addEventListener('mouseenter', show);
+        list.appendChild(row);
+        return { box, row };
       };
-      for (const opt of q.options) choices.push({ box: addChoice(opt.label, opt.description), label: opt.label });
-      const otherBox = addChoice('Other');
+      const openNote = (row, box) => {
+        if (!noteField) return;
+        if (box.type === 'radio' && !box.checked) { box.checked = true; box.dispatchEvent(new Event('change', { bubbles: true })); }
+        row.after(noteField);
+        noteField.hidden = false;
+        noteField.focus();
+      };
+      q.options.forEach((opt, i) => {
+        const { box, row } = addChoice(i + 1, opt.label, opt.description, opt.preview || '');
+        choices.push({ box, row, label: opt.label, preview: opt.preview || '' });
+      });
+      // The free answer, as the CLI names it; its field appears once it is chosen.
+      const otherChoice = addChoice(q.options.length + 1, 'Type something', '', '', { note: false });
       const other = document.createElement('input');
       other.type = 'text';
       other.className = 'conversation-ask-input conversation-question-other';
       other.placeholder = 'Your own answer';
-      other.addEventListener('input', () => { if (other.value.trim()) otherBox.checked = true; refresh(); });
-      block.appendChild(other);
-      card.appendChild(block);
+      other.hidden = true;
+      otherChoice.row.appendChild(other);
+      // Shown while it is chosen (kept in step by `refresh`, since unticking a radio fires no change on it), and
+      // focused only when it was chosen by a click or Enter — an arrow passing over it must not trap the focus.
+      otherChoice.box.addEventListener('click', () => setTimeout(() => { if (otherChoice.box.checked) other.focus(); }, 0));
+      other.addEventListener('input', refresh);
+      if (noteField) list.appendChild(noteField);
+      // The preview of what is picked, until the focus moves over another option.
+      const selected = choices.find(c => c.box.checked);
+      showPreview(selected ? selected.preview : (choices[0] && choices[0].preview) || '');
+
       // What this question's answer is right now, or '' — several choices joined the way the CLI reads them.
       const value = () => {
         const picked = choices.filter(c => c.box.checked).map(c => c.label);
-        if (otherBox.checked && other.value.trim()) picked.push(other.value.trim());
+        if (otherChoice.box.checked && other.value.trim()) picked.push(other.value.trim());
         return picked.join(', ');
       };
-      readers.push({ question: q.question, value });
+      readers.push({
+        question: q.question,
+        header: q.header || `Question ${qi + 1}`,
+        multi: !!q.multiSelect,
+        value,
+        note: () => (noteField && !noteField.hidden ? noteField.value.trim() : ''),
+        boxes: () => [...choices.map(c => c.box), otherChoice.box],
+        otherBox: otherChoice.box,
+        otherField: other,
+        syncOther: () => { other.hidden = !otherChoice.box.checked; },
+        noteFor: (target) => {
+          const row = target && target.closest ? target.closest('.conversation-question-option') : null;
+          const box = row && row.querySelector('input[type="radio"], input[type="checkbox"]');
+          if (row && box && box !== otherChoice.box) openNote(row, box);
+        },
+      });
+      panels.push(panel);
+      card.appendChild(panel);
+      if (tabBar) {
+        const tab = document.createElement('button');
+        tab.type = 'button';
+        tab.className = 'conversation-question-tab';
+        tab.setAttribute('role', 'tab');
+        tab.addEventListener('click', () => show(qi));
+        tabs.push(tab);
+        tabBar.appendChild(tab);
+      }
     });
+
+    // The review: every question with its answer, the gap said out loud, then Answer and Dismiss. With several
+    // questions it is a tab of its own, as in the CLI; with one it sits under the question.
+    const review = document.createElement('div');
+    review.className = 'conversation-question-review';
+    if (many) review.appendChild(summary);
     const actions = document.createElement('div');
     actions.className = 'conversation-ask-actions';
     submit.type = 'button';
     submit.className = 'new-session-secondary-btn conversation-ask-primary';
-    submit.textContent = 'Answer';
+    submit.textContent = many ? 'Submit answers' : 'Answer';
     submit.disabled = true;
-    submit.addEventListener('click', () => {
-      const answers = {};
-      for (const r of readers) answers[r.question] = r.value();
-      sendAnswer(card, request, { answers }, refresh);
-    });
     actions.appendChild(submit);
-    const dismiss = document.createElement('button');
     dismiss.type = 'button';
     dismiss.className = 'new-session-secondary-btn';
     dismiss.textContent = 'Dismiss';
-    dismiss.addEventListener('click', () => sendAnswer(card, request, { cancelled: true }, refresh));
     actions.appendChild(dismiss);
-    card.appendChild(actions);
+    review.appendChild(actions);
+    card.appendChild(review);
+    // "Chat about this" (#704), the CLI's last row under a question: the questions are declined and what the user
+    // writes goes to the agent instead. Its field opens on a click or `c`; Enter sends, Shift+Enter adds a line.
+    const chatRow = document.createElement('div');
+    chatRow.className = 'conversation-question-chat';
+    const chatBtn = document.createElement('button');
+    chatBtn.type = 'button';
+    chatBtn.className = 'task-notice-output';
+    chatBtn.textContent = 'Chat about this';
+    chatBtn.title = 'Decline the questions and write to the agent instead (c)';
+    const chatBox = document.createElement('textarea');
+    chatBox.className = 'conversation-ask-input conversation-question-chat-input';
+    chatBox.rows = 2;
+    chatBox.placeholder = 'What would you like to clarify? Enter sends, Shift+Enter adds a line';
+    chatBox.hidden = true;
+    chatRow.appendChild(chatBtn);
+    chatRow.appendChild(chatBox);
+    card.appendChild(chatRow);
+    function openChat() { chatBox.hidden = false; chatBox.focus(); }
+    chatBtn.addEventListener('click', openChat);
+    chatBox.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      const text = chatBox.value.trim();
+      if (text) card._chat(text);
+    });
+    // The keys, as the CLI prints them under its questions.
+    const hint = document.createElement('div');
+    hint.className = 'conversation-question-hint';
+    const notes = request.questions.some(q => !q.multiSelect);
+    hint.textContent = `1–9 or ↑/↓ to choose · Enter to select${many ? ' · Tab or ←/→ to switch questions' : ''}${notes ? ' · n to add a note' : ''} · c to chat about this · Esc to dismiss`;
+    card.appendChild(hint);
+    if (tabBar) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'conversation-question-tab conversation-question-tab-submit';
+      tab.setAttribute('role', 'tab');
+      tab.textContent = 'Submit';
+      tab.addEventListener('click', () => show(panels.length));
+      tabs.push(tab);
+      tabBar.appendChild(tab);
+    }
+
+    function refresh() {
+      for (const r of readers) r.syncOther();
+      const all = readers.every(r => r.value());
+      submit.disabled = !all;
+      readers.forEach((r, i) => { if (tabs[i]) tabs[i].textContent = `${r.value() ? '☑' : '☐'} ${r.header}`; });
+      if (!many) return;
+      summary.replaceChildren();
+      for (const r of readers) {
+        const line = document.createElement('div');
+        line.className = 'conversation-question-summary-line';
+        line.textContent = `${r.header}: ${r.value() || '(not answered)'}`;
+        summary.appendChild(line);
+      }
+      if (!all) {
+        const warn = document.createElement('div');
+        warn.className = 'conversation-question-summary-warn';
+        warn.textContent = 'Not every question is answered yet.';
+        summary.appendChild(warn);
+      }
+    }
+    // Which question is shown: an index into the panels, or `panels.length` for the review tab.
+    function show(index, { focus = true } = {}) {
+      if (!many) return;
+      active = Math.max(0, Math.min(panels.length, index));
+      panels.forEach((p, i) => { p.hidden = i !== active; });
+      review.hidden = active !== panels.length;
+      tabs.forEach((t, i) => t.classList.toggle('active', i === active));
+      if (!focus || !card.contains(document.activeElement)) return;
+      const first = active === panels.length ? submit.disabled ? dismiss : submit : readers[active].boxes()[0];
+      if (first) first.focus();
+    }
+    refresh();
+    show(0, { focus: false });
+
+    // Everything the card holds right now, for the answer and for a "Chat about this".
+    const collect = () => {
+      const answers = {};
+      const notes = {};
+      for (const r of readers) {
+        answers[r.question] = r.value();
+        if (r.note()) notes[r.question] = r.note();
+      }
+      return { answers, notes };
+    };
+    // One decline at a time: a second Enter while the first is out would only be refused.
+    card._chat = async (text) => {
+      if (card._chatting) return null;
+      card._chatting = true;
+      try { return await sendAnswer(card, request, { ...collect(), chat: text }, refresh); } finally { card._chatting = false; }
+    };
+    submit.addEventListener('click', () => sendAnswer(card, request, collect(), refresh));
+    dismiss.addEventListener('click', () => sendAnswer(card, request, { cancelled: true }, refresh));
     view.asks.set(request.id, card);
     holdCall(request);
-    log.insertBefore(card, partialEl);
+    placeCard(card);
+
+    // The CLI's keys for this card, before the ones every card shares: Tab and the side arrows switch between
+    // the questions, `n` opens the note of the option in focus, and Enter on an option picks it and moves on.
+    const scopeOf = () => (many && active < panels.length ? panels[active] : many ? review : card);
+    armCard(card, {
+      primary: () => {
+        if (many && active < panels.length) { show(active + 1); return; }
+        if (!submit.disabled) submit.click();
+      },
+      escape: () => dismiss.click(),
+      scope: scopeOf,
+      keys: (e, inText) => {
+        if (many && !inText && (e.key === 'ArrowRight' || e.key === 'ArrowLeft' || e.key === 'Tab')) {
+          const back = e.key === 'ArrowLeft' || (e.key === 'Tab' && e.shiftKey);
+          show((active + (back ? -1 : 1) + panels.length + 1) % (panels.length + 1));
+          return true;
+        }
+        if (!inText && (e.key === 'n' || e.key === 'N') && (!many || active < panels.length)) {
+          readers[many ? active : 0].noteFor(e.target);
+          return true;
+        }
+        if (!inText && (e.key === 'c' || e.key === 'C')) { openChat(); return true; }
+        const option = e.target && (e.target.type === 'radio' || e.target.type === 'checkbox');
+        if (e.key === 'Enter' && !e.shiftKey && option) {
+          const r = readers[many ? Math.min(active, readers.length - 1) : 0];
+          // The free answer is picked and its field takes the focus; nothing moves on while it is empty.
+          if (e.target === r.otherBox) {
+            if (!e.target.checked) { e.target.checked = true; e.target.dispatchEvent(new Event('change', { bubbles: true })); }
+            r.otherField.focus();
+            return true;
+          }
+          // A single choice is made by picking. Several are made by ticking with Space; Enter only moves on,
+          // it does not tick or untick the option it is on.
+          if (e.target.type === 'radio' && !e.target.checked) { e.target.checked = true; e.target.dispatchEvent(new Event('change', { bubbles: true })); }
+          if (many) show(active + 1);
+          else if (!submit.disabled) submit.click();
+          return true;
+        }
+        return false;
+      },
+    });
     renderActivity();
+  }
+
+  // --- the cards and the keyboard (#704) ---
+  //
+  // Every card can be answered without the mouse. When one appears it takes the focus only when nobody is
+  // typing anywhere else: the focus is on this view's input (and that is empty) or on its log, or on nothing at
+  // all — never out of another pane's terminal or a settings field, where the next Enter would answer a card the
+  // user has not read (V1 of #704). Otherwise its title says which key reaches it: Alt+A, from anywhere in the
+  // view. Inside a card: a digit picks the n-th option of the question in view, or presses the n-th button when
+  // the focus is on one; the arrows move between the options; Enter answers; Escape dismisses or refuses, and
+  // never stops the turn — only in the input does it. In a text field Escape only leaves the field.
+  function cardControls(card, scope, target) {
+    const root = scope || card;
+    const buttonFocused = target && target.tagName === 'BUTTON' && target.closest('.conversation-ask-actions');
+    const boxes = buttonFocused ? [] : [...root.querySelectorAll('input[type="radio"], input[type="checkbox"]')].filter(b => !b.disabled && !b.closest('[hidden]'));
+    // The buttons are numbered as they stand, disabled ones included, so a digit always means the same button.
+    return boxes.length ? boxes : [...root.querySelectorAll('.conversation-ask-actions button')];
+  }
+  function focusCard(card) {
+    if (!card || !card.isConnected) return false;
+    const scope = typeof card._scope === 'function' ? card._scope() : card;
+    // A card with options starts on its first option; a dialog that asks for text is answered in its field, not
+    // on its OK; anything else starts on its first button that can be pressed.
+    const controls = cardControls(card, scope);
+    const choices = controls[0] && controls[0].tagName === 'INPUT';
+    const field = choices ? null : scope.querySelector('textarea.conversation-ask-input:not([hidden]), input.conversation-ask-input:not([hidden])');
+    const first = choices ? controls[0] : (field || controls.find(b => !b.disabled) || card.querySelector('button'));
+    if (!first) return false;
+    first.focus();
+    if (typeof first.scrollIntoView === 'function') first.scrollIntoView({ block: 'nearest' });
+    return document.activeElement === first;
+  }
+  function openCards() { return [...view.asks.values()].filter(c => c && c.isConnected); }
+  // Where the view's focus goes when it is handed one (a tab switched to, a grid card, a pane): the card waiting
+  // on the user when there is one — the input is hidden behind it — and the input otherwise.
+  function focusView() {
+    if (focusCard(openCards()[0])) return;
+    if (!input.disabled && !input.hidden) input.focus();
+  }
+  // Something typed into the input while a card stands in its place lands there unseen (#704, P1): said, so an
+  // insert does not look like it failed.
+  function saidKeptBehindCard() {
+    if (input.hidden && openCards().length) notice('info', 'Kept in the input for when the card is answered.');
+  }
+  // A click anywhere in the view outside the cards means the user has moved on: a card that closes after that
+  // does not pull the focus back. A click on something that cannot take the focus leaves no other trace.
+  container.addEventListener('pointerdown', (e) => {
+    for (const c of openCards()) if (!c.contains(e.target)) c._hadFocus = false;
+  });
+  // A card goes into the dock (P1 of #704); the first open one is shown and the next follows it.
+  function placeCard(card) {
+    askDock.appendChild(card);
+    renderDock();
+  }
+  function renderDock() {
+    const cards = openCards();
+    askDock.hidden = !cards.length || view.exited;
+    cards.forEach((c, i) => { c.hidden = i !== 0; });
+    let more = askDock.querySelector(':scope > .conversation-ask-more');
+    if (cards.length > 1) {
+      if (!more) { more = document.createElement('div'); more.className = 'conversation-ask-more'; askDock.prepend(more); }
+      more.textContent = `1 of ${cards.length} waiting for you`;
+    } else if (more) more.remove();
+    renderComposer();
+  }
+  // Whether a new card may take the focus: see the paragraph above.
+  function mayTakeFocus() {
+    // What is typed in the input stays there, hidden behind the dock (P1), so its text is no reason to hold back;
+    // only where the focus is decides.
+    const at = document.activeElement;
+    if (at !== input && at !== log && at !== document.body && at !== null) return false;
+    return container.isConnected && !container.closest('[hidden]') && getComputedStyle(container).display !== 'none';
+  }
+  function armCard(card, { primary, escape, scope, keys }) {
+    if (typeof scope === 'function') card._scope = scope;
+    // Whether the focus is in this card, kept as it moves rather than guessed at when the card closes: sending an
+    // answer locks the card's controls, which drops the focus to the page with nothing leaving the card.
+    card.addEventListener('focusin', () => { card._hadFocus = true; });
+    card.addEventListener('focusout', (e) => { if (e.relatedTarget && !card.contains(e.relatedTarget)) card._hadFocus = false; });
+    card.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.defaultPrevented) return;
+      const inText = !!e.target && (e.target.tagName === 'TEXTAREA' || (e.target.tagName === 'INPUT' && (e.target.type === 'text' || e.target.type === 'password')));
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (inText) { e.target.blur(); focusCard(card); return; }
+        if (typeof escape === 'function') escape();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (typeof keys === 'function' && keys(e, inText)) { e.preventDefault(); return; }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        // A button with the focus is pressed by Enter anyway; everywhere else Enter is the card's answer.
+        if (e.target && e.target.tagName === 'BUTTON') return;
+        if (e.target && e.target.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        primary();
+        return;
+      }
+      if (inText) return;
+      const root = typeof scope === 'function' ? scope() : card;
+      const controls = cardControls(card, root, e.target);
+      if (/^[1-9]$/.test(e.key)) {
+        const target = controls[Number(e.key) - 1];
+        if (!target || target.disabled) return;
+        e.preventDefault();
+        target.focus();
+        target.click();
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const at = controls.indexOf(e.target);
+        if (at < 0) return;
+        e.preventDefault();
+        const next = controls[(at + (e.key === 'ArrowDown' ? 1 : -1) + controls.length) % controls.length];
+        next.focus();
+        // A radio follows the focus, as radios do; a checkbox and a button wait for Space or Enter. Set, not
+        // clicked, so passing over "Type something" does not move the focus into its field.
+        if (next.type === 'radio' && !next.checked) { next.checked = true; next.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+    });
+    const title = card.querySelector('.conversation-ask-title');
+    // The card shown is the first one; a new card behind it waits, and the one in view is what takes the focus.
+    if (mayTakeFocus() && focusCard(openCards()[0])) { renderComposer(); return; }
+    if (title) title.appendChild(Object.assign(document.createElement('span'), { className: 'conversation-ask-key', textContent: ` · ${CARD_KEY} to answer` }));
+    renderComposer();
   }
 
   // The agent's plan, put to the user before it leaves plan mode (#661). Drawn as the markdown it is, through
@@ -1466,7 +1867,13 @@ function createConversationView(getSession, container) {
     card.appendChild(actions);
     view.asks.set(request.id, card);
     holdCall(request);
-    log.insertBefore(card, partialEl);
+    placeCard(card);
+    // Enter approves. Escape does nothing here (V2 of #704): "keep planning" ends the turn the way a Stop does,
+    // which is too much for a key pressed to get out of a card. It is the second button, so 2 or a click.
+    armCard(card, {
+      primary: () => { if (answers.approve) sendAnswer(card, request, { value: answers.approve }); },
+      escape: null,
+    });
     renderActivity();
   }
 
@@ -1537,10 +1944,14 @@ function createConversationView(getSession, container) {
       ok.addEventListener('click', () => answer({ value: field.value }));
       actions.appendChild(ok);
     }
-    button('Dismiss', { cancelled: true });
+    const dismissBtn = button('Dismiss', { cancelled: true });
     card.appendChild(actions);
     view.asks.set(request.id, card);
-    log.insertBefore(card, partialEl);
+    placeCard(card);
+    armCard(card, {
+      primary: () => { const p = actions.querySelector('.conversation-ask-primary'); if (p && !p.disabled) p.click(); },
+      escape: () => { if (!dismissBtn.disabled) dismissBtn.click(); },
+    });
   }
 
   // Ops that arrive while an attach is in flight wait here, and only those newer than the snapshot are
@@ -1599,10 +2010,17 @@ function createConversationView(getSession, container) {
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);
+        // A card that had the focus hands it back to the input, so the keyboard does not end up nowhere.
+        // Sending locks the card's controls, and a locked control drops the focus to the page — so the page
+        // holding it is the card's focus lost that way.
+        const at = document.activeElement;
+        const hadFocus = !!(card && (card.contains(at) || (card._hadFocus && (at === document.body || at === null))));
         if (card) { card.remove(); view.asks.delete(op.id); }
         for (const [callId, held] of view.approvals) if (held.id === op.id) view.approvals.delete(callId);
         renderActivity();
         renderStatus();
+        renderDock();
+        if (hadFocus && !view.exited && !focusCard(openCards()[0])) input.focus();
         settleAttentionCaption();
         break;
       }
@@ -1638,6 +2056,7 @@ function createConversationView(getSession, container) {
       input.value = body;
       renderComposer();
       input.focus();
+      saidKeptBehindCard();
       return;
     }
     notice('info', 'The message you picked, to rewrite (the input was not empty, so it was not put there):\n' + body);
@@ -1717,6 +2136,7 @@ function createConversationView(getSession, container) {
     for (const card of view.asks.values()) card.remove();
     view.asks.clear();
     view.approvals.clear();
+    renderDock();
     notice(exitCode ? 'error' : 'info', exitCode ? `The session ended (exit code ${exitCode}).` : 'The session ended.');
     renderStatus();
     follow();
@@ -1732,7 +2152,7 @@ function createConversationView(getSession, container) {
     // Every path that shows this view calls it (showSession, focusGridCard, the panes' applyPendingFocus), and
     // a reveal can drop the log's scroll position without a resize or a scroll event — measured: re-showing
     // the active tab put it back at 0. So the place is put back here too (#689).
-    focus: () => { if (!input.disabled) input.focus(); restore(); renderJump(); tick(); },
+    focus: () => { focusView(); restore(); renderJump(); tick(); },
     dispose: () => {},
   };
 }

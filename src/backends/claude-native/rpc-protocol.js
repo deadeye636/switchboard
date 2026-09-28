@@ -86,6 +86,28 @@ const REFUSED_MESSAGE = 'The user refused this tool call in Switchboard.';
 const KEEP_PLANNING_MESSAGE = 'The user wants to keep planning. Stay in plan mode and wait for their next message.';
 const UNANSWERED_MESSAGE = 'The user dismissed the question without answering it.';
 
+// The decline "Chat about this" sends (#704), worded as the CLI's own (read from 2.1.283) with the text the user
+// wrote added after it.
+function clarifyMessage(questions, answers, notes, text) {
+  const lines = questions.map((q) => {
+    const out = [`- "${q.question}"`, answers[q.question] ? `  Answer: ${answers[q.question]}` : '  (No answer provided)'];
+    const note = typeof notes[q.question] === 'string' ? notes[q.question].trim() : '';
+    if (note) out.push(`  User notes: ${note}`);
+    return out.join('\n');
+  });
+  return [
+    'The user wants to clarify these questions.',
+    'This means they may have additional information, context or questions for you.',
+    'Take their response into account and then reformulate the questions if appropriate.',
+    '',
+    'Questions asked:',
+    ...lines,
+    '',
+    'What the user wrote:',
+    text,
+  ].join('\n');
+}
+
 // Claude's own tools that ask the user something rather than asking to do something (point 9).
 const QUESTION_TOOL = 'AskUserQuestion';
 const PLAN_TOOL = 'ExitPlanMode';
@@ -109,7 +131,13 @@ function questionsOf(input) {
     if (!q || typeof q.question !== 'string' || !q.question) continue;
     const options = (Array.isArray(q.options) ? q.options : [])
       .filter(o => o && typeof o.label === 'string' && o.label)
-      .map(o => ({ label: o.label, description: typeof o.description === 'string' ? o.description : '' }));
+      // `preview` is the text graphic an option may carry (a mock-up, a diagram, a code excerpt), drawn beside
+      // the list for the option in focus, as the CLI does (#704). Plain text, never markup.
+      .map(o => ({
+        label: o.label,
+        description: typeof o.description === 'string' ? o.description : '',
+        ...(typeof o.preview === 'string' && o.preview ? { preview: o.preview } : {}),
+      }));
     out.push({ question: q.question, header: typeof q.header === 'string' ? q.header : '', options, multiSelect: q.multiSelect === true });
   }
   return out;
@@ -800,7 +828,7 @@ function commandsFromResponse(response) {
 // The answer to an approval (`ask`). `answer` is the app's: `{ value }` with one of the card's answers, or
 // `{ cancelled: true }` for a card dismissed without one, which refuses — a tool nobody allowed does not run.
 //
-// Per kind (point 9): a `questions` ask answers `{ answers: { <question>: <text> } }`; a `plan` ask answers
+// Per kind (point 9): a `questions` ask answers `{ answers: { <question>: <text> }, notes?, chat? }` (#704); a `plan` ask answers
 // `{ value }` with approve or keep; an `approval` answers `{ value }` with one of its card's answers.
 function answerCommand(requestId, answer = {}, ask = null) {
   const input = (ask && ask.input && typeof ask.input === 'object') ? ask.input : {};
@@ -809,13 +837,33 @@ function answerCommand(requestId, answer = {}, ask = null) {
   if (kind === 'questions') {
     const answers = {};
     const given = !answer.cancelled && answer.answers && typeof answer.answers === 'object' ? answer.answers : {};
-    for (const q of Array.isArray(ask.questions) ? ask.questions : []) {
+    const notes = !answer.cancelled && answer.notes && typeof answer.notes === 'object' ? answer.notes : {};
+    const questions = Array.isArray(ask.questions) ? ask.questions : [];
+    for (const q of questions) {
       const text = given[q.question];
       if (typeof text === 'string' && text.trim()) answers[q.question] = text.trim();
     }
-    return Object.keys(answers).length
-      ? reply({ behavior: 'allow', updatedInput: { ...input, answers } })
-      : reply({ behavior: 'deny', message: UNANSWERED_MESSAGE });
+    // "Chat about this" (#704): the question is declined with what the user wrote instead. The CLI's own
+    // decline is a deny whose feedback lists the questions and what was chosen so far (read from 2.1.283); the
+    // text the user typed is added, since here they write it before the decline rather than after it.
+    if (!answer.cancelled && typeof answer.chat === 'string' && answer.chat.trim()) {
+      return reply({ behavior: 'deny', message: clarifyMessage(questions, answers, notes, answer.chat.trim()) });
+    }
+    if (!Object.keys(answers).length) return reply({ behavior: 'deny', message: UNANSWERED_MESSAGE });
+    // What goes beside the answers, in the CLI's shape (`annotations: { <question>: { preview?, notes? } }`,
+    // read from 2.1.283): the preview of the option picked, where the question gave its options one, and the
+    // user's note on the choice.
+    const annotations = {};
+    const asked = Array.isArray(input.questions) ? input.questions : [];
+    for (const q of questions) {
+      const picked = answers[q.question];
+      const raw = asked.find(x => x && x.question === q.question);
+      const option = raw && Array.isArray(raw.options) ? raw.options.find(o => o && o.label === picked) : null;
+      const preview = option && typeof option.preview === 'string' && option.preview ? option.preview : '';
+      const note = typeof notes[q.question] === 'string' ? notes[q.question].trim() : '';
+      if (preview || note) annotations[q.question] = { ...(preview ? { preview } : {}), ...(note ? { notes: note } : {}) };
+    }
+    return reply({ behavior: 'allow', updatedInput: { ...input, answers, ...(Object.keys(annotations).length ? { annotations } : {}) } });
   }
   if (kind === 'plan') {
     // Anything but an approval keeps planning — a plan nobody approved is not carried out.
