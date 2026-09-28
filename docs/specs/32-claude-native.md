@@ -281,8 +281,19 @@ the input as a thumbnail with a × to take it back, and an image alone is a turn
   `agent-rpc.js` checks the same declaration again on every turn, whoever sent it. A backend that declares
   nothing takes no images, and the view says so when one is pasted. pi-native (#656) sends the images in
   Pi's `images` field and adds nothing else; spec 30 has its half.
-- **On the wire** the turn becomes a content array, the images first and then the text, which is the order
-  Anthropic's documentation recommends. A turn without images stays a plain string.
+- **Where each image stands in the prompt (#688).** Attaching one types `[Image #n]` at the caret, the
+  placeholder Claude Code's TUI uses, and its thumbnail carries the same number. The two are one thing:
+  deleting the placeholder from the text removes the image, and the × removes the placeholder. Numbers count
+  up within one draft and start at 1 again once nothing is attached. pi-native shares the view, so its
+  prompts carry the placeholders too, and Pi receives the images in the same numbered order.
+- **On the wire** the turn becomes a content array: the text first, then the images in their numbered order.
+  That is what the TUI writes (measured in its transcripts: one text block with the placeholders where each
+  image was pasted, then the image blocks), so the n-th image is the one the text calls `[Image #n]`. Until
+  #688 it was the images first, the order Anthropic's documentation recommends; the TUI's own pairing won,
+  because it is the shape the model gets from Claude Code every day. Measured before the switch (Haiku, one
+  image, "What number is in [Image #1]?", three runs each way): text first answered correctly 3 of 3, images
+  first 2 of 3. Both orders often `Read` the temporary copy as well (below), so that is not the order's
+  doing. A turn without images stays a plain string.
 - **What Claude Code does with it** (measured): it keeps the image block in the transcript, stores a copy of
   the image under its own temporary directory, and adds a line naming that copy's path. A model may then
   `Read` the copy as well, which asks for an approval under the default permission mode. The history viewer

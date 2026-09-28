@@ -264,11 +264,14 @@ test('the three send modes map onto Claude\'s priorities', () => {
   assert.deepEqual(protocol.sendCommand({ text: 'hi' }).message, { role: 'user', content: 'hi' });
 });
 
-test('a turn with images is a content array, images first, and a turn without stays a string (#662)', () => {
+test('a turn with images is a content array, text first as the TUI writes it, and a turn without stays a string (#662, #688)', () => {
   const img = { mimeType: 'image/png', data: 'AAAA' };
   const block = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } };
-  assert.deepEqual(protocol.sendCommand({ text: 'what is this', images: [img] }).message.content,
-    [block, { type: 'text', text: 'what is this' }]);
+  assert.deepEqual(protocol.sendCommand({ text: 'what is [Image #1]', images: [img] }).message.content,
+    [{ type: 'text', text: 'what is [Image #1]' }, block]);
+  const second = { mimeType: 'image/jpeg', data: 'BBBB' };
+  assert.deepEqual(protocol.sendCommand({ text: '[Image #1] vs [Image #2]', images: [img, second] }).message.content.slice(1)
+    .map(b => b.source.data), ['AAAA', 'BBBB'], 'the images keep their numbered order');
   assert.deepEqual(protocol.sendCommand({ text: '  ', images: [img, img] }).message.content, [block, block],
     'no empty text block beside images alone');
   assert.equal(protocol.sendCommand({ text: 'hi', images: [] }).message.content, 'hi');

@@ -3004,6 +3004,27 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   overflow-y: auto;
   padding: 8px 16px;
 }
+/* The log's place in the column (#689): positioned, so the jump-to-end button can sit over its lower edge. */
+.conversation-log-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.conversation-log:focus { outline: none; }
+.conversation-jump {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+}
+.conversation-jump[hidden] { display: none; }
+/* Opaque over the text it floats on; the base button is translucent and is defined further down. */
+.new-session-secondary-btn.conversation-jump { background: #262634; padding: 5px 14px; font-size: 12px; }
+.new-session-secondary-btn.conversation-jump:hover { background: #30303f; }
 .conversation-log::-webkit-scrollbar { width: 5px; }
 .conversation-log::-webkit-scrollbar-track { background: transparent; }
 .conversation-log::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
@@ -3039,6 +3060,19 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   border-radius: 4px;
   border: 1px solid rgba(255,255,255,0.1);
   object-fit: cover;
+}
+/* The number the text's `[Image #n]` refers to (#688), on the thumbnail's lower-left corner. */
+.conversation-attachment-label {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.65);
+  color: #d0d0e8;
+  font-size: 10px;
+  line-height: 14px;
+  pointer-events: none;
 }
 /* The input's autocomplete (#643): the palette's rows, standing on the composer's top edge. */
 .conversation-composer { position: relative; }

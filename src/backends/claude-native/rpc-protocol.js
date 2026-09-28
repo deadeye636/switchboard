@@ -423,14 +423,18 @@ function createDecoder() {
 // third priority, `now`, cuts the running turn off and is not offered.
 const PRIORITIES = { steer: 'next', follow_up: 'later' };
 
-// A turn with images is a content array: the images first, then the text, which is the order Anthropic's
-// documentation recommends. A turn without any stays a plain string, as it always was.
+// A turn with images is a content array: the text first, then the images in their order, which is what
+// Claude Code's own TUI writes (measured in its transcripts: one text block carrying `[Image #1]`, `[Image
+// #2]` where each was pasted, then the image blocks). The conversation view types the same placeholders
+// (#688), so the n-th image is the one the text calls `[Image #n]`. It used to be images first, the order
+// Anthropic's documentation recommends; the CLI's own pairing won, because it is what the model sees from
+// the TUI every day. A turn without images stays a plain string, as it always was.
 function sendCommand({ text, mode, images } = {}) {
   const body = String(text == null ? '' : text);
   const list = Array.isArray(images) ? images : [];
   const content = list.length
-    ? [...list.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.data } })),
-      ...(body.trim() ? [{ type: 'text', text: body }] : [])]
+    ? [...(body.trim() ? [{ type: 'text', text: body }] : []),
+      ...list.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.data } }))]
     : body;
   const line = {
     type: 'user',

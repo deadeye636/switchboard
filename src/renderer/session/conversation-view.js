@@ -25,8 +25,9 @@
 // buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
-// read when a view is built), showBranchTreeDialog (session/branch-tree-dialog.js, #646), and
-// clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666).
+// read when a view is built), showBranchTreeDialog (session/branch-tree-dialog.js, #646),
+// clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), and terminalRightClickMode
+// (terminal/terminal-context-menu.js, #690).
 
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
@@ -117,7 +118,22 @@ function createConversationView(getSession, container) {
   attachStrip.className = 'conversation-attachments';
   attachStrip.hidden = true;
 
-  container.appendChild(log);
+  // Back to the end (#689): shown only while the log is scrolled away from it. It sits over the log's lower
+  // edge, so the log goes into a positioned wrapper that takes its place in the column.
+  const logWrap = document.createElement('div');
+  logWrap.className = 'conversation-log-wrap';
+  const jumpBtn = document.createElement('button');
+  jumpBtn.type = 'button';
+  jumpBtn.className = 'new-session-secondary-btn conversation-jump';
+  jumpBtn.textContent = '↓ Latest';
+  jumpBtn.title = `Back to the end (${mod}+End)`;
+  jumpBtn.hidden = true;
+  // Clickable so the page keys work from the log as well as from the input; -1 keeps it out of the Tab order.
+  log.tabIndex = -1;
+  logWrap.appendChild(log);
+  logWrap.appendChild(jumpBtn);
+
+  container.appendChild(logWrap);
   container.appendChild(attachStrip);
   container.appendChild(composer);
   container.appendChild(status);
@@ -135,15 +151,72 @@ function createConversationView(getSession, container) {
     queue: { steering: [], followUp: [] },
     // Shell lines still running: the runtime's id -> { index, command }. See `localCommand`.
     localCommands: new Map(),
-    // Images attached to the next turn: { mimeType, data (base64), name, url (a data: URL for the thumbnail) }.
+    // Images attached to the next turn: { mimeType, data (base64), name, url (a data: URL for the thumbnail),
+    // label ('[Image #n]', the placeholder standing where it was attached — #688) }.
     attachments: [],
     exited: false,
     attached: false,
     attaching: false,        // an attach is in flight — see renderStatus
   };
 
+  // Whether the user is reading the end (#689). REMEMBERED from the user's own scrolling, not measured when an
+  // entry arrives: a tab that is not on screen measures zero, so the old measure-then-follow always said
+  // "at the end", scrolled a hidden log (which does nothing), and the tab came back where it was left. A log
+  // with no height says nothing about where the user is, so it neither sets nor clears this.
+  let stuck = true;
+  // Where a reader who scrolled away was. A hidden tab loses its scroll position (measured in the app: back at
+  // 0 after a tab switch), so the place is kept here and put back when the log is shown again.
+  let readerTop = 0;
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < CONVERSATION_STICK_PX;
-  const follow = (wasAtBottom) => { if (wasAtBottom) log.scrollTop = log.scrollHeight; };
+  const renderJump = () => { jumpBtn.hidden = stuck || !log.clientHeight; };
+  const follow = () => { if (stuck && log.clientHeight) log.scrollTop = log.scrollHeight; };
+  const restore = () => {
+    if (!log.clientHeight) return;
+    if (stuck) log.scrollTop = log.scrollHeight;
+    else if (log.scrollTop !== readerTop) log.scrollTop = readerTop;
+  };
+  function toEnd() {
+    stuck = true;
+    log.scrollTop = log.scrollHeight;
+    renderJump();
+  }
+  log.addEventListener('scroll', () => {
+    if (!log.clientHeight) return;
+    stuck = atBottom();
+    readerTop = log.scrollTop;
+    renderJump();
+  });
+  // Shown again (a tab switch, a pane resize): a reader at the end is put back at the end, whatever arrived
+  // while nobody could see it. A reader who had scrolled up gets the place back.
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(() => { restore(); renderJump(); }).observe(log);
+  }
+  jumpBtn.addEventListener('click', () => { toEnd(); input.focus(); });
+
+  // The CLI's keys for its history (#689): Ctrl+Home / Ctrl+End to either end, PageUp / PageDown a page at a
+  // time. Taken from the input too, where Ctrl+Home/End would otherwise move the caret — a composer rarely
+  // holds enough text for that to be the key's job, and the terminal view gives these keys to the history.
+  function pageKey(e) {
+    if (e.altKey || e.shiftKey) return false;
+    // Cmd on a Mac, as the button's tooltip says; Ctrl elsewhere.
+    const macNow = typeof isMac !== 'undefined' && isMac;
+    const chord = macNow ? e.metaKey : e.ctrlKey;
+    const other = macNow ? e.ctrlKey : e.metaKey;
+    if (other) return false;
+    const page = Math.max(40, log.clientHeight - 40);
+    if (chord && e.key === 'End') { toEnd(); return true; }
+    if (chord && e.key === 'Home') { log.scrollTop = 0; return true; }
+    if (chord) return false;
+    if (e.key === 'PageUp') { log.scrollTop -= page; return true; }
+    if (e.key === 'PageDown') { log.scrollTop += page; return true; }
+    return false;
+  }
+  container.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || e.isComposing) return;
+    if (e.target !== input && e.target !== log) return;
+    if (e.target === input && completion && completion.isOpen && completion.isOpen()) return;
+    if (pageKey(e)) e.preventDefault();
+  });
 
   function renderOne(index) {
     const entry = view.entries[index];
@@ -284,6 +357,7 @@ function createConversationView(getSession, container) {
   // than being dropped while the picker reports success.
   let submitAgain = null;
   async function submit(mode) {
+    syncAttachmentsToText();
     const text = input.value;
     const attached = view.attachments.slice();
     if ((!text.trim() && !attached.length) || view.exited) return;
@@ -294,6 +368,8 @@ function createConversationView(getSession, container) {
     sending = true;
     renderComposer();
     const payload = { text, mode };
+    // In attach order, which is the order of their numbers: the text says `[Image #n]` and the n-th image is
+    // the one it means, the same pairing Claude's CLI relies on (#688).
     if (attached.length) payload.images = attached.map(a => ({ mimeType: a.mimeType, data: a.data }));
     let res;
     try { res = await window.api.agent.send(view.session.sessionId, payload); } catch { res = null; }
@@ -307,6 +383,8 @@ function createConversationView(getSession, container) {
         renderAttachments();
       }
       settleAttentionCaption();
+      // What was just sent is at the end, and so is the answer to it (#689).
+      toEnd();
     } else {
       notice('error', (res && res.error) || 'The message did not reach the session.');
     }
@@ -407,6 +485,7 @@ function createConversationView(getSession, container) {
     const caret = start + text.length;
     input.setSelectionRange(caret, caret);
     input.focus();
+    syncAttachmentsToText();
     if (andSend) submit('prompt');
     return true;
   }
@@ -421,6 +500,58 @@ function createConversationView(getSession, container) {
     return backend && backend.imageInput && Array.isArray(backend.imageInput.types) ? backend.imageInput : null;
   }
 
+  // --- Where an image stands in the prompt (#688) ---
+  // Attaching an image types `[Image #n]` at the caret, the way Claude's own CLI does, so the text can say
+  // which picture it means. The placeholder and the thumbnail are one thing: deleting either removes the
+  // other. Numbers count up within one draft and start again at 1 once nothing is attached.
+  // Past every number in use — an attachment's, and one already standing in the text, typed or pasted — so a
+  // new placeholder never repeats one and the × never takes out the wrong occurrence.
+  function nextImageLabel() {
+    let n = 0;
+    for (const a of view.attachments) {
+      const m = /#(\d+)\]$/.exec(a.label || '');
+      if (m) n = Math.max(n, Number(m[1]));
+    }
+    for (const m of input.value.matchAll(/\[Image #(\d+)\]/g)) n = Math.max(n, Number(m[1]));
+    return `[Image #${n + 1}]`;
+  }
+
+  function insertAtCaret(text) {
+    const value = input.value;
+    const start = typeof input.selectionStart === 'number' ? input.selectionStart : value.length;
+    const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const lead = before && !/\s$/.test(before) ? ' ' : '';
+    const trail = after && /^\s/.test(after) ? '' : ' ';
+    input.value = before + lead + text + trail + after;
+    const caret = (before + lead + text + trail).length;
+    input.setSelectionRange(caret, caret);
+  }
+
+  // Takes a placeholder out of the text along with one space beside it, so removing an image leaves no gap.
+  function removeLabelText(label) {
+    const at = input.value.indexOf(label);
+    if (at < 0) return;
+    let from = at;
+    let to = at + label.length;
+    if (input.value[to] === ' ') to++;
+    else if (from > 0 && input.value[from - 1] === ' ') from--;
+    input.value = input.value.slice(0, from) + input.value.slice(to);
+    input.setSelectionRange(from, from);
+  }
+
+  // A placeholder deleted from the text takes its image with it. Run on every `input` event, and by the two
+  // writers that set the value without one — a picker's `insertText` and, through `submit`, an accepted
+  // completion — so no path leaves an image whose reference is gone.
+  function syncAttachmentsToText() {
+    const kept = view.attachments.filter(a => !a.label || input.value.includes(a.label));
+    if (kept.length === view.attachments.length) return;
+    view.attachments = kept;
+    renderAttachments();
+  }
+  input.addEventListener('input', syncAttachmentsToText);
+
   function renderAttachments() {
     attachStrip.replaceChildren();
     attachStrip.hidden = !view.attachments.length;
@@ -430,8 +561,14 @@ function createConversationView(getSession, container) {
       const img = document.createElement('img');
       img.src = a.url;
       img.alt = a.name || 'Attached image';
-      img.title = a.name || 'Attached image';
+      img.title = [a.label, a.name].filter(Boolean).join(' ') || 'Attached image';
       item.appendChild(img);
+      if (a.label) {
+        const tag = document.createElement('span');
+        tag.className = 'conversation-attachment-label';
+        tag.textContent = a.label.replace(/^\[Image /, '').replace(/\]$/, '');
+        item.appendChild(tag);
+      }
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'viewer-header-close';
@@ -440,6 +577,7 @@ function createConversationView(getSession, container) {
       remove.setAttribute('aria-label', 'Remove this image');
       remove.addEventListener('click', () => {
         view.attachments = view.attachments.filter(x => x !== a);
+        if (a.label) removeLabelText(a.label);
         renderAttachments();
         input.focus();
       });
@@ -471,7 +609,9 @@ function createConversationView(getSession, container) {
       const url = await readAsDataUrl(file);
       const comma = url.indexOf(',');
       if (comma < 0) { notice('error', `${name} could not be read.`); continue; }
-      view.attachments.push({ mimeType: file.type, data: url.slice(comma + 1), name, url });
+      const label = nextImageLabel();
+      view.attachments.push({ mimeType: file.type, data: url.slice(comma + 1), name, url, label });
+      insertAtCaret(label);
     }
     renderAttachments();
   }
@@ -488,6 +628,53 @@ function createConversationView(getSession, container) {
     e.preventDefault();
     attachImages(files);
   });
+  // The right-click setting a terminal session follows (#690, Settings > Terminal, `terminalRightClick`),
+  // read from the same variable `terminal/terminal-context-menu.js` keeps. Three modes mean something for plain
+  // text and a text field; the others keep the view's own behaviour, as the issue asks.
+  const rightClickMode = () => (typeof terminalRightClickMode !== 'undefined' ? terminalRightClickMode : 'menu');
+  function selectedText() {
+    if (document.activeElement === input && input.selectionStart !== input.selectionEnd) {
+      return input.value.slice(input.selectionStart, input.selectionEnd);
+    }
+    const sel = window.getSelection && window.getSelection();
+    return sel && !sel.isCollapsed && log.contains(sel.anchorNode) ? sel.toString() : '';
+  }
+  function pasteIntoInput() {
+    if (view.exited || !window.api || typeof window.api.readClipboard !== 'function') return;
+    Promise.resolve(window.api.readClipboard()).then((text) => {
+      if (!text || view.exited) return;
+      input.focus();
+      input.setRangeText(text, input.selectionStart, input.selectionEnd, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }).catch(() => {});
+  }
+  // A selection of only whitespace is a stray drag, and copying it would lose what the user meant to paste.
+  const copy = (text) => { if (text && text.trim() && window.api && window.api.writeClipboard) window.api.writeClipboard(text); };
+  // On the container, as the terminal does: a drag that starts in the log may end over the composer.
+  container.addEventListener('mouseup', (e) => {
+    if (e.button !== 0 || rightClickMode() !== 'copy-on-select') return;
+    // After the browser has settled the selection this mouseup ends.
+    setTimeout(() => copy(selectedText()), 0);
+  });
+  container.addEventListener('contextmenu', (e) => {
+    const mode = rightClickMode();
+    if (mode === 'copy-paste') {
+      e.preventDefault();
+      const text = selectedText();
+      // A whitespace-only selection counts as none, so the click pastes rather than doing nothing.
+      if (text && text.trim()) {
+        copy(text);
+        const sel = window.getSelection && window.getSelection();
+        if (sel && log.contains(sel.anchorNode)) sel.removeAllRanges();
+      } else {
+        pasteIntoInput();
+      }
+      return;
+    }
+    // In copy-on-select the selection was copied when it was made, so the right button only pastes.
+    if (mode === 'paste' || mode === 'copy-on-select') { e.preventDefault(); pasteIntoInput(); }
+  });
+
   const draggingFiles = (e) => !!(e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files'));
   container.addEventListener('dragover', (e) => {
     if (!draggingFiles(e) || view.exited) return;
@@ -881,7 +1068,6 @@ function createConversationView(getSession, container) {
   function apply(op) {
     if (!op || typeof op !== 'object') return;
     if (pending && op.op !== 'reset') { pending.push(op); return; }
-    const wasAtBottom = atBottom();
     switch (op.op) {
       case 'reset': snapshotKeys = new Set(); reset(op.entries); break;
       case 'append':
@@ -913,7 +1099,8 @@ function createConversationView(getSession, container) {
       }
       default: return;
     }
-    follow(wasAtBottom);
+    follow();
+    renderJump();
   }
 
   // A turn written into the session from outside the composer — a seed prompt, a trigger, a launcher — that
@@ -988,7 +1175,7 @@ function createConversationView(getSession, container) {
     view.queue = res.queue || { steering: [], followUp: [] };
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();
-    log.scrollTop = log.scrollHeight;
+    toEnd();
     // What happened after the snapshot was taken, in order. Older ops are already in it.
     const since = Number(res.seq) || 0;
     // An `unsent` hand-back is never part of a snapshot, so its number decides nothing: a refusal that
@@ -1010,13 +1197,20 @@ function createConversationView(getSession, container) {
     view.approvals.clear();
     notice(exitCode ? 'error' : 'info', exitCode ? `The session ended (exit code ${exitCode}).` : 'The session ended.');
     renderStatus();
+    follow();
+    renderJump();
   }
 
   renderStatus();
   return {
-    apply, attach, markExited, notice, insertText,
+    apply, attach, markExited, insertText,
+    // Called from outside `apply` too (a launch error, `writeEntryError`), so it follows the end the same way.
+    notice: (...args) => { notice(...args); follow(); renderJump(); },
     element: container, log, paletteAnchor,
-    focus: () => { if (!input.disabled) input.focus(); },
+    // Every path that shows this view calls it (showSession, focusGridCard, the panes' applyPendingFocus), and
+    // a reveal can drop the log's scroll position without a resize or a scroll event — measured: re-showing
+    // the active tab put it back at 0. So the place is put back here too (#689).
+    focus: () => { if (!input.disabled) input.focus(); restore(); renderJump(); },
     dispose: () => {},
   };
 }

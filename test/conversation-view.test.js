@@ -12,12 +12,14 @@ const { JSDOM } = require('jsdom');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'session', 'conversation-view.js'), 'utf8');
 
-function setup({ attachAnswer, imageInput } = {}) {
+function setup({ attachAnswer, imageInput, rightClick, clipboard = '' } = {}) {
   const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>');
   const w = dom.window;
-  const calls = { send: [], abort: 0, attach: 0 };
+  const calls = { send: [], abort: 0, attach: 0, copied: [] };
   let resolveSend = null;
   w.api = {
+    readClipboard: () => Promise.resolve(clipboard),
+    writeClipboard: (t) => { calls.copied.push(t); },
     onAgentEvent() {},
     agent: {
       send: (id, payload) => { calls.send.push({ id, ...payload }); return new Promise((r) => { resolveSend = r; }); },
@@ -49,6 +51,8 @@ function setup({ attachAnswer, imageInput } = {}) {
       return d;
     }
   `, ctx);
+  // The right-click setting terminal/terminal-context-menu.js keeps (#690); absent means that file's default.
+  if (rightClick) { ctx.__rightClick = rightClick; vm.runInContext('var terminalRightClickMode = __rightClick;', ctx); }
   // The descriptor the renderer caches, reduced to the one field the image attachment reads (#662).
   ctx.__imageInput = imageInput || null;
   vm.runInContext(`
@@ -101,7 +105,8 @@ test('a pasted image is attached, shown, removable, and sent with the turn', asy
   await until(() => strip.querySelectorAll('.conversation-attachment').length === 2);
   strip.querySelectorAll('.conversation-attachment button')[1].click();
   assert.equal(strip.querySelectorAll('.conversation-attachment').length, 1, 'the × takes one back');
-  h.input.value = 'what is this';
+  // Typed after the placeholder the image left in the field (#688); overwriting the field would drop it.
+  h.input.value = h.input.value.trim() + ' what is this';
   h.key({ key: 'Enter' });
   assert.equal(h.calls.send.length, 1);
   // Through JSON: the array was built in the jsdom realm, and deepEqual compares prototypes across realms.
@@ -122,8 +127,120 @@ test('a copy that carries text pastes only the text; an image alone is a turn', 
   pasteImages(h, [new h.w.File(['x'], 'a.png', { type: 'image/png' })]);
   await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
   h.key({ key: 'Enter' });
-  assert.equal(h.calls.send.length, 1, 'the empty field sends because an image is attached');
-  assert.equal(h.calls.send[0].text, '');
+  assert.equal(h.calls.send.length, 1, 'a field holding only the placeholder sends because an image is attached');
+  assert.equal(h.calls.send[0].text, '[Image #1] ', 'the image stands in the text the way the TUI writes it (#688)');
+});
+
+// #690: the terminal's right-click setting reaches the conversation view.
+function selectLogText(h, text) {
+  const log = h.entry.element.querySelector('.conversation-log');
+  const p = h.w.document.createElement('p');
+  p.textContent = text;
+  log.appendChild(p);
+  const range = h.w.document.createRange();
+  range.selectNodeContents(p);
+  const sel = h.w.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  return log;
+}
+const rightClick = (h) => {
+  const ev = new h.w.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+  h.entry.element.querySelector('.conversation-log').dispatchEvent(ev);
+  return ev;
+};
+
+test('copy-on-select: finishing a selection in the conversation copies it; a right click pastes into the input', async () => {
+  const h = setup({ rightClick: 'copy-on-select', clipboard: 'pasted' });
+  const log = selectLogText(h, 'some answer');
+  log.dispatchEvent(new h.w.MouseEvent('mouseup', { bubbles: true, button: 0 }));
+  await h.settle();
+  assert.deepEqual(h.calls.copied, ['some answer']);
+  assert.equal(rightClick(h).defaultPrevented, true);
+  await h.settle();
+  assert.equal(h.input.value, 'pasted');
+});
+
+test('copy-paste: a right click copies a selection, and pastes when there is none; menu mode is left alone', async () => {
+  const h = setup({ rightClick: 'copy-paste', clipboard: 'from clipboard' });
+  selectLogText(h, 'chosen');
+  rightClick(h);
+  assert.deepEqual(h.calls.copied, ['chosen']);
+  assert.equal(h.input.value, '', 'a copy pastes nothing');
+  rightClick(h);
+  await h.settle();
+  assert.equal(h.input.value, 'from clipboard');
+  const menu = setup({ rightClick: 'menu', clipboard: 'x' });
+  assert.equal(rightClick(menu).defaultPrevented, false);
+});
+
+test('a whitespace-only selection is not copied', async () => {
+  const h = setup({ rightClick: 'copy-on-select' });
+  const log = selectLogText(h, '   ');
+  log.dispatchEvent(new h.w.MouseEvent('mouseup', { bubbles: true, button: 0 }));
+  await h.settle();
+  assert.deepEqual(h.calls.copied, []);
+});
+
+// #689: the page keys reach the conversation from the input, and the jump button exists for when the log
+// leaves the end. jsdom has no layout, so the scrolling itself is checked in the app.
+test('Ctrl+End, Ctrl+Home, PageUp and PageDown are taken from the input for the conversation', () => {
+  const h = setup();
+  for (const props of [{ key: 'End', ctrlKey: true }, { key: 'Home', ctrlKey: true }, { key: 'PageUp' }, { key: 'PageDown' }]) {
+    const ev = new h.w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...props });
+    h.input.dispatchEvent(ev);
+    assert.equal(ev.defaultPrevented, true, JSON.stringify(props));
+  }
+  const plainHome = new h.w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Home' });
+  h.input.dispatchEvent(plainHome);
+  assert.equal(plainHome.defaultPrevented, false, 'Home alone still moves the caret');
+  const jump = h.entry.element.querySelector('.conversation-jump');
+  assert.ok(jump && jump.hidden, 'the jump button is there and hidden while at the end');
+});
+
+// #688: an attached image types `[Image #n]` at the caret, and the placeholder and the thumbnail are one thing.
+test('attaching types [Image #n] at the caret; the number is on the thumbnail and counts up', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  h.input.value = 'compare  please';
+  h.input.setSelectionRange(8, 8);
+  pasteImages(h, [new h.w.File(['a'], 'a.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
+  assert.equal(h.input.value, 'compare [Image #1] please');
+  pasteImages(h, [new h.w.File(['b'], 'b.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 2);
+  assert.match(h.input.value, /\[Image #1\].*\[Image #2\]/);
+  const labels = [...h.entry.element.querySelectorAll('.conversation-attachment-label')].map(l => l.textContent);
+  assert.deepEqual(labels, ['#1', '#2']);
+});
+
+test('deleting a placeholder removes its image; the × removes its placeholder', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  pasteImages(h, [new h.w.File(['a'], 'a.png', { type: 'image/png' })]);
+  pasteImages(h, [new h.w.File(['b'], 'b.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 2);
+  h.input.value = h.input.value.replace('[Image #1]', '');
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  const shown = () => [...h.entry.element.querySelectorAll('.conversation-attachment img')].map(i => i.alt);
+  assert.deepEqual(shown(), ['b.png'], 'the image whose placeholder went is gone');
+  h.entry.element.querySelector('.conversation-attachment .viewer-header-close').click();
+  assert.deepEqual(shown(), []);
+  assert.doesNotMatch(h.input.value, /\[Image #2\]/, 'the × took the placeholder out of the text');
+  pasteImages(h, [new h.w.File(['c'], 'c.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
+  assert.match(h.input.value, /\[Image #1\]/, 'with nothing attached the numbers start again');
+});
+
+test('a hand-typed [Image #n] is not reused, and a picker that overwrites a placeholder drops its image', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  h.input.value = 'see [Image #1] ';
+  h.input.setSelectionRange(h.input.value.length, h.input.value.length);
+  pasteImages(h, [new h.w.File(['a'], 'a.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
+  assert.match(h.input.value, /\[Image #2\]/, 'the typed #1 is skipped');
+  const at = h.input.value.indexOf('[Image #2]');
+  h.input.setSelectionRange(at, at + '[Image #2]'.length);
+  h.entry.conversation.insertText('something else');
+  assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 0);
 });
 
 test('an image dropped on the conversation is attached; a drop without one says so', async () => {
