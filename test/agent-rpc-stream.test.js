@@ -273,3 +273,56 @@ test('a backend that names no response spelling is refused at start', () => {
   const noResponse = { createDecoder: () => ({ decode: () => [], currentPartial: () => null }) };
   assert.throws(() => agentRpc.start({ tag: 't', rpc: noResponse, command: process.execPath, args: [FIXTURE], cwd: __dirname }), /declares no protocol/);
 });
+
+// #691: what runs in the background, the session's figures, stopping one task and reading its output — each a
+// declaration of the protocol half, carried by the core without reading any format.
+test('background tasks and the context reach the view, the sidebar count reaches the main window, stop and output go by task', async (t) => {
+  const dir = tempDataDir(t);
+  const outputFile = path.join(dir, 'task.output');
+  fs.writeFileSync(outputFile, 'line one\nline two\n');
+  const stops = [];
+  const h = streamHarness(t, { rpc: {
+    createDecoder: () => ({
+      decode(msg) {
+        if (msg.ev === 'append') return [{ op: 'append', entry: msg.entry }];
+        if (msg.ev === 'result') {
+          return [{ op: 'tasks', tasks: [{ id: 't1', kind: 'shell', description: 'dev server', detail: 'npm run dev' }, { id: 'a1', kind: 'agent', description: 'review' }] }, { op: 'busy', busy: false }];
+        }
+        return [];
+      },
+      currentPartial: () => null,
+      taskOutputFile: (id) => (id === 't1' ? outputFile : null),
+    }),
+    contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }),
+    contextFromResponse: (res) => (res.data.what === 'ctx' ? { percent: 42, tokens: 84000, window: 200000, model: 'Test 1.0' } : null),
+    stopTaskCommand: (id, taskId) => { stops.push(taskId); return { type: 'ctl', request_id: id, what: `stop ${taskId}` }; },
+  } });
+  t.after(() => stopped(h));
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => ops(h).some((o) => o.op === 'tasks'));
+  await until(() => ops(h).filter((o) => o.op === 'context').length >= 2);
+  const context = ops(h).filter((o) => o.op === 'context').pop().context;
+  assert.equal(context.percent, 42, 'asked at the start and after the settled run');
+  const counts = h.sent.filter((m) => m.ch === 'agent-background');
+  assert.deepEqual(counts.pop(), { ch: 'agent-background', id: 'launch-id', op: { shells: 1, agents: 1, other: 0 } });
+  const attached = await agentRpc.attach('launch-id');
+  assert.equal(attached.tasks.length, 2, 'a view mounted later gets the list');
+  assert.equal(attached.context.model, 'Test 1.0');
+  assert.deepEqual(await agentRpc.stopTask('launch-id', 't1'), { ok: true });
+  assert.deepEqual(stops, ['t1']);
+  const out = await agentRpc.taskOutput('launch-id', 't1');
+  assert.equal(out.ok, true);
+  assert.match(out.text, /line two/);
+  assert.equal(out.path, undefined, 'the path is not handed to the view');
+  assert.equal((await agentRpc.taskOutput('launch-id', 'a1')).ok, false, 'a task the runtime named no file for');
+  assert.equal((await agentRpc.taskOutput('launch-id', '../../etc/passwd')).ok, false, 'a name is not a path');
+});
+
+test('a runtime that cannot stop a single task says so, and one that reads no context is not asked', async (t) => {
+  const h = streamHarness(t);
+  t.after(() => stopped(h));
+  assert.equal((await agentRpc.stopTask('launch-id', 't1')).ok, false);
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => h.signals.some((s) => s.kind === 'idle'));
+  assert.ok(!ops(h).some((o) => o.op === 'context'));
+});

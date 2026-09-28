@@ -181,6 +181,71 @@ function plainUserText(message) {
   return null;
 }
 
+// --- background tasks (#691) ---
+//
+// Measured on 2.1.283 (spec 32, "Background tasks and session figures"): a background shell or agent is
+// reported as `system` lines — `background_tasks_changed` with the whole running list, `task_started`,
+// `task_updated`, `task_notification` — and when one ends Claude starts a turn of its own and puts a user line
+// into the conversation whose `origin.kind` is `task-notification` and whose text is a block of tags. What
+// leaves this file is the app's own vocabulary: a `tasks` op with the running list, and a `task-notice` entry
+// in place of that user line.
+
+// Claude's tool names for the two kinds the app shows; anything else is a task of no known kind.
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+const AGENT_TOOLS = new Set(['Agent', 'Task']);
+const kindOfTaskType = (t) => (t === 'local_bash' ? 'shell' : t === 'local_agent' ? 'agent' : 'task');
+const kindOfTool = (name) => (SHELL_TOOLS.has(name) ? 'shell' : AGENT_TOOLS.has(name) ? 'agent' : 'task');
+
+const tagOf = (text, tag) => {
+  const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+  return m ? m[1].trim() : '';
+};
+
+// Is this user line the notification Claude injects when a task ends? Its `origin` says so; the text is the
+// fallback for a line that carries no origin.
+function isTaskNotification(line) {
+  if (line && line.origin && line.origin.kind === 'task-notification') return true;
+  const text = plainUserText(line && line.message);
+  return typeof text === 'string' && text.trimStart().startsWith('<task-notification>');
+}
+
+// The notification as the view draws it: which task, how it ended, what it was called, and for an agent what
+// it cost. `kind` is resolved by the caller from the call that started the task (`toolKinds`), because the
+// notification itself does not say. The output file's path stays out of the entry — the view asks for the
+// output by task id, and the core reads it from what the decoder heard (`taskOutputFile`).
+function taskNoticeEntry(line, toolKinds) {
+  const text = plainUserText(line.message) || '';
+  const summary = tagOf(text, 'summary');
+  const toolUseId = tagOf(text, 'tool-use-id');
+  const quoted = /"([^"]+)"/.exec(summary);
+  const exit = /exit code (-?\d+)/.exec(summary);
+  const usage = tagOf(text, 'usage');
+  const num = (tag) => { const v = Number(tagOf(usage, tag)); return Number.isFinite(v) && tagOf(usage, tag) !== '' ? v : null; };
+  return {
+    type: 'task-notice',
+    uuid: typeof line.uuid === 'string' ? line.uuid : undefined,
+    timestamp: typeof line.timestamp === 'string' ? line.timestamp : new Date().toISOString(),
+    _task: {
+      id: tagOf(text, 'task-id'),
+      toolUseId,
+      kind: (toolKinds && toolKinds.get(toolUseId)) || 'task',
+      status: tagOf(text, 'status'),
+      description: quoted ? quoted[1] : summary,
+      summary,
+      result: tagOf(text, 'result'),
+      exitCode: exit ? Number(exit[1]) : null,
+      tokens: num('subagent_tokens'),
+      toolUses: num('tool_uses'),
+      durationMs: num('duration_ms'),
+    },
+  };
+}
+
+// Where a background shell writes its output, as the tool result that started it says (measured: "Command
+// running in background with ID: <id>. Output is being written to: <path>"). The notification names the same
+// file when the task ends; this is what makes it readable while the task still runs.
+const OUTPUT_PATH = /Output is being written to: (.+?\.output)\b/;
+
 // A user line as the conversation view should read it (#680). Claude records a slash command as a user
 // line of nothing but `<command-name>`/`<command-message>`/`<command-args>` tags, and a local command's
 // output as one wrapped in `<local-command-stdout>`. The terminal shows neither as markup, so neither does
@@ -212,6 +277,67 @@ function createDecoder() {
   // that turn, and by a turn starting — a Stop sent while nothing ran ends nothing, and must not turn the
   // next turn's real failure into "Stopped.".
   let stopping = null;
+  // Background tasks (#691). `running` is the list Claude last sent, in its order, enriched from
+  // `task_started` and from the call that started each one. The rest outlives a task's end: which kind a call
+  // was (for the notice that arrives after it), what it ran, and where each task wrote its output.
+  let running = [];
+  const started = new Map();      // task id -> { toolUseId, description, detail, startedAt }
+  const toolKinds = new Map();    // tool_use id -> 'shell' | 'agent' | 'task'
+  const toolDetails = new Map();  // tool_use id -> the command a shell ran, or an agent's type
+  const toolOutputs = new Map();  // tool_use id -> the output file its tool result named
+  const taskOutputs = new Map();  // task id -> the output file
+  const noticed = new Set();      // task ids whose end has been drawn
+  // The notice for a task that ended, from the `task_notification` system line (see its case below). Its
+  // `summary` is Claude's sentence about a shell ("Background command "x" completed (exit code 0)") and an
+  // agent's own result; the description comes from the start, where the list gave one.
+  function liveTaskNotice(msg) {
+    const id = msg.task_id;
+    const s = started.get(id) || {};
+    const toolUseId = typeof msg.tool_use_id === 'string' ? msg.tool_use_id : (s.toolUseId || '');
+    const kind = (toolUseId && toolKinds.get(toolUseId)) || 'task';
+    const summary = typeof msg.summary === 'string' ? msg.summary : '';
+    const quoted = /"([^"]+)"/.exec(summary);
+    const exit = /exit code (-?\d+)/.exec(summary);
+    const u = msg.usage && typeof msg.usage === 'object' ? msg.usage : {};
+    const num = (v) => (Number.isFinite(v) ? v : null);
+    return {
+      type: 'task-notice',
+      timestamp: new Date().toISOString(),
+      _task: {
+        id,
+        toolUseId,
+        kind,
+        status: typeof msg.status === 'string' ? msg.status : '',
+        description: s.description || (quoted ? quoted[1] : summary),
+        summary,
+        result: kind === 'agent' ? summary : '',
+        exitCode: exit ? Number(exit[1]) : null,
+        tokens: num(u.total_tokens),
+        toolUses: num(u.tool_uses),
+        durationMs: num(u.duration_ms),
+      },
+    };
+  }
+  const tasksOp = () => ({
+    op: 'tasks',
+    tasks: running.map((t) => {
+      const s = started.get(t.id) || {};
+      return {
+        id: t.id,
+        kind: t.kind,
+        description: t.description || s.description || '',
+        detail: (s.toolUseId && toolDetails.get(s.toolUseId)) || s.detail || '',
+        toolUseId: s.toolUseId || null,
+        startedAt: s.startedAt || null,
+      };
+    }),
+  });
+  function taskOutputFile(taskId) {
+    const id = String(taskId || '');
+    if (taskOutputs.has(id)) return taskOutputs.get(id);
+    const s = started.get(id);
+    return (s && s.toolUseId && toolOutputs.get(s.toolUseId)) || null;
+  }
 
   const partialEntry = () => {
     if (!partial) return null;
@@ -277,7 +403,13 @@ function createDecoder() {
     if (partial) { partial = partial.map(() => undefined); ops.push({ op: 'partial', entry: null }); }
     ops.push({ op: 'append', entry: entryOf(msg) });
     for (const b of Array.isArray(m.content) ? m.content : []) {
-      if (b && b.type === 'tool_use' && b.id) ops.push({ op: 'tool', id: b.id, status: 'running', output: '' });
+      if (b && b.type === 'tool_use' && b.id) {
+        ops.push({ op: 'tool', id: b.id, status: 'running', output: '' });
+        const input = b.input && typeof b.input === 'object' ? b.input : {};
+        toolKinds.set(b.id, kindOfTool(b.name));
+        const detail = typeof input.command === 'string' ? input.command : typeof input.subagent_type === 'string' ? input.subagent_type : '';
+        if (detail) toolDetails.set(b.id, detail);
+      }
     }
     // A failed model call (a lapsed login, an exhausted account) arrives as an assistant line with an
     // `error` and a sentence as its text. Said as a notice too, so it is not read as an ordinary reply.
@@ -288,12 +420,24 @@ function createDecoder() {
   function onUser(msg) {
     const m = msg.message;
     if (!m || typeof m !== 'object' || msg.isMeta) return [];
+    // A task ending (#691): drawn as a notice of its own, not as the tags Claude wrote for the model — once,
+    // whichever of the two lines about it arrives first.
+    if (isTaskNotification(msg)) {
+      const entry = taskNoticeEntry(msg, toolKinds);
+      if (entry._task.id && noticed.has(entry._task.id)) return [];
+      if (entry._task.id) noticed.add(entry._task.id);
+      return [{ op: 'append', entry }];
+    }
     const shown = displayedLine(msg);
     if (!shown) return [];
     const ops = [{ op: 'append', entry: entryOf(shown) }];
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_result' && b.tool_use_id) {
-        ops.push({ op: 'tool', id: b.tool_use_id, status: b.is_error ? 'error' : 'done', output: textOf(b.content) });
+        const output = textOf(b.content);
+        ops.push({ op: 'tool', id: b.tool_use_id, status: b.is_error ? 'error' : 'done', output });
+        // Only a shell call's result names its output file; nothing else's text is read for a path.
+        const file = toolKinds.get(b.tool_use_id) === 'shell' ? OUTPUT_PATH.exec(output || '') : null;
+        if (file) toolOutputs.set(b.tool_use_id, file[1]);
       }
     }
     return ops;
@@ -329,6 +473,35 @@ function createDecoder() {
         return [{ op: 'notice', level: 'warning', text: 'The model call failed and is being retried.' }];
       case 'permission_denied':
         return [{ op: 'notice', level: 'warning', text: `A ${msg.tool_name ? `${msg.tool_name} ` : ''}call was refused by the permission rules.` }];
+      // Background tasks (#691). The list is the truth about what runs; a start only adds what the list
+      // does not carry (the call behind it, when it began).
+      case 'task_started': {
+        const id = typeof msg.task_id === 'string' ? msg.task_id : '';
+        if (!id) return [];
+        started.set(id, {
+          toolUseId: typeof msg.tool_use_id === 'string' ? msg.tool_use_id : null,
+          description: typeof msg.description === 'string' ? msg.description : '',
+          detail: typeof msg.subagent_type === 'string' ? msg.subagent_type : '',
+          startedAt: Date.now(),
+        });
+        return running.some(t => t.id === id) ? [tasksOp()] : [];
+      }
+      case 'background_tasks_changed':
+        running = (Array.isArray(msg.tasks) ? msg.tasks : [])
+          .filter(t => t && typeof t.task_id === 'string')
+          .map(t => ({ id: t.task_id, kind: kindOfTaskType(t.task_type), description: typeof t.description === 'string' ? t.description : '' }));
+        return [tasksOp()];
+      case 'task_notification': {
+        const id = typeof msg.task_id === 'string' ? msg.task_id : '';
+        if (!id) return [];
+        if (typeof msg.output_file === 'string' && msg.output_file) taskOutputs.set(id, msg.output_file);
+        // The user line Claude injects for the model is NOT sent on the pipe (measured in the app: the turn it
+        // starts arrives, the line does not), only written to the transcript. So the live notice is drawn from
+        // this line, and an injected line for the same task — replayed after all, or read back — is dropped.
+        if (noticed.has(id)) return [];
+        noticed.add(id);
+        return [{ op: 'append', entry: liveTaskNotice(msg) }];
+      }
       default:
         return [];
     }
@@ -412,7 +585,7 @@ function createDecoder() {
     if (answer && answer.behavior === 'deny' && answer.interrupt === true) stopping = 'Kept planning. Say what to change.';
   }
 
-  return { decode, noteSent, currentPartial: partialEntry };
+  return { decode, noteSent, currentPartial: partialEntry, taskOutputFile };
 }
 
 // --- commands ---
@@ -450,6 +623,35 @@ const control = (id, request) => ({ type: 'control_request', request_id: String(
 
 // Stop is a control request, not a signal: the turn ends and the process stays.
 const abortCommand = (id) => control(id, { subtype: 'interrupt' });
+
+// One background task, not the turn (#691). Measured: the task ends at once (`task_updated` killed, a
+// `task_notification` stopped), the other tasks keep running, and a task that has already ended answers
+// success too.
+const stopTaskCommand = (id, taskId) => control(id, { subtype: 'stop_task', task_id: String(taskId) });
+
+// The session's figures for the line under the input (#691): `get_context_usage` answers `totalTokens`,
+// `maxTokens`, `percentage` and `model` (measured). The model id becomes the name the TUI shows for it.
+const contextCommand = (id) => control(id, { subtype: 'get_context_usage' });
+
+// `claude-opus-5-5`, `claude-haiku-4-5-20251001`, `claude-opus-5-5[1m]` → `Opus 5.5`, `Haiku 4.5`. An id of
+// another shape is shown as it is.
+function modelLabel(model) {
+  const id = String(model || '').replace(/\[[^\]]*\]$/, '');
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  if (!m) return id;
+  const family = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+  return m[3] != null ? `${family} ${m[2]}.${m[3]}` : `${family} ${m[2]}`;
+}
+
+function contextFromResponse(response) {
+  const d = response && response.success !== false && response.data && typeof response.data === 'object' ? response.data : null;
+  if (!d) return null;
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+  const tokens = num(d.totalTokens);
+  const window = num(d.maxTokens);
+  const percent = num(d.percentage) != null ? num(d.percentage) : (tokens != null && window ? Math.round((tokens / window) * 100) : null);
+  return { percent, tokens, window, model: typeof d.model === 'string' ? modelLabel(d.model) : '' };
+}
 
 // The commands a `/` can complete to. `initialize` answers them, and it may be sent again (measured: two in a
 // row both answered, before and without a turn), so asking for the list is asking it once more. Nothing else
@@ -530,7 +732,17 @@ function responseOf(msg) {
 // a live conversation never sends; keeping them out is what makes a mounted view read like a live one.
 function conversationEntries(lines) {
   const out = [];
+  // Which kind each call was, for the task notices below (#691): the notification names the call, not the tool.
+  const toolKinds = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
+    const content = line && line.type === 'assistant' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
+    for (const b of content) if (b && b.type === 'tool_use' && b.id) toolKinds.set(b.id, kindOfTool(b.name));
+  }
+  for (const line of Array.isArray(lines) ? lines : []) {
+    if (line && line.type === 'user' && !line.isSidechain && !line.isMeta && typeof line.uuid === 'string' && isTaskNotification(line)) {
+      out.push(taskNoticeEntry(line, toolKinds));
+      continue;
+    }
     if (line && line.type === 'system' && line.subtype === 'local_command') {
       const entry = localCommandEntry(line);
       if (entry) out.push(entry);
@@ -575,13 +787,24 @@ function localCommandEntry(line) {
 
 // The key the core stamps on an `append` and an attach answers for its snapshot: the line's uuid, which the
 // stream and the transcript share (point 4 above).
-const entryKey = (entry) => (entry && typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : null);
+//
+// A task's notice is keyed by the TASK (#691), not by a line: the live one is built from a system line that has
+// no uuid of its own, and the one read back from the transcript comes from the injected user line, whose uuid
+// the live stream never saw. One key for both is what lets an attach keep a live notice the file has not
+// caught up with yet, and not draw it twice once the file has.
+const entryKey = (entry) => {
+  if (entry && entry.type === 'task-notice' && entry._task && entry._task.id) return `task-notice:${entry._task.id}`;
+  return entry && typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : null;
+};
 
 module.exports = {
   createDecoder,
   responseOf,
   sendCommand,
   abortCommand,
+  stopTaskCommand,
+  contextCommand,
+  contextFromResponse,
   commandsCommand,
   commandsFromResponse,
   answerCommand,

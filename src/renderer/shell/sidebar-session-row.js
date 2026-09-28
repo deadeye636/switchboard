@@ -18,7 +18,7 @@
 //
 // What it reaches back into sidebar.js for: `getSessionRuntimeState`, and nothing else. Everything else
 // it needs comes from app.js's maps (activePtyIds, attentionSessions, responseReadySessions,
-// sessionBusyState, subagentActiveSessions, lastActivityTime), the UMD helpers (getSessionStatus,
+// sessionBusyState, subagentActiveSessions, lastActivityTime) and its `backgroundTaskCountFor` (#691), the UMD helpers (getSessionStatus,
 // getSessionHealth, getQuietDetailParts, getWorktreeLabel, ariaButton), `ICONS`, the backend
 // registry, and `sessionViewOf` / `sessionIsDormant` from dialogs/dialogs.js (#670, the view of an
 // owner/driver pair; both rest on `viewPairFor`, which the Resume dialog asks too) — all at call time, from a render. (The row's click/keyboard activation is delegated to a
@@ -164,6 +164,21 @@ function buildSessionItem(session, opts = {}) {
   statusChip.className = `session-detail-pill session-status-chip ${status.className}`;
   statusChip.textContent = status.label;
   detailEl.appendChild(statusChip);
+  // What still runs in the background (#691), next to the state it qualifies: a session whose turn has ended
+  // but whose shell still runs would otherwise read as simply Idle. A symbol and the count, nothing more;
+  // switchable in the settings (`showBackgroundTasks`, default on), and only for a session that reports it.
+  const background = typeof backgroundTaskCountFor === 'function' ? backgroundTaskCountFor(session.sessionId) : null;
+  if (background && background.total > 0) {
+    const bgChip = document.createElement('span');
+    bgChip.className = 'session-detail-pill session-bg-chip';
+    bgChip.textContent = `◉ ${background.total}`;
+    const words = [];
+    if (background.shells) words.push(`${background.shells} shell${background.shells === 1 ? '' : 's'}`);
+    if (background.agents) words.push(`${background.agents} agent${background.agents === 1 ? '' : 's'}`);
+    if (background.other) words.push(`${background.other} other task${background.other === 1 ? '' : 's'}`);
+    bgChip.title = `Running in the background: ${words.join(', ')}`;
+    detailEl.appendChild(bgChip);
+  }
   // IDE emulation, next to the state it qualifies (#321). It sat in every pane's bar, where four
   // panes drew four identical marks; here it appears once per session, in the row that already
   // carries the session's other badges.

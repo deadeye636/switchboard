@@ -367,6 +367,33 @@ function contextFillShown() {
   return !(appGlobalSettings && appGlobalSettings.showContextFill === false);
 }
 
+// What each session driven over a pipe runs in the background (#691): sessionId -> { shells, agents, other }.
+// Main pushes it to THIS window whichever window renders the session, because the sidebar is here. The row
+// asks `backgroundTaskCountFor`, which also carries the setting (`showBackgroundTasks`, default ON).
+const backgroundTaskCounts = new Map();
+function backgroundTaskCountFor(sessionId) {
+  if (appGlobalSettings && appGlobalSettings.showBackgroundTasks === false) return null;
+  const c = backgroundTaskCounts.get(sessionId);
+  return c ? { ...c, total: c.shells + c.agents + c.other } : null;
+}
+if (window.api && typeof window.api.onAgentBackground === 'function') {
+  window.api.onAgentBackground((sessionId, counts) => {
+    const next = {
+      shells: Number(counts && counts.shells) || 0,
+      agents: Number(counts && counts.agents) || 0,
+      other: Number(counts && counts.other) || 0,
+    };
+    const prev = backgroundTaskCounts.get(sessionId);
+    const same = prev ? prev.shells === next.shells && prev.agents === next.agents && prev.other === next.other
+      : !(next.shells + next.agents + next.other);
+    if (same) return;
+    if (next.shells + next.agents + next.other) backgroundTaskCounts.set(sessionId, next);
+    else backgroundTaskCounts.delete(sessionId);
+    // A task starts or ends a few times a turn at most, so the row is rebuilt rather than patched.
+    if (typeof refreshSidebar === 'function') refreshSidebar();
+  });
+}
+
 let nextAttentionBinding =
   typeof DEFAULT_NEXT_ATTENTION_BINDING !== 'undefined'
     ? DEFAULT_NEXT_ATTENTION_BINDING

@@ -338,6 +338,8 @@
       return !isProject && Number.isFinite(n) && n >= 1 && n <= 100 ? n : 80;
     })();
     const showContextFillValue = !isProject ? current.showContextFill !== false : true;
+    // #691: default ON, so only an explicit false hides the row's background count.
+    const showBackgroundTasksValue = !isProject ? current.showBackgroundTasks !== false : true;
     const subagentLiveStatusValue = !isProject ? current.subagentLiveStatus !== false : true;
     // Subagent sidebar (#231), gated on the capability (#230): the section is hidden entirely when no
     // launchable backend has subagents, so a Codex-only user sees no subagent controls at all.
@@ -875,7 +877,7 @@
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-        pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue,
+        pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
         projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
@@ -1323,6 +1325,8 @@
           settings.contextFillHandoffPercent = Number.isFinite(n) ? Math.max(1, Math.min(100, n)) : 80;
           const el = settingsViewerBody.querySelector('#sv-show-context-fill');
           settings.showContextFill = el ? !!el.checked : showContextFillValue;
+          const bg = settingsViewerBody.querySelector('#sv-show-background-tasks');
+          settings.showBackgroundTasks = bg ? !!bg.checked : showBackgroundTasksValue;
         }
         // The subagent controls are absent when the capability gate hid the section (#230/#231). set-setting
         // REPLACES the blob (no merge), so an omitted key is an ERASED key — a bare `if (el)` would reset a

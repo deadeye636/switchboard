@@ -536,3 +536,65 @@ test('the registry\'s probe walks PATH only; the version is asked only for a lau
   assert.equal(typeof launch.then, 'function', 'a launch gets a Promise');
   assert.deepEqual(await launch, { ok: true }, 'a version that could not be read does not refuse the launch');
 });
+
+// #691, in the shapes measured on 2.1.283 (spec 32, "Background tasks and session figures").
+test('background tasks: the running list is Claude\'s own, a start adds the call behind it, the notice replaces the tags', () => {
+  const d = protocol.createDecoder();
+  const all = (line) => d.decode(line);
+  all({ type: 'assistant', uuid: 'u1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'npm run dev', run_in_background: true } }] } });
+  all({ type: 'user', uuid: 'u2', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'Command running in background with ID: b1. Output is being written to: /tmp/x/tasks/b1.output' }] } });
+  let tasks = all({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'Dev server' }] });
+  assert.deepEqual(tasks.map(o => o.op), ['tasks']);
+  tasks = all({ type: 'system', subtype: 'task_started', task_id: 'b1', tool_use_id: 'toolu_1', description: 'Dev server', task_type: 'local_bash', is_backgrounded: true });
+  const [t1] = tasks[0].tasks;
+  assert.equal(t1.kind, 'shell');
+  assert.equal(t1.detail, 'npm run dev', 'the command the call ran');
+  assert.equal(t1.toolUseId, 'toolu_1');
+  assert.ok(Number.isFinite(t1.startedAt));
+  assert.equal(d.taskOutputFile('b1'), '/tmp/x/tasks/b1.output', 'readable while it still runs');
+  // The live notice comes from the system line: the injected user line is not sent on the pipe (measured).
+  const live = all({ type: 'system', subtype: 'task_notification', task_id: 'b1', tool_use_id: 'toolu_1', status: 'completed', output_file: '/tmp/x/tasks/b1-final.output', summary: 'Background command "Dev server" completed (exit code 0)' });
+  assert.equal(d.taskOutputFile('b1'), '/tmp/x/tasks/b1-final.output', 'the notification\'s file wins');
+  assert.equal(live.length, 1);
+  assert.equal(live[0].entry.type, 'task-notice');
+  assert.deepEqual({ ...live[0].entry._task, tokens: undefined, toolUses: undefined, durationMs: undefined }, {
+    id: 'b1', toolUseId: 'toolu_1', kind: 'shell', status: 'completed', description: 'Dev server',
+    summary: 'Background command "Dev server" completed (exit code 0)', result: '', exitCode: 0,
+    tokens: undefined, toolUses: undefined, durationMs: undefined,
+  });
+  assert.ok(!JSON.stringify(live[0].entry).includes('/tmp/x'), 'no path in the entry');
+  assert.deepEqual(all({ type: 'system', subtype: 'background_tasks_changed', tasks: [] })[0].tasks, []);
+  const injected = {
+    type: 'user', uuid: 'u3', origin: { kind: 'task-notification' },
+    message: { role: 'user', content: '<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<output-file>/tmp/x</output-file>\n<status>completed</status>\n<summary>Background command "Dev server" completed (exit code 0)</summary>\n</task-notification>' },
+  };
+  assert.deepEqual(all(injected), [], 'the injected line for a task already drawn is not drawn again');
+  // A decoder that never saw the system line (a line replayed on its own) draws it from the user line, keyed.
+  const alone = protocol.createDecoder().decode(injected);
+  assert.equal(alone[0].entry.type, 'task-notice');
+  assert.equal(alone[0].entry.uuid, 'u3');
+  // One key for the live notice and the one read back, so an attach neither loses nor doubles it.
+  assert.equal(protocol.entryKey(live[0].entry), 'task-notice:b1');
+  assert.equal(protocol.entryKey(alone[0].entry), 'task-notice:b1');
+  assert.equal(protocol.entryKey({ type: 'user', uuid: 'u9' }), 'u9', 'every other entry keeps its uuid');
+});
+
+test('an agent\'s notice from the transcript carries its kind and cost, and stop and the figures are control requests', () => {
+  const lines = [
+    { type: 'assistant', uuid: 'a', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_9', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } },
+    { type: 'user', uuid: 'b', origin: { kind: 'task-notification' }, message: { role: 'user', content: '<task-notification>\n<task-id>a9</task-id>\n<tool-use-id>toolu_9</tool-use-id>\n<status>completed</status>\n<summary>Agent "Review" finished</summary>\n<result>all good</result>\n<usage><subagent_tokens>24212</subagent_tokens><tool_uses>3</tool_uses><duration_ms>1229</duration_ms></usage>\n</task-notification>' } },
+  ];
+  const entries = protocol.conversationEntries(lines);
+  const notice = entries.find(e => e.type === 'task-notice');
+  assert.equal(notice._task.kind, 'agent');
+  assert.equal(notice._task.description, 'Review');
+  assert.equal(notice._task.result, 'all good');
+  assert.deepEqual([notice._task.tokens, notice._task.toolUses, notice._task.durationMs], [24212, 3, 1229]);
+  assert.deepEqual(protocol.stopTaskCommand('r1', 'b1'), { type: 'control_request', request_id: 'r1', request: { subtype: 'stop_task', task_id: 'b1' } });
+  assert.deepEqual(protocol.contextCommand('r2').request, { subtype: 'get_context_usage' });
+  assert.deepEqual(
+    protocol.contextFromResponse({ success: true, data: { totalTokens: 37984, maxTokens: 200000, percentage: 19, model: 'claude-haiku-4-5-20251001' } }),
+    { percent: 19, tokens: 37984, window: 200000, model: 'Haiku 4.5' });
+  assert.equal(protocol.contextFromResponse({ success: true, data: { model: 'claude-opus-5-5[1m]' } }).model, 'Opus 5.5');
+  assert.equal(protocol.contextFromResponse({ success: false, error: 'no' }), null);
+});

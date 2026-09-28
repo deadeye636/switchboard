@@ -414,7 +414,8 @@ A session can live in a window of its own. `app/detach.js` owns the map and answ
 | `agent-event` (#568) | a runtime-driven session's ops are its conversation — the same bytes-belong-to-the-view reason as `terminal-data` |
 
 Everything else — `cli-busy-state`, `terminal-notification`, `attention-signal`, `session-forked`,
-`process-exited` for the sidebar's copy — goes to the **main window**, because that is where the
+`process-exited` for the sidebar's copy, `agent-background` (#691, the sidebar's count of a session's
+background tasks) — goes to the **main window**, because that is where the
 sidebar, the attention inbox and the badges live. Route those too and the badges stop appearing for
 exactly the session the user pushed onto the other monitor.
 

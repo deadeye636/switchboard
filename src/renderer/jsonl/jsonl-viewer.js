@@ -232,9 +232,10 @@ function toolOutputStartsExpanded() {
 const toolExpandChoices = new Map();
 
 function makeToolCollapsible(toolEl, toolUseId) {
-  // An Agent block already opens and closes on a click of its own — it fetches the subagent's transcript —
-  // and a second toggle on the same click would do both at once.
-  if (toolEl.classList.contains('jsonl-agent-expandable')) return;
+  // An Agent block in the history viewer opens and closes on a click of its own — it fetches the subagent's
+  // transcript — and a second toggle on the same click would do both at once. Only where that click was wired:
+  // the conversation view has no viewer session to fetch against, so there the block collapses like any other.
+  if (toolEl.dataset.ownToggle === '1') return;
   const header = toolEl.querySelector(':scope > .jsonl-tool-header');
   const content = toolEl.querySelector(':scope > .jsonl-tool-content');
   if (!header || !content) return;
@@ -438,6 +439,8 @@ const toolRenderers = {
     let expanded = false;
     let nestedContainer = null;
     let stopWatch = null;
+    // Says that this block opens on a click of its own (below), so `makeToolCollapsible` leaves it alone.
+    el.dataset.ownToggle = '1';
 
     el.addEventListener('click', async () => {
       if (expanded && nestedContainer) {
@@ -731,6 +734,50 @@ function renderJsonlEntry(entry, toolResultMap) {
     return div;
   }
 
+  // --- a background task that ended (#691) ---
+  // A backend-neutral entry: the backend turns its own notification into `{ type: 'task-notice', _task }`,
+  // so nothing here reads a CLI's markup. The Output button is answered by the conversation view, which knows
+  // the session; it is offered for a shell or a task of no known kind, not for an agent, whose result is here.
+  if (entry.type === 'task-notice' && entry._task) {
+    const t = entry._task;
+    const div = document.createElement('div');
+    const stopped = t.status === 'stopped' || t.status === 'killed';
+    const failed = t.status === 'failed' || (Number.isFinite(t.exitCode) && t.exitCode !== 0);
+    div.className = 'jsonl-entry task-notice' + (stopped ? ' stopped' : failed ? ' failed' : '');
+    const icon = document.createElement('span');
+    icon.className = 'task-notice-icon';
+    icon.textContent = stopped ? '■' : failed ? '✗' : '✓';
+    const what = document.createElement('span');
+    what.className = 'task-notice-what';
+    const kind = { shell: 'Shell', agent: 'Agent' }[t.kind] || 'Task';
+    const name = document.createElement('b');
+    name.textContent = t.description || t.summary || '';
+    what.appendChild(document.createTextNode(kind + ' '));
+    what.appendChild(name);
+    what.appendChild(document.createTextNode(' ' + (stopped ? 'stopped' : failed ? 'failed' : 'finished')));
+    const meta = document.createElement('span');
+    meta.className = 'task-notice-meta';
+    const parts = [];
+    if (Number.isFinite(t.exitCode)) parts.push('exit ' + t.exitCode);
+    if (Number.isFinite(t.durationMs)) parts.push(formatDuration(t.durationMs));
+    if (Number.isFinite(t.tokens)) parts.push(t.tokens.toLocaleString() + ' tokens');
+    meta.textContent = parts.join(' · ');
+    div.appendChild(icon);
+    div.appendChild(what);
+    div.appendChild(meta);
+    if (t.id && t.kind !== 'agent') {
+      const out = document.createElement('button');
+      out.type = 'button';
+      out.className = 'task-notice-output';
+      out.dataset.taskId = t.id;
+      out.textContent = 'output';
+      out.title = 'Show the end of this task\'s output';
+      div.appendChild(out);
+    }
+    if (t.kind === 'agent' && t.result) div.title = t.result;
+    return div;
+  }
+
   // --- backend-normalized metadata entries ---
   if (entry.type === 'transcript-meta') {
     const div = document.createElement('div');
@@ -885,6 +932,8 @@ function renderJsonlEntry(entry, toolResultMap) {
         renderToolResult(resultData, contentEl);
       }
       makeToolCollapsible(toolEl, block.id);
+      // Where a background agent's "Open" lands (#691, session/conversation-view.js).
+      if (block.id) toolEl.dataset.toolUseId = block.id;
       div.appendChild(toolEl);
     } else if (block.type === 'tool_result') {
       // Skip if already claimed by a tool_use above

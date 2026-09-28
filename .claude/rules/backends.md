@@ -516,6 +516,15 @@ answers instead of the core learning its format:
   where the CLI needs one). Its session manager writes each entry synchronously once the session has an
   assistant reply, and keeps the entries before that in memory without flushing them on exit — so a wait
   would save nothing, and a pi-native attach reads `get_messages`, not the file.
+- `contextCommand` + `contextFromResponse` — optional, a pair (#691). The session line's context fill and
+  model, answered as `{ percent, tokens, window, model }`; asked at the start and after every settled run.
+  claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`.
+- `stopTaskCommand(id, taskId)` — optional (#691). Stops ONE background task and leaves the turn alone; a
+  half without it offers no Stop in the Background list. The running list itself is a `tasks` op the decoder
+  sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, startedAt }`), and a finished
+  task is a neutral `task-notice` entry — the renderer reads neither CLI's markup. The decoder may declare
+  `taskOutputFile(taskId)`: the file its runtime named for that task, which the core reads by task id so the
+  view never names a path.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own

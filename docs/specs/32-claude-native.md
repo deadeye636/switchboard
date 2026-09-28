@@ -308,7 +308,32 @@ the input as a thumbnail with a × to take it back, and an image alone is a turn
   still be refused by the API's limit on a whole request, and that answer comes back as the CLI's error.
 - **A drop that holds no image** says so rather than doing nothing.
 
-## Background tasks and session figures (measured for #691, not yet drawn)
+## Background tasks and session figures (#691)
+
+What the view draws from it, since #691:
+
+- **The session line** under the input: the context fill with a small meter, the model with its window
+  (`ctx 34 % · Opus 5.5 (1M)`), and the working state with its elapsed time. The fill turns warm at the
+  handoff threshold the sidebar's health badge uses (spec 28). Asked with `get_context_usage` at the start and
+  after every settled turn (`contextCommand` + `contextFromResponse` on the `rpc` half); the model id is shown
+  as the TUI names it (`claude-haiku-4-5-…` → `Haiku 4.5`).
+- **Background buttons** beside it, `2 shells` / `1 agent`, only while something runs, from the `tasks` op the
+  decoder sends for every `background_tasks_changed`. A click opens the Background list: per task its
+  description, its command or agent type, its elapsed time, **Output** (a shell: the end of the file Claude
+  named for that task, read in main by task id — the view never names a path) or **Open** (an agent: the call
+  that started it), and **Stop** (`stop_task` for that one task). ↑/↓, Enter, X and Esc work in the list.
+- **A card for a task that ended** (`task-notice` entry): ✓ finished, ■ stopped, ✗ failed, with the exit code
+  or an agent's time and tokens, and an Output link for a shell. Measured in the app: the injected
+  `<task-notification>` user line is **not** sent on the pipe, only written to the transcript, so the live
+  card is built from the `task_notification` system line and an injected line for the same task is dropped.
+  An attach reads the card back from the transcript line (`origin.kind: 'task-notification'`). A stopped task
+  writes no injected line, so its card exists only while the process that drew it runs.
+- **The sidebar row** says `◉ n` beside the state while n shells and agents run in the background
+  (`showBackgroundTasks`, default on). Main sends the counts to the MAIN window (`agent-background`),
+  whichever window renders the session.
+- **An elapsed time** on "Running <tool>…".
+
+What was measured before any of it was built:
 
 Measured on Claude Code 2.1.283 over the pipe (`-p`, stream-json both ways, Haiku), with two background Bash
 calls and one background agent. What the stream carries, all as `system` lines the decoder drops today:
@@ -324,8 +349,8 @@ calls and one background agent. What the stream carries, all as `system` lines t
   path of the task's `output_file` (under Claude's temporary directory); an agent's adds
   `usage: { total_tokens, tool_uses, duration_ms }`. Claude then **starts a turn of its own** (a fresh
   `system/init`) to tell the model, and puts the notification into the conversation as a user message that
-  begins `<task-notification>`. Replayed to the app (`--replay-user-messages`), that message is what the view
-  currently draws as raw text.
+  begins `<task-notification>`. Before #691 that line, read back from the transcript on an attach, was what the
+  view drew as raw text.
 - **Stopping one task**: the control request `{ subtype: 'stop_task', task_id }` answers success, the task
   ends at once (`task_updated` `killed`, `task_notification` `stopped`, the list shrinks) and the others keep
   running. Sent for a task that has already ended, it also answers success.

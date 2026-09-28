@@ -323,6 +323,9 @@ contextBridge.exposeInMainWorld('api', {
     paths: (id, prefix) => ipcRenderer.invoke('agent-paths', id, prefix),
     // `/tree` (#646): move the session to another point of its branch tree; the outcome arrives as ops.
     navigate: (id, target, options) => ipcRenderer.invoke('agent-navigate', id, target, options),
+    // Background tasks (#691): stop one, and read the end of one's output. A task is named, never a path.
+    stopTask: (id, taskId) => ipcRenderer.invoke('agent-stop-task', id, taskId),
+    taskOutput: (id, taskId) => ipcRenderer.invoke('agent-task-output', id, taskId),
   },
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)
@@ -345,6 +348,11 @@ contextBridge.exposeInMainWorld('api', {
   // #568: what a runtime-driven session said, as the app's own ops — routed like `terminal-data`.
   onAgentEvent: (callback) => {
     ipcRenderer.on('agent-event', (_event, sessionId, op) => callback(sessionId, op));
+  },
+  // #691: how many shells and agents a runtime-driven session runs in the background, for the sidebar —
+  // always to the main window, where the sidebar is.
+  onAgentBackground: (callback) => {
+    ipcRenderer.on('agent-background', (_event, sessionId, counts) => callback(sessionId, counts));
   },
   onSessionDetected: (callback) => {
     ipcRenderer.on('session-detected', (_event, tempId, realId) => callback(tempId, realId));

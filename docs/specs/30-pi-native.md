@@ -365,6 +365,13 @@ what a compaction summary does to the total. Two implementations of one arithmet
 version nobody pinned, and the copy in this repo would be the wrong one. So the command asks Pi for Pi's
 own answer, over the documented `get_session_stats`.
 
+The session line under the input (#691, spec 32 has the view) reads the same answer: `contextUsage.percent`
+and `contextWindow` become the context fill, asked at the start and after every settled run. The model is not
+shown for Pi yet — `get_session_stats` does not name it, and what `get_state` answers about it was not
+measured. Pi has no background tasks of its own (a tool runs inside its turn), so it declares no
+`stopTaskCommand` and its view shows no background buttons. The live view was not click-tested for Pi: the demo
+asks the trust question first, and granting it would have written into Pi's trust file.
+
 Three routes were weighed: reaching for a private field the way the login above does; having the app
 recognise `/session` in the text field before it is sent; or registering the command here and letting the
 app answer it. The third is the one built. The handler says one marker and nothing else — no figure ever

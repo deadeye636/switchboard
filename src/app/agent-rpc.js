@@ -150,6 +150,21 @@ function sendOp(state, op) {
   if (w && !w.isDestroyed()) w.webContents.send('agent-event', found.id, { ...op, seq: state.seq });
 }
 
+// How many shells and agents a session runs in the background (#691), for the sidebar. Always to the MAIN
+// window: the sidebar lives there whichever window renders the session (main-process.md, the routing table).
+function announceBackground(state) {
+  const found = findSession(state.tag);
+  const w = ctx.getMainWindow ? ctx.getMainWindow() : null;
+  if (!found || !w || w.isDestroyed()) return;
+  const counts = { shells: 0, agents: 0, other: 0 };
+  for (const t of state.tasks) {
+    if (t && t.kind === 'shell') counts.shells++;
+    else if (t && t.kind === 'agent') counts.agents++;
+    else counts.other++;
+  }
+  w.webContents.send('agent-background', found.id, counts);
+}
+
 /**
  * Start one runtime-driven session.
  *
@@ -219,6 +234,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     owedTimer: null,
     turnStartedAt: 0,        // when the last turn began, for the turn-hold's "did the queued one start"
     stopping: false,         // a graceful stop is waiting for the child — see `kill`
+    tasks: [],               // what runs in the background, as the backend last listed it (#691)
+    context: null,           // the context fill and the model, as the backend last read them (#691)
   };
   // The tests shorten both; the app never passes them.
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
@@ -308,7 +325,12 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     if (!id || typeof ctx.adoptSessionId !== 'function') return;
     try {
       const moved = ctx.adoptSessionId(tag, String(id));
-      if (moved && moved.from && moved.to) ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
+      if (moved && moved.from && moved.to) {
+        ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
+        // The sidebar's background count under the new id too (#691): the main window re-keys its own copy,
+        // and this says it again for a window that missed the move.
+        if (state.tasks.length) announceBackground(state);
+      }
     } catch (err) {
       ctx.log.warn(`[agent-rpc] could not follow the runtime's session id: ${err.message}`);
     }
@@ -324,6 +346,20 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     adoptIdentity(res && res.success !== false ? rpc.sessionIdFromState(res) : null);
   }
   state.followIdentity = followIdentity;
+
+  // The context fill and the model (#691), asked where the backend can be asked (`contextCommand` +
+  // `contextFromResponse`), at the start and after every settled run — the two moments the figures move.
+  // Not awaited by anyone: an answer that never comes leaves the line as it was.
+  async function followContext() {
+    if (typeof rpc.contextCommand !== 'function' || typeof rpc.contextFromResponse !== 'function') return;
+    const res = await request(rpc.contextCommand);
+    let context = null;
+    try { context = res && res.success !== false ? rpc.contextFromResponse(res) : null; } catch { context = null; }
+    if (!context) return;
+    state.context = context;
+    sendOp(state, { op: 'context', context });
+  }
+  state.followContext = followContext;
 
   // A SHELL LINE RUNS ONLY IF THIS WINDOW'S COMPOSER SENT IT.
   //
@@ -440,7 +476,15 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
           if (open) report('waiting', { prompt_kind: open.method });
         }
         sendOp(state, op);
-        if (!op.busy) followIdentity();
+        if (!op.busy) { followIdentity(); followContext(); }
+        return;
+      case 'tasks':
+        // What runs in the background (#691): the view draws the list, and the main window's sidebar counts it
+        // for a session whose view it may not hold.
+        state.tasks = Array.isArray(op.tasks) ? op.tasks : [];
+        flushPartial();
+        sendOp(state, op);
+        announceBackground(state);
         return;
       case 'queue':
         state.queue = { steering: op.steering || [], followUp: op.followUp || [] };
@@ -674,6 +718,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     state.exited = true;
     flushPartial();
     dropAsks();
+    // A background task does not outlive the process that ran it; the sidebar stops counting it (#691).
+    if (state.tasks.length) { state.tasks = []; announceBackground(state); }
     for (const [, waiting] of state.pending) { clearTimeout(waiting.timer); waiting.resolve({ success: false, error: 'exited' }); }
     state.pending.clear();
     if (state.stderrTail.trim()) ctx.log.info(`[agent-rpc] stderr before exit: ${state.stderrTail.trim().slice(-600)}`);
@@ -790,6 +836,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
   }
 
   followIdentity();
+  followContext();
 
   return {
     pid: child.pid,
@@ -854,6 +901,8 @@ async function attach(sessionId) {
     busy: state.busy,
     queue: state.queue,
     asks: [...state.asks.values()],
+    tasks: state.tasks,
+    context: state.context,
   };
 }
 
@@ -926,6 +975,8 @@ async function attachFromTranscript(sessionId, state) {
     busy: state.busy,
     queue: state.queue,
     asks: [...state.asks.values()],
+    tasks: state.tasks,
+    context: state.context,
   };
 }
 
@@ -1087,8 +1138,51 @@ function answerAsk(sessionId, requestId, answer) {
   return ok ? { ok: true } : { ok: false, error: 'The session is not running.' };
 }
 
+// --- background tasks (#691) ---
+
+// Stop one background task and leave the turn and the other tasks alone. A backend that cannot stop a single
+// task declares no `stopTaskCommand`, and the view offers no Stop for it.
+async function stopTask(sessionId, taskId) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (typeof state.rpc.stopTaskCommand !== 'function') return { ok: false, error: 'This session cannot stop a single task.' };
+  const id = String(taskId || '');
+  if (!id) return { ok: false, error: 'No task was named.' };
+  const res = await state.request((rid) => state.rpc.stopTaskCommand(rid, id));
+  return res && res.success !== false ? { ok: true } : { ok: false, error: 'The task did not stop.' };
+}
+
+// How much of a task's output the view is handed: the END of it, which is what a running command is judged by.
+const TASK_OUTPUT_TAIL = 64 * 1024;
+
+// A task's output, read from the file its runtime named for THAT task in this process's own stream — the
+// renderer names a task, never a path, so this reads no file the runtime did not point at. The path itself
+// is not handed back: it sits under the user's temporary directory, and the view only needs the text.
+async function taskOutput(sessionId, taskId) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  const file = typeof state.decoder.taskOutputFile === 'function' ? state.decoder.taskOutputFile(String(taskId || '')) : null;
+  if (!file || !path.isAbsolute(file)) return { ok: false, error: 'This task has no output to show.' };
+  let handle = null;
+  try {
+    handle = await fs.promises.open(file, 'r');
+    const { size } = await handle.stat();
+    const start = Math.max(0, size - TASK_OUTPUT_TAIL);
+    const buf = Buffer.alloc(size - start);
+    await handle.read(buf, 0, buf.length, start);
+    return { ok: true, text: buf.toString('utf8'), truncated: start > 0 };
+  } catch (err) {
+    ctx.log.info(`[agent-rpc] task output not readable: ${err.code || err.message}`);
+    return { ok: false, error: err && err.code === 'ENOENT' ? 'The output file is gone.' : 'The output could not be read.' };
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
 /** @param {Electron.IpcMain} ipc */
 function registerIpc(ipc) {
+  ipc.handle('agent-stop-task', (_event, sessionId, taskId) => stopTask(sessionId, taskId));
+  ipc.handle('agent-task-output', (_event, sessionId, taskId) => taskOutput(sessionId, taskId));
   ipc.handle('agent-attach', (_event, sessionId) => attach(sessionId));
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
   ipc.handle('agent-abort', (_event, sessionId) => abortTurn(sessionId));
@@ -1105,5 +1199,6 @@ module.exports = {
   turnQueueOf,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
+  stopTask, taskOutput,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

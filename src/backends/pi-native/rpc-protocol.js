@@ -372,6 +372,20 @@ const messagesCommand = (id) => ({ id, type: 'get_messages' });
 // counts and their total, the cost, and an optional context reading.
 const statsCommand = (id) => ({ id, type: 'get_session_stats' });
 
+// The same answer, read for the line under the input (#691): the context reading only. `null` when Pi has
+// none — right after a compaction its tokens and percent are null until the next turn fills them in.
+function contextFromResponse(response) {
+  const d = response && response.success !== false ? response.data : null;
+  const usage = d && typeof d === 'object' ? d.contextUsage : null;
+  if (!usage || !Number.isFinite(usage.percent) || !Number.isFinite(usage.contextWindow)) return null;
+  return {
+    percent: Math.round(usage.percent),
+    tokens: Number.isFinite(usage.tokens) ? usage.tokens : null,
+    window: usage.contextWindow,
+    model: '',
+  };
+}
+
 // A capacity may be rounded; a figure that is part of a sum may NOT, or the parts stop adding up to the
 // total in front of the reader (10 500 + 10 500 = 21 000 prints as "21k (11k, 11k)").
 const roundCapacity = (n) => (n >= 10000 ? Math.round(n / 1000) + 'k' : String(n));
@@ -712,6 +726,7 @@ module.exports = {
   messagesCommand,
   statsCommand,
   statsNotice,
+  contextFromResponse,
   exportCommand,
   exportFileName,
   exportNotice,

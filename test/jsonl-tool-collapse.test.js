@@ -70,12 +70,16 @@ test('a click on the header toggles, and the choice survives the redraw a result
   assert.ok(block(draw(h, 't2')).classList.contains('jsonl-tool-collapsed'), 'another call keeps the default');
 });
 
-test('an Agent block keeps its own click and is not made collapsible on top of it', () => {
-  const h = setup({});
-  const el = vm.runInContext(`renderJsonlEntry(
+test('an Agent block with its own click keeps it; without one (the conversation view) it collapses like any call', () => {
+  const agent = (h) => vm.runInContext(`renderJsonlEntry(
     { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'a1', name: 'Agent', input: { description: 'd', prompt: 'p' } }] } },
     new Map([['a1', 'summary']]))`, h.ctx);
-  assert.ok(!block(el).classList.contains('jsonl-tool-collapsible'));
+  const history = setup({});
+  // The history viewer has a session to fetch the subagent's transcript against, so the block wires its click.
+  vm.runInContext("currentViewerSessionId = 'parent';", history.ctx);
+  assert.ok(!block(agent(history)).classList.contains('jsonl-tool-collapsible'));
+  const conversation = setup({});
+  assert.ok(block(agent(conversation)).classList.contains('jsonl-tool-collapsed'), 'no own click, so it starts closed');
 });
 
 test('a closed Bash call still names its command in the header', () => {
@@ -94,3 +98,19 @@ test('a hit the history search jumps to inside a closed tool call opens it', () 
 });
 
 function draw(h, id) { return h.draw(id); }
+
+// #691: a background task that ended is a backend-neutral entry, drawn as a card, with Output for a shell.
+test('a task-notice entry draws as a card; a shell offers its output, an agent does not', () => {
+  const h = setup({});
+  const card = (task) => vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'task-notice', uuid: 'u', _task: task })}, new Map())`, h.ctx);
+  const shell = card({ id: 'b1', kind: 'shell', status: 'completed', description: 'Dev server', exitCode: 0 });
+  assert.ok(shell.classList.contains('task-notice'));
+  assert.match(shell.textContent, /Shell Dev server finished/);
+  assert.match(shell.textContent, /exit 0/);
+  assert.equal(shell.querySelector('.task-notice-output').dataset.taskId, 'b1');
+  const stopped = card({ id: 'b2', kind: 'shell', status: 'stopped', description: 'Long' });
+  assert.ok(stopped.classList.contains('stopped'));
+  const agent = card({ id: 'a1', kind: 'agent', status: 'completed', description: 'Review', tokens: 24212, durationMs: 1229 });
+  assert.equal(agent.querySelector('.task-notice-output'), null);
+  assert.match(agent.textContent, /Agent Review finished/);
+});

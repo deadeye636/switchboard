@@ -777,3 +777,41 @@ test('a questions or a plan card holds its call: the activity line waits, it doe
   conv.apply({ op: 'ask', seq: 6, request: { id: 'p1', kind: 'plan', toolCallId: 't2', plan: 'x', answers: { approve: 'OK', keep: 'KEEP' } } });
   assert.match(activity(), /Waiting for you to review the plan/);
 });
+
+// #691: the session line and the background buttons, from the ops the core sends.
+test('the context and the model show on the session line; background tasks become buttons that open the list', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'context', context: { percent: 34, tokens: 68000, window: 200000, model: 'Opus 5.5' } });
+  const status = h.entry.element.querySelector('.conversation-status');
+  assert.match(status.textContent, /ctx 34 %/);
+  assert.match(status.textContent, /Opus 5\.5 \(200k\)/);
+  assert.equal(status.querySelectorAll('.conversation-bg-chip').length, 0, 'no buttons while nothing runs');
+  conv.apply({ op: 'tasks', tasks: [
+    { id: 't1', kind: 'shell', description: 'Dev server', detail: 'npm run dev' },
+    { id: 't2', kind: 'shell', description: 'Watcher' },
+    { id: 'a1', kind: 'agent', description: 'Review' },
+  ] });
+  const chips = [...status.querySelectorAll('.conversation-bg-chip')].map(c => c.textContent);
+  assert.deepEqual(chips, ['2 shells', '1 agent']);
+  status.querySelector('.conversation-bg-chip').click();
+  const pop = h.entry.element.querySelector('.conversation-bg-pop');
+  assert.equal(pop.hidden, false);
+  const rows = [...pop.querySelectorAll('.conversation-bg-row')].map(r => r.querySelector('.conversation-bg-text').textContent);
+  assert.deepEqual(rows, ['Dev servernpm run dev', 'Watcher', 'Review']);
+  const buttons = [...pop.querySelectorAll('.conversation-bg-row')].map(r => [...r.querySelectorAll('button')].map(b => b.textContent).join('/'));
+  assert.deepEqual(buttons, ['Output/Stop', 'Output/Stop', 'Open/Stop']);
+  conv.apply({ op: 'tasks', tasks: [] });
+  assert.equal(pop.hidden, true, 'the list closes once nothing runs');
+});
+
+test('Stop in the Background list stops that one task', async () => {
+  const h = setup();
+  const stopped = [];
+  h.w.api.agent.stopTask = (id, taskId) => { stopped.push([id, taskId]); return Promise.resolve({ ok: true }); };
+  h.entry.conversation.apply({ op: 'tasks', tasks: [{ id: 't1', kind: 'shell', description: 'Dev server' }] });
+  h.entry.element.querySelector('.conversation-bg-chip').click();
+  h.entry.element.querySelector('.conversation-bg-stop').click();
+  await h.settle();
+  assert.deepEqual(stopped, [['s1', 't1']]);
+});

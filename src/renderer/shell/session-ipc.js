@@ -190,6 +190,13 @@ window.rekeySessionState = function (oldId, newId) {
   // can ever name it again, so it would sit there for the life of the window.
   if (typeof rekeyStagedPrompts === 'function') rekeyStagedPrompts(oldId, newId);
 
+  // …and the count of what runs in the background (#691, app.js). A long-lived shell may not change its count
+  // again for the rest of the session, so a count left on the retired id would take the row's "◉ n" with it.
+  if (typeof backgroundTaskCounts !== 'undefined' && backgroundTaskCounts.has(oldId)) {
+    backgroundTaskCounts.set(newId, backgroundTaskCounts.get(oldId));
+    backgroundTaskCounts.delete(oldId);
+  }
+
   // …and the terminal's attention caption (#615). Same shape again: the container moves to the new id with
   // the entry above, so a caption left keyed on the retired one can never be reached by the keystroke that
   // is supposed to take it down — it would sit on that terminal for the life of the window.

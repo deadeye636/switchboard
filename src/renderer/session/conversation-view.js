@@ -26,8 +26,9 @@
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
 // read when a view is built), showBranchTreeDialog (session/branch-tree-dialog.js, #646),
-// clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), and terminalRightClickMode
-// (terminal/terminal-context-menu.js, #690).
+// clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
+// (terminal/terminal-context-menu.js, #690), and sessionHealthOptions (app.js, #691 — the handoff threshold
+// the context fill turns warm at).
 
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
@@ -76,6 +77,20 @@ function createConversationView(getSession, container) {
   activity.className = 'conversation-activity';
   const status = document.createElement('div');
   status.className = 'conversation-status';
+  // The session line (#691): the context fill, the model and the working state on the left, what runs in the
+  // background on the right as buttons that open the Background list.
+  const statusText = document.createElement('span');
+  statusText.className = 'conversation-status-text';
+  const bgChips = document.createElement('span');
+  bgChips.className = 'conversation-bg-chips';
+  status.appendChild(statusText);
+  status.appendChild(bgChips);
+  const bgPop = document.createElement('div');
+  bgPop.className = 'conversation-bg-pop';
+  bgPop.hidden = true;
+  bgPop.tabIndex = -1;
+  bgPop.setAttribute('role', 'dialog');
+  bgPop.setAttribute('aria-label', 'Background tasks');
   log.appendChild(partialEl);
   log.appendChild(activity);
 
@@ -137,6 +152,7 @@ function createConversationView(getSession, container) {
   container.appendChild(attachStrip);
   container.appendChild(composer);
   container.appendChild(status);
+  container.appendChild(bgPop);
 
   const view = {
     get session() { return getSession(); },
@@ -157,6 +173,9 @@ function createConversationView(getSession, container) {
     exited: false,
     attached: false,
     attaching: false,        // an attach is in flight — see renderStatus
+    busySince: null,         // when the running turn began, for its elapsed time; null when not known (#691)
+    tasks: [],               // what runs in the background: { id, kind, description, detail, toolUseId, startedAt } (#691)
+    context: null,           // { percent, tokens, window, model } as the backend last read them (#691)
   };
 
   // Whether the user is reading the end (#689). REMEMBERED from the user's own scrolling, not measured when an
@@ -189,7 +208,7 @@ function createConversationView(getSession, container) {
   // Shown again (a tab switch, a pane resize): a reader at the end is put back at the end, whatever arrived
   // while nobody could see it. A reader who had scrolled up gets the place back.
   if (typeof ResizeObserver === 'function') {
-    new ResizeObserver(() => { restore(); renderJump(); }).observe(log);
+    new ResizeObserver(() => { restore(); renderJump(); tick(); }).observe(log);
   }
   jumpBtn.addEventListener('click', () => { toEnd(); input.focus(); });
 
@@ -335,6 +354,8 @@ function createConversationView(getSession, container) {
         : held.kind === 'questions' ? 'Waiting for your answer'
           : held.kind === 'plan' ? 'Waiting for you to review the plan'
             : `Waiting for your approval to run ${conversationToolName(view, id)}`;
+      // How long it has been running (#691). A held call is waiting, not running, so it carries none.
+      if (!held && t.startedAt) head.appendChild(elapsedEl(t.startedAt));
       row.appendChild(head);
       const lines = String(t.output || '').split('\n');
       const tail = lines.slice(-CONVERSATION_TOOL_TAIL_LINES).join('\n').trim();
@@ -346,6 +367,7 @@ function createConversationView(getSession, container) {
       }
       activity.appendChild(row);
     }
+    tick();
   }
 
   // Enter and Send always ask for a plain turn. Whether it has to wait for a running one is decided in the
@@ -695,18 +717,264 @@ function createConversationView(getSession, container) {
 
   function renderStatus() {
     renderComposer();
-    const parts = [];
-    if (view.exited) parts.push('Session ended.');
-    // A session held by a question is waiting on the reader, not working — the same line the inbox draws.
-    else if (view.asks.size) parts.push('Waiting for your answer');
-    else if (view.busy) parts.push('Working…');
-    // A runtime may take a while to start reading (#647) — main waits that out rather than failing, and this
-    // is what the user sees meanwhile instead of an empty conversation that looks finished.
-    else if (view.attaching) parts.push('Waiting for the session…');
+    statusText.replaceChildren();
+    const add = (node) => {
+      if (statusText.childNodes.length) {
+        const sep = document.createElement('span');
+        sep.className = 'conversation-status-sep';
+        sep.textContent = '·';
+        statusText.appendChild(sep);
+      }
+      statusText.appendChild(node);
+    };
+    const span = (text, className) => {
+      const s = document.createElement('span');
+      if (className) s.className = className;
+      s.textContent = text;
+      return s;
+    };
+    // The context fill and the model (#691), as the backend read them. Warm once the fill reaches the handoff
+    // threshold the sidebar's health badge uses (spec 28), so the two never disagree about "getting full".
+    const c = view.context;
+    if (c && Number.isFinite(c.percent)) {
+      const ctxEl = span('', 'conversation-ctx');
+      const meter = document.createElement('span');
+      meter.className = 'conversation-ctx-meter';
+      const fill = document.createElement('i');
+      fill.style.width = `${Math.max(0, Math.min(100, c.percent))}%`;
+      meter.appendChild(fill);
+      ctxEl.appendChild(meter);
+      ctxEl.appendChild(document.createTextNode(`ctx ${Math.round(c.percent)} %`));
+      const threshold = typeof sessionHealthOptions === 'function' ? Number(sessionHealthOptions().handoffPercent) || 80 : 80;
+      ctxEl.classList.toggle('hot', c.percent >= threshold);
+      if (Number.isFinite(c.tokens) && Number.isFinite(c.window)) ctxEl.title = `${c.tokens.toLocaleString()} of ${c.window.toLocaleString()} tokens`;
+      add(ctxEl);
+    }
+    if (c && (c.model || Number.isFinite(c.window))) {
+      add(span([c.model, Number.isFinite(c.window) ? `(${formatWindow(c.window)})` : ''].filter(Boolean).join(' ')));
+    }
+    const state = view.exited ? 'Session ended.'
+      // A session held by a question is waiting on the reader, not working — the same line the inbox draws.
+      : view.asks.size ? 'Waiting for your answer'
+        : view.busy ? 'Working…'
+          // A runtime may take a while to start reading (#647) — main waits that out rather than failing, and
+          // this is what the user sees meanwhile instead of an empty conversation that looks finished.
+          : view.attaching ? 'Waiting for the session…' : '';
+    if (state) {
+      const s = span(state, 'conversation-status-state');
+      if (view.busy && !view.exited && !view.asks.size && view.busySince) s.appendChild(elapsedEl(view.busySince));
+      add(s);
+    }
     const waiting = view.queue.steering.length + view.queue.followUp.length;
-    if (waiting) parts.push(`${waiting} message${waiting === 1 ? '' : 's'} waiting`);
-    status.textContent = parts.join(' · ');
+    if (waiting) add(span(`${waiting} message${waiting === 1 ? '' : 's'} waiting`));
     status.classList.toggle('busy', !!view.busy && !view.exited);
+    renderBackground();
+    tick();
+  }
+
+  // --- Elapsed times (#691) ---
+  // One timer for the view, running only while something on it counts up and the view is on screen.
+  const formatElapsed = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const pad = (n) => String(n).padStart(2, '0');
+    return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
+  };
+  const formatWindow = (n) => (n >= 1000000 ? `${Math.round(n / 100000) / 10}M`.replace('.0M', 'M') : `${Math.round(n / 1000)}k`);
+  function elapsedEl(since) {
+    const e = document.createElement('span');
+    e.className = 'conversation-elapsed';
+    e.dataset.since = String(since);
+    e.textContent = ` ${formatElapsed(Date.now() - since)}`;
+    return e;
+  }
+  let ticker = null;
+  function tick() {
+    const counting = container.querySelectorAll('.conversation-elapsed[data-since]');
+    for (const e of counting) e.textContent = ` ${formatElapsed(Date.now() - Number(e.dataset.since))}`;
+    // Only while the view is on screen: a hidden tab has no height, and it is picked up again by `focus()`,
+    // which every path that shows the view calls.
+    const needed = counting.length > 0 && log.clientHeight > 0 && container.isConnected && !view.exited;
+    if (needed && !ticker) ticker = setInterval(tick, 1000);
+    if (!needed && ticker) { clearInterval(ticker); ticker = null; }
+  }
+
+  // --- Background tasks (#691) ---
+  // The buttons count what the backend listed; a click opens the list, with Output / Open and Stop per task.
+  const KIND_WORDS = { shell: ['shell', 'shells'], agent: ['agent', 'agents'], task: ['task', 'tasks'] };
+  let bgSelected = 0;
+  let bgOutputFor = null;   // the task whose output is shown under its row
+  function renderBackground() {
+    bgChips.replaceChildren();
+    const tasks = view.exited ? [] : view.tasks;
+    for (const kind of ['shell', 'agent', 'task']) {
+      const n = tasks.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === kind).length;
+      if (!n) continue;
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `conversation-bg-chip conversation-bg-${kind}`;
+      chip.classList.toggle('on', !bgPop.hidden);
+      chip.title = 'Show what runs in the background';
+      const dot = document.createElement('span');
+      dot.className = 'conversation-bg-dot';
+      chip.appendChild(dot);
+      chip.appendChild(document.createTextNode(`${n} ${KIND_WORDS[kind][n === 1 ? 0 : 1]}`));
+      chip.addEventListener('click', () => toggleBackground());
+      bgChips.appendChild(chip);
+    }
+    if (!tasks.length && !bgPop.hidden) closeBackground();
+    if (!bgPop.hidden) renderBackgroundList();
+  }
+  function toggleBackground() {
+    if (bgPop.hidden) openBackground(); else closeBackground();
+  }
+  function openBackground() {
+    if (!view.tasks.length) return;
+    bgPop.hidden = false;
+    bgSelected = Math.min(bgSelected, view.tasks.length - 1);
+    renderBackground();
+    bgPop.focus();
+  }
+  function closeBackground() {
+    bgPop.hidden = true;
+    bgOutputFor = null;
+    for (const chip of bgChips.children) chip.classList.remove('on');
+    if (container.contains(document.activeElement) || document.activeElement === document.body) input.focus();
+  }
+  function renderBackgroundList() {
+    bgPop.replaceChildren();
+    const head = document.createElement('div');
+    head.className = 'conversation-bg-head';
+    const title = document.createElement('span');
+    title.textContent = 'Background';
+    const count = document.createElement('span');
+    count.className = 'conversation-bg-count';
+    count.textContent = [...bgChips.children].map(c => c.textContent).join(' · ');
+    head.appendChild(title);
+    head.appendChild(count);
+    bgPop.appendChild(head);
+    const groups = [['shell', 'Shells'], ['agent', 'Agents'], ['task', 'Other tasks']];
+    let index = 0;
+    for (const [kind, label] of groups) {
+      const list = view.tasks.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === kind);
+      if (!list.length) continue;
+      const sec = document.createElement('div');
+      sec.className = 'conversation-bg-section';
+      sec.textContent = label;
+      bgPop.appendChild(sec);
+      for (const t of list) {
+        const i = index++;
+        const row = document.createElement('div');
+        row.className = `conversation-bg-row conversation-bg-${kind}`;
+        row.classList.toggle('sel', i === bgSelected);
+        row.dataset.index = String(i);
+        const dot = document.createElement('span');
+        dot.className = 'conversation-bg-dot';
+        const text = document.createElement('div');
+        text.className = 'conversation-bg-text';
+        const name = document.createElement('div');
+        name.textContent = t.description || t.detail || t.id;
+        const sub = document.createElement('div');
+        sub.className = 'conversation-bg-detail';
+        sub.textContent = t.detail && t.detail !== t.description ? t.detail : '';
+        text.appendChild(name);
+        text.appendChild(sub);
+        const time = document.createElement('span');
+        time.className = 'conversation-bg-time';
+        if (t.startedAt) time.appendChild(elapsedEl(t.startedAt));
+        const acts = document.createElement('span');
+        acts.className = 'conversation-bg-acts';
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'new-session-secondary-btn conversation-bg-btn';
+        open.textContent = kind === 'agent' ? 'Open' : 'Output';
+        open.title = kind === 'agent' ? 'Go to the call that started this agent' : 'Show the end of this task\'s output';
+        open.addEventListener('click', () => { bgSelected = i; openTask(t); });
+        const stopBtn = document.createElement('button');
+        stopBtn.type = 'button';
+        stopBtn.className = 'new-session-secondary-btn conversation-bg-btn conversation-bg-stop';
+        stopBtn.textContent = 'Stop';
+        stopBtn.title = 'Stop this task; the others keep running';
+        stopBtn.addEventListener('click', () => { bgSelected = i; stopTask(t); });
+        acts.appendChild(open);
+        acts.appendChild(stopBtn);
+        row.appendChild(dot);
+        row.appendChild(text);
+        row.appendChild(time);
+        row.appendChild(acts);
+        row.addEventListener('click', (e) => { if (e.target.closest('button')) return; bgSelected = i; renderBackgroundList(); });
+        bgPop.appendChild(row);
+        if (bgOutputFor && bgOutputFor.id === t.id) {
+          const pre = document.createElement('pre');
+          pre.className = 'conversation-tool-output conversation-bg-output';
+          pre.textContent = bgOutputFor.text;
+          bgPop.appendChild(pre);
+        }
+      }
+    }
+    const foot = document.createElement('div');
+    foot.className = 'conversation-bg-foot';
+    foot.textContent = '↑/↓ select · Enter open · X stop · Esc close';
+    bgPop.appendChild(foot);
+  }
+  async function openTask(t) {
+    if (t.kind === 'agent') {
+      // The call that started the agent, where its block and its result are drawn.
+      const el = t.toolUseId ? log.querySelector(`[data-tool-use-id="${CSS.escape(t.toolUseId)}"]`) : null;
+      if (!el) { notice('info', 'The call that started this agent is not in the conversation on screen.'); return; }
+      closeBackground();
+      el.scrollIntoView({ block: 'center' });
+      el.classList.add('conversation-flash');
+      setTimeout(() => el.classList.remove('conversation-flash'), 1200);
+      return;
+    }
+    if (bgOutputFor && bgOutputFor.id === t.id) { bgOutputFor = null; renderBackgroundList(); return; }
+    let res;
+    try { res = await window.api.agent.taskOutput(view.session.sessionId, t.id); } catch { res = null; }
+    if (!res || !res.ok) { notice('error', (res && res.error) || 'The output could not be read.'); return; }
+    const text = String(res.text || '').replace(/\s+$/, '');
+    bgOutputFor = { id: t.id, text: (res.truncated ? '…\n' : '') + (text || '(no output yet)') };
+    renderBackgroundList();
+  }
+  async function stopTask(t) {
+    let res;
+    try { res = await window.api.agent.stopTask(view.session.sessionId, t.id); } catch { res = null; }
+    if (!res || !res.ok) notice('error', (res && res.error) || 'The task did not stop.');
+  }
+  bgPop.addEventListener('keydown', (e) => {
+    const n = view.tasks.length;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBackground(); return; }
+    if (!n) return;
+    const ordered = [...bgPop.querySelectorAll('.conversation-bg-row')].map(r => Number(r.dataset.index));
+    const tasksInOrder = ['shell', 'agent', 'task'].flatMap(k => view.tasks.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === k));
+    if (e.key === 'ArrowDown') { e.preventDefault(); bgSelected = Math.min(ordered.length - 1, bgSelected + 1); renderBackgroundList(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); bgSelected = Math.max(0, bgSelected - 1); renderBackgroundList(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (tasksInOrder[bgSelected]) openTask(tasksInOrder[bgSelected]); }
+    else if (e.key === 'x' || e.key === 'X') { e.preventDefault(); if (tasksInOrder[bgSelected]) stopTask(tasksInOrder[bgSelected]); }
+  });
+  // A click anywhere else closes the list, as a menu does.
+  container.addEventListener('mousedown', (e) => {
+    if (bgPop.hidden || bgPop.contains(e.target) || bgChips.contains(e.target)) return;
+    closeBackground();
+  });
+  // The Output button on a task's notice in the conversation (#691), drawn by jsonl-viewer.js.
+  log.addEventListener('click', (e) => {
+    const btn = e.target.closest('.task-notice-output');
+    if (!btn || !btn.dataset.taskId) return;
+    showNoticeOutput(btn);
+  });
+  async function showNoticeOutput(btn) {
+    const card = btn.closest('.task-notice');
+    const shown = card && card.nextElementSibling && card.nextElementSibling.classList.contains('task-notice-text') ? card.nextElementSibling : null;
+    if (shown) { shown.remove(); return; }
+    let res;
+    try { res = await window.api.agent.taskOutput(view.session.sessionId, btn.dataset.taskId); } catch { res = null; }
+    if (!res || !res.ok) { notice('error', (res && res.error) || 'The output could not be read.'); return; }
+    const pre = document.createElement('pre');
+    pre.className = 'conversation-tool-output task-notice-text';
+    pre.textContent = (res.truncated ? '…\n' : '') + (String(res.text || '').replace(/\s+$/, '') || '(no output)');
+    card.after(pre);
   }
 
   // `links` are pages to open — a login page is several hundred characters of query string, so it is a button
@@ -1075,12 +1343,23 @@ function createConversationView(getSession, container) {
         appendEntry(op.entry);
         break;
       case 'partial': view.partial = op.entry || null; renderPartial(); break;
-      case 'tool':
-        view.tools.set(op.id, { status: op.status, output: op.output || '' });
+      case 'tool': {
+        // When it started is kept across its updates, for the elapsed time on its row (#691).
+        const prev = view.tools.get(op.id);
+        view.tools.set(op.id, { status: op.status, output: op.output || '', startedAt: prev && prev.startedAt ? prev.startedAt : Date.now() });
         if (op.status !== 'running') view.tools.delete(op.id);
         renderActivity();
         break;
-      case 'busy': view.busy = !!op.busy; if (!view.busy) { view.tools.clear(); renderActivity(); } renderStatus(); break;
+      }
+      case 'busy':
+        if (op.busy && !view.busy) view.busySince = Date.now();
+        view.busy = !!op.busy;
+        if (!view.busy) { view.busySince = null; view.tools.clear(); renderActivity(); }
+        renderStatus();
+        break;
+      // What runs in the background, and the session's figures (#691).
+      case 'tasks': view.tasks = Array.isArray(op.tasks) ? op.tasks : []; renderStatus(); break;
+      case 'context': view.context = op.context || null; renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
       case 'notice': notice(op.level, op.text, op.links, op.files); break;
       case 'localCommand': localCommand(op); break;
@@ -1173,6 +1452,8 @@ function createConversationView(getSession, container) {
     renderPartial();
     view.busy = !!res.busy;
     view.queue = res.queue || { steering: [], followUp: [] };
+    view.tasks = Array.isArray(res.tasks) ? res.tasks : [];
+    view.context = res.context || null;
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();
     toEnd();
@@ -1187,6 +1468,9 @@ function createConversationView(getSession, container) {
     view.exited = true;
     view.busy = false;
     view.tools.clear();
+    // A background task does not outlive the process that ran it (#691).
+    view.tasks = [];
+    if (!bgPop.hidden) closeBackground();
     // A shell line running when the session died can never report back, so it stops counting as running.
     // The disabled composer hides Stop anyway today; this is so that stays true if that gate is ever
     // relaxed, rather than leaving `somethingRunning()` permanently true for a dead session.
@@ -1210,7 +1494,7 @@ function createConversationView(getSession, container) {
     // Every path that shows this view calls it (showSession, focusGridCard, the panes' applyPendingFocus), and
     // a reveal can drop the log's scroll position without a resize or a scroll event — measured: re-showing
     // the active tab put it back at 0. So the place is put back here too (#689).
-    focus: () => { if (!input.disabled) input.focus(); restore(); renderJump(); },
+    focus: () => { if (!input.disabled) input.focus(); restore(); renderJump(); tick(); },
     dispose: () => {},
   };
 }

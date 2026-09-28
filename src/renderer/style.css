@@ -2171,6 +2171,19 @@ body.window-hidden .sidebar-tab *,
   background: rgba(217, 164, 65, 0.14);
 }
 
+/* Something still runs in this session's background (#691) — the same shape as the chips beside it, and the
+   Background list's green, so the row and the conversation view say it in one colour. */
+.session-bg-chip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 700;
+  color: #4cc38a;
+  background: rgba(76, 195, 138, 0.14);
+}
+
 .session-health-chip,
 .grid-card-health-chip {
   flex-shrink: 0;
@@ -3133,6 +3146,71 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 }
 .conversation-notice-error { color: #f0a0a0; }
 .conversation-notice-warning { color: #e0c080; }
+
+/* The session line (#691): context fill, model and working state on the left, background buttons right. */
+.conversation-status { display: flex; align-items: center; gap: 10px; }
+.conversation-status-text { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; }
+.conversation-status-sep { color: #45455a; }
+.conversation-ctx { display: inline-flex; align-items: center; gap: 6px; }
+.conversation-ctx-meter { width: 46px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.conversation-ctx-meter i { display: block; height: 100%; background: #7c8cff; }
+.conversation-ctx.hot { color: #e0a040; }
+.conversation-ctx.hot .conversation-ctx-meter i { background: #e0a040; }
+.conversation-elapsed { font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; color: #7a7a90; }
+.conversation-bg-chips { display: flex; gap: 6px; flex: none; }
+.conversation-bg-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #1f1f2c; border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+  padding: 1px 10px; color: #c8c8d8; font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.conversation-bg-chip:hover, .conversation-bg-chip.on { border-color: #7c8cff; }
+.conversation-bg-dot { width: 7px; height: 7px; border-radius: 50%; background: #4cc38a; flex: none; }
+.conversation-bg-agent .conversation-bg-dot { background: #7c8cff; }
+.conversation-bg-task .conversation-bg-dot { background: #a0a0b8; }
+
+/* The Background list, opened from a button: shells and agents with Output / Open and Stop per task. */
+.conversation-bg-pop {
+  position: absolute; right: 12px; bottom: 34px; width: min(480px, calc(100% - 24px)); max-height: 60%;
+  overflow-y: auto; z-index: 5;
+  background: #1e1e2a; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5); padding: 12px 14px 10px; font-size: 12.5px; outline: none;
+}
+.conversation-bg-pop[hidden] { display: none; }
+.conversation-bg-head { display: flex; justify-content: space-between; font-weight: 600; color: #d0d0e8; }
+.conversation-bg-count { font-weight: 400; color: #7a7a90; }
+.conversation-bg-section { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #7a7a90; }
+.conversation-bg-row {
+  display: grid; grid-template-columns: 10px 1fr auto auto; gap: 10px; align-items: center;
+  padding: 6px 8px; border-radius: 6px; cursor: default;
+}
+.conversation-bg-row:hover, .conversation-bg-row.sel { background: rgba(255,255,255,0.04); }
+.conversation-bg-text { min-width: 0; }
+.conversation-bg-text > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #d0d0e8; }
+.conversation-bg-text > .conversation-bg-detail { color: #7a7a90; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; }
+.conversation-bg-detail:empty { display: none; }
+.conversation-bg-acts { display: flex; gap: 6px; }
+.new-session-secondary-btn.conversation-bg-btn { padding: 3px 9px; font-size: 11px; }
+.new-session-secondary-btn.conversation-bg-stop { color: #f0a0a0; border-color: rgba(224,96,96,0.35); }
+.conversation-bg-output { margin: 2px 8px 6px 28px; max-height: 220px; overflow: auto; }
+.conversation-bg-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); color: #7a7a90; font-size: 11px; }
+
+/* A background task that ended (#691), drawn as what it is rather than the markup the CLI gave the model. */
+.task-notice {
+  display: flex; gap: 10px; align-items: center; font-size: 12px; margin: 8px 0; padding: 6px 10px; border-radius: 6px;
+  background: rgba(76,195,138,0.06); border: 1px solid rgba(76,195,138,0.18);
+}
+.task-notice.stopped { background: rgba(224,160,64,0.06); border-color: rgba(224,160,64,0.2); }
+.task-notice.failed { background: rgba(224,96,96,0.06); border-color: rgba(224,96,96,0.22); }
+.task-notice-icon { color: #4cc38a; }
+.task-notice.stopped .task-notice-icon { color: #e0a040; }
+.task-notice.failed .task-notice-icon { color: #e06060; }
+.task-notice-what { color: #d0d0e8; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-notice-meta { color: #7a7a90; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; margin-left: auto; white-space: nowrap; }
+.task-notice-output { background: none; border: none; padding: 0; color: #7c8cff; font: inherit; font-size: 11px; cursor: pointer; }
+.task-notice-output:hover { text-decoration: underline; }
+.task-notice-text { margin: -4px 0 8px; max-height: 260px; overflow: auto; }
+/* The call a background agent's "Open" jumped to, marked for a moment. */
+.conversation-flash { outline: 1px solid #7c8cff; outline-offset: 2px; border-radius: 4px; transition: outline-color 1s; }
 /* The branch tree (#646, session/branch-tree-dialog.js): a control dialog, wider, holding a list. The rows
    indent by the backend's depth (forks above the row); the session's own branch is brighter, and the point
    it stands on is marked. */

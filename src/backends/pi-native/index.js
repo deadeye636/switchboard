@@ -127,6 +127,10 @@ module.exports = {
     // the figures come from here, over the one RPC command that has them.
     statsCommand: protocol.statsCommand,
     statsNotice: protocol.statsNotice,
+    // The line under the input (#691) reads the context from the same answer. Pi has no background tasks of
+    // its own — a tool runs inside its turn — so it declares no `stopTaskCommand`.
+    contextCommand: protocol.statsCommand,
+    contextFromResponse: protocol.contextFromResponse,
     // `/export` and `/copy` (#643), the same shape: the command says it was typed, the answer is asked
     // for here. Each is a PAIR the core feature-checks together — a backend that cannot write a file of
     // its session, or cannot hand back its last reply, declares neither half and the core does nothing.

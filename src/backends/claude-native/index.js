@@ -220,6 +220,11 @@ module.exports = {
     // A turn may carry images, as content blocks beside its text (#662).
     imageInput: protocol.IMAGE_INPUT,
     abortCommand: protocol.abortCommand,
+    // One background task, not the turn (#691).
+    stopTaskCommand: protocol.stopTaskCommand,
+    // The context fill and the model for the line under the input (#691).
+    contextCommand: protocol.contextCommand,
+    contextFromResponse: protocol.contextFromResponse,
     commandsCommand: protocol.commandsCommand,
     commandsFromResponse: protocol.commandsFromResponse,
     answerCommand: protocol.answerCommand,

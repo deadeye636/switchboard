@@ -56,7 +56,7 @@
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-      pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue,
+      pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
       projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
@@ -907,6 +907,15 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-show-context-fill" ${showContextFillValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Show background tasks</span>
+                    <div class="settings-description">Mark a session row with how many shells and agents still run in its background ("◉ 2"). Only sessions whose backend reports it, such as the Claude GUI.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-show-background-tasks" ${showBackgroundTasksValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
               </div>

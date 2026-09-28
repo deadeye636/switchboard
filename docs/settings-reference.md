@@ -281,6 +281,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `pixelSessionIcon` | Pixel session icon — *Sidebar* | bool | `false` | global |
 | `contextFillHandoffPercent` | Recommend a handoff at context fill (%) — *Session health* | 1–100 | `80` | global |
 | `showContextFill` | Show context fill — *Session health* | bool | `true` | global |
+| `showBackgroundTasks` | Show background tasks — *Session health* (a session row's "◉ n": shells and agents still running in its background; only sessions whose backend reports it, #691) | bool | `true` | global |
 | `showSubagents` | Show subagents | bool | `true` | global — hidden unless a backend declares `supportsSubagents` |
 | `subagentLiveStatus` | Subagent live status | bool | `true` | global |
 | `subagentLayout` | Subagent row layout | `a` \| `b` \| `c` | `a` | global |
