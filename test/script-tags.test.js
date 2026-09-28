@@ -89,8 +89,8 @@ test('index.html loads its vendored libs from node_modules', () => {
   const vendored = refs.filter(r => r.includes('node_modules/'));
 
   // Counted, because "fix the ../node_modules paths" is a job you do by grepping, and a grep that finds
-  // 3 of 9 leaves you with a page that half-loads. If a lib is added or dropped, update the number.
-  assert.equal(vendored.length, 9, 'expected 9 vendored refs (xterm + 5 addons, morphdom, dompurify, xterm.css)');
+  // 3 of 10 leaves you with a page that half-loads. If a lib is added or dropped, update the number.
+  assert.equal(vendored.length, 10, 'expected 10 vendored refs (xterm + 5 addons, morphdom, dompurify, marked, xterm.css)');
 
   // The resolves-check above already proves they land somewhere real; this pins WHERE, so that moving the
   // page without re-depthing `../` fails here instead of in front of a user.

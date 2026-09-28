@@ -182,6 +182,9 @@
   <script src="../../node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
   <script src="../../node_modules/morphdom/dist/morphdom-umd.js"></script>
   <script src="../../node_modules/dompurify/dist/purify.min.js"></script>
+  <!-- Loaded here, not from the lazy codemirror bundle: the conversation view renders markdown before any
+       file viewer has opened (#686). Configured in jsonl-viewer.js. -->
+  <script src="../../node_modules/marked/lib/marked.umd.js"></script>
   <script src="lib/icons.js"></script>
   <script src="../shared/preview-kind.js"></script>
   <!-- "Is this path a worktree, and of which project" (#582) — before sidebar.js, which nests by it,

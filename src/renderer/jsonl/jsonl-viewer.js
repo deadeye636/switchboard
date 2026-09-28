@@ -147,6 +147,11 @@ function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, age
   });
 })()
 
+// marked comes from its own <script> tag in index.html (#686); every caller of `window.marked` shares these
+// options. They used to be set inside the lazy codemirror bundle, so until a file viewer opened nothing
+// rendered as markdown at all.
+if (window.marked && typeof window.marked.setOptions === 'function') window.marked.setOptions({ breaks: true, gfm: true });
+
 function renderJsonlText(text) {
   if (window.marked) {
     // Escape XML/HTML-like tags so they render as visible text,

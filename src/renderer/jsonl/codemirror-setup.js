@@ -14,7 +14,6 @@ import { python } from '@codemirror/lang-python';
 import { json } from '@codemirror/lang-json';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
-import { marked } from 'marked';
 import { rust } from '@codemirror/lang-rust';
 import { go } from '@codemirror/lang-go';
 import { java } from '@codemirror/lang-java';
@@ -565,6 +564,5 @@ window.cmUndo = undo;
 window.cmRedo = redo;
 // Live Preview (#281) — the `live` mode's decorations, switched per editor.
 window.setLivePreview = setLivePreview;
-
-marked.setOptions({ breaks: true, gfm: true });
-window.marked = marked;
+// `window.marked` is not set here: index.html loads marked on its own, because this bundle is lazy and the
+// conversation view renders markdown before it has loaded (#686).

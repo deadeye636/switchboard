@@ -8,6 +8,7 @@
     "addon-webgl.js",
     "morphdom-umd.js",
     "purify.min.js",
+    "marked.umd.js",
     "icons.js",
     "preview-kind.js",
     "worktree-path.js",
