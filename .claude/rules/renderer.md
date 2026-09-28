@@ -679,7 +679,8 @@ decisions, and each is easy to undo while "tidying":
   which has no `appGlobalSettings`, so a global read there fails `test/renderer-no-undef.test.js`.
   `session-card-details.js` is a UMD module the tests load without app.js, so it takes the fill-text toggle
   as an argument too. `sessionHealthOptions()` and `contextFillShown()` in `app.js` are the one reader each;
-  every caller (sidebar row, grid card twice, handoff dialog) passes them.
+  every caller (sidebar row, grid card twice, handoff dialog, the conversation view's session line) passes
+  them — grep for `sessionHealthOptions(` rather than trusting this list.
 - **A row's metrics text follows the badge OR a shown fill.** The fill text ("62 % context") is one of those
   metrics, so gating them on the badge alone would hide the fill for exactly the sessions that are fine.
 

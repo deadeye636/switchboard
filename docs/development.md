@@ -34,6 +34,11 @@ npm install          # runs postinstall automatically
 Both start commands can refuse on purpose — a single-instance lock, or an occupied debug port. That
 is the guard working, not a bug.
 
+A dev or demo run follows your edits (#665): saving a file under `src/renderer/` reloads the windows, and
+saving anything else under `src/` restarts the app through a normal quit, so its sessions are stopped and
+its shutdown runs. `src/app/dev-reload.js` does it; the log says `[dev-reload] <file> changed — restarting
+the app` when it does.
+
 ### Which database
 
 | How you started it | Database |
@@ -66,7 +71,7 @@ node scripts/drive-app.js shot out.png       # a screenshot of the window
 node scripts/drive-app.js click "<selector>" # click something
 ```
 
-Any command takes `--target=<substring>` to address a second window (the pop-out settings window, a
+Any command takes `--target=<substring>` to address a second window (the settings window, a
 changes window) instead of the main one.
 
 ## The demo environment
@@ -177,7 +182,7 @@ src/
   projects/        The project registry
   vcs/             The version-control seam: provider registry, git provider, porcelain parser
   servers/         MCP IDE bridge
-  backends/        One folder per coding CLI (Claude, Codex, Hermes, Pi, agy)
+  backends/        One folder per coding CLI (Claude, Codex, Hermes, Pi, agy), plus claude-native and pi-native, which drive Claude and Pi over a pipe
   workers/         Off-thread scanning, indexing, search
   renderer/        HTML/CSS/JS, in folders (shell/, session/, terminal/, views/, …)
   shared/          The few modules BOTH processes load

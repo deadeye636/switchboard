@@ -54,8 +54,10 @@ verified nothing.
 
 `.github/workflows/build.yml` fires on `push` of a `v*` tag and builds **all three platforms**, then
 creates the release as a **draft** and uploads 19 assets: the Windows installer, the macOS
-`.dmg`/`.zip` (arm64 + x64), the Linux AppImage/`.deb`/pacman — **and the `latest*.yml` files the
-auto-updater needs.**
+`.dmg`/`.zip` (arm64 + x64), the Linux AppImage/`.deb`/pacman — **and the `latest*.yml` files**
+electron-builder writes beside them. The app itself has no auto-updater any more (`docs/development.md`
+says why), so nothing in it reads those files today; they stay because the workflow uploads them and a
+release is expected to carry the same set every time.
 
 It also accepts a **manual run** (`workflow_dispatch`) with a `platform` choice — `all`, `mac`, `win`
 or `linux`, defaulting to `mac`. That is the one way to build macOS from a Windows machine, and it is
@@ -63,8 +65,8 @@ what `scripts/build-mac.bat` drives.
 
 So after `git push origin refs/tags/v<version>`, the release already exists. Adding your own with
 `gh release create` produces a **second** release on the same tag, carrying only whatever you
-attached by hand — no `latest*.yml`, so an auto-update from it silently cannot work — and whoever
-opens the releases page sees the wrong one. It happened in 0.7.6 and it looked exactly like "why is
+attached by hand — only the one installer, none of the other platforms' builds and no `latest*.yml` —
+and whoever opens the releases page sees the wrong one. It happened in 0.7.6 and it looked exactly like "why is
 there only a Windows build?".
 
 ```

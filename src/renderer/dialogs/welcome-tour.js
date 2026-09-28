@@ -796,7 +796,7 @@
     document.body.appendChild(overlay);
 
     overlay.addEventListener('click', (e) => {
-      // Four ways out, on purpose: the × in the corner, Skip, Escape, and a click on the backdrop.
+      // Four ways out, on purpose: the × in the corner, Close the tour, Escape, and a click on the backdrop (Done on the last pane is a fifth).
       // Nothing here holds work that a stray click could lose — every control writes as it is changed —
       // and the way back is one button in Settings → Maintenance. A tour that is hard to leave is a tour
       // people learn to resent.

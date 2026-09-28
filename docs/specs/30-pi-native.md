@@ -658,5 +658,6 @@ questions before a command's shell line and before an MCP tool, described under 
   session has more.
 - **The pre-launch command** is not offered: there is no shell to put it in front of. The universal field
   is left off descriptors that declare `transport`.
-- **A Pi run this app did not start** is not marked, so it opens in the terminal backend. That is correct:
-  it was not driven over RPC.
+- **A Pi run this app did not start** is not marked, so by default it opens in the terminal backend. That is
+  correct: it was not driven over RPC. Since #670 the user can still open it here, as a per-session choice
+  (see "Who owns a row").

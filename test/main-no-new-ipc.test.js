@@ -22,7 +22,7 @@ const path = require('path');
 
 const MAIN = path.join(__dirname, '..', 'src', 'main.js');
 
-// The 76 handlers #213 deliberately left in main.js. Append to this list ONLY with a reason, and only
+// The handlers #213 deliberately left in main.js (76 then; count the list for today's number). Append to this list ONLY with a reason, and only
 // after asking whether the handler belongs in one of the modules in the "Where an IPC handler goes"
 // table (.claude/rules/main-process.md). Shrinking it is always right.
 const GRANDFATHERED = [
@@ -76,7 +76,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/hooks.js               the Claude Code hook server
   src/app/terminal/spawn.js      opening a terminal
   src/app/terminal/io.js         terminal input/resize/redraw/flow control
-  src/app/plans-memory.js        the Plans, Memory and Work-Files tabs
+  src/app/plans-memory.js        the Plans and Agent Files tabs, and the memory files
   src/app/handoffs.js            handoff packets — listing, saving, deleting
   src/app/vcs.js                 version-control status, the changes/diff windows
   src/app/detach.js              detached session windows, which window renders a session, moving one

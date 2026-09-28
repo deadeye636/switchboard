@@ -76,7 +76,7 @@ work in progress.
 attention hooks nobody finds, the drag that splits a pane, why the sidebar is shorter than the session
 list. Every pane that names a setting also carries it, so a thing you have just had explained is a
 thing you can change without going looking for it, and five of them draw what your choice will look
-like. Four ways out of it, and Settings → Maintenance brings it back.
+like. Four ways out of it, plus Done on the last pane, and Settings → Maintenance brings it back.
 
 **Your repository, in the app.** A git glyph on every project header opens a changes window: files
 grouped by state, renames as `old → new`, click one and its diff expands inline. Polling never takes
@@ -210,8 +210,12 @@ chart rather than a row of zeroes.
   that shows the last good reading when a poll fails
 - **Spring cleaning** — bulk-clear stale and abandoned-short sessions, never touching starred,
   archived or live ones
-- **Settings** — two-column layout, an optional pop-out window, Apply without closing, export and
+- **Settings** — two-column layout in a window of its own, Apply without closing, export and
   import to move a configured Switchboard to another machine
+- **Custom launchers** — any command or script saved as a launcher, globally or per project, started in
+  a monitored tab or a window of its own
+- **Log level and build provenance** — raise the log to `debug` or `silly` live in a packaged build, and
+  About names the branch and commit the installation was built from
 
 </details>
 
@@ -230,7 +234,7 @@ will look like and redraw as you change it: the split zones against an equal-cel
 with its fold, the review panel against a prompt in the terminal, the directories a plan and a handoff
 will be written to. The pictures are drawn, not photographed, which is why they can answer to a number.
 
-Four ways out of it, and **Settings → Maintenance** brings it back at any time.
+Four ways out of it, plus **Done** on the last pane, and **Settings → Maintenance** brings it back at any time.
 
 ## Session overview
 

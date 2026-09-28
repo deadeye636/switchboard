@@ -58,6 +58,11 @@ the settings cascade, like the plan reference: every CLI can read a file it is p
 | codex | `/` lists its built-in commands, `/git` offers nothing — its palette does not know the skills it stores | text |
 | agy | declares no skills directory, so there is nothing to run | text |
 
+The two backends driven over a pipe, claude-native and pi-native, are not rows of their own: each forwards its
+owner's `skillInvocation` (`src/backends/claude-native/index.js`, `src/backends/pi-native/index.js`), and the
+picker inserts the answer into the conversation view's text field instead of a terminal (`insertResolvedText`
+asks the entry for a conversation first).
+
 Hermes is the case that shows why documentation would have got this wrong: it takes a `--skills` LAUNCH
 flag, which says nothing about a session already at its prompt — and the session turned out to accept
 slash commands anyway.

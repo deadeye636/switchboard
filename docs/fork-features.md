@@ -16,7 +16,8 @@ At a glance:
 
 - **19 new renderer modules** in `src/renderer/` (pure, `node --test`-covered logic — they lived in
   `public/` until #214 moved every source file under `src/`)
-- **47 new test files** (72 total under `test/`; the base fork had 29)
+- **47 new test files** at the time this list was started (72 total under `test/`; the base fork had 29) —
+  count `test/` for today's number, it has grown several times over
 - **Two feature waves**: an *Agent Supervision* layer and a *Productivity* layer
 - **A reliability/infra wave**: crash-resistance, packaging, caching, hardening
 
@@ -396,8 +397,16 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   answered on a card: allow once, refuse, and "for this session" where Claude suggests something for the
   session, worded as what it allows, and "always allow in this project" where Claude suggests a rule for the
   project's local settings, which Claude then writes itself (#674). `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
-  plan card. A text field sends, queues and steers turns, and Stop interrupts the turn without ending the
-  process. An image pasted or dropped into the conversation goes out with the next turn (#662), and any
+  plan card. A pending card takes the input's place until it is answered, from the keyboard like in the CLI:
+  a tab per question, numbered options, notes and "chat about this" (#704). A text field sends, queues and
+  steers turns, and Stop interrupts the turn without ending the process. A prompt sent during a turn is held
+  by the app until the session is idle, so it can still be edited or withdrawn (#702). Under the input a
+  session line shows the context fill, the model, the permission mode (Shift+Tab switches it, #696) and the
+  working state, and background shells and agents get a list with Output, Open and Stop (#691, #695).
+  Claude's prompt suggestions appear greyed in the empty input and Tab takes one (#693), a sent message
+  shows at once (#694), and tool calls start collapsed unless *Show tool calls expanded* is on (#687). The
+  terminal backend's launch options come along: worktree, Chrome, extra directories, restricted mode and the
+  auto-compact window (#685). An image pasted or dropped into the conversation goes out with the next turn (#662), and any
   other file is named as `@path`, which Claude reads into the turn (#699); `/`
   completes Claude's commands and skills, and `/clear` moves the tab to the new session. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
@@ -569,8 +578,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   accident.
 
 ### UI / window
-- **Tabbed single-view** as the primary layout — session tabs, viewer close buttons; the
-  grid is kept as a legacy mode. Right-click **tab context menu** (Close / Stop / Relaunch / Redraw —
+- **Session tabs** — the fork started with a tabbed single view as its primary layout. That mode was
+  retired in #357, and its tabs live on in every pane of **Panes**, the default since #374 (below); the
+  grid is the other mode left. Right-click **tab context menu** (Close / Stop / Relaunch / Redraw —
   the last repairs a screen a foreign writer has destroyed, #479),
   auto-close, and removal of the top menubar for a cleaner window.
 - **Detached session windows** (#2, #314, #315, #316) — move a running session into an OS window of its
@@ -585,7 +595,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   and so does "Ready for review", which says something is waiting for *you*. Its own **status** does
   not: since #395 a window of its own learns what its sessions are doing, so its tabs show "Working"
   and its away recap has something to report (#390 keeps it from announcing any of it).
-- **Panes** (#309, #312, #313, #318, #321) — a third display mode that splits the terminal area into a
+- **Panes** (#309, #312, #313, #318, #321) — the default display mode since #374 (the grid is the other one), which splits the terminal area into a
   VS-Code-style tree of panes, each with its own tab strip. Drag a tab onto a pane's edge to split,
   onto its middle to move it there — a caret marks the gap it will land in — and sashes resize; the
   layout survives a restart. The session tools (messages, tasks, variables, stop) sit with the pane,
@@ -604,7 +614,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   resources are read the first time you open its page, so opening settings walks no filesystem at all.
   Design record: [`docs/specs/26-settings-screen.md`](specs/26-settings-screen.md).
 - **Settings overhaul** — two-column layout, permission modes aligned to the Claude CLI, and
-  an optional pop-out settings window that paints instantly and is kept warm between opens.
+  a settings window of its own that paints instantly and is kept warm between opens (the in-window
+  overlay it used to be an alternative to was removed in #365).
   The actions are pinned to the bottom edge, reachable at any scroll position in any category:
   Hide/Remove Project on the left, then Cancel, **Apply** (save without closing, so several
   categories can be adjusted and checked one after another) and Save. Custom launchers have a
@@ -792,7 +803,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   sitting black behind a Running tab. What replaced the old `claude` wrapper: it names no backend, wraps
   nothing, and reaches the user before they type rather than after they guessed wrong.
 - **Drop = paste** (#307): a drop on a terminal takes the same route as Ctrl+V — files insert their
-  escaped absolute paths, an image with no file behind it (a screenshot, an image dragged out of a
+  absolute paths, quoted the way the reader takes them (#700: in a plain terminal cmd gets double quotes,
+  PowerShell single quotes with inner quotes doubled, every other shell and every CLI session POSIX single
+  quotes), an image with no file behind it (a screenshot, an image dragged out of a
   web page) is saved to a temp file so the CLI can read it as a path, and text inserts as text. A
   drop never submits, and it focuses the session it landed on, so the next keystroke goes where the
   path went. Those temp images are age- and size-pruned (#308).

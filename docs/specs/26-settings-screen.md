@@ -1,6 +1,6 @@
 # 26 — The settings screen
 
-Status: **built** (#471, #472, #490).
+Status: **built** (#471, #472, #490; later #565, #593).
 Written after the fact, as a design record.
 
 The enforceable half is the *settings screen* section of [`.claude/rules/renderer.md`](../../.claude/rules/renderer.md);

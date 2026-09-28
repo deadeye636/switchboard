@@ -107,7 +107,7 @@ is not available and the only move is not to touch the file. That is what made e
 fail while a dev instance of the same checkout ran: `electron-reloader` handed chokidar the whole
 repository, it walked `dist/`, and `electron-builder` could no longer unlink `app.asar`. Its callers are
 `dev-reload.js` (the reloader that replaced it at #665 — it watches `src/` only and skips a build
-directory inside it by name), `plans-memory.js` and `backends/resource-expand.js`. Deliberately NOT
+directory inside it by name), `plans-memory.js`, `path-completion.js` and `backends/resource-expand.js`. Deliberately NOT
 `backends/file-store.js`: a store walk that quietly returns fewer transcripts feeds a reconcile that
 purges history it only failed to read, #197),
 `index-sweep.js` (WHEN the index-repair sweep a `get-projects` asks for actually runs — #590; the
@@ -483,7 +483,7 @@ line there, in the same commit.
 | The Claude Code hook server | `src/app/hooks.js` |
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
-| The Plans, Memory and Work-Files tabs | `src/app/plans-memory.js` |
+| The Plans and Agent Files tabs, and the memory files | `src/app/plans-memory.js` |
 | Handoff packets — listing, saving, deleting | `src/app/handoffs.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
@@ -607,7 +607,7 @@ add an IPC handler.
 Where Switchboard **looks** is `SWITCHBOARD_STORE_<BACKEND>`. Where the CLI **writes** is a second
 thing (#241): each backend declares its home variable through the `cliHomeEnv()` descriptor hook
 (Claude `CLAUDE_CONFIG_DIR`, Codex `CODEX_HOME`, Hermes `HERMES_HOME`, Pi
-`PI_CODING_AGENT_SESSION_DIR`; agy has none and declines). `app/terminal/spawn.js` merges the answer
+`PI_CODING_AGENT_SESSION_DIR` and `PI_CODING_AGENT_DIR`; agy has none and declines). `app/terminal/spawn.js` merges the answer
 into the session's env — below the user's and a template's, so an explicit variable of theirs still
 wins, and a non-isolated launch carries nothing.
 

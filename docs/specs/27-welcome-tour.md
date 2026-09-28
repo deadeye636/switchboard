@@ -223,9 +223,8 @@ otherwise undo any attempt to see the tour. Set `welcomeDismissed: false` to wat
   default (never 0, which means "no limit" for these keys), and the caps match the settings screen's;
   anything else the screen does to a value it does not do here.
 - **The capability resolution takes the first declaring backend** (D6).
-- **Pane 2 is the only surface in the app that shows a `devBlocked` hook** — the settings screen shows it
-  too since #146/O19, but as a dialog rather than inline, because Save closes the panel and Apply rebuilds
-  it 600 ms later.
+- **Pane 2 is the only surface that shows a `devBlocked` hook INLINE.** The settings screen shows it too
+  since #146/O19, but as a dialog, because Save closes the panel and Apply rebuilds it 600 ms later.
 - **The tour is not covered by a click test.** `test/welcome-tour.test.js` guards the wiring; the panes
   themselves are `node scripts/drive-app.js` territory, and a fresh store now opens the tour in front of
   whatever a script was about to click.

@@ -94,10 +94,9 @@ gh release edit v<version> --title "<version>"   # title is 0.7.6 — no `v`. Th
 ```
 
 **EDIT. Never `gh release create`.** Pushing the tag fires `.github/workflows/build.yml`, which builds all
-three platforms and creates the draft itself, with 19 assets — including the `latest*.yml` files the
-auto-updater needs. A release you create yourself is a **second** release on the same tag, carrying only
-what you attached by hand: no `latest*.yml`, so auto-update from it cannot work, and the releases page
-shows the wrong one. In 0.7.6 that is exactly what happened, and it surfaced as *"why is there only a
+three platforms and creates the draft itself, with 19 assets. A release you create yourself is a **second**
+release on the same tag, carrying only what you attached by hand, and the releases page shows the wrong
+one. In 0.7.6 that is exactly what happened, and it surfaced as *"why is there only a
 Windows build?"* — the answer being that the real release had all of them, one click away.
 
 If you must reach for `gh api -X PATCH …/releases/<id>`, pass `tag_name` with it: omitting it **resets the

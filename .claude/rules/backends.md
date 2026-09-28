@@ -9,7 +9,8 @@ paths:
 
 # Backends
 
-The app runs **several coding CLIs** (Claude, Codex, Hermes, Pi, agy — all five ready), not just Claude.
+The app runs **several coding CLIs** (Claude, Codex, Hermes, Pi, agy — all five ready), not just Claude,
+and drives two of them over a pipe as well (`claude-native`, `pi-native` — seven descriptor folders in all).
 One folder per backend — `index.js` (registry) + `claude/` (a **thin adapter**, and the one backend whose
 readers the core still imports directly instead of going through the descriptor) + a folder per Axis-B
 binary + the shared modules beside them (`file-store.js`, `resource-expand.js`, `capabilities.js`,
@@ -660,9 +661,12 @@ obey it.** Answer 1 — a NULL `backendId` on a row written before #161 was a Cl
 as the bare literal `|| 'claude'` in main-process code today: `src/main.js`, `src/app/terminal/spawn.js`,
 `src/index/index-worker-client.js`, `src/index/projects-view.js` (`grep -rn "|| 'claude'" src/` is the
 list; a count written here would be stale by the next split). Every one of them is answer 1 and is
-correct — what they are missing is the NAMED constant that `src/renderer/**` and
-`src/index/index-writes.js` bind it to (`LEGACY_SESSION_BACKEND` / `LEGACY_TEMPLATE_BASE`). Two things
-follow, and they pull in opposite directions on purpose:
+correct. The NAMED constant exists beside several of them already — `LEGACY_SESSION_BACKEND` is defined in
+`src/app/terminal/spawn.js`, `src/index/projects-view.js`, `src/index/index-writes.js`,
+`src/session/session-transitions.js` and the renderer's backend registry (`grep -rn
+"LEGACY_SESSION_BACKEND =" src/` is the list), with `LEGACY_TEMPLATE_BASE` for a template's base — and
+the bare literals still stand next to it in the first two and elsewhere. Two things follow, and they pull
+in opposite directions on purpose:
 
 - **Do not go replacing them as a drive-by.** Renaming them is a decision of its own; it is not a side
   effect of touching the line above one, and a diff that does it while doing something else is the shape

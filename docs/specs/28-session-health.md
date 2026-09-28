@@ -278,5 +278,7 @@ The rest err the other way, remove the fill, or are cosmetic:
 - **The `/model` picker's transcript form was not measured.** The reader treats any `/model` without an
   argument as clearing the spec.
 - **Hermes and agy** could get a fill if their stores ever expose per-turn input; both hooks decline today.
+- **Only Claude marks a fill from before a compaction** (#698). Whether Pi and Codex leave the sidebar on a
+  stale figure between a compaction and the next call is not measured; #703 tracks it.
 - The settings caches expire after five seconds, so a changed settings file shows on the next payload after
   that.

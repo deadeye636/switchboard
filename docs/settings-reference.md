@@ -258,7 +258,7 @@ The **order** of the saved variables (#676) is not a setting either: it is store
 | `tabDragReorder` | Reorder tabs by dragging | bool | `true` | global |
 | `tabAutoCloseMode` | Auto-close tab after a session exits | `never` \| `onSuccess` \| `always` | `always` | global |
 | `tabAutoCloseDelaySec` | Auto-close delay (seconds) | 0–120 | `5` | global |
-| `liveRenderBackground` | Live-render background sessions — *Advanced*. Parses a background session's output as it arrives instead of replaying it on switch; it does **not** change what is painted (a covered terminal is never drawn). Applies in **tabs and panes**, where every open terminal stays mounted; a grid card scrolled out of view always buffers, because it is not laid out (#339) | bool | `true` | global |
+| `liveRenderBackground` | Live-render background sessions — *Advanced*. Parses a background session's output as it arrives instead of replaying it on switch; it does **not** change what is painted (a covered terminal is never drawn). Applies in **panes** (and applied in the retired tabs mode, #357), where every open terminal stays mounted; a grid card scrolled out of view always buffers, because it is not laid out (#339) | bool | `true` | global |
 | `sidebarWidth` | (no UI — drag the divider) | px | `340` | **cascades** |
 | ~~`tabOrder`~~ | *removed in #385* | — | — | *it held the retired tabs strip's order; the strip is gone (#367) and panes keeps its arrangement in its layout tree. A migration takes the stored value out of the global blob* |
 | `windowBounds` | (no UI) | — | — | global; never exported |

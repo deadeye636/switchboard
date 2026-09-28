@@ -15,7 +15,8 @@ Is it a reflex needed everywhere? -> here, one line, with its consequence.
 ## What this is
 
 Switchboard — an Electron desktop app to browse, search, launch, and monitor coding-CLI sessions
-(Claude, Codex, Hermes, Pi, agy) across projects. `README.md` has the user-facing feature list.
+(Claude, Codex, Hermes, Pi, agy — Claude and Pi also driven over a pipe, without a terminal) across
+projects. `README.md` has the user-facing feature list.
 
 ## Read this first
 
@@ -41,6 +42,11 @@ table is the fallback and it is binding.
 | the handoff and plan commands offered INSIDE a CLI session (Pi prompt templates) | `docs/specs/29-agent-side-conventions.md` (why) + `.claude/rules/backends.md` (the prompt-templates hook trio) |
 | skills — the picker, a backend's skill invocation | `docs/specs/21-skills.md` |
 | the command palette | `docs/specs/23-command-palette.md` |
+| saved variables — the manager, a variable's insert, secrets | `docs/specs/12-saved-variables.md` |
+| session lineage — where a session came from, fork and continuation | `docs/specs/13-session-lineage.md` |
+| version-control status — the project glyph, the changes and diff windows | `docs/specs/15-vcs-status.md` (why) + `src/vcs/` (the seam) |
+| the editor's live markdown preview | `docs/specs/19-editor-live-preview.md` |
+| PDFs and other binary files in the viewer | `docs/specs/22-pdf-preview.md` |
 | a session with no terminal — a backend driven over a pipe, the conversation view | `docs/specs/30-pi-native.md` (why) + `.claude/rules/backends.md` (the driver/owner rule) + `.claude/rules/renderer.md` (the terminal-less entry) |
 | Claude driven over its stream-json pipe (`claude-native`) — the launch, the marker, approvals, questions and plans on cards | `docs/specs/32-claude-native.md` (why) + `.claude/rules/backends.md` (the `rpc` half's declarations) + `src/backends/claude-native/rpc-protocol.js` (the measured protocol, in its header) |
 | "Resources from" — a Pi session taking over another CLI's skills, commands, agents, MCP servers and hooks, a per-spawn extension section, a select whose choices the core fills | `docs/specs/31-resources-from.md` (why) + `.claude/rules/backends.md` (the declarations, sections not hook pairs) + `src/app/resource-sources.js` (the one resolver) |

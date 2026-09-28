@@ -150,7 +150,7 @@ Cheap guard on any reading that matters: have the page say which one it is — `
 only in the main window.
 
 ```
-node scripts/drive-app.js --target=settings shot settings.png   # the pop-out settings window
+node scripts/drive-app.js --target=settings shot settings.png   # the settings window
 node scripts/drive-app.js --target=changes eval "…"             # the changes window
 ```
 

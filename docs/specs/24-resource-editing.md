@@ -125,6 +125,7 @@ section exists to remove.
 A directory that has never existed cannot receive its first file: the listing only names directories that
 are there, so a project with no `.claude/skills/` at all is not a create target. It needs a `dirFor`
 answer on the scaffold, so the backend names the directory from its own store-override-resolved home.
+Tracked in #708.
 
 ## Tests
 
