@@ -35,7 +35,7 @@ in step.
 | E6 | The permission mode follows the usual cascade, global → project → session (`backendDefaults.claude-native`). Unset sends no `--permission-mode`, so Claude's own `defaultMode` applies. | An unset option describes what the CLI does anyway (`.claude/rules/backends.md`). |
 | E7 | One implementation per concept. What is not one CLI's is shared with pi-native. The backend keeps only its protocol translator, its launch and its marker. | See "Shared with pi-native, and what is not". |
 | E9 | The marker means "driven over the pipe at least once", as for Pi. | See "Who owns a row". |
-| E10 | Image input is in scope, through the same view code as pi-native's (#656). | Built in #662; see "Images". Paste and drop only, no file picker; the view refuses a format or size the backend does not declare, and a model that cannot read images gets the CLI's own error (owner, #662). |
+| E10 | Image input is in scope, through the same view code as pi-native's (#656). | Built in #662; see "Images". Paste and drop only, no file picker (a file that is not attached is named as `@<path>`, #699); the view refuses a format or size the backend does not declare, and a model that cannot read images gets the CLI's own error (owner, #662). |
 | E11 | No AFK timeout for a piped child, for now. | `CLAUDE_AFK_TIMEOUT_MS` is about a terminal left alone. |
 | E12 | A driver's store is read while the driver is on, even with its owner switched off. | Without it a new session never reached the sidebar with the owner off (#658). |
 | E14 | A stop waits only where the CLI needs time to finish its transcript. | Measured: a child killed the moment its `result` arrived had already written the turn's last line, so claude-native declares no `gracefulStopMs`. |
@@ -351,7 +351,8 @@ the input as a thumbnail with a × to take it back, and an image alone is a turn
   `src/backends/rpc-shared.js`: the formats and the per-image size Anthropic's Messages API documents (PNG,
   JPEG, GIF and WebP, 5 MB). The view refuses anything else before it is attached and says why, and
   `agent-rpc.js` checks the same declaration again on every turn, whoever sent it. A backend that declares
-  nothing takes no images, and the view says so when one is pasted. pi-native (#656) sends the images in
+  nothing takes no images, and the view says so when one is pasted. A refused image that has a place on
+  disk is named in the text instead (below, "Other files"). pi-native (#656) sends the images in
   Pi's `images` field and adds nothing else; spec 30 has its half.
 - **Where each image stands in the prompt (#688).** Attaching one types `[Image #n]` at the caret, the
   placeholder Claude Code's TUI uses, and its thumbnail carries the same number. The two are one thing:
@@ -372,13 +373,24 @@ the input as a thumbnail with a × to take it back, and an image alone is a turn
   draws the image block in the user's message, live and after a remount.
 - **A copy that carries text pastes only the text.** Excel and Word put a rendered picture of the selection
   on the clipboard beside the text, so attaching the image as well would add an unwanted thumbnail to every
-  paste of a few cells. An image is attached from a paste only when the clipboard holds no text.
+  paste of a few cells. That picture has no place on disk; a file copied in a file manager does, so a paste
+  holding a file with a path is taken as files whatever text rides along (#699).
 - **The size is counted on the encoded image**, the base64 text that goes over the pipe, by the view and by
   main alike. Whether the API's 5 MB counts the file or its encoding is not measured, and the stricter
   reading cannot let through an image the API then refuses; a file of about 3.75 MB is therefore the
   largest that attaches. There is no limit on how many images one turn carries: several large ones can
   still be refused by the API's limit on a whole request, and that answer comes back as the CLI's error.
-- **A drop that holds no image** says so rather than doing nothing.
+- **Other files are named, not attached (#699).** A pasted or dropped file that is not an image, and an
+  image the session refuses, is written into the text as `@<path>` (`@"…"` when the path holds a space), the
+  form the `@` completion writes and the one a terminal session gets as a bare path. Several files give
+  several references, in one insert after the image placeholders. The path comes from
+  `window.api.getPathForFile`; a file with none (a clipboard bitmap, an image dragged out of a browser) cannot
+  be named and the view says so. Measured on Windows: a file copied the way Explorer copies it (a file-drop
+  list on the clipboard) reaches the paste handler as a `Files` item with its path and no `text/plain`.
+  Claude reads the file the reference names into the turn; Pi does not, so
+  there the model reads it itself ("Shared with pi-native, and what is not" has the measurement). Until #699 a drop without an image
+  answered "Only images can be dropped into the conversation", a paste of a file did nothing, and the other
+  files of a mixed drop were left out without a word.
 
 ## Background tasks and session figures (#691)
 
@@ -574,6 +586,14 @@ any still pending, and a `!` shell line gets none (it is not a turn). Shared wit
 back the same way.
 
 ## Shared with pi-native, and what is not
+
+**An `@` path in the prompt is read by Claude and not by Pi** (measured on Claude Code 2.1.283 and Pi 0.85.1,
+#699). Over the stream-json pipe Claude attaches the file an `@<path>` names before the model sees the turn:
+with every file-reading tool disallowed, the model still quoted the content for all four forms tried, which
+were quoted absolute with backslashes (`@"…"`), bare absolute with backslashes, bare absolute with forward
+slashes, and relative to the session's directory. Pi passes the same text through unexpanded (spec 30, "The
+input completes as you type"). One composer therefore produces two outcomes: here the content is in the
+turn, and in pi-native the model has to read the file itself.
 
 **Shared**, one implementation each (E7):
 

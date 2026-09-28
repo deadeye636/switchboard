@@ -12,12 +12,19 @@ const { JSDOM } = require('jsdom');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'session', 'conversation-view.js'), 'utf8');
 
-function setup({ attachAnswer, imageInput, rightClick, clipboard = '' } = {}) {
+// How a file is named in the text (#699) — the completion's own helper, taken on its own so the list the
+// completion opens stays out of these tests.
+const { composerPathToken } = require('../src/renderer/session/composer-completion.js');
+
+// `diskPaths` maps a file NAME to the path `getPathForFile` answers for it; a file not in it has none, the
+// way a clipboard bitmap has none.
+function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths = {} } = {}) {
   const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>');
   const w = dom.window;
   const calls = { send: [], abort: 0, attach: 0, copied: [] };
   let resolveSend = null;
   w.api = {
+    getPathForFile: (f) => diskPaths[f.name] || '',
     readClipboard: () => Promise.resolve(clipboard),
     writeClipboard: (t) => { calls.copied.push(t); },
     onAgentEvent() {},
@@ -59,6 +66,7 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '' } = {}) {
     function sessionBackendId() { return 'b1'; }
     function getBackend() { return { id: 'b1', transport: 'rpc', imageInput: __imageInput }; }
   `, ctx);
+  ctx.composerPathToken = composerPathToken;
   vm.runInContext(SRC, ctx);
   const entry = vm.runInContext("createConversationEntry({ sessionId: 's1', projectPath: '/p' })", ctx);
   const input = entry.element.querySelector('.conversation-input');
@@ -243,20 +251,74 @@ test('a hand-typed [Image #n] is not reused, and a picker that overwrites a plac
   assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 0);
 });
 
-test('an image dropped on the conversation is attached; a drop without one says so', async () => {
-  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
-  const drop = (files) => {
-    const ev = new h.w.Event('drop', { bubbles: true, cancelable: true });
-    Object.defineProperty(ev, 'dataTransfer', { value: { types: ['Files'], files } });
-    h.input.dispatchEvent(ev);
-    return ev;
-  };
-  assert.equal(drop([new h.w.File(['x'], 'd.png', { type: 'image/png' })]).defaultPrevented, true);
+// #699: a file that is not attached is NAMED, the way a terminal session inserts its path. Paths invented.
+const NOTES = '/srv/invented/notes.txt';
+const SPACED = '/srv/invented/my docs/plan.md';
+const GIF = '/srv/invented/a.gif';
+function dropFiles(h, files) {
+  const ev = new h.w.Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'dataTransfer', { value: { types: ['Files'], files } });
+  h.input.dispatchEvent(ev);
+  return ev;
+}
+
+test('a dropped image is attached, and every other dropped file is named in the text', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 }, diskPaths: { 'notes.txt': NOTES, 'plan.md': SPACED } });
+  assert.equal(dropFiles(h, [new h.w.File(['x'], 'd.png', { type: 'image/png' })]).defaultPrevented, true);
   await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
-  drop([new h.w.File(['x'], 'notes.txt', { type: 'text/plain' })]);
-  await h.settle();
-  assert.match(h.entry.element.textContent, /Only images can be dropped/);
+  dropFiles(h, [new h.w.File(['x'], 'notes.txt', { type: 'text/plain' }), new h.w.File(['x'], 'plan.md', { type: '' })]);
+  await until(() => h.input.value.includes('@'));
+  assert.equal(h.input.value, `[Image #1] @${NOTES} @"${SPACED}" `, 'several files, several references; a space is quoted');
+  assert.doesNotMatch(h.entry.element.textContent, /Only images can be dropped/);
   assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 1);
+  assert.equal(h.calls.send.length, 0, 'a reference is inserted, not sent');
+});
+
+test('references keep the order the files were dropped in, refused images included', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 }, diskPaths: { 'a.gif': GIF, 'notes.txt': NOTES } });
+  dropFiles(h, [new h.w.File(['x'], 'a.gif', { type: 'image/gif' }), new h.w.File(['x'], 'notes.txt', { type: 'text/plain' })]);
+  await until(() => h.input.value.includes('@'));
+  assert.equal(h.input.value, `@${GIF} @${NOTES} `);
+});
+
+test('a mixed drop attaches the images and names the rest', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 }, diskPaths: { 'notes.txt': NOTES } });
+  dropFiles(h, [new h.w.File(['x'], 'd.png', { type: 'image/png' }), new h.w.File(['x'], 'notes.txt', { type: 'text/plain' })]);
+  await until(() => h.input.value.includes('@'));
+  assert.equal(h.input.value, `[Image #1] @${NOTES} `);
+  assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 1);
+});
+
+test('an image the session refuses is named instead when it has a path, and only refused when it has none', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 }, diskPaths: { 'a.gif': GIF } });
+  dropFiles(h, [new h.w.File(['x'], 'a.gif', { type: 'image/gif' })]);
+  await until(() => h.input.value.includes('@'));
+  assert.equal(h.input.value, `@${GIF} `);
+  assert.match(h.entry.element.textContent, /a\.gif was not attached: only PNG images can be sent here\. Its path was inserted instead\./);
+  const none = setup({ diskPaths: { 'a.gif': GIF } });
+  dropFiles(none, [new none.w.File(['x'], 'a.gif', { type: 'image/gif' })]);
+  await until(() => none.input.value.includes('@'));
+  assert.equal(none.input.value, `@${GIF} `, 'a session that takes no images still gets the name');
+  assert.match(none.entry.element.textContent, /this session does not take images\. Its path was inserted instead\./);
+});
+
+test('a copied file is named even when the copy carries text; a picture beside text is still only text', async () => {
+  const h = setup({ diskPaths: { 'notes.txt': NOTES } });
+  const ev = pasteImages(h, [new h.w.File(['x'], 'notes.txt', { type: 'text/plain' })], 'notes.txt');
+  assert.equal(ev.defaultPrevented, true, 'a file with a place on disk is a copy of files');
+  await until(() => h.input.value.includes('@'));
+  assert.equal(h.input.value, `@${NOTES} `);
+  const cells = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  const withText = pasteImages(cells, [new cells.w.File(['x'], 'cells.png', { type: 'image/png' })], 'a cell');
+  assert.equal(withText.defaultPrevented, false, 'a rendered picture has no path, so the text pastes as usual');
+});
+
+test('a dropped file with no path on disk is refused by name', async () => {
+  const h = setup();
+  dropFiles(h, [new h.w.File(['x'], 'ghost.txt', { type: 'text/plain' })]);
+  await until(() => /ghost\.txt/.test(h.entry.element.textContent));
+  assert.match(h.entry.element.textContent, /ghost\.txt could not be named: it has no path on disk\./);
+  assert.equal(h.input.value, '');
 });
 
 test('an image the session would refuse is refused before it is attached', async () => {

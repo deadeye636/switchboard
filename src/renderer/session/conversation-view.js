@@ -25,7 +25,8 @@
 // buildToolResultMap, renderToolUse, escapeHtml (jsonl/jsonl-viewer.js, shell), openSessions (app.js), matchShortcut
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
-// read when a view is built), showBranchTreeDialog (session/branch-tree-dialog.js, #646),
+// read when a view is built), composerPathToken (session/composer-completion.js, #699 — how a pasted or
+// dropped file is named), showBranchTreeDialog (session/branch-tree-dialog.js, #646),
 // clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
 // (terminal/terminal-context-menu.js, #690), and sessionHealthOptions (app.js, #691 — the handoff threshold
 // the context fill turns warm at).
@@ -813,40 +814,83 @@ function createConversationView(getSession, container) {
     reader.readAsDataURL(file);
   });
 
-  // Attach the image files among `files`, refusing up front what the session would refuse on send.
+  // --- Files pasted or dropped (#662, #699) ---
+  //
+  // What a terminal session does with the same file: an image the session takes is attached and stands in
+  // the text as `[Image #n]`; every other file — and an image the session refuses — is NAMED in the text as
+  // `@<path>`, the form the `@` completion writes, for the CLI (or the model) to read. Whether the content
+  // reaches the turn is the backend's: measured, Claude expands the reference and Pi does not (spec 32).
+  const isImageFile = (f) => !!(f && typeof f.type === 'string' && f.type.startsWith('image/'));
+  // The file's place on disk, or '' for one that has none — a bitmap from the clipboard, an image dragged out
+  // of a browser. Only such a file can be named.
+  function diskPathOf(file) {
+    try { return (window.api.getPathForFile && window.api.getPathForFile(file)) || ''; } catch { return ''; }
+  }
+
+  // Attach the image files among `files`, refusing up front what the session would refuse on send. Returns
+  // the refused ones that have a path, so the caller names them instead; a refusal says which happened.
   async function attachImages(files) {
-    const images = [...files].filter(f => f && typeof f.type === 'string' && f.type.startsWith('image/'));
-    if (!images.length || view.exited) return;
+    const images = [...files].filter(isImageFile);
+    const named = [];
+    if (!images.length || view.exited) return named;
+    const refuse = (file, why) => {
+      const name = file.name || 'Pasted image';
+      if (diskPathOf(file)) { named.push(file); notice('error', `${name} was not attached: ${why}. Its path was inserted instead.`); }
+      else notice('error', `${name} was not attached: ${why}.`);
+    };
     const policy = imagePolicy();
-    if (!policy) { notice('error', 'This session does not take images.'); return; }
+    if (!policy) {
+      for (const file of images) refuse(file, 'this session does not take images');
+      return named;
+    }
     const kinds = policy.types.map(t => t.replace(/^image\//, '').toUpperCase()).join(', ');
     const limit = `${Math.round(Number(policy.maxBytes) / (1024 * 1024))} MB`;
     for (const file of images) {
       const name = file.name || 'Pasted image';
-      if (!policy.types.includes(file.type)) { notice('error', `${name} was not attached: only ${kinds} images can be sent here.`); continue; }
+      if (!policy.types.includes(file.type)) { refuse(file, `only ${kinds} images can be sent here`); continue; }
       // The size the image will have as base64, which is what main checks (`imagesFor` in agent-rpc.js).
-      if (Math.ceil(file.size / 3) * 4 > Number(policy.maxBytes)) { notice('error', `${name} was not attached: it is too large (the limit is ${limit} encoded, about ${Math.round(Number(policy.maxBytes) * 3 / 4 / (1024 * 1024) * 10) / 10} MB as a file).`); continue; }
+      if (Math.ceil(file.size / 3) * 4 > Number(policy.maxBytes)) { refuse(file, `it is too large (the limit is ${limit} encoded, about ${Math.round(Number(policy.maxBytes) * 3 / 4 / (1024 * 1024) * 10) / 10} MB as a file)`); continue; }
       const url = await readAsDataUrl(file);
       const comma = url.indexOf(',');
-      if (comma < 0) { notice('error', `${name} could not be read.`); continue; }
+      if (comma < 0) { refuse(file, 'it could not be read'); continue; }
       const label = nextImageLabel();
       view.attachments.push({ mimeType: file.type, data: url.slice(comma + 1), name, url, label });
       insertAtCaret(label);
     }
     renderAttachments();
+    return named;
+  }
+
+  // Everything a paste or a drop hands over: images first, then one reference per file to be named, in one
+  // insert so they stand together. Several files, several references.
+  async function takeFiles(files) {
+    if (view.exited) return;
+    const list = [...files].filter(Boolean);
+    const refused = new Set(await attachImages(list));
+    const refs = [];
+    // In the order they were handed over, so the references read the way the files were picked.
+    for (const file of list.filter(f => !isImageFile(f) || refused.has(f))) {
+      const p = diskPathOf(file);
+      if (p) refs.push(composerPathToken(p));
+      else notice('error', `${file.name || 'The file'} could not be named: it has no path on disk.`);
+    }
+    if (refs.length) insertAtCaret(refs.join(' '));
+    // A write of the value fires no `input` event, so the suggestion's own clearing never runs.
+    if (view.suggestion && input.value) setSuggestion(null);
   }
 
   input.addEventListener('paste', (e) => {
     const data = e.clipboardData;
     if (!data) return;
-    const files = [...(data.items || [])].filter(i => i.kind === 'file' && /^image\//.test(i.type)).map(i => i.getAsFile()).filter(Boolean);
+    const files = [...(data.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean);
     if (!files.length) return;
     // A copy that carries text pastes the text and nothing else. Excel and Word put a rendered picture of the
     // selection on the clipboard beside the text, so attaching the image too would add an unwanted
-    // thumbnail to every paste of a few cells.
-    if (data.getData('text/plain')) return;
+    // thumbnail to every paste of a few cells. That picture has no place on disk; a file copied in a file
+    // manager does, so a copy holding one is a copy of files whatever text rides along.
+    if (data.getData('text/plain') && !files.some(diskPathOf)) return;
     e.preventDefault();
-    attachImages(files);
+    takeFiles(files);
   });
   // The right-click setting a terminal session follows (#690, Settings > Terminal, `terminalRightClick`),
   // read from the same variable `terminal/terminal-context-menu.js` keeps. Three modes mean something for plain
@@ -906,12 +950,8 @@ function createConversationView(getSession, container) {
     if (!draggingFiles(e) || view.exited) return;
     e.preventDefault();
     e.stopPropagation();
-    const files = [...(e.dataTransfer.files || [])];
-    if (files.length && !files.some(f => f && typeof f.type === 'string' && f.type.startsWith('image/'))) {
-      notice('error', 'Only images can be dropped into the conversation.');
-      return;
-    }
-    attachImages(files);
+    takeFiles([...(e.dataTransfer.files || [])]);
+    input.focus(); // what was dropped is in the text now, so the text is where the user goes on
   });
 
   function renderStatus() {

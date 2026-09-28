@@ -195,6 +195,8 @@ provider the session uses — and puts the images into its command. Whether the 
 is not checked up front: a model that cannot answers with Pi's own error. Pi's normaliser already drew an
 image block in a user message, so the history shows the image where it was sent. Measured in the demo: an
 image pasted into a pi-native session was described correctly by the model and drawn in the message.
+A file that is not an image, or an image the session refuses, is named in the text as `@<path>` instead
+(#699, spec 32, "Images"); Pi passes that text on unexpanded ("The input completes as you type").
 
 ## Approvals and tool rendering (step C)
 
@@ -625,6 +627,13 @@ before its path is resolved, because statting one holds it open for the life of 
 (`build-dirs.js`). Build output, dependencies and VCS stores are skipped, and hidden entries are offered only
 when the typed part starts with a dot. A path with a space is written `@"…"`, and completion carries on
 inside the open quote.
+
+**Pi does not expand an `@` path that arrives over RPC** (measured on Pi 0.85.1, #699). A `prompt` whose text
+names a file as `@<path>` — absolute or relative, backslashes or forward slashes, quoted or bare — reaches the
+model as that text and nothing more: with tools switched off the model saw no content in any of the four
+forms. Only `pi @file` on the command line attaches a file. So in this view the `@` path is a name the model
+reads with its own `read` tool, which is also what Pi's terminal completion inserts. The Claude pipe differs
+here (spec 32, "Shared with pi-native, and what is not").
 
 ## Another CLI's skills, commands, agents and MCP servers
 

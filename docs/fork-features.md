@@ -387,7 +387,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   function lives instead of going to the model as a prompt. The text field completes as you type: `/` lists
   Pi's commands, prompt templates and skills, `/model`, `/thinking`, `/login` and `/logout` list their
   arguments, and `@` lists the project's files. An image pasted or dropped into the conversation goes out
-  with the next turn (#656). Spec:
+  with the next turn (#656); any other file is named in the text as `@path`, which Pi passes on for the
+  model to read itself (#699). Spec:
   [`specs/30-pi-native.md`](specs/30-pi-native.md).
 - **Claude driven through its stream protocol (#653)** — `Claude (native)` starts the installed `claude` in
   print mode with stream-json on both sides, the protocol the Claude Agent SDK wraps, and draws the
@@ -396,7 +397,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   session, worded as what it allows, and "always allow in this project" where Claude suggests a rule for the
   project's local settings, which Claude then writes itself (#674). `AskUserQuestion` and `ExitPlanMode` arrive as a question card and a
   plan card. A text field sends, queues and steers turns, and Stop interrupts the turn without ending the
-  process. An image pasted or dropped into the conversation goes out with the next turn (#662); `/`
+  process. An image pasted or dropped into the conversation goes out with the next turn (#662), and any
+  other file is named as `@path`, which Claude reads into the turn (#699); `/`
   completes Claude's commands and skills, and `/clear` moves the tab to the new session. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
