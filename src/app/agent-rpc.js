@@ -248,6 +248,12 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     contextTimer: null,      // an ask of the fill scheduled during a turn (#697)
     contextAsked: 0,         // the number of the last ask of the fill sent, and of the last one applied —
     contextApplied: 0,       //   an answer older than one already drawn is dropped
+    // Prompts sent while a turn runs, held here rather than written to the runtime (#702), so each can still be
+    // withdrawn or taken back for editing: `{ id, text, images, at }`, oldest first. `heldPaused` is set by a
+    // Stop, after which they wait for the user instead of starting the next turn by themselves.
+    held: [],
+    heldPaused: false,
+    heldInFlight: false,     // a held prompt was written and its turn has not started yet — see flushHeld
   };
   // The tests shorten these; the app never passes them.
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
@@ -505,7 +511,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
           if (open) report('waiting', { prompt_kind: open.method });
         }
         sendOp(state, op);
-        if (!op.busy) { followIdentity(); followContext(); }
+        // Either edge ends a held prompt's flight: it started, or the turn it would have started is over.
+        state.heldInFlight = false;
+        // A paused queue that has run empty has nothing left to pause.
+        if (!op.busy && !state.held.length && state.heldPaused) { state.heldPaused = false; tellHeld(); }
+        if (!op.busy) { followIdentity(); followContext(); flushHeld(); }
         return;
       case 'suggestion':
         // A next prompt the runtime proposes (#693). Kept until a turn starts, so a view mounted meanwhile
@@ -676,6 +686,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
         flushPartial();
         sendOp(state, op);
         if (!state.asks.size) report(state.busy ? 'busy' : 'idle');
+        flushHeld();
         return;
       case 'identity':
         // The runtime announced the session it is on now. Nothing is drawn for it: the re-key tells the
@@ -763,6 +774,14 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     flushPartial();
     if (state.contextTimer) { clearTimeout(state.contextTimer); state.contextTimer = null; }
     dropAsks();
+    // Held prompts never reached the runtime: each goes back to the input rather than vanishing with the process.
+    // With their images, through the view's own take-back — they were never offered to the session, so the
+    // "did not take this message" of an `unsent` would be the wrong sentence.
+    const back = state.held.splice(0).map(h => ({ text: h.text, images: h.images || [] }));
+    state.heldPaused = false;
+    state.heldInFlight = false;
+    if (back.length) sendOp(state, { op: 'held-back', items: back });
+    sendOp(state, { op: 'held', items: [], paused: false });
     // A background task does not outlive the process that ran it; the sidebar stops counting it (#691).
     if (state.tasks.length) { state.tasks = []; announceBackground(state); }
     for (const [, waiting] of state.pending) { clearTimeout(waiting.timer); waiting.resolve({ success: false, error: 'exited' }); }
@@ -834,6 +853,46 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     });
   }
   state.send = send;
+
+  // THE HELD QUEUE (#702). A prompt sent while a turn runs is kept here instead of in the runtime's own queue,
+  // because once it is written it can be neither withdrawn nor edited. It goes out when the session is idle
+  // again and no question is open — one at a time, each as a turn of its own, which is what the runtime's queue
+  // did with it. A Stop pauses the queue (owner decision): the user stopped to look, so nothing starts by itself
+  // until they send a held prompt or a new one. What the view draws comes from here, so a view that mounts later
+  // or in another window shows the same queue.
+  function heldView() {
+    return { items: state.held.map(h => ({ id: h.id, text: h.text, images: h.images ? h.images.length : 0 })), paused: state.heldPaused };
+  }
+  function tellHeld() { sendOp(state, { op: 'held', ...heldView() }); }
+  //
+  // Three guards beyond "idle, not paused, no question open":
+  //   - one in flight at a time (`heldInFlight`): a runtime that acknowledges its turns turns busy only when
+  //     the turn starts, and until then a second flush would send the next prompt into a running turn, which
+  //     Pi refuses. Cleared by the next busy edge, or by the answer when it is a refusal.
+  //   - not while the runtime still owes a turn the core wrote as keys (`owed`, a trigger or a launcher): that
+  //     line runs first, and a flush on top would be counted against it.
+  //   - a refusal puts the prompt back at the head, images and all, and PAUSES the queue, so send now appears
+  //     instead of the rest sitting there with nothing to move them.
+  function flushHeld() {
+    if (state.exited || state.busy || state.heldPaused || state.heldInFlight || state.asks.size || !state.held.length) return;
+    if (rpc.sendAcknowledged === false && state.owed > 0) return;
+    const item = state.held.shift();
+    state.heldInFlight = true;
+    tellHeld();
+    send(item.images ? { text: item.text, mode: 'prompt', images: item.images } : { text: item.text, mode: 'prompt' }).then((res) => {
+      if (state.exited || (res && res.success !== false)) return;
+      // Not an answer that says no: the line is in the pipe and runs once it is read (see handBackIfRefused).
+      if (res && (res.error === 'not started' || res.error === 'no answer')) return;
+      state.heldInFlight = false;
+      state.held.unshift(item);
+      state.heldPaused = true;
+      tellHeld();
+      sendOp(state, { op: 'notice', level: 'error', text: 'The session did not take a queued prompt. It is back at the head of the queue, paused.' });
+    });
+  }
+  state.heldView = heldView;
+  state.tellHeld = tellHeld;
+  state.flushHeld = flushHeld;
 
   // Stopping takes the process TREE on Windows. Pi runs its tools as children of its own, and a plain kill
   // of the node process leaves a running `bash` behind with nobody to answer it.
@@ -908,11 +967,19 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
  * starts the next with nothing in between, and its transcript cannot be asked either: Claude Code keeps a
  * line queued with `priority: 'later'` in memory and writes its `enqueue` only as the turn before it ends
  * (measured) — after the "finished" this answer exists to hold. What it CAN count is what the core wrote.
+ *
+ * Prompts held here (#702) are owed turns too, for either kind of runtime: the idle edge that ends a turn is
+ * the moment the next one is written, so a "finished" announced then would be wrong a moment later. A paused
+ * queue owes nothing — it waits for the user.
  */
 function turnQueueOf(sessionId, sinceMs = 0) {
   const state = stateFor(sessionId);
-  if (!state || state.rpc.sendAcknowledged !== false) return null;
-  return { queued: state.owed, turnStarted: sinceMs > 0 && state.turnStartedAt > sinceMs };
+  if (!state) return null;
+  const held = state.heldPaused ? 0 : state.held.length;
+  if (state.rpc.sendAcknowledged !== false) {
+    return held ? { queued: held, turnStarted: sinceMs > 0 && state.turnStartedAt > sinceMs } : null;
+  }
+  return { queued: state.owed + held, turnStarted: sinceMs > 0 && state.turnStartedAt > sinceMs };
 }
 
 // --- IPC ---
@@ -945,6 +1012,7 @@ async function attach(sessionId) {
     partial: state.decoder.currentPartial(),
     busy: state.busy,
     queue: state.queue,
+    held: state.heldView(),
     asks: [...state.asks.values()],
     tasks: state.tasks,
     context: state.context,
@@ -1022,6 +1090,7 @@ async function attachFromTranscript(sessionId, state) {
     partial: state.decoder.currentPartial(),
     busy: state.busy,
     queue: state.queue,
+    held: state.heldView(),
     asks: [...state.asks.values()],
     tasks: state.tasks,
     context: state.context,
@@ -1079,6 +1148,16 @@ async function sendTurn(sessionId, payload) {
   const { images } = checked;
   if (!text.trim() && !images.length) return { ok: false, error: 'Nothing to send.' };
   const mode = SEND_MODES.has(payload && payload.mode) ? payload.mode : 'prompt';
+  // A prompt while a turn runs is held (#702) — and so is one behind prompts already waiting, so they keep their
+  // order. A queue paused by a Stop does not hold a new one: sending while idle means "now". A shell line is not
+  // a turn and runs beside one, so it is never held.
+  if (mode === 'prompt' && !/^\s*!/.test(text) && (state.busy || (state.held.length && !state.heldPaused))) {
+    const item = { id: crypto.randomUUID(), text, images: images.length ? images : null, at: Date.now() };
+    state.held.push(item);
+    state.tellHeld();
+    state.flushHeld();
+    return { ok: true, held: item.id };
+  }
   if (text.trim()) state.noteComposerLine(text);
   const res = await state.send(images.length ? { text, mode, images } : { text, mode });
   // A runtime's refusal is its own sentence about the request (Pi's "Agent is streaming…"), not a thrown
@@ -1102,11 +1181,42 @@ async function abortTurn(sessionId) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
   const stopsLine = state.localCommands.size > 0 && typeof state.rpc.shellAbortCommand === 'function';
+  // A Stop pauses the held prompts (#702, owner decision): they stay, and wait for the user. Set BEFORE the
+  // abort goes out — a runtime can settle the run before it answers the abort (Pi's does), and that idle edge
+  // would otherwise send the first held prompt on the very Stop meant to hold it. Also while the queue is
+  // still empty but a turn runs, so a prompt queued between the Stop and the turn's end waits too.
+  const pausedBefore = state.heldPaused;
+  if (state.held.length || state.busy) { state.heldPaused = true; state.tellHeld(); }
   const answers = [];
   if (stopsLine) answers.push(await state.request(state.rpc.shellAbortCommand));
   if (state.busy || !stopsLine) answers.push(await state.request(state.rpc.abortCommand));
   const failed = answers.find(res => !res || res.success === false);
+  if (failed && !pausedBefore) { state.heldPaused = false; state.tellHeld(); state.flushHeld(); }
   return failed ? { ok: false, error: 'The session did not stop.' } : { ok: true };
+}
+
+// A held prompt (#702): `withdraw` takes it out and hands its text and images back — for the view's edit, or
+// just to drop it — and `send` puts it first and lets the queue run again, at once when the session is idle.
+function heldAction(sessionId, action, id) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  const i = state.held.findIndex(h => h.id === String(id || ''));
+  if (i < 0) return { ok: false, error: 'That prompt has already been sent.' };
+  if (action === 'withdraw') {
+    const [item] = state.held.splice(i, 1);
+    if (!state.held.length) state.heldPaused = false;
+    state.tellHeld();
+    return { ok: true, text: item.text, images: item.images || [] };
+  }
+  if (action === 'send') {
+    const [item] = state.held.splice(i, 1);
+    state.held.unshift(item);
+    state.heldPaused = false;
+    state.tellHeld();
+    state.flushHeld();
+    return { ok: true };
+  }
+  return { ok: false, error: 'Unknown action.' };
 }
 
 // --- the branch tree (#646) ---
@@ -1186,6 +1296,8 @@ function answerAsk(sessionId, requestId, answer) {
   // a run hands the session back to the agent, and nothing else would say so until the run settles. A
   // question asked outside a run (an extension's own command) leaves the session idle once answered.
   if (ok && !state.asks.size) state.report(state.busy ? 'busy' : 'idle');
+  // A question answered while idle may have been all that held the queue back (#702).
+  if (ok) state.flushHeld();
   return ok ? { ok: true } : { ok: false, error: 'The session is not running.' };
 }
 
@@ -1277,6 +1389,7 @@ function registerIpc(ipc) {
   ipc.handle('agent-attach', (_event, sessionId) => attach(sessionId));
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
   ipc.handle('agent-abort', (_event, sessionId) => abortTurn(sessionId));
+  ipc.handle('agent-held', (_event, sessionId, action, id) => heldAction(sessionId, action, id));
   ipc.handle('agent-answer', (_event, sessionId, requestId, answer) => answerAsk(sessionId, requestId, answer));
   ipc.handle('agent-commands', (_event, sessionId) => listCommands(sessionId));
   ipc.handle('agent-arguments', (_event, sessionId, command) => completeArguments(sessionId, command));
@@ -1290,6 +1403,6 @@ module.exports = {
   turnQueueOf,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
-  stopTask, taskOutput, cycleMode,
+  stopTask, taskOutput, cycleMode, heldAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

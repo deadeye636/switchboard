@@ -103,6 +103,8 @@ test('images reach the runtime only as it declared it takes them', async (t) => 
   assert.equal(seen.length, 0, 'nothing refused was written');
   assert.deepEqual(await send({ text: '', images: [{ mimeType: 'image/png', data: PNG }] }), { ok: true }, 'an image alone is a turn');
   assert.deepEqual(seen[0].images, [{ mimeType: 'image/png', data: PNG }]);
+  // Sent once that turn is over: a prompt sent while it runs is held (#702), which is its own test below.
+  await until(() => !h.proc._agent.busy);
   await send({ text: 'plain' });
   assert.equal(seen[1].images, undefined, 'a turn without images carries none');
 });
@@ -122,6 +124,95 @@ test('a line written while a turn runs does not start a second busy edge', async
   assert.deepEqual(await agentRpc.sendTurn('launch-id', { text: 'steer', mode: 'steer' }), { ok: true });
   await until(() => h.signals.some((s) => s.kind === 'idle'));
   assert.deepEqual(h.signals.map((s) => s.kind), ['idle'], 'only the stream ended it; the write added no busy');
+});
+
+// #702: a prompt sent while a turn runs is held by the core, not written, so it can be withdrawn or taken back.
+test('a prompt sent during a turn is held, then sent when the turn ends, one per turn', async (t) => {
+  const seen = [];
+  const h = streamHarness(t, { rpc: { sendCommand: (args) => { seen.push(args.text); return { type: 'user', text: args.text }; } } });
+  t.after(() => stopped(h));
+  const state = h.proc._agent;
+  state.busy = true;   // a turn is running
+  const first = await agentRpc.sendTurn('launch-id', { text: 'next one', mode: 'prompt' });
+  const second = await agentRpc.sendTurn('launch-id', { text: 'after that', mode: 'prompt' });
+  assert.ok(first.ok && first.held && second.held, 'both held');
+  assert.deepEqual(seen, [], 'nothing written while the turn runs');
+  const lastHeld = () => ops(h).filter((o) => o.op === 'held').pop();
+  assert.deepEqual(lastHeld().items.map((i) => i.text), ['next one', 'after that']);
+  assert.deepEqual(agentRpc.turnQueueOf('launch-id').queued, 2, 'held prompts are owed turns');
+  // The steer is not held: it goes into the running turn. The fake answers it with a result, which ends the
+  // turn — and each ending sends the next held prompt, in order, one turn each.
+  await agentRpc.sendTurn('launch-id', { text: 'steer now', mode: 'steer' });
+  await until(() => seen.includes('after that'));
+  assert.deepEqual(seen, ['steer now', 'next one', 'after that']);
+  assert.deepEqual(lastHeld().items, [], 'the queue is empty again');
+});
+
+test('a held prompt can be withdrawn with its text, and a Stop pauses the rest until one is sent (#702)', async (t) => {
+  const seen = [];
+  const h = streamHarness(t, { rpc: { sendCommand: (args) => { seen.push(args.text); return { type: 'user', text: args.text }; } } });
+  t.after(() => stopped(h));
+  const state = h.proc._agent;
+  state.busy = true;
+  const a = await agentRpc.sendTurn('launch-id', { text: 'keep me', mode: 'prompt' });
+  const b = await agentRpc.sendTurn('launch-id', { text: 'rework me', mode: 'prompt' });
+  const taken = await agentRpc.heldAction('launch-id', 'withdraw', b.held);
+  assert.deepEqual(taken, { ok: true, text: 'rework me', images: [] });
+  assert.equal((await agentRpc.heldAction('launch-id', 'withdraw', b.held)).ok, false, 'gone once taken');
+  // Stop: the turn ends, and the held prompt waits instead of starting the next turn.
+  await agentRpc.abortTurn('launch-id');
+  assert.equal(state.heldPaused, true);
+  // The fake answers an interrupt without a result, so the stopped turn's end is played here as a settle.
+  state.busy = true;
+  await agentRpc.sendTurn('launch-id', { text: 'end it', mode: 'steer' });
+  await until(() => !state.busy);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.ok(!seen.includes('keep me'), 'a paused queue sends nothing by itself');
+  assert.equal(agentRpc.turnQueueOf('launch-id').queued, 0, 'a paused queue owes no turn');
+  // A new prompt while paused and idle goes at once; the held one still waits.
+  await agentRpc.sendTurn('launch-id', { text: 'fresh', mode: 'prompt' });
+  assert.ok(seen.includes('fresh') && !seen.includes('keep me'));
+  await until(() => !state.busy);
+  assert.deepEqual(await agentRpc.heldAction('launch-id', 'send', a.held), { ok: true });
+  await until(() => seen.includes('keep me'));
+});
+
+// Verifier finding on #702: the pause has to be set before the abort goes out. A runtime that settles the run
+// before it answers the abort (Pi's does) would otherwise send the first held prompt on the Stop itself.
+test('a Stop pauses the held prompts before the abort goes out, so an early idle edge sends nothing (#702)', async (t) => {
+  const seen = [];
+  const h = streamHarness(t, { rpc: { sendCommand: (args) => { seen.push(args.text); return { type: 'user', text: args.text }; } } });
+  t.after(() => stopped(h));
+  const state = h.proc._agent;
+  state.busy = true;
+  await agentRpc.sendTurn('launch-id', { text: 'wait for me', mode: 'prompt' });
+  const stopping = agentRpc.abortTurn('launch-id');
+  assert.equal(state.heldPaused, true, 'paused at once, before any answer');
+  // The run settles before the abort's answer is read: the fake ends a turn on any user line.
+  await agentRpc.sendTurn('launch-id', { text: 'settle', mode: 'steer' });
+  await until(() => !state.busy);
+  await stopping;
+  await new Promise((r) => setTimeout(r, 100));
+  assert.ok(!seen.includes('wait for me'), 'the held prompt waited');
+});
+
+// Verifier finding on #702: a runtime that acknowledges its turns turns busy only when the turn starts, so a
+// second flush before that would send the next held prompt into a running turn.
+test('only one held prompt is in flight until its turn starts (#702)', async (t) => {
+  const seen = [];
+  const h = streamHarness(t, { rpc: { sendAcknowledged: true, sendCommand: ({ id, text }) => { seen.push(text); return { type: 'user', request_id: id, text }; } } });
+  t.after(() => stopped(h));
+  const state = h.proc._agent;
+  state.busy = true;
+  await agentRpc.sendTurn('launch-id', { text: 'A', mode: 'prompt' });
+  await agentRpc.sendTurn('launch-id', { text: 'B', mode: 'prompt' });
+  state.busy = false;
+  state.flushHeld();
+  state.flushHeld();
+  // A third prompt sent before A's turn has started joins the queue behind B instead of pulling B out.
+  await agentRpc.sendTurn('launch-id', { text: 'C', mode: 'prompt' });
+  assert.deepEqual(seen, ['A']);
+  assert.deepEqual(state.held.map((x) => x.text), ['B', 'C']);
 });
 
 test('a move the runtime announces re-keys the session through the shared re-key', async (t) => {

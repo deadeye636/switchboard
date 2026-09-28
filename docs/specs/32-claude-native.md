@@ -151,7 +151,7 @@ calls):
 | View | Line | What Claude does |
 |---|---|---|
 | Send, idle | no `priority` | runs the turn |
-| Queue (Enter while a turn runs) | no `priority` | queues the line and runs it as its own turn after the running one ends |
+| Queue (Enter while a turn runs) | held by the app, then no `priority` | nothing until the running turn ends (#702, below); then it runs as its own turn |
 | Steer (Ctrl+Enter while a turn runs) | `priority: 'next'` | injects the line into the running turn at its next tool boundary; the turn ends in one `result` |
 
 The protocol's `follow_up` mode maps to `priority: 'later'`, which queues the same way. The view sends
@@ -170,6 +170,24 @@ Stop sends an `interrupt` control request. The process stays, and the running tu
 hears the lines the core writes (`noteSent`) and draws that result as "Stopped." only when a Stop went out
 before it. A queued `later` line survives a Stop and runs right after (measured); a queued line without a
 priority was not measured against a Stop.
+
+**The app holds the queue (#702).** Once a line is written, Claude owns it: it cannot be withdrawn or
+edited, and nothing in the protocol was measured to take one back. So a prompt sent while a turn runs is not
+written. `src/app/agent-rpc.js` holds it (`held`, per session, so a view mounted later or in another window
+shows the same list) and writes the first one when the session is idle again and no question is open, one
+per turn, in order. The view draws each held prompt with **edit** (back into the input, after what is
+typed there, its images attached again under fresh numbers) and **×** (withdraw). A Stop pauses the held
+prompts (owner decision): they stay, show **send now**, and start nothing by themselves; a new prompt sent
+while paused and idle goes at once. The pause is set before the abort goes out, and also while the queue is
+still empty, because a runtime may settle the run before it answers the abort (Pi's does) and a prompt may
+be queued between the Stop and the turn's end. Only one held prompt is in flight at a time: a runtime that
+acknowledges its turns turns busy only when the turn starts, and a second flush before that would land in a
+running turn. A held prompt the runtime refuses goes back to the head of the queue, images and all, and
+pauses it. While the core still owes a turn it wrote as keys (a trigger, a launcher), nothing is flushed
+over it. Held prompts that never went out come back to the input, with their images, if the process ends.
+A steer is never held, and neither is a `!` shell line. The turn-hold counts held prompts as owed turns
+unless the queue is paused. This applies to pi-native too, whose own follow-up queue the view no longer
+feeds.
 
 ### Identity
 

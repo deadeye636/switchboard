@@ -319,6 +319,8 @@ contextBridge.exposeInMainWorld('api', {
     attach: (id) => ipcRenderer.invoke('agent-attach', id),
     send: (id, payload) => ipcRenderer.invoke('agent-send', id, payload),
     abort: (id) => ipcRenderer.invoke('agent-abort', id),
+    // A prompt held while a turn runs (#702): 'withdraw' takes it back (its text and images), 'send' sends it next.
+    held: (id, action, heldId) => ipcRenderer.invoke('agent-held', id, action, heldId),
     answer: (id, requestId, answer) => ipcRenderer.invoke('agent-answer', id, requestId, answer),
     // The input's autocomplete (#643): what a `/` completes to, one command's arguments, and an `@` path.
     commands: (id) => ipcRenderer.invoke('agent-commands', id),

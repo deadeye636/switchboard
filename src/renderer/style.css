@@ -3237,6 +3237,9 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 .conversation-pending-tag {
   display: block; margin-top: 4px; font-size: 11px; font-style: italic; color: #9090a8;
 }
+/* A prompt held while a turn runs (#702): dimmed like a pending one, but less, since it carries controls. */
+.conversation-pending.conversation-held { opacity: 0.8; }
+.conversation-held-actions { display: inline-flex; gap: 12px; margin-left: 12px; font-style: normal; }
 /* A suggested next prompt in the empty input (#693): the placeholder, a shade brighter than the usual hint. */
 .conversation-input.has-suggestion::placeholder { color: #9aa0c8; font-style: italic; }
 /* The call a background agent's "Open" jumped to, marked for a moment. */

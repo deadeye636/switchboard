@@ -158,10 +158,11 @@ Everything here was measured against Pi 0.84.4. Later Pi versions were not re-me
 ## Input (step B)
 
 The view has a text field, not a terminal. Enter sends a turn. While the agent is working, the turn is
-**queued** as a follow-up, because Pi refuses a `prompt` that arrives mid-run unless it is told what to do
-with it. That choice is made in the main process against the session's own busy state, not in the window,
-which hears about a settled run one op later and could otherwise queue a message behind a run that has
-already ended. Ctrl+Enter (Cmd+Enter on macOS) **steers** the running turn: Pi delivers the message after the
+**queued**. Since #702 the main process holds it rather than handing it to Pi as a follow-up, so it can
+still be withdrawn or taken back for editing; it is sent as an ordinary prompt once the run settles, one per
+run (spec 32, "The app holds the queue"). That choice is made in the main process against the session's own
+busy state, not in the window, which hears about a settled run one op later and could otherwise queue a
+message behind a run that has already ended. Ctrl+Enter (Cmd+Enter on macOS) **steers** the running turn: Pi delivers the message after the
 current tool calls and before the next model call. Escape and the Stop button abort. The buttons follow
 the state: Send when idle, and Queue, Steer and Stop while a turn runs.
 

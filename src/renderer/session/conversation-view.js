@@ -97,6 +97,10 @@ function createConversationView(getSession, container) {
   const pendingEl = document.createElement('div');
   pendingEl.className = 'conversation-pending-sends';
   log.appendChild(pendingEl);
+  // Prompts main holds while a turn runs (#702), after the ones already on their way.
+  const heldEl = document.createElement('div');
+  heldEl.className = 'conversation-held-prompts';
+  log.appendChild(heldEl);
 
   const composer = document.createElement('div');
   composer.className = 'conversation-composer';
@@ -180,6 +184,7 @@ function createConversationView(getSession, container) {
     busySince: null,         // when the running turn began, for its elapsed time; null when not known (#691)
     suggestion: null,        // the next prompt the runtime proposed, offered in the empty input (#693)
     pendingSends: [],        // messages sent from here that the runtime has not played back yet: { text, el, at } (#694)
+    heldPrompts: { items: [], paused: false }, // prompts main holds while a turn runs: { id, text, images } (#702)
     tasks: [],               // what runs in the background: { id, kind, description, detail, toolUseId, startedAt } (#691)
     context: null,           // { percent, tokens, window, model } as the backend last read them (#691)
     mode: null,              // the permission mode, { id, label, symbol, tone } in the backend's words (#696)
@@ -288,6 +293,75 @@ function createConversationView(getSession, container) {
     toEnd();
     return p;
   }
+  // The held prompts (#702), each with what can be done to it: taken back into the input to rework it, or
+  // withdrawn. After a Stop the queue waits for the user, and each prompt can be sent from here.
+  function renderHeld() {
+    heldEl.replaceChildren();
+    const { items, paused } = view.heldPrompts;
+    for (const item of items) {
+      const el = renderJsonlEntry({ type: 'user', message: { role: 'user', content: item.text } }, new Map());
+      if (!el) continue;
+      el.classList.add('conversation-pending', 'conversation-held');
+      el.dataset.heldId = item.id;
+      const tag = document.createElement('span');
+      tag.className = 'conversation-pending-tag';
+      tag.textContent = (paused ? 'queued · paused' : 'queued') + (item.images ? ` · ${item.images} image${item.images === 1 ? '' : 's'}` : '');
+      const actions = document.createElement('span');
+      actions.className = 'conversation-held-actions';
+      const act = (action, label, title) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'task-notice-output';
+        b.dataset.heldAction = action;
+        b.textContent = label;
+        b.title = title;
+        actions.appendChild(b);
+      };
+      if (paused) act('send', 'send now', 'Send this prompt now');
+      act('edit', 'edit', 'Take it back into the input to rework it');
+      act('withdraw', '×', 'Withdraw this prompt');
+      tag.appendChild(actions);
+      el.appendChild(tag);
+      heldEl.appendChild(el);
+    }
+    if (items.length) toEnd();
+  }
+  heldEl.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-held-action]');
+    const row = btn && btn.closest('[data-held-id]');
+    if (!row) return;
+    const action = btn.dataset.heldAction;
+    // One press, one request: a second click on the same row while the first is out would only be told the
+    // prompt is gone.
+    if (row.dataset.busy) return;
+    row.dataset.busy = '1';
+    let res;
+    try { res = await window.api.agent.held(view.session.sessionId, action === 'send' ? 'send' : 'withdraw', row.dataset.heldId); } catch { res = null; }
+    delete row.dataset.busy;
+    if (!res || !res.ok) { notice('error', (res && res.error) || 'The prompt could not be changed.'); return; }
+    if (action === 'edit') takeBackHeld(res.text || '', res.images || []);
+  });
+  // A held prompt back in the input: appended after what is typed there, with its images attached again under
+  // fresh numbers — the numbers it was written with may now belong to images already in the input.
+  function takeBackHeld(text, images) {
+    // The labels to hand out, one per image, taken before any is attached so none repeats.
+    const labels = [];
+    for (const img of images) {
+      if (!img || !img.mimeType || !img.data) continue;
+      const label = nextImageLabel();
+      view.attachments.push({ mimeType: img.mimeType, data: img.data, name: 'Image', url: `data:${img.mimeType};base64,${img.data}`, label });
+      labels.push(label);
+    }
+    // The n-th placeholder in the text is the n-th image (#688); one without a placeholder is added at the end.
+    let next = 0;
+    let body = String(text || '').replace(/\[Image #\d+\]/g, (m) => (next < labels.length ? labels[next++] : m));
+    while (next < labels.length) body += (body ? ' ' : '') + labels[next++];
+    input.value = input.value.trim() ? `${input.value.replace(/\s+$/, '')}\n${body}` : body;
+    renderAttachments();
+    renderComposer();
+    input.focus();
+  }
+
   function dropPendingSend(p) {
     if (!p) return;
     p.el.remove();
@@ -455,7 +529,7 @@ function createConversationView(getSession, container) {
     let res;
     try { res = await window.api.agent.send(view.session.sessionId, payload); } catch { res = null; }
     sending = false;
-    if (!(res && res.ok)) dropPendingSend(pending);
+    if (!(res && res.ok) || (res && res.held)) dropPendingSend(pending);
     if (res && res.ok) {
       // Only what was sent is taken away — something typed while the send was in flight stays, and so does
       // an image attached meanwhile.
@@ -1509,6 +1583,14 @@ function createConversationView(getSession, container) {
       case 'context': view.context = op.context || null; renderStatus(); break;
       case 'mode': view.mode = op.mode || null; renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
+      case 'held': view.heldPrompts = { items: Array.isArray(op.items) ? op.items : [], paused: !!op.paused }; renderHeld(); break;
+      case 'held-back': {
+        // The session ended with prompts still held (#702): each back into the input, images included.
+        const items = Array.isArray(op.items) ? op.items : [];
+        for (const item of items) takeBackHeld(item.text || '', item.images || []);
+        if (items.length) notice('info', `The session ended before ${items.length === 1 ? 'a queued prompt was' : `${items.length} queued prompts were`} sent. ${items.length === 1 ? 'It is' : 'They are'} back in the input.`);
+        break;
+      }
       case 'notice': notice(op.level, op.text, op.links, op.files); break;
       case 'localCommand': localCommand(op); break;
       case 'unsent': unsent(op.text); break;
@@ -1600,6 +1682,8 @@ function createConversationView(getSession, container) {
     renderPartial();
     view.busy = !!res.busy;
     view.queue = res.queue || { steering: [], followUp: [] };
+    view.heldPrompts = res.held && Array.isArray(res.held.items) ? { items: res.held.items, paused: !!res.held.paused } : { items: [], paused: false };
+    renderHeld();
     view.tasks = Array.isArray(res.tasks) ? res.tasks : [];
     view.context = res.context || null;
     view.mode = res.mode || null;
