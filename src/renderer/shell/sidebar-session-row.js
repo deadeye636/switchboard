@@ -19,7 +19,7 @@
 // What it reaches back into sidebar.js for: `getSessionRuntimeState`, and nothing else. Everything else
 // it needs comes from app.js's maps (activePtyIds, attentionSessions, responseReadySessions,
 // sessionBusyState, subagentActiveSessions, lastActivityTime) and its `backgroundTaskCountFor` (#691), the UMD helpers (getSessionStatus,
-// getSessionHealth, getQuietDetailParts, getWorktreeLabel, ariaButton), `ICONS`, the backend
+// getSessionHealth, getQuietDetailParts, contextFillNote, getWorktreeLabel, ariaButton), `ICONS`, the backend
 // registry, and `sessionViewOf` / `sessionIsDormant` from dialogs/dialogs.js (#670, the view of an
 // owner/driver pair; both rest on `viewPairFor`, which the Resume dialog asks too) — all at call time, from a render. (The row's click/keyboard activation is delegated to a
 // single listener on sidebarContent in sidebar-events.js — #218 opt6 — so this only sets the ARIA state.)
@@ -315,6 +315,9 @@ function buildSessionItem(session, opts = {}) {
     const quietLine = document.createElement('div');
     quietLine.className = 'session-quiet-details';
     quietLine.textContent = quietParts.join(' · ');
+    // A fill from before a compaction explains itself on hover (#698); the text already says it is one.
+    const fillNote = showContextFill && typeof contextFillNote === 'function' ? contextFillNote(session) : '';
+    if (fillNote) quietLine.title = fillNote;
     detailEl.appendChild(quietLine);
   }
 

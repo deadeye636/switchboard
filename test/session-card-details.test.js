@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   getWorktreeLabel,
   contextFillLabel,
+  contextFillNote,
   getSessionMetricLabels,
   getQuietDetailParts,
   getMetricTrafficLevel,
@@ -79,6 +80,14 @@ test('the context fill is left out when switched off, or when the backend measur
   assert.equal(contextFillLabel({ contextFill: { usedTokens: 5, windowTokens: 0, percent: 0 } }), '', 'no window, no number');
   assert.equal(contextFillLabel({ contextFill: { usedTokens: 240000, windowTokens: 200000, percent: 120 } }), '120 % context',
     'a fill past the window after a switch to a smaller one is shown as it is');
+});
+
+test('a fill from before a compaction says so in the text, and explains itself in a note (#698)', () => {
+  const compacted = { contextFill: { usedTokens: 67822, windowTokens: 200000, percent: 34, compacted: true } };
+  assert.equal(contextFillLabel(compacted), '34 % context before compaction');
+  assert.match(contextFillNote(compacted), /compacted after its last turn/);
+  assert.equal(contextFillNote({ contextFill: { usedTokens: 67822, windowTokens: 200000, percent: 34 } }), '', 'no note on an ordinary fill');
+  assert.equal(contextFillNote({ contextFill: null }), '');
 });
 
 test('getMetricTrafficLevel grades individual metrics independently', () => {

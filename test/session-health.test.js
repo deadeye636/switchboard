@@ -112,6 +112,14 @@ test('the fill alone decides a handoff — no minimum number of turns, no other 
   assert.deepEqual(result.reasons.map(reason => reason.key), ['context-fill']);
 });
 
+test('a fill from before a compaction raises no handoff, and the old metrics still judge (#698)', () => {
+  const compacted = { ...fill(95), compacted: true };
+  assert.equal(getSessionHealth({ sessionId: 'c', userMessageCount: 1, contextFill: compacted }).state, 'healthy');
+  const long = getSessionHealth({ sessionId: 'c', ...LONG_SESSION, contextFill: compacted });
+  assert.equal(long.state, 'marathon-risk');
+  assert.ok(!long.reasons.some(reason => reason.key === 'context-fill'), 'the stale figure is not given as a reason');
+});
+
 test('the threshold is the caller\'s setting, and an invalid one falls back to 80', () => {
   const session = { sessionId: 's', contextFill: fill(70) };
   assert.equal(getSessionHealth(session).state, 'healthy', 'default 80: 70 % is below it');

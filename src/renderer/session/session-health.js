@@ -118,7 +118,7 @@
    *     thresholds alone are exactly what flagged a session with three quarters of its window free.
    *   - Handoff Recommended comes from the fill alone: the last turn's input against the model's window,
    *     at or above the global threshold (E1). No minimum number of turns — the fill measures the thing
-   *     a turn count stood in for.
+   *     a turn count stood in for. A fill from before a compaction (`fill.compacted`, #698) raises none.
    *   - The old thresholds stay, and on their own they raise Marathon Risk at most (E2); Growing is unchanged.
    *
    * `options.handoffPercent` is the global setting, passed in by the caller; absent or invalid means the default.
@@ -134,7 +134,9 @@
 
     const reasons = healthReasons(session);
     const percent = numberValue(fill.percent);
-    if (percent >= handoffPercent(options)) {
+    // A fill from before a compaction is not a reason to hand off (#698): the compaction has just freed the
+    // window, and the figure is only what it held before.
+    if (!fill.compacted && percent >= handoffPercent(options)) {
       const fillReason = { key: 'context-fill', label: `${Math.round(percent)} % of the context window used` };
       return { ...HEALTH_STATES.handoffRecommended, reasons: [fillReason, ...reasons] };
     }

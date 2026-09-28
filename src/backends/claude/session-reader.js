@@ -33,7 +33,9 @@ const { transportFromEntry } = require('./transport-marker');
 //       writes the switch at once, and the running request's entries land after it.
 //   v11: the row carries `transport` — whether the session was ever driven over the stream pipe, from the
 //        `entrypoint` the driver sets (./transport-marker.js, #658). Existing rows were read without it.
-const PARSER_SCHEMA_VERSION = 11; // v11: row.transport from the entrypoint marker — #658
+//   v12: the row says whether a compaction came after the last usage record (#698), so the fill it carries is
+//        the one from before. A finished session that ended on a compaction would never say so without it.
+const PARSER_SCHEMA_VERSION = 12; // v12: row.compactedSinceLastTurn — #698
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -330,6 +332,11 @@ function createParseState() {
     // about how full the window is. A record whose input is zero is skipped — measured on Codex and Pi
     // after a compaction and on an aborted turn — or one empty record would read as an empty window.
     lastInputTokens: 0,
+    // Whether a compaction came AFTER that record (#698). A compaction writes a `compact_boundary` line and no
+    // usage line, so until the next API call the record above is the fill from before it. The boundary's own
+    // `postTokens` is not the fill either: it counts only the kept conversation, 44k to 80k below the next
+    // call's input (measured, spec 28). The next usage record clears it.
+    compactedSinceLastTurn: false,
     lastModel: null,
     // The argument of the last `/model <spec>` the user typed (#620). `message.model` never carries the
     // `[1m]` variant, and whether a model runs at 200k or 1M can depend on it; the argument does carry it.
@@ -431,6 +438,9 @@ function applyEntryLine(st, line) {
     const input = turnInputTokens(entry.message.usage);
     if (input > 0) {
       st.lastInputTokens = input;
+      // Cleared by whichever record `lastInputTokens` takes, a sidechain one included: the mark describes that
+      // figure, so it follows the figure. Which records the figure should take is a question of its own.
+      st.compactedSinceLastTurn = false;
       st.lastModel = entry.message.model || null;
       // A sidechain entry in the main transcript is a subagent's request, not a change of the session's model,
       // and nothing inside the turn the switch was typed in is one either.
@@ -444,6 +454,11 @@ function applyEntryLine(st, line) {
   if (entry.type === 'system' && entry.subtype === 'turn_duration') {
     st.turnOpen = false;
     st.specWaitsForTurnEnd = false;
+  }
+  // Manual and automatic compactions write the same line (measured on 2.1.251–2.1.283). A sidechain's compaction
+  // is a subagent's and says nothing about the session's window.
+  if (entry.type === 'system' && entry.subtype === 'compact_boundary' && !entry.isSidechain && st.lastInputTokens > 0) {
+    st.compactedSinceLastTurn = true;
   }
   if (entry.type === 'user' || entry.type === 'assistant' ||
       (entry.type === 'message' && (entry.role === 'user' || entry.role === 'assistant'))) {
@@ -557,6 +572,7 @@ function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMet
     ...st.usageTotals,
     // The last turn's context and the model it ran on (#620).
     lastInputTokens: st.lastInputTokens || 0,
+    compactedSinceLastTurn: !!st.compactedSinceLastTurn,
     lastModel: st.lastModel || null,
     lastModelSpec: st.lastModelSpec || null,
     // Fork lineage (#193): expose the RAW origin id. The Claude descriptor's resolveLineage turns it into

@@ -87,6 +87,10 @@ function commandOpenerFor(row) {
  *
  * `percent` is NOT capped: after a `/model` switch to a smaller window the fill can pass 100 %, exactly as
  * the CLI's own status line shows it, and whoever draws or judges it decides what that means.
+ *
+ * `compacted` says the figure is from BEFORE a compaction (#698): the reader saw a compaction after the last
+ * usage record, and the fill after it is unknown until the next API call. The figure is kept, not dropped,
+ * and the renderer says what it is; a stale high figure must not raise a handoff badge.
  */
 function contextFillFor(row, envFor, launchOptionsFor) {
   if (!row || row.parentSessionId) return null;
@@ -101,7 +105,9 @@ function contextFillFor(row, envFor, launchOptionsFor) {
   } catch { return null; }
   const windowTokens = answer ? Number(answer.windowTokens) : 0;
   if (!(windowTokens > 0)) return null;
-  return { usedTokens, windowTokens, percent: Math.round((usedTokens / windowTokens) * 100) };
+  const fill = { usedTokens, windowTokens, percent: Math.round((usedTokens / windowTokens) * 100) };
+  if (Number(row.compactedSinceLastTurn) === 1 || row.compactedSinceLastTurn === true) fill.compacted = true;
+  return fill;
 }
 
 function newerOf(a, b) {

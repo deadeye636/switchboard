@@ -67,7 +67,17 @@ prompt, the tools and the re-injected context:
 On the main thread `preTokens` matched the last usage record before the boundary within 1 %; on the one
 sidechain it did not (164 925 against 132 540). The difference between
 `postTokens` and the next call ran from 44k to 80k, so the fill after a compaction cannot be read from the
-boundary line alone. How the sidebar handles the gap is open in #698.
+boundary line alone.
+
+**So the fill is marked, not replaced (#698, route A).** Claude's reader sets `compactedSinceLastTurn` when a
+main-thread `compact_boundary` follows the last usage record, and the next usage record clears it (parser v12,
+stored in `session_cache.compactedSinceLastTurn`). `contextFillFor` then adds `compacted: true` to the fill.
+The sidebar keeps the figure and says what it is: "34 % context before compaction", with a tooltip on the
+detail line saying it updates with the next reply. A marked fill raises no Handoff Recommended, because the
+compaction has just freed the window; the other thresholds still judge. Estimating the fill from `postTokens`
+plus a baseline (route B) was rejected for the spread above. Taking the runtime's figure for a claude-native
+session (route C) may follow. Codex and Pi do not write the mark: whether they have the same gap has not been
+measured.
 
 | Backend | Numerator | Where it is read |
 |---|---|---|
@@ -183,7 +193,8 @@ badge again.
 ## Around the badge
 
 - **Metrics text:** a sidebar row shows "N turns · X cache · Y active" when it has a badge, or when it has a
-  measured fill and the fill text is on.
+  measured fill and the fill text is on. A fill from before a compaction reads "N % context before compaction"
+  and explains itself in the line's tooltip (#698).
 - **Handoff dialog:** it leaves out the "Recommendation" row for a session without a fill, instead of
   calling a session nobody can measure "Healthy".
 - **Grid card:** a card built while its session was healthy grows the health chip on the next status update.

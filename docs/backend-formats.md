@@ -704,7 +704,10 @@ is `docs/specs/28-session-health.md`.
   transcripts, Opus 5 to Opus 4.8) leaves no entry of its own and shows only as the next turn's
   `message.model`, which is why the reader lets a later turn on another model expire the recorded spec (#622).
 - After an auto-compaction (`system` / `compact_boundary`, `compactMetadata.preTokens`) the next turn's input
-  drops (966 912 → 77 995 measured).
+  drops (966 912 → 77 995 measured). A manual `/compact` writes the same line. Neither writes a usage line, so
+  until the next API call the last usage record is the pre-compaction fill, and the reader marks it
+  (`compactedSinceLastTurn`, #698). `compactMetadata.postTokens` counts only the kept conversation, 44k–80k
+  below the next call's input; spec 28 has the table.
 - The status-line input carries `context_window.{context_window_size, used_percentage}`. Hooks
   (`UserPromptSubmit`, `Stop`) carry neither the model nor the window. The app reads neither.
 - **The window is not in the store**; the table the app uses is in `src/backends/claude/model-windows.js`,

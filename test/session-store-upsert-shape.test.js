@@ -22,7 +22,8 @@ const path = require('node:path');
 const { stripComments } = require('./helpers/strip-comments');
 
 const SOURCE = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'db', 'session-store.js'), 'utf8'));
-const LAST_TURN_COLUMNS = ['lastInputTokens', 'lastModel', 'lastModelSpec', 'lastProvider', 'contextWindowReported'];
+// `compactedSinceLastTurn` (#698) belongs here too: the next turn takes it back to 0.
+const LAST_TURN_COLUMNS = ['lastInputTokens', 'lastModel', 'lastModelSpec', 'lastProvider', 'contextWindowReported', 'compactedSinceLastTurn'];
 
 function upsertSql(source) {
   const m = /cacheUpsert:\s*db\.prepare\(`([\s\S]*?)`\)/.exec(source);

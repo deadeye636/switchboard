@@ -54,6 +54,62 @@ test('Claude: after a compaction the next turn\'s smaller input wins', () => {
       + line(claudeTurn('claude-opus-5', { input_tokens: 5, cache_read_input_tokens: 70000, cache_creation_input_tokens: 7990 })));
     const row = claude.readSessionFile(file, 'folder', '/some/project');
     assert.equal(row.lastInputTokens, 77995);
+    assert.equal(row.compactedSinceLastTurn, false, 'the turn after the compaction clears the mark');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// #698: a compaction writes a boundary line and no usage line, so until the next API call the last record is
+// the fill from before it. Measured on 2.1.283: the boundary's postTokens (6 519) was 44k below the next call.
+const compactBoundary = (extra = {}) => ({
+  type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted',
+  compactMetadata: { trigger: 'manual', preTokens: 68016, postTokens: 6519 }, ...extra,
+});
+
+test('Claude: a compaction after the last turn marks its fill as from before it (#698)', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'c1.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('prompt'))
+      + line(claudeTurn('claude-haiku-4-5', { input_tokens: 10, cache_read_input_tokens: 66330, cache_creation_input_tokens: 1482 }))
+      + line(compactBoundary())
+      + line({ ...claudeUser('This session is being continued from a previous conversation'), isCompactSummary: true }));
+    const row = claude.readSessionFile(file, 'folder', '/some/project');
+    assert.equal(row.compactedSinceLastTurn, true);
+    assert.equal(row.lastInputTokens, 67822, 'the figure is kept, not replaced by postTokens');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: a sidechain compaction, or one before any turn, marks nothing (#698)', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'c2.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(compactBoundary())
+      + line(claudeUser('prompt'))
+      + line(claudeTurn('claude-haiku-4-5', { input_tokens: 10, cache_read_input_tokens: 40000, cache_creation_input_tokens: 0 }))
+      + line(compactBoundary({ isSidechain: true })));
+    const row = claude.readSessionFile(file, 'folder', '/some/project');
+    assert.equal(row.compactedSinceLastTurn, false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Claude: the incremental read carries the compaction mark and clears it on the next turn (#698)', () => {
+  const { dir, file } = tmpFile('ctxfill-claude-', 'c3.jsonl');
+  try {
+    fs.writeFileSync(file,
+      line(claudeUser('prompt'))
+      + line(claudeTurn('claude-haiku-4-5', { input_tokens: 10, cache_read_input_tokens: 66330, cache_creation_input_tokens: 1482 })));
+    const first = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, null);
+    assert.equal(first.session.compactedSinceLastTurn, false);
+
+    fs.appendFileSync(file, line(compactBoundary()));
+    const second = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, first.next);
+    assert.equal(second.session.compactedSinceLastTurn, true);
+    assert.equal(second.session.compactedSinceLastTurn, claude.readSessionFile(file, 'folder', '/some/project').compactedSinceLastTurn);
+
+    fs.appendFileSync(file, line(claudeUser('next')) + line(claudeTurn('claude-haiku-4-5', { input_tokens: 10, cache_read_input_tokens: 29984, cache_creation_input_tokens: 20675 })));
+    const third = claude.readSessionFileIncremental(file, 'folder', '/some/project', {}, second.next);
+    assert.equal(third.session.compactedSinceLastTurn, false);
+    assert.equal(third.session.lastInputTokens, 50669);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

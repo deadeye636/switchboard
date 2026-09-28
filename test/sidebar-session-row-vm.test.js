@@ -274,6 +274,22 @@ test('the row asks for its metrics with a badge, or with a measured fill that is
   }
 });
 
+// #698: a fill from before a compaction explains itself on the details line, and only while the fill is shown.
+test('the details line carries the compaction note as its tooltip, and only while the fill is shown', () => {
+  for (const shown of [true, false]) {
+    const s = setup();
+    try {
+      s.window.getQuietDetailParts = () => ['90 % context before compaction'];
+      s.window.contextFillNote = () => 'compacted note';
+      s.window.contextFillShown = () => shown;
+      const row = s.build({ ...SESSION, contextFill: { usedTokens: 180000, windowTokens: 200000, percent: 90, compacted: true } });
+      const line = row.querySelector('.session-quiet-details');
+      assert.ok(line, 'the details line is drawn');
+      assert.equal(line.title, shown ? 'compacted note' : '', shown ? 'the note is the tooltip' : 'no note with the fill switched off');
+    } finally { s.destroy(); }
+  }
+});
+
 // A lineage ancestor renders as a SECOND row for a session that may already have one elsewhere (#288).
 // Two elements carrying `si-<id>` is a duplicate DOM id, and morphdom keys its node matching on exactly
 // that — so the copy must stay anonymous while keeping the data attribute the click routing reads.

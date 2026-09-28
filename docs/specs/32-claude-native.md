@@ -404,6 +404,7 @@ the two figures are compared:
   Measured for `/compact`. An automatic compaction writes the same `compact_boundary` line to the transcript
   and no usage line either, so the sidebar lags the same way. The boundary's `postTokens` counts only the
   kept conversation and is not the fill; the measurement is in spec 28, "Why the LAST turn" (#698).
+  The sidebar keeps the old figure but marks it ("before compaction") and raises no handoff badge from it.
 
 ## The permission mode (#696)
 

@@ -55,7 +55,8 @@ A handoff is a packet that summarises the actual state of the work, written by a
       Project: session.projectPath ? session.projectPath.split('/').filter(Boolean).slice(-2).join('/') : '',
       // Only where the health could be measured (#620, E11a). A session whose backend reports no context
       // fill is not "Healthy" — nobody knows — so the row is left out rather than asserting it.
-      ...(session.contextFill ? { Recommendation: health.label } : {}),
+      // A fill from before a compaction judges nothing (#698), and the row says why it is not a handoff.
+      ...(session.contextFill ? { Recommendation: health.label + (session.contextFill.compacted ? ' (fill from before a compaction)' : '') } : {}),
       [actions.producers[0] ? actions.producers[0].label : '']: actions.producers[0] ? actions.producers[0].detail : '',
       [actions.producers[1] ? actions.producers[1].label : '']: actions.producers[1] ? actions.producers[1].detail : '',
     },

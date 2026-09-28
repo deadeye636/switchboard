@@ -207,6 +207,17 @@ test('a fill above the window is passed on as it is, not capped', () => {
   });
 });
 
+test('a fill from before a compaction is kept and marked, and an ordinary one carries no mark (#698)', () => {
+  withIsolatedClaude(() => {
+    const sessions = build([
+      row('compacted', 'claude', { lastInputTokens: 67822, lastModel: 'claude-haiku-4-5', compactedSinceLastTurn: 1 }),
+      row('plain', 'claude', { lastInputTokens: 67822, lastModel: 'claude-haiku-4-5', compactedSinceLastTurn: 0 }),
+    ]);
+    assert.deepEqual(sessions.get('compacted').contextFill, { usedTokens: 67822, windowTokens: 200000, percent: 34, compacted: true });
+    assert.deepEqual(sessions.get('plain').contextFill, { usedTokens: 67822, windowTokens: 200000, percent: 34 });
+  });
+});
+
 test('an unknown backend or a throwing hook cannot take the sidebar down', () => {
   // The descriptor the view asks is the REGISTRY's entry, not the module export.
   const codex = require('../src/backends').get('codex');

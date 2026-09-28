@@ -544,6 +544,13 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE session_meta ADD COLUMN opener TEXT'); } catch {}
   },
+
+  // Whether a compaction came after the last turn's usage record (#698), so `lastInputTokens` is the fill from
+  // before it. 1 or 0. A reader that cannot tell writes 0, which is today's reading. Nothing is backfilled:
+  // Claude's reader bumps its parser version in the same change, and the scan re-reads its sessions.
+  (db) => {
+    try { db.exec('ALTER TABLE session_cache ADD COLUMN compactedSinceLastTurn INTEGER DEFAULT 0'); } catch {}
+  },
 ];
 
 /**

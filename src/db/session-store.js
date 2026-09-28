@@ -42,9 +42,10 @@ const stmts = {
       importedFrom,
       lastInputTokens, lastModel, lastModelSpec, lastProvider, contextWindowReported,
       transport,
+      compactedSinceLastTurn,
       parserVersion
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET
       folder = excluded.folder, projectPath = excluded.projectPath,
       summary = excluded.summary, firstPrompt = excluded.firstPrompt,
@@ -88,6 +89,8 @@ const stmts = {
       -- NOT coalesced (#568): the column mirrors the transcript. The marker is never removed, so this only
       -- goes back to NULL if the transcript itself was rewritten without it — and then that is the truth.
       transport = excluded.transport,
+      -- NOT coalesced (#698): the next turn clears it, and a coalesce would keep the stale mark.
+      compactedSinceLastTurn = excluded.compactedSinceLastTurn,
       parserVersion = excluded.parserVersion
   `),
   // Record a /clear child's lineage the moment the live re-key resolves it (#193). Inserts a sparse row if
@@ -263,6 +266,8 @@ const upsertCachedSessionsBatch = db.transaction((sessions) => {
       Number(s.lastContextWindow) > 0 ? Number(s.lastContextWindow) : null,
       // #568 — how the session was last driven, from the backend's own transcript. Null for nearly all.
       s.transport || null,
+      // #698 — a compaction came after the last turn's usage record. 0 from a reader that cannot tell.
+      s.compactedSinceLastTurn ? 1 : 0,
       // v14 (#152) — which parser wrote this row. The scan compares it to the parser that would read
       // it now, so a bumped parser re-reads its own sessions instead of leaving stale metrics behind.
       s.parserVersion == null ? null : Number(s.parserVersion)

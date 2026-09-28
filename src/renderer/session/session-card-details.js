@@ -54,10 +54,19 @@
   // How full the context window was on the last turn, as its own label (#620): "62 % context". Empty when
   // the backend could not measure it — the payload then carries no `contextFill`, and a guessed number is
   // exactly what this feature exists to remove.
+  // A fill from before a compaction says so in the text itself (#698): a tooltip alone is found by nobody.
   function contextFillLabel(session = {}) {
     const fill = session.contextFill;
     if (!fill || !(numberValue(fill.windowTokens) > 0)) return '';
-    return `${Math.round(numberValue(fill.percent))} % context`;
+    const label = `${Math.round(numberValue(fill.percent))} % context`;
+    return fill.compacted ? `${label} before compaction` : label;
+  }
+
+  // The longer word for that hint, for the row's tooltip. Empty unless the fill is from before a compaction.
+  function contextFillNote(session = {}) {
+    const fill = session.contextFill;
+    if (!fill || !fill.compacted || !(numberValue(fill.windowTokens) > 0)) return '';
+    return 'The session was compacted after its last turn. The fill shown is from before that and updates with the next reply.';
   }
 
   // `showContextFill` is the global setting (default on), passed in by the caller: this file reads no
@@ -103,6 +112,7 @@
   return {
     getWorktreeLabel,
     contextFillLabel,
+    contextFillNote,
     getSessionMetricLabels,
     getQuietDetailParts,
     getMetricTrafficLevel,
