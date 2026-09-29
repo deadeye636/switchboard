@@ -383,13 +383,14 @@ function onReply(msg) {
   // BEFORE any apply. Terminate-then-close alone can't cover an already-posted reply.
   if (isAppQuitting()) { pruneDeleted(); p.resolve(); if (p.gate) clearReconcileGate(); return; }
 
-  noteWork(`index-apply:${msg.kind}`);
+  const applied = noteWork(`index-apply:${msg.kind}`);
   try {
     if (msg.kind === 'file') applyFileReply(msg, p);
     else if (msg.kind === 'reconcile' || msg.kind === 'rebuild') applyReconcileReply(msg, p);
   } catch (err) {
     log.warn(`[index-worker] apply ${msg.kind} failed: ${err?.message || err}`);
   } finally {
+    applied();
     pruneDeleted();
     p.resolve(msg.kind === 'file' ? undefined : true);
     if (p.gate) afterGateSettled();

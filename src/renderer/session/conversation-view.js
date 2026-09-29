@@ -581,6 +581,8 @@ function createConversationView(getSession, container) {
   }
 
   function reset(entries) {
+    // A breadcrumb for a renderer stall report (shell/stall-report.js): a whole conversation is drawn here.
+    window.noteRendererWork?.(`conversation-reset:${Array.isArray(entries) ? entries.length : 0}`);
     for (const el of view.elements) if (el) el.remove();
     // A message still waiting to be played back belongs to the conversation just replaced (#694).
     for (const p of view.pendingSends.slice()) dropPendingSend(p);

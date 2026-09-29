@@ -1850,6 +1850,8 @@ function destroySession(sessionId) {
 function showSession(sessionId) {
   const entry = openSessions.get(sessionId);
   const session = sessionMap.get(sessionId) || (entry && entry.session);
+  // A breadcrumb for a renderer stall report (shell/stall-report.js): what the view kind was when it froze.
+  window.noteRendererWork?.(entry && entry.conversation ? 'show-session:conversation' : 'show-session:terminal');
 
   // Update sidebar active state
   document.querySelectorAll('.session-item.active').forEach(el => el.classList.remove('active'));

@@ -81,6 +81,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/vcs.js                 version-control status, the changes/diff windows
   src/app/detach.js              detached session windows, which window renders a session, moving one
   src/app/presence.js            whether the user is at the machine (focus + input, across every window)
+  src/app/renderer-stalls.js     a window's own thread held for long, written to the log
   src/app/timeline.js            what happened to a session, and reading its history back
   src/app/store-record-notice.js live sessions their backend has no record of (no busy/idle to show)
   src/app/live-sessions.js       what main knows about a running session the index has never seen

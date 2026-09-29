@@ -269,6 +269,33 @@ application of an index-worker reply, a message on the MCP bridge, and a trigger
 means the stall came from somewhere else: a timer, a watcher callback or a child process's output.
 The fix in that case is another breadcrumb at that entry point, not a guess.
 
+**A window usually holds four or five of them, so the breadcrumb also measures (#707).** The renderer asks
+for the project list, the live sessions and the active sessions together, and an index reply lands beside
+them; read off the installed app, every stall named several, and the line could not say which one held the
+loop. `noteWork` therefore hands back a `done()`, and work that ran at least 200 ms synchronously is logged
+by name at info:
+
+```
+[slow-work] ipc:get-projects held the main thread 850ms
+```
+
+Every IPC handler is measured this way (`noteIpcCalls`), and so is the application of an index-worker reply.
+For an async handler only the part before its first `await` is measured, because that is the part that
+holds the loop; a stall that no `[slow-work]` line explains points at a continuation after an `await`.
+
+**The renderer has a half of its own, because `[loop-lag]` sees main only.** A window busy drawing — a whole
+conversation, a morphdom pass — freezes while main stays on time. `src/renderer/shell/stall-report.js`
+observes the window's `longtask` entries, and each of 500 ms or more is sent to `src/app/renderer-stalls.js`,
+which validates it and logs:
+
+```
+[renderer-stall] main window blocked ~1240ms; work started in that task: show-session:conversation, conversation-reset:1130
+```
+
+The breadcrumbs are `window.noteRendererWork(label)` — today the view switch (`showSession`) and the draw of
+a whole conversation (`reset`, with its entry count). A report naming none came from somewhere not yet
+instrumented. `(hidden)` after the window says the task ran while the window was not visible.
+
 ## A spawned CLI's first frame is a performance surface this app can break (#560, #567)
 
 Every measurement above is about the app staying responsive. This one is about what the app costs the

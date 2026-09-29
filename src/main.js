@@ -400,6 +400,12 @@ presence.init({
 });
 presence.registerIpc(ipcMain);
 
+// --- A window's own thread held for long (#707) -> app/renderer-stalls.js ---
+// [loop-lag] sees main only; a renderer busy drawing freezes its window with main on time.
+const rendererStalls = require('./app/renderer-stalls');
+rendererStalls.init({ getMainWindow: () => mainWindow, log });
+rendererStalls.registerIpc(ipcMain);
+
 // --- Is something OUTSIDE Switchboard running this session? (#172) -> app/live-owners.js ---
 // A background agent or a terminal elsewhere holds a session, and the CLI refuses to open it twice. Only
 // the CLI knows, so this asks the backends that can answer, on a slow interval and only while a window is

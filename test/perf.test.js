@@ -102,3 +102,42 @@ test('noteIpcCalls leaves a breadcrumb for handle and on, and passes the call th
   assert.equal(listeners.get('on:tell')({}), 'told');
   assert.match(check.tick(performance.now() + 250 + 2000), /work started in that window: ipc:ask, ipc:tell$/);
 });
+
+test('a breadcrumb names the work that HELD the loop, and only that work', async () => {
+  const { noteIpcCalls, setSlowWorkLog } = require('../src/perf');
+  const lines = [];
+  setSlowWorkLog({ info: (m) => lines.push(m) }, 30);
+  try {
+    const busy = (ms) => { const end = performance.now() + ms; while (performance.now() < end) { /* hold the thread */ } };
+    const listeners = new Map();
+    const ipc = { handle(channel, fn) { listeners.set(channel, fn); }, on() {} };
+    noteIpcCalls(ipc);
+    ipc.handle('slow', () => { busy(40); return 'ok'; });
+    ipc.handle('quick', () => 'ok');
+    ipc.handle('awaits', async () => { await new Promise(r => setTimeout(r, 60)); return 'ok'; });
+    ipc.handle('throws', () => { busy(40); throw new Error('boom'); });
+    assert.equal(listeners.get('slow')(), 'ok');
+    assert.equal(listeners.get('quick')(), 'ok');
+    assert.equal(await listeners.get('awaits')(), 'ok');
+    assert.throws(() => listeners.get('throws')(), /boom/);
+    const done = noteWork('index-apply:file');
+    busy(40);
+    assert.ok(done() >= 40, 'done() answers the span');
+    assert.equal(lines.length, 3, lines.join(' | '));
+    assert.match(lines[0], /^\[slow-work\] ipc:slow held the main thread \d+ms$/);
+    assert.match(lines[1], /^\[slow-work\] ipc:throws held the main thread/, 'a handler that throws is measured too');
+    assert.match(lines[2], /^\[slow-work\] index-apply:file held the main thread/);
+    // Only the synchronous part counts: the 60 ms await did not hold the loop.
+    assert.ok(!lines.some(l => l.includes('ipc:awaits')));
+  } finally {
+    setSlowWorkLog(null);
+  }
+});
+
+test('no slow-work logger, no line', () => {
+  const { setSlowWorkLog } = require('../src/perf');
+  setSlowWorkLog(null);
+  const done = noteWork('quiet');
+  const end = performance.now() + 5; while (performance.now() < end) { /* hold */ }
+  assert.ok(done() >= 5);
+});

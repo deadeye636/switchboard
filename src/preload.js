@@ -226,6 +226,8 @@ contextBridge.exposeInMainWorld('api', {
   // this is the hot path and nothing waits for an answer. `onPresenceReturned` carries the absence
   // that just ended — `{ awaySince, awayMs }` — which is what the away recap lists events from.
   reportPresenceActivity: () => ipcRenderer.send('presence-activity'),
+  // A long task in this window (#707): `{ ms, work, hidden }`, logged by main. `send`, nothing waits.
+  reportRendererStall: (report) => ipcRenderer.send('renderer-stall', report),
   onPresenceReturned: (cb) => ipcRenderer.on('presence-returned', (_e, absence) => cb(absence)),
   // The same absence, asked for rather than heard (#422). A window that reloads missed the
   // announcement, and the recap it was building was in that renderer alone; this is how it gets it

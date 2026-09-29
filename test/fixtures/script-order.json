@@ -71,6 +71,7 @@
     "statusbar-usage.js",
     "away-overview-view.js",
     "presence-report.js",
+    "stall-report.js",
     "shortcuts.js",
     "terminal-themes.js",
     "selection-text.js",

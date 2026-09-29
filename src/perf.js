@@ -68,10 +68,34 @@ async function timedAsync(label, fn, { slowMs = 50, log } = {}) {
 const NOTE_RING_SIZE = 64;
 const _notes = [];
 
-/** Record that `label` is about to run on this thread. Cheap enough for every IPC call. */
+// A stall line names every piece of work that STARTED in its window, and in practice a window holds four or
+// five of them (the renderer asks for the project list, the live sessions and the active sessions together),
+// so the line says what was around, not what held the loop. The breadcrumb therefore also measures: the
+// `done` it hands back logs the work that ran at least `slowMs` synchronously, by name. Only a caller that
+// can say where its work ENDS calls it — an async handler's continuation after its first `await` is not in
+// the measurement, and a stall that no `[slow-work]` line explains points there.
+const slowWork = { log: null, slowMs: 200 };
+
+/** Where `[slow-work]` lines go, and from how many milliseconds. `null` silences them. */
+function setSlowWorkLog(log, slowMs) {
+  slowWork.log = log || null;
+  if (typeof slowMs === 'number' && slowMs >= 0) slowWork.slowMs = slowMs;
+}
+
+/**
+ * Record that `label` is about to run on this thread. Cheap enough for every IPC call. Returns `done()`,
+ * which measures the span since this call and logs it at info when it reached `slowMs`; calling it is
+ * optional, and it logs nothing until `startLoopLagMonitor` has been handed a logger.
+ */
 function noteWork(label) {
-  _notes.push({ label, at: performance.now() });
+  const at = performance.now();
+  _notes.push({ label, at });
   if (_notes.length > NOTE_RING_SIZE) _notes.shift();
+  return () => {
+    const ms = performance.now() - at;
+    if (slowWork.log && ms >= slowWork.slowMs) slowWork.log.info(`[slow-work] ${label} held the main thread ${Math.round(ms)}ms`);
+    return ms;
+  };
 }
 
 /**
@@ -79,6 +103,8 @@ function noteWork(label) {
  * (send). Wraps the REGISTRATION, like `guardIpcHandlers`, so a handler registered later is covered too —
  * which means it must run before the first one is registered. Idempotent. The listener Electron holds is
  * the wrapper, so `removeListener(channel, original)` would find nothing; no caller removes one today.
+ * The listener's SYNCHRONOUS part is measured: for an async handler that is everything up to its first
+ * `await`, which is the part that holds the loop when it does not await at all.
  */
 function noteIpcCalls(ipc) {
   if (!ipc || ipc.__sbIpcNoted) return ipc;
@@ -86,8 +112,12 @@ function noteIpcCalls(ipc) {
     if (typeof ipc[method] !== 'function') continue;
     const raw = ipc[method].bind(ipc);
     ipc[method] = (channel, listener) => raw(channel, (...args) => {
-      noteWork(`ipc:${channel}`);
-      return listener(...args);
+      const done = noteWork(`ipc:${channel}`);
+      try {
+        return listener(...args);
+      } finally {
+        done();
+      }
     });
   }
   ipc.__sbIpcNoted = true;
@@ -118,8 +148,12 @@ function createLoopLagCheck({ log, intervalMs = 250, thresholdMs = 1000, now = (
   };
 }
 
-/** Start watching this thread's event loop. The timer is unref'd, so it never holds the process open. */
+/**
+ * Start watching this thread's event loop. The timer is unref'd, so it never holds the process open. The
+ * logger it is handed is also where `noteWork`'s `[slow-work]` lines go (`slowWorkMs`, default 200).
+ */
 function startLoopLagMonitor(opts = {}) {
+  setSlowWorkLog(opts.log, opts.slowWorkMs);
   const intervalMs = opts.intervalMs || 250;
   const check = createLoopLagCheck({ ...opts, intervalMs });
   const timer = setInterval(() => check.tick(), intervalMs);
@@ -127,4 +161,4 @@ function startLoopLagMonitor(opts = {}) {
   return () => clearInterval(timer);
 }
 
-module.exports = { startTimer, timed, timedAsync, noteWork, noteIpcCalls, createLoopLagCheck, startLoopLagMonitor };
+module.exports = { startTimer, timed, timedAsync, noteWork, noteIpcCalls, setSlowWorkLog, createLoopLagCheck, startLoopLagMonitor };

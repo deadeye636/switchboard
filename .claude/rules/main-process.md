@@ -79,7 +79,10 @@ every `SYSTEM_IDLE_POLL_MS`, and the windows' own reports (`shell/presence-repor
 pages) stay the fast path. A gap counts as an absence only where an OS reading vouches for it, and a
 `resume` only stops a pre-sleep reading from vouching. The reader and the resume subscription arrive through
 ctx, and the poll starts in `lifecycle.js` after `ready`, not at wiring — `powerMonitor` cannot be read
-before it), `timeline.js` (what happened to a session — #396; the one writer of the record, so a
+before it), `renderer-stalls.js` (a window's own thread held for long — #707; `[loop-lag]` sees main only, so
+`src/renderer/shell/stall-report.js` observes the window's long tasks and this module validates and logs
+them with the renderer breadcrumbs that started inside; the renderer never writes the log itself),
+`timeline.js` (what happened to a session — #396; the one writer of the record, so a
 session has one history however its windows come and go), `turn-hold.js` (a "the agent finished" that
 is about to be wrong — #495; a CLI announces the end and the start of a turn through two events and
 nothing orders them, so a `Stop` arriving while a prompt is still queued is held rather than delivered.
@@ -488,6 +491,7 @@ line there, in the same commit.
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
 | Whether the user is at the machine (focus + input, across every window) | `src/app/presence.js` |
+| A window's own thread held for long (a renderer long task), written to the log | `src/app/renderer-stalls.js` |
 | What happened to a session, and reading its history back | `src/app/timeline.js` |
 | Which live sessions their backend has no record of, so no busy/idle can be shown | `src/app/store-record-notice.js` (decided in `src/watch/adopt.js`) |
 | What main knows about a running session the index has never seen | `src/app/live-sessions.js` |
