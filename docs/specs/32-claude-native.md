@@ -227,6 +227,14 @@ In the history viewer, a notice's Open goes to the subagent's row, or else to th
 notice read from history carries `historic` and offers no Output, because no running session is there to
 read it from.
 
+A subagent's transcript is read through the same hook, and so is its live tail while it runs (#717). The
+normaliser reads context across lines, so `src/session/subagent-tail.js` keeps the file's lines and
+normalises the whole, then sends only what the new lines added. It reads only up to the last complete
+line, counted in bytes, so a line still being written arrives whole on the next pass. The history reading asks
+no `isSidechain`, unlike the conversation view: in a subagent's own file every line carries it. An older main
+transcript with such lines inline therefore shows their notices and reports as cards too, where it used to
+show raw markup. Opening a very large subagent costs one extra read and parse of the file for the tail.
+
 A local command's output loses the terminal codes the transcript writes into it (`/compact`'s "Compacted" is
 written dimmed). The stream sends that output without them, measured on 2.1.284. Claude's reader strips the
 codes where the output leaves its markup (#714).

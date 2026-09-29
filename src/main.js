@@ -2041,6 +2041,7 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
 // other one would have resolved to a path under Claude's store. `transcriptPathFor` (#211) is the hook
 // that answers this, and Claude's reconstructs from folder + parent id + agent id exactly as before.
 const { resolveSubagentFile: resolveSubagentFileWith } = require('./session/subagent-transcript');
+const { createSubagentTail } = require('./session/subagent-tail');
 const resolveSubagentFile = (parentSessionId, agentId) =>
   resolveSubagentFileWith({ backends, getCachedSession }, parentSessionId, agentId);
 
@@ -2068,11 +2069,15 @@ ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
   const resolved = resolveSubagentFile(parentSessionId, agentId);
   if (resolved.error) return { error: resolved.error };
   const filePath = resolved.filePath;
+  // The lines are drawn the way a reopen draws them (#717), through the owning backend's normaliser over the
+  // whole file — `src/session/subagent-tail.js` says why.
+  const backend = backends.get(resolved.backendId);
+  const tail = createSubagentTail(backend && backend.normalizeTranscriptEntries);
 
   const watchId = ++subagentWatcherSeq;
   let offset = 0;
-  // Seek to EOF so we only deliver *new* lines
-  try { offset = fs.statSync(filePath).size; } catch {}
+  // Start at the end: what is already there was drawn from read-subagent-jsonl.
+  try { offset = tail.prime(fs.readFileSync(filePath)); } catch {}
 
   function readNewEntries() {
     try {
@@ -2083,13 +2088,8 @@ ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
       const bytesRead = fs.readSync(fd, buf, 0, buf.length, offset);
       fs.closeSync(fd);
       if (bytesRead <= 0) return;
-      offset += bytesRead;
-      const text = buf.toString('utf8', 0, bytesRead);
-      const entries = [];
-      for (const line of text.split('\n')) {
-        if (!line.trim()) continue;
-        try { entries.push(JSON.parse(line)); } catch {}
-      }
+      const { consumed, entries } = tail.take(buf.subarray(0, bytesRead));
+      offset += consumed;
       if (entries.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('subagent-watch-event', { parentSessionId, agentId, entries });
       }

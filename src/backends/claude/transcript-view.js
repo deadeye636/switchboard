@@ -210,14 +210,16 @@ function normalizeTranscriptEntries(lines) {
     const result = agentId ? blocks.find(b => b && b.type === 'tool_result' && b.tool_use_id) : null;
     if (result) agentCalls.set(agentId, result.tool_use_id);
   }
+  // `isSidechain` is not asked here, unlike in the conversation view: the viewer shows a whole file, and in a
+  // subagent's own transcript every line carries it (#717) — skipping those would leave its notices raw.
   const out = [];
   for (let i = 0; i < list.length; i++) {
     const line = list[i];
-    if (line && line.type === 'user' && !line.isSidechain && isPeerMessage(line)) {
+    if (line && line.type === 'user' && isPeerMessage(line)) {
       out.push(peerReportEntry(line, (id) => agentCalls.get(id)));
       continue;
     }
-    if (line && line.type === 'user' && !line.isSidechain && isTaskNotification(line)) {
+    if (line && line.type === 'user' && isTaskNotification(line)) {
       const entry = taskNoticeEntry(line, toolKinds);
       out.push({ ...entry, _task: { ...entry._task, historic: true } });
       continue;
@@ -236,7 +238,7 @@ function normalizeTranscriptEntries(lines) {
     // A local command's output as a `system/local_command` line — the form most of them take (measured: 202
     // of 225 over one real store) — reads as the conversation view reads it, its terminal codes gone (#714).
     if (line && line.type === 'system' && line.subtype === 'local_command') {
-      out.push(localCommandEntry(line) || EMPTY_ENTRY(line));
+      out.push(localCommandEntry({ ...line, isSidechain: false }) || EMPTY_ENTRY(line));
       continue;
     }
     // One entry out for every line in: the viewer keys its bookmarks on the entry's position, so a line that
