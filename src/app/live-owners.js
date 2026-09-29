@@ -98,8 +98,13 @@ function answeringBackends() {
   if (!ctx || !ctx.backends || typeof ctx.backends.list !== 'function') return [];
   let all = [];
   try { all = ctx.backends.list() || []; } catch { return []; }
-  const answering = all.filter((b) => b && typeof b.refreshLiveOwners === 'function'
-    && (!ctx.backends.isLaunchable || ctx.backends.isLaunchable(b.id)));
+  // Launchable is read off the list already in hand when its rows say (`status` + `enabled`, the same test
+  // `isLaunchable` makes): `isLaunchable` builds the whole list again per backend, and this runs on every tick
+  // (#722). A registry whose rows do not carry the fields is still asked.
+  const launchable = (b) => (typeof b.status === 'string'
+    ? b.status === 'ready' && !!b.enabled
+    : (!ctx.backends.isLaunchable || ctx.backends.isLaunchable(b.id)));
+  const answering = all.filter((b) => b && typeof b.refreshLiveOwners === 'function' && launchable(b));
   return typeof ctx.backends.oneAskerPerCli === 'function' ? ctx.backends.oneAskerPerCli(answering) : answering;
 }
 

@@ -527,25 +527,50 @@ function has(id) {
 // a heuristic — a false negative must never make a working backend unusable); the spawn path checks it
 // and refuses there, with the probe's own reason.
 // Cached briefly: list() is on the scan path, and a probe walks PATH.
+//
+// And refreshed OFF the caller's path once it has an answer (#722). A probe walks every PATH directory for
+// every extension, which measured 45-95 ms per backend on a machine with 93 PATH entries — several hundred
+// ms for the roster, and over a second under load. With a 15 s lifetime every caller that came less often
+// than that paid the whole walk synchronously: the live-owners poll (45 s) held the main thread for 0.5-1.35 s
+// on each tick, and `get-usage` the same. A stale answer is now returned at once and renewed in a task of its
+// own per backend, so the walk is spread out rather than blocking whoever asked. Only the very first answer
+// for a backend is taken synchronously — there is nothing to return before it.
 const PROBE_TTL_MS = 15000;
 const _probeCache = new Map();   // id -> { at, result }
+const _probeRefreshing = new Set();
+const { measured } = require('../perf');
 
-function availability(b) {
-  if (typeof b.probe !== 'function') return { available: true, unavailableReason: null };
-  const now = Date.now();
-  const hit = _probeCache.get(b.id);
-  if (hit && now - hit.at < PROBE_TTL_MS) return hit.result;
-  let result;
+function runProbe(b) {
   try {
     const p = b.probe();
-    result = (p && p.ok === false)
+    return (p && p.ok === false)
       ? { available: false, unavailableReason: p.reason || null }
       : { available: true, unavailableReason: null };
   } catch (err) {
-    result = { available: false, unavailableReason: err?.message || String(err) };
+    return { available: false, unavailableReason: err?.message || String(err) };
   }
-  _probeCache.set(b.id, { at: now, result });
-  return result;
+}
+
+function refreshProbeLater(b) {
+  if (_probeRefreshing.has(b.id)) return;
+  _probeRefreshing.add(b.id);
+  const timer = setTimeout(measured(`backends:probe:${b.id}`, () => {
+    _probeRefreshing.delete(b.id);
+    _probeCache.set(b.id, { at: Date.now(), result: runProbe(b) });
+  }), 0);
+  if (timer && typeof timer.unref === 'function') timer.unref();
+}
+
+function availability(b) {
+  if (typeof b.probe !== 'function') return { available: true, unavailableReason: null };
+  const hit = _probeCache.get(b.id);
+  if (!hit) {
+    const result = runProbe(b);
+    _probeCache.set(b.id, { at: Date.now(), result });
+    return result;
+  }
+  if (Date.now() - hit.at >= PROBE_TTL_MS) refreshProbeLater(b);
+  return hit.result;
 }
 
 function list() {

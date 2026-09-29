@@ -733,7 +733,13 @@ install Node, and held that for five minutes. Two rules come out of it:
   not decide the next five minutes. Pi keeps both numbers side by side with the reason for each.
 
 **A descriptor's `probe()` is asked on every `backends.list()`, which is on the scan path, switched on or
-not** — so it stays a PATH walk. A check that needs a child answers only `probe({ launch: true })`, which
+not** — so it stays a PATH walk. **And a stale answer is renewed off the caller's path (#722):** the walk
+measured 45-95 ms per backend with 93 PATH entries, and every caller that came less often than the 15 s cache
+lifetime paid the whole roster synchronously — the 45 s live-owners poll held the main thread for up to 1.35 s.
+`availability()` in `src/backends/index.js` returns the last answer and renews it in a timer task of its own
+per backend; only a backend's first answer is taken synchronously. Do not "simplify" that back to a blocking
+refresh, and a caller that needs `isLaunchable` for each row of a `list()` it already holds reads `status` and
+`enabled` off those rows instead (`answeringBackends` in `src/app/live-owners.js`). A check that needs a child answers only `probe({ launch: true })`, which
 the spawn path passes when a session is about to start, and may return a Promise there (the spawn path
 awaits it and re-checks for a quit afterwards). claude-native reads `claude --version` that way (#660);
 in `list()` it cost every Claude user a synchronous child on the main thread after each auto-update.
