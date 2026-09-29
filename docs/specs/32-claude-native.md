@@ -725,7 +725,7 @@ Every key, its default and what it means: `docs/settings-reference.md`.
 - **A compaction summary is drawn as a user message.** Claude writes it as a `user` line with
   `isCompactSummary` and `isVisibleInTranscriptOnly`, and without `isMeta` (measured in a 2.1.280
   transcript), so an attach draws it where the user's messages are. It is not marked as a prompt, so the
-  pinned prompt (#709) passes over it.
+  pinned prompt (#709) passes over it. Tracked in #712.
 
 ## Which line is the user's (#709)
 
