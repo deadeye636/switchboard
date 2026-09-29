@@ -758,11 +758,12 @@ function fitAndScroll(entry) {
   });
 }
 
-// --- Terminal font (size + family), terminal-only ---
+// --- Terminal font (size + family) ---
 // Live-adjustable; both new and existing terminals share these. Changing either
 // alters the glyph cell size, so every change re-fits (recomputes cols/rows and
 // resizes the PTY). This is xterm font config, NOT Electron zoomFactor — the
 // latter would scale the whole UI (sidebar included), not just the terminal.
+// The SIZE also scales a session without a terminal (#720); the family does not.
 const DEFAULT_TERMINAL_FONT_FAMILY = "'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace";
 const DEFAULT_TERMINAL_FONT_SIZE = 12;
 const TERMINAL_FONT_SIZE_MIN = 8;
@@ -776,9 +777,20 @@ function clampTerminalFontSize(n) {
   return Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, v));
 }
 
+let conversationScale = 1;
 function applyTerminalFontToAll() {
+  // A session without a terminal (#568) keeps the app's own font family, and follows the SIZE (#720): its
+  // conversation is scaled by the setting against the default, through one variable style.css reads, and
+  // each view is told by how much, so a reader's place moves with the text.
+  const scale = terminalFontSize / DEFAULT_TERMINAL_FONT_SIZE;
+  const ratio = scale / conversationScale;
+  conversationScale = scale;
+  document.documentElement.style.setProperty('--conversation-scale', String(scale));
   for (const [, entry] of openSessions) {
-    if (!entry.terminal) continue; // a conversation view (#568) draws with the app's own fonts
+    if (!entry.terminal) {
+      if (ratio !== 1 && entry.conversation && typeof entry.conversation.rescale === 'function') entry.conversation.rescale(ratio);
+      continue;
+    }
     entry.terminal.options.fontSize = terminalFontSize;
     entry.terminal.options.fontFamily = terminalFontFamily;
     safeFit(entry); // hidden terminals bail early (safeFit's 0-size guard); their next show refits them
@@ -837,7 +849,7 @@ async function persistTerminalFontSize(v) {
   } catch { /* best-effort */ }
 }
 
-// Ctrl/Cmd +/-/0 zoom (terminal-only). delta 0 ⇒ reset to default.
+// Ctrl/Cmd +/-/0 zoom (the font size, not the whole UI — terminals and, since #720, conversations). delta 0 ⇒ reset to default.
 let _persistFontTimer = 0;
 window._nudgeTerminalFontSize = (delta) => {
   const next = delta === 0 ? DEFAULT_TERMINAL_FONT_SIZE : terminalFontSize + delta;

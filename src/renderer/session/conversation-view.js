@@ -207,6 +207,14 @@ function createConversationView(getSession, container) {
 
   container.appendChild(logWrap);
   container.appendChild(attachStrip);
+  // Ctrl/Cmd + wheel sets the font size, as it does over a terminal (#720): the one setting both follow.
+  // Without the modifier the wheel scrolls as usual.
+  container.addEventListener('wheel', (e) => {
+    const macNow = typeof isMac !== 'undefined' && isMac;
+    if (!(macNow ? e.metaKey : e.ctrlKey) || e.deltaY === 0) return;
+    e.preventDefault();
+    window._nudgeTerminalFontSize?.(e.deltaY < 0 ? 1 : -1);
+  }, { passive: false });
   container.appendChild(askDock);
   container.appendChild(composer);
   container.appendChild(status);
@@ -2309,6 +2317,16 @@ function createConversationView(getSession, container) {
     // a reveal can drop the log's scroll position without a resize or a scroll event — measured: re-showing
     // the active tab put it back at 0. So the place is put back here too (#689).
     focus: () => { focusView(); restore(); renderJump(); tick(); },
+    // The font size changed (#720), and with it every entry's height. The log itself is not zoomed, so no
+    // resize reaches the observer: a reader's kept place is scaled with the text, and a reader at the end stays
+    // there. Hidden or shown alike — a hidden tab puts `readerTop` back when it is shown.
+    rescale: (ratio) => {
+      if (!(ratio > 0) || ratio === 1) return;
+      readerTop *= ratio;
+      if (!log.clientHeight) return;
+      if (stuck) follow(); else log.scrollTop = readerTop;
+      renderJump();
+    },
     dispose: () => {},
   };
 }

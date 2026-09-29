@@ -294,7 +294,7 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Font size</span>
-                    <div class="settings-description">Pixels, 8 to 28.</div>
+                    <div class="settings-description">Pixels, 8 to 28. A session without a terminal scales its conversation to match.</div>
                   </div>
                   <div class="settings-field-control">
                     <input type="number" class="settings-input settings-input-compact" id="sv-terminal-font-size" min="8" max="28" value="${terminalFontSizeValue}">

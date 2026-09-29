@@ -282,7 +282,8 @@ does not know is still drawn as JSON.
 
 `createTerminalEntry` is the one place every launch path goes through, and it hands a session whose
 backend declares `transport` to `createConversationEntry`. That entry carries `terminal: null`, and every
-site that assumed an xterm checks for one: fit, repaint, WebGL, font, theme, focus, the grid's
+site that assumed an xterm checks for one: fit, repaint, WebGL, font (the family only — the size scales the
+conversation through `--conversation-scale` since #720), theme, focus, the grid's
 scrollback, the exit banner, the launch-error writes (`writeEntryError`). The view draws entries with
 `renderJsonlEntry` and `buildToolResultMap`, and redraws a tool call when its result arrives.
 

@@ -3019,6 +3019,10 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   overflow-y: auto;
   padding: 8px 16px;
 }
+/* The terminal font size, applied to a conversation (#720): `--conversation-scale` is the setting against its
+   default of 12, set by terminal-manager.js. The log's CHILDREN are zoomed, never the log itself — the view
+   adds element rectangles to the log's scrollTop, and a zoomed scroller would give the two in different units. */
+.conversation-log > *, .conversation-pinned-prompt, .conversation-ask-dock { zoom: var(--conversation-scale, 1); }
 /* The log's place in the column (#689): positioned, so the jump-to-end button can sit over its lower edge. */
 .conversation-log-wrap {
   flex: 1;
@@ -3142,7 +3146,7 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   background: rgba(0,0,0,0.3);
   color: #d0d0e0;
   font-family: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--conversation-scale, 1));
   line-height: 1.45;
   resize: vertical;
 }

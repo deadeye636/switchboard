@@ -89,6 +89,12 @@ demo store (not delete it): absent is re-stamped, `false` is left alone and show
 
 `terminalWebgl` is a retired key: a stored `false` migrates to `gpuAcceleration: 'off'`.
 
+`terminalFontSize` also sizes a session without a terminal (`claude-native`, `pi-native`, #720): the
+conversation, the pinned prompt, the question cards and the input are scaled by the setting against its
+default of 12, and Ctrl+wheel over the conversation changes it the same way it does over a terminal. The
+font family is not taken over — the conversation keeps the app's own proportional font. The session line
+under the input keeps its size, like a terminal's status bar.
+
 ### Copying after the terminal changes width (#459)
 
 `terminalFontSize` is the easiest way to change a terminal's column count, but a window resize, a
