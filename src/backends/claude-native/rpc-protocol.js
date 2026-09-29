@@ -49,6 +49,12 @@
 //        the session, `mkdir` carried an allow rule for `localSettings` beside two for the session). Handed
 //        back as `updatedPermissions`, the CLI applies them — a `localSettings` rule by writing it into the
 //        project's `.claude/settings.local.json` itself (#674, measured).
+//        In auto mode (measured on 2.1.285) the CLI asks for a PERMISSION only where an `ask` rule matches:
+//        everything else runs or is refused by the classifier without a question (`denied by the Claude Code
+//        auto mode classifier`, a tool result, never a request) — `cd <dir>; git log …` included. Such an ask
+//        carries no suggestions, and says why instead: a plain match `decision_reason_type: 'rule'`; a compound
+//        command `matched_ask_rule` ({ source, tool_name, rule_content }), `decision_reason_type: 'other'` and a
+//        `decision_reason` sentence (about the `cd` before a git command). `askReason` turns that into `reason`.
 //      - `AskUserQuestion` is a question, not a permission. Its answer is an allow whose `updatedInput`
 //        carries `answers: { <question>: <text> }`; a multi-select answer is the labels joined with ", ",
 //        and any text is taken as a free answer (both measured).
@@ -213,6 +219,39 @@ function projectLabel(permissions) {
 // rule leads, because the label may have cut a long command short.
 function projectNote(permissions) {
   return `Rule: ${rulesOf(permissions).map(ruleText).join(', ')}. Claude Code writes it into .claude/settings.local.json in the project. Remove it there, or with /permissions in Claude.`;
+}
+
+// WHY Claude asks, in words, for the card (point 9 above). Measured on 2.1.285 in auto mode: a call that
+// matches an `ask` rule is asked with `decision_reason_type: 'rule'` and, for a compound command, a
+// `matched_ask_rule` naming the rule and the settings it came from, plus a `decision_reason` sentence of
+// Claude's own; such a call carries no `permission_suggestions`, since an ask rule wins over every allow. The
+// compound one's type was `'other'` and its sentence was about the `cd` before a git command — yet the same
+// `cd <dir>; git log …` without a matching rule was not asked at all, so the rule is what asked and leads.
+// Only `projectSettings` was measured as a source; the other names are Claude's own setting sources, and one
+// this table does not know is named in brackets as Claude spelled it. The "nothing lasting" sentence is said
+// only where the card really offers nothing lasting — a request carrying suggestions as well was not measured.
+const RULE_SOURCES = {
+  projectSettings: 'in the project’s .claude/settings.json',
+  localSettings: 'in the project’s .claude/settings.local.json',
+  userSettings: 'in your user settings',
+  policySettings: 'in the managed policy settings',
+  cliArg: 'passed on the command line',
+  session: 'set for this session',
+};
+const NOTHING_LASTING = 'An ask rule wins over every allow, so there is no lasting allow to offer.';
+function askReason(r, offersLasting) {
+  const parts = [];
+  const rule = r.matched_ask_rule && typeof r.matched_ask_rule === 'object' ? r.matched_ask_rule : null;
+  if (rule && typeof rule.tool_name === 'string' && rule.tool_name) {
+    const text = ruleText({ toolName: rule.tool_name, ruleContent: rule.rule_content });
+    const where = RULE_SOURCES[rule.source] || (typeof rule.source === 'string' && rule.source ? `(source: ${rule.source})` : '');
+    parts.push(`Asked because of the “ask” rule ${text}${where ? ' ' + where : ''}.`);
+  } else if (r.decision_reason_type === 'rule') {
+    parts.push('Asked because one of your permission rules says to ask.');
+  }
+  if (parts.length && !offersLasting) parts.push(NOTHING_LASTING);
+  if (typeof r.decision_reason === 'string' && r.decision_reason.trim()) parts.push(`Claude Code: ${r.decision_reason.trim()}`);
+  return parts.join(' ');
 }
 
 // What "for this session" actually allows, in the button's own words. A mode switch reaches every later call,
@@ -685,6 +724,7 @@ function createDecoder() {
     if (permissions.length) answers.session = ALLOW_SESSION;
     if (project.length) answers.project = ALLOW_PROJECT;
     answers.refuse = REFUSE;
+    const reason = askReason(r, permissions.length > 0 || project.length > 0);
     return [{
       op: 'ask',
       request: {
@@ -696,6 +736,7 @@ function createDecoder() {
         // What this question is worth, for the card: Claude asks it under its own permission rules, the same
         // question its terminal would put, and a tool its rules allow never reaches this card.
         note: 'Claude Code asks this under its own permission rules, as it would in a terminal.',
+        ...(reason ? { reason } : {}),
         permissions,
         ...(permissions.length ? { sessionLabel: sessionLabel(permissions) } : {}),
         ...(project.length ? { projectPermissions: project, projectLabel: projectLabel(project), projectNote: projectNote(project) } : {}),

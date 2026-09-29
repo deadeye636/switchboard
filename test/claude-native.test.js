@@ -379,6 +379,40 @@ test('"in this project" hands back only the local-settings allow rule, and names
   assert.equal(protocol.answerCommand('b1', { cancelled: true, value: protocol.ALLOW_PROJECT }, ask.request).response.response.behavior, 'deny');
 });
 
+// Auto mode asks only under an `ask` rule, with no suggestions — the card says why instead of looking broken.
+test('an ask under an ask rule says which rule, and why nothing lasting is offered', () => {
+  const decisionReason = 'This command changes directory before running a version-control command, which can pick up untrusted hooks or repository configuration from the target directory. Approve only if you trust it.';
+  const [compound] = decodeAll([{ type: 'control_request', request_id: 'm1', request: { subtype: 'can_use_tool', tool_name: 'Bash', display_name: 'Bash',
+    input: { command: 'cd /work; gh pr merge 1 --merge; git log --oneline -1' }, description: 'cd /work; gh pr merge 1 …',
+    decision_reason: decisionReason, decision_reason_type: 'other',
+    matched_ask_rule: { source: 'projectSettings', tool_name: 'Bash', rule_content: 'gh pr merge:*' } } }]);   // measured on 2.1.285
+  assert.deepEqual(Object.keys(compound.request.answers), ['once', 'refuse']);
+  assert.match(compound.request.reason, /“ask” rule Bash\(gh pr merge:\*\) in the project’s \.claude\/settings\.json\./);
+  assert.match(compound.request.reason, /no lasting allow/);
+  assert.ok(compound.request.reason.endsWith(`Claude Code: ${decisionReason}`), 'Claude\'s own sentence follows');
+
+  const [plain] = decodeAll([{ type: 'control_request', request_id: 'm2', request: { subtype: 'can_use_tool', tool_name: 'Bash',
+    input: { command: 'gh pr merge 1 --merge' }, description: 'Merge pull request 1', decision_reason_type: 'rule' } }]);   // measured
+  assert.match(plain.request.reason, /^Asked because one of your permission rules says to ask\. An ask rule wins/);
+
+  const reasonOf = (request) => decodeAll([{ type: 'control_request', request_id: 'm3', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: {}, ...request } }])[0].request;
+  assert.match(reasonOf({ matched_ask_rule: { source: 'flagSettings', tool_name: 'Bash' } }).reason, /rule Bash \(source: flagSettings\)\./,
+    'a source the table does not know is named as Claude spelled it');
+  assert.match(reasonOf({ matched_ask_rule: { source: 'cliArg', tool_name: 'Bash' } }).reason, /rule Bash passed on the command line\./);
+  assert.match(reasonOf({ matched_ask_rule: { tool_name: 'Bash', rule_content: 'x:*' } }).reason, /^Asked because of the “ask” rule Bash\(x:\*\)\. An ask rule/,
+    'no source, no place named');
+  assert.equal(reasonOf({ decision_reason: 'Because.' }).reason, 'Claude Code: Because.', 'a sentence alone is drawn alone');
+
+  // Not measured, but the card must not contradict its own buttons: with a lasting allow offered, no "nothing lasting".
+  const both = reasonOf({ decision_reason_type: 'rule',
+    permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'x' }], behavior: 'allow', destination: 'localSettings' }] });
+  assert.deepEqual(Object.keys(both.answers), ['once', 'project', 'refuse']);
+  assert.equal(both.reason, 'Asked because one of your permission rules says to ask.');
+
+  const [none] = decodeAll([{ type: 'control_request', request_id: 'm4', request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { command: 'ls' } } }]);
+  assert.equal(none.request.reason, undefined, 'no reason given, no reason drawn');
+});
+
 test('AskUserQuestion is a question card, and its answers go back in updatedInput', () => {
   const input = { questions: [
     { question: 'Which toppings?', header: 'Toppings', multiSelect: true, options: [{ label: 'Cheese', description: 'Classic' }, { label: 'Ham' }] },

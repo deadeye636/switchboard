@@ -44,6 +44,7 @@ in step.
 | E18 | No special order for `default_to_no`. | No request in any measurement carried the field (#661). |
 | E19 | **A lasting allow for the project is offered after all** (#674, route A; narrows E17): the card hands back Claude's own `localSettings` allow rule, and Claude writes it into `.claude/settings.local.json`. Suggestions for the shared project settings and the user's settings stay unoffered. | The same one-click choice Claude's terminal offers, without the app writing a file of the CLI's (CLAUDE.md rule 11). The price: a click on a card changes a file in the project that outlives the session, and the app does not show the rule afterwards. |
 | E20 | **The permission mode can be switched in a running session** (#696): Shift+Tab in the input and a click on the mode in the session line walk the TUI's order. The switch is the session's; it writes nothing to the stored `permissionMode` option (E6), so the next launch starts where that says. | The TUI can do it and the view could not even show the mode. A session-only switch keeps the cascade the one answer to "how does a session start". |
+| E21 | **An approval says why it is asked** when Claude says so: the card draws a `reason` line built from `matched_ask_rule`, `decision_reason_type: 'rule'` and `decision_reason` — the rule, the settings it came from, and — where the card offers nothing lasting — that an ask rule leaves nothing lasting to offer. | In auto mode the only questions are ask-rule matches and they carry no suggestion, so a card with only Allow once and Refuse looked like a missing feature. The app reads the fields and writes nothing; removing the rule stays the user's call. |
 
 E8 and E13 are pi-native's half of the trust gate and are recorded in spec 30 (its E5). E15 is not
 recorded on any issue and is left out here.
@@ -264,9 +265,10 @@ and the host was never asked (measured).
 
 This is the difference from pi-native that matters most. **The question here is Claude's own**, asked under
 the user's own permission rules, the question the terminal would put. A tool the user's rules allow never
-reaches the card. A user whose `defaultMode` is `auto` sees few or no questions, because the CLI asks none
-(measured). The card carries one line saying that Claude asks this under its own permission rules, as it
-would in a terminal. Pi has no approval step, so pi-native builds its own gate in a
+reaches the card. A user whose `defaultMode` is `auto` sees few questions: in auto mode the CLI asks for a
+permission only where an `ask` rule of the user's matches, and runs or refuses everything else without one (measured on
+2.1.285, see "Why a question is asked in auto mode" below). The card carries one line saying that Claude asks
+this under its own permission rules, as it would in a terminal. Pi has no approval step, so pi-native builds its own gate in a
 per-spawn extension and calls it a convenience, not a security boundary (spec 30). Claude needs no such
 extension.
 
@@ -302,6 +304,21 @@ Three kinds of question arrive, all as `can_use_tool`:
   `/permissions` — the app does not show the rule again once it is written. Rules for
   `projectSettings` (usually committed, so the whole team's) and `userSettings` (every project on the
   machine) are still not offered.
+
+  **Why a question is asked in auto mode** (measured on 2.1.285, `--permission-mode auto`, the app's own
+  launch flags). Plain and compound commands — `npm run …`, `cd <dir>; npm run …`, `cd <dir> && …`, a `cd`
+  into a worktree, `cd <dir>; git log …; npm run …`, `gh issue create`, `git push --force-with-lease`,
+  `npx -y <package>` — ran without a question. `gh pr merge` with no rule was refused by the classifier (`[Merge Without Review]`), and that
+  refusal is a tool result, never a request, so it never reaches a card. The only questions came from a
+  project `ask` rule (`Bash(gh pr merge:*)`): a plain match carried `decision_reason_type: 'rule'`, a
+  compound command carried `matched_ask_rule` (`{ source: 'projectSettings', tool_name, rule_content }`),
+  `decision_reason_type: 'other'` and a `decision_reason` sentence of Claude's own — about the `cd` before a
+  git command, although the same `cd`-then-git line without a matching rule was not asked at all, so the
+  card leads with the rule — and **neither carried a suggestion**: an ask rule wins over every allow, so
+  there is nothing lasting to offer (E21). A request carrying a rule AND suggestions was not seen; the card
+  then leaves out the "nothing lasting" sentence rather than contradict its own buttons. A compound line that merely contains the matched
+  command is asked as a whole, so the other commands in it (an `npm run` beside a `gh pr merge`) look as if
+  they were the ones asking.
 - **`AskUserQuestion`** is a question, not a permission. The card draws its questions with their options,
   checkboxes where several may be picked, and a free answer. The answer is an allow whose `updatedInput`
   carries `answers`. Several choices are joined with ", ", and a free answer is taken as written (both

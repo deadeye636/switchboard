@@ -185,6 +185,7 @@ const APPROVAL_OPTIONAL = {
   sessionLabel: 'only where "for this session" is offered and the runtime can say what it allows; the card has its own words otherwise',
   projectLabel: 'only where a lasting allow for the project is offered (#674); the card has its own words otherwise',
   projectNote: 'only beside a lasting allow (#674): where the rule lands and how it is taken back, shown as the button\'s tooltip',
+  reason: 'only where the runtime says why it asks (claude-native: a matched ask rule, a decision reason); pi-native\'s gate asks every time for the same reason',
 };
 
 test('APPROVAL_ASK_KEYS is what the approval card reads', () => {

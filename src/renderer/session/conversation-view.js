@@ -1481,6 +1481,13 @@ function createConversationView(getSession, container) {
       detail.textContent = request.message;
       card.appendChild(detail);
     }
+    // WHY it is asked, when the backend could say — which rule, and why nothing lasting is offered. Plain text.
+    if (request.reason) {
+      const why = document.createElement('div');
+      why.className = 'conversation-ask-message conversation-approval-note';
+      why.textContent = String(request.reason);
+      card.appendChild(why);
+    }
     // WHO is asking, and what the question is worth, is the backend's to say: one runtime's approvals are an
     // extension of this app's (a convenience, not a boundary), another's are the CLI's own permission rules.
     if (request.note) {
