@@ -210,6 +210,23 @@ line's uuid, which is the entry key the view skips a duplicate by. The race betw
 is handled in the core, as for any backend that reads a transcript (`attachFromTranscript` in
 `src/app/agent-rpc.js`).
 
+### A skill's text (#710)
+
+When the model loads a skill, the `Skill` call's result is one line ("Launching skill: <name>"), and the
+skill's whole text follows as a user line of its own. Measured on 2.1.284:
+- On the stream, that line carries `isSynthetic: true` and nothing that names the call.
+- In the transcript, the same uuid carries `isMeta: true` and `sourceToolUseID`.
+
+The decoder pairs the line with the oldest `Skill` result still waiting. The transcript reader pairs it
+through `sourceToolUseID`. Both turn it into more output of that call, which a tool block shows collapsed,
+so it is never drawn as a user message. A failed call or the end of the turn drops a pairing that is still
+waiting. The order in which parallel calls arrive is assumed, not measured.
+
+A skill the USER types (`/<name>`) streams only its command line. Its text stays in the transcript as an
+`isMeta` line without `sourceToolUseID` and is left out on a reopen too, so the reopened view matches the
+live one. Whether to show it anyway is still open in #710. Protocol point 10 in
+`src/backends/claude-native/rpc-protocol.js` holds the same account.
+
 ## Approvals and questions
 
 Claude asks before a tool runs over the control channel (`control_request` / `can_use_tool`), but only with
@@ -705,3 +722,25 @@ Every key, its default and what it means: `docs/settings-reference.md`.
   (measured, and cheap for the pipe); what the view's redraw costs at that rate is still open.
 - **The version floor is the measured version.** Features are not detected from the `system/init`
   capabilities list, which would be the finer check.
+- **A compaction summary is drawn as a user message.** Claude writes it as a `user` line with
+  `isCompactSummary` and `isVisibleInTranscriptOnly`, and without `isMeta` (measured in a 2.1.280
+  transcript), so an attach draws it where the user's messages are. It is not marked as a prompt, so the
+  pinned prompt (#709) passes over it.
+
+## Which line is the user's (#709)
+
+The view pins the prompt of the turn being read, and which entry is a prompt is the backend's answer,
+carried as `prompt: true`:
+- On the stream it is the line played back (`isReplay`, point 3). That copy carries no `promptSource`.
+- In the transcript, `isUsersPrompt` in Claude's reader decides:
+  - `promptSource` set and not `system` (`typed`, `queued`, `suggestion_accepted` and `sdk` were measured).
+  - Without that field, the user's text, as long as it is not a local command's output. A slash command the
+    user typed counts, including a local one that starts no turn.
+  - A compaction summary, the line a Stop leaves behind (`interruptedMessageId`), an `isMeta` line and one
+    with an `origin` of its own never count.
+
+pi-native marks a Pi `user` message. A tool result is drawn in the user's role too, but its Pi role is
+`toolResult`, so it is not marked. A command taken over from another CLI, and a prompt template such as
+`/handoff`, reaches Pi as a user message holding the expanded text, so the bar shows that text rather than
+the `/name` typed. The view draws the same text as the user's message, so the two agree. #706 counts the user's prompts for the session metrics and is meant to
+ask the same reader.
