@@ -1277,6 +1277,8 @@ function flushTerminalBuffer(sessionId) {
 
   const wasAtBottom = isAtBottom(entry.terminal);
   const savedViewportY = entry.terminal.buffer.active.viewportY;
+  // A breadcrumb for a renderer stall report (#707). xterm parses in a task of its own right after this.
+  window.noteRendererWork?.('terminal-write');
   entry.terminal.write(data, () => {
     flowTrackParsed(sessionId, rawLen);
     // The session may have been destroyed between write() and this callback —

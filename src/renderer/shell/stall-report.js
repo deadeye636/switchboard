@@ -22,20 +22,30 @@
   const notes = [];
 
   function noteRendererWork(label) {
-    notes.push({ label: String(label).slice(0, 80), at: performance.now() });
+    const text = String(label).slice(0, 80);
+    const at = performance.now();
+    // A hot caller (a terminal write, a conversation op) notes itself per chunk; a repeat of the newest label
+    // moves it rather than pushing every other breadcrumb out of the ring — the same rule as main's `noteWork`.
+    // The coalesced note keeps the span it covers, not only its newest moment: a long task is reported after
+    // it ran, and by then the same label may have been noted again — a moved single timestamp would fall
+    // outside the very task it explains.
+    const last = notes[notes.length - 1];
+    if (last && last.label === text) last.last = at;
+    else notes.push({ label: text, first: at, last: at });
     if (notes.length > NOTE_RING_SIZE) notes.shift();
   }
   window.noteRendererWork = noteRendererWork;
 
-  // The breadcrumbs that started inside the task, oldest first, each once. A task's own start is taken a
-  // little early: a breadcrumb is dropped by the code the task runs, so it lands inside it, but a timer's
-  // resolution can put it a hair before `startTime`.
+  // The breadcrumbs that started inside the task or just before it, oldest first, each once. The window
+  // opens LOOKBACK_MS early because some work is only scheduled by the code that notes it and runs in the
+  // next task — xterm parses a `write` that way — so its breadcrumb lands shortly before the task it causes.
+  const LOOKBACK_MS = 50;
   function workIn(entry) {
-    const from = entry.startTime - 5;
+    const from = entry.startTime - LOOKBACK_MS;
     const to = entry.startTime + entry.duration;
     const seen = [];
     for (const n of notes) {
-      if (n.at >= from && n.at <= to && !seen.includes(n.label)) seen.push(n.label);
+      if (n.last >= from && n.first <= to && !seen.includes(n.label)) seen.push(n.label);
     }
     return seen.slice(-8);
   }

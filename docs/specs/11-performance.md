@@ -283,6 +283,14 @@ Every IPC handler is measured this way (`noteIpcCalls`), and so is the applicati
 For an async handler only the part before its first `await` is measured, because that is the part that
 holds the loop; a stall that no `[slow-work]` line explains points at a continuation after an `await`.
 
+The first reading still showed stalls of one to two and a half seconds naming nothing, so the entry points
+that had no breadcrumb got a measured one, through `measured(label, fn)`: the WAL checkpoint timer
+(`db:wal-checkpoint`, synchronous disk work every minute), the two store watchers' flushes
+(`watch:projects-flush`, `watch:stores-flush`), the backend busy re-check (`watch:busy-recheck`), the subagent
+sweep (`subagent-sweep`), the foreign-owner poll (`live-owners:poll`), the VCS heartbeat (`vcs:heartbeat`), a
+piped session's output (`agent-rpc:output`) and a terminal's output (`pty:output`). The last two fire per
+chunk, so a repeat of the newest breadcrumb moves it instead of pushing the others out of the ring.
+
 **The renderer has a half of its own, because `[loop-lag]` sees main only.** A window busy drawing — a whole
 conversation, a morphdom pass — freezes while main stays on time. `src/renderer/shell/stall-report.js`
 observes the window's `longtask` entries, and each of 500 ms or more is sent to `src/app/renderer-stalls.js`,
@@ -292,9 +300,13 @@ which validates it and logs:
 [renderer-stall] main window blocked ~1240ms; work started in that task: show-session:conversation, conversation-reset:1130
 ```
 
-The breadcrumbs are `window.noteRendererWork(label)` — today the view switch (`showSession`) and the draw of
-a whole conversation (`reset`, with its entry count). A report naming none came from somewhere not yet
-instrumented. `(hidden)` after the window says the task ran while the window was not visible.
+The breadcrumbs are `window.noteRendererWork(label)`: the view switch (`showSession`), the draw of a whole
+conversation (`reset`, with its entry count), a conversation op as it arrives (`conversation-op:<op>`), a
+sidebar render (`sidebar-render`) and a terminal write (`terminal-write`). A report names those that started
+inside the task or up to 50 ms before it, because xterm parses a write in a task of its own right after the
+call. A report naming none came from somewhere not yet instrumented. `(hidden)` after the window says the
+window was not visible when the task was reported; the first reading found stalls of up to five seconds in a
+hidden window, with nothing noted, before these breadcrumbs existed.
 
 ## A spawned CLI's first frame is a performance surface this app can break (#560, #567)
 

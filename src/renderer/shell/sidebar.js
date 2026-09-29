@@ -903,6 +903,8 @@ function finalizeSidebar(newSidebar, projects, newSortedOrder) {
 }
 
 function renderProjects(projects, resort) {
+  // A breadcrumb for a renderer stall report (shell/stall-report.js, #707).
+  window.noteRendererWork?.('sidebar-render');
   // #277: gather the on-screen repo cwds during this render so main polls exactly what's visible.
   if (window.vcsView) window.vcsView.beginCollect();
   const newSidebar = document.createElement('div');

@@ -82,9 +82,10 @@ db.pragma('wal_autocheckpoint = 2000');
 let _isMainThread = true;
 try { _isMainThread = require('worker_threads').isMainThread; } catch {}
 if (_isMainThread) {
-  const _walCheckpointTimer = setInterval(() => {
+  // Measured (#707): a checkpoint is synchronous disk work on the main thread, so a slow one is a stall.
+  const _walCheckpointTimer = setInterval(require('../perf').measured('db:wal-checkpoint', () => {
     try { db.pragma('wal_checkpoint(PASSIVE)'); } catch {}
-  }, 60000);
+  }), 60000);
   if (typeof _walCheckpointTimer.unref === 'function') _walCheckpointTimer.unref();
 }
 

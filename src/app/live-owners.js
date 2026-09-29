@@ -21,6 +21,7 @@
 'use strict';
 
 const sessionShutdown = require('./session-shutdown');
+const { measured } = require('../perf');
 
 let ctx = null;
 let timer = null;
@@ -183,7 +184,7 @@ function start() {
   stop();
   const first = setTimeout(() => { tick(); }, FIRST_DELAY_MS);
   if (typeof first.unref === 'function') first.unref();
-  timer = setInterval(tick, POLL_MS);
+  timer = setInterval(measured('live-owners:poll', tick), POLL_MS);
   if (typeof timer.unref === 'function') timer.unref();
 }
 

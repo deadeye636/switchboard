@@ -89,12 +89,34 @@ function setSlowWorkLog(log, slowMs) {
  */
 function noteWork(label) {
   const at = performance.now();
-  _notes.push({ label, at });
+  // A hot entry point (a terminal's output, a pipe's lines) notes itself per chunk; pushing each would push
+  // every other breadcrumb out of the ring before the next tick. A repeat of the newest label moves it instead.
+  const last = _notes[_notes.length - 1];
+  if (last && last.label === label) last.at = at;
+  else _notes.push({ label, at });
   if (_notes.length > NOTE_RING_SIZE) _notes.shift();
   return () => {
     const ms = performance.now() - at;
     if (slowWork.log && ms >= slowWork.slowMs) slowWork.log.info(`[slow-work] ${label} held the main thread ${Math.round(ms)}ms`);
     return ms;
+  };
+}
+
+/**
+ * Wrap a callback that is an ENTRY POINT of its own — a timer, a watcher, a child's output — so it leaves a
+ * breadcrumb and is measured like an IPC handler. Returns what `fn` returns; the span covers its synchronous
+ * part only.
+ *
+ *   setInterval(measured('db:wal-checkpoint', () => db.pragma(...)), 60000);
+ */
+function measured(label, fn) {
+  return function measuredCall(...args) {
+    const done = noteWork(label);
+    try {
+      return fn.apply(this, args);
+    } finally {
+      done();
+    }
   };
 }
 
@@ -161,4 +183,4 @@ function startLoopLagMonitor(opts = {}) {
   return () => clearInterval(timer);
 }
 
-module.exports = { startTimer, timed, timedAsync, noteWork, noteIpcCalls, setSlowWorkLog, createLoopLagCheck, startLoopLagMonitor };
+module.exports = { startTimer, timed, timedAsync, noteWork, measured, noteIpcCalls, setSlowWorkLog, createLoopLagCheck, startLoopLagMonitor };

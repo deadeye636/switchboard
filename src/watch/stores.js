@@ -22,6 +22,7 @@ const path = require('path');
 // reassigns; a module reference is not that. Both this file and main.js resolve the same path, so they
 // hold the same instance and the same liveStoreRef/liveBusy.
 const adopt = require('./adopt');
+const { measured } = require('../perf');
 
 let ctx = null;
 const backendWatchers = [];
@@ -93,8 +94,10 @@ function startBackendWatchers() {
     else if (named) named.add(changedPath);
     // named === null: this flush already asks for the walk, and a path cannot narrow that.
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+    debounceTimer = setTimeout(measuredFlush, DEBOUNCE_MS);
   }
+  // The flush is a timer of its own, and its live-state match runs on main (#707).
+  const measuredFlush = measured('watch:stores-flush', flush);
 
   // The stores that are READ, not the backends that are switched on (#658): a backend driving another's binary
   // keeps no store of its own, so its owner's store is watched while the driver is on, even with the owner
@@ -186,7 +189,7 @@ function startBackendWatchers() {
   // the condition #151 exists to speak up about. So: tick while anything is busy, OR while anything is
   // still unpaired. An app with no live backend session does no work either way.
   if (!backendBusyTicker) {
-    backendBusyTicker = setInterval(() => {
+    backendBusyTicker = setInterval(measured('watch:busy-recheck', () => {
       if (ctx.getAppQuitting()) return;
       let anyBusy = false;
       for (const busy of adopt.liveBusy.values()) if (busy) { anyBusy = true; break; }
@@ -194,7 +197,7 @@ function startBackendWatchers() {
       try { adopt.updateBackendLiveStates(); } catch (err) {
         ctx.log.warn(`[backends] busy re-check failed: ${err?.message || err}`);
       }
-    }, 30000);
+    }), 30000);
     if (backendBusyTicker.unref) backendBusyTicker.unref();
   }
 }

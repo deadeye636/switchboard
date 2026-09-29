@@ -2377,6 +2377,8 @@ function sessionHasNoTerminal(session) {
 // Where a stream of ops lands: the view of the session they belong to, if this window holds one.
 if (window.api && typeof window.api.onAgentEvent === 'function') {
   window.api.onAgentEvent((sessionId, op) => {
+    // A breadcrumb for a renderer stall report (shell/stall-report.js, #707).
+    window.noteRendererWork?.(`conversation-op:${(op && op.op) || 'unknown'}`);
     const entry = openSessions.get(sessionId);
     if (entry && entry.conversation) entry.conversation.apply(op);
     // The activity clock every other session gets from its terminal bytes (`trackActivity`).

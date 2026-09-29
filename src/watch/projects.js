@@ -10,6 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { measured } = require('../perf');
 
 let ctx = null;
 let projectsWatcher = null;
@@ -78,6 +79,9 @@ function startProjectsWatcher() {
     }
   }
 
+  // The flush is an entry point of its own (a timer), and its transitions check and posts run on main (#707).
+  const measuredFlush = measured('watch:projects-flush', flushChanges);
+
   try {
     projectsWatcher = fs.watch(ctx.projectsDir, { recursive: true }, (_eventType, filename) => {
       if (!filename) return;
@@ -104,7 +108,7 @@ function startProjectsWatcher() {
       const waited = now - burstStartedAt;
       const delay = Math.min(DEBOUNCE_MS, Math.max(0, MAX_WAIT_MS - waited));
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(flushChanges, delay);
+      debounceTimer = setTimeout(measuredFlush, delay);
     });
 
     projectsWatcher.on('error', (err) => {

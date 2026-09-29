@@ -30,6 +30,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { completePaths } = require('./path-completion');
+const { measured } = require('../perf');
 
 let ctx = null;
 
@@ -747,7 +748,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
   // legal inside a JSON string, so it is not used — Pi's own RPC document says the same.
   let buf = '';
   child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => {
+  // Measured (#707): every line of a turn is parsed and translated here, on main.
+  child.stdout.on('data', measured('agent-rpc:output', (chunk) => {
     if (ctx.getAppQuitting && ctx.getAppQuitting()) return;
     buf += chunk;
     let nl;
@@ -780,7 +782,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
       try { ops = state.decoder.decode(msg) || []; } catch (err) { ctx.log.warn(`[agent-rpc] decode failed: ${err.message}`); }
       for (const op of ops) handleOp(op);
     }
-  });
+  }));
 
   // Kept for the log only. Stderr is the child's own voice and can name any path on the machine, so it is
   // never sent to a window (#444) — the exit notice says what happened in words of our own.

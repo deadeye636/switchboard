@@ -134,6 +134,27 @@ test('a breadcrumb names the work that HELD the loop, and only that work', async
   }
 });
 
+test('measured() wraps an entry point, and a hot label does not push the others out of the ring', () => {
+  const { measured, setSlowWorkLog } = require('../src/perf');
+  const lines = [];
+  setSlowWorkLog({ info: (m) => lines.push(m) }, 30);
+  try {
+    const t0 = performance.now();
+    const check = createLoopLagCheck({ log: null, intervalMs: 250, thresholdMs: 1000, now: () => t0 });
+    noteWork('ipc:get-projects');
+    const tick = measured('db:wal-checkpoint', function (x) { const end = performance.now() + 40; while (performance.now() < end) { /* hold */ } return x + 1; });
+    assert.equal(tick(1), 2, 'passes the arguments and the result through');
+    const chunk = measured('pty:output', () => {});
+    for (let i = 0; i < 500; i++) chunk();
+    assert.match(check.tick(performance.now() + 250 + 2000), /work started in that window: ipc:get-projects, db:wal-checkpoint, pty:output$/,
+      'five hundred chunks are one breadcrumb, and the earlier ones survive');
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /^\[slow-work\] db:wal-checkpoint held the main thread \d+ms$/);
+  } finally {
+    setSlowWorkLog(null);
+  }
+});
+
 test('no slow-work logger, no line', () => {
   const { setSlowWorkLog } = require('../src/perf');
   setSlowWorkLog(null);

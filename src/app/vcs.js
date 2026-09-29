@@ -15,6 +15,7 @@ const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const vcs = require('../vcs');
+const { measured } = require('../perf');
 const { isAtOrInside } = require('./path-containment');
 
 const DIFF_LINE_CAP = 4000;
@@ -415,9 +416,9 @@ function init(context) {
     getConfig: () => readConfig(),
   });
   // 1s heartbeat: cheap, and the actual poll cadence is governed by each cwd's nextDue.
-  heartbeat = setInterval(() => {
+  heartbeat = setInterval(measured('vcs:heartbeat', () => {
     try { if (readConfig().enabled) scheduler.tick(); } catch (e) { ctx.log && ctx.log.debug && ctx.log.debug('[vcs] tick error', e); }
-  }, 1000);
+  }), 1000);
   if (heartbeat.unref) heartbeat.unref();
 }
 

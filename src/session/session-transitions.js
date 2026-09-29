@@ -5,6 +5,7 @@ const { resolveClearParent } = require('./session-lineage');
 // subagents of a session live, what they are called and where their metadata comes from is the BACKEND's,
 // and it answers through the descriptor (#235) — this module reads no store layout of its own.
 const backendRegistry = require('../backends');
+const { measured } = require('../perf');
 // A session row from before #161 carries no backendId, and back then it was always Claude's. A named
 // default for a historical record, not a `|| 'claude'` fallback for a live decision.
 const LEGACY_SESSION_BACKEND = 'claude';
@@ -101,7 +102,7 @@ function sweepOpenSubagents() {
 
 function startSubagentSweep() {
   if (subagentSweepTimer) return;
-  subagentSweepTimer = setInterval(sweepOpenSubagents, SUBAGENT_SWEEP_MS);
+  subagentSweepTimer = setInterval(measured('subagent-sweep', sweepOpenSubagents), SUBAGENT_SWEEP_MS);
   if (typeof subagentSweepTimer.unref === 'function') subagentSweepTimer.unref();
 }
 

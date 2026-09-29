@@ -46,6 +46,7 @@ const liveOwners = require('../live-owners');
 const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
 const { conptyBuildHint } = require('./conpty');
+const { measured } = require('../../perf');
 
 let ctx = null;
 
@@ -1399,7 +1400,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     if (typeof session._silenceTimer.unref === 'function') session._silenceTimer.unref();
   }
 
-  ptyProcess.onData(data => {
+  // Measured (#707): a terminal's output is scanned and buffered here, on main, per chunk.
+  ptyProcess.onData(measured('pty:output', data => {
     // ConPTY flushes buffered output asynchronously after pty.kill(), so a last
     // chunk can arrive after will-quit closed the DB — the OSC 9;4 path below
     // calls ctx.getSetting() and would throw "The database connection is not open"
@@ -1557,7 +1559,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     if (windowLive()) {
       sendTerminalData(currentId, data);
     }
-  });
+  }));
 
   ptyProcess.onExit(({ exitCode }) => {
     session.exited = true;
