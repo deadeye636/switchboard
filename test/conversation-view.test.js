@@ -251,6 +251,28 @@ test('the prompt of the turn being read is pinned while it is out of sight, and 
   assert.equal(scrollTop, 300, 'the click scrolls the log, and only the log, to the pinned prompt');
 });
 
+// #716: Tab from the log would move the focus to the first link inside it and scroll there. It goes back to the
+// input instead, from the log itself and from anything inside it. Checked with real key presses in the app; this
+// pins the wiring.
+test('Tab and Shift+Tab from the log go back to the input and leave the conversation where it is', () => {
+  const h = setup();
+  h.entry.conversation.apply({ op: 'append', entry: { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'x' }] } } });
+  const log = h.entry.element.querySelector('.conversation-log');
+  const link = h.w.document.createElement('a');
+  link.href = 'https://example.com';
+  log.appendChild(link);
+  for (const [target, shiftKey] of [[log, false], [link, true]]) {
+    target.focus();
+    const ev = new h.w.KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+    target.dispatchEvent(ev);
+    assert.equal(ev.defaultPrevented, true);
+    assert.equal(h.w.document.activeElement, h.input);
+  }
+  const fromInput = new h.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+  h.input.dispatchEvent(fromInput);
+  assert.equal(fromInput.defaultPrevented, false, 'Tab in the input keeps its own meaning');
+});
+
 // #688: an attached image types `[Image #n]` at the caret, and the placeholder and the thumbnail are one thing.
 test('attaching types [Image #n] at the caret; the number is on the thumbnail and counts up', async () => {
   const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });

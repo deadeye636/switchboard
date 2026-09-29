@@ -365,6 +365,17 @@ function createConversationView(getSession, container) {
       const card = openCards()[0];
       if (card && focusCard(card)) { e.preventDefault(); return; }
     }
+    // Tab from the log (#716): the log takes the focus from any click into it, and the browser's next stop
+    // would be the first link or button inside it — often far above what is on screen, which it scrolls into
+    // view. The reader's place is kept, and the key goes where keys go in the CLI: back to the input, or to the
+    // card standing in its place.
+    // Only when there is somewhere to go: an ended session has no input and no card, and taking the key then
+    // would leave the keyboard nowhere to move the focus.
+    if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey && log.contains(e.target)) {
+      const from = document.activeElement;
+      focusView();
+      if (document.activeElement !== from) { e.preventDefault(); return; }
+    }
     if (e.target !== input && e.target !== log) return;
     if (e.target === input && completion && completion.isOpen && completion.isOpen()) return;
     if (pageKey(e)) e.preventDefault();
