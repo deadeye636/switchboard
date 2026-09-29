@@ -35,7 +35,9 @@ const { isTurnEvent } = require('./state');
 //   v5: a rollout written by an internal subagent (guardian review) is not a session at all (#492)
 //   v6: a forked rollout carries its parent (`forked_from_id`), read for lineage (#229)
 //   v7: the row carries the last request's context (lastInputTokens, lastModel) and the stored window (#620)
-const PARSER_SCHEMA_VERSION = 7;
+//   v8: injected context no longer counts as a user turn or prompt, and four more injected kinds are known
+//       — a stopped turn, a skill's text, a subagent's result, a plugin list (#713)
+const PARSER_SCHEMA_VERSION = 8;
 
 // Bytes of the already-consumed tail we fingerprint to detect a rewritten/truncated file.
 const FINGERPRINT_BYTES = 64;
@@ -118,10 +120,18 @@ function countWords(text) {
 // title puts "# AGENTS.md instructions for D:\..." in the sidebar for every Codex session. Skip
 // those and use the first REAL prompt; if a session only ever has injected turns, fall back to it
 // rather than showing nothing.
+// The same holds for the lines Codex writes under the user's role later in a session (#713, measured over a
+// real store): a turn the user stopped (`<turn_aborted>`), a skill's text (`<skill>`), a subagent's result
+// (`<subagent_notification>`) and a plugin list (`<recommended_plugins>`). Those are asked for at the very
+// start of the text, where Codex puts them, so a prompt that merely mentions such a tag still counts. Like the
+// context above, they are no title and stay out of the search body — a subagent's result included, so a word
+// only that result used is not found in the session that received it.
+// `<image …>` is not one of them: it wraps a picture the user attached to a prompt of their own.
 function looksLikeInjectedContext(text) {
   const head = text.slice(0, 300);
   if (/<\/?(INSTRUCTIONS|user_instructions|environment_context|system_context)>/i.test(head)) return true;
   if (/^\s*#.*\b(AGENTS\.md|instructions)\b/i.test(head)) return true;
+  if (/^\s*<(turn_aborted|skill|subagent_notification|recommended_plugins)>/.test(head)) return true;
   return false;
 }
 
@@ -196,9 +206,13 @@ function applyEntry(st, entry) {
       st.messageCount++;
       const injected = payload.role === 'user' && looksLikeInjectedContext(text);
       if (payload.role === 'user') {
-        st.userMessageCount++;
-        const words = countWords(text);
-        if (words > st.largestUserPromptWords) st.largestUserPromptWords = words;
+        // Only what the user wrote counts as a turn or a prompt (#713, as #706 did for Claude): injected
+        // context is not the user's, and its size says nothing about the session's prompts.
+        if (!injected) {
+          st.userMessageCount++;
+          const words = countWords(text);
+          if (words > st.largestUserPromptWords) st.largestUserPromptWords = words;
+        }
         // The session title = the first REAL user prompt, not Codex's injected AGENTS.md context.
         if (text) {
           if (!st.fallbackSummary) st.fallbackSummary = text.slice(0, 500);

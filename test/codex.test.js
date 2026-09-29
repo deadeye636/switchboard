@@ -64,6 +64,29 @@ test('the title skips Codex\'s injected AGENTS.md context and uses the real prom
   assert.strictEqual(row.summary, 'Fix the failing auth test', 'injected context must not become the title');
 });
 
+test('injected context is not a user turn or prompt; a prompt that only mentions a tag, or carries an image, is (#713)', () => {
+  const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-count-')), 'rollout.jsonl');
+  const line = (o) => JSON.stringify(o) + '\n';
+  const user = (text) => line({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
+  const long = 'word '.repeat(3000);
+  fs.writeFileSync(tmp,
+    line({ timestamp: '2026-06-27T10:00:00Z', type: 'session_meta', payload: { id: 'X4', cwd: 'D:\\p', timestamp: '2026-06-27T10:00:00Z' } }) +
+    user(`# AGENTS.md instructions for D:\\p\n\n${long}`) +
+    user('<environment_context>\n  <cwd>D:\\p</cwd>\n</environment_context>') +
+    user('<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>') +
+    user(`<skill>\n<name>demo</name>\n${long}</skill>`) +
+    user('<subagent_notification>\n{"status":"completed"}\n</subagent_notification>') +
+    user('<recommended_plugins>\nHere is a list of plugins.\n</recommended_plugins>') +
+    user('Why does <skill> appear in the log?') +
+    user('<image name=[Image #1]>\n</image>\nwhat is on this picture'),
+  );
+  const row = parser.parseSession({ kind: 'file', path: tmp });
+  assert.strictEqual(row.userMessageCount, 2);
+  assert.ok(row.largestUserPromptWords < 20, `the injected texts set no prompt size (got ${row.largestUserPromptWords})`);
+  assert.strictEqual(row.summary, 'Why does <skill> appear in the log?', 'the title is the first real prompt');
+  assert.ok(parser.PARSER_SCHEMA_VERSION >= 8, 'stored rows are read again');
+});
+
 test('injected context is kept OUT of the search body (it is identical in every session of a project)', () => {
   const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'codex-fts-')), 'rollout.jsonl');
   const line = (o) => JSON.stringify(o) + '\n';

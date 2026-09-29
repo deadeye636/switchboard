@@ -229,6 +229,16 @@ in one session. It counted before as well. Its printed output does not count any
 Other backends count with their own rules; this section is about Claude's reader. Its
 `PARSER_SCHEMA_VERSION` went to 13, so stored Claude rows are read again.
 
+**Codex (#713)** counts the same way now. Its parser already recognised the context Codex writes under the
+user's role, and kept it out of the title and the search body, but still counted it. It now skips it, and
+it knows four more injected kinds, each at the start of the text: `<turn_aborted>` (a stopped turn),
+`<skill>`, `<subagent_notification>` and `<recommended_plugins>`. `<image …>` is not one of them, since it
+wraps a picture the user attached. Measured over 30 sessions of one real Codex store, the user turns went
+from 307 to 258. The 30-turn and 2 000-word thresholds cross for the same sessions as before (2 and 1).
+Codex's `PARSER_SCHEMA_VERSION` went to 8. The four new kinds also leave the title and the search body, as
+the older injected context always did. For `<subagent_notification>` that means a word only the subagent's
+result used no longer finds the session that received it.
+
 What reads the count, and what was decided for each:
 - **The badge thresholds stay** (`session-health.js`). The 2 000-word prompt reason now fires for no session
   of the measured store. It is kept anyway: since #620 the context fill is the signal the badge rests on, and
