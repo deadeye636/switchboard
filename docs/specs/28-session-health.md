@@ -229,6 +229,17 @@ in one session. It counted before as well. Its printed output does not count any
 Other backends count with their own rules; this section is about Claude's reader. Its
 `PARSER_SCHEMA_VERSION` went to 13, so stored Claude rows are read again.
 
+What reads the count, and what was decided for each:
+- **The badge thresholds stay** (`session-health.js`). The 2 000-word prompt reason now fires for no session
+  of the measured store. It is kept anyway: since #620 the context fill is the signal the badge rests on, and
+  a prompt of that size is still worth naming when it happens.
+- **The card's turn colours stay** at 21 and 30 (`session-card-details.js`), now counting prompts.
+- **Spring cleaning's "abandoned short" rule moved to the entry count** (`session-cleanup.js`). It skipped a
+  session with five user turns or more, and that count carried the tool work. Counting prompts only, a session
+  of two prompts and ten tool calls would have been offered for archiving. The rule now asks for fewer than 10
+  transcript entries instead of fewer than 50. Over 290 sessions of the same store it selects the same 15 as
+  before; at 50 it would have been 23.
+
 ## Cost
 
 The hook runs once per row of every sidebar payload. The first version spread `process.env` on every call
@@ -250,8 +261,9 @@ comparable with the first measurement, which ran over fake rows without director
   as "this session is old" sees it less often; Marathon Risk still says that.
 - Hermes and agy sessions lose their health badge and their metrics text in the sidebar.
 - A Claude session's turn count drops to the prompts the user wrote (#706), so far fewer sessions cross the
-  turn and prompt-size thresholds, and Growing and Marathon Risk appear less often. The old count mostly
-  measured tool calls, and anyone who read "N turns" that way loses that reading.
+  turn and prompt-size thresholds, and Growing and Marathon Risk appear less often. The same goes for the grid
+  card's amber and red turn colours. The old count mostly measured tool calls, and anyone who read "N turns"
+  that way loses that reading. Spring cleaning's selection was adjusted so it stays the same (see above).
 - Their health chip was also a click route into the handoff dialog. The sidebar row's handoff button and the
   command palette still offer it (E7), but a Hermes or agy grid card now has no handoff control of its own.
 

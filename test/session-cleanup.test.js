@@ -71,7 +71,7 @@ function abandonedSession(overrides = {}) {
 
 test('abandoned-short defaults are conservative named constants', () => {
   assert.deepEqual(ABANDONED_SHORT_DEFAULTS, {
-    maxMessageCount: 50,
+    maxMessageCount: 10,
     maxUserMessageCount: 5,
     maxCacheReadTokens: 2_000_000,
     minInactiveDays: 2,
@@ -86,7 +86,7 @@ test('abandoned-short flags a trivial, inactive session', () => {
 
 test('abandoned-short excludes sessions over each usage threshold', () => {
   const sessions = [
-    abandonedSession({ sessionId: 'too-many-messages', messageCount: 50 }),
+    abandonedSession({ sessionId: 'too-many-messages', messageCount: 10 }),
     abandonedSession({ sessionId: 'too-many-turns', userMessageCount: 5 }),
     abandonedSession({ sessionId: 'too-much-cache', cacheReadTokens: 2_000_000 }),
   ];
@@ -96,7 +96,7 @@ test('abandoned-short excludes sessions over each usage threshold', () => {
 
 test('abandoned-short keeps sessions just under each usage threshold', () => {
   const sessions = [
-    abandonedSession({ sessionId: 'edge-messages', messageCount: 49 }),
+    abandonedSession({ sessionId: 'edge-messages', messageCount: 9 }),
     abandonedSession({ sessionId: 'edge-turns', userMessageCount: 4 }),
     abandonedSession({ sessionId: 'edge-cache', cacheReadTokens: 1_999_999 }),
   ];
@@ -105,6 +105,12 @@ test('abandoned-short keeps sessions just under each usage threshold', () => {
     result.map(item => item.session.sessionId).sort(),
     ['edge-cache', 'edge-messages', 'edge-turns'],
   );
+});
+
+test('abandoned-short: two prompts that set off ten tool calls are work, not an abandoned session (#706)', () => {
+  // Since #706 the user-turn count holds prompts only, so the tool work shows in the entry count alone.
+  const result = getAbandonedShortSessions([abandonedSession({ sessionId: 'tool-work', userMessageCount: 2, messageCount: 24 })], { now: NOW });
+  assert.deepEqual(result, []);
 });
 
 test('abandoned-short excludes sessions active within the 2-day window', () => {

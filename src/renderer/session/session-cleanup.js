@@ -14,9 +14,12 @@
   // session to qualify, so the category only ever surfaces genuinely trivial,
   // stale sessions. Values are deliberately conservative.
   const ABANDONED_SHORT_DEFAULTS = {
-    // Fewer than this many total transcript entries.
-    maxMessageCount: 50,
-    // Fewer than this many user turns (real back-and-forth).
+    // Fewer than this many total transcript entries, tool calls and their results included. This is what
+    // says "barely used": until #706 the user-turn count below also counted every tool result, so it
+    // carried the tool work. Now that it counts prompts only, 10 entries keeps the selection this rule made
+    // before (measured over one real Claude store of 290 sessions: the same 15; at 50 it would have been 23).
+    maxMessageCount: 10,
+    // Fewer than this many prompts of the user's own.
     maxUserMessageCount: 5,
     // Below this many cache-read tokens. Claude Code re-reads the cached context
     // on every turn, so even a 5-message session realistically reads a few hundred

@@ -37,6 +37,8 @@ const { transportFromEntry } = require('./transport-marker');
 //        the one from before. A finished session that ended on a compaction would never say so without it.
 //   v13: userMessageCount and largestUserPromptWords count only the user's own lines (`isUsersPrompt`, #706).
 //        They counted every `user` line — tool results, subagent reports, task notifications, skill text.
+//        The older `type: 'message'` user shape no longer counts either: `isUsersPrompt` knows only `user`
+//        lines, and none of that shape was found in a real store.
 const PARSER_SCHEMA_VERSION = 13; // v13: user counters ask isUsersPrompt — #706
 
 function contentToText(content) {
