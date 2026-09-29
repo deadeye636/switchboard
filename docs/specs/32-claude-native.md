@@ -759,5 +759,5 @@ carried as `prompt: true`:
 pi-native marks a Pi `user` message. A tool result is drawn in the user's role too, but its Pi role is
 `toolResult`, so it is not marked. A command taken over from another CLI, and a prompt template such as
 `/handoff`, reaches Pi as a user message holding the expanded text, so the bar shows that text rather than
-the `/name` typed. The view draws the same text as the user's message, so the two agree. #706 counts the user's prompts for the session metrics and is meant to
-ask the same reader.
+the `/name` typed. The view draws the same text as the user's message, so the two agree. The session metrics (`userMessageCount`,
+`largestUserPromptWords`) ask the same function since #706; spec 28 has what that changed.

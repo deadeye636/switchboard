@@ -35,7 +35,9 @@ const { transportFromEntry } = require('./transport-marker');
 //        `entrypoint` the driver sets (./transport-marker.js, #658). Existing rows were read without it.
 //   v12: the row says whether a compaction came after the last usage record (#698), so the fill it carries is
 //        the one from before. A finished session that ended on a compaction would never say so without it.
-const PARSER_SCHEMA_VERSION = 12; // v12: row.compactedSinceLastTurn — #698
+//   v13: userMessageCount and largestUserPromptWords count only the user's own lines (`isUsersPrompt`, #706).
+//        They counted every `user` line — tool results, subagent reports, task notifications, skill text.
+const PARSER_SCHEMA_VERSION = 13; // v13: user counters ask isUsersPrompt — #706
 
 function contentToText(content) {
   if (typeof content === 'string') return content;
@@ -269,6 +271,9 @@ function localCommandOutput(text) {
  * `interruptedMessageId`, and a subagent's report an `origin` of its own; none of them has `promptSource`. A
  * slash command the user typed carries no `promptSource` either, and is counted: it is the user's own line,
  * including a local one that starts no turn. A local command's OUTPUT is not.
+ *
+ * Two callers ask it and must keep asking the same function: the conversation view's pinned prompt (#709)
+ * and the row's userMessageCount / largestUserPromptWords (#706).
  */
 function isUsersPrompt(line) {
   if (!line || line.type !== 'user' || line.isMeta || line.isSidechain) return false;
@@ -490,8 +495,13 @@ function applyEntryLine(st, line) {
   const msg = entry.message;
   const text = typeof msg === 'string' ? msg : contentToText(msg?.content);
   if (entry.type === 'user' || (entry.type === 'message' && entry.role === 'user')) {
-    st.userMessageCount++;
-    st.largestUserPromptWords = Math.max(st.largestUserPromptWords, countWords(text));
+    // Only what the user wrote counts as a turn or a prompt (#706) — the same answer the conversation view's
+    // pinned prompt asks for (#709), so the two cannot disagree about which line is the user's. Every `user`
+    // line used to count: tool results (most of them), a subagent's report, a task's end, a skill's text.
+    if (isUsersPrompt(entry)) {
+      st.userMessageCount++;
+      st.largestUserPromptWords = Math.max(st.largestUserPromptWords, countWords(text));
+    }
     const spec = modelCommandSpec(text);
     if (spec !== null) { st.lastModelSpec = spec || null; st.specWaitsForTurnEnd = st.turnOpen; }
     else if (startsTurn(entry, text)) { st.turnOpen = true; st.specWaitsForTurnEnd = false; }

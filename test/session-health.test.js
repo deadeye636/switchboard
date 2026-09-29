@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { readSessionFile } = require('../src/backends/claude/session-reader');
+const { readSessionFile, readSessionFileIncremental } = require('../src/backends/claude/session-reader');
 const sessionCache = require('../src/index/session-cache');
 const {
   getSessionHealth,
@@ -58,6 +58,70 @@ test('readSessionFile derives usage and session-shape metrics from JSONL entries
   assert.equal(session.startedAt, '2026-06-15T08:00:00.000Z');
   assert.equal(session.lastEntryAt, '2026-06-15T12:15:00.000Z');
   assert.equal(session.activeMinutes, 255);
+});
+
+// #706: only the user's own lines are turns and prompts. The shapes are the ones measured in a real store and
+// named in spec 32, "Which line is the user's (#709)"; the reader asks isUsersPrompt for both features.
+test('readSessionFile counts only the lines the user wrote as turns and prompts (#706)', () => {
+  const long = (word) => Array.from({ length: 3000 }, () => word).join(' ');
+  const at = (minute) => `2026-06-15T08:${String(minute).padStart(2, '0')}:00.000Z`;
+  const entries = [
+    // A typed prompt: counts.
+    { type: 'user', timestamp: at(0), promptSource: 'typed', origin: { kind: 'human' },
+      message: { role: 'user', content: 'Refactor the parser please' } },
+    { type: 'assistant', timestamp: at(1), message: { role: 'assistant', content: [{ type: 'text', text: 'On it' }] } },
+    // A tool result in the user's role: not a turn.
+    { type: 'user', timestamp: at(2),
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'done' }] } },
+    // A subagent's report: origin peer, isMeta, promptSource system.
+    { type: 'user', timestamp: at(3), isMeta: true, promptSource: 'system', origin: { kind: 'peer' },
+      message: { role: 'user', content: long('report') } },
+    // A background task's end: origin task-notification, NOT isMeta.
+    { type: 'user', timestamp: at(4), promptSource: 'system', origin: { kind: 'task-notification' },
+      message: { role: 'user', content: long('notification') } },
+    // A skill's text: isMeta.
+    { type: 'user', timestamp: at(5), isMeta: true,
+      message: { role: 'user', content: [{ type: 'text', text: long('skill') }] } },
+    // A compaction summary: no isMeta, no promptSource.
+    { type: 'user', timestamp: at(6), isCompactSummary: true, isVisibleInTranscriptOnly: true,
+      message: { role: 'user', content: long('summary') } },
+    // The line a Stop leaves behind.
+    { type: 'user', timestamp: at(7), interruptedMessageId: 'm1',
+      message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } },
+    // A local command the user typed: counts. Its printed output does not.
+    { type: 'user', timestamp: at(8),
+      message: { role: 'user', content: '<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>' } },
+    { type: 'user', timestamp: at(9),
+      message: { role: 'user', content: '<local-command-stdout>Set model to opus</local-command-stdout>' } },
+  ];
+  const { dir, filePath } = writeJsonl(entries);
+
+  const session = readSessionFile(filePath, path.basename(dir), '/tmp/project');
+
+  assert.equal(session.userMessageCount, 2, 'the typed prompt and the typed command');
+  assert.equal(session.largestUserPromptWords, 4, 'the typed prompt, not a 3000-word injected line');
+  assert.equal(session.summary, 'Refactor the parser please', 'the title is untouched');
+
+  // The incremental path folds lines through the same function, appended in two halves.
+  const half = Math.ceil(entries.length / 2);
+  fs.writeFileSync(filePath, entries.slice(0, half).map(e => JSON.stringify(e)).join('\n') + '\n');
+  const first = readSessionFileIncremental(filePath, path.basename(dir), '/tmp/project', {}, null);
+  fs.appendFileSync(filePath, entries.slice(half).map(e => JSON.stringify(e)).join('\n') + '\n');
+  const second = readSessionFileIncremental(filePath, path.basename(dir), '/tmp/project', {}, first.next);
+  assert.equal(second.session.userMessageCount, 2);
+  assert.equal(second.session.largestUserPromptWords, 4);
+});
+
+test('a session that opened with a slash command keeps its title and counts the command (#706)', () => {
+  const { dir, filePath } = writeJsonl([
+    { type: 'user', timestamp: '2026-06-15T08:00:00.000Z',
+      message: { role: 'user', content: '<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>' } },
+  ]);
+
+  const session = readSessionFile(filePath, path.basename(dir), '/tmp/project');
+
+  assert.equal(session.summary, '/clear');
+  assert.equal(session.userMessageCount, 1);
 });
 
 test('getSessionHealth ignores plain terminal sessions', () => {

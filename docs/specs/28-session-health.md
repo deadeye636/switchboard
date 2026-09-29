@@ -2,7 +2,7 @@
 
 > Read `docs/specs/README.md` first.
 
-**Status:** Built · **Issue:** #620, #621, #622 · **Independent:** No — the readers of three backends, one migration,
+**Status:** Built · **Issue:** #620, #621, #622, #706 · **Independent:** No — the readers of three backends, one migration,
 a descriptor hook on every backend, the sidebar payload and the renderer's health rule.
 
 ## The problem
@@ -202,6 +202,33 @@ badge again.
 - **Settings:** `contextFillHandoffPercent` and `showContextFill` are global only, under Projects & sidebar →
   Session health. See `docs/settings-reference.md`.
 
+## Which lines count as a user turn (#706)
+
+Two of the old thresholds count the user: `userMessageCount` (the "N turns" of the metrics text) and
+`largestUserPromptWords`. In Claude's reader they count only what the user wrote. The reader asks
+`isUsersPrompt`, the same function that decides which line the conversation view pins as the prompt, so the
+rule is written once: see [Which line is the user's (#709)](32-claude-native.md#which-line-is-the-users-709)
+in spec 32.
+
+Before #706 every `user` line counted. Measured over 293 transcripts of one real store (CLI 2.1.x):
+
+| | Before | After |
+|---|---|---|
+| Lines counted as user turns | 84 529 | 4 504 |
+| Sessions at or above the 30-turn threshold | 261 | 27 |
+| Sessions at or above the 2 000-word prompt threshold | 86 | 0 |
+
+Most of the difference was tool results (77 091 lines), which Claude writes in the user's role. They carry no
+text, so they inflated the count and never the largest prompt. The largest prompt came from injected text: a
+skill's text or a subagent's report (`isMeta`, up to 25 998 words), a background task's end
+(`origin.kind: task-notification`, up to 4 822 words, and not `isMeta`) and a compaction summary.
+
+A slash command the user typed still counts, `/model` and `/clear` included: 212 of the 4 504, at most four
+in one session. It counted before as well. Its printed output does not count any more.
+
+Other backends count with their own rules; this section is about Claude's reader. Its
+`PARSER_SCHEMA_VERSION` went to 13, so stored Claude rows are read again.
+
 ## Cost
 
 The hook runs once per row of every sidebar payload. The first version spread `process.env` on every call
@@ -222,6 +249,9 @@ comparable with the first measurement, which ran over fake rows without director
 - A long session with room left in its window no longer gets Handoff Recommended. Anyone reading the badge
   as "this session is old" sees it less often; Marathon Risk still says that.
 - Hermes and agy sessions lose their health badge and their metrics text in the sidebar.
+- A Claude session's turn count drops to the prompts the user wrote (#706), so far fewer sessions cross the
+  turn and prompt-size thresholds, and Growing and Marathon Risk appear less often. The old count mostly
+  measured tool calls, and anyone who read "N turns" that way loses that reading.
 - Their health chip was also a click route into the handoff dialog. The sidebar row's handoff button and the
   command palette still offer it (E7), but a Hermes or agy grid card now has no handoff control of its own.
 
