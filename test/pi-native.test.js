@@ -77,6 +77,20 @@ test('tool execution becomes running/done ops with the live output', () => {
   assert.equal(result.entry.message.content[0].tool_use_id, 'c1');
 });
 
+test('a user message is marked as a prompt, live and on an attach; a tool result is not (#709)', () => {
+  const d = protocol.createDecoder();
+  const [user] = d.decode({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: 'hi' }], timestamp: 1 } });
+  assert.equal(user.entry.prompt, true);
+  const [result] = d.decode({ type: 'message_end', message: { role: 'toolResult', toolCallId: 'c1', content: [] } });
+  assert.notEqual(result.entry.prompt, true);
+  const attached = protocol.entriesFromMessages({ data: { messages: [
+    { role: 'user', content: 'a', timestamp: 1 },
+    { role: 'assistant', content: [{ type: 'text', text: 'b' }], timestamp: 2 },
+    { role: 'toolResult', toolCallId: 'c1', content: [], timestamp: 3 },
+  ] } });
+  assert.deepEqual(attached.map(e => e.prompt === true), [true, false, false]);
+});
+
 test('an extension dialog becomes an ask; notify becomes a notice; an extension error names no detail', () => {
   const d = protocol.createDecoder();
   const [ask] = d.decode({ type: 'extension_ui_request', id: 'u1', method: 'select', title: 'Allow bash?', options: ['Allow once', 'Refuse'] });

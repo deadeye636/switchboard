@@ -72,7 +72,7 @@ const crypto = require('crypto');
 const { textOf, argsFromText, oneLineDescription, NOTICES, IMAGE_INPUT } = require('../rpc-shared');
 // Claude's slash-command grammar, from Claude's own reader — one copy of it, beside the transcript format
 // it belongs to (#229, #680).
-const { typedCommand, localCommandOutput } = require('../claude/session-reader');
+const { typedCommand, localCommandOutput, isUsersPrompt } = require('../claude/session-reader');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
 // session (point 9). "In this project" only where it suggested an allow rule for the project's LOCAL settings
@@ -571,7 +571,11 @@ function createDecoder() {
     }
     const shown = displayedLine(msg);
     if (!shown) return [];
-    const ops = [{ op: 'append', entry: entryOf(shown) }];
+    // The user's own line (#709): on the stream it is the one played back, `isReplay` (point 3, measured on
+    // 2.1.284 — the stream copy carries no `promptSource`). The view reads `prompt` and nothing else.
+    const entry = entryOf(shown);
+    if (msg.isReplay === true && !(Array.isArray(m.content) && m.content.some(b => b && b.type === 'tool_result'))) entry.prompt = true;
+    const ops = [{ op: 'append', entry }];
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_result' && b.tool_use_id) {
         const output = textOf(b.content);
@@ -982,7 +986,8 @@ function conversationEntries(lines) {
     if (!line || (line.type !== 'user' && line.type !== 'assistant')) continue;
     if (line.isSidechain || line.isMeta || !line.message || typeof line.uuid !== 'string') continue;
     const shown = displayedLine(line);
-    if (shown) out.push(shown);
+    // The user's own line (#709), by the rule Claude's reader keeps for the transcript.
+    if (shown) out.push(isUsersPrompt(line) ? { ...shown, prompt: true } : shown);
   }
   return out;
 }

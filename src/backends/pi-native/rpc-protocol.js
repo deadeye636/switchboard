@@ -63,11 +63,14 @@ const { textOf, argsFromText, oneLineDescription, NOTICES } = require('../rpc-sh
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
 const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, parseShell, parseTree, parseNavigated, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, NAVIGATE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
-// One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one).
+// One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one). A `user` message is the
+// user's own line and is marked `prompt` (#709); a tool result is drawn under the user's role too, but its
+// Pi role is `toolResult`, so it is not.
 function entriesFor(message) {
   if (!message || typeof message !== 'object') return [];
   const timestamp = typeof message.timestamp === 'number' ? new Date(message.timestamp).toISOString() : undefined;
-  return normalizeTranscriptEntries([{ type: 'message', timestamp, message }]);
+  const entries = normalizeTranscriptEntries([{ type: 'message', timestamp, message }]);
+  return message.role === 'user' ? entries.map(e => (e && e.type === 'message' ? { ...e, prompt: true } : e)) : entries;
 }
 
 // The methods an extension can open that wait for an answer (Pi's RPC doc, "Extension UI Protocol").

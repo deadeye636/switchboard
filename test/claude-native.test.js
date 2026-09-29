@@ -380,6 +380,25 @@ test('a failed Skill call, or the turn ending, leaves the next synthetic line al
   assert.deepEqual(ended[2].message.content, [{ type: 'text', text: 'x' }]);
 });
 
+test('the user\'s own line is marked as a prompt, live and reopened; what the CLI injected is not (#709)', () => {
+  // Live: the line played back (`isReplay`) is the user's; a tool result is not.
+  const live = decodeAll([
+    { type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: 'hello' } },
+    { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'x' }] } },
+  ]).filter(o => o.op === 'append').map(o => [o.entry.uuid, o.entry.prompt === true]);
+  assert.deepEqual(live, [['u1', true], ['r1', false]]);
+  // Reopened: the shapes measured in real transcripts.
+  const reopened = protocol.conversationEntries([
+    { type: 'user', uuid: 'p1', promptSource: 'typed', message: { role: 'user', content: 'typed' } },
+    { type: 'user', uuid: 'p2', promptSource: 'queued', message: { role: 'user', content: [{ type: 'text', text: 'queued' }] } },
+    { type: 'user', uuid: 'c1', message: { role: 'user', content: '<command-name>/model</command-name>\n<command-message>model</command-message>' } },
+    { type: 'user', uuid: 's1', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: 'This session is being continued' } },
+    { type: 'user', uuid: 'x1', interruptedMessageId: 'm', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } },
+    { type: 'user', uuid: 'y1', promptSource: 'system', message: { role: 'user', content: 'injected' } },
+  ]).map(e => [e.uuid, e.prompt === true]);
+  assert.deepEqual(reopened, [['p1', true], ['p2', true], ['c1', true], ['s1', false], ['x1', false], ['y1', false]]);
+});
+
 test('a synthetic line that follows no Skill result is left as it was', () => {
   const bash = { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } };
   const res = { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } };

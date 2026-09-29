@@ -404,7 +404,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   session line shows the context fill, the model, the permission mode (Shift+Tab switches it, #696) and the
   working state, and background shells and agents get a list with Output, Open and Stop (#691, #695).
   Claude's prompt suggestions appear greyed in the empty input and Tab takes one (#693), a sent message
-  shows at once (#694), and tool calls start collapsed unless *Show tool calls expanded* is on (#687). The
+  shows at once (#694), and tool calls start collapsed unless *Show tool calls expanded* is on (#687). A
+  skill the model loads is part of its `Skill` call's collapsed output, not a message from the user (#710).
+  Scrolled back from the end, the view pins the prompt of the turn being read over the top of the log, in
+  Pi's conversation too, and a click on it goes back to that prompt (#709). The
   terminal backend's launch options come along: worktree, Chrome, extra directories, restricted mode and the
   auto-compact window (#685). An image pasted or dropped into the conversation goes out with the next turn (#662), and any
   other file is named as `@path`, which Claude reads into the turn (#699); `/`

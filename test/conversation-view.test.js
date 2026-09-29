@@ -205,6 +205,52 @@ test('Ctrl+End, Ctrl+Home, PageUp and PageDown are taken from the input for the 
   assert.ok(jump && jump.hidden, 'the jump button is there and hidden while at the end');
 });
 
+// #709: the prompt of the turn being read is pinned over the log's top edge once it has scrolled out above,
+// and follows the reader to an earlier turn. jsdom has no layout, so each entry is given a fixed place: 100 px
+// per entry, 80 px tall, and the log shows 300 px of 2000.
+test('the prompt of the turn being read is pinned while it is out of sight, and a click goes back to it', async () => {
+  const h = setup();
+  // `prompt` is the backend's answer; the second one is shaped the way pi-native draws a message.
+  const user = (uuid, text) => ({ type: 'user', uuid, prompt: true, message: { role: 'user', content: text } });
+  const piUser = (uuid, text) => ({ type: 'message', uuid, prompt: true, message: { role: 'user', content: [{ type: 'text', text }] } });
+  const reply = (uuid) => ({ type: 'assistant', uuid, message: { role: 'assistant', content: [{ type: 'text', text: 'r' }] } });
+  const toolResult = (uuid) => ({ type: 'user', uuid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't', content: 'x' }] } });
+  // A user-role line the backend did not call a prompt (a compaction summary, say) never counts.
+  const injected = (uuid) => ({ type: 'user', uuid, message: { role: 'user', content: 'This session is being continued' } });
+  for (const e of [user('u1', 'first   prompt'), reply('a1'), reply('a2'), piUser('u2', 'second prompt'), reply('a3'), toolResult('r1'),
+    reply('a4'), injected('i1'), reply('a5')]) {
+    h.entry.conversation.apply({ op: 'append', entry: e });
+  }
+  const log = h.entry.element.querySelector('.conversation-log');
+  let scrollTop = 0;
+  Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 300 });
+  Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => 2000 });
+  Object.defineProperty(log, 'scrollTop', { configurable: true, get: () => scrollTop, set: (v) => { scrollTop = v; } });
+  log.getBoundingClientRect = () => ({ top: 0, bottom: 300 });
+  for (const el of log.querySelectorAll('[data-entry-index]')) {
+    const base = Number(el.dataset.entryIndex) * 100;
+    el.getBoundingClientRect = () => ({ top: base - scrollTop, bottom: base + 80 - scrollTop });
+  }
+  const pinned = h.entry.element.querySelector('.conversation-pinned-prompt');
+  const at = async (top) => {
+    scrollTop = top;
+    log.dispatchEvent(new h.w.Event('scroll'));
+    await new Promise((r) => setTimeout(r, 40));
+    return pinned.hidden ? null : pinned.textContent;
+  };
+  assert.ok(pinned && pinned.classList.contains('new-session-secondary-btn'), 'styled like the jump button');
+  assert.equal(await at(0), null, 'its prompt is on screen');
+  assert.equal(await at(150), 'first prompt', 'the first prompt scrolled out above');
+  assert.equal(await at(330), null, 'the second prompt is still partly on screen, below the bar');
+  assert.equal(await at(300), null, 'the second prompt flush with the top is the one being read, not covered');
+  assert.equal(await at(270), null, 'nor one just below the top edge, where the bar would lie over it');
+  assert.equal(await at(850), 'second prompt', 'a tool result and a line not marked as a prompt are not prompts');
+  assert.equal(await at(1700), null, 'nothing at the end');
+  await at(850);
+  pinned.click();
+  assert.equal(scrollTop, 300, 'the click scrolls the log, and only the log, to the pinned prompt');
+});
+
 // #688: an attached image types `[Image #n]` at the caret, and the placeholder and the thumbnail are one thing.
 test('attaching types [Image #n] at the caret; the number is on the thumbnail and counts up', async () => {
   const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });

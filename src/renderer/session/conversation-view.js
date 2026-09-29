@@ -34,6 +34,8 @@
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
 const CONVERSATION_STICK_PX = 40;
+// How far below the log's top edge the pinned prompt reaches over the text (#709): about its two lines.
+const CONVERSATION_PIN_BAND_PX = 44;
 
 // How much of a running tool's live output is shown. The whole output lands in the tool block when the
 // tool finishes; this is only the "it is doing something" view.
@@ -181,7 +183,19 @@ function createConversationView(getSession, container) {
   jumpBtn.hidden = true;
   // Clickable so the page keys work from the log as well as from the input; -1 keeps it out of the Tab order.
   log.tabIndex = -1;
+  // The prompt of the turn being read (#709): over the log's top edge while the reader is away from the end
+  // and that prompt has scrolled out above. A click goes back to it. See `renderPinned`.
+  const pinnedBtn = document.createElement('button');
+  pinnedBtn.type = 'button';
+  pinnedBtn.className = 'new-session-secondary-btn conversation-pinned-prompt';
+  pinnedBtn.hidden = true;
+  // The text sits in a span of its own: a button lays its content out in an inner box, where a line clamp set
+  // on the button itself does not reach.
+  const pinnedText = document.createElement('span');
+  pinnedText.className = 'conversation-pinned-prompt-text';
+  pinnedBtn.appendChild(pinnedText);
   logWrap.appendChild(log);
+  logWrap.appendChild(pinnedBtn);
   logWrap.appendChild(jumpBtn);
 
   // Where a card waiting on the user sits (#704, P1): in the input's place, as in the CLI, which puts a question
@@ -237,7 +251,70 @@ function createConversationView(getSession, container) {
   // 0 after a tab switch), so the place is kept here and put back when the log is shown again.
   let readerTop = 0;
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < CONVERSATION_STICK_PX;
-  const renderJump = () => { jumpBtn.hidden = stuck || !log.clientHeight; };
+  const renderJump = () => { jumpBtn.hidden = stuck || !log.clientHeight; schedulePinned(); };
+
+  // The prompts in the conversation, by entry index, kept up to date as entries arrive (#709). Which entry is
+  // the user's own line is the BACKEND's answer, carried as `prompt: true` — the view reads that field and no
+  // CLI's markup, so a line the CLI injected under the user's role never counts. An entry that drew nothing is
+  // skipped, since the search below needs an element for every index it holds. Held, queued and still-sending
+  // prompts sit outside `view.entries` and never count.
+  const promptCache = { entries: null, scanned: 0, indices: [] };
+  function promptIndices() {
+    if (promptCache.entries !== view.entries || promptCache.scanned > view.entries.length) {
+      promptCache.entries = view.entries;
+      promptCache.scanned = 0;
+      promptCache.indices = [];
+    }
+    for (let i = promptCache.scanned; i < view.entries.length; i++) {
+      const e = view.entries[i];
+      if (e && e.prompt === true && view.elements[i]) promptCache.indices.push(i);
+    }
+    promptCache.scanned = view.entries.length;
+    return promptCache.indices;
+  }
+  let pinnedIndex = -1;
+  let pinnedEntry = null;
+  let pinnedFrame = 0;
+  function schedulePinned() {
+    if (pinnedFrame) return;
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f) => setTimeout(f, 16);
+    pinnedFrame = frame(() => { pinnedFrame = 0; renderPinned(); });
+  }
+  // Which prompt the reader is under: the last one that starts above the log's top edge. Shown only when it
+  // has scrolled out entirely — a prompt still partly on screen needs no reminder — and never at the end.
+  // The edge sits a band below the log's top, where the bar would lie over the text: a prompt starting in
+  // that band (one the bar has just scrolled to, flush with the top) is the one being read, and on screen.
+  function renderPinned() {
+    let index = -1;
+    if (!stuck && log.clientHeight) {
+      const edge = log.getBoundingClientRect().top;
+      const top = edge + CONVERSATION_PIN_BAND_PX;
+      const list = promptIndices();
+      let lo = 0, hi = list.length - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const el = view.elements[list[mid]];
+        if (el && el.isConnected && el.getBoundingClientRect().top < top) { index = list[mid]; lo = mid + 1; } else hi = mid - 1;
+      }
+      const el = index >= 0 ? view.elements[index] : null;
+      if (!el || el.getBoundingClientRect().bottom > edge) index = -1;
+    }
+    // By the entry, not only its index: a replaced conversation (a branch switch) can put another prompt there.
+    const entry = index >= 0 ? view.entries[index] : null;
+    if (entry === pinnedEntry) return;
+    pinnedIndex = index;
+    pinnedEntry = entry;
+    pinnedBtn.hidden = !entry;
+    if (!entry) return;
+    const text = normText(userTextOf(entry)) || '(image)';
+    pinnedText.textContent = text;
+    pinnedBtn.title = `Back to this prompt\n\n${text.length > 500 ? text.slice(0, 500) + '…' : text}`;
+  }
+  // Only the log moves: `scrollIntoView` would scroll every scrollable ancestor too, a pane or a grid card.
+  pinnedBtn.addEventListener('click', () => {
+    const el = pinnedIndex >= 0 ? view.elements[pinnedIndex] : null;
+    if (el && el.isConnected) log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top;
+  });
   const follow = () => { if (stuck && log.clientHeight) log.scrollTop = log.scrollHeight; };
   const restore = () => {
     if (!log.clientHeight) return;

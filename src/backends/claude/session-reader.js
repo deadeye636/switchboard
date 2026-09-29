@@ -260,6 +260,29 @@ function localCommandOutput(text) {
 }
 
 /**
+ * Whether a transcript line is something the user wrote (#709), as opposed to a line the CLI put into the
+ * conversation under the user's role.
+ *
+ * Measured over this app's own store on 2.1.x: a prompt carries `promptSource` (`typed`, `queued`,
+ * `suggestion_accepted`, `sdk`), and a line the CLI injects carries `system` there — a task's end, a skill's
+ * text — or `isMeta`. A compaction summary carries `isCompactSummary`, the line a Stop leaves behind carries
+ * `interruptedMessageId`, and a subagent's report an `origin` of its own; none of them has `promptSource`. A
+ * slash command the user typed carries no `promptSource` either, and is counted: it is the user's own line,
+ * including a local one that starts no turn. A local command's OUTPUT is not.
+ */
+function isUsersPrompt(line) {
+  if (!line || line.type !== 'user' || line.isMeta || line.isSidechain) return false;
+  if (line.isCompactSummary || line.isVisibleInTranscriptOnly || line.interruptedMessageId) return false;
+  if (line.origin && typeof line.origin === 'object' && line.origin.kind && line.origin.kind !== 'human') return false;
+  const content = line.message && line.message.content;
+  if (Array.isArray(content) && content.some(c => c && c.type === 'tool_result')) return false;
+  if (typeof line.promptSource === 'string') return line.promptSource !== 'system';
+  const text = typeof content === 'string' ? content
+    : Array.isArray(content) ? content.filter(c => c && c.type === 'text').map(c => c.text).join('\n') : null;
+  return text != null && localCommandOutput(text) == null;
+}
+
+/**
  * The command a STORED row opened with, or '' when it opened with something a user wrote.
  *
  * This is what the descriptor hands the core, and through it the renderer: a row whose summary is nothing
@@ -840,4 +863,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, openedWithCommand };
+module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand };
