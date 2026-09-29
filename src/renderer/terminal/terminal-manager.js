@@ -1090,8 +1090,9 @@ function enforceReplayBufferCap(sessionId) {
 }
 
 // True when this session is the one the user is looking at — NOT "is this element being painted".
-// The distinction matters: in tabs and panes mode a background container is still `display:block`,
-// laid out and painted, merely covered by an opaque sibling. It is only invisible in the sense that
+// The distinction matters: in panes mode a background terminal container is still `display:block`,
+// laid out and painted, merely covered by an opaque sibling (a conversation container is skipped instead,
+// #723). It is only invisible in the sense that
 // counts here.
 //
 // What is actually tested:

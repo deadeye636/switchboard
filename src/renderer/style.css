@@ -2985,14 +2985,10 @@ body.restoring-sessions #restore-progress { display: flex; }
   display: block;
 }
 
-/* Tabs mode: z-index stack. All open terminals stay laid out AND painted (no
-   display:none / visibility:hidden), stacked in the same absolute box. The active
-   one is raised (z-index) and interactive; inactive ones sit behind, covered by the
-   active terminal's opaque background, and get pointer-events:none — and nothing else:
-   `inert` is deliberately not used, see the note in showSession.
-   Keeping them painted means a switch never triggers a hidden->visible repaint,
-   so the terminal text doesn't reflow/"staircase" on switch — even if the target
-   gained lines while inactive. Tabs mode is single-view only (no grid). */
+/* The two display modes (tabs mode is retired, #357): grid's single view shows one container through the rule
+   above, and panes mode stacks every container laid out AND painted in its pane, raising the active one
+   (`body.display-mode-panes .terminal-container` below) so a terminal switch never triggers a hidden->visible
+   repaint and its text does not reflow. A conversation container is the exception, further down (#723). */
 
 /* While the launch restore mounts the saved sessions, none of them is `.visible`
    yet, so in tabs mode each newly mounted terminal would paint over the previous
@@ -3009,9 +3005,28 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
 /* ---- A session with no terminal (#568): the conversation view sits in the terminal's slot and takes its
    visibility from the same `.visible` class. The entries themselves are the Message History's (.jsonl-*),
    drawn by the same renderer, so only what a LIVE session adds is styled here. */
-.terminal-container.conversation-container.visible {
+/* A conversation container KEEPS its layout while it is not shown (#723). It used to switch between `none` (grid's
+   single view) or `block` (panes mode) and `flex`, and every switch laid the whole log out again — 500-900 ms for a
+   large conversation, paid both when it was shown and when another tab was, the terminal included. It is a flex
+   column in every state now, and a hidden one is skipped with `content-visibility: hidden`, which keeps its
+   rendering state for the next show instead of discarding it; `visibility` stops it painting over the shown one
+   in the stack. `html body` outranks the panes-mode rule that sets every container to `block`. A grid card
+   stays as it was: it is always `.visible`, and `.grid-mode` sets its display with `!important`. The view reads
+   no layout of its own while hidden (conversation-view.js, `shown`). */
+html body .terminal-container.conversation-container {
   display: flex;
   flex-direction: column;
+}
+html body .terminal-container.conversation-container:not(.visible) {
+  content-visibility: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* Only the entries in view are laid out and painted (#723): a switch to a large conversation drew all of them. The
+   intrinsic size is remembered per entry once it has been drawn (`auto`), so the scroll height settles. */
+.conversation-log > .jsonl-entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
 }
 .conversation-log {
   flex: 1;

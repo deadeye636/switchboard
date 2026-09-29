@@ -256,10 +256,17 @@ function createConversationView(getSession, container) {
   // with no height says nothing about where the user is, so it neither sets nor clears this.
   let stuck = true;
   // Where a reader who scrolled away was. A hidden tab loses its scroll position (measured in the app: back at
-  // 0 after a tab switch), so the place is kept here and put back when the log is shown again.
+  // 0 after a tab switch), and in panes mode every render re-parents the containers, which drops it too — so
+  // the place is kept here and put back when the log is shown again.
   let readerTop = 0;
+  // Whether the log is on screen (#723). The CLASS is asked first and decides alone when it says no: a hidden
+  // container keeps its size now (`content-visibility: hidden` instead of `display: none`), and reading the
+  // log's height inside it would make the browser lay out the very content it is skipping — per arriving
+  // entry, while nobody can see it. `clientHeight` is still asked after that, for a container that is shown but
+  // has no size yet (the restore at launch, a pane still being built).
+  const shown = () => container.classList.contains('visible') && log.clientHeight > 0;
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < CONVERSATION_STICK_PX;
-  const renderJump = () => { jumpBtn.hidden = stuck || !log.clientHeight; schedulePinned(); };
+  const renderJump = () => { jumpBtn.hidden = stuck || !shown(); schedulePinned(); };
 
   // The prompts in the conversation, by entry index, kept up to date as entries arrive (#709). Which entry is
   // the user's own line is the BACKEND's answer, carried as `prompt: true` — the view reads that field and no
@@ -294,7 +301,7 @@ function createConversationView(getSession, container) {
   // that band (one the bar has just scrolled to, flush with the top) is the one being read, and on screen.
   function renderPinned() {
     let index = -1;
-    if (!stuck && log.clientHeight) {
+    if (!stuck && shown()) {
       const edge = log.getBoundingClientRect().top;
       const top = edge + CONVERSATION_PIN_BAND_PX;
       const list = promptIndices();
@@ -323,9 +330,22 @@ function createConversationView(getSession, container) {
     const el = pinnedIndex >= 0 ? view.elements[pinnedIndex] : null;
     if (el && el.isConnected) log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top;
   });
-  const follow = () => { if (stuck && log.clientHeight) log.scrollTop = log.scrollHeight; };
+  // An entry just appended is laid out at its placeholder size first (`content-visibility: auto`, #723) and takes
+  // its real height in a later rendering update, which moves no box the ResizeObserver watches. So a reader at
+  // the end is followed once more two frames on, or a tall entry would stay cut off until the next one arrived.
+  let followFrame = 0;
+  const follow = () => {
+    if (!(stuck && shown())) return;
+    log.scrollTop = log.scrollHeight;
+    if (followFrame) return;
+    const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : (f) => setTimeout(f, 16);
+    followFrame = frame(() => frame(() => {
+      followFrame = 0;
+      if (stuck && shown()) log.scrollTop = log.scrollHeight;
+    }));
+  };
   const restore = () => {
-    if (!log.clientHeight) return;
+    if (!shown()) return;
     if (stuck) log.scrollTop = log.scrollHeight;
     else if (log.scrollTop !== readerTop) log.scrollTop = readerTop;
   };
@@ -335,7 +355,7 @@ function createConversationView(getSession, container) {
     renderJump();
   }
   log.addEventListener('scroll', () => {
-    if (!log.clientHeight) return;
+    if (!shown()) return;
     stuck = atBottom();
     readerTop = log.scrollTop;
     renderJump();
@@ -344,6 +364,18 @@ function createConversationView(getSession, container) {
   // while nobody could see it. A reader who had scrolled up gets the place back.
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(() => { restore(); renderJump(); tick(); }).observe(log);
+  }
+  // …and shown again without changing size (#723): a hidden container keeps its box now, so the observer above
+  // does not fire on a tab switch. The `.visible` class is what both display modes set on show — panes, and
+  // grid in its single view and on its cards.
+  if (typeof MutationObserver === 'function') {
+    let wasShown = container.classList.contains('visible');
+    new MutationObserver(() => {
+      const now = container.classList.contains('visible');
+      if (now === wasShown) return;
+      wasShown = now;
+      if (now) { restore(); renderJump(); tick(); }
+    }).observe(container, { attributes: true, attributeFilter: ['class'] });
   }
   jumpBtn.addEventListener('click', () => { toEnd(); focusView(); });
 
@@ -1177,9 +1209,9 @@ function createConversationView(getSession, container) {
   function tick() {
     const counting = container.querySelectorAll('.conversation-elapsed[data-since]');
     for (const e of counting) e.textContent = ` ${formatElapsed(Date.now() - Number(e.dataset.since))}`;
-    // Only while the view is on screen: a hidden tab has no height, and it is picked up again by `focus()`,
-    // which every path that shows the view calls.
-    const needed = counting.length > 0 && log.clientHeight > 0 && container.isConnected && !view.exited;
+    // Only while the view is on screen (`shown`), and it is picked up again on show — by `focus()`, which every
+    // path that shows the view calls, and by the `.visible` observer.
+    const needed = counting.length > 0 && shown() && container.isConnected && !view.exited;
     if (needed && !ticker) ticker = setInterval(tick, 1000);
     if (!needed && ticker) { clearInterval(ticker); ticker = null; }
   }
@@ -1954,7 +1986,9 @@ function createConversationView(getSession, container) {
     // only where the focus is decides.
     const at = document.activeElement;
     if (at !== input && at !== log && at !== document.body && at !== null) return false;
-    return container.isConnected && !container.closest('[hidden]') && getComputedStyle(container).display !== 'none';
+    // Shown is the `.visible` class, not the computed display (#723): a hidden container is `flex` now and only
+    // skipped, and a card focused inside it would lay out the whole log it is skipping.
+    return container.isConnected && !container.closest('[hidden]') && container.classList.contains('visible');
   }
   function armCard(card, { primary, escape, scope, keys }) {
     if (typeof scope === 'function') card._scope = scope;
@@ -2332,7 +2366,7 @@ function createConversationView(getSession, container) {
     rescale: (ratio) => {
       if (!(ratio > 0) || ratio === 1) return;
       readerTop *= ratio;
-      if (!log.clientHeight) return;
+      if (!shown()) return;
       if (stuck) follow(); else log.scrollTop = readerTop;
       renderJump();
     },

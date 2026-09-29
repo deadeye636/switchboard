@@ -68,6 +68,9 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
   ctx.composerPathToken = composerPathToken;
   vm.runInContext(SRC, ctx);
   const entry = vm.runInContext("createConversationEntry({ sessionId: 's1', projectPath: '/p' })", ctx);
+  // On screen, as `showSession` leaves the view it shows: `.visible` is what the view asks (#723). A test of a
+  // hidden view takes the class away.
+  entry.element.classList.add('visible');
   const input = entry.element.querySelector('.conversation-input');
   const key = (props) => input.dispatchEvent(new w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...props }));
   const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -203,6 +206,38 @@ test('Ctrl+End, Ctrl+Home, PageUp and PageDown are taken from the input for the 
   assert.equal(plainHome.defaultPrevented, false, 'Home alone still moves the caret');
   const jump = h.entry.element.querySelector('.conversation-jump');
   assert.ok(jump && jump.hidden, 'the jump button is there and hidden while at the end');
+});
+
+// #723: a hidden container keeps its size now (`content-visibility: hidden`), so the view must not measure it
+// while hidden — reading its height would make the browser lay out what it is skipping, per arriving entry.
+// On show it goes back to the end once, without waiting for a resize that no longer comes.
+test('a hidden conversation reads no layout as entries arrive, and goes back to the end when shown', async () => {
+  const h = setup();
+  h.entry.element.classList.remove('visible');
+  await h.settle();
+  const log = h.entry.element.querySelector('.conversation-log');
+  let reads = 0;
+  let scrollTop = 0;
+  let height = 2000;
+  Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => { reads++; return 300; } });
+  Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => { reads++; return height; } });
+  Object.defineProperty(log, 'scrollTop', { configurable: true, get: () => scrollTop, set: (v) => { scrollTop = v; } });
+  const reply = (uuid) => ({ type: 'assistant', uuid, message: { role: 'assistant', content: [{ type: 'text', text: 'r' }] } });
+  for (let i = 0; i < 20; i++) h.entry.conversation.apply({ op: 'append', entry: reply(`h${i}`) });
+  await h.settle();
+  assert.equal(reads, 0, 'no height or scroll height asked while hidden');
+  assert.equal(scrollTop, 0);
+  h.entry.element.classList.add('visible');
+  await h.settle();
+  assert.equal(scrollTop, 2000, 'shown: back at the end');
+  height = 2400;
+  h.entry.conversation.apply({ op: 'append', entry: reply('v1') });
+  assert.equal(scrollTop, 2400, 'shown: an arriving entry is followed again');
+  // The entry takes its real height a frame or two later (`content-visibility: auto`), moving no box the
+  // ResizeObserver watches: the reader at the end is followed once more then.
+  height = 3100;
+  await new Promise(r => setTimeout(r, 80));
+  assert.equal(scrollTop, 3100, 'followed again once the new entry has its real height');
 });
 
 // #709: the prompt of the turn being read is pinned over the log's top edge once it has scrolled out above,
