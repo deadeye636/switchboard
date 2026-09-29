@@ -399,6 +399,36 @@ test('the user\'s own line is marked as a prompt, live and reopened; what the CL
   assert.deepEqual(reopened, [['p1', true], ['p2', true], ['c1', true], ['s1', false], ['x1', false], ['y1', false]]);
 });
 
+test('a compaction\'s summary is a note, live and reopened, and its played-back output is no prompt (#712)', () => {
+  // The shapes measured on Claude Code 2.1.284 with `/compact`.
+  const summary = 'This session is being continued from a previous conversation.';
+  const live = decodeAll([
+    { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'manual' } },
+    { type: 'user', uuid: 'cs1', isReplay: false, isSynthetic: true, message: { role: 'user', content: [{ type: 'text', text: summary }] } },
+    { type: 'user', uuid: 'out1', isReplay: true, message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' } },
+    { type: 'result', subtype: 'success', is_error: false },
+  ]);
+  const appended = live.filter(o => o.op === 'append').map(o => o.entry);
+  assert.deepEqual(appended.map(e => [e.uuid, e.type, e.prompt === true]), [['cs1', 'transcript-meta', false], ['out1', 'user', false]]);
+  assert.equal(appended[0].label, 'Compaction summary');
+  assert.equal(appended[0].content, summary);
+  assert.equal(protocol.entryKey(appended[0]), 'cs1');
+
+  const reopened = protocol.conversationEntries([
+    { type: 'system', subtype: 'compact_boundary', uuid: 'b1', content: 'Conversation compacted' },
+    { type: 'user', uuid: 'cs1', isCompactSummary: true, isVisibleInTranscriptOnly: true, message: { role: 'user', content: summary } },
+  ]);
+  assert.deepEqual(reopened.map(e => [e.uuid, e.type, e.content]), [['cs1', 'transcript-meta', summary]]);
+
+  // A synthetic line after the turn ended is not taken for a summary.
+  const later = decodeAll([
+    { type: 'system', subtype: 'compact_boundary' },
+    { type: 'result', subtype: 'success', is_error: false },
+    { type: 'user', uuid: 'x', isSynthetic: true, message: { role: 'user', content: [{ type: 'text', text: 'x' }] } },
+  ]).filter(o => o.op === 'append').map(o => o.entry.type);
+  assert.deepEqual(later, ['user']);
+});
+
 test('a synthetic line that follows no Skill result is left as it was', () => {
   const bash = { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } };
   const res = { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } };

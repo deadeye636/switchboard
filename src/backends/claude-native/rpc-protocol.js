@@ -64,6 +64,12 @@
 //      (`/<name>`) streams only the command line. Its text is in the transcript, as an `isMeta` line with no
 //      `sourceToolUseID`, and stays out there too: drawing it on a reopen alone would make the reopened view
 //      differ from the live one, so the command line is all either path shows.
+//  11. A compaction (#712, measured on 2.1.284 with `/compact`): `system/compact_boundary`, then the summary
+//      the model goes on from as a user line with `isSynthetic: true`, then the command's played-back output
+//      ("Compacted", `isReplay: true`) and an ordinary `result`. The transcript keeps the summary under the
+//      same uuid with `isCompactSummary` and `isVisibleInTranscriptOnly`, and no `isMeta`. Both paths draw it
+//      as a `transcript-meta` note with the text folded in (`compactSummaryEntry`), the shape pi-native gives
+//      Pi's own summary, never as a user message.
 'use strict';
 
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
@@ -364,6 +370,23 @@ function skillTextEntry(line, toolUseId, launched) {
     message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content }] } });
 }
 
+// A compaction's summary (point 11) as the neutral note pi-native draws for Pi's own: a label, and the text
+// the model continues from folded into its details. Under the line's own uuid, which stream and transcript
+// share. `null` for a line that is not plain text.
+function compactSummaryEntry(line) {
+  const text = plainUserText(line && line.message);
+  if (text == null) return null;
+  return {
+    type: 'transcript-meta',
+    uuid: typeof line.uuid === 'string' ? line.uuid : undefined,
+    timestamp: typeof line.timestamp === 'string' ? line.timestamp : new Date().toISOString(),
+    icon: 'i',
+    label: 'Compaction summary',
+    detail: '',
+    content: text,
+  };
+}
+
 // A user line as the conversation view should read it (#680). Claude records a slash command as a user
 // line of nothing but `<command-name>`/`<command-message>`/`<command-args>` tags, and a local command's
 // output as one wrapped in `<local-command-stdout>`. The terminal shows neither as markup, so neither does
@@ -411,6 +434,8 @@ function createDecoder() {
   // call waits for nothing, and a new model line or the turn's end drops what is still waiting.
   const skillCalls = new Set();
   let skillResults = [];          // [{ id, output }]
+  // Point 11: a compaction just ended, and the synthetic line after it is the summary the model goes on from.
+  let summaryNext = false;
   // The notice for a task that ended, from the `task_notification` system line (see its case below). Its
   // `summary` is Claude's sentence about a shell ("Background command "x" completed (exit code 0)") and an
   // agent's own result; the description comes from the start, where the list gave one.
@@ -528,6 +553,7 @@ function createDecoder() {
     // The block this line carries is finished; the partial keeps only what is still being written.
     if (partial) { partial = partial.map(() => undefined); ops.push({ op: 'partial', entry: null }); }
     skillResults = [];
+    summaryNext = false;
     ops.push({ op: 'append', entry: entryOf(msg) });
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_use' && b.id) {
@@ -562,6 +588,12 @@ function createDecoder() {
       if (entry._task.id) noticed.add(entry._task.id);
       return [{ op: 'append', entry }];
     }
+    // A compaction's summary (point 11): a note, not a message of the user's.
+    if (msg.isSynthetic && summaryNext) {
+      summaryNext = false;
+      const entry = compactSummaryEntry(msg);
+      return entry ? [{ op: 'append', entry }] : [];
+    }
     // A skill's text (point 10): more output of the `Skill` call whose result is the oldest still waiting. One
     // that is not plain text is left out, as the transcript leaves out its `isMeta` twin.
     if (msg.isSynthetic && skillResults.length) {
@@ -571,10 +603,12 @@ function createDecoder() {
     }
     const shown = displayedLine(msg);
     if (!shown) return [];
-    // The user's own line (#709): on the stream it is the one played back, `isReplay` (point 3, measured on
-    // 2.1.284 — the stream copy carries no `promptSource`). The view reads `prompt` and nothing else.
+    // The user's own line (#709): on the stream it is one played back, `isReplay` (point 3, measured on
+    // 2.1.284). A local command's output is played back too (`/compact`'s "Compacted", measured), and the
+    // stream copy carries no `promptSource`, so the reader's rule without that field decides the rest. The
+    // view reads `prompt` and nothing else.
     const entry = entryOf(shown);
-    if (msg.isReplay === true && !(Array.isArray(m.content) && m.content.some(b => b && b.type === 'tool_result'))) entry.prompt = true;
+    if (msg.isReplay === true && isUsersPrompt(msg)) entry.prompt = true;
     const ops = [{ op: 'append', entry }];
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_result' && b.tool_use_id) {
@@ -592,6 +626,7 @@ function createDecoder() {
   function onResult(msg) {
     const ops = [];
     skillResults = [];
+    summaryNext = false;
     if (partial) { partial = null; ops.push({ op: 'partial', entry: null }); }
     const stopped = stopping && msg.subtype === 'error_during_execution' ? stopping : null;
     stopping = null;
@@ -625,6 +660,7 @@ function createDecoder() {
         return out;
       }
       case 'compact_boundary':
+        summaryNext = true;
         return [{ op: 'notice', level: 'info', text: NOTICES.compacted }];
       case 'api_retry':
         return [{ op: 'notice', level: 'warning', text: 'The model call failed and is being retried.' }];
@@ -962,6 +998,12 @@ function conversationEntries(lines) {
     }
   }
   for (const line of Array.isArray(lines) ? lines : []) {
+    // A compaction's summary (point 11): a note, not a message of the user's.
+    if (line && line.type === 'user' && line.isCompactSummary && !line.isMeta && !line.isSidechain && typeof line.uuid === 'string') {
+      const entry = compactSummaryEntry(line);
+      if (entry) out.push(entry);
+      continue;
+    }
     // A skill's text, written with `isMeta` and the call it belongs to, so it is taken before the filter below.
     if (line && line.type === 'user' && line.isMeta && !line.isSidechain && typeof line.uuid === 'string'
       && skillResults.has(line.sourceToolUseID)) {

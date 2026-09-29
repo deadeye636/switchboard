@@ -722,16 +722,33 @@ Every key, its default and what it means: `docs/settings-reference.md`.
   (measured, and cheap for the pipe); what the view's redraw costs at that rate is still open.
 - **The version floor is the measured version.** Features are not detected from the `system/init`
   capabilities list, which would be the finer check.
-- **A compaction summary is drawn as a user message.** Claude writes it as a `user` line with
-  `isCompactSummary` and `isVisibleInTranscriptOnly`, and without `isMeta` (measured in a 2.1.280
-  transcript), so an attach draws it where the user's messages are. It is not marked as a prompt, so the
-  pinned prompt (#709) passes over it. Tracked in #712.
+- **A local command's output read back from the transcript keeps its terminal colours.** The transcript
+  writes `/compact`'s "Compacted" with raw ANSI codes inside `<local-command-stdout>`, and the stream sends it
+  without them, so a reopened view shows the escape codes as text.
+
+## A compaction's summary (#712)
+
+Measured on 2.1.284 with `/compact`, the stream sends:
+1. `system/compact_boundary` (drawn as the "compacted" notice);
+2. the summary the model goes on from, as a user line with `isSynthetic: true`;
+3. the command's played-back output ("Compacted", `isReplay: true`);
+4. an ordinary `result`.
+
+The transcript keeps the summary under the same uuid with `isCompactSummary` and `isVisibleInTranscriptOnly`,
+and without `isMeta`. Both paths draw it as a `transcript-meta` note, "Compaction summary", with the text
+folded into its details. This is the shape pi-native gives Pi's own summary, and the view reads no Claude
+markup for it. The decoder takes a synthetic line as the summary only right after a boundary, and the
+turn's end or a model line drops that expectation. Only a manual `/compact` was measured. If an automatic
+compaction ordered its lines differently, the live view would show the summary as a user message, while a
+reopen would still show the note. Protocol point 11 in
+`src/backends/claude-native/rpc-protocol.js` holds the same account.
 
 ## Which line is the user's (#709)
 
 The view pins the prompt of the turn being read, and which entry is a prompt is the backend's answer,
 carried as `prompt: true`:
-- On the stream it is the line played back (`isReplay`, point 3). That copy carries no `promptSource`.
+- On the stream it is a line played back (`isReplay`, point 3). That copy carries no `promptSource`, and a
+  local command's output is played back too, so the reader's rule without that field decides the rest.
 - In the transcript, `isUsersPrompt` in Claude's reader decides:
   - `promptSource` set and not `system` (`typed`, `queued`, `suggestion_accepted` and `sdk` were measured).
   - Without that field, the user's text, as long as it is not a local command's output. A slash command the
