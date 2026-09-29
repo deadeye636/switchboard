@@ -724,7 +724,7 @@ Every key, its default and what it means: `docs/settings-reference.md`.
   capabilities list, which would be the finer check.
 - **A local command's output read back from the transcript keeps its terminal colours.** The transcript
   writes `/compact`'s "Compacted" with raw ANSI codes inside `<local-command-stdout>`, and the stream sends it
-  without them, so a reopened view shows the escape codes as text.
+  without them, so a reopened view shows the escape codes as text. Tracked in #714.
 
 ## A compaction's summary (#712)
 
