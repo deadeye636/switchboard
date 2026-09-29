@@ -329,6 +329,68 @@ test('an attach reads the conversation\'s own lines out of the transcript', () =
   assert.deepEqual(protocol.conversationEntries(lines).map(l => l.uuid), ['u1', 'a1']);
 });
 
+test('a skill the model loads is more output of its Skill call, live and reopened alike, never a user entry (#710)', () => {
+  // The shapes measured on Claude Code 2.1.284: the stream sends the skill's text as an `isSynthetic` user line
+  // naming no call, right after the call's result; the transcript keeps it under the same uuid with `isMeta`
+  // and `sourceToolUseID`.
+  const body = 'Base directory for this skill: <home>/skills/demo\n\n# Demo\nDo the thing.';
+  const call = { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'sk1', name: 'Skill', input: { skill: 'demo' } }] } };
+  const result = { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'sk1', content: 'Launching skill: demo' }] } };
+  const expected = [{ type: 'tool_result', tool_use_id: 'sk1', content: `Launching skill: demo\n\n${body}` }];
+
+  const live = decodeAll([call, result,
+    { type: 'user', uuid: 'k1', isSynthetic: true, message: { role: 'user', content: [{ type: 'text', text: body }] } }]);
+  const appended = live.filter(o => o.op === 'append').map(o => o.entry);
+  assert.equal(appended.length, 3);
+  assert.equal(appended[2].uuid, 'k1');
+  assert.deepEqual(appended[2].message.content, expected);
+
+  const reopened = protocol.conversationEntries([call, result,
+    { type: 'user', uuid: 'k1', isMeta: true, sourceToolUseID: 'sk1', message: { role: 'user', content: [{ type: 'text', text: body }] } }]);
+  assert.deepEqual(reopened.map(e => e.uuid), ['a1', 'r1', 'k1'], 'the same key the live stream used');
+  assert.deepEqual(reopened[2].message.content, expected);
+});
+
+test('a skill\'s text pairs across stream and system lines, and each of two calls gets its own (#710)', () => {
+  const result = (id) => ({ type: 'user', uuid: `r-${id}`, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `Launching skill: ${id}` }] } });
+  const synth = (uuid, text) => ({ type: 'user', uuid, isSynthetic: true, message: { role: 'user', content: [{ type: 'text', text }] } });
+  const appended = decodeAll([
+    { type: 'assistant', uuid: 'a0', message: { role: 'assistant', content: [
+      { type: 'tool_use', id: 's1', name: 'Skill', input: {} }, { type: 'tool_use', id: 's2', name: 'Skill', input: {} }] } },
+    result('s1'), result('s2'),
+    { type: 'stream_event', event: { type: 'message_start' } },
+    { type: 'system', subtype: 'status', status: 'requesting' },
+    synth('k1', 'one'), synth('k2', 'two'),
+  ]).filter(o => o.op === 'append').map(o => o.entry);
+  assert.deepEqual(appended.slice(3).map(e => [e.uuid, e.message.content[0].tool_use_id, e.message.content[0].content]),
+    [['k1', 's1', 'Launching skill: s1\n\none'], ['k2', 's2', 'Launching skill: s2\n\ntwo']]);
+});
+
+test('a failed Skill call, or the turn ending, leaves the next synthetic line alone (#710)', () => {
+  const skill = { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 's1', name: 'Skill', input: {} }] } };
+  const synth = { type: 'user', uuid: 'k1', isSynthetic: true, message: { role: 'user', content: [{ type: 'text', text: 'x' }] } };
+  const failed = decodeAll([skill,
+    { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's1', content: 'no', is_error: true }] } },
+    synth]).filter(o => o.op === 'append').map(o => o.entry);
+  assert.deepEqual(failed[2].message.content, [{ type: 'text', text: 'x' }]);
+  const ended = decodeAll([skill,
+    { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 's1', content: 'ok' }] } },
+    { type: 'result', subtype: 'error_during_execution', is_error: true },
+    synth]).filter(o => o.op === 'append').map(o => o.entry);
+  assert.deepEqual(ended[2].message.content, [{ type: 'text', text: 'x' }]);
+});
+
+test('a synthetic line that follows no Skill result is left as it was', () => {
+  const bash = { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } };
+  const res = { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } };
+  const synth = { type: 'user', uuid: 'k1', isSynthetic: true, message: { role: 'user', content: [{ type: 'text', text: 'x' }] } };
+  const appended = decodeAll([bash, res, synth]).filter(o => o.op === 'append').map(o => o.entry);
+  assert.deepEqual(appended[2].message.content, [{ type: 'text', text: 'x' }]);
+  const reopened = protocol.conversationEntries([bash, res,
+    { type: 'user', uuid: 'k1', isMeta: true, sourceToolUseID: 't1', message: { role: 'user', content: 'x' } }]);
+  assert.deepEqual(reopened.map(e => e.uuid), ['a1', 'r1'], 'another tool\'s meta line stays out');
+});
+
 test('a reopened session shows a local command\'s output as the same entry the live stream sent (#681)', () => {
   // The shapes measured on Claude Code 2.1.283 for `/cost`: the stream sends a synthetic assistant line, the
   // transcript keeps a system/local_command line under the same uuid.

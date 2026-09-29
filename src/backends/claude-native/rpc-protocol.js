@@ -56,6 +56,14 @@
 //        allow (the session goes back to its mode before planning); "keep planning" is a deny with
 //        `interrupt: true`, which ends the turn with the same `error_during_execution` result a Stop gets —
 //        so `noteSent` reads that answer the way it reads a Stop.
+//  10. A skill the MODEL loads (#710, measured on 2.1.284): the `Skill` call's result is one line ("Launching
+//      skill: <name>"), and the skill's whole text follows as a user line of its own. On the stream that
+//      line carries `isSynthetic: true` and nothing that names the call; in the transcript the same uuid
+//      carries `isMeta: true` and `sourceToolUseID`. It is drawn as more output of that `Skill` call
+//      (`skillTextEntry`), which a tool block shows collapsed, never as a user entry. A skill the USER types
+//      (`/<name>`) streams only the command line. Its text is in the transcript, as an `isMeta` line with no
+//      `sourceToolUseID`, and stays out there too: drawing it on a reopen alone would make the reopened view
+//      differ from the live one, so the command line is all either path shows.
 'use strict';
 
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
@@ -344,6 +352,18 @@ function peerReportEntry(line, toolUseIdOf) {
 // file when the task ends; this is what makes it readable while the task still runs.
 const OUTPUT_PATH = /Output is being written to: (.+?\.output)\b/;
 
+// The text a `Skill` call loaded, as more output of that call (point 10): a tool result for the same id,
+// holding the call's own one-line result and the skill's text after it, so the view redraws the call's block
+// with it and the line never becomes a user entry. Under the line's own uuid, which stream and transcript
+// share. `null` for a line that is not plain text.
+function skillTextEntry(line, toolUseId, launched) {
+  const text = plainUserText(line && line.message);
+  if (text == null || !toolUseId) return null;
+  const content = launched ? `${launched}\n\n${text}` : text;
+  return entryOf({ type: 'user', uuid: line.uuid, timestamp: line.timestamp,
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content }] } });
+}
+
 // A user line as the conversation view should read it (#680). Claude records a slash command as a user
 // line of nothing but `<command-name>`/`<command-message>`/`<command-args>` tags, and a local command's
 // output as one wrapped in `<local-command-stdout>`. The terminal shows neither as markup, so neither does
@@ -385,6 +405,12 @@ function createDecoder() {
   const toolOutputs = new Map();  // tool_use id -> the output file its tool result named
   const taskOutputs = new Map();  // task id -> the output file
   const noticed = new Set();      // task ids whose end has been drawn
+  // Point 10: the `Skill` calls seen, and the results that arrived and still wait for their text. The synthetic
+  // line holding a skill's text names no call, so it takes the oldest result still waiting — in the order the
+  // results came, which is the one measured for a single call; parallel calls are assumed to keep it. A failed
+  // call waits for nothing, and a new model line or the turn's end drops what is still waiting.
+  const skillCalls = new Set();
+  let skillResults = [];          // [{ id, output }]
   // The notice for a task that ended, from the `task_notification` system line (see its case below). Its
   // `summary` is Claude's sentence about a shell ("Background command "x" completed (exit code 0)") and an
   // agent's own result; the description comes from the start, where the list gave one.
@@ -501,9 +527,11 @@ function createDecoder() {
     const ops = [];
     // The block this line carries is finished; the partial keeps only what is still being written.
     if (partial) { partial = partial.map(() => undefined); ops.push({ op: 'partial', entry: null }); }
+    skillResults = [];
     ops.push({ op: 'append', entry: entryOf(msg) });
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_use' && b.id) {
+        if (b.name === 'Skill') skillCalls.add(b.id);
         ops.push({ op: 'tool', id: b.id, status: 'running', output: '' });
         const input = b.input && typeof b.input === 'object' ? b.input : {};
         toolKinds.set(b.id, kindOfTool(b.name));
@@ -534,12 +562,20 @@ function createDecoder() {
       if (entry._task.id) noticed.add(entry._task.id);
       return [{ op: 'append', entry }];
     }
+    // A skill's text (point 10): more output of the `Skill` call whose result is the oldest still waiting. One
+    // that is not plain text is left out, as the transcript leaves out its `isMeta` twin.
+    if (msg.isSynthetic && skillResults.length) {
+      const skill = skillResults.shift();
+      const entry = skillTextEntry(msg, skill.id, skill.output);
+      return entry ? [{ op: 'append', entry }] : [];
+    }
     const shown = displayedLine(msg);
     if (!shown) return [];
     const ops = [{ op: 'append', entry: entryOf(shown) }];
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_result' && b.tool_use_id) {
         const output = textOf(b.content);
+        if (skillCalls.has(b.tool_use_id) && !b.is_error) skillResults.push({ id: b.tool_use_id, output });
         ops.push({ op: 'tool', id: b.tool_use_id, status: b.is_error ? 'error' : 'done', output });
         // Only a shell call's result names its output file; nothing else's text is read for a path.
         const file = toolKinds.get(b.tool_use_id) === 'shell' ? OUTPUT_PATH.exec(output || '') : null;
@@ -551,6 +587,7 @@ function createDecoder() {
 
   function onResult(msg) {
     const ops = [];
+    skillResults = [];
     if (partial) { partial = null; ops.push({ op: 'partial', entry: null }); }
     const stopped = stopping && msg.subtype === 'error_during_execution' ? stopping : null;
     stopping = null;
@@ -905,11 +942,29 @@ function conversationEntries(lines) {
   const out = [];
   // Which kind each call was, for the task notices below (#691): the notification names the call, not the tool.
   const toolKinds = new Map();
+  // The `Skill` calls, with the one-line result each got, for the skill text that follows it (point 10).
+  const skillResults = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
     const content = line && line.type === 'assistant' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
-    for (const b of content) if (b && b.type === 'tool_use' && b.id) toolKinds.set(b.id, kindOfTool(b.name));
+    for (const b of content) {
+      if (b && b.type === 'tool_use' && b.id) toolKinds.set(b.id, kindOfTool(b.name));
+      if (b && b.type === 'tool_use' && b.id && b.name === 'Skill') skillResults.set(b.id, '');
+    }
   }
   for (const line of Array.isArray(lines) ? lines : []) {
+    const content = line && line.type === 'user' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
+    for (const b of content) {
+      if (b && b.type === 'tool_result' && skillResults.has(b.tool_use_id)) skillResults.set(b.tool_use_id, textOf(b.content));
+    }
+  }
+  for (const line of Array.isArray(lines) ? lines : []) {
+    // A skill's text, written with `isMeta` and the call it belongs to, so it is taken before the filter below.
+    if (line && line.type === 'user' && line.isMeta && !line.isSidechain && typeof line.uuid === 'string'
+      && skillResults.has(line.sourceToolUseID)) {
+      const entry = skillTextEntry(line, line.sourceToolUseID, skillResults.get(line.sourceToolUseID));
+      if (entry) out.push(entry);
+      continue;
+    }
     if (line && line.type === 'user' && !line.isSidechain && !line.isMeta && typeof line.uuid === 'string' && isTaskNotification(line)) {
       out.push(taskNoticeEntry(line, toolKinds));
       continue;
