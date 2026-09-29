@@ -152,13 +152,56 @@ function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, age
 // rendered as markdown at all.
 if (window.marked && typeof window.marked.setOptions === 'function') window.marked.setOptions({ breaks: true, gfm: true });
 
+// Two things in a transcript's text that markdown would change, each carried past `marked` as a private-use
+// character and put back afterwards (#711). A stand-in rather than an escape: `marked` takes a code span or a
+// code block literally and escapes an `&` there once more, so an `&lt;` written in before the parse showed
+// as `&lt;` inside code. A private-use character is plain text everywhere, code included, and becomes the
+// entity only after the parse.
+// - `<tag>`-shaped text shows as text and is never read as HTML (the sanitising below is the XSS guard;
+//   this is only about what the reader sees). The stand-in is not punctuation, so `_foo_<b>` no longer
+//   closes the emphasis the way the old `&lt;` did — a price taken for code showing what was written.
+// - A backslash inside a Windows path stays: CommonMark reads `\.` as an escaped dot, so `~\.claude\skills`
+//   lost the backslash before `.claude` and named another directory. A run is a path when it starts with a
+//   drive, `~\`, `%VAR%\` or `\\`, or holds two backslashes of which one starts a segment (`\skills`). A
+//   run of escapes only (`my\_var`, `\_\_init\_\_`) is left to markdown, because that is the spelling of an
+//   escape. Where the two collide, the path wins.
+//   The stand-in goes IN FRONT of the backslash, which stays and keeps escaping the next character: outside
+//   code `marked` eats the backslash and the stand-in brings it back, inside code both survive and the pair
+//   becomes one backslash again. `restoreMarkdownText` therefore tells code from prose in marked's OUTPUT,
+//   where a code span or block is an unambiguous `<code>` element.
+// A stand-in inside a link is percent-encoded by `marked`, so it is put back in that form too. Text that
+// already holds one of these three characters has it turned into the thing it stands for.
+const MD_LT = String.fromCharCode(0xE000);
+const MD_GT = String.fromCharCode(0xE001);
+const MD_BACKSLASH = String.fromCharCode(0xE002);
+const MD_ENCODED = [['%EE%80%80', '%3C'], ['%EE%80%81', '%3E'], ['%EE%80%82', '%5C']];
+const MD_PATH_RUN = /(?:\\\S|[^\s`'"()<>[\]\\])+/g;
+const MD_PATH_START = /^(?:[A-Za-z]:\\|~\\|%\w+%\\|\\\\[A-Za-z0-9])/;
+// A URL is never a path here: `marked` does not unescape inside an autolink, so a stand-in there would leave a
+// doubled backslash in the link and its text.
+const MD_URL_START = /^(?:[a-z][a-z0-9+.-]*:\/\/|www\.)/i;
+function protectMarkdownText(text) {
+  return text
+    .replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s[^>]*)?\/?)\>/g, MD_LT + '$1' + MD_GT)
+    .replace(MD_PATH_RUN, (run) => {
+      if (MD_URL_START.test(run)) return run;
+      if (!MD_PATH_START.test(run) && (run.split('\\').length < 3 || !/\\[A-Za-z0-9]/.test(run))) return run;
+      return run.replace(/\\(?=[!-/:-@[-`{-~])/g, MD_BACKSLASH + '\\');
+    });
+}
+function restoreMarkdownText(html) {
+  const tags = (s) => s.split(MD_LT).join('&lt;').split(MD_GT).join('&gt;');
+  let out = html;
+  for (const [encoded, plain] of MD_ENCODED) out = out.split(encoded).join(plain);
+  return out.split(/(<code\b[^>]*>[\s\S]*?<\/code>)/).map((part, i) => (i % 2
+    ? tags(part.split(MD_BACKSLASH + '\\').join('\\').split(MD_BACKSLASH).join('\\'))
+    : tags(part.split(MD_BACKSLASH).join('\\')))).join('');
+}
+
 function renderJsonlText(text) {
   if (window.marked) {
-    // Escape XML/HTML-like tags so they render as visible text,
-    // but preserve markdown code blocks (which may contain HTML examples).
-    const escaped = text.replace(/<(\/?[a-zA-Z][a-zA-Z0-9_-]*(?:\s[^>]*)?\/?)\>/g, '&lt;$1&gt;');
-    const html = window.marked.parse(escaped);
-    // The escape above only catches <tag>-shaped text, not marked-generated
+    const html = restoreMarkdownText(window.marked.parse(protectMarkdownText(text)));
+    // `protectMarkdownText` only keeps <tag>-shaped text from being read as HTML, not marked-generated
     // hrefs such as [x](javascript:...). Sanitize like the sibling viewers
     // (viewer-panel.js / viewer-toolbar.js); fall back to escaped plain text if
     // DOMPurify isn't loaded — never depend on load order for XSS safety.
