@@ -10,7 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { measured } = require('../perf');
+const { measured, noteWork } = require('../perf');
 
 let ctx = null;
 let projectsWatcher = null;
@@ -65,9 +65,15 @@ function startProjectsWatcher() {
         ctx.indexWorker.postReconcile();
         continue;
       }
+      // Measured apart (#707): the flush as a whole held the loop for ~0.5 s while a session wrote its
+      // transcript, and which half did is the next thing to know.
+      const transitions = noteWork('watch:transitions');
       ctx.detectSessionTransitions(folder);
+      transitions();
       // Each changed transcript is parsed off-thread (postFile does the DB pre-work on main).
+      const prepare = noteWork('index:file-prepare');
       for (const rel of relSet) ctx.indexWorker.postFile(folder, rel);
+      prepare();
     }
 
     // Folder-level events (top-level add/remove) → full folder refresh. A reconcile covers both the
