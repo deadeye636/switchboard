@@ -259,6 +259,7 @@ module.exports = {
   // Everything below answers a question about Claude's STORE and FORMAT, which this backend shares.
   resolveLineage: claude.resolveLineage,
   openedWithCommand: claude.openedWithCommand,
+  normalizeTranscriptEntries: claude.normalizeTranscriptEntries,
   contextWindow: claude.contextWindow,
   transcriptPathFor: claude.transcriptPathFor,
   plansDir: claude.plansDir,

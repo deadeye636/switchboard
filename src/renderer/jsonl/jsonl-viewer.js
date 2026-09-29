@@ -809,7 +809,8 @@ function renderJsonlEntry(entry, toolResultMap) {
     div.appendChild(icon);
     div.appendChild(what);
     div.appendChild(meta);
-    if (t.id && t.kind !== 'agent') {
+    // Not for a notice read back from history (#705): no running session is there to read the output from.
+    if (t.id && t.kind !== 'agent' && !t.historic) {
       const out = document.createElement('button');
       out.type = 'button';
       out.className = 'task-notice-output';
@@ -818,7 +819,8 @@ function renderJsonlEntry(entry, toolResultMap) {
       out.title = 'Show the end of this task\'s output';
       div.appendChild(out);
     }
-    // An agent whose subagent the backend named (#695) opens its transcript; the conversation view answers it.
+    // An agent whose subagent the backend named (#695) opens its transcript; the conversation view answers it in
+    // its log, `openAgentFromHistory` in the history viewer (#705).
     if (t.kind === 'agent' && t.subagentId) {
       const open = document.createElement('button');
       open.type = 'button';
@@ -836,7 +838,7 @@ function renderJsonlEntry(entry, toolResultMap) {
   // --- a subagent's report, or another session's message (#701) ---
   // Backend-neutral like the notice above: the backend hands `{ type: 'agent-report', _report }` with the
   // report already out of its wrapping. Drawn as a reply, because it is one, under a line that says who sent
-  // it — never as a message the user typed. Its Open button is the notice's, answered by the conversation view.
+  // it — never as a message the user typed. Its Open button is the notice's, answered the same two ways.
   if (entry.type === 'agent-report' && entry._report) {
     const r = entry._report;
     const div = document.createElement('div');
@@ -1049,11 +1051,38 @@ function renderJsonlEntry(entry, toolResultMap) {
   return div;
 }
 
+// The Open button on a task notice or a subagent's report (#705) in the history viewer: the subagent's row,
+// the way a click on that row opens it, or — while the scan has not listed it — the call that started it.
+// The conversation view answers the same button for its own log; this is the history viewer's answer.
+function openAgentFromHistory(btn) {
+  const parent = currentViewerSessionId;
+  const id = btn.dataset.subagentId;
+  if (typeof sessionMap !== 'undefined') {
+    for (const s of sessionMap.values()) {
+      if (s && s.parentSessionId === parent && s.agentId === id) { showSubagentTranscript(s); return; }
+    }
+  }
+  const call = btn.dataset.toolUseId
+    ? jsonlViewerBody.querySelector(`[data-tool-use-id="${CSS.escape(btn.dataset.toolUseId)}"]`) : null;
+  if (!call) return;
+  call.scrollIntoView({ block: 'center' });
+  call.classList.add('conversation-flash');
+  setTimeout(() => call.classList.remove('conversation-flash'), 1200);
+}
+let historyOpenWired = false;
+
 async function showJsonlViewer(session) {
   // Drain any watches from the previously-rendered viewer first — the new
   // render replaces the DOM and we'd otherwise keep polling files for blocks
   // the user no longer sees.
   drainViewerWatches();
+  if (!historyOpenWired) {
+    historyOpenWired = true;
+    jsonlViewerBody.addEventListener('click', (e) => {
+      const btn = e.target.closest('.task-notice-open');
+      if (btn && btn.dataset.subagentId) openAgentFromHistory(btn);
+    });
+  }
   const result = await window.api.readSessionJsonl(session.sessionId);
   hideAllViewers();
   placeholder.style.display = 'none';

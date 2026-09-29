@@ -243,10 +243,15 @@ function typedCommand(text) {
 // A local command's printed text, stdout and stderr alike, paired or self-closing.
 const OUTPUT_TAGS = /<local-command-(?:stdout|stderr)\s*\/>|<local-command-(?:stdout|stderr)>[\s\S]*?<\/local-command-(?:stdout|stderr)>/g;
 
+// The terminal's colour and style sequences (CSI … final byte). The transcript keeps a local command's output
+// with them — `/compact`'s "Compacted" is written dimmed — while the stream sends the same output without
+// (measured on 2.1.284, #714), so they are taken out here, where the output leaves its markup.
+const ANSI_CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+
 function outputOf(s) {
   const inner = [];
   s.replace(/<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>/g, (_, _kind, body) => { inner.push(body); return ''; });
-  return inner.join('\n').trim();
+  return inner.join('\n').replace(ANSI_CSI, '').trim();
 }
 
 /**

@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion, openedWithCommand: readerOpenedWithCommand } = require('./session-reader');
+const transcriptView = require('./transcript-view');
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
@@ -907,6 +908,10 @@ description:
   // route). 'file' = it is a file on disk, hand over the path. 'export' = it lives in a store with no
   // file (Hermes), so Switchboard writes it out first. Declare it; do not let the code guess.
   transcriptAccess: 'file',
+  // What the message history viewer draws for this transcript (#705): the lines Claude injects under the
+  // user's role — a task's end, a subagent's report, a slash command's markup and output — as the neutral
+  // entries the conversation view draws for them. `./transcript-view.js` holds the one derivation.
+  normalizeTranscriptEntries: transcriptView.normalizeTranscriptEntries,
   label: 'Claude Code',
   // The one-line blurb the Backends settings list shows under the label (#212). It lived in
   // backends-panel.js as a map keyed by backend id — five id literals in a file that must name no

@@ -210,6 +210,27 @@ line's uuid, which is the entry key the view skips a duplicate by. The race betw
 is handled in the core, as for any backend that reads a transcript (`attachFromTranscript` in
 `src/app/agent-rpc.js`).
 
+**The message history viewer reads the same lines the same way (#705).** Several derivations moved out of
+this decoder into `src/backends/claude/transcript-view.js`, where Claude's format lives:
+- a task's end as a `task-notice`;
+- a subagent's report as an `agent-report`;
+- a slash command's markup, and what it printed, as plain text. That covers the user line and the
+  `system/local_command` line (point 6), which is the form most local output takes (202 of 225 over one
+  real store).
+
+claude-native imports them. Claude's descriptor answers `normalizeTranscriptEntries` with them, the hook
+Pi's `transcript-view.js` answers for Pi, and templates and claude-native inherit it. So a Claude session's
+history shows those lines as the conversation view does. Everything else in the file stays in the history
+viewer, bookkeeping included.
+
+In the history viewer, a notice's Open goes to the subagent's row, or else to the call that started it. A
+notice read from history carries `historic` and offers no Output, because no running session is there to
+read it from.
+
+A local command's output loses the terminal codes the transcript writes into it (`/compact`'s "Compacted" is
+written dimmed). The stream sends that output without them, measured on 2.1.284. Claude's reader strips the
+codes where the output leaves its markup (#714).
+
 ### A skill's text (#710)
 
 When the model loads a skill, the `Skill` call's result is one line ("Launching skill: <name>"), and the
@@ -722,9 +743,6 @@ Every key, its default and what it means: `docs/settings-reference.md`.
   (measured, and cheap for the pipe); what the view's redraw costs at that rate is still open.
 - **The version floor is the measured version.** Features are not detected from the `system/init`
   capabilities list, which would be the finer check.
-- **A local command's output read back from the transcript keeps its terminal colours.** The transcript
-  writes `/compact`'s "Compacted" with raw ANSI codes inside `<local-command-stdout>`, and the stream sends it
-  without them, so a reopened view shows the escape codes as text. Tracked in #714.
 
 ## A compaction's summary (#712)
 
