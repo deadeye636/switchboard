@@ -40,9 +40,15 @@ test('a slash command reads as what was typed, and its output as text without te
     { type: 'user', uuid: 'm1', isMeta: true, message: { role: 'user', content: '<local-command-caveat>Caveat</local-command-caveat>' } },
   ]);
   assert.deepEqual(out.map(e => [e.uuid, e.message.content]), [
-    ['c1', '/compact'], ['o1', 'Compacted'], ['u1', 'a prompt'], ['m1', '<local-command-caveat>Caveat</local-command-caveat>'],
-  ]);
+    ['c1', '/compact'], ['o1', 'Compacted'], ['u1', 'a prompt'], ['m1', ''],
+  ], 'the caveat for the model keeps its place and says nothing');
   assert.equal(localCommandOutput(`<local-command-stderr>${ESC}[31mfailed${ESC}[0m</local-command-stderr>`), 'failed');
+  // Before a `!` shell line the caveat stays as written, so the viewer still folds the group into one entry.
+  const shell = view.normalizeTranscriptEntries([
+    { type: 'user', uuid: 'cv', isMeta: true, message: { role: 'user', content: '<local-command-caveat>Caveat</local-command-caveat>' } },
+    { type: 'user', uuid: 'bi', message: { role: 'user', content: '<bash-input>ls</bash-input>' } },
+  ]);
+  assert.match(shell[0].message.content, /<local-command-caveat>/);
   // A command that printed nothing keeps its place, empty: the viewer's bookmarks are keyed on positions.
   const kept = view.normalizeTranscriptEntries([
     { type: 'user', uuid: 'e1', message: { role: 'user', content: '<local-command-stdout></local-command-stdout>' } },

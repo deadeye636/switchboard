@@ -2047,7 +2047,8 @@ const resolveSubagentFile = (parentSessionId, agentId) =>
 ipcMain.handle('read-subagent-jsonl', async (_event, parentSessionId, agentId) => {
   const resolved = resolveSubagentFile(parentSessionId, agentId);
   if (resolved.error) return { error: resolved.error };
-  return readJsonlEntries(resolved.filePath);
+  // Read the way the parent's history is read (#705): through the owning backend's normaliser.
+  return normalizeTranscriptResult(backends.get(resolved.backendId), await readJsonlEntries(resolved.filePath));
 });
 
 ipcMain.handle('list-subagents', (_event, parentSessionId) => {

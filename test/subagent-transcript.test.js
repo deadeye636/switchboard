@@ -44,7 +44,7 @@ test('the owning backend resolves its own subagent transcript', () => {
     { backends: registry(ownerBackend()), getCachedSession: (k) => rows[k] || null },
     'parent-1', 'a1',
   );
-  assert.deepEqual(res, { filePath: CLAUDE_STORE });
+  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude' });
 });
 
 test('a backend that declines subagents is never asked — and its row never resolves to another store', () => {
@@ -65,7 +65,7 @@ test('a decliner sitting BEFORE the owner does not shadow it', () => {
     { backends: registry(declining('codex'), ownerBackend(), declining('pi')), getCachedSession: (k) => rows[k] || null },
     'parent-1', 'a1',
   );
-  assert.deepEqual(res, { filePath: CLAUDE_STORE });
+  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude' });
 });
 
 test('no cached row: an error, not a reconstructed path', () => {
@@ -92,7 +92,7 @@ test('a backend whose id minting throws is skipped, not fatal', () => {
     { backends: registry(broken, ownerBackend()), getCachedSession: (k) => rows[k] || null },
     'parent-1', 'a1',
   );
-  assert.deepEqual(res, { filePath: CLAUDE_STORE });
+  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude' });
 });
 
 test('missing parent or agent id resolves nothing', () => {

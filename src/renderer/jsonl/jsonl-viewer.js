@@ -898,12 +898,9 @@ function renderJsonlEntry(entry, toolResultMap) {
     if (entry.subtype === 'turn_duration') {
       div.innerHTML = '<span class="jsonl-meta-icon">&#9201;</span> Turn duration: <strong>' + formatDuration(entry.durationMs) + '</strong>'
         + (timeStr ? ' <span class="jsonl-ts">' + timeStr + '</span>' : '');
-    } else if (entry.subtype === 'local_command') {
-      const cmdMatch = (entry.content || '').match(/<command-name>(.*?)<\/command-name>/);
-      const cmd = cmdMatch ? cmdMatch[1] : entry.content || 'unknown';
-      div.innerHTML = '<span class="jsonl-meta-icon">$</span> Command: <code class="jsonl-inline-code">' + escapeHtml(cmd) + '</code>'
-        + (timeStr ? ' <span class="jsonl-ts">' + timeStr + '</span>' : '');
     } else {
+      // A local command's system line is the backend's to read (#705): Claude's normaliser turns it into the
+      // command as typed and its output as text, so nothing here parses that markup.
       return null;
     }
     return div;
