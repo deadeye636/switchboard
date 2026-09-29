@@ -835,6 +835,63 @@ function renderJsonlEntry(entry, toolResultMap) {
     return div;
   }
 
+  // --- the MCP servers a running session has, as it answered when asked (#719) ---
+  // Backend-neutral: `{ type: 'server-list', _servers: { title, rows } }`, each row already in words —
+  // `state` to show, `tone` one of ok / waiting / failed. Drawn as a reply under a heading, a row per server
+  // in the shape of a finished task's notice.
+  if (entry.type === 'server-list' && entry._servers) {
+    const list = entry._servers;
+    const rows = Array.isArray(list.rows) ? list.rows : [];
+    const div = document.createElement('div');
+    div.className = 'jsonl-entry jsonl-assistant server-list';
+    const head = document.createElement('div');
+    head.className = 'agent-report-head';
+    const label = document.createElement('span');
+    label.className = 'task-notice-what';
+    label.textContent = list.title || 'Servers';
+    head.appendChild(label);
+    const count = document.createElement('span');
+    count.className = 'task-notice-meta';
+    const ok = rows.filter(r => r.tone === 'ok').length;
+    count.textContent = `${ok} of ${rows.length} connected`;
+    head.appendChild(count);
+    div.appendChild(head);
+    if (!rows.length) {
+      const none = document.createElement('div');
+      none.className = 'task-notice-meta';
+      none.textContent = 'No servers are configured for this session.';
+      div.appendChild(none);
+    }
+    for (const r of rows) {
+      const row = document.createElement('div');
+      row.className = 'task-notice' + (r.tone === 'failed' ? ' failed' : r.tone === 'ok' ? '' : ' stopped');
+      const icon = document.createElement('span');
+      icon.className = 'task-notice-icon';
+      icon.textContent = r.tone === 'failed' ? '✗' : r.tone === 'ok' ? '✓' : '○';
+      const what = document.createElement('span');
+      what.className = 'task-notice-what';
+      const name = document.createElement('b');
+      name.textContent = r.name || '';
+      what.appendChild(name);
+      what.appendChild(document.createTextNode(' ' + (r.state || '')));
+      if (r.error) {
+        what.appendChild(document.createTextNode(' · ' + r.error));
+        what.title = r.error;
+      }
+      const meta = document.createElement('span');
+      meta.className = 'task-notice-meta';
+      const parts = [];
+      if (Number.isFinite(r.tools)) parts.push(r.tools + (r.tools === 1 ? ' tool' : ' tools'));
+      if (r.scope) parts.push(r.scope);
+      meta.textContent = parts.join(' · ');
+      row.appendChild(icon);
+      row.appendChild(what);
+      row.appendChild(meta);
+      div.appendChild(row);
+    }
+    return div;
+  }
+
   // --- a subagent's report, or another session's message (#701) ---
   // Backend-neutral like the notice above: the backend hands `{ type: 'agent-report', _report }` with the
   // report already out of its wrapping. Drawn as a reply, because it is one, under a line that says who sent

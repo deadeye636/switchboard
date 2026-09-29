@@ -411,7 +411,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   terminal backend's launch options come along: worktree, Chrome, extra directories, restricted mode and the
   auto-compact window (#685). An image pasted or dropped into the conversation goes out with the next turn (#662), and any
   other file is named as `@path`, which Claude reads into the turn (#699); `/`
-  completes Claude's commands and skills, and `/clear` moves the tab to the new session. Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  completes Claude's commands and skills, and `/clear` moves the tab to the new session. A local command is
+  drawn as the user's line above its output (#718), and `/mcp` lists the session's MCP servers on a card with
+  their state, tool count and error, where the CLI alone would point to a terminal (#719). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:

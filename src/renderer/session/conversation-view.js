@@ -502,9 +502,10 @@ function createConversationView(getSession, container) {
     if (!view.pendingSends.length) return;
     const text = userTextOf(entry);
     if (text == null) return;
-    // Equal, or beginning with what was sent: a `/` command a runtime answers by itself can come back as the
-    // command followed by its output (claude-native point 6). The earliest match wins, so two identical
-    // messages settle in the order they were sent.
+    // Equal, or beginning with what was sent: slash-command markup can read as the command followed by its
+    // output. A runtime that never plays a line back must send the user's entry for it itself — claude-native
+    // does for a local command (its point 12, #718), or this line would wait here for good. The earliest match
+    // wins, so two identical messages settle in the order they were sent.
     const played = normText(text);
     const p = view.pendingSends.find(x => played === x.text || played.startsWith(`${x.text} `));
     if (p) dropPendingSend(p);

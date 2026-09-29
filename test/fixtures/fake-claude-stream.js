@@ -15,7 +15,10 @@
 // Turn texts that do something else:
 //   'tool'    the reply calls a tool that needs an approval, and runs it once allowed
 //   '/clear'  the conversation is reset and continues under a new id, as Claude's /clear does
-//   '/cost'   a local command: an assistant line whose model is `<synthetic>`
+//   '/cost'   a local command: not played back, answered by an assistant line whose model is `<synthetic>`
+//
+// Control requests answered with something: `initialize` (the command list), `interrupt`, and `mcp_status` (two
+// servers, one with a `config` carrying a secret the app must not pass on).
 const fs = require('fs');
 const path = require('path');
 
@@ -62,10 +65,19 @@ function start(text) {
     return;
   }
   emit({ type: 'system', subtype: 'init' });
+  // A local command is not played back (#718, measured on 2.1.284): the transcript keeps the typed command as
+  // `<command-name>` markup and the output as a `system/local_command` line under the synthetic line's uuid.
+  if (text.trim() === '/cost') {
+    record({ type: 'user', uuid: uuid(), message: { role: 'user', content: '<command-name>/cost</command-name>\n            <command-message>cost</command-message>\n            <command-args></command-args>' } });
+    const out = uuid();
+    record({ type: 'system', subtype: 'local_command', uuid: out, content: '<local-command-stdout>Total cost: $0.00</local-command-stdout>' });
+    emit({ type: 'assistant', uuid: out, message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text: 'Total cost: $0.00' }] }, parent_tool_use_id: null });
+    finish();
+    return;
+  }
   const user = { type: 'user', uuid: uuid(), message: { role: 'user', content: text } };
   record(user);
   emit({ ...user, isReplay: true, parent_tool_use_id: null });
-  if (text === '/cost') { assistantBlock({ type: 'text', text: 'Total cost: $0.00' }, '<synthetic>'); finish(); return; }
   if (text === 'tool') {
     assistantBlock({ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'echo hi' } });
     waitingApproval = 'perm-1';
@@ -93,7 +105,11 @@ process.stdin.on('data', (chunk) => {
     } else if (msg.type === 'control_request') {
       const sub = msg.request && msg.request.subtype;
       const response = sub === 'initialize' ? { commands: [{ name: 'compact', description: 'Clear the conversation  but keep a summary', argumentHint: '' }] }
-        : sub === 'interrupt' ? { still_queued: [] } : {};
+        : sub === 'interrupt' ? { still_queued: [] }
+          : sub === 'mcp_status' ? { mcpServers: [
+            { name: 'docs', status: 'connected', scope: 'user', source: 'user', tools: [{ name: 'read' }, { name: 'write' }], config: { type: 'stdio', command: 'node', args: ['server.js'], env: { TOKEN: 'secret-token' } } },
+            { name: 'remote', status: 'failed', error: 'getaddrinfo ENOTFOUND example.invalid', scope: 'project', source: 'project', config: { type: 'http', url: 'https://example.invalid/mcp', headers: { Authorization: 'Bearer secret-token' } } },
+          ] } : {};
       emit({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response } });
       if (sub === 'interrupt' && turnTimer) {
         clearTimeout(turnTimer);

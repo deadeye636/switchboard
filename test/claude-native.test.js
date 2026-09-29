@@ -95,6 +95,182 @@ test('a local command\'s <synthetic> reply is an entry, never a shell line of th
   assert.ok(!ops.some(o => o.op === 'localCommand'));
 });
 
+// #718 — the shapes measured on 2.1.284: a local command's typed line is never played back.
+const sentTurn = (d, text, mode) => d.noteSent(protocol.sendCommand({ text, mode }));
+const userTexts = (ops) => ops.filter(o => o.op === 'append' && o.entry.message && o.entry.message.role === 'user')
+  .map(o => o.entry.message.content);
+const synthetic = (uuid, text) => ({ type: 'assistant', uuid, message: { role: 'assistant', model: '<synthetic>', content: [{ type: 'text', text }] } });
+
+test('a local command is drawn as the user\'s line in front of its output, since the stream never plays it back', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, '/mcp ', 'prompt');
+  const ops = [{ type: 'system', subtype: 'init' }, synthetic('s1', '22 MCP server(s)'), { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  const appends = ops.filter(o => o.op === 'append');
+  assert.deepEqual(appends.map(o => (typeof o.entry.message.content === 'string' ? o.entry.message.content : o.entry.message.content[0].text)), ['/mcp', '22 MCP server(s)']);
+  assert.equal(appends[0].entry.prompt, true);
+  assert.equal(appends[0].entry.uuid, undefined, 'the stream named no uuid for it, so it carries no key');
+});
+
+test('/compact is drawn before its first notice, which arrives before the turn\'s init', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, '/compact', 'prompt');
+  const ops = [
+    { type: 'system', subtype: 'status', status: 'compacting' },
+    { type: 'system', subtype: 'init' },
+    { type: 'system', subtype: 'compact_boundary' },
+    { type: 'user', uuid: 'sum', isSynthetic: true, message: { role: 'user', content: 'This session is being continued…' } },
+    { type: 'user', uuid: 'out', isReplay: true, message: { role: 'user', content: '<local-command-stdout>Compacted </local-command-stdout>' } },
+    { type: 'result', subtype: 'success' },
+  ].flatMap(l => d.decode(l));
+  const firstVisible = ops.findIndex(o => o.op === 'append' || o.op === 'notice');
+  assert.equal(ops[firstVisible].op, 'append');
+  assert.equal(ops[firstVisible].entry.message.content, '/compact');
+  assert.deepEqual(userTexts(ops).filter(t => t === '/compact'), ['/compact'], 'drawn once');
+});
+
+test('a line the stream plays back is not drawn a second time', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, '/demo-skill', 'prompt');
+  const ops = [
+    { type: 'system', subtype: 'init' },
+    { type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: '<command-name>/demo-skill</command-name>' } },
+    { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } },
+    { type: 'result', subtype: 'success' },
+  ].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(ops), ['/demo-skill']);
+  // …and a plain prompt waits for its replay, whatever comes first.
+  sentTurn(d, 'hello', 'prompt');
+  const plain = [
+    { type: 'system', subtype: 'init' },
+    { type: 'system', subtype: 'api_retry' },
+    { type: 'user', uuid: 'u2', isReplay: true, message: { role: 'user', content: 'hello' } },
+    { type: 'result', subtype: 'success' },
+  ].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(plain), ['hello']);
+});
+
+test('a command whose turn shows nothing is over with its turn, and does not name the next one', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, '/clear', 'prompt');
+  [{ type: 'conversation_reset' }, { type: 'system', subtype: 'init', session_id: 'new' }, { type: 'result', subtype: 'success' }].forEach(l => d.decode(l));
+  sentTurn(d, '/cost', 'prompt');
+  const ops = [{ type: 'system', subtype: 'init' }, synthetic('c1', 'Total cost: $0.00'), { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(ops), ['/cost']);
+});
+
+test('a follow-up written during a turn waits for its own turn, and a steer is never drawn by the decoder', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, 'first', 'prompt');
+  d.decode({ type: 'system', subtype: 'init' });
+  d.decode({ type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: 'first' } });
+  sentTurn(d, '/cost', 'follow_up');
+  sentTurn(d, '/context', 'steer');
+  const during = d.decode({ type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'reply' }] } });
+  assert.deepEqual(userTexts(during), [], 'nothing is drawn into the running turn');
+  d.decode({ type: 'result', subtype: 'success' });
+  const next = [{ type: 'system', subtype: 'init' }, synthetic('c1', 'Total cost: $0.00'), { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(next), ['/cost']);
+});
+
+test('a command whose turn ends only in a failure or a Stop still has its line, in front of that notice', () => {
+  const failed = protocol.createDecoder();
+  sentTurn(failed, '/foo', 'prompt');
+  const ops = [{ type: 'system', subtype: 'init' }, { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['boom'] }].flatMap(l => failed.decode(l));
+  const at = ops.findIndex(o => o.op === 'notice');
+  assert.equal(ops[at - 1].op, 'append');
+  assert.equal(ops[at - 1].entry.message.content, '/foo');
+  const stopped = protocol.createDecoder();
+  sentTurn(stopped, '/context', 'prompt');
+  stopped.decode({ type: 'system', subtype: 'init' });
+  stopped.noteSent(protocol.abortCommand('x'));
+  const stop = stopped.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic]'] });
+  assert.deepEqual(userTexts(stop), ['/context']);
+});
+
+test('a skill drawn in front of a notice is not drawn again when its replay follows', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, '/demo', 'prompt');
+  const ops = [
+    { type: 'system', subtype: 'init' },
+    { type: 'system', subtype: 'api_retry' },
+    { type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: '<command-name>/demo</command-name>' } },
+    { type: 'result', subtype: 'success' },
+  ].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(ops), ['/demo']);
+});
+
+test('a line written between a turn\'s end and a queued follow-up\'s start keeps the follow-up ahead of it', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, 'first', 'prompt');
+  d.decode({ type: 'system', subtype: 'init' });
+  d.decode({ type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: 'first' } });
+  sentTurn(d, '/cost', 'follow_up');
+  d.decode({ type: 'result', subtype: 'success' });
+  sentTurn(d, 'b', 'prompt');
+  const next = [{ type: 'system', subtype: 'init' }, synthetic('c1', 'Total cost: $0.00'), { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(next), ['/cost']);
+  const after = [{ type: 'system', subtype: 'init' }, { type: 'user', uuid: 'u2', isReplay: true, message: { role: 'user', content: 'b' } }, { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(after), ['b']);
+});
+
+test('a replay that matches no written line still clears the oldest, so a later command is drawn', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, 'typed one way', 'prompt');
+  [{ type: 'system', subtype: 'init' }, { type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: 'played another' } }].forEach(l => d.decode(l));
+  sentTurn(d, '/cost', 'follow_up');
+  d.decode({ type: 'result', subtype: 'success' });
+  const next = [{ type: 'system', subtype: 'init' }, synthetic('c1', 'Total cost: $0.00'), { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(next), ['/cost']);
+});
+
+test('a follow-up played back inside the running turn is no longer due, so a later command is drawn', () => {
+  const d = protocol.createDecoder();
+  sentTurn(d, 'first', 'prompt');
+  d.decode({ type: 'system', subtype: 'init' });
+  d.decode({ type: 'user', uuid: 'u1', isReplay: true, message: { role: 'user', content: 'first' } });
+  sentTurn(d, 'more', 'follow_up');
+  d.decode({ type: 'user', uuid: 'u2', isReplay: true, message: { role: 'user', content: 'more' } });
+  d.decode({ type: 'result', subtype: 'success' });
+  // A plain turn in between changes nothing.
+  sentTurn(d, 'x', 'prompt');
+  [{ type: 'system', subtype: 'init' }, { type: 'user', uuid: 'u3', isReplay: true, message: { role: 'user', content: 'x' } }, { type: 'result', subtype: 'success' }].forEach(l => d.decode(l));
+  sentTurn(d, '/cost', 'prompt');
+  const next = [{ type: 'system', subtype: 'init' }, synthetic('c1', 'Total cost: $0.00'), { type: 'result', subtype: 'success' }].flatMap(l => d.decode(l));
+  assert.deepEqual(userTexts(next), ['/cost']);
+});
+
+test('a failed server\'s error loses the credentials, query and tokens it names', () => {
+  const errorOf = (error) => protocol.serverList({ success: true, data: { mcpServers: [{ name: 'x', status: 'failed', error }] } }).rows[0].error;
+  assert.equal(errorOf('HTTP 401 from https://user:pw@api.example.invalid/mcp?token=abc#frag after 3 tries'),
+    'HTTP 401 from https://api.example.invalid/mcp after 3 tries');
+  assert.equal(errorOf('refused https://u:p@ss@h.example.invalid/mcp?key=abc'), 'refused https://h.example.invalid/mcp');
+  assert.equal(errorOf('sent Bearer tok123, got 403'), 'sent Bearer …, got 403');
+});
+
+test('the MCP servers are rows in words, and a server\'s config never leaves the backend (#719)', () => {
+  assert.deepEqual(protocol.appCommandOp('/mcp'), { op: 'servers' });
+  assert.deepEqual(protocol.appCommandOp('  /mcp  '), { op: 'servers' });
+  assert.equal(protocol.appCommandOp('/mcp reconnect x'), null);
+  assert.equal(protocol.appCommandOp('/mcp-builder'), null);
+  assert.equal(protocol.appCommandOp('tell me about /mcp'), null);
+  assert.deepEqual(protocol.serversCommand('r1'), { type: 'control_request', request_id: 'r1', request: { subtype: 'mcp_status' } });
+  const list = protocol.serverList({ success: true, data: { mcpServers: [
+    { name: 'a', status: 'pending', scope: 'user', config: { env: { KEY: 'secret' } } },
+    { name: 'b', status: 'needs-auth', scope: 'claudeai' },
+    { name: 'c', status: 'failed', error: 'No URL configured for this server', scope: 'dynamic' },
+    { name: 'd', status: 'something-new' },
+    { status: 'connected' },
+  ] } });
+  assert.deepEqual(list.rows.map(r => [r.name, r.state, r.tone, r.error]), [
+    ['a', 'connecting', 'waiting', ''],
+    ['b', 'needs sign-in', 'waiting', ''],
+    ['c', 'failed', 'failed', 'No URL configured for this server'],
+    ['d', 'something-new', 'waiting', ''],
+  ]);
+  assert.ok(!JSON.stringify(list).includes('secret'));
+  assert.equal(protocol.serverList({ success: false, error: 'no answer' }), null);
+});
+
 test('/clear: the conversation is reset, and the new id is announced before anything about the new session', () => {
   const ops = decodeAll([
     { type: 'result', session_id: 'old', subtype: 'success', is_error: false },

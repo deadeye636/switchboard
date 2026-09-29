@@ -380,6 +380,42 @@ starts a new session in the same process (measured). A local command answers wit
 model is `<synthetic>` and an ordinary `result`, so it is drawn as an entry and busy/ready come from the
 same `result` as for any turn. `/login` answers that it is not available in this environment.
 
+**The typed command is never played back (#718, measured on 2.1.284 with `/mcp`, `/cost`, `/context` and
+`/compact`).** `--replay-user-messages` returns an ordinary prompt when its turn starts, but for a local
+command the stream sends only `system/init`, the output and the `result`; `/compact` even sends its
+`system/status` lines before the `init`. The transcript does keep the command, as a user line of
+`<command-name>` markup, so a reopened session always showed it. Live, the view's instant echo (#694) waited
+for a replay that never came: the output was drawn above a "sending…" line that stayed for good. The decoder
+now keeps the turn lines the core writes (`noteSent`) and draws a `/` line itself, as the user's entry, in
+front of the first thing its turn shows — unless the turn played it back first, which a skill the user types
+does. A line written to an idle session is the next turn's, because the core holds a prompt while a turn runs
+(#702); a follow-up written during a turn waits for its own turn, and a steer is never drawn this way. A turn
+that ends in nothing but a failure or a Stop still draws its line, in front of that notice, and a replay that
+arrives after the line was drawn is not drawn a second time. The entry carries no uuid, since the stream names
+none; an attach draws the transcript's markup line instead. One window is not covered: a background task's
+turn that starts while a follow-up waits in the CLI is taken for that follow-up's turn, so a `/` follow-up
+there keeps the view's "sending…" line.
+
+**`/mcp` is answered by the app (#719).** Over the pipe the CLI prints one line and sends the user to the
+terminal for the details, which a session without a terminal cannot follow. The control request `mcp_status`
+answers a row per server (measured on 2.1.284): `name`, `status` (`pending` right after the start, then
+`connected`, `needs-auth`, `failed` or `disabled`), `error` for a failed one, `serverInfo`, `tools`, `scope`,
+`source`, and the server's `config`. So a bare `/mcp` is never written as a turn: the backend's `appCommandOp`
+names the `servers` op, the core draws the command as the user's line and asks `serversCommand`, and
+`serverList` turns the answer into neutral rows — name, scope, state in words, one of three tones, tool count
+and a failed server's error. The view draws them as a card, one row per server. What it costs, stated:
+
+- **The card is a snapshot.** It carries no key, is not in the transcript and is not drawn again when the
+  session is reopened; the transcript holds nothing for that `/mcp` at all.
+- **No turn, no busy edge, never held.** Typed while a turn runs, it is answered at once.
+- **A server's `config` is never passed on.** Its URL, arguments, environment and headers may carry secrets,
+  so nothing of it leaves the backend's folder. A failed server's error is shown on one line, and any URL in
+  it loses its credentials, query and fragment.
+- **Only the bare command, and only from the view.** `/mcp` with arguments is the CLI's to answer and goes out
+  as a turn, as before; so does `/mcp` typed into the session as keys by a trigger or a launcher, which never
+  passes through `sendTurn`.
+  Managing a server (reconnect, enable, disable) is not offered.
+
 The list a `/` completes to comes from the CLI's `initialize` control request, which may be sent more than
 once (measured). It is sent when the view asks for the list, not at start: turns work without it, and the
 session's capabilities arrive with the first turn's `system/init` anyway. The view's completion (spec 30,

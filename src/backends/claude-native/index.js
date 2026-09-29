@@ -243,6 +243,10 @@ module.exports = {
     modeInfo: protocol.modeInfo,
     commandsCommand: protocol.commandsCommand,
     commandsFromResponse: protocol.commandsFromResponse,
+    // A bare `/mcp` is answered by the app, from `mcp_status`, and never written as a turn (#719).
+    appCommandOp: protocol.appCommandOp,
+    serversCommand: protocol.serversCommand,
+    serverList: protocol.serverList,
     answerCommand: protocol.answerCommand,
     // No `stateCommand`: the CLI names its session on every line and the decoder announces a move as an
     // `identity` op. No `messagesCommand`: the conversation is read from the transcript.

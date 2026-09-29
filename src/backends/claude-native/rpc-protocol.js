@@ -70,6 +70,27 @@
 //      same uuid with `isCompactSummary` and `isVisibleInTranscriptOnly`, and no `isMeta`. Both paths draw it
 //      as a `transcript-meta` note with the text folded in (`compactSummaryEntry`), the shape pi-native gives
 //      Pi's own summary, never as a user message.
+//  12. A local command is NOT played back (#718, measured on 2.1.284 with `/mcp`, `/cost`, `/context` and
+//      `/compact`): the typed line never comes back, with or without `--replay-user-messages`. `/mcp` and
+//      `/context` answer `system/init`, the `<synthetic>` line and a `result`; `/compact` sends its
+//      `system/status` lines even BEFORE the `init`. So the decoder keeps the turn lines the core wrote
+//      (`noteSent`) and draws a `/` line itself, as the user's entry, in front of the first thing its turn
+//      shows, unless the turn played it back first (a skill the user types is). A line written while the
+//      session is idle is the next turn's, since the core holds a prompt while a turn runs (#702); one written
+//      during a turn (a follow-up) waits for its own turn. A turn that ends in nothing but a failure or a Stop
+//      still draws its line, in front of that notice, and a replay that comes after the line was drawn is not
+//      drawn again. The drawn entry has no uuid, because the stream names none: an attach reads the
+//      transcript's own `<command-name>` line in its place. Not covered: a turn nothing of ours started (a
+//      background task's) while a follow-up waits in the CLI takes that follow-up's place here, so a `/`
+//      follow-up in that window is left to the view's pending line.
+//  13. `/mcp` over the pipe prints one line and sends the user to the terminal for the rest. The control
+//      request `mcp_status` answers a row per server (#719, measured on 2.1.284): `name`, `status` (`pending`
+//      right after the start, then `connected`, `needs-auth`, `failed` or `disabled`), `error` for a failed one,
+//      `serverInfo`, `tools`, `scope`, `source` and the server's `config`. So a bare `/mcp` is answered by the
+//      app from that request (`appCommandOp`, `serversCommand`, `serverList`) and never written as a turn. The
+//      `config` is never passed on: its URL, arguments, environment and headers may carry secrets, and a
+//      failed server's `error` loses the credentials, query and fragment of any URL it names. Only a line sent
+//      from the view reaches `appCommandOp`: `/mcp` typed in as keys (a trigger, a launcher) is a turn.
 'use strict';
 
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
@@ -210,6 +231,13 @@ function sessionLabel(permissions) {
 }
 
 // One stream line as the entry the viewer draws: Claude's own shape, and the uuid the transcript has for it.
+// A typed line as it is compared with what the stream plays back (point 12): whitespace runs are one space, and
+// the ends are trimmed — a completion leaves `/mcp ` behind it.
+const normText = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+// How many written lines wait for their turn at most. Follow-ups queue behind a turn one per press; a count
+// past this is a miscount, and the oldest line is the one least likely to still be coming.
+const DUE_CAP = 16;
+
 function entryOf({ type, uuid, timestamp, message }) {
   return {
     type,
@@ -296,6 +324,71 @@ function createDecoder() {
   let skillResults = [];          // [{ id, output }]
   // Point 11: a compaction just ended, and the synthetic line after it is the summary the model goes on from.
   let summaryNext = false;
+  // Point 12: the turn lines written and not yet drawn, oldest first, as the text the user typed. `armed` is
+  // set while the turn that runs (or starts next) has not drawn the line that started it; `inTurn` tells a
+  // line written to an idle session from a follow-up written during a turn.
+  let due = [];
+  let armed = false;
+  let placed = false;
+  let inTurn = false;
+  // The `/` line drawn here for the running turn, so a replay of it that comes after all (a skill the user
+  // typed, behind a notice or a task's card) is not drawn a second time.
+  let drawn = null;
+
+  const matches = (sent, played) => sent === played || played.startsWith(`${sent} `) || sent.startsWith(`${played} `);
+  const isPrompt = (o) => o.op === 'append' && o.entry && o.entry.prompt;
+  const playedText = (o) => normText(textOf(o.entry.message && o.entry.message.content));
+
+  // Point 12: the first thing a turn shows settles the line that started it. A played-back prompt is that line
+  // drawn by the stream; anything else, in front of a `/` line that was never played back, gets the line drawn
+  // here first. A plain line always comes back, so it waits for its replay.
+  function placeCommand(ops) {
+    if (drawn) {
+      const again = ops.findIndex(o => isPrompt(o) && matches(drawn, playedText(o)));
+      if (again >= 0) { drawn = null; ops = [...ops.slice(0, again), ...ops.slice(again + 1)]; }
+    }
+    if (!due.length) return ops;
+    // A follow-up Claude folded into the running turn is played back there: it is drawn, and no longer due.
+    if (!armed) {
+      for (const o of ops) {
+        if (!isPrompt(o)) continue;
+        const at = due.findIndex(t => matches(t, playedText(o)));
+        if (at >= 0) due.splice(at, 1);
+      }
+      return ops;
+    }
+    const i = ops.findIndex(o => o.op === 'append' || o.op === 'notice');
+    if (i < 0) return ops;
+    const first = ops[i];
+    if (isPrompt(first)) {
+      const played = playedText(first);
+      const at = due.findIndex(t => matches(t, played));
+      // The line this turn ran, and every older one with it: what was written before it has had its turn.
+      // A replay that matches nothing written still started this turn; the oldest line is the one it ran.
+      due.splice(0, at >= 0 ? at + 1 : 1);
+      armed = false;
+      placed = true;
+      return ops;
+    }
+    if (!due[0].startsWith('/')) return ops;
+    const typed = due.shift();
+    armed = false;
+    placed = true;
+    drawn = typed;
+    const entry = { ...entryOf({ type: 'user', message: { role: 'user', content: typed } }), prompt: true };
+    return [...ops.slice(0, i), { op: 'append', entry }, ...ops.slice(i)];
+  }
+
+  // Point 12: a turn is over. Asked AFTER its result was placed, so a command whose turn ends in nothing but a
+  // failure or a Stop still has its line drawn in front of that notice. A line whose turn showed nothing at all
+  // (`/clear`) is over with it too, drawn or not.
+  function endTurn() {
+    if (armed && due.length) due.shift();
+    armed = false;
+    placed = false;
+    inTurn = false;
+    drawn = null;
+  }
   // The notice for a task that ended, from the `task_notification` system line (see its case below). Its
   // `summary` is Claude's sentence about a shell ("Background command "x" completed (exit code 0)") and an
   // agent's own result; the description comes from the start, where the list gave one.
@@ -509,6 +602,9 @@ function createDecoder() {
       // It names the permission mode as well (#696).
       case 'init': {
         stopping = null;
+        // Point 12: the turn that starts is the one whose line is still to be drawn, unless it already was.
+        inTurn = true;
+        armed = !placed;
         const mode = modeInfo(msg.permissionMode);
         return mode ? [{ op: 'busy', busy: true }, { op: 'mode', mode }] : [{ op: 'busy', busy: true }];
       }
@@ -608,6 +704,12 @@ function createDecoder() {
   }
 
   function decode(msg) {
+    const ops = placeCommand(translate(msg));
+    if (msg && msg.type === 'result') endTurn();
+    return ops;
+  }
+
+  function translate(msg) {
     if (!msg || typeof msg !== 'object') return [];
     if (ofSubagent(msg)) return [];
     const ops = followId(msg);
@@ -633,10 +735,21 @@ function createDecoder() {
     }
   }
 
-  // A line the core wrote. Only what ends the running turn matters here: a Stop (point 8 above), and an
-  // answer that interrupts, which is "keep planning" (point 9).
+  // A line the core wrote. What ends the running turn: a Stop (point 8 above), and an answer that interrupts,
+  // which is "keep planning" (point 9). And a turn line, for the line its turn has to show (point 12) — not a
+  // steer, which goes into the running turn and is played back there.
   function noteSent(line) {
     if (!line) return;
+    if (line.type === 'user' && line.message && line.priority !== PRIORITIES.steer) {
+      const typed = normText(textOf(line.message.content));
+      if (typed) {
+        // Written to an idle session, the line starts a turn: the next one, or the one after a follow-up still
+        // queued in the CLI, which stays ahead of it here too.
+        due.push(typed);
+        if (!inTurn) { armed = true; placed = false; }
+        if (due.length > DUE_CAP) due.shift();
+      }
+    }
     if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = NOTICES.stopped;
     const answer = line.type === 'control_response' && line.response && line.response.response;
     if (answer && answer.behavior === 'deny' && answer.interrupt === true) stopping = 'Kept planning. Say what to change.';
@@ -739,6 +852,52 @@ function contextFromResponse(response) {
   const window = num(d.maxTokens);
   const percent = num(d.percentage) != null ? num(d.percentage) : (tokens != null && window ? Math.round((tokens / window) * 100) : null);
   return { percent, tokens, window, model: typeof d.model === 'string' ? modelLabel(d.model) : '' };
+}
+
+// A command the app answers instead of writing it as a turn (point 13): the op the core handles for it, or
+// `null` for a line that goes to the CLI. Only a bare `/mcp` — with arguments it is the CLI's to answer.
+function appCommandOp(text) {
+  return /^\s*\/mcp\s*$/.test(String(text == null ? '' : text)) ? { op: 'servers' } : null;
+}
+
+// The MCP servers (point 13): the request, and its answer as the rows the view draws — a server's name, where
+// it is configured, its state in words and as one of three tones, its tool count and the error of a failed
+// one. Never its `config`. `null` for an answer that holds no list.
+const serversCommand = (id) => control(id, { subtype: 'mcp_status' });
+
+const SERVER_STATES = {
+  connected: { label: 'connected', tone: 'ok' },
+  pending: { label: 'connecting', tone: 'waiting' },
+  'needs-auth': { label: 'needs sign-in', tone: 'waiting' },
+  disabled: { label: 'disabled', tone: 'waiting' },
+  failed: { label: 'failed', tone: 'failed' },
+};
+
+// A failed server's error as the card may show it: one line, and any URL in it without its credentials, query or
+// fragment — an error that echoes the address it failed on may echo a token with it.
+const safeError = (text) => oneLineDescription(String(text)
+  .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/]*@/gi, '$1')
+  .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s?#]+)[?#][^\s]*/gi, '$1')
+  .replace(/\b(Bearer|Basic|token)\s+[^\s,;]+/gi, '$1 …'));
+
+function serverList(response) {
+  const list = response && response.success !== false && response.data && response.data.mcpServers;
+  if (!Array.isArray(list)) return null;
+  const rows = [];
+  for (const s of list) {
+    if (!s || typeof s.name !== 'string' || !s.name) continue;
+    const status = typeof s.status === 'string' ? s.status : '';
+    const known = SERVER_STATES[status] || { label: status || 'unknown', tone: 'waiting' };
+    rows.push({
+      name: s.name,
+      scope: typeof s.scope === 'string' ? s.scope : '',
+      state: known.label,
+      tone: known.tone,
+      tools: Array.isArray(s.tools) ? s.tools.length : null,
+      error: status === 'failed' && typeof s.error === 'string' ? safeError(s.error) : '',
+    });
+  }
+  return { title: 'MCP servers', rows };
 }
 
 // The commands a `/` can complete to. `initialize` answers them, and it may be sent again (measured: two in a
@@ -927,6 +1086,9 @@ module.exports = {
   MODE_CYCLE,
   commandsCommand,
   commandsFromResponse,
+  appCommandOp,
+  serversCommand,
+  serverList,
   answerCommand,
   conversationEntries,
   entryKey,

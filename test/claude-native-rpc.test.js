@@ -87,11 +87,52 @@ test('/clear resets the conversation and re-keys the session onto the id it cont
 
 test('a local command\'s reply is drawn as an entry; the command list comes from initialize', async (t) => {
   const h = claudeHarness(t);
-  await agentRpc.sendTurn('launch-id', { text: '/cost', mode: 'prompt' });
+  await agentRpc.sendTurn('launch-id', { text: '/cost ', mode: 'prompt' });
   await until(() => idles(h) === 1);
-  assert.equal(appended(h).pop().message.model, '<synthetic>');
+  // #718: the typed command is not played back, so the decoder draws it, in front of the output.
+  const [typed, reply] = appended(h);
+  assert.equal(typed.message.role, 'user');
+  assert.equal(typed.message.content, '/cost');
+  assert.equal(typed.prompt, true, 'drawn as the user\'s own line');
+  assert.equal(reply.message.model, '<synthetic>');
+  assert.equal(appended(h).length, 2);
+  // An attach reads the command from the transcript's own markup line, in the same order.
+  const res = await agentRpc.attach('sess-1');
+  assert.deepEqual(res.entries.map((e) => [e.type, typeof e.message.content === 'string' ? e.message.content : e.message.content[0].text]),
+    [['user', '/cost'], ['assistant', 'Total cost: $0.00']]);
   assert.deepEqual(await agentRpc.listCommands('sess-1'), { ok: true, commands: [{ name: 'compact', description: 'Clear the conversation but keep a summary', kind: 'command', arguments: false }] });
   assert.deepEqual(await agentRpc.abortTurn('sess-1'), { ok: true }, 'an interrupt is answered like any control request');
+});
+
+test('/mcp is answered by the app from mcp_status: no turn, and no server\'s config (#719)', async (t) => {
+  const h = claudeHarness(t);
+  assert.deepEqual(await agentRpc.sendTurn('launch-id', { text: ' /mcp ', mode: 'prompt' }), { ok: true });
+  await until(() => appended(h).some((e) => e.type === 'server-list'));
+  const [typed, list] = appended(h);
+  assert.equal(typed.message.content, '/mcp');
+  assert.equal(typed.prompt, true);
+  assert.deepEqual(list._servers, {
+    title: 'MCP servers',
+    rows: [
+      { name: 'docs', scope: 'user', state: 'connected', tone: 'ok', tools: 2, error: '' },
+      { name: 'remote', scope: 'project', state: 'failed', tone: 'failed', tools: null, error: 'getaddrinfo ENOTFOUND example.invalid' },
+    ],
+  });
+  assert.equal(h.signals.length, 0, 'no turn ran, so no busy edge');
+  assert.ok(!JSON.stringify(h.sent).includes('secret-token'), 'nothing of a server\'s config reaches the view');
+  // With arguments it is the CLI's command, written as a turn like any other.
+  assert.equal(native.rpc.appCommandOp('/mcp reconnect docs'), null);
+});
+
+test('/mcp sent while a turn runs is answered at once, not held behind it (#719)', async (t) => {
+  // Long enough that the turn cannot end under the suite's own load before the list arrives.
+  const h = claudeHarness(t, { turnMs: 30000 });
+  await agentRpc.sendTurn('launch-id', { text: 'long', mode: 'prompt' });
+  await until(() => h.signals.some((s) => s.kind === 'busy'));
+  assert.deepEqual(await agentRpc.sendTurn('launch-id', { text: '/mcp', mode: 'prompt' }), { ok: true });
+  await until(() => appended(h).some((e) => e.type === 'server-list'));
+  assert.equal(idles(h), 0, 'the running turn is still running');
+  assert.ok(!ops(h).some((o) => o.op === 'held' && Array.isArray(o.items) && o.items.length), 'nothing was held');
 });
 
 test('an attach reads the conversation from the transcript, keyed the way the stream keys it', async (t) => {

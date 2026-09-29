@@ -338,6 +338,14 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
   state.request = request;
   state.write = write;
 
+  // A command the backend says the app answers itself (`appCommandOp`, #719): drawn as the user's line and
+  // handled as the op the backend named, with nothing written to the runtime — so it is no turn, raises no
+  // busy edge and is never held behind one.
+  state.answerInApp = (text, op) => {
+    sendOp(state, { op: 'append', entry: { type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: text.trim() }, prompt: true } });
+    handleOp(op);
+  };
+
   // The row is keyed on the session the runtime is on, and the runtime can move (a fork or a new session
   // from inside it). The re-key itself is the one every other backend's live binding goes through.
   function adoptIdentity(id) {
@@ -658,6 +666,19 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
           if (!tree) { sendOp(state, { op: 'notice', level: 'warning', text: 'The session did not send its branch tree.' }); return; }
           sendOp(state, { op: 'branchTree', rows: tree.rows || [], truncated: !!tree.truncated });
         }).catch((err) => ctx.log.warn(`[agent-rpc] the branch tree was not read: ${err.message}`));
+        return;
+      case 'servers':
+        // The user asked which MCP servers the session has (#719). Read over the protocol and drawn as an entry
+        // of neutral rows; not awaited, like the figures. It carries no key, so it is not in the transcript and
+        // an attach does not draw it again: it is how the servers stood when asked.
+        flushPartial();
+        if (typeof rpc.serversCommand !== 'function' || typeof rpc.serverList !== 'function') return;
+        request(rpc.serversCommand).then((res) => {
+          let list = null;
+          try { list = rpc.serverList(res); } catch { list = null; }
+          if (!list) { sendOp(state, { op: 'notice', level: 'warning', text: 'The session did not list its MCP servers.' }); return; }
+          sendOp(state, { op: 'append', entry: { type: 'server-list', timestamp: new Date().toISOString(), _servers: list } });
+        }).catch((err) => ctx.log.warn(`[agent-rpc] the MCP servers were not read: ${err.message}`));
         return;
       case 'navigated': {
         // A move this process asked for (`navigateBranch`) is done. Only ours: the token is what says so.
@@ -1148,6 +1169,12 @@ async function sendTurn(sessionId, payload) {
   const { images } = checked;
   if (!text.trim() && !images.length) return { ok: false, error: 'Nothing to send.' };
   const mode = SEND_MODES.has(payload && payload.mode) ? payload.mode : 'prompt';
+  // A command the app answers itself (#719) goes nowhere near the runtime, busy or not.
+  const own = !images.length && typeof state.rpc.appCommandOp === 'function' ? state.rpc.appCommandOp(text) : null;
+  if (own && typeof own.op === 'string') {
+    state.answerInApp(text, own);
+    return { ok: true };
+  }
   // A prompt while a turn runs is held (#702) — and so is one behind prompts already waiting, so they keep their
   // order. A queue paused by a Stop does not hold a new one: sending while idle means "now". A shell line is not
   // a turn and runs beside one, so it is never held.

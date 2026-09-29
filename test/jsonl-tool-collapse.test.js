@@ -114,3 +114,21 @@ test('a task-notice entry draws as a card; a shell offers its output, an agent d
   assert.equal(agent.querySelector('.task-notice-output'), null);
   assert.match(agent.textContent, /Agent Review finished/);
 });
+
+test('a server-list entry draws a row per server, toned by its state (#719)', () => {
+  const h = setup({});
+  const list = { title: 'MCP servers', rows: [
+    { name: 'docs', scope: 'user', state: 'connected', tone: 'ok', tools: 2, error: '' },
+    { name: 'remote', scope: 'project', state: 'failed', tone: 'failed', tools: null, error: 'getaddrinfo ENOTFOUND' },
+    { name: 'mail', scope: 'claudeai', state: 'needs sign-in', tone: 'waiting', tools: null, error: '' },
+  ] };
+  const el = vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'server-list', _servers: list })}, new Map())`, h.ctx);
+  assert.ok(el.classList.contains('server-list'));
+  assert.match(el.querySelector('.agent-report-head').textContent, /MCP servers.*1 of 3 connected/);
+  const rows = [...el.querySelectorAll('.task-notice')];
+  assert.deepEqual(rows.map(r => r.className), ['task-notice', 'task-notice failed', 'task-notice stopped']);
+  assert.match(rows[0].textContent, /docs connected.*2 tools · user/);
+  assert.match(rows[1].textContent, /remote failed · getaddrinfo ENOTFOUND/);
+  const empty = vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'server-list', _servers: { title: 'MCP servers', rows: [] } })}, new Map())`, h.ctx);
+  assert.match(empty.textContent, /No servers are configured/);
+});

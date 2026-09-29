@@ -3257,6 +3257,8 @@ body.restoring-sessions .terminal-container { visibility: hidden; }
   font-size: 12px;
 }
 .task-notice-text { margin: -4px 0 8px; max-height: 260px; overflow: auto; }
+/* A session's MCP servers (#719): a finished task's row per server, packed closer under one heading. */
+.server-list .task-notice { margin: 4px 0; }
 /* A message sent, not yet played back by the runtime (#694): the user's bubble, dimmed, with what it waits on. */
 .conversation-pending { opacity: 0.6; position: relative; }
 .conversation-pending-tag {
