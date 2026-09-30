@@ -68,7 +68,9 @@
       // Absent unless a caller asks, so every existing dialog is unchanged — and a dialog cannot have
       // both this and a checkbox, because the two want to resolve with different shapes.
       prompt: normalizeControlDialogPrompt(options.prompt, options.checkbox),
-      cancelLabel: String(options.cancelLabel || 'Cancel'),
+      // An explicit '' means "no cancel button" — a message has one answer. It used to fall through to
+      // 'Cancel', so every showControlMessage offered a choice it did not have.
+      cancelLabel: options.cancelLabel === '' ? '' : String(options.cancelLabel || 'Cancel'),
       secondaryLabel: String(options.secondaryLabel || ''),
       tertiaryLabel: String(options.tertiaryLabel || ''),
       // A third button is normally the affirmative extra one — "Copy starter prompt" — and it is green
@@ -90,6 +92,12 @@
       // minutes producing — a stray click beside it throws that away, unrecoverably. Those opt out.
       dismissible: options.dismissible !== false,
     };
+  }
+
+  // A dialog with nothing to cancel is telling, not asking, so it does not call itself a confirmation.
+  function controlDialogKicker(normalized) {
+    if (normalized.tone === 'danger') return 'Destructive Action';
+    return normalized.cancelLabel ? 'Confirm Action' : 'Notice';
   }
 
   function controlDialogToneClass(tone) {
@@ -201,7 +209,7 @@
       let checked = normalized.checkbox ? normalized.checkbox.checked : false;
 
       dialog.innerHTML = `
-        <div class="control-dialog-kicker">${normalized.tone === 'danger' ? 'Destructive Action' : 'Confirm Action'}</div>
+        <div class="control-dialog-kicker">${controlDialogKicker(normalized)}</div>
         <h3 id="${titleId}">${escapeHtml(normalized.title)}</h3>
         ${normalized.message ? `<p id="${messageId}">${escapeHtml(normalized.message)}</p>` : ''}
         ${detailRows ? `<div class="control-dialog-details" id="${detailsId}">${detailRows}</div>` : ''}
@@ -342,6 +350,7 @@
   return {
     normalizeControlDialogOptions,
     controlDialogToneClass,
+    controlDialogKicker,
     controlDialogConfirmText,
     controlDialogConfirmDisabled,
     formatControlDialogDetails,

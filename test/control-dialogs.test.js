@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   normalizeControlDialogOptions,
   controlDialogToneClass,
+  controlDialogKicker,
   controlDialogConfirmText,
   formatControlDialogDetails,
 } = require('../src/renderer/dialogs/control-dialogs');
@@ -130,4 +131,16 @@ test('normalizeControlDialogOptions keeps a known focus target and refuses an un
   // A typo must not leave focus nowhere — it falls back to the button every dialog has.
   assert.equal(normalizeControlDialogOptions({ title: 'x', initialFocus: 'the-blue-one' }).initialFocus, 'confirm');
   assert.equal(normalizeControlDialogOptions({ title: 'x', initialFocus: null }).initialFocus, 'confirm');
+});
+
+test('an explicit empty cancel label means no cancel button, and the dialog calls itself a notice', () => {
+  const message = normalizeControlDialogOptions({ title: 'Saved', cancelLabel: '' });
+  assert.equal(message.cancelLabel, '', 'a message has one answer — no Cancel beside the OK');
+  assert.equal(controlDialogKicker(message), 'Notice');
+
+  const question = normalizeControlDialogOptions({ title: 'Stop session' });
+  assert.equal(question.cancelLabel, 'Cancel', 'an omitted label still gets the default');
+  assert.equal(controlDialogKicker(question), 'Confirm Action');
+
+  assert.equal(controlDialogKicker(normalizeControlDialogOptions({ title: 'Delete', tone: 'danger' })), 'Destructive Action');
 });
