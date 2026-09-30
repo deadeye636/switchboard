@@ -918,8 +918,9 @@ test('background tasks: the running list is Claude\'s own, a start adds the call
     id: 'b1', toolUseId: 'toolu_1', kind: 'shell', subagentId: null, status: 'completed', description: 'Dev server',
     summary: 'Background command "Dev server" completed (exit code 0)', result: '', exitCode: 0,
     tokens: undefined, toolUses: undefined, durationMs: undefined,
+    // #725: the notice names its file for the CORE, which takes it off before the view sees the entry.
+    outputFile: '/tmp/x/tasks/b1-final.output',
   });
-  assert.ok(!JSON.stringify(live[0].entry).includes('/tmp/x'), 'no path in the entry');
   assert.deepEqual(all({ type: 'system', subtype: 'background_tasks_changed', tasks: [] })[0].tasks, []);
   const injected = {
     type: 'user', uuid: 'u3', origin: { kind: 'task-notification' },
@@ -1041,4 +1042,25 @@ test('the permission mode: named by init and by the status line after a change, 
   // A refusal carries the CLI's sentence, and the cycle reads it as "skip this one".
   const refused = protocol.responseOf({ type: 'control_response', response: { subtype: 'error', request_id: 'r4', error: 'Cannot set permission mode to auto: auto mode unavailable for this model', error_code: 'auto_mode_model' } });
   assert.equal(refused.payload.success, false);
+});
+
+// #725: a card read back from the transcript names its output file — the notification's own, else the one the
+// shell call's result named — so the output still opens after a restart. The core takes the path off.
+test('a notice read back from the transcript names its output file, from the tag or from the call\'s result', () => {
+  const call = (id) => ({ type: 'assistant', uuid: `a-${id}`, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: { command: 'x', run_in_background: true } }] } });
+  const result = (id, file) => ({ type: 'user', uuid: `r-${id}`, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: `Command running in background with ID: b. Output is being written to: ${file}` }] } });
+  const notice = (task, toolUse, file) => ({
+    type: 'user', uuid: `n-${task}`, origin: { kind: 'task-notification' },
+    message: { role: 'user', content: `<task-notification>\n<task-id>${task}</task-id>\n<tool-use-id>${toolUse}</tool-use-id>\n${file ? `<output-file>${file}</output-file>\n` : ''}<status>completed</status>\n<summary>Background command "x" completed (exit code 0)</summary>\n</task-notification>` },
+  });
+  const entries = protocol.conversationEntries([
+    call('toolu_1'), result('toolu_1', '/tmp/x/tasks/b1.output'), notice('b1', 'toolu_1', '/tmp/x/tasks/b1-final.output'),
+    call('toolu_2'), result('toolu_2', '/tmp/x/tasks/b2.output'), notice('b2', 'toolu_2', ''),
+  ]);
+  const byId = Object.fromEntries(entries.filter((e) => e.type === 'task-notice').map((e) => [e._task.id, e._task]));
+  assert.equal(byId.b1.outputFile, '/tmp/x/tasks/b1-final.output', 'the notification\'s file wins');
+  assert.equal(byId.b2.outputFile, '/tmp/x/tasks/b2.output', 'else the file the call\'s result named');
+  // The history viewer hands its entries straight to the renderer, so its notice carries no path at all.
+  const history = require('../src/backends/claude/transcript-view').normalizeTranscriptEntries([call('toolu_1'), notice('b1', 'toolu_1', '/tmp/x/tasks/b1-final.output')]);
+  assert.ok(!JSON.stringify(history).includes('/tmp/x'));
 });

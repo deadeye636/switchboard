@@ -780,8 +780,8 @@ function renderJsonlEntry(entry, toolResultMap) {
   // --- a background task that ended (#691) ---
   // A backend-neutral entry: the backend turns its own notification into `{ type: 'task-notice', _task }`,
   // so nothing here reads a CLI's markup. The Output button is answered by the conversation view, which knows
-  // the session; it is offered for a shell or a task of no known kind, not for an agent, whose result is here
-  // and whose transcript the Open button below reaches.
+  // the session and opens the text inside this card; it is offered for a shell or a task of no known kind, not
+  // for an agent, whose result is here and whose transcript the Open button below reaches.
   if (entry.type === 'task-notice' && entry._task) {
     const t = entry._task;
     const div = document.createElement('div');
@@ -809,8 +809,9 @@ function renderJsonlEntry(entry, toolResultMap) {
     div.appendChild(icon);
     div.appendChild(what);
     div.appendChild(meta);
-    // Not for a notice read back from history (#705): no running session is there to read the output from.
-    if (t.id && t.kind !== 'agent' && !t.historic) {
+    // Only where the core found output to show (#725) — never for a notice read back from history (#705), where
+    // no running session is there to read it from, and not for a task whose file is empty or gone.
+    if (t.id && t.kind !== 'agent' && t.hasOutput && !t.historic) {
       const out = document.createElement('button');
       out.type = 'button';
       out.className = 'task-notice-output';

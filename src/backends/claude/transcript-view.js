@@ -48,8 +48,15 @@ function isTaskNotification(line) {
 
 // The notification as the view draws it: which task, how it ended, what it was called, and for an agent what
 // it cost. `kind` is resolved by the caller from the call that started the task (`toolKinds`), because the
-// notification itself does not say. The output file's path stays out of the entry — the view asks for the
-// output by task id, and the core reads it from what the decoder heard (`taskOutputFile`).
+// notification itself does not say. The output file's path stays out of the entry — the history viewer hands
+// its entries straight to the renderer. A live conversation adds it through `taskOutputFileOf` below, and the
+// core takes it off again before the view sees the entry (#725).
+// The file a notification names for the task's output (`<output-file>`, measured on 2.1.276: an absolute path
+// under Claude's temporary directory, ending `.output`), or '' when it names none.
+function taskOutputFileOf(line) {
+  return tagOf(plainUserText(line && line.message) || '', 'output-file');
+}
+
 function taskNoticeEntry(line, toolKinds) {
   const text = plainUserText(line.message) || '';
   const summary = tagOf(text, 'summary');
@@ -255,6 +262,7 @@ module.exports = {
   kindOfTool,
   isTaskNotification,
   taskNoticeEntry,
+  taskOutputFileOf,
   isPeerMessage,
   peerReportEntry,
   displayedLine,

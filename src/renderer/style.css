@@ -3275,7 +3275,10 @@ html body .terminal-container.conversation-container:not(.visible) {
   border-bottom: 1px solid rgba(124,140,255,0.18);
   font-size: 12px;
 }
-.task-notice-text { margin: -4px 0 8px; max-height: 260px; overflow: auto; }
+/* A task's output, opened inside its card (#725): the row wraps and the text takes a line of its own. */
+.task-notice.output-open { flex-wrap: wrap; }
+.task-notice-text { flex: 1 0 100%; margin: 2px 0 0; max-height: 260px; overflow: auto; }
+.task-notice-text.task-notice-error { color: #f0a0a0; }
 /* A session's MCP servers (#719): a finished task's row per server, packed closer under one heading. */
 .server-list .task-notice { margin: 4px 0; }
 /* A message sent, not yet played back by the runtime (#694): the user's bubble, dimmed, with what it waits on. */

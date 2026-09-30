@@ -512,6 +512,14 @@ What the view draws from it, since #691:
   card is built from the `task_notification` system line and an injected line for the same task is dropped.
   An attach reads the card back from the transcript line (`origin.kind: 'task-notification'`). A stopped task
   writes no injected line, so its card exists only while the process that drew it runs.
+  **The Output link appears only where there is output (#725)**, and the output opens inside the card; a second
+  click folds it away, and a failure ("The output file is gone.") is said in the card too. The notice names its
+  file to the core: live from the system line's `output_file`, read back from the injected line's
+  `<output-file>` tag or, failing that, from the "Output is being written to" sentence of the shell call's result.
+  The core stats it once when the card is drawn (in parallel for an attach) and offers Output for a non-empty
+  `.output` file; the path never reaches the view. So a card read back after a restart still opens its output,
+  for as long as Claude's temporary directory keeps the file. The text is not copied anywhere: a temp directory
+  that is cleaned takes the output with it, and the next draw offers no link.
 - **Open on an agent (#695)**, in the Background list and on an agent's notice card, opens the view a click on
   its subagent row in the sidebar opens: the agent's own transcript, tailed while it runs. The decoder stamps
   the task with a neutral `subagentId`, and the view looks up the row of this session whose `agentId` is that

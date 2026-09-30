@@ -243,6 +243,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     turnStartedAt: 0,        // when the last turn began, for the turn-hold's "did the queued one start"
     stopping: false,         // a graceful stop is waiting for the child — see `kill`
     tasks: [],               // what runs in the background, as the backend last listed it (#691)
+    taskFiles: new Map(),    // task id -> the output file a notice named, kept once it held output (#725)
     suggestion: null,        // the next prompt the runtime proposed after the last turn (#693)
     context: null,           // the context fill and the model, as the backend last read them (#691)
     mode: null,              // the permission mode the runtime last named, in the backend's words (#696)
@@ -720,6 +721,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
         flushPartial();
         // A backend that can name an entry has the name stamped on the op, so a view that took the entry from
         // a transcript snapshot can tell the op for it apart from a new one (see `attachFromTranscript`).
+        const split = splitTaskOutput(op.entry);
+        if (split) op = { ...op, entry: settleTaskOutput(state, split, statSizeSync(split.file)) };
         const key = typeof rpc.entryKey === 'function' && op.entry ? rpc.entryKey(op.entry) : null;
         if (key) {
           state.recentAppends.push(op.entry);
@@ -1087,11 +1090,18 @@ async function attachFromTranscript(sessionId, state) {
       ctx.log.info(`[agent-rpc] attach ${sessionId}: the transcript was not read (${err.code || err.message})`);
       return { ok: false, error: 'The session could not load its conversation.' };
     }
+    // A task notice read back names its output file; whether there is output to offer is decided here, the
+    // files stat'ed in parallel rather than one after another on the main thread (#725). Inside the read, so a
+    // reset while they are asked is caught by the same check as one during the read.
+    entries = await Promise.all((Array.isArray(entries) ? entries : []).map(async (e) => {
+      const split = splitTaskOutput(e);
+      return split ? settleTaskOutput(state, split, await statSize(split.file)) : e;
+    }));
     settled = state.resets === resetsBefore;
   }
   if (state.exited) return { ok: false, error: 'This session is not running.' };
   if (!settled) return { ok: false, error: 'The session changed while its conversation was loaded. Reopen the tab to see it.' };
-  const out = Array.isArray(entries) ? entries.slice() : [];
+  const out = entries.slice();
   const seq = state.seq;
   // `keys` names only what came out of the FILE: an entry added from `recentAppends` was sent before the
   // number was taken, so its op is never replayed and there is nothing for the view to skip. A key the view
@@ -1386,13 +1396,49 @@ async function stopTask(sessionId, taskId) {
 // How much of a task's output the view is handed: the END of it, which is what a running command is judged by.
 const TASK_OUTPUT_TAIL = 64 * 1024;
 
-// A task's output, read from the file its runtime named for THAT task in this process's own stream — the
-// renderer names a task, never a path, so this reads no file the runtime did not point at. The path itself
-// is not handed back: it sits under the user's temporary directory, and the view only needs the text.
+// A task notice whose backend named its output file (`_task.outputFile`, #725): the entry without the path, and
+// the path if it is one this process will read — absolute and ending `.output`, the only shape a runtime has
+// named. The path can come from a transcript on disk now, not only from the runtime's own stream, so its
+// shape is checked rather than trusted — and a network path is refused outright: a stat of `\\host\share\…`
+// reaches out to that host (and hands it a Windows login) before it answers. Null for any other entry.
+function splitTaskOutput(entry) {
+  if (!entry || entry.type !== 'task-notice' || !entry._task || !('outputFile' in entry._task)) return null;
+  const { outputFile, ...task } = entry._task;
+  const local = typeof outputFile === 'string' && path.isAbsolute(outputFile) && !/^[\\/]{2}/.test(outputFile);
+  const file = local && outputFile.endsWith('.output') ? outputFile : null;
+  return { entry: { ...entry, _task: task }, file };
+}
+
+// The view offers Output only where there is some: a file that exists and is not empty. That is decided when the
+// card is drawn; a file removed afterwards is answered by `taskOutput` in the card.
+function settleTaskOutput(state, split, size) {
+  const id = String(split.entry._task.id || '');
+  const hasOutput = !!id && !!split.file && size > 0;
+  if (hasOutput) state.taskFiles.set(id, split.file);
+  split.entry._task.hasOutput = hasOutput;
+  return split.entry;
+}
+
+// One stat for a live notice, so its op stays in order with the ones after it; an attach stats in parallel.
+function statSizeSync(file) {
+  if (!file) return 0;
+  try { return fs.statSync(file).size; } catch { return 0; }
+}
+async function statSize(file) {
+  if (!file) return 0;
+  try { return (await fs.promises.stat(file)).size; } catch { return 0; }
+}
+
+// A task's output, read from the file its runtime named for THAT task — in a notice drawn in this process, read
+// back from the transcript by an attach (#725), or heard on the stream while the task runs. The renderer names a
+// task, never a path, so this reads no file the runtime did not point at. The path itself is not handed back:
+// it sits under the user's temporary directory, and the view only needs the text.
 async function taskOutput(sessionId, taskId) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
-  const file = typeof state.decoder.taskOutputFile === 'function' ? state.decoder.taskOutputFile(String(taskId || '')) : null;
+  const id = String(taskId || '');
+  const file = state.taskFiles.get(id)
+    || (typeof state.decoder.taskOutputFile === 'function' ? state.decoder.taskOutputFile(id) : null);
   if (!file || !path.isAbsolute(file)) return { ok: false, error: 'This task has no output to show.' };
   let handle = null;
   try {

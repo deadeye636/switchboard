@@ -1412,17 +1412,28 @@ function createConversationView(getSession, container) {
     if (!btn || !btn.dataset.taskId) return;
     showNoticeOutput(btn);
   });
+  // The output opens INSIDE its card and a second click folds it away again (#725). A failure is said there too:
+  // appended to the conversation it landed at the end, far from the card, once more with every click.
   async function showNoticeOutput(btn) {
     const card = btn.closest('.task-notice');
-    const shown = card && card.nextElementSibling && card.nextElementSibling.classList.contains('task-notice-text') ? card.nextElementSibling : null;
-    if (shown) { shown.remove(); return; }
+    if (!card || card.dataset.outputLoading === '1') return;
+    const shown = card.querySelector(':scope > .task-notice-text');
+    if (shown) { shown.remove(); card.classList.remove('output-open'); btn.textContent = 'output'; return; }
+    card.dataset.outputLoading = '1';
     let res;
     try { res = await window.api.agent.taskOutput(view.session.sessionId, btn.dataset.taskId); } catch { res = null; }
-    if (!res || !res.ok) { notice('error', (res && res.error) || 'The output could not be read.'); return; }
+    delete card.dataset.outputLoading;
     const pre = document.createElement('pre');
-    pre.className = 'conversation-tool-output task-notice-text';
-    pre.textContent = (res.truncated ? '…\n' : '') + (String(res.text || '').replace(/\s+$/, '') || '(no output)');
-    card.after(pre);
+    if (res && res.ok) {
+      pre.className = 'conversation-tool-output task-notice-text';
+      pre.textContent = (res.truncated ? '…\n' : '') + (String(res.text || '').replace(/\s+$/, '') || '(no output)');
+    } else {
+      pre.className = 'conversation-tool-output task-notice-text task-notice-error';
+      pre.textContent = (res && res.error) || 'The output could not be read.';
+    }
+    card.appendChild(pre);
+    card.classList.add('output-open');
+    btn.textContent = 'hide output';
   }
 
   // `links` are pages to open — a login page is several hundred characters of query string, so it is a button

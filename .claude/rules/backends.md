@@ -533,7 +533,14 @@ answers instead of the core learning its format:
   the `agentId` of the subagent row an agent task is, or `null`; #695), and a finished
   task is a neutral `task-notice` entry — the renderer reads neither CLI's markup. The decoder may declare
   `taskOutputFile(taskId)`: the file its runtime named for that task, which the core reads by task id so the
-  view never names a path.
+  view never names a path. A `task-notice` entry may carry the same file as `_task.outputFile` — live and read
+  back from a transcript (#725). The core takes it off before the entry leaves main, stats it, and stamps
+  `_task.hasOutput`: true only for a local absolute `.output` file that is not empty (a network path is
+  refused before any stat). The core strips it on an `append` op and on an attach from the transcript — those
+  are the two places a notice arrives today; a backend that starts sending one through `entriesFromMessages`
+  or a `reset` adds the same split there first. The view offers Output on that
+  field alone, and `taskOutput` reads the file the notice named by task id, so a card read back after a
+  restart still opens its output.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own

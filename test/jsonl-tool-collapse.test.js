@@ -103,11 +103,13 @@ function draw(h, id) { return h.draw(id); }
 test('a task-notice entry draws as a card; a shell offers its output, an agent does not', () => {
   const h = setup({});
   const card = (task) => vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'task-notice', uuid: 'u', _task: task })}, new Map())`, h.ctx);
-  const shell = card({ id: 'b1', kind: 'shell', status: 'completed', description: 'Dev server', exitCode: 0 });
+  const shell = card({ id: 'b1', kind: 'shell', status: 'completed', description: 'Dev server', exitCode: 0, hasOutput: true });
   assert.ok(shell.classList.contains('task-notice'));
   assert.match(shell.textContent, /Shell Dev server finished/);
   assert.match(shell.textContent, /exit 0/);
   assert.equal(shell.querySelector('.task-notice-output').dataset.taskId, 'b1');
+  // #725: Output only where the core found some — a shell whose file is empty or gone gets no link.
+  assert.equal(card({ id: 'b3', kind: 'shell', status: 'completed', description: 'Quiet', exitCode: 0 }).querySelector('.task-notice-output'), null);
   const stopped = card({ id: 'b2', kind: 'shell', status: 'stopped', description: 'Long' });
   assert.ok(stopped.classList.contains('stopped'));
   const agent = card({ id: 'a1', kind: 'agent', status: 'completed', description: 'Review', tokens: 24212, durationMs: 1229 });

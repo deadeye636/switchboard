@@ -109,7 +109,7 @@ const { isUsersPrompt } = require('../claude/session-reader');
 // Claude's injected lines as neutral entries — one copy, shared with the history viewer (#705).
 const {
   plainUserText, subagentIdOf, kindOfTool, isTaskNotification, taskNoticeEntry, isPeerMessage, peerReportEntry, displayedLine,
-  localCommandEntry,
+  localCommandEntry, taskOutputFileOf,
 } = require('../claude/transcript-view');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
@@ -301,6 +301,15 @@ const kindOfTaskType = (t) => (t === 'local_bash' ? 'shell' : t === 'local_agent
 // running in background with ID: <id>. Output is being written to: <path>"). The notification names the same
 // file when the task ends; this is what makes it readable while the task still runs.
 const OUTPUT_PATH = /Output is being written to: (.+?\.output)\b/;
+
+// A task notice carries the file on `_task.outputFile` (#725). The core reads it, decides whether there is output
+// to offer, and takes it off before the view sees the entry — the view never names a path. The transcript has the
+// same two places the stream has (the tool result and the notification), so a card read back after a restart can
+// still open its output.
+function withOutputFile(entry, file) {
+  entry._task.outputFile = file || null;
+  return entry;
+}
 
 // The text a `Skill` call loaded, as more output of that call (point 10): a tool result for the same id,
 // holding the call's own one-line result and the skill's text after it, so the view redraws the call's block
@@ -578,7 +587,7 @@ function createDecoder() {
       const entry = taskNoticeEntry(msg, toolKinds);
       if (entry._task.id && noticed.has(entry._task.id)) return [];
       if (entry._task.id) noticed.add(entry._task.id);
-      return [{ op: 'append', entry }];
+      return [{ op: 'append', entry: withOutputFile(entry, taskOutputFileOf(msg) || taskOutputFile(entry._task.id)) }];
     }
     // A compaction's summary (point 11): a note, not a message of the user's.
     if (msg.isSynthetic && summaryNext) {
@@ -688,7 +697,7 @@ function createDecoder() {
         // this line, and an injected line for the same task — replayed after all, or read back — is dropped.
         if (noticed.has(id)) return [];
         noticed.add(id);
-        return [{ op: 'append', entry: liveTaskNotice(msg) }];
+        return [{ op: 'append', entry: withOutputFile(liveTaskNotice(msg), taskOutputFile(id)) }];
       }
       default:
         return [];
@@ -1044,6 +1053,8 @@ function conversationEntries(lines) {
   const toolKinds = new Map();
   // The `Skill` calls, with the one-line result each got, for the skill text that follows it (point 10).
   const skillResults = new Map();
+  // The file each background shell call named for its output, for a notice that does not name one (#725).
+  const shellOutputs = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
     const content = line && line.type === 'assistant' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
     for (const b of content) {
@@ -1055,6 +1066,8 @@ function conversationEntries(lines) {
     const content = line && line.type === 'user' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
     for (const b of content) {
       if (b && b.type === 'tool_result' && skillResults.has(b.tool_use_id)) skillResults.set(b.tool_use_id, textOf(b.content));
+      const file = b && b.type === 'tool_result' && toolKinds.get(b.tool_use_id) === 'shell' ? OUTPUT_PATH.exec(textOf(b.content) || '') : null;
+      if (file) shellOutputs.set(b.tool_use_id, file[1]);
     }
   }
   for (const line of Array.isArray(lines) ? lines : []) {
@@ -1072,7 +1085,8 @@ function conversationEntries(lines) {
       continue;
     }
     if (line && line.type === 'user' && !line.isSidechain && !line.isMeta && typeof line.uuid === 'string' && isTaskNotification(line)) {
-      out.push(taskNoticeEntry(line, toolKinds));
+      const entry = taskNoticeEntry(line, toolKinds);
+      out.push(withOutputFile(entry, taskOutputFileOf(line) || shellOutputs.get(entry._task.toolUseId)));
       continue;
     }
     // A report is written with `isMeta: true`, so it is taken before the filter below drops that (#701).

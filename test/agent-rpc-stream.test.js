@@ -485,3 +485,48 @@ test('a mode outside the declared order goes to the first mode on the next switc
   assert.deepEqual((await agentRpc.cycleMode('launch-id')).mode, info('one'));
   assert.deepEqual(asked, ['one']);
 });
+
+// #725: a task notice names its output file to the CORE. The view gets `hasOutput` and never the path, and the
+// output reads by task id — for a notice drawn live and for one an attach read back from the transcript.
+test('a task notice\'s output file stays in main: the view gets hasOutput, the output reads by task id', async (t) => {
+  const dir = tempDataDir(t);
+  const file = (name, text) => { const f = path.join(dir, name); fs.writeFileSync(f, text); return f; };
+  const full = file('full.output', 'built\n');
+  const empty = file('empty.output', '');
+  const odd = file('not-an-output.txt', 'secret\n');
+  const back = file('back.output', 'from the transcript\n');
+  const notice = (id, outputFile) => ({ type: 'task-notice', uuid: `n-${id}`, _task: { id, kind: 'shell', outputFile } });
+  const h = streamHarness(t, { rpc: {
+    createDecoder: () => ({
+      decode(msg) {
+        if (msg.ev !== 'result') return [];
+        return [
+          { op: 'append', entry: notice('live', full) },
+          { op: 'append', entry: notice('quiet', empty) },
+          { op: 'append', entry: notice('odd', odd) },
+          { op: 'append', entry: notice('unc', '\\\\host\\share\\x.output') },
+          { op: 'busy', busy: false },
+        ];
+      },
+      currentPartial: () => null,
+    }),
+  } });
+  t.after(() => stopped(h));
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => ops(h).filter((o) => o.op === 'append').length >= 4);
+  const drawn = Object.fromEntries(ops(h).filter((o) => o.op === 'append').map((o) => [o.entry._task.id, o.entry._task]));
+  for (const task of Object.values(drawn)) assert.ok(!('outputFile' in task), 'no path reaches the view');
+  assert.equal(drawn.live.hasOutput, true);
+  assert.equal(drawn.quiet.hasOutput, false, 'an empty file offers nothing');
+  assert.equal(drawn.odd.hasOutput, false, 'only a file of the shape a runtime names is read');
+  assert.equal(drawn.unc.hasOutput, false, 'a network path is refused before anything asks the host');
+  assert.match((await agentRpc.taskOutput('launch-id', 'live')).text, /built/);
+  assert.equal((await agentRpc.taskOutput('launch-id', 'odd')).ok, false);
+
+  fs.appendFileSync(h.transcript, JSON.stringify(notice('back', back)) + '\n');
+  const attached = await agentRpc.attach('launch-id');
+  const read = attached.entries.find((e) => e.type === 'task-notice' && e._task.id === 'back');
+  assert.equal(read._task.hasOutput, true, 'a card read back from the transcript still offers its output');
+  assert.ok(!('outputFile' in read._task));
+  assert.match((await agentRpc.taskOutput('launch-id', 'back')).text, /from the transcript/);
+});
