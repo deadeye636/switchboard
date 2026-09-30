@@ -271,6 +271,56 @@ test('the MCP servers are rows in words, and a server\'s config never leaves the
   assert.equal(protocol.serverList({ success: false, error: 'no answer' }), null);
 });
 
+test('each server carries its group, its tools and the actions its state and kind allow (#728)', () => {
+  const list = protocol.serverList({ success: true, data: { mcpServers: [
+    { name: 'builtin', status: 'connected', scope: 'dynamic', config: { type: 'stdio', command: 'x' }, tools: [{ name: 't', annotations: { readOnly: true } }] },
+    { name: 'web', status: 'connected', scope: 'user', config: { type: 'http', url: 'https://h.example.invalid' }, tools: [] },
+    { name: 'oauth', status: 'needs-auth', scope: 'project', config: { type: 'sse', url: 'https://h.example.invalid' } },
+    { name: 'claude.ai X', status: 'needs-auth', scope: 'claudeai', config: { type: 'claudeai-proxy' } },
+    { name: 'local', status: 'needs-auth', scope: 'local', config: { type: 'stdio' } },
+    { name: 'off', status: 'disabled', scope: 'user' },
+    { name: 'broken', status: 'failed', scope: 'mystery', error: 'x' },
+  ] } });
+  const byName = Object.fromEntries(list.rows.map(r => [r.name, r]));
+  const ids = (n) => byName[n].actions.map(a => a.id);
+  assert.deepEqual(list.rows.map(r => [r.name, r.group, r.groupOrder]), [
+    ['builtin', 'Built-in MCPs', 7], ['web', 'User MCPs', 2], ['oauth', 'Project MCPs', 0], ['claude.ai X', 'claude.ai', 6],
+    ['local', 'Local MCPs', 1], ['off', 'User MCPs', 2], ['broken', 'mystery', 8],
+  ]);
+  assert.deepEqual(byName.builtin.toolList, [{ name: 't', readOnly: true, destructive: false }]);
+  assert.deepEqual(ids('builtin'), ['tools', 'reconnect', 'disable']);
+  assert.deepEqual(ids('web'), ['reconnect', 'signOut', 'disable'], 'no tools to view, and a remote server can be signed out of');
+  assert.deepEqual(ids('oauth'), ['authenticate', 'disable']);
+  assert.deepEqual(ids('claude.ai X'), ['authenticate', 'disable'], 'a connector signs in, and is never offered a sign-out');
+  assert.deepEqual(ids('local'), ['disable'], 'a stdio server cannot sign in');
+  assert.deepEqual(ids('off'), ['enable']);
+  assert.deepEqual(ids('broken'), ['reconnect', 'disable']);
+  assert.equal(byName.oauth.needsSignIn, true);
+  assert.match(byName.web.actions.find(a => a.id === 'disable').confirm, /whole project.*terminal Claude sessions/);
+  assert.ok(!JSON.stringify(list).includes('h.example.invalid'), 'no config reaches a row');
+});
+
+test('a server action is the measured control request, and its answer is in the app\'s words (#728)', () => {
+  const req = (a, x) => protocol.serverActionCommand('r1', 'srv', a, x);
+  assert.deepEqual(req('reconnect').request, { subtype: 'mcp_reconnect', serverName: 'srv' });
+  assert.deepEqual(req('enable').request, { subtype: 'mcp_toggle', serverName: 'srv', enabled: true });
+  assert.deepEqual(req('disable').request, { subtype: 'mcp_toggle', serverName: 'srv', enabled: false });
+  assert.deepEqual(req('authenticate').request, { subtype: 'mcp_authenticate', serverName: 'srv' });
+  assert.deepEqual(req('signOut').request, { subtype: 'mcp_clear_auth', serverName: 'srv' });
+  assert.deepEqual(req('callback', { callbackUrl: ' http://localhost:1/callback?code=a ' }).request,
+    { subtype: 'mcp_oauth_callback_url', serverName: 'srv', callbackUrl: 'http://localhost:1/callback?code=a' });
+  assert.equal(req('callback', {}), null);
+  assert.equal(req('tools'), null, 'viewing the tools sends nothing');
+  assert.equal(req('rm -rf'), null);
+  assert.equal(req('reconnect').request_id, 'r1');
+  const res = protocol.serverActionResult;
+  assert.deepEqual(res({ success: true, data: {} }), { ok: true, error: '', authUrl: '' });
+  assert.deepEqual(res({ success: true, data: { authUrl: 'https://a.example.invalid/x', callbackPort: 1 } }), { ok: true, error: '', authUrl: 'https://a.example.invalid/x' });
+  assert.equal(res({ success: true, data: { authUrl: 'file:///etc/passwd' } }).authUrl, '', 'only an http(s) page is handed on');
+  assert.deepEqual(res({ success: false, error: 'failed https://u:p@h.example.invalid/mcp?token=a' }), { ok: false, error: 'failed https://h.example.invalid/mcp' });
+  assert.deepEqual(res(null), { ok: false, error: 'No answer from the session.' });
+});
+
 test('/clear: the conversation is reset, and the new id is announced before anything about the new session', () => {
   const ops = decodeAll([
     { type: 'result', session_id: 'old', subtype: 'success', is_error: false },

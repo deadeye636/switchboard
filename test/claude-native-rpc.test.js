@@ -104,24 +104,42 @@ test('a local command\'s reply is drawn as an entry; the command list comes from
   assert.deepEqual(await agentRpc.abortTurn('sess-1'), { ok: true }, 'an interrupt is answered like any control request');
 });
 
-test('/mcp is answered by the app from mcp_status: no turn, and no server\'s config (#719)', async (t) => {
+const serversOp = (h) => ops(h).find((o) => o.op === 'servers');
+
+test('/mcp is answered by the app from mcp_status: no turn, and no server\'s config (#719, #728)', async (t) => {
   const h = claudeHarness(t);
   assert.deepEqual(await agentRpc.sendTurn('launch-id', { text: ' /mcp ', mode: 'prompt' }), { ok: true });
-  await until(() => appended(h).some((e) => e.type === 'server-list'));
-  const [typed, list] = appended(h);
+  await until(() => serversOp(h));
+  const [typed] = appended(h);
   assert.equal(typed.message.content, '/mcp');
   assert.equal(typed.prompt, true);
-  assert.deepEqual(list._servers, {
-    title: 'MCP servers',
-    rows: [
-      { name: 'docs', scope: 'user', state: 'connected', tone: 'ok', tools: 2, error: '' },
-      { name: 'remote', scope: 'project', state: 'failed', tone: 'failed', tools: null, error: 'getaddrinfo ENOTFOUND example.invalid' },
-    ],
-  });
+  assert.equal(appended(h).length, 1, 'nothing but the command is drawn into the conversation: the list opens as a manager');
+  const { rows } = serversOp(h).list;
+  assert.deepEqual(rows.map((r) => [r.name, r.group, r.state, r.tone, r.tools, r.error]), [
+    ['docs', 'User MCPs', 'connected', 'ok', 2, ''],
+    ['remote', 'Project MCPs', 'failed', 'failed', null, 'getaddrinfo ENOTFOUND example.invalid'],
+  ]);
   assert.equal(h.signals.length, 0, 'no turn ran, so no busy edge');
   assert.ok(!JSON.stringify(h.sent).includes('secret-token'), 'nothing of a server\'s config reaches the view');
+  assert.ok(!JSON.stringify(h.sent).includes('server.js'), 'nor its command');
   // With arguments it is the CLI's command, written as a turn like any other.
   assert.equal(native.rpc.appCommandOp('/mcp reconnect docs'), null);
+});
+
+test('a server is listed again and acted on through main, in the backend\'s words (#728)', async (t) => {
+  const h = claudeHarness(t);
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => idles(h) === 1);
+  const listed = await agentRpc.listServers('sess-1');
+  assert.equal(listed.ok, true);
+  assert.deepEqual(listed.list.rows.map((r) => r.name), ['docs', 'remote']);
+  assert.deepEqual(await agentRpc.serverAction('sess-1', 'docs', 'reconnect'), { ok: true, error: '', authUrl: '' });
+  assert.deepEqual(await agentRpc.serverAction('sess-1', 'remote', 'authenticate'),
+    { ok: true, error: '', authUrl: 'https://auth.example.invalid/authorize?state=s' });
+  assert.deepEqual(await agentRpc.serverAction('sess-1', 'gone', 'disable'), { ok: false, error: 'Server not found: gone' });
+  assert.deepEqual(await agentRpc.serverAction('sess-1', 'docs', 'format-disk'), { ok: false, error: 'This session cannot do that to a server.' });
+  assert.deepEqual(await agentRpc.serverAction('sess-1', '', 'reconnect'), { ok: false, error: 'No server or action was named.' });
+  assert.deepEqual(await agentRpc.serverAction('nobody', 'docs', 'reconnect'), { ok: false, error: 'This session is not running.' });
 });
 
 test('/mcp sent while a turn runs is answered at once, not held behind it (#719)', async (t) => {
@@ -130,7 +148,7 @@ test('/mcp sent while a turn runs is answered at once, not held behind it (#719)
   await agentRpc.sendTurn('launch-id', { text: 'long', mode: 'prompt' });
   await until(() => h.signals.some((s) => s.kind === 'busy'));
   assert.deepEqual(await agentRpc.sendTurn('launch-id', { text: '/mcp', mode: 'prompt' }), { ok: true });
-  await until(() => appended(h).some((e) => e.type === 'server-list'));
+  await until(() => serversOp(h));
   assert.equal(idles(h), 0, 'the running turn is still running');
   assert.ok(!ops(h).some((o) => o.op === 'held' && Array.isArray(o.items) && o.items.length), 'nothing was held');
 });

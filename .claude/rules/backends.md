@@ -552,9 +552,13 @@ answers instead of the core learning its format:
   core handles for it, or `null`. `sendTurn` asks it first, draws the line as the user's entry and hands the
   op to `handleOp` — no turn, no busy edge, never held. claude-native names `servers` for a bare `/mcp`, and
   the core answers that op through `serversCommand` + `serverList` (a pair, like the figures): the backend's
-  rows in words — `{ name, scope, state, tone, tools, error }`, `tone` one of `ok` / `waiting` / `failed` —
-  drawn as a `server-list` entry with no key, so an attach does not bring it back. A server's config never
-  leaves the backend. pi-native declares none.
+  rows in words — `{ name, scope, group, groupOrder, state, tone, needsSignIn, tools, toolList, error,
+  actions }`, `tone` one of `ok` / `waiting` / `failed` — handed to the view as a `servers` op, which opens
+  them as a manager (#728); nothing is appended to the conversation. `actions` is `[{ id, label, confirm? }]`
+  in the backend's own words, decided from the server's state and kind; the core runs one through
+  `serverActionCommand(id, name, action, extra)` + `serverActionResult(response)` → `{ ok, error, authUrl }`
+  (a pair, both or neither) and refuses an action that builds no request. `tools` is the view's own page and
+  sends nothing. A server's config never leaves the backend. pi-native declares none.
 
 **The per-spawn hooks that exist, and the order they were added in.** `supportsLiveRebinding` +
 `buildLiveBinding` / `releaseLiveBinding` (the terminal backends' busy/idle binding); `providesPromptTemplates`

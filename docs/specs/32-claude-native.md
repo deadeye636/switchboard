@@ -420,10 +420,11 @@ answers a row per server (measured on 2.1.284): `name`, `status` (`pending` righ
 `source`, and the server's `config`. So a bare `/mcp` is never written as a turn: the backend's `appCommandOp`
 names the `servers` op, the core draws the command as the user's line and asks `serversCommand`, and
 `serverList` turns the answer into neutral rows — name, scope, state in words, one of three tones, tool count
-and a failed server's error. The view draws them as a card, one row per server. What it costs, stated:
+and a failed server's error. What it costs, stated:
 
-- **The card is a snapshot.** It carries no key, is not in the transcript and is not drawn again when the
-  session is reopened; the transcript holds nothing for that `/mcp` at all.
+- **The list opens as a manager, not as a card (#728).** #719 drew it into the conversation, where it was stale
+  the moment a server moved. It opens in a dialog instead (`src/renderer/session/servers-dialog.js`); only the
+  `/mcp` line stays in the conversation, and the transcript holds nothing for it at all.
 - **No turn, no busy edge, never held.** Typed while a turn runs, it is answered at once.
 - **A server's `config` is never passed on.** Its URL, arguments, environment and headers may carry secrets,
   so nothing of it leaves the backend's folder. A failed server's error is shown on one line, and any URL in
@@ -431,7 +432,37 @@ and a failed server's error. The view draws them as a card, one row per server. 
 - **Only the bare command, and only from the view.** `/mcp` with arguments is the CLI's to answer and goes out
   as a turn, as before; so does `/mcp` typed into the session as keys by a trigger or a launcher, which never
   passes through `sendTurn`.
-  Managing a server (reconnect, enable, disable) is not offered.
+
+**Managing a server from `/mcp` (#728).** The dialog is the CLI's own `/mcp`: the servers grouped under the
+TUI's headings and in its order (project, local, user, enterprise, managed, agent, then claude.ai, then the
+built-ins and plugins under "Built-in MCPs" — read from the binary, 2.1.285), a server's details, and its
+actions as a numbered menu. ↑/↓ move, Enter picks, a number runs that action, Esc goes back one level and
+closes from the list; a click does the same. Measured against an isolated config home on 2.1.285, and what
+each measurement decided:
+
+- **Reconnect** is `mcp_reconnect { serverName }`: the server's process is started again (a new pid). A
+  refusal is a sentence ("Server not found: x", a failed server's own error, "… is disabled — enable it
+  (mcp_toggle) before reconnecting") and is shown as it is, through the same URL filter as a failed server's
+  error. It is not offered while a server waits for a sign-in.
+- **Disable and Enable** are `mcp_toggle { serverName, enabled }`, and **they are not scoped to the session**:
+  the CLI writes `disabledMcpServers` into the project's entry of Claude's user config, a fresh process in that
+  project starts with the server disabled, and a terminal Claude session there is affected too. So Disable
+  asks first (owner decision O4), with Cancel as the default choice.
+- **Authenticate** is `mcp_authenticate { serverName }`. For a remote OAuth server (`http`/`sse`) or a claude.ai
+  connector it answers an `authUrl` and listens on a localhost port for the browser's redirect; a stdio server
+  is refused, so it is offered only for those kinds and only while the server needs a sign-in. The view opens
+  the page, reads the list again every two seconds, and once the server no longer needs a sign-in reconnects it
+  unless it is already up (O3). A redirect the browser could not deliver can be pasted
+  (`mcp_oauth_callback_url`). **Not measured end to end**: the test server had no account behind it, so whether
+  the CLI brings the server up by itself after the callback is not known — the reconnect covers both answers.
+- **Sign out** is `mcp_clear_auth { serverName }`, offered for a connected `http`/`sse` server only; the CLI
+  refuses a claude.ai connector's type.
+- **View tools** is the dialog's own page: `mcp_status` carries each tool's name and its read-only/destructive
+  hints, and no description or schema.
+- **No command and no configuration in the details** (O2): the CLI's detail page shows the command line, and its
+  arguments can carry a token. The details show the state, a failed server's error, the tool count and the group.
+- **No change is pushed.** None of the actions emits a line about the server's state, so the dialog asks
+  `mcp_status` again after each one and while a server is still connecting.
 
 The list a `/` completes to comes from the CLI's `initialize` control request, which may be sent more than
 once (measured). It is sent when the view asks for the list, not at start: turns work without it, and the

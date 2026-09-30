@@ -97,6 +97,18 @@
 //      `config` is never passed on: its URL, arguments, environment and headers may carry secrets, and a
 //      failed server's `error` loses the credentials, query and fragment of any URL it names. Only a line sent
 //      from the view reaches `appCommandOp`: `/mcp` typed in as keys (a trigger, a launcher) is a turn.
+//      The servers are MANAGED from there too (#728, measured on 2.1.285 against an isolated config home):
+//      `mcp_reconnect { serverName }` restarts a server (new process) and answers its failure as text ("Server
+//      not found: x", a failed server's own error, "… is disabled — enable it (mcp_toggle) before reconnecting");
+//      `mcp_toggle { serverName, enabled }` disables and enables, and it PERSISTS per project — it writes
+//      `disabledMcpServers` into the project's entry of Claude's user config, a fresh process in that project
+//      starts with the server disabled, a terminal session included — so the view asks first;
+//      `mcp_authenticate { serverName }` answers `{ authUrl, requiresUserAction, callbackExpected, callbackPort,
+//      … }` for a remote OAuth server and listens on that localhost port for the browser's redirect, and refuses
+//      a stdio server; `mcp_oauth_callback_url { serverName, callbackUrl }` takes a redirect the browser could
+//      not deliver; `mcp_clear_auth { serverName }` signs out of an http/sse server. None of them pushes a state
+//      change on the stream, so the view asks `mcp_status` again. `tools` in `mcp_status` carries names and the
+//      read-only/destructive hints only, no descriptions.
 'use strict';
 
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
@@ -930,6 +942,42 @@ const safeError = (text) => oneLineDescription(String(text)
   .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^\s?#]+)[?#][^\s]*/gi, '$1')
   .replace(/\b(Bearer|Basic|token)\s+[^\s,;]+/gi, '$1 …'));
 
+// The groups the TUI's own `/mcp` sorts the servers into, in its order, under its headings (read from the
+// binary, 2.1.285): the config scopes first, then the claude.ai connectors, then `dynamic` — plugins and the
+// built-ins, "always available". A scope this table does not know is shown under its own name, after them.
+const SERVER_GROUPS = [
+  ['project', 'Project MCPs'], ['local', 'Local MCPs'], ['user', 'User MCPs'], ['enterprise', 'Enterprise MCPs'],
+  ['managed', 'Managed MCPs'], ['agent', 'Active agent MCPs'], ['claudeai', 'claude.ai'], ['dynamic', 'Built-in MCPs'],
+];
+function serverGroup(scope) {
+  const at = SERVER_GROUPS.findIndex(([s]) => s === scope);
+  return at >= 0 ? { group: SERVER_GROUPS[at][1], groupOrder: at } : { group: scope || 'Other', groupOrder: SERVER_GROUPS.length };
+}
+
+// What a server can be asked to do (#728), as data the view offers in this order, from its state and its kind.
+// The kind is read here from `config.type` and goes no further: `http`/`sse` are remote servers that sign in
+// with OAuth and can be signed out of, `claudeai-proxy` is a claude.ai connector, which signs in through
+// claude.ai and cannot be signed out of here (`mcp_clear_auth` refuses its type, measured). `tools` is the
+// app's own view of the list below and sends nothing. Disable asks first, because the CLI does not scope it to
+// the session: measured, `mcp_toggle` writes `disabledMcpServers` into the project's entry of Claude's user
+// config, which a fresh process in that project reads, a terminal Claude session included.
+function serverActions(s, status, toolCount) {
+  const type = s.config && typeof s.config.type === 'string' ? s.config.type : '';
+  const remote = type === 'http' || type === 'sse';
+  const disable = {
+    id: 'disable', label: 'Disable',
+    confirm: 'Claude stores this for the whole project, so terminal Claude sessions in this project start without it too, until it is enabled again.',
+  };
+  if (status === 'disabled') return [{ id: 'enable', label: 'Enable' }];
+  const out = [];
+  if (status === 'needs-auth' && (remote || type === 'claudeai-proxy')) out.push({ id: 'authenticate', label: 'Authenticate' });
+  if (status === 'connected' && toolCount > 0) out.push({ id: 'tools', label: 'View tools' });
+  if (status !== 'needs-auth') out.push({ id: 'reconnect', label: 'Reconnect' });
+  if (status === 'connected' && remote) out.push({ id: 'signOut', label: 'Sign out' });
+  out.push(disable);
+  return out;
+}
+
 function serverList(response) {
   const list = response && response.success !== false && response.data && response.data.mcpServers;
   if (!Array.isArray(list)) return null;
@@ -938,16 +986,61 @@ function serverList(response) {
     if (!s || typeof s.name !== 'string' || !s.name) continue;
     const status = typeof s.status === 'string' ? s.status : '';
     const known = SERVER_STATES[status] || { label: status || 'unknown', tone: 'waiting' };
+    const scope = typeof s.scope === 'string' ? s.scope : '';
+    const tools = Array.isArray(s.tools) ? s.tools.filter(t => t && typeof t.name === 'string') : null;
     rows.push({
       name: s.name,
-      scope: typeof s.scope === 'string' ? s.scope : '',
+      scope,
+      ...serverGroup(scope),
       state: known.label,
       tone: known.tone,
-      tools: Array.isArray(s.tools) ? s.tools.length : null,
+      // Waiting on a sign-in the user has to give: the view reconnects once it has been given (#728, O3).
+      needsSignIn: status === 'needs-auth',
+      tools: tools ? tools.length : null,
+      // Names and the hints the CLI reads from them, never a description or a schema: `mcp_status` sends none.
+      toolList: tools ? tools.map(t => ({
+        name: t.name,
+        readOnly: !!(t.annotations && t.annotations.readOnly),
+        destructive: !!(t.annotations && t.annotations.destructive),
+      })) : [],
       error: status === 'failed' && typeof s.error === 'string' ? safeError(s.error) : '',
+      actions: serverActions(s, status, tools ? tools.length : 0),
     });
   }
   return { title: 'MCP servers', rows };
+}
+
+// One action on one server (#728, measured on 2.1.285): the control request for it, or `null` for an action this
+// backend does not know. `extra.callbackUrl` is the redirect a browser could not deliver to the CLI's own
+// localhost listener, pasted back by the user (`mcp_oauth_callback_url`).
+function serverActionCommand(id, name, action, extra = {}) {
+  const serverName = String(name);
+  switch (action) {
+    case 'reconnect': return control(id, { subtype: 'mcp_reconnect', serverName });
+    case 'enable': return control(id, { subtype: 'mcp_toggle', serverName, enabled: true });
+    case 'disable': return control(id, { subtype: 'mcp_toggle', serverName, enabled: false });
+    case 'authenticate': return control(id, { subtype: 'mcp_authenticate', serverName });
+    case 'signOut': return control(id, { subtype: 'mcp_clear_auth', serverName });
+    case 'callback': {
+      const callbackUrl = extra && typeof extra.callbackUrl === 'string' ? extra.callbackUrl.trim() : '';
+      return callbackUrl ? control(id, { subtype: 'mcp_oauth_callback_url', serverName, callbackUrl }) : null;
+    }
+    default: return null;
+  }
+}
+
+// Its answer in the app's words: `{ ok, error, authUrl }`. The CLI's refusals are already sentences ("Server not
+// found: x", "MCP server x is disabled — enable it (mcp_toggle) before reconnecting") and are passed on through
+// the same filter as a failed server's error, since a connection error can name the address it failed on. A
+// sign-in answers the page to open (`authUrl`); only an http(s) address is handed on.
+function serverActionResult(response) {
+  if (!response || response.success === false) {
+    const error = response && typeof response.error === 'string' && response.error ? safeError(response.error) : 'No answer from the session.';
+    return { ok: false, error };
+  }
+  const data = response.data && typeof response.data === 'object' ? response.data : {};
+  const authUrl = typeof data.authUrl === 'string' && /^https?:\/\//i.test(data.authUrl) ? data.authUrl : '';
+  return { ok: true, error: '', authUrl };
 }
 
 // The commands a `/` can complete to. `initialize` answers them, and it may be sent again (measured: two in a
@@ -1144,6 +1237,8 @@ module.exports = {
   appCommandOp,
   serversCommand,
   serverList,
+  serverActionCommand,
+  serverActionResult,
   answerCommand,
   conversationEntries,
   entryKey,

@@ -98,6 +98,7 @@
     "jsonl-viewer.js",
     "composer-completion.js",
     "branch-tree-dialog.js",
+    "servers-dialog.js",
     "conversation-view.js",
     "settings-project-tags.js",
     "dialogs.js",

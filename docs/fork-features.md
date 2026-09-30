@@ -412,8 +412,12 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   auto-compact window (#685). An image pasted or dropped into the conversation goes out with the next turn (#662), and any
   other file is named as `@path`, which Claude reads into the turn (#699); `/`
   completes Claude's commands and skills, and `/clear` moves the tab to the new session. A local command is
-  drawn as the user's line above its output (#718), and `/mcp` lists the session's MCP servers on a card with
-  their state, tool count and error, where the CLI alone would point to a terminal (#719). A subagent's report is drawn as a closed card of its own, opened in place, so it does not read as the main session answering (#729). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  drawn as the user's line above its output (#718), and `/mcp` opens the session's MCP servers in a dialog shaped
+  like the CLI's own — grouped, with state, tool count and error, where the CLI alone would point to a terminal
+  (#719) — and manages them from there by mouse or keyboard: view tools, reconnect, enable or disable (asked
+  first, since the CLI stores it for the whole project), sign in through the browser and sign out (#728). A
+  subagent's report is drawn as a closed card of its own, opened in place, so it does not read as the main
+  session answering (#729). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:

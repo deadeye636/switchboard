@@ -26,7 +26,8 @@
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
 // read when a view is built), composerPathToken (session/composer-completion.js, #699 — how a pasted or
-// dropped file is named), showBranchTreeDialog (session/branch-tree-dialog.js, #646),
+// dropped file is named), showBranchTreeDialog (session/branch-tree-dialog.js, #646), showServersDialog
+// (session/servers-dialog.js, #728),
 // clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
 // (terminal/terminal-context-menu.js, #690), and sessionHealthOptions (app.js, #691 — the handoff threshold
 // the context fill turns warm at).
@@ -2225,6 +2226,7 @@ function createConversationView(getSession, container) {
       case 'unsent': unsent(op.text); break;
       case 'draft': draft(op.text); break;
       case 'branchTree': openBranchTree(op); break;
+      case 'servers': openServers(op); break;
       case 'ask': renderAsk(op.request); renderStatus(); break;
       case 'answered': {
         const card = view.asks.get(op.id);
@@ -2278,6 +2280,24 @@ function createConversationView(getSession, container) {
       return;
     }
     notice('info', 'The message you picked, to rewrite (the input was not empty, so it was not put there):\n' + body);
+  }
+
+  // `/mcp` (#728): the session's MCP servers as a manager. The list and every action go through main, named by
+  // server and by the backend's own action word; the view opens a sign-in page as it opens any link.
+  function openServers(op) {
+    if (view.exited || typeof showServersDialog !== 'function') return;
+    const id = () => view.session.sessionId;
+    showServersDialog({
+      list: op.list,
+      load: async () => {
+        try { return await window.api.agent.servers(id()); } catch { return { ok: false, error: 'The session did not list its MCP servers.' }; }
+      },
+      act: async (name, action, extra) => {
+        try { return await window.api.agent.serverAction(id(), name, action, extra); } catch { return { ok: false, error: 'The session did not answer.' }; }
+      },
+      openUrl: (url) => { if (/^https?:\/\//i.test(url) && window.api.openExternal) window.api.openExternal(url); },
+      onClose: () => { if (!view.exited) input.focus(); },
+    });
   }
 
   // The session's branch tree (#646). The rows are the backend's; the move is asked of main, and what it

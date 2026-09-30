@@ -3293,8 +3293,6 @@ html body .terminal-container.conversation-container:not(.visible) {
 .task-notice.output-open { flex-wrap: wrap; }
 .task-notice-text { flex: 1 0 100%; margin: 2px 0 0; max-height: 260px; overflow: auto; }
 .task-notice-text.task-notice-error { color: #f0a0a0; }
-/* A session's MCP servers (#719): a finished task's row per server, packed closer under one heading. */
-.server-list .task-notice { margin: 4px 0; }
 /* A message sent, not yet played back by the runtime (#694): the user's bubble, dimmed, with what it waits on. */
 .conversation-pending { opacity: 0.6; position: relative; }
 .conversation-pending-tag {
@@ -3343,6 +3341,44 @@ html body .terminal-container.conversation-container:not(.visible) {
 .branch-tree-here { flex: none; color: #3ecf5a; font-size: 11px; }
 .branch-tree-empty { padding: 10px; color: #7a7a90; font-size: 12px; }
 .branch-tree-hint { margin-top: 8px; min-height: 1.45em; }
+/* A session's MCP servers (#728, session/servers-dialog.js): the CLI's own /mcp as a control dialog — a list in
+   groups, a server's details, its actions as a numbered menu. The selected line is the branch tree's. */
+.control-dialog.servers-dialog { width: min(640px, 100%); }
+.servers-count { margin-top: 2px; color: #7a7a90; font-size: 12px; }
+.servers-list, .servers-menu {
+  margin-top: 10px; max-height: 50vh; overflow-y: auto;
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 4px 0;
+}
+.servers-list:focus, .servers-menu:focus { outline: none; border-color: rgba(128, 136, 255, 0.5); }
+.servers-group { padding: 8px 10px 2px; font-size: 11px; font-weight: 600; color: #a0a0c0; }
+.servers-row, .servers-action {
+  display: flex; align-items: baseline; gap: 8px; padding: 3px 10px; font-size: 12.5px; color: #c8c8dc; cursor: pointer;
+}
+.servers-tools .servers-row { cursor: default; }
+.servers-row:hover, .servers-action:hover { background: rgba(255,255,255,0.04); }
+.servers-row.selected, .servers-action.selected { background: rgba(128, 136, 255, 0.18); color: #f0f0ff; }
+.servers-action.disabled { opacity: 0.5; cursor: default; }
+.servers-icon { flex: none; width: 12px; text-align: center; color: #a0a0b8; }
+.servers-tone-ok .servers-icon, .servers-field-value.servers-tone-ok { color: #4cc38a; }
+.servers-tone-failed .servers-icon, .servers-field-value.servers-tone-failed, .servers-error { color: #e06060; }
+.servers-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.servers-meta { flex: none; color: #7a7a90; font-size: 11.5px; }
+.servers-fields { margin-top: 10px; display: grid; gap: 4px; font-size: 12.5px; }
+.servers-field { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
+.servers-field-label { color: #9090a8; font-weight: 600; }
+.servers-field-value { color: #d0d0e0; overflow-wrap: anywhere; }
+.servers-empty { padding: 8px 10px; color: #7a7a90; font-size: 12px; }
+.servers-confirm { margin-top: 8px; }
+.servers-input {
+  width: 100%; box-sizing: border-box; margin-top: 10px; padding: 6px 8px; border-radius: 6px;
+  background: #16161f; border: 1px solid rgba(255,255,255,0.14); color: #e0e0f0; font: inherit; font-size: 12.5px;
+}
+.servers-input:focus { outline: none; border-color: rgba(128, 136, 255, 0.6); }
+.control-dialog-confirm.servers-send { margin-top: 8px; }
+.control-dialog p.servers-message { margin-top: 8px; min-height: 1.45em; font-size: 12px; color: #a0a0b8; }
+.control-dialog p.servers-message-ok { color: #4cc38a; }
+.control-dialog p.servers-message-failed { color: #f0a0a0; }
+.servers-hint { margin-top: 4px; font-size: 11px; font-style: italic; color: #7a7a90; }
 .conversation-ask {
   margin: 8px 0;
   border: 1px solid rgba(128, 136, 255, 0.45);

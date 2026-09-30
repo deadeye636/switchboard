@@ -670,16 +670,15 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
         }).catch((err) => ctx.log.warn(`[agent-rpc] the branch tree was not read: ${err.message}`));
         return;
       case 'servers':
-        // The user asked which MCP servers the session has (#719). Read over the protocol and drawn as an entry
-        // of neutral rows; not awaited, like the figures. It carries no key, so it is not in the transcript and
-        // an attach does not draw it again: it is how the servers stood when asked.
+        // The user asked which MCP servers the session has (#719). Read over the protocol and handed to the view
+        // as neutral rows, which it opens as a manager (#728) — asked again and acted on through `listServers`
+        // and `serverAction`. Not awaited, like the figures, and nothing is appended: a list in the conversation
+        // would be stale the moment a server moved.
         flushPartial();
         if (typeof rpc.serversCommand !== 'function' || typeof rpc.serverList !== 'function') return;
-        request(rpc.serversCommand).then((res) => {
-          let list = null;
-          try { list = rpc.serverList(res); } catch { list = null; }
+        readServers(state).then((list) => {
           if (!list) { sendOp(state, { op: 'notice', level: 'warning', text: 'The session did not list its MCP servers.' }); return; }
-          sendOp(state, { op: 'append', entry: { type: 'server-list', timestamp: new Date().toISOString(), _servers: list } });
+          sendOp(state, { op: 'servers', list });
         }).catch((err) => ctx.log.warn(`[agent-rpc] the MCP servers were not read: ${err.message}`));
         return;
       case 'navigated': {
@@ -1456,8 +1455,55 @@ async function taskOutput(sessionId, taskId) {
   }
 }
 
+// --- the session's MCP servers (#719, #728) ---
+
+// The backend's rows for the servers, or null when the runtime gave no list.
+async function readServers(state) {
+  const res = await state.request(state.rpc.serversCommand);
+  try { return state.rpc.serverList(res); } catch { return null; }
+}
+
+async function listServers(sessionId) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  if (typeof state.rpc.serversCommand !== 'function' || typeof state.rpc.serverList !== 'function') {
+    return { ok: false, error: 'This session cannot list its servers.' };
+  }
+  const list = await readServers(state);
+  return list ? { ok: true, list } : { ok: false, error: 'The session did not list its MCP servers.' };
+}
+
+// A reconnect waits for the server to come up, and a slow one takes longer than an ordinary request is given.
+const SERVER_ACTION_TIMEOUT_MS = 60000;
+
+// One action on one server, in the backend's own vocabulary (`actions` on its rows). The backend builds the
+// request and words the answer; an action it does not know builds nothing and is refused here. What the answer
+// says goes back as it is, including a sign-in page to open — the view opens it, as it opens any link.
+async function serverAction(sessionId, name, action, extra) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  const rpc = state.rpc;
+  if (typeof rpc.serverActionCommand !== 'function' || typeof rpc.serverActionResult !== 'function') {
+    return { ok: false, error: 'This session cannot manage its servers.' };
+  }
+  const server = typeof name === 'string' ? name : '';
+  const what = typeof action === 'string' ? action : '';
+  if (!server || !what) return { ok: false, error: 'No server or action was named.' };
+  const opts = extra && typeof extra === 'object' ? extra : {};
+  let line = null;
+  try { line = rpc.serverActionCommand('probe', server, what, opts); } catch { line = null; }
+  if (!line) return { ok: false, error: 'This session cannot do that to a server.' };
+  const res = await state.request((rid) => rpc.serverActionCommand(rid, server, what, opts), { timeoutMs: SERVER_ACTION_TIMEOUT_MS });
+  ctx.log.info(`[agent-rpc] server ${what} on a session's MCP server: ${res && res.success !== false ? 'done' : 'refused'}`);
+  let out;
+  try { out = rpc.serverActionResult(res); } catch { out = null; }
+  return out && typeof out === 'object' ? out : { ok: false, error: 'The session did not answer.' };
+}
+
 /** @param {Electron.IpcMain} ipc */
 function registerIpc(ipc) {
+  ipc.handle('agent-servers', (_event, sessionId) => listServers(sessionId));
+  ipc.handle('agent-server-action', (_event, sessionId, name, action, extra) => serverAction(sessionId, name, action, extra));
   ipc.handle('agent-stop-task', (_event, sessionId, taskId) => stopTask(sessionId, taskId));
   ipc.handle('agent-cycle-mode', (_event, sessionId) => cycleMode(sessionId));
   ipc.handle('agent-task-output', (_event, sessionId, taskId) => taskOutput(sessionId, taskId));
@@ -1478,6 +1524,6 @@ module.exports = {
   turnQueueOf,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
-  stopTask, taskOutput, cycleMode, heldAction,
+  stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

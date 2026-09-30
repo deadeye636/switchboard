@@ -18,7 +18,8 @@
 //   '/cost'   a local command: not played back, answered by an assistant line whose model is `<synthetic>`
 //
 // Control requests answered with something: `initialize` (the command list), `interrupt`, and `mcp_status` (two
-// servers, one with a `config` carrying a secret the app must not pass on).
+// servers, one with a `config` carrying a secret the app must not pass on), and the server actions of #728
+// (`mcp_reconnect`, `mcp_toggle`, `mcp_authenticate`, `mcp_clear_auth`) for those two names.
 const fs = require('fs');
 const path = require('path');
 
@@ -104,6 +105,14 @@ process.stdin.on('data', (chunk) => {
       else start(text);
     } else if (msg.type === 'control_request') {
       const sub = msg.request && msg.request.subtype;
+      // #728: a server action names its server; an unknown one is refused with the CLI's own sentence.
+      if (['mcp_reconnect', 'mcp_toggle', 'mcp_authenticate', 'mcp_clear_auth'].includes(sub)) {
+        const known = ['docs', 'remote'].includes(msg.request.serverName);
+        emit({ type: 'control_response', response: known
+          ? { subtype: 'success', request_id: msg.request_id, response: sub === 'mcp_authenticate' ? { authUrl: 'https://auth.example.invalid/authorize?state=s', requiresUserAction: true } : {} }
+          : { subtype: 'error', request_id: msg.request_id, error: `Server not found: ${msg.request.serverName}` } });
+        continue;
+      }
       const response = sub === 'initialize' ? { commands: [{ name: 'compact', description: 'Clear the conversation  but keep a summary', argumentHint: '' }] }
         : sub === 'interrupt' ? { still_queued: [] }
           : sub === 'mcp_status' ? { mcpServers: [

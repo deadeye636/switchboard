@@ -334,6 +334,9 @@ contextBridge.exposeInMainWorld('api', {
     stopTask: (id, taskId) => ipcRenderer.invoke('agent-stop-task', id, taskId),
     taskOutput: (id, taskId) => ipcRenderer.invoke('agent-task-output', id, taskId),
     cycleMode: (id) => ipcRenderer.invoke('agent-cycle-mode', id),
+    // The session's MCP servers (#728): the list again, and one action on one server, named in the backend's words.
+    servers: (id) => ipcRenderer.invoke('agent-servers', id),
+    serverAction: (id, name, action, extra) => ipcRenderer.invoke('agent-server-action', id, name, action, extra),
   },
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)
