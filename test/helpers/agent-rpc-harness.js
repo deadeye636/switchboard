@@ -22,9 +22,10 @@ const SESSION_CWD = path.join(__dirname, '..');
 
 // `rpc` and `fixture` swap in another protocol half and the child that speaks it
 // (`agent-rpc-stream.test.js`); the default is pi-native's own half against the Pi stand-in. `forkFrom` is
-// what spawn.js hands a fork's start, `options` the launch options it hands every start; `onSignal` runs at the moment a state report is delivered, which is when
-// the turn-hold asks its question.
-function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, onSignal } = {}) {
+// what spawn.js hands a fork's start, `options`/`appliedOptions` the launch options it hands every start, `approvalMemory` and
+// `backendId` where and under whose id #731 remembers approvals; `onSignal` runs at the moment a state report is
+// delivered, which is when the turn-hold asks its question.
+function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
@@ -58,9 +59,10 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, onSi
     dataDir,
     clipboard: { writeText: (text) => clipped.push(text) },
     log: { info: (line) => logged.push(line), warn() {}, debug() {} },
+    approvalMemory,
   });
   const proc = agentRpc.start({
-    tag: TAG, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options,
+    tag: TAG, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId,
   });
   activeSessions.set('launch-id', { pty: proc, _terminalTag: TAG, exited: false });
   return { activeSessions, sent, signals, rekeys, clipped, logged, proc };

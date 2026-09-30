@@ -84,7 +84,8 @@ for (const backend of BACKENDS) {
 
   // The heart of it: a declared option that changes nothing is a lie told by the settings page.
   //
-  // Two honest exceptions, and both must be DECLARED rather than discovered:
+  // Two honest exceptions here (a third, `appliesAt: 'runtime'`, has its own test below), and both must be
+  // DECLARED rather than discovered:
   //   `appliesAt: 'spawn'` — applied by main.js at the spawn site, not in the argv (Claude's MCP bridge,
   //     its pre-launch prefix, its AFK env var).
   //   `requires: '<other>'` — only meaningful while another option is on (a worktree's branch name).
@@ -92,7 +93,7 @@ for (const backend of BACKENDS) {
     const bare = backend.buildLaunch({ ...CTX, options: {} });
 
     for (const f of backend.configFields) {
-      if (f.appliesAt === 'spawn') continue;
+      if (f.appliesAt === 'spawn' || f.appliesAt === 'runtime') continue;
 
       const value = probeValue(f);
       const options = { [f.id]: value };
@@ -194,6 +195,25 @@ for (const backend of BACKENDS) {
       assert.ok(spawnSrc.includes(f.id),
         `${backend.id}.${f.id} claims to be applied at the spawn site, but app/terminal/spawn.js never mentions it. ` +
         "If the core should not name it, declare appliedBy: '<descriptor hook>' instead.");
+    }
+  });
+
+  // A third honest exception (#731): `appliesAt: 'runtime'` — read by the core WHILE a runtime-driven session
+  // runs, never at the launch. It is not a free pass either: the backend's `rpc` half names the option under a
+  // key, and `src/app/agent-rpc.js` reads that key, or the control is dead. Such an option has no per-session
+  // value (the core reads the settings, not the launch), so it must also say `perSession: false`, which keeps it
+  // out of the Configure dialogs and the template editor.
+  test(`${backend.id}: a runtime-read option is named by the rpc half, read by the core, and not per session`, () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const runtimeFields = backend.configFields.filter(f => f.appliesAt === 'runtime');
+    if (!runtimeFields.length) return;
+    const coreSrc = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'agent-rpc.js'), 'utf8'));
+    for (const f of runtimeFields) {
+      const key = Object.keys(backend.rpc || {}).find(k => backend.rpc[k] === f.id);
+      assert.ok(key, `${backend.id}.${f.id} is read at runtime, but no key of its rpc half names it`);
+      assert.ok(coreSrc.includes(`rpc.${key}`), `${backend.id}.${f.id} is named by rpc.${key}, which src/app/agent-rpc.js never reads`);
+      assert.equal(f.perSession, false, `${backend.id}.${f.id} is read from the settings alone, so it must say perSession: false`);
     }
   });
 

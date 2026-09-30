@@ -48,11 +48,11 @@ function streamRpc(transcript, extra) {
   };
 }
 
-function streamHarness(t, { lag = false, ignoreEof = false, rpc: extra, timeouts, options } = {}) {
+function streamHarness(t, { lag = false, ignoreEof = false, rpc: extra, timeouts, options, appliedOptions, approvalMemory, backendId } = {}) {
   const dir = tempDataDir(t);
   const transcript = path.join(dir, 'transcript.jsonl');
   const env = { FAKE_TRANSCRIPT: transcript, FAKE_LAG: lag ? '1' : '', FAKE_IGNORE_EOF: ignoreEof ? '1' : '' };
-  const h = harness({ rpc: streamRpc(transcript, extra), fixture: FIXTURE, env, timeouts, options });
+  const h = harness({ rpc: streamRpc(transcript, extra), fixture: FIXTURE, env, timeouts, options, appliedOptions, approvalMemory, backendId });
   return { ...h, transcript };
 }
 
@@ -514,6 +514,7 @@ test('the mode at the start comes from the launch, else from the backend\'s ask,
   assert.deepEqual(ops(configured).find((o) => o.op === 'mode').mode, info('configured'));
   await stopped(configured);
 
+  let namedRead = false;
   const named = streamHarness(t, { rpc: {
     ...base,
     createDecoder: () => ({ decode: () => [], currentPartial: () => null }),
@@ -521,33 +522,128 @@ test('the mode at the start comes from the launch, else from the backend\'s ask,
     configuredModeFromResponse: () => {
       // The runtime names its mode while the ask is out: the answer arriving after it is dropped.
       named.proc._agent.mode = info('runtime');
+      namedRead = true;
       return 'late';
     },
   } });
   t.after(() => stopped(named));
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => namedRead);
+  await new Promise((r) => setImmediate(r));
   assert.ok(!ops(named).some((o) => o.op === 'mode'), 'no mode drawn over the one the runtime named');
   assert.deepEqual(named.proc._agent.mode, info('runtime'));
   await stopped(named);
 
   // A switch the user made while the ask was out sets the same `state.mode` the runtime's own op does, so the
   // case above covers it. One that arrives after the session ended draws nothing.
+  let endedRead = false;
   const ended = streamHarness(t, { rpc: {
     ...base,
     createDecoder: () => ({ decode: () => [], currentPartial: () => null }),
     configuredModeCommand: (id) => ({ type: 'ctl', request_id: id, what: 'late' }),
-    configuredModeFromResponse: () => { ended.proc._agent.exited = true; return 'late'; },
+    configuredModeFromResponse: () => { ended.proc._agent.exited = true; endedRead = true; return 'late'; },
   } });
   t.after(() => stopped(ended));
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => endedRead);
+  await new Promise((r) => setImmediate(r));
   assert.ok(!ops(ended).some((o) => o.op === 'mode'), 'no mode for a session that has exited');
   ended.proc._agent.exited = false;
   await stopped(ended);
 
-  const none = streamHarness(t, { rpc: { ...base, launchMode: () => null, configuredModeFromResponse: () => null } });
+  let noneRead = false;
+  const none = streamHarness(t, { rpc: { ...base, launchMode: () => null, configuredModeFromResponse: () => { noneRead = true; return null; } } });
   t.after(() => stopped(none));
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => noneRead);
+  await new Promise((r) => setImmediate(r));
   assert.ok(!ops(none).some((o) => o.op === 'mode'), 'nothing known, nothing drawn');
+});
+
+// #731: an approval the user already gave is answered by the core without a card — from the mode, from what was
+// allowed for the session, from the project's rules — and an answer the user gives is kept for the next one.
+function approvalRpc(extra) {
+  return {
+    createDecoder: () => ({
+      decode(msg) {
+        if (msg.ev === 'ask') {
+          return [{ op: 'ask', request: { id: msg.id, kind: 'approval', method: 'select', tool: 'bash', approvalKey: 'bash',
+            input: msg.input, answers: { once: 'once', session: 'session', project: 'project', refuse: 'refuse' } } }];
+        }
+        if (msg.ev === 'result') return [{ op: 'busy', busy: false }];
+        if (msg.ev === 'append') return [{ op: 'append', entry: msg.entry }];
+        return [];
+      },
+      currentPartial: () => null,
+    }),
+    approvalRulesOption: 'rules',
+    modeCycle: ['ask', 'all'],
+    modeInfo: (id) => ({ id, label: id, symbol: '', tone: '' }),
+    modeLocal: true,
+    launchMode: () => 'ask',
+    approvalAutoAnswer: (ask, memory) => (memory.mode === 'all' || memory.sessionKeys.has(ask.approvalKey)
+      || memory.projectRules.includes('bash') ? { value: 'once' } : null),
+    approvalRecord: (ask, answer) => (answer.value === 'session' ? { session: ask.approvalKey }
+      : answer.value === 'project' ? { project: 'bash' } : null),
+    ...(extra || {}),
+  };
+}
+
+function fakeMemory() {
+  const sessions = new Map();
+  const rules = [];
+  return {
+    sessions, rules, carried: [],
+    sessionKeys: (b, s) => new Set(sessions.get(`${b}:${s}`) || []),
+    rememberSession: (b, s, k) => sessions.set(`${b}:${s}`, [...(sessions.get(`${b}:${s}`) || []), k]),
+    carrySession(b, from, to) { this.carried.push([b, from, to]); },
+    projectRules: () => rules.slice(),
+    rememberProjectRule: (b, p, opt, rule) => { rules.push(rule); return true; },
+  };
+}
+
+test('an approval already given is answered by the core, and the user\'s answer is kept for the next one', async (t) => {
+  const memory = fakeMemory();
+  const h = streamHarness(t, { rpc: approvalRpc(), approvalMemory: memory, backendId: 'b' });
+  t.after(() => stopped(h));
+  const cards = () => ops(h).filter((o) => o.op === 'ask');
+
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await until(() => cards().length === 1);
+  assert.equal((await agentRpc.answerAsk('launch-id', 'a1', { value: 'session' })).ok, true);
+  assert.deepEqual([...memory.sessionKeys('b', 'launch-id')], ['bash'], 'the session allow is kept under the session id');
+  await until(() => !h.proc._agent.busy);
+
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await until(() => ops(h).filter((o) => o.op === 'append').length >= 4);
+  assert.equal(cards().length, 1, 'the second question never reached the view');
+  assert.equal(h.proc._agent.asks.size, 0);
+});
+
+test('a project answer is written as a rule, and the local mode answers open approvals at once', async (t) => {
+  const memory = fakeMemory();
+  const h = streamHarness(t, { rpc: approvalRpc(), approvalMemory: memory, backendId: 'b' });
+  t.after(() => stopped(h));
+  assert.equal((await agentRpc.attach('launch-id')).mode.id, 'ask', 'a session starts in the launch\'s mode');
+
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await until(() => ops(h).some((o) => o.op === 'ask'));
+  await agentRpc.answerAsk('launch-id', 'a1', { value: 'project' });
+  assert.deepEqual(memory.rules, ['bash'], 'the project rule the backend named is written');
+  await until(() => !h.proc._agent.busy);
+
+  memory.rules.length = 0;
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await until(() => ops(h).filter((o) => o.op === 'ask').length === 2);
+  const res = await agentRpc.cycleMode('launch-id');
+  assert.equal(res.ok, true);
+  assert.equal(res.mode.id, 'all', 'switched in the app, with no request');
+  await until(() => h.proc._agent.asks.size === 0);
+  assert.ok(ops(h).some((o) => o.op === 'answered' && o.id === 'a1'), 'the open question was answered by the new mode');
+});
+
+test('modes a launch does not offer cannot be switched', async (t) => {
+  const h = streamHarness(t, { rpc: approvalRpc({ modesOffered: (opts) => opts.gate !== false }), options: {}, appliedOptions: { gate: false } });
+  t.after(() => stopped(h));
+  assert.equal((await agentRpc.attach('launch-id')).canSwitchMode, false);
+  assert.equal((await agentRpc.cycleMode('launch-id')).ok, false);
 });
 
 // #725: a task notice names its output file to the CORE. The view gets `hasOutput` and never the path, and the

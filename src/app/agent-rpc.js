@@ -52,6 +52,7 @@ const EXPORT_DIR_NAME = 'exports';
  * @param {string} [context.dataDir]  where a file a session produced goes when nobody named a path
  * @param {Electron.Clipboard} [context.clipboard]  arrives through ctx like every other Electron part,
  *   so this module stays loadable under `node --test`
+ * @param {object} [context.approvalMemory]  `app/approval-memory.js`: what the user already allowed (#731)
  * @param {object} context.log
  */
 function init(context) {
@@ -181,7 +182,7 @@ function announceBackground(state) {
  * backend's transcript read, see `attachFromTranscript`). Answers the PTY-shaped process spawn.js stores as
  * `session.pty`. Throws if the child cannot be started, so spawn.js's own catch releases what it allocated.
  */
-function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, options }) {
+function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, options, appliedOptions, backendId }) {
   if (!ctx) throw new Error('agent-rpc is not initialised');
   if (!rpc || typeof rpc.createDecoder !== 'function' || typeof rpc.responseOf !== 'function') {
     throw new Error('this backend declares no protocol');
@@ -256,6 +257,10 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     held: [],
     heldPaused: false,
     heldInFlight: false,     // a held prompt was written and its turn has not started yet — see flushHeld
+    // What a backend offers per launch (`modesOffered`) is read from the options the spawn-applied hooks got.
+    appliedOptions: appliedOptions || options || {},
+    backendId: backendId || null, // whose approvals are remembered (#731)
+    identitySettled: false,  // has the runtime named its session once — see `adoptIdentity`
   };
   // The tests shorten these; the app never passes them.
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
@@ -356,6 +361,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       const moved = ctx.adoptSessionId(tag, String(id));
       if (moved && moved.from && moved.to) {
         ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
+        // The first id the runtime names is the conversation the app launched, so what the user allowed for it
+        // moves along (#731). A later move is a new conversation or a fork, and starts empty.
+        if (!state.identitySettled && ctx.approvalMemory && state.backendId) {
+          ctx.approvalMemory.carrySession(state.backendId, moved.from, moved.to);
+        }
         // The sidebar's background count under the new id too (#691): the main window re-keys its own copy,
         // and this says it again for a window that missed the move.
         if (state.tasks.length) announceBackground(state);
@@ -363,6 +373,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     } catch (err) {
       ctx.log.warn(`[agent-rpc] could not follow the runtime's session id: ${err.message}`);
     }
+    state.identitySettled = true;
   }
 
   // Two ways a runtime says which session it is on, and a backend declares one or both. A runtime that can
@@ -395,13 +406,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
 
   // The mode a session starts in, before the runtime names one (#730). A runtime may name its mode only with its
   // first turn, and until then the line showed none. The backend answers from what it knows: the mode its launch
-  // set (`launchMode(options)`, the options `buildLaunch` was handed), else one it can ask for
-  // (`configuredModeCommand` + `configuredModeFromResponse`), each answering a mode id or null. Whatever the
-  // runtime itself names wins: an answer that arrives after a `mode` op is dropped.
+  // set (`launchMode(options, appliedOptions)`: the options `buildLaunch` was handed, and those the spawn-applied
+  // hooks were), else one it can ask for (`configuredModeCommand` + `configuredModeFromResponse`), each answering a
+  // mode id or null. Whatever the runtime itself names wins: an answer that arrives after a `mode` op is dropped.
   async function followStartMode() {
     if (typeof rpc.modeInfo !== 'function') return;
     let id = null;
-    try { id = typeof rpc.launchMode === 'function' ? rpc.launchMode(options || {}) : null; } catch { id = null; }
+    try { id = typeof rpc.launchMode === 'function' ? rpc.launchMode(options || {}, state.appliedOptions) : null; } catch { id = null; }
     if (!id && typeof rpc.configuredModeCommand === 'function' && typeof rpc.configuredModeFromResponse === 'function') {
       const res = await request(rpc.configuredModeCommand);
       try { id = res && res.success !== false ? rpc.configuredModeFromResponse(res) : null; } catch { id = null; }
@@ -410,7 +421,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     const mode = rpc.modeInfo(id);
     if (!mode) return;
     state.mode = mode;
-    sendOp(state, { op: 'mode', mode });
+    // A mode known at once is known before the session is registered, when no view can hear an op and a
+    // numbered op would only leave a gap in the sequence; the attach carries `state.mode` instead.
+    if (findSession(tag)) sendOp(state, { op: 'mode', mode });
   }
 
   // One ask of the fill, CONTEXT_FOLLOW_MS after the entry that scheduled it, while a turn runs. Only for a
@@ -496,6 +509,28 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     }
   }
 
+  // An approval the user already gave (#731): the backend decides from the session's mode, what was allowed for
+  // this session and the project's rules (`approvalAutoAnswer`), and the core answers it without drawing a card.
+  // What those three hold is kept by `app/approval-memory.js`; what they mean is the backend's.
+  function autoAnswer(request) {
+    if (!request || request.kind !== 'approval' || typeof rpc.approvalAutoAnswer !== 'function') return false;
+    const memo = ctx.approvalMemory && state.backendId ? ctx.approvalMemory : null;
+    const found = findSession(tag);
+    const memory = {
+      mode: state.mode ? state.mode.id : null,
+      sessionKeys: memo && found ? memo.sessionKeys(state.backendId, found.id) : new Set(),
+      projectRules: memo && rpc.approvalRulesOption ? memo.projectRules(state.backendId, state.cwd, rpc.approvalRulesOption) : [],
+    };
+    let answer = null;
+    try { answer = rpc.approvalAutoAnswer(request, memory); } catch (err) {
+      ctx.log.warn(`[agent-rpc] the backend could not judge an approval: ${err.message}`);
+    }
+    if (!answer || !write(rpc.answerCommand(request.id, answer, request))) return false;
+    ctx.log.debug(`[agent-rpc] approval of ${request.tool || 'a call'} answered from what was already allowed`);
+    return true;
+  }
+  state.autoAnswer = autoAnswer;
+
   function handleOp(op) {
     switch (op.op) {
       case 'partial':
@@ -574,6 +609,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         sendOp(state, op);
         return;
       case 'ask':
+        if (autoAnswer(op.request)) return;
         state.asks.set(op.request.id, op.request);
         flushPartial();
         // A session blocked on a question is waiting on the user, which the inbox has to hear about —
@@ -1340,6 +1376,23 @@ async function completeSessionPaths(sessionId, prefix) {
   return { ok: true, items };
 }
 
+// What the user's answer to an approval is worth keeping (#731): the backend says (`approvalRecord`), and
+// `app/approval-memory.js` keeps a session allow under this session's id and a project rule in the project's
+// settings, where the next question finds it.
+function rememberApproval(state, sessionId, asked, answer) {
+  const rpc = state.rpc;
+  if (typeof rpc.approvalRecord !== 'function' || !ctx.approvalMemory || !state.backendId) return;
+  let record = null;
+  try { record = rpc.approvalRecord(asked, answer || {}); } catch (err) {
+    ctx.log.warn(`[agent-rpc] the backend could not read an approval answer: ${err.message}`);
+  }
+  if (!record) return;
+  if (record.session) ctx.approvalMemory.rememberSession(state.backendId, sessionId, record.session);
+  if (record.project && rpc.approvalRulesOption) {
+    ctx.approvalMemory.rememberProjectRule(state.backendId, state.cwd, rpc.approvalRulesOption, record.project);
+  }
+}
+
 function answerAsk(sessionId, requestId, answer) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
@@ -1351,6 +1404,7 @@ function answerAsk(sessionId, requestId, answer) {
   state.asks.delete(id);
   const ok = state.write(state.rpc.answerCommand(id, answer || { cancelled: true }, asked));
   if (ok) sendOp(state, { op: 'answered', id });
+  if (ok) rememberApproval(state, sessionId, asked, answer);
   // The question ended the busy state (a session waiting on the user is not working); answering it inside
   // a run hands the session back to the agent, and nothing else would say so until the run settles. A
   // question asked outside a run (an extension's own command) leaves the session idle once answered.
@@ -1364,10 +1418,26 @@ function answerAsk(sessionId, requestId, answer) {
 
 // Whether this session's mode can be switched from the view: the half declares the order, the request and the
 // words. Pi has no such modes and declares none, so its view shows and changes nothing.
+// A backend whose modes are the APP's (`modeLocal`, #731 — pi-native's gate) needs no request, and one may offer
+// them only for some launches (`modesOffered(options)`: the gate switched off has nothing to switch).
 function canSwitchMode(state) {
   const rpc = state.rpc;
-  return Array.isArray(rpc.modeCycle) && rpc.modeCycle.length > 1
-    && typeof rpc.setModeCommand === 'function' && typeof rpc.modeInfo === 'function';
+  if (typeof rpc.modesOffered === 'function' && !rpc.modesOffered(state.appliedOptions || {})) return false;
+  return Array.isArray(rpc.modeCycle) && rpc.modeCycle.length > 1 && typeof rpc.modeInfo === 'function'
+    && (rpc.modeLocal === true || typeof rpc.setModeCommand === 'function');
+}
+
+// After a local switch, an open approval the new mode lets through is answered at once — the way Claude applies a
+// mode switch to the running turn.
+function settleOpenApprovals(state) {
+  let answered = false;
+  for (const [id, request] of [...state.asks]) {
+    if (!request || request.kind !== 'approval' || !state.autoAnswer(request)) continue;
+    state.asks.delete(id);
+    sendOp(state, { op: 'answered', id });
+    answered = true;
+  }
+  if (answered && !state.asks.size) state.report(state.busy ? 'busy' : 'idle');
 }
 
 // The next mode in the backend's order. A mode the runtime refuses — one this session cannot enter — is
@@ -1384,6 +1454,13 @@ async function cycleMode(sessionId) {
   const current = (state.mode && state.mode.id) || cycle[0];
   const at = cycle.indexOf(current);
   const order = at < 0 ? cycle.slice() : cycle.slice(at + 1).concat(cycle.slice(0, at));
+  if (state.rpc.modeLocal === true) {
+    const mode = state.rpc.modeInfo(order[0]);
+    state.mode = mode;
+    sendOp(state, { op: 'mode', mode });
+    settleOpenApprovals(state);
+    return { ok: true, mode };
+  }
   for (const next of order) {
     const res = await state.request((rid) => state.rpc.setModeCommand(rid, next));
     if (!res || res.success === false) {

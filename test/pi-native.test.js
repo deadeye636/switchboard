@@ -245,7 +245,7 @@ test('the approval gate: on by default for bash/edit/write, gone when the option
 
 test('our approval question is recognised by its title and drawn as an approval, any other select is not', () => {
   const title = runtimeExtension.APPROVAL_PREFIX + JSON.stringify({ tool: 'bash', id: 'call_1|fc_2' });
-  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2', detail: '', by: '' });
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(title), { tool: 'bash', id: 'call_1|fc_2', detail: '', by: '', key: '', command: '' });
   assert.equal(runtimeExtension.parseApprovalTitle('Allow bash?'), null);
   assert.equal(runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX + '{broken'), null);
 
@@ -326,6 +326,10 @@ test('the running gate: a subagent question carries the agent description, and o
   assert.deepEqual(seen, [['<project>', 'counter']], 'asked once, for the delegation only');
   assert.equal(runtimeExtension.parseApprovalTitle(titles[0]).detail, 'Agent counter · tools: ls');
   assert.equal(runtimeExtension.parseApprovalTitle(titles[1]).detail, '');
+  // #731: the key "Allow for this session" is kept under, and a shell call's command line, for the app.
+  assert.equal(runtimeExtension.parseApprovalTitle(titles[0]).key, 'subagent:counter');
+  assert.equal(runtimeExtension.parseApprovalTitle(titles[0]).command, '', 'only a shell call carries a command line');
+  assert.deepEqual([runtimeExtension.parseApprovalTitle(titles[1]).key, runtimeExtension.parseApprovalTitle(titles[1]).command], ['bash', 'ls']);
 
   // Allow for this session is per AGENT for a delegation: the question showed one agent's tools, so another
   // agent is asked about again, and the same one is not.
@@ -384,7 +388,7 @@ test('the running gate: a command\'s own allowance is not the agent\'s bash, and
   const titles = [];
   const select = (answer) => async (title) => { titles.push(title); return answer; };
   assert.equal(await askGate('bash', 'git status', { ui: { select: select(runtimeExtension.CHOICES.session) } }, { key: 'command:greet', by: '/greet' }), true);
-  assert.deepEqual(runtimeExtension.parseApprovalTitle(titles[0]), { tool: 'bash', id: null, detail: 'git status', by: '/greet' });
+  assert.deepEqual(runtimeExtension.parseApprovalTitle(titles[0]), { tool: 'bash', id: null, detail: 'git status', by: '/greet', key: 'command:greet', command: '' });
   // The same command again: allowed for the session, not asked.
   assert.equal(await askGate('bash', 'git status', { ui: { select: select(undefined) } }, { key: 'command:greet', by: '/greet' }), true);
   assert.equal(titles.length, 1);

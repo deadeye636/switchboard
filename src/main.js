@@ -2244,8 +2244,18 @@ const { startBackendWatchers, stopBackendWatchers } = watchStores;
 // #568: a session DRIVEN over a runtime protocol rather than watched in a PTY. The pipe, the ops it turns
 // into and the IPC the conversation view talks to; spawn.js hands it the child and gets back a PTY-shaped
 // process, so the stop, the quit and the re-key paths never learn there are two kinds of session.
+// #731: what the user already allowed for a session or a project, so a question answered once is not put again.
+// Through the settings module's write door, so a project rule is scrubbed and pushed like any other save.
+const approvalMemory = require('./app/approval-memory');
+approvalMemory.init({
+  db: { getSetting, setSetting },
+  persistSettingsBlob: (key, value) => settings.persistSettingsBlob(key, value),
+  broadcastSettingsChanged: () => broadcastSettingsChanged(),
+  log,
+});
 const agentRpc = require('./app/agent-rpc');
 agentRpc.init({
+  approvalMemory,
   getMainWindow: () => mainWindow,
   windowForSession: (sessionId) => detach.windowForSession(sessionId),
   activeSessions,

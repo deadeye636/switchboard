@@ -241,10 +241,51 @@ content. It offers three answers:
 
 - **Allow once**
 - **Allow for this session**: remembered per tool (per agent for `subagent`, per command for a command's
-  shell line), in the extension, for the life of the process.
-  Anything lasting is the setting, where it stays visible and can be taken back.
+  shell line), in the extension instance and, since #731, by the app per session id — see "What the app
+  answers by itself" below.
+- **Always allow in this project** (#731): offered where there is a rule to write, and written into the
+  project's settings, where it stays visible and can be taken back.
 - **Refuse**: the call is blocked with a reason the agent reads ("The user did not allow this bash
   call.") and answers.
+
+### What the app answers by itself (#731)
+
+Before #731 the gate asked about every gated call until "Allow for this session" was given, and that answer
+lived only in the extension instance, which Pi rebuilds on `/new`, `/resume`, `/fork` and `/reload` and on
+every respawn (measured, see below). So the same questions came back within what the user saw as one session,
+and nothing outlived it. The question still comes from the gate; what changed is that the app may answer it
+before drawing a card. `src/backends/pi-native/approvals.js` decides, `src/app/agent-rpc.js` asks it
+(`approvalAutoAnswer`) before it draws a card and hands it the user's answer afterwards (`approvalRecord`),
+and `src/app/approval-memory.js` keeps what there is to keep. Three things answer:
+
+- **The session's mode**, on the session line and switched with Shift+Tab or a click, as in claude-native:
+  `ask` (the gate as it was), `accept edits` (`edit` and `write` run unasked wherever they write — unlike
+  Claude's accept-edits, which stays inside its working directories — and everything else still asks),
+  `allow everything` (nothing asks). The mode is the session's and writes no setting; a session starts in
+  `ask`, and with `approvalGate` off there is no mode to show or switch. A switch answers an open question the
+  new mode lets through, the way a Claude mode switch reaches the running turn. The modes are the app's alone
+  (`modeLocal`): Pi has none, so no request goes to the runtime.
+- **What was allowed for this session**, kept by the app under the session id, so it survives `/reload` and a
+  respawn of the same conversation (an app restart, a resume), and ends with `/new` and `/fork`, which are
+  other ids. The first id the runtime names is the conversation the app launched, so an allow given under the
+  launch id moves with it; a later move does not carry it. Kept in the app's database, for the newest 300
+  sessions.
+- **The project's rules**, in the pi-native option `approvalRules` ("Allowed in this project"), one per line,
+  in the project's settings (a worktree's are its project's). A rule is the gate's key (`edit`, `write`, an MCP
+  tool, `subagent:<origin:agent>`, `command:<name>`) or a shell rule `bash(<command line>)` /
+  `powershell(<command line>)`: exact, or a prefix when it ends in `*`, and `bash(*)` covers the tool. A prefix
+  does not reach past a shell operator (`;`, `&`, `|`, `<`, `>`, a backtick, `$(`, a line break), so
+  `bash(git status*)` does not allow `git status; curl … | sh`; only `bash(*)` allows those, and a bare `bash`
+  allows nothing. The card only writes an exact rule, so a wildcard is always one the user typed on the settings
+  screen: a call whose command line ends in `*` is offered no project allow, and neither is one whose key holds a
+  line break (an agent's or a command's name comes from a file, and a rule is one line). A shell rule
+  never covers a taken-over command's shell line, which asks under `command:<name>` (N1). Rules are read at
+  every question, so an edit on the settings screen reaches a running session at its next one; a rule the card
+  writes while the settings window is open is overwritten by that window's next Save, which holds a snapshot.
+
+What this takes away: a question the user answered once no longer comes back, so a card is no longer a record
+of every call that ran — the conversation is. `allow everything` is exactly what its name says; it exists
+because the owner chose it over leaving the gate on or off for the whole backend (#731, E3).
 
 **A command taken over from another CLI asks too** (#632, spec 31). Its inline shell lines run inside the
 resources extension and never go through a tool, so no `tool_call` sees them. Where the gate is on, it

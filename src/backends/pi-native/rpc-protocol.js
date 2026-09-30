@@ -61,6 +61,7 @@
 const { normalizeTranscriptEntries } = require('../pi/transcript-view');
 const { textOf, argsFromText, oneLineDescription, NOTICES } = require('../rpc-shared');
 const { parseApprovalTitle, CHOICES } = require('./runtime-extension');
+const { ruleFor, projectLabel, projectNote, PROJECT_CHOICE, answerValueForGate } = require('./approvals');
 const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, parseExport, parseCopy, parseShell, parseTree, parseNavigated, describeFailure, MESSAGE_CAP, COMPLETE_COMMAND, NAVIGATE_COMMAND, ARGUMENT_COMMANDS, TUI_ONLY } = require('./session-commands');
 
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one). A `user` message is the
@@ -201,22 +202,33 @@ function createDecoder() {
           // it is about, from the conversation it already holds, and answers with one of three values.
           const approval = msg.method === 'select' ? parseApprovalTitle(msg.title) : null;
           if (approval) {
+            const request = {
+              id: String(msg.id),
+              kind: 'approval',
+              tool: approval.tool,
+              toolCallId: approval.id,
+              method: 'select',
+              title: '',
+              // What the call allows beyond its own input, where the gate could say (a delegation's agent:
+              // its tools and model). Plain text for the card; empty for every other tool.
+              message: approval.detail || '',
+              // Who is asking when it is not the agent's own call — a command the user ran (#632).
+              requestedBy: approval.by || '',
+              // What the app answers by (#731, `./approvals.js`): the gate's key and a shell call's command line.
+              approvalKey: approval.key || '',
+              command: approval.command || '',
+              options: [],
+            };
+            // "Always allow in this project" where there is a rule to write for this question (#731).
+            const rule = ruleFor(request);
             return [{
               op: 'ask',
               request: {
-                id: String(msg.id),
-                kind: 'approval',
-                tool: approval.tool,
-                toolCallId: approval.id,
-                method: 'select',
-                title: '',
-                // What the call allows beyond its own input, where the gate could say (a delegation's agent:
-                // its tools and model). Plain text for the card; empty for every other tool.
-                message: approval.detail || '',
-                // Who is asking when it is not the agent's own call — a command the user ran (#632).
-                requestedBy: approval.by || '',
-                options: [],
-                answers: { once: CHOICES.once, session: CHOICES.session, refuse: CHOICES.refuse },
+                ...request,
+                answers: rule
+                  ? { once: CHOICES.once, session: CHOICES.session, project: PROJECT_CHOICE, refuse: CHOICES.refuse }
+                  : { once: CHOICES.once, session: CHOICES.session, refuse: CHOICES.refuse },
+                ...(rule ? { projectLabel: projectLabel(rule), projectNote: projectNote(rule) } : {}),
                 // What this question is worth, for the card: the gate is this app's extension, not Pi's.
                 note: 'Asked by Switchboard inside this session. A convenience, not a security boundary: '
                   + 'the same agent started outside Switchboard asks nothing.',
@@ -687,12 +699,14 @@ function navigatedNotice(op) {
 }
 
 // The answer to an `ask`. `answer` is the app's: `{ value }` for a choice or a text, `{ confirmed }` for a
-// yes/no, `{ cancelled: true }` for a dismissed dialog — the three response shapes Pi documents.
+// yes/no, `{ cancelled: true }` for a dismissed dialog — the three response shapes Pi documents. "Always allow in
+// this project" is the app's answer, not one of the gate's choices: the gate hears "Allow once", and the rule the
+// core wrote answers every later call (#731).
 function answerCommand(requestId, answer = {}) {
   const out = { type: 'extension_ui_response', id: String(requestId) };
   if (answer.cancelled) out.cancelled = true;
   else if (typeof answer.confirmed === 'boolean') out.confirmed = answer.confirmed;
-  else out.value = answer.value == null ? '' : String(answer.value);
+  else out.value = answer.value == null ? '' : answerValueForGate(String(answer.value), CHOICES.once);
   return out;
 }
 

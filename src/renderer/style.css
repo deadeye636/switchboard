@@ -6652,6 +6652,16 @@ mark.jsonl-search-hit-active {
   transition: all 0.2s;
 }
 
+/* One entry per line (#731): a project's approval rules. Monospace, because an entry is often a command line. */
+.settings-input.settings-input-lines {
+  min-width: 280px;
+  resize: vertical;
+  font-family: 'SF Mono', 'Fira Code', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
 .settings-input.settings-input-compact {
   width: 56px;
   text-align: left;

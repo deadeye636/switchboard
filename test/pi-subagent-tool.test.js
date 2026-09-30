@@ -164,10 +164,10 @@ test('the delegation question carries the agent description through the approval
   const title = runtimeExtension.APPROVAL_PREFIX
     + JSON.stringify({ tool: 'subagent', id: 'c1', detail: 'Agent counter · tools: ls, read\n· model: x' });
   assert.deepEqual(runtimeExtension.parseApprovalTitle(title),
-    { tool: 'subagent', id: 'c1', detail: 'Agent counter · tools: ls, read · model: x', by: '' });
+    { tool: 'subagent', id: 'c1', detail: 'Agent counter · tools: ls, read · model: x', by: '', key: '', command: '' });
   // An old-shape title (no detail) still parses, with an empty line rather than a missing field.
   assert.deepEqual(runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX + '{"tool":"bash","id":"c2"}'),
-    { tool: 'bash', id: 'c2', detail: '', by: '' });
+    { tool: 'bash', id: 'c2', detail: '', by: '', key: '', command: '' });
   // …and it is held to one capped line.
   const long = runtimeExtension.parseApprovalTitle(runtimeExtension.APPROVAL_PREFIX
     + JSON.stringify({ tool: 'subagent', id: 'c3', detail: 'x'.repeat(5000) }));

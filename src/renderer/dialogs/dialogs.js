@@ -748,7 +748,8 @@ async function launchTerminalSession(project, launcher = null) {
 async function showGeneratedConfigDialog(project, backend) {
   const effective = await window.api.getEffectiveSettings(project.projectPath);
   const saved = storedDefaultsFor(effective, backend);
-  const fields = (schemaBackendOf(backend) || {}).configFields || [];
+  // An option the core reads from the settings alone (`perSession: false`, #731) has no per-session value to set.
+  const fields = ((schemaBackendOf(backend) || {}).configFields || []).filter(f => f.perSession !== false);
 
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
@@ -1040,7 +1041,7 @@ async function showGeneratedResumeDialog(session, initialBackend) {
 
   function fieldsHtml(b) {
     const saved = storedDefaultsFor(effective, b);
-    fields = (schemaBackendOf(b) || {}).configFields || [];
+    fields = ((schemaBackendOf(b) || {}).configFields || []).filter(f => f.perSession !== false);
     return fields.map((f, i) => {
       const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
       const id = `grd-${i}`;

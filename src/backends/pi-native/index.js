@@ -25,6 +25,7 @@ const pi = require('../pi');
 const { piExecCommand } = require('../pi/exec-command');
 const protocol = require('./rpc-protocol');
 const runtimeExtension = require('./runtime-extension');
+const approvals = require('./approvals');
 
 // The options that mean something without a terminal. Left out, each for a reason a user could ask about:
 //   `models`   — the Ctrl+P cycle list is a TUI key binding; nothing here presses it.
@@ -47,8 +48,16 @@ const configFields = [
   { id: 'approvalGate', label: 'Ask before commands, file changes and MCP tools', type: 'toggle', default: true,
     appliesAt: 'spawn', appliedBy: 'buildRuntimeExtension',
     description: 'Every bash or PowerShell command, file edit, file write, subagent run and MCP tool call waits for your answer: allow once, allow for '
-      + 'the rest of this session, or refuse. A convenience, not a security boundary — the check runs inside '
+      + 'the rest of this session, always allow in this project, or refuse. A convenience, not a security boundary — the check runs inside '
       + 'the agent\'s own process, and a Pi started outside Switchboard asks nothing.' },
+  // #731: the rules "Always allow in this project" writes, read by the core whenever the gate asks
+  // (`rpc.approvalRulesOption`), so an edit here reaches a running session at its next question.
+  { id: approvals.RULES_OPTION, label: 'Allowed in this project', type: 'lines', default: '',
+    appliesAt: 'runtime', perSession: false, requires: 'approvalGate',
+    description: 'Calls the approval gate lets through without asking, one rule per line. An approval card\'s "Always allow in '
+      + 'this project" adds one. A rule is a tool (edit, write, an MCP tool) or a shell command, written bash(npm test); '
+      + 'a command ending in * allows every command that starts the same way unless the rest chains, pipes, redirects or '
+      + 'substitutes (; & | > < ` $( ), and bash(*) allows every bash command, those included.' },
 ];
 
 function stripNotOffered(options) {
@@ -154,6 +163,19 @@ module.exports = {
     answerCommand: protocol.answerCommand,
     sessionIdFromState: protocol.sessionIdFromState,
     entriesFromMessages: protocol.entriesFromMessages,
+    // What the app answers for the approval gate by itself (#731, `./approvals.js`): the session's mode, what
+    // the user allowed for the session, and the project's rules in the option named here.
+    approvalAutoAnswer: approvals.approvalAutoAnswer,
+    approvalRecord: approvals.approvalRecord,
+    approvalRulesOption: approvals.RULES_OPTION,
+    // The gate's modes (#731): switched in the app alone (`modeLocal`), since Pi has none and the gate's answer
+    // is the app's to give. Offered while the gate is on; a session starts in `ask`.
+    modeCycle: approvals.MODE_CYCLE,
+    modeInfo: approvals.modeInfo,
+    modeLocal: true,
+    modesOffered: (options) => runtimeExtension.gateOn(options),
+    // Both read the options the runtime extension was built from, so the modes follow the gate that exists.
+    launchMode: (_options, applied) => (runtimeExtension.gateOn(applied) ? 'ask' : null),
   },
   // The per-spawn extension: the transport marker, and the approval gate (`./runtime-extension.js`). A pair,
   // like the binding and the templates: the release is kept by the core for the exit handler.

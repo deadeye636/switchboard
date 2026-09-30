@@ -1227,6 +1227,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           forkFrom: sessionOptions?.forkFrom || null,
           // The options `buildLaunch` was handed, for a mode the launch set before the runtime names one (#730).
           options: sessionOptions || {},
+          // …and the options the spawn-applied hooks were handed (the per-spawn extension above), for a backend
+          // whose modes follow one of those (#731: pi-native offers modes only with its approval gate on).
+          appliedOptions: spawnOptionsFor(backend, projectPath, sessionOptions),
+          // Whose approvals the app remembers for this session (#731, `app/approval-memory.js`).
+          backendId: backend.id,
         });
       } else if (useArgvSpawn) {
         // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the

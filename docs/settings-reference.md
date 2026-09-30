@@ -458,7 +458,7 @@ own `config.toml`.)
 | `agy` | `model` (with model discovery), `mode`, `effort`, `sandbox`, `addDirs` |
 | `hermes` | `model`, `provider`, `toolsets`, `skills`, `worktree`, `safeMode`, `acceptHooks`, `yolo`, `passSessionId`, `ignoreUserConfig`, `ignoreRules` |
 | `pi` | `model`, `provider`, `thinking`, `name`, `models`, `tools`, `excludeTools`, `noTools`, `noBuiltinTools`, `conventionPrompts` (**on**, applied at spawn), `subagentTool` (**off**, applied at spawn), `subagentAgentsDir` (applied at spawn), `resourcesFrom` (`''` = none, applied at spawn), `mcpServers` (**off**, applied at spawn), `sourceHooks` (**off**, applied at spawn), `approval`, `offline`, `appendSystemPrompt`, `useTheme`, `noContextFiles` |
-| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, and `approval`, because pi-native starts only in a project Pi trusts and the saved answer is the only one that counts (a stored value is ignored, #655), plus `approvalGate` (**on**, applied at spawn). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30). It has no login of its own: it uses Pi's saved logins, so log in once through the terminal Pi backend (`/login`) |
+| `pi-native` | the same as `pi` except `models` and `useTheme`, which are about Pi's TUI and mean nothing without a terminal, and `approval`, because pi-native starts only in a project Pi trusts and the saved answer is the only one that counts (a stored value is ignored, #655), plus `approvalGate` (**on**, applied at spawn) and `approvalRules` (empty, read at every question, #731). Off by default like every backend but Claude; its sessions are Pi's rows (spec 30). It has no login of its own: it uses Pi's saved logins, so log in once through the terminal Pi backend (`/login`) |
 | `claude-native` | `permissionMode` (`default` = no flag, so the `defaultMode` in your Claude settings applies; the choices are Claude's without Dangerous Skip; a mode switched inside a running session with Shift+Tab or a click on the session line is that session's and leaves this option alone, #696), `model`, and since #685 the terminal backend's `worktree` + `worktreeName`, `chrome`, `addDirs`, `restricted` and `autocompact`, with the same keys, defaults and flags (each measured on the pipe; `restricted` still refuses `bypassPermissions`). And `promptSuggestionsOff` (#693, default `false`: the launch carries `--prompt-suggestions`, so suggestions are on, and this opt-out leaves the flag out; each suggestion is a small model call of its own). Not its `mcpEmulation` and `afkTimeoutSec`: they are about a terminal and never apply to a piped session (#653 E11). Off by default; its sessions are Claude's rows (#653). It starts only in a project Claude trusts, asking the trust question at launch when there is no saved answer (#655), and it needs the native Claude Code build (`claude.exe` on Windows), 2.1.283 or newer. No login of its own: it runs the `claude` you signed in to |
 
 Pi's `model` field supports backend-owned suggestions from `pi --list-models`; agy's `model` field supports backend-owned suggestions from `agy models`; failures leave the field as normal free text. Backends can also expose a read-only resource inventory in their backend settings page. Claude reports settings, instructions, commands, agents, plugins, hooks, skills and customization directories. Codex reports config, profiles, instructions, plugins, skills, rules, memories and model catalogs. Pi reports packages, extensions, skills, prompt templates, themes and settings files. Hermes reports config, skills, skill bundles, plugins, hooks, memories and model catalogs. agy reports safe Gemini/Antigravity settings, `GEMINI.md`, builtin/implicit resources, the knowledge directory, and the global customization root's plugins and skills directories. Switchboard does not install or execute resources from there.
@@ -625,10 +625,28 @@ Things to know:
 `subagent` or an MCP tool** (the `pi-native` backend; its label is "Ask before commands, file changes and
 MCP tools"), and before a permitted shell line of a command taken over through
 `resourcesFrom`. Each call waits for an answer in the conversation: allow once, allow
-for the rest of the session, or refuse. For an MCP tool the allowance covers that one tool, and the question
+for the rest of the session, always allow in this project, or refuse. For an MCP tool the allowance covers that one tool, and the question
 quotes the server's own description of it, which is the server's claim. A tool of your own whose name starts
 with `mcp__` is asked about as well. It is on by default. It is a convenience and not a security boundary: the check runs inside the
 agent's own process, and a Pi started outside Switchboard asks nothing.
+Since #731 an allow for the session is kept by the app per session id, so it survives `/reload`, an app
+restart and a resume of the same conversation, and ends with `/new` and `/fork`. The session line shows the
+gate's mode (`ask` / `accept edits` / `allow everything`), switched with Shift+Tab for that session only; it
+writes no setting, and a session always starts in `ask`.
+
+**`approvalRules` ("Allowed in this project", `pi-native`, default empty) is what the gate lets through without
+asking**, one rule per line (#731). The approval card's "Always allow in this project" adds one to the
+project's value; a project without a value of its own starts from the global one. A rule is a tool (`edit`,
+`write`, an MCP tool's full name, `subagent:<origin:agent>`, `command:<name>` for a taken-over command) or a
+shell command, `bash(npm test)` / `powershell(dir)`: exact, or every command starting the same way when it
+ends in `*` — unless the rest of the command chains, pipes, redirects or substitutes (`;`, `&`, `|`, `<`, `>`,
+a backtick, `$(`, a line break), so `bash(git status*)` does not allow `git status; curl … | sh` — and
+`bash(*)` for every bash command, those included. A bare `bash` allows nothing. The card never writes a
+wildcard: a call whose command line itself ends in `*` is offered no project allow. A global value applies to
+every project without one of its own, and the card's first rule in a project copies the global ones into it,
+after which later global edits no longer reach that project. Read by the app at every question (`appliesAt: 'runtime'`),
+so an edit reaches a running session at its next question; it has no per-session value and is not in the
+Configure dialogs or the template editor (`perSession: false`). Only meaningful while `approvalGate` is on.
 
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
 answered its own `AskUserQuestion` dialog after 60 seconds; the field's `0` sent a sentinel meaning

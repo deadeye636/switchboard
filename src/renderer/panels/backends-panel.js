@@ -173,6 +173,10 @@
         ${unknown ? `<option value="${esc(value)}" selected>${esc(`${value} (not available)`)}</option>` : ''}
       </select>`;
     }
+    // One entry per line (#731, a project's approval rules): a text area, stored as the text it holds.
+    if (field.type === 'lines') {
+      return `<textarea class="settings-input settings-input-lines backend-default-input" rows="4" spellcheck="false" data-backend="${esc(backendId)}" data-opt="${esc(field.id)}" data-type="lines" id="${esc(name)}" ${dis}>${esc(value == null ? '' : value)}</textarea>`;
+    }
     const type = field.type === 'number' ? 'number' : 'text';
     const cls = field.type === 'number' ? 'settings-input settings-input-compact' : 'settings-input';
     const modelList = field.modelDiscovery ? ` list="${esc(name)}-models" data-model-discovery="${esc(backendId)}"` : '';
@@ -841,7 +845,8 @@
         ? LEGACY_TEMPLATE_BASE
         : (seed.backendId || (baseList[0] || {}).id || '');
       const baseOf = (id) => baseList.find(b => b.id === id) || baseList[0];
-      const fieldsOf = (id) => (baseOf(id) || {}).configFields || [];
+      // A template is a launch, so an option read from the settings alone (`perSession: false`, #731) is not its.
+      const fieldsOf = (id) => ((baseOf(id) || {}).configFields || []).filter(f => f.perSession !== false);
       // The endpoint fields below write the base's endpoint variables (ANTHROPIC_* today). They only mean
       // anything on a base that READS them — offering them on one that does not would be a control that
       // lies. The base declares it (`endpointEnv`); this editor does not know which backend that is.

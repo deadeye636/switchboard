@@ -141,6 +141,10 @@ above cost ~92 µs a call against ~0.7 µs for the string compare they replaced,
 decision about writing somewhere and is not affordable per session row — a sidebar rebuild measured 16 ms
 with the memo and 311 ms without it. A stale key costs a regrouping; a stale guard costs an escape, so the
 guards keep asking the disk), 
+`approval-memory.js` (what the user already allowed for a runtime-driven session's approval questions — #731;
+a session's allows by session id in the database, a project's rules as lines of the backend option the `rpc`
+half names, written through `settings.persistSettingsBlob`. It stores strings only: what a rule means is the
+backend's `approvalAutoAnswer`),
 `agent-rpc.js` (a session DRIVEN over a runtime protocol instead of watched in a PTY — #568; the child on a
 pipe, wrapped to answer what `session.pty` is asked so stop, quit, re-key and the exit handler run
 unchanged; the backend's `rpc` half turns lines into the app's own ops and back, so this module names no

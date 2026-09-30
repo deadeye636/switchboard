@@ -533,6 +533,18 @@ answers instead of the core learning its format:
   core draws it through `modeInfo` and drops it once a mode is known otherwise — named by the runtime or
   switched by the user. A backend answers `null` where its answer would be a guess (claude-native for `auto`
   from the settings, which a model can refuse), and the line then stays empty.
+  **Modes the app owns** (#731): `modeLocal: true` means a switch sends nothing to the runtime and sets the mode
+  in the core alone (pi-native's gate, whose answers are the app's); `setModeCommand` is then not needed.
+  `modesOffered(options)` says whether a launch has modes at all (pi-native: only with the gate on). After a
+  local switch the core answers any open approval the new mode lets through.
+- `approvalAutoAnswer(ask, memory)` + `approvalRecord(ask, answer)` + `approvalRulesOption` — optional (#731).
+  For a backend whose approvals are the app's rather than the CLI's. Before drawing an approval card the core
+  asks `approvalAutoAnswer` with `{ mode, sessionKeys, projectRules }` and, on an answer, writes it and draws
+  nothing; after the user answers a card it asks `approvalRecord`, which may return `{ session: key }` and/or
+  `{ project: rule }`. `src/app/approval-memory.js` keeps both — a session's keys under its id, a project's rules
+  as lines of the option `approvalRulesOption` names — and reads them for the next question. What a key or a
+  rule MEANS is the backend's alone; the core stores strings. claude-native declares none: Claude's own rules
+  decide there, and its "in this project" is a rule Claude writes itself (#674).
 - `stopTaskCommand(id, taskId)` — optional (#691). Stops ONE background task and leaves the turn alone; a
   half without it offers no Stop in the Background list. The running list itself is a `tasks` op the decoder
   sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, subagentId, startedAt }` — `subagentId` is
@@ -776,7 +788,11 @@ that CLI already does** — it is a description of the CLI, not a wish.
 
 `test/backend-config-fields.test.js` also refuses a declared option that changes nothing (a control
 that lies), unless it says why: `appliesAt: 'spawn'` (`app/terminal/spawn.js` applies it, not the
-argv) or `requires: '<other>'` (meaningless on its own).
+argv), `requires: '<other>'` (meaningless on its own), or `appliesAt: 'runtime'` (#731: the core reads it
+while a runtime-driven session runs, through a key of the `rpc` half that `src/app/agent-rpc.js` reads — the
+test checks both). A runtime-read option has no per-session value and says `perSession: false`, which keeps it
+out of the Configure dialogs and the template editor. Its field type may be `lines` (a text area, one entry
+per line, stored as the text).
 
 **And the mirror of that: an option `buildLaunch` READS must be declared** (#562). Claude honoured
 `appendSystemPrompt` for months with no field naming it — no settings page offered it, no scope stored
