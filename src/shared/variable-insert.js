@@ -360,6 +360,11 @@ function beatsForBinding(a, b) {
 // is far past any honest template and far below anything that could hurt.
 const MAX_RESOLVED_NODES = 20;
 
+// How long a stored template may be. The editor names the limit before a save and the save reports what it
+// cut, so a longer template is never shortened without a word. It was 2000 until templates grew into
+// multi-line prompts, and that cut prompts off with a success message.
+const MAX_TEMPLATE_CHARS = 50000;
+
 return {
   defaultInsertTemplate,
   effectiveTemplate,
@@ -376,6 +381,7 @@ return {
   scanRefSafety,
   DIR_TOKENS,
   MAX_RESOLVED_NODES,
+  MAX_TEMPLATE_CHARS,
 };
 
 });

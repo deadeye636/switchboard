@@ -521,3 +521,33 @@ test('{clipboard}: a quote on the clipboard is seen by the ref-safety scan, like
   assert.equal(fs.existsSync(path.join(ctx.dir, 'secret-refs')) ? fs.readdirSync(path.join(ctx.dir, 'secret-refs')).length : 0,
     0, 'the refused insert unwound the temp file it had written');
 });
+
+// --- saving a template --------------------------------------------------------
+
+function saveHandler() {
+  const handlers = new Map();
+  variables.registerIpc({ handle: (channel, fn) => handlers.set(channel, fn) });
+  return handlers.get('save-saved-variable');
+}
+
+test('a long template is saved whole up to the limit, and a cut is reported, never silent', (t) => {
+  setup(t);
+  const save = saveHandler();
+  const { MAX_TEMPLATE_CHARS } = require('../src/shared/variable-insert');
+
+  const fits = 'x'.repeat(MAX_TEMPLATE_CHARS);
+  const whole = save(null, { name: 'prompt', value: '', insertTemplate: fits });
+  assert.equal(whole.ok, true);
+  assert.equal(whole.variable.insertTemplate.length, MAX_TEMPLATE_CHARS, 'a template at the limit is not cut');
+  assert.equal(whole.templateCut, undefined, 'nothing cut, nothing reported');
+
+  const cut = save(null, { name: 'prompt', value: '', insertTemplate: fits + 'tail' });
+  assert.equal(cut.ok, true);
+  assert.equal(cut.variable.insertTemplate, fits);
+  assert.deepEqual(cut.templateCut, { kept: MAX_TEMPLATE_CHARS, dropped: 4 });
+});
+
+test('the template limit is far past the old 2000 characters that cut prompts off', () => {
+  const { MAX_TEMPLATE_CHARS } = require('../src/shared/variable-insert');
+  assert.ok(MAX_TEMPLATE_CHARS >= 50000);
+});

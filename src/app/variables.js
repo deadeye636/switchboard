@@ -34,7 +34,7 @@ const { readableError } = require('./readable-error');
 // to compose with the SAME code the insert runs, or it drifts from what it claims to show.
 const {
   shellRefFor, shellQuotePath, sanitizeClipboardText, compose, parseVarRefs, finalTemplateFor,
-  effectiveTemplate, resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES,
+  effectiveTemplate, resolveVarGraph, buildNameIndex, scanRefSafety, MAX_RESOLVED_NODES, MAX_TEMPLATE_CHARS,
 } = require('../shared/variable-insert');
 
 let ctx = null;
@@ -480,6 +480,9 @@ function registerIpc(ipc) {
 
       const secret = !!input.secret;
       const encoded = encryptSavedVariableValue(input.value, secret);
+      // Cut to the limit, and SAY so: the answer carries how much was dropped, and the editor tells the user.
+      const fullTemplate = String(input.insertTemplate || '');
+      const insertTemplate = fullTemplate.slice(0, MAX_TEMPLATE_CHARS);
       const row = ctx.db.saveSavedVariable({
         id: input.id || crypto.randomUUID(),
         name,
@@ -489,11 +492,16 @@ function registerIpc(ipc) {
         scope,
         projectPath,
         tags: normalizeSavedVariableTags(input.tags),
-        insertTemplate: String(input.insertTemplate || '').slice(0, 2000),
+        insertTemplate,
       });
 
       announceVariablesChanged(event);
-      return { ok: true, variable: serializeSavedVariable(row) };
+      const templateCut = fullTemplate.length - insertTemplate.length;
+      return {
+        ok: true,
+        variable: serializeSavedVariable(row),
+        ...(templateCut > 0 ? { templateCut: { kept: insertTemplate.length, dropped: templateCut } } : {}),
+      };
     } catch (err) {
       return failed(err, 'Could not save that variable.');
     }
