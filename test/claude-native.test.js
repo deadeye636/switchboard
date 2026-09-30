@@ -1094,6 +1094,28 @@ test('the permission mode: named by init and by the status line after a change, 
   assert.equal(refused.payload.success, false);
 });
 
+// #730: the mode before the first turn — the launch's when it sent one, else the settings' default, never `auto`
+// from the settings (measured: a model can refuse it and start in `default`).
+test('the mode at the start is the launch\'s, else the settings\' default without auto', () => {
+  const d = native();
+  for (const options of [{}, { permissionMode: 'default' }, { permissionMode: 'plan' }, { permissionMode: 'nonsense' }]) {
+    const args = d.buildLaunch({ sessionId: 's', options }).args;
+    const flag = args.includes('--permission-mode') ? args[args.indexOf('--permission-mode') + 1] : null;
+    assert.equal(d.rpc.launchMode(options), flag, `launchMode agrees with the flag for ${JSON.stringify(options)}`);
+  }
+  assert.equal(d.rpc.launchMode({ restricted: true }), 'default', 'restricted ignores the settings, so no flag means default');
+  assert.equal(d.rpc.launchMode({ restricted: true, permissionMode: 'plan' }), 'plan');
+  assert.deepEqual(protocol.configuredModeCommand('r1'), { type: 'control_request', request_id: 'r1', request: { subtype: 'get_settings' } });
+  const settings = (defaultMode) => protocol.responseOf({ type: 'control_response', response: { subtype: 'success', request_id: 'r1',
+    response: { effective: { permissions: { allow: [], ...(defaultMode ? { defaultMode } : {}) } }, sources: [], applied: {} } } }).payload;
+  assert.equal(protocol.configuredModeFromResponse(settings('plan')), 'plan');
+  assert.equal(protocol.configuredModeFromResponse(settings('acceptEdits')), 'acceptEdits');
+  assert.equal(protocol.configuredModeFromResponse(settings('auto')), null, 'auto waits for the first turn');
+  assert.equal(protocol.configuredModeFromResponse(settings(null)), 'default', 'no default in the settings is the CLI\'s own');
+  assert.equal(protocol.configuredModeFromResponse({ success: true, data: {} }), null, 'an answer without settings says nothing');
+  assert.equal(protocol.configuredModeFromResponse({ success: false, error: 'refused' }), null);
+});
+
 // #725: a card read back from the transcript names its output file — the notification's own, else the one the
 // shell call's result named — so the output still opens after a restart. The core takes the path off.
 test('a notice read back from the transcript names its output file, from the tag or from the call\'s result', () => {

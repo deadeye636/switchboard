@@ -48,11 +48,11 @@ function streamRpc(transcript, extra) {
   };
 }
 
-function streamHarness(t, { lag = false, ignoreEof = false, rpc: extra, timeouts } = {}) {
+function streamHarness(t, { lag = false, ignoreEof = false, rpc: extra, timeouts, options } = {}) {
   const dir = tempDataDir(t);
   const transcript = path.join(dir, 'transcript.jsonl');
   const env = { FAKE_TRANSCRIPT: transcript, FAKE_LAG: lag ? '1' : '', FAKE_IGNORE_EOF: ignoreEof ? '1' : '' };
-  const h = harness({ rpc: streamRpc(transcript, extra), fixture: FIXTURE, env, timeouts });
+  const h = harness({ rpc: streamRpc(transcript, extra), fixture: FIXTURE, env, timeouts, options });
   return { ...h, transcript };
 }
 
@@ -484,6 +484,70 @@ test('a mode outside the declared order goes to the first mode on the next switc
   await until(() => ops(h).some((o) => o.op === 'mode'));
   assert.deepEqual((await agentRpc.cycleMode('launch-id')).mode, info('one'));
   assert.deepEqual(asked, ['one']);
+});
+
+// #730: the mode a session starts in is drawn before the runtime names it — the launch's first, else one the
+// backend can ask for — and never over a mode the runtime has named itself.
+test('the mode at the start comes from the launch, else from the backend\'s ask, and the runtime\'s own wins', async (t) => {
+  const info = (id) => ({ id, label: id, symbol: '', tone: '' });
+  const asked = [];
+  const base = {
+    modeCycle: ['one', 'two'],
+    modeInfo: info,
+    setModeCommand: (id, mode) => ({ type: 'ctl', request_id: id, what: mode }),
+    launchMode: (opts) => opts.permissionMode || null,
+    configuredModeCommand: (id) => { asked.push(id); return { type: 'ctl', request_id: id, what: 'configured' }; },
+    configuredModeFromResponse: (res) => res.data.what,
+  };
+
+  const launched = streamHarness(t, { rpc: base, options: { permissionMode: 'two' } });
+  t.after(() => stopped(launched));
+  // Known before the session is even registered, so no view can hear an op for it: the attach carries it.
+  assert.deepEqual((await agentRpc.attach('launch-id')).mode, info('two'), 'kept for the view that mounts');
+  assert.equal(asked.length, 0, 'a mode the launch set is not asked for');
+  assert.deepEqual((await agentRpc.cycleMode('launch-id')).mode, info('one'), 'the switch walks on from the launched mode');
+  await stopped(launched);
+
+  const configured = streamHarness(t, { rpc: base });
+  t.after(() => stopped(configured));
+  await until(() => ops(configured).some((o) => o.op === 'mode'));
+  assert.deepEqual(ops(configured).find((o) => o.op === 'mode').mode, info('configured'));
+  await stopped(configured);
+
+  const named = streamHarness(t, { rpc: {
+    ...base,
+    createDecoder: () => ({ decode: () => [], currentPartial: () => null }),
+    configuredModeCommand: (id) => ({ type: 'ctl', request_id: id, what: 'late' }),
+    configuredModeFromResponse: () => {
+      // The runtime names its mode while the ask is out: the answer arriving after it is dropped.
+      named.proc._agent.mode = info('runtime');
+      return 'late';
+    },
+  } });
+  t.after(() => stopped(named));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!ops(named).some((o) => o.op === 'mode'), 'no mode drawn over the one the runtime named');
+  assert.deepEqual(named.proc._agent.mode, info('runtime'));
+  await stopped(named);
+
+  // A switch the user made while the ask was out sets the same `state.mode` the runtime's own op does, so the
+  // case above covers it. One that arrives after the session ended draws nothing.
+  const ended = streamHarness(t, { rpc: {
+    ...base,
+    createDecoder: () => ({ decode: () => [], currentPartial: () => null }),
+    configuredModeCommand: (id) => ({ type: 'ctl', request_id: id, what: 'late' }),
+    configuredModeFromResponse: () => { ended.proc._agent.exited = true; return 'late'; },
+  } });
+  t.after(() => stopped(ended));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!ops(ended).some((o) => o.op === 'mode'), 'no mode for a session that has exited');
+  ended.proc._agent.exited = false;
+  await stopped(ended);
+
+  const none = streamHarness(t, { rpc: { ...base, launchMode: () => null, configuredModeFromResponse: () => null } });
+  t.after(() => stopped(none));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!ops(none).some((o) => o.op === 'mode'), 'nothing known, nothing drawn');
 });
 
 // #725: a task notice names its output file to the CORE. The view gets `hasOutput` and never the path, and the

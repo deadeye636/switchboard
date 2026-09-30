@@ -896,6 +896,21 @@ function modeInfo(mode) {
 }
 const setModeCommand = (id, mode) => control(id, { subtype: 'set_permission_mode', mode: String(mode) });
 
+// The mode a session starts in, before its first `system/init` names it (#730), measured on 2.1.286: no request
+// names the running mode. `get_settings` answers `effective.permissions.defaultMode`, the mode the settings
+// files name, which is blind to `--permission-mode` (asked only when none was sent) and to a mode the model
+// refuses: `auto` from the settings started a Haiku session in `default`. So `auto` is not taken from here and
+// waits for the first turn to name it; any other configured mode was the mode the turn ran in. Settings that
+// name no default leave the CLI's own, `default`.
+const configuredModeCommand = (id) => control(id, { subtype: 'get_settings' });
+function configuredModeFromResponse(response) {
+  const d = response && response.success !== false && response.data && typeof response.data === 'object' ? response.data : null;
+  if (!d || !d.effective || typeof d.effective !== 'object') return null;
+  const perms = d.effective.permissions;
+  const mode = perms && typeof perms.defaultMode === 'string' && perms.defaultMode ? perms.defaultMode : 'default';
+  return mode !== 'auto' ? mode : null;
+}
+
 // `claude-opus-5-5`, `claude-haiku-4-5-20251001`, `claude-opus-5-5[1m]` → `Opus 5.5`, `Haiku 4.5`. An id of
 // another shape is shown as it is.
 function modelLabel(model) {
@@ -1232,6 +1247,8 @@ module.exports = {
   setModeCommand,
   modeInfo,
   MODE_CYCLE,
+  configuredModeCommand,
+  configuredModeFromResponse,
   commandsCommand,
   commandsFromResponse,
   appCommandOp,

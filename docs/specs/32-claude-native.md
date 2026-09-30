@@ -701,6 +701,17 @@ Measured again on 2.1.286 for #730, with control requests only and no turn befor
 So no request names the mode the session is in. The launch flag, when one is sent, is the answer; without
 one, `get_settings` names the configured default, which holds unless the model refuses it.
 
+**What the line shows at the start since #730.** The launch's mode when `--permission-mode` was sent
+(`launchMode`, the same condition `buildLaunch` applies), and `default` for a `--restricted` launch without
+one, since restricted mode ignores the settings files. Otherwise the settings' `defaultMode` from
+`get_settings`, `default` when they name none, except `auto`, which is the one a model can refuse and
+therefore waits for the first `system/init`. The first `system/init` or `system/status` still has the last
+word. So the known gap above narrows to `auto` from the settings, where the line stays empty until the first
+turn and the first Shift+Tab still counts the session as `default`. Two cases are drawn without having been
+measured, and the first `system/init` corrects either if it is wrong: a launch flag naming a mode the model or
+a policy refuses (only the settings' `auto` on Haiku was measured), and a `--restricted` launch, taken as
+`default` because the option's description says restricted mode ignores the settings files.
+
 ## Prompt suggestions (#693)
 
 The view shows a suggestion as the empty input's placeholder, greyed and in italics with "Tab to use it";

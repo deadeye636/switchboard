@@ -1225,6 +1225,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           env: ptyEnv,
           label: backend.label || backend.id,
           forkFrom: sessionOptions?.forkFrom || null,
+          // The options `buildLaunch` was handed, for a mode the launch set before the runtime names one (#730).
+          options: sessionOptions || {},
         });
       } else if (useArgvSpawn) {
         // ARGV mode: spawn the binary directly, no shell in between, so nothing re-interprets the

@@ -181,7 +181,7 @@ function announceBackground(state) {
  * backend's transcript read, see `attachFromTranscript`). Answers the PTY-shaped process spawn.js stores as
  * `session.pty`. Throws if the child cannot be started, so spawn.js's own catch releases what it allocated.
  */
-function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom }) {
+function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, options }) {
   if (!ctx) throw new Error('agent-rpc is not initialised');
   if (!rpc || typeof rpc.createDecoder !== 'function' || typeof rpc.responseOf !== 'function') {
     throw new Error('this backend declares no protocol');
@@ -392,6 +392,26 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
     sendOp(state, { op: 'context', context });
   }
   state.followContext = followContext;
+
+  // The mode a session starts in, before the runtime names one (#730). A runtime may name its mode only with its
+  // first turn, and until then the line showed none. The backend answers from what it knows: the mode its launch
+  // set (`launchMode(options)`, the options `buildLaunch` was handed), else one it can ask for
+  // (`configuredModeCommand` + `configuredModeFromResponse`), each answering a mode id or null. Whatever the
+  // runtime itself names wins: an answer that arrives after a `mode` op is dropped.
+  async function followStartMode() {
+    if (typeof rpc.modeInfo !== 'function') return;
+    let id = null;
+    try { id = typeof rpc.launchMode === 'function' ? rpc.launchMode(options || {}) : null; } catch { id = null; }
+    if (!id && typeof rpc.configuredModeCommand === 'function' && typeof rpc.configuredModeFromResponse === 'function') {
+      const res = await request(rpc.configuredModeCommand);
+      try { id = res && res.success !== false ? rpc.configuredModeFromResponse(res) : null; } catch { id = null; }
+    }
+    if (!id || state.mode || state.exited) return;
+    const mode = rpc.modeInfo(id);
+    if (!mode) return;
+    state.mode = mode;
+    sendOp(state, { op: 'mode', mode });
+  }
 
   // One ask of the fill, CONTEXT_FOLLOW_MS after the entry that scheduled it, while a turn runs. Only for a
   // runtime measured to answer mid-turn: one that queues the request behind the turn would answer it at the
@@ -966,6 +986,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom })
 
   followIdentity();
   followContext();
+  followStartMode();
 
   return {
     pid: child.pid,

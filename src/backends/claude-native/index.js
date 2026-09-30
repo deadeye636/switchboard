@@ -98,6 +98,17 @@ function probe({ launch = false } = {}) {
   });
 }
 
+// The mode the launch decides, or null when the settings do (#730). The flag's condition is the one in
+// `buildLaunch`, so the session line can never name a mode the launch did not ask for. A `--restricted` launch
+// without the flag starts in `default`, because restricted mode ignores the settings files that could name another
+// (the option's own description says so; not measured for #730), so the settings are not asked about a default
+// that does not apply.
+function launchMode(options) {
+  const mode = options && options.permissionMode;
+  if (mode && mode !== 'default' && PERMISSION_MODES.includes(mode)) return String(mode);
+  return options && options.restricted ? 'default' : null;
+}
+
 /**
  * The launch: print mode with stream-json on both sides. Each flag is here for a measured reason:
  *   `--verbose`                   stream-json output refuses to run without it
@@ -241,6 +252,11 @@ module.exports = {
     modeCycle: protocol.MODE_CYCLE,
     setModeCommand: protocol.setModeCommand,
     modeInfo: protocol.modeInfo,
+    // The mode before the first turn names it (#730): the launch option when `buildLaunch` sent it, else the
+    // settings' default, asked over the pipe.
+    launchMode,
+    configuredModeCommand: protocol.configuredModeCommand,
+    configuredModeFromResponse: protocol.configuredModeFromResponse,
     commandsCommand: protocol.commandsCommand,
     commandsFromResponse: protocol.commandsFromResponse,
     // A bare `/mcp` is answered by the app, from `mcp_status`, and never written as a turn (#719); the view

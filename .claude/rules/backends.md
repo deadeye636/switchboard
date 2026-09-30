@@ -527,6 +527,12 @@ answers instead of the core learning its format:
   SKIPS a mode the runtime refuses, so what the session can enter is the runtime's answer. The decoder names the
   current mode as a `mode` op (`modeInfo`'s `{ id, label, symbol, tone }`), which the core keeps for a later
   attach. The switch is the session's; nothing writes the backend's stored option. pi-native declares none.
+  **The mode before the runtime names one** (#730) is two more optional answers: `launchMode(options)` — the
+  mode `buildLaunch` put on the command line for those options, or `null` — and `configuredModeCommand` +
+  `configuredModeFromResponse` (a pair), asked only when the launch named none. Each answers a mode id; the
+  core draws it through `modeInfo` and drops it once a mode is known otherwise — named by the runtime or
+  switched by the user. A backend answers `null` where its answer would be a guess (claude-native for `auto`
+  from the settings, which a model can refuse), and the line then stays empty.
 - `stopTaskCommand(id, taskId)` — optional (#691). Stops ONE background task and leaves the turn alone; a
   half without it offers no Stop in the Background list. The running list itself is a `tasks` op the decoder
   sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, subagentId, startedAt }` — `subagentId` is
