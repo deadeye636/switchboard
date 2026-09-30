@@ -526,7 +526,11 @@ What the view draws from it, since #691:
   id. Until the scan has listed the row, Open scrolls to the call that started the agent, as it did before,
   and says so.
 - **A subagent's report (#701)** is an `agent-report` entry: "Agent report" and the sender above the report,
-  rendered like a reply, with Open when the line names the sender's task. Claude injects the report as a user
+  with Open when the line names the sender's task. **It is drawn as a card of its own and always closed
+  (#729)**: one line with what it is and who sent it, no preview, opened in place by a click or Enter/Space
+  on that line. #701 first drew it open in the reply's style, and in a conversation it read as the main
+  session answering. The tool-output setting (#687) does not govern it, and a search hit inside a closed
+  report opens it. Claude injects the report as a user
   line with `origin: { kind: 'peer', from, senderTaskId, body, handback }` — measured over the transcripts of
   2.1.261–2.1.283, some 700 lines, all this shape, `handback` since 2.1.267. Its text is the same report
   wrapped for the model ("Another Claude session sent a message:", an `<agent-message from="…">` block and a

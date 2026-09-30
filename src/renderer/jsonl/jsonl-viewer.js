@@ -893,14 +893,16 @@ function renderJsonlEntry(entry, toolResultMap) {
     return div;
   }
 
-  // --- a subagent's report, or another session's message (#701) ---
+  // --- a subagent's report, or another session's message (#701, #729) ---
   // Backend-neutral like the notice above: the backend hands `{ type: 'agent-report', _report }` with the
-  // report already out of its wrapping. Drawn as a reply, because it is one, under a line that says who sent
-  // it — never as a message the user typed. Its Open button is the notice's, answered the same two ways.
+  // report already out of its wrapping. Drawn as a card of its own, ALWAYS closed to one line saying what it is
+  // and who sent it (#729): drawn open in the reply's style, it read as the main session answering. The line
+  // opens it in place, by mouse or by Enter/Space. It keeps `jsonl-assistant` for the history search, which
+  // opens a closed card around a hit. Its Open button is the notice's, answered the same two ways.
   if (entry.type === 'agent-report' && entry._report) {
     const r = entry._report;
     const div = document.createElement('div');
-    div.className = 'jsonl-entry jsonl-assistant agent-report';
+    div.className = 'jsonl-entry jsonl-assistant agent-report' + (r.text ? ' agent-report-closed' : '');
     const head = document.createElement('div');
     head.className = 'agent-report-head';
     const label = document.createElement('span');
@@ -928,9 +930,27 @@ function renderJsonlEntry(entry, toolResultMap) {
     div.appendChild(head);
     if (r.text) {
       const textEl = document.createElement('div');
-      textEl.className = 'jsonl-text';
+      textEl.className = 'jsonl-text agent-report-text';
       textEl.innerHTML = renderJsonlText(r.text);
       div.appendChild(textEl);
+      head.classList.add('agent-report-toggle');
+      head.tabIndex = 0;
+      head.setAttribute('role', 'button');
+      head.setAttribute('aria-expanded', 'false');
+      head.title = 'Show or hide the report';
+      const toggle = () => {
+        const open = div.classList.toggle('agent-report-closed') === false;
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+      head.addEventListener('click', (e) => {
+        if (e.target.closest('a, button')) return;
+        toggle();
+      });
+      head.addEventListener('keydown', (e) => {
+        if (e.target !== head || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        toggle();
+      });
     }
     return div;
   }

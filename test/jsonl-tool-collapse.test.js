@@ -134,3 +134,31 @@ test('a server-list entry draws a row per server, toned by its state (#719)', ()
   const empty = vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'server-list', _servers: { title: 'MCP servers', rows: [] } })}, new Map())`, h.ctx);
   assert.match(empty.textContent, /No servers are configured/);
 });
+
+test('a subagent report is always drawn closed to its sender line, and opens by mouse or key (#729)', () => {
+  // expandToolOutput ON must not open it: a report is always closed, whatever the tool setting says.
+  const h = setup({ expandToolOutput: true });
+  const report = { kind: 'report', from: 'af71f04c3392acfe6', text: 'All **done**.', subagentId: 'af71f04c3392acfe6' };
+  const el = vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'agent-report', _report: report })}, new Map())`, h.ctx);
+  const head = el.querySelector(':scope > .agent-report-head');
+  assert.ok(el.classList.contains('agent-report-closed'));
+  assert.equal(head.getAttribute('aria-expanded'), 'false');
+  assert.equal(head.getAttribute('role'), 'button');
+  assert.equal(head.tabIndex, 0);
+  assert.match(head.textContent, /^Agent report af71f04c3392acfe6/);
+  assert.doesNotMatch(head.textContent, /done/, 'the closed line names the sender only, no preview');
+  head.dispatchEvent(new h.w.MouseEvent('click', { bubbles: true }));
+  assert.ok(!el.classList.contains('agent-report-closed'));
+  assert.equal(head.getAttribute('aria-expanded'), 'true');
+  head.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  assert.ok(el.classList.contains('agent-report-closed'));
+  head.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+  assert.ok(!el.classList.contains('agent-report-closed'));
+  // The Open button keeps its own click and does not fold the card.
+  el.querySelector('.task-notice-open').dispatchEvent(new h.w.MouseEvent('click', { bubbles: true }));
+  assert.ok(!el.classList.contains('agent-report-closed'));
+  // Nothing to fold without a text: no toggle is offered.
+  const bare = vm.runInContext(`renderJsonlEntry(${JSON.stringify({ type: 'agent-report', _report: { kind: 'session', from: 'x' } })}, new Map())`, h.ctx);
+  assert.ok(!bare.classList.contains('agent-report-closed'));
+  assert.equal(bare.querySelector('.agent-report-toggle'), null);
+});

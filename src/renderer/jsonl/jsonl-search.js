@@ -109,6 +109,13 @@
     // the user asked to see it.
     const closed = mark.closest('.jsonl-tool-collapsed');
     if (closed) closed.classList.remove('jsonl-tool-collapsed');
+    // The same for a subagent's report, which is always drawn closed (#729).
+    const report = mark.closest('.agent-report-closed');
+    if (report) {
+      report.classList.remove('agent-report-closed');
+      const head = report.querySelector(':scope > .agent-report-head');
+      if (head) head.setAttribute('aria-expanded', 'true');
+    }
     // Scroll within the body only (mirrors scrollToJsonlEntry rationale).
     const bodyRect = body.getBoundingClientRect();
     const markRect = mark.getBoundingClientRect();

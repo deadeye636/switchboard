@@ -3265,7 +3265,8 @@ html body .terminal-container.conversation-container:not(.visible) {
 .task-notice-meta { color: #7a7a90; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; margin-left: auto; white-space: nowrap; }
 .task-notice-output { background: none; border: none; padding: 0; color: #7c8cff; font: inherit; font-size: 11px; cursor: pointer; }
 .task-notice-output:hover { text-decoration: underline; }
-/* A subagent's report (#701): a reply with a line above it saying who sent it. */
+/* A subagent's report (#701, #729): a card of its own, not the main session's reply, closed to the line saying
+   who sent it. The line opens it; the caret says which way it stands. */
 .agent-report-head {
   display: flex;
   align-items: baseline;
@@ -3275,6 +3276,19 @@ html body .terminal-container.conversation-container:not(.visible) {
   border-bottom: 1px solid rgba(124,140,255,0.18);
   font-size: 12px;
 }
+.jsonl-entry.agent-report {
+  margin: 8px 0; padding: 6px 10px; border-radius: 6px;
+  background: rgba(124,140,255,0.05); border: 1px solid rgba(124,140,255,0.2);
+}
+.agent-report-toggle { cursor: pointer; user-select: none; border-radius: 4px; }
+.agent-report-toggle:focus-visible { outline: 1px solid #7c8cff; outline-offset: 2px; }
+.agent-report-toggle::before {
+  content: '\25B6'; font-size: 8px; color: #7c8cff; display: inline-block; transform: rotate(90deg);
+  transition: transform 0.15s; align-self: center;
+}
+.agent-report-closed .agent-report-toggle::before { transform: none; }
+.agent-report-closed > .agent-report-head { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.agent-report-closed > .agent-report-text { display: none; }
 /* A task's output, opened inside its card (#725): the row wraps and the text takes a line of its own. */
 .task-notice.output-open { flex-wrap: wrap; }
 .task-notice-text { flex: 1 0 100%; margin: 2px 0 0; max-height: 260px; overflow: auto; }
