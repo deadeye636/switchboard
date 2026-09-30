@@ -688,6 +688,19 @@ expected — and one launched in `plan` goes to accept edits on that first press
 gone on to the next mode after plan. A mode outside the cycle (`dontAsk`, which only a launch sets) goes to
 `default` on the next press.
 
+Measured again on 2.1.286 for #730, with control requests only and no turn before the check:
+
+- **`initialize`** answers the commands, models and account, and no mode.
+- **`get_permission_mode`** does not exist (`Unsupported control request subtype`).
+- **`get_settings`** answers `effective.permissions.defaultMode`: the mode the SETTINGS name, merged across
+  user, project and local files. It does not see `--permission-mode` (launched with `acceptEdits`, it still
+  said the settings' `auto`), and it does not see what the model allows: with `auto` in the user settings
+  and no flag, the first `system/init` said `default` on Haiku and `auto` on the default model. A local
+  settings file naming `plan` came back as `plan`, and the turn ran in `plan`.
+
+So no request names the mode the session is in. The launch flag, when one is sent, is the answer; without
+one, `get_settings` names the configured default, which holds unless the model refuses it.
+
 ## Prompt suggestions (#693)
 
 The view shows a suggestion as the empty input's placeholder, greyed and in italics with "Tab to use it";

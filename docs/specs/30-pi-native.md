@@ -463,6 +463,17 @@ so the notice goes out before the call and nothing is said after it. Two consequ
 instance — the resources were reloaded, so asking again is the honest answer — and the app's `/` list is
 briefly stale, which the composer's own reuse window heals without anyone telling it.
 
+`/reload` is not the only move that forgets them (measured on Pi 0.85.1 for #731). A `new_session` ends the
+old instance with `session_shutdown`, loads the extension again and starts the new one with
+`session_start { reason: "new" }`; Pi's extension docs say the same for a resume and a fork. So "Allow for
+this session" means "for this extension instance": it is gone after `/new`, `/resume`, `/fork` and
+`/reload` inside one process, as well as after a respawn. The same measurement settled a question about the
+gate itself: the `tool_call` handlers of one batch run ONE AFTER ANOTHER. Three parallel `bash` calls, with a
+handler that waited two seconds each, started their handlers at 0, 2 and 4 seconds and only then ran the
+three commands together. The docs call this the sequential preflight. A question answered "for this
+session" is therefore already in the set when the next sibling's handler looks, and a batch never asks
+twice for one key.
+
 ### A `!` line is not a command (#643)
 
 In Pi's terminal interface `!ls` runs a shell line and puts its output into the conversation. Over RPC
