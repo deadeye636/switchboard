@@ -332,6 +332,32 @@
            data-opt-default="${esc(field.default === undefined || field.default === null ? '' : String(field.default))}" hidden>${notes}</div>`;
   }
 
+  // An option that means nothing while another is off (`requires`, #731: the approval rules without the approval
+  // gate) is greyed out while it is off, with a line saying why, and stays editable — somebody may prepare the rules
+  // before switching the gate on. The row carries the required option and its declared default, for the same
+  // reason `withheldShell` does: the stored blob holds only what somebody set.
+  function requiresAttrs(backend, field) {
+    if (!field || !field.requires || backend.isProfile) return '';
+    const req = (Array.isArray(backend.configFields) ? backend.configFields : []).find(f => f.id === field.requires);
+    if (!req) return '';
+    return ` data-requires-backend="${esc(backend.id)}" data-requires="${esc(req.id)}" data-requires-default="${req.default === true ? '1' : ''}"`;
+  }
+  function requiresNote(backend, field) {
+    if (!requiresAttrs(backend, field)) return '';
+    const req = backend.configFields.find(f => f.id === field.requires);
+    return `<div class="settings-hint backend-requires-note" hidden>${esc(`No effect while “${req.label || req.id}” is off.`)}</div>`;
+  }
+  function refreshRequires(root, backendId, optionsFor) {
+    const options = (typeof optionsFor === 'function' && optionsFor(backendId)) || {};
+    root.querySelectorAll(`.settings-field[data-requires-backend="${CSS.escape(backendId)}"]`).forEach(row => {
+      const set = options[row.dataset.requires];
+      const on = set === undefined ? row.dataset.requiresDefault === '1' : set === true;
+      row.classList.toggle('settings-field-inactive', !on);
+      const note = row.querySelector('.backend-requires-note');
+      if (note) note.hidden = on;
+    });
+  }
+
   // A field is IN EFFECT when somebody chose something: `''`, `false`, `null` and `undefined` are all
   // "nothing chosen" here. A note about what a field does not deliver would read as a complaint about a
   // field nobody set.
@@ -444,8 +470,11 @@
     // them with it. One `change` listener for both, because the two guard conditions are the same one.
     const withheld = root.querySelectorAll('.backend-withheld');
     withheld.forEach(box => refreshWithheld(root, box.dataset.withheldBackend, optionsFor));
+    // An option that needs another one on (#731) follows it the same way, on the same listener.
+    const needing = root.querySelectorAll('.settings-field[data-requires-backend]');
+    new Set([...needing].map(r => r.dataset.requiresBackend)).forEach(bid => refreshRequires(root, bid, optionsFor));
     const previews = root.querySelectorAll('details.backend-source-preview');
-    if (!withheld.length && !previews.length) return;
+    if (!withheld.length && !previews.length && !needing.length) return;
     previews.forEach(d => {
       d.addEventListener('toggle', () => {
         if (!d.open || d.dataset.loaded === '1') return;
@@ -458,6 +487,7 @@
       const bid = t && t.dataset && t.dataset.backend;
       if (!bid || !t.classList || !(t.classList.contains('backend-default-input') || t.classList.contains('backend-inherit-cb'))) return;
       if (withheld.length) refreshWithheld(root, bid, optionsFor);
+      if (needing.length) refreshRequires(root, bid, optionsFor);
       root.querySelectorAll(`details.backend-source-preview[data-preview-backend="${CSS.escape(bid)}"]`).forEach(d => {
         // A closed one is re-read when it opens again, not on every change while nobody looks at it.
         if (d.open && d.dataset.loaded === '1') loadSourcePreview(d, projectPath, optionsFor);
@@ -573,7 +603,7 @@
       const value = overridden ? own[f.id]
         : (inherited[f.id] !== undefined ? inherited[f.id] : f.default);
       return `
-        <div class="settings-field">
+        <div class="settings-field"${requiresAttrs(backend, f)}>
           <div class="settings-field-info">
             <div class="settings-field-header">
               <span class="settings-label">${esc(f.label || f.id)}</span>
@@ -583,6 +613,7 @@
               </label>
             </div>
             <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session in this project without opening its configure dialog.`)}</div>
+            ${requiresNote(backend, f)}
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, !overridden)}</div>
         </div>${withheldShell(backend, f)}${sourcePreviewShell(backend, f)}`;
@@ -652,7 +683,7 @@
       const set = stored[f.id] !== undefined;              // undefined = not set; '' / false ARE set
       const value = set ? stored[f.id] : f.default;
       return `
-        <div class="settings-field">
+        <div class="settings-field"${disabled ? '' : requiresAttrs(backend, f)}>
           <div class="settings-field-info">
             <div class="settings-field-header">
               <span class="settings-label">${esc(f.label || f.id)}</span>
@@ -664,6 +695,7 @@
             </div>
             <div class="settings-description">${esc(f.description || `Used when you start a ${backend.label} session without opening its configure dialog.`)}</div>
             ${f.more ? `<div class="settings-more">${esc(f.more)}</div>` : ''}
+            ${disabled ? '' : requiresNote(backend, f)}
           </div>
           <div class="settings-field-control">${configFieldControl(backend.id, f, value, disabled || !set)}</div>
         </div>${disabled ? '' : withheldShell(backend, f) + sourcePreviewShell(backend, f)}`;

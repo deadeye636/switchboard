@@ -646,7 +646,9 @@ wildcard: a call whose command line itself ends in `*` is offered no project all
 every project without one of its own, and the card's first rule in a project copies the global ones into it,
 after which later global edits no longer reach that project. Read by the app at every question (`appliesAt: 'runtime'`),
 so an edit reaches a running session at its next question; it has no per-session value and is not in the
-Configure dialogs or the template editor (`perSession: false`). Only meaningful while `approvalGate` is on.
+Configure dialogs or the template editor (`perSession: false`). Only meaningful while `approvalGate` is on,
+and the settings screen greys it out with a line saying so while the gate is off; it stays editable. Every
+option that declares `requires` is drawn that way, on both scopes.
 
 **`afkTimeoutSec` switches auto-continue ON, and used to switch it off.** It was added when the CLI
 answered its own `AskUserQuestion` dialog after 60 seconds; the field's `0` sent a sentinel meaning

@@ -551,7 +551,9 @@
             const vis = Array.from(d.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
             d.style.display = vis ? '' : 'none';
           });
-          const hint = cat.querySelector('.settings-hint');
+          // The CATEGORY's own hint, not one that belongs to a field or to a field's withheld lines (#731): a
+          // "No effect while … is off" line under a matching field must stay visible during a search.
+          const hint = [...cat.querySelectorAll('.settings-hint')].find(h => !h.closest('.settings-field, .backend-withheld'));
           if (hint) hint.style.display = 'none';
         });
         if (noResults) noResults.style.display = any ? 'none' : 'block';

@@ -6652,6 +6652,13 @@ mark.jsonl-search-hit-active {
   transition: all 0.2s;
 }
 
+/* An option that means nothing while the one it needs is off (#731): greyed, still editable, with a line why. */
+.settings-field.settings-field-inactive .settings-field-control,
+.settings-field.settings-field-inactive .settings-label,
+.settings-field.settings-field-inactive .settings-description {
+  opacity: 0.45;
+}
+
 /* One entry per line (#731): a project's approval rules. Monospace, because an entry is often a command line. */
 .settings-input.settings-input-lines {
   min-width: 280px;
