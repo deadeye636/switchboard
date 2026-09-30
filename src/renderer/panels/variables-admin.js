@@ -15,7 +15,7 @@
 // the full list has no one right answer. A SCOPE filter keeps them, because a moved row lands directly
 // before or after the row it was dropped on and every hidden row keeps its place (lib/variable-order.js).
 //
-// Depends on globals: escapeHtml (utils.js), showControlToast / showControlDialog (control-dialogs.js),
+// Depends on globals: escapeHtml (utils.js), showControlToast / showControlDialog / showControlMessage (control-dialogs.js),
 // moveVariableInOrder / stepVariableInOrder / variableIdsByName / orderVariableRows / sameVariableOrder
 // (lib/variable-order.js), window.api (preload) — reorderSavedVariables among them.
 
@@ -32,6 +32,7 @@
   let dragId = null;      // the row in flight during a drag
   let armedRow = null;    // the row whose grip the pointer is down on — the only row that may start a drag
   let undoToast = null;   // the "sorted by name — Undo" toast while it is on screen
+  let previewOpen = false; // the editor's preview fold — closed by default, kept while the app runs
 
   function shortName(p) {
     return String(p || '').split(/[\\/]/).filter(Boolean).slice(-2).join('/') || p || '';
@@ -317,9 +318,9 @@
           </div>
           <label class="va-field"><span>Tags</span>
             <input type="text" class="settings-input" id="va-f-tags" value="${escapeHtml(form.tags)}" placeholder="comma,separated" autocomplete="off" spellcheck="false"></label>
-          <div class="va-field">
+          <div class="va-field va-template-field">
             <div class="va-template-head">
-              <span>Insert template</span>
+              <span title="What an insert puts into the terminal">Template</span>
               <div class="va-chips">
                 <button type="button" class="va-chip" data-tok="{value}" title="Insert the raw value inline">{value}</button>
                 <button type="button" class="va-chip" data-tok="{path}" title="Path of a temp file holding the value — quote this one">{path}</button>
@@ -343,7 +344,7 @@
             <textarea class="settings-input va-template-input" id="va-f-template" rows="6" autocomplete="off" spellcheck="false">${escapeHtml(form.insertTemplate)}</textarea>
           </div>
           <div class="va-preview-head">
-            <span>Preview</span>
+            <button type="button" class="va-chip va-chip-var" id="va-f-preview-toggle" aria-controls="va-f-preview"></button>
             <div class="va-shell-toggle" id="va-f-shell">
               <button type="button" class="va-chip" data-shell="bash">bash</button>
               <button type="button" class="va-chip" data-shell="pwsh">pwsh</button>
@@ -509,6 +510,7 @@
     const notesEl = overlay.querySelector('#va-f-notes');
     const flagsEl = overlay.querySelector('#va-f-flags');
     const shellToggle = overlay.querySelector('#va-f-shell');
+    const previewToggle = overlay.querySelector('#va-f-preview-toggle');
 
     shellToggle.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-shell]');
@@ -516,6 +518,36 @@
       previewShell = btn.dataset.shell;
       renderPreview();
     });
+
+    // The preview is folded away by default so the template gets the room; the notes that say the insert
+    // will FAIL or misbehave stay visible either way, because the preview is where the quoting rule is
+    // enforced (spec 12) and a fold must not hide a refusal. Only the explanations fold with it.
+    function applyPreviewOpen() {
+      previewToggle.textContent = previewOpen ? 'Hide preview' : 'Show preview';
+      previewToggle.setAttribute('aria-expanded', String(previewOpen));
+      previewEl.hidden = !previewOpen;
+      shellToggle.hidden = !previewOpen;
+    }
+    previewToggle.addEventListener('click', () => {
+      previewOpen = !previewOpen;
+      applyPreviewOpen();
+      renderPreview();
+    });
+    applyPreviewOpen();
+
+    function paintNotes(notes) {
+      const shown = previewOpen ? notes : notes.filter(([tone]) => tone === 'error' || tone === 'warn');
+      notesEl.innerHTML = shown.map(([tone, text]) => `<div class="va-note va-note-${tone}">${escapeHtml(text)}</div>`).join('');
+    }
+
+    // Past the limit the save keeps only the start. Said here before the save, and by the save afterwards.
+    function lengthNote() {
+      const len = templateInput.value.length;
+      const max = VI.MAX_TEMPLATE_CHARS;
+      if (len > max) return ['error', `The template is ${len.toLocaleString()} characters — only the first ${max.toLocaleString()} are saved.`];
+      if (len > max * 0.9) return ['warn', `${len.toLocaleString()} of ${max.toLocaleString()} characters.`];
+      return null;
+    }
 
     // The rows this template may reference, and the same name→id binding the resolver applies.
     function applicableRows() {
@@ -532,6 +564,8 @@
         : 'Default: {value} — inserts the raw value';
 
       const notes = [];
+      const tooLong = lengthNote();
+      if (tooLong) notes.push(tooLong);
       const rows = applicableRows();
       const nameIndex = VI.buildNameIndex(rows);
       // The row being edited is the graph's root, under a synthetic id: it may be brand new, and its
@@ -548,7 +582,8 @@
       if (graph.cycle) {
         previewEl.innerHTML = '<span class="va-preview-empty">(cannot resolve)</span>';
         flagsEl.innerHTML = '';
-        notesEl.innerHTML = `<div class="va-note va-note-error">${escapeHtml(`Variables reference each other in a loop: ${graph.cycle.join(' → ')}. The insert will refuse this.`)}</div>`;
+        notes.push(['error', `Variables reference each other in a loop: ${graph.cycle.join(' → ')}. The insert will refuse this.`]);
+        paintNotes(notes);
         return;
       }
       if (graph.order.length > VI.MAX_RESOLVED_NODES) {
@@ -649,7 +684,7 @@
 
       previewEl.innerHTML = highlightRefs(own.text, own.refOffsets, unsafe);
       flagsEl.innerHTML = touchesSecret ? '<span class="va-secret-pill" title="This insert reads secret temp files.">Secret</span>' : '';
-      notesEl.innerHTML = notes.map(([tone, text]) => `<div class="va-note va-note-${tone}">${escapeHtml(text)}</div>`).join('');
+      paintNotes(notes);
     }
 
     // Render the composed string verbatim, marking each ref so "one complete shell word" is visible rather
@@ -743,6 +778,14 @@
         return;
       }
       close();
+      if (res.templateCut) {
+        const { kept, dropped } = res.templateCut;
+        showControlMessage({
+          title: 'Template shortened',
+          message: `The variable was saved, but its template was too long. Only the first ${kept.toLocaleString()} characters were kept; the last ${dropped.toLocaleString()} were not saved.`,
+          tone: 'warning',
+        });
+      }
       opts.onSaved?.();  // e.g. the session quick-pick re-opens itself so the new variable shows at once
       load();
     });

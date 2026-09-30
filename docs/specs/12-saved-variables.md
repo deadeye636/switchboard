@@ -321,6 +321,17 @@ the insert fails on — and renders the result as a sentence with the rule insid
 `-p'"$(cat …)"'` as wrong; it looks impressively shell-like, which is worse than opaque. Rules users must not
 violate belong to machines, not to memory.
 
+**The preview is folded away by default, and the refusals are not.** The dialog keeps one height and the
+template field takes the room the other fields leave, so a folded preview hands its space to the template.
+Folding hides the rendered string, the shell switch and the explanatory notes; every note that says the
+insert will refuse or misbehave (tone `error` or `warn`) stays under the field either way, because the rule
+above is only enforced if it is visible without a click. The fold is remembered while the app runs.
+
+**A template is capped at `MAX_TEMPLATE_CHARS` (`src/shared/variable-insert.js`), and a cut is never silent.**
+The save keeps the start, and its answer carries `templateCut: { kept, dropped }`, which the editor turns into
+a message. The editor names the limit before the save as well, from the same constant. The cap used to be
+2000 and was applied with a plain `ok: true`, which cut multi-line prompts off with a success message.
+
 **The empty state is the centre of gravity.** Most users should never type a template: the placeholder states
 the current default in words and flips with the Secret toggle, and the preview shows what the default
 produces. They never meet the language.

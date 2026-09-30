@@ -11014,16 +11014,27 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   gap: 14px;
 }
 .va-field { display: flex; flex-direction: column; gap: 5px; }
-.va-field > span, .va-secret-toggle > span {
+.va-field > span, .va-secret-toggle > span, .va-template-head > span {
   font-size: 12px;
   color: #9a9ab0;
 }
 .va-value-wrap { position: relative; }
 .va-value-input { width: 100%; min-height: 64px; resize: vertical; font-family: inherit; }
 .va-value-input.secret-masked { -webkit-text-security: disc; }
-/* A template is as often a multi-line prompt as it is a one-line shell fragment, so the field starts at six
-   rows. The floor is doubled with it — dragging the handle to the old 36px hid all but one line. */
-.va-template-input { width: 100%; min-height: 72px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+/* A template is as often a multi-line prompt as it is a one-line shell fragment. The dialog keeps one height
+   and the template field takes whatever the other fields leave — the folded preview's room included — so
+   there is no resize handle to drag. The floor keeps six lines when the preview is open in a short window;
+   below that the body scrolls. */
+.va-dialog { height: min(780px, calc(100vh - 64px)); }
+.va-dialog-body { flex: 1 1 auto; min-height: 0; }
+.va-template-field { flex: 1 1 0; }
+.va-template-input {
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 110px;
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 .va-eye {
   position: absolute;
   top: 6px;
@@ -11110,6 +11121,8 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 
 .va-preview-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9a9ab0; margin-top: 2px; }
 .va-shell-toggle { display: flex; gap: 3px; }
+/* The preview fold: `hidden` alone loses to the display these two set. */
+.va-shell-toggle[hidden], .va-preview[hidden] { display: none; }
 .va-preview-flags { margin-left: auto; }
 /* Verbatim, because it is the ground truth — a ref must be visible exactly as the shell will see it. */
 .va-preview {
@@ -11123,6 +11136,10 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   white-space: pre-wrap;
   word-break: break-all;
   min-height: 18px;
+  /* A long template's preview scrolls in place instead of taking the template field's room. */
+  max-height: 30vh;
+  overflow-y: auto;
+  flex-shrink: 0;
 }
 .va-preview-empty { color: #6a6a80; font-style: italic; }
 .va-preview-ref { background: rgba(97,175,239,0.16); border-radius: 3px; }
