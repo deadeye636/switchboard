@@ -201,10 +201,16 @@ test('agy descriptor: buildLaunch resumes with --conversation and maps every opt
 
   const full = agy.buildLaunch({
     cwd: '/p',
-    options: { model: 'gemini-3.1-pro-high', mode: 'plan', effort: 'high', sandbox: true, addDirs: '/a, /b' },
+    options: { model: 'gemini-3.1-pro-high', mode: 'plan', effort: 'max', sandbox: true, skipPermissions: true, addDirs: '/a, /b' },
   });
   assert.deepEqual(full.args,
-    ['--model', 'gemini-3.1-pro-high', '--mode', 'plan', '--effort', 'high', '--sandbox', '--add-dir', '/a', '--add-dir', '/b']);
+    ['--model', 'gemini-3.1-pro-high', '--mode', 'plan', '--effort', 'max', '--sandbox',
+      '--dangerously-skip-permissions', '--add-dir', '/a', '--add-dir', '/b']);
+
+  const permission = agy.configFields.find(f => f.id === 'skipPermissions');
+  assert.equal(permission.default, false, 'permission bypass is opt-in');
+  assert.match(permission.description, /dangerous/i, 'the generated settings control states the risk');
+  assert.ok(agy.configFields.find(f => f.id === 'effort').choices.includes('max'), 'agy 1.2.14 accepts max effort');
 });
 
 test('agy descriptor: model discovery parses agy models output', () => {

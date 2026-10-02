@@ -16,7 +16,6 @@ const AUDITED_EXCLUDED = new Set([
   '--input-format',
   '--agent',
   '--continue',
-  '--dangerously-skip-permissions',
   '--disable-slash-commands',
   '--json-schema',
   '--log-file',
@@ -27,6 +26,8 @@ const AUDITED_EXCLUDED = new Set([
   '--project',
   '--prompt',
   '--prompt-interactive',
+  // #537. Starts agy's remote-control connection; Switchboard owns and monitors its local PTY instead.
+  '--remote-control',
 ]);
 
 // A select field whose CLI writes its accepted values in PROSE rather than declaring them, so there is

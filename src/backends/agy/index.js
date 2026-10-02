@@ -10,8 +10,8 @@
 // the parser reads it with the shared dual SQLite driver, the way Hermes reads its store.
 //
 // Recon: docs/backend-formats.md "agy (Antigravity CLI)" + `agy --help` / `agy models` on a real
-// install (v1.1.1), re-measured on 1.1.26 for the model list (#539). Everything the parser does is
-// documented there.
+// install (v1.1.1), re-measured on 1.1.26 for the model list (#539) and 1.2.14 for launch options.
+// Everything the parser does is documented there.
 'use strict';
 
 const os = require('os');
@@ -47,10 +47,6 @@ function setRoot(dir) {
 // backend-owned discovery (`agy models`) because the advertised model ids drift independently of the
 // descriptor.
 //
-// Deliberately NOT here: `--dangerously-skip-permissions` — its own help calls it "Auto-approve all tool
-// permission requests without prompting". This is the same stance Switchboard takes on Codex'
-// `--dangerously-bypass-approvals-and-sandbox`: a one-click toggle that removes every permission prompt
-// is a different thing from configuring a sandbox mode, and Switchboard is not the place to offer it.
 // Also left out: `--project`/`--new-project`/`--agent` (agy's own project/agent selection, orthogonal to
 // how Switchboard groups a cwd), and `--print`/`--prompt`/`-i` (non-interactive — we run the TUI).
 const MODEL_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -124,10 +120,12 @@ const configFields = [
     choices: ['', 'accept-edits', 'plan'], choiceLabels: { '': 'agy\'s default' }, default: '',
     description: 'accept-edits auto-applies file edits; plan makes it plan without acting. Empty = agy\'s default.' },
   { id: 'effort', label: 'Reasoning effort', type: 'select',
-    choices: ['', 'low', 'medium', 'high'], choiceLabels: { '': 'agy\'s default' }, default: '',
+    choices: ['', 'low', 'medium', 'high', 'max'], choiceLabels: { '': 'agy\'s default' }, default: '',
     description: 'Reasoning effort for this session. Empty = agy\'s default.' },
   { id: 'sandbox', label: 'Sandbox', type: 'toggle', default: false,
     description: 'Run with terminal restrictions enabled (agy\'s `--sandbox`).' },
+  { id: 'skipPermissions', label: 'Skip permission prompts', type: 'toggle', default: false,
+    description: 'Auto-approve every tool request for this session. Dangerous: commands run without asking.' },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '',
     description: 'Comma-separated extra directories to add to the workspace, alongside the project.' },
 ];
@@ -158,6 +156,7 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   if (opts.mode) args.push('--mode', String(opts.mode));
   if (opts.effort) args.push('--effort', String(opts.effort));
   if (opts.sandbox) args.push('--sandbox');
+  if (opts.skipPermissions) args.push('--dangerously-skip-permissions');
   for (const dir of splitList(opts.addDirs)) args.push('--add-dir', dir);
 
   // agy authenticates itself from its own Google sign-in (imported ~/.gemini). We inject nothing and

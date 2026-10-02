@@ -171,7 +171,7 @@ test('every exclusion added for this issue carries its reason (#537)', () => {
   const NEEDS_REASON = {
     claude: ['--permission-prompts', '--cloud', '--system-prompt-snapshot'],
     codex: ['--approve-for-me'],
-    agy: ['--input-format'],
+    agy: ['--input-format', '--remote-control'],
     pi: ['--tui-mode'],
     hermes: ['--in', '--reasoning'],
   };
