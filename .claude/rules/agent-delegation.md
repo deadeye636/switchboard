@@ -8,8 +8,9 @@ session's context for decisions, not for file dumps and test logs.
 1. **Broad search or analysis** — "where is X used", a sweep across more than a handful of files, a
    map of an area before a change. Use `Explore` or `caveman:cavecrew-investigator`. Ask for the
    conclusion with `file:line`, not the contents.
-2. **Long runs with noisy output** — `npm test`, a build, a `backends:*` check, a log hunt. The agent
-   runs it and returns pass/fail, the count, and the one decisive line per failure.
+2. **Long runs with noisy output** — `npm test`, a build, a `backends:*` check, a log hunt. Use
+   `test-runner`. The agent runs it in isolation and returns pass/fail, the count, and the one
+   decisive line per failure.
 3. **Verification** — `verifier`, as already required after every non-trivial change.
 
 ## Delegate only when the user says so

@@ -2,9 +2,6 @@
 paths:
   - "src/backends/**"
   - "src/session/**"
-  - "src/servers/**"
-  - "src/projects/**"
-  - "src/vcs/**"
 ---
 
 # Backends
@@ -856,67 +853,13 @@ an honest `supportsFork`; all three identity hooks if it names its own sessions;
 incremental parser). It exists because the same defect got fixed in one backend four separate times
 while its siblings quietly kept it — **fix a backend, check its siblings**.
 
-## `src/projects/**` — migrated (#211), but unguarded
+## `src/projects/**` and `src/servers/**`
 
-`src/projects/projects.js` and `project-registry.js` carry no guard for the id-neutrality rule above —
-the migration itself is done (#211 is closed). They are not special in that: **no main-process
-directory is guarded for ids.** `test/backend-integrations.test.js` iterates a map of renderer files
-and nothing else, and `test/backend-path-neutrality.test.js` walks all of `src/` but guards store
-PATHS, not ids. So the id-hunt covers `src/renderer/**`; everywhere else the rule is prose.
-Treat every backend id you find here as a defect to remove,
-not as precedent to copy: the same two honest answers apply (a `LEGACY_*` binding for a pre-#161
-record, or `backends.getDefaultLaunchTarget()` — **not** the renderer's `firstLaunchableBackendId()`,
-which does not exist in this process), and per-project config/meta belongs behind the descriptor's
-`projectMeta` hook (#211), never behind a `~/.claude.json` literal.
+Migrated to dedicated path-scoped rule `.claude/rules/projects-and-servers.md`.
 
-Its Claude-home reader **and writer** was one of the four modules that composed a path from
-`os.homedir()` inside an isolated instance — resolve it from `SWITCHBOARD_STORE_CLAUDE`, per call
-(#241, `test/store-isolation.test.js`).
+## `src/vcs/**`
 
-## `src/servers/**`
-
-`mcp-bridge.js`, the MCP IDE bridge. It writes lock files into Claude's home — resolve that home per
-call from `SWITCHBOARD_STORE_CLAUDE`, never from `os.homedir()` (#241), or an isolated instance drops
-its locks where the user's real CLI finds them.
-
-Three things about the bridge that cost something to learn:
-
-- **`startMcpServer` takes a GETTER, never a window** (#392). The ctx rule that says so is written for
-  `src/app/**` and `src/watch/**`, so it never covered this directory — which is exactly where it was
-  violated. A bridge outlives a window reopen, and the captured one addressed a window that no longer
-  existed: nothing appeared, nothing errored, and every diff sat out its full ten-minute timeout.
-- **A pending diff records `pending.win`** — the window its view was **sent** to, deliberately not the
-  one that renders the session, because the view does not follow a session that moves. Whatever destroys
-  that window must answer for it: `rejectPendingDiffsForWindow`, and `hasPendingDiffsForWindow` so the
-  app does not take a window down under a review the user is deciding on (#393).
-- **`handleMessage` dispatches `tools/call` WITHOUT awaiting**, so one session can have several diffs
-  open at once. That is why the renderer pages between reviews instead of showing one (#398) — a
-  "concurrency fix" here would quietly break that.
-
-Anything moved here takes `ctx`, not a top-level `require('electron')`, or it cannot be tested — see
-`.claude/rules/main-process.md`. The scheduler used to live here and was removed in #246; spec 14
-records how it worked, and `docs/ai/lessons.md` records what it cost.
-
-## `src/vcs/**` — the same seam, for version control (#277)
-
-`index.js` is a REGISTRY that mirrors `src/backends/index.js`: `detect(cwd)` finds the provider that
-owns a working directory, and the core drives that provider's hooks. `git.js` is the only shipped
-provider; `parse-git-status.js` is a pure porcelain-v2/diff parser with no process and no DOM.
-**The core is VCS-blind** — `src/app/vcs.js` names no VCS, exactly as the core names no backend, and a
-Mercurial or Subversion provider would be a sibling file registered here with no core change.
-So the id rule above applies unchanged with "backend" read as "provider": no `'git'` in a branch or a
-composed path outside `git.js`, and a capability that varies by provider is a hook on the descriptor.
-
-This directory had no path-scoped rule at all until it was added to this file's frontmatter — it was
-the only subtree under `src/` that auto-loaded nothing, while `CLAUDE.md`'s router had been promising
-this file for it. The poller, the IPC and the standalone changes/diff windows are **not** here: they
-are `src/app/vcs.js`, under `.claude/rules/main-process.md`.
-
-Two things git costs that the parser must not be "cleaned up" into forgetting:
-`--no-optional-locks` is a GLOBAL flag and has to precede `status`, or git rejects it and the
-background poll starts fighting the session's own agent over `index.lock`; and the in-progress state
-(merging / rebasing / cherry-picking) is not in porcelain output at all — it is read from `.git/`
-markers, filesystem-only, so it costs no second spawn.
+Migrated to dedicated path-scoped rule `.claude/rules/vcs.md`.
 
 ## Session data sources
 

@@ -2,16 +2,6 @@
 
 Guidance for AI agents working in this repository. Keep changes minimal and match surrounding style.
 
-<!--
-Maintainer note (stripped before this file enters context — costs no tokens):
-This file is the ALWAYS-LOADED layer. Keep it under ~200 lines.
-Detail lives in .claude/rules/*.md (path-scoped -> loads only when a matching file is read)
-and docs/ai/*.md (loaded when the router below sends you there).
-Do NOT use `@`-imports here: imported files load at launch and save nothing.
-When you add a rule, ask: does it hang off a code path? -> a rules file. Is it a procedure? -> docs/ai.
-Is it a reflex needed everywhere? -> here, one line, with its consequence.
--->
-
 ## What this is
 
 Switchboard — an Electron desktop app to browse, search, launch, and monitor coding-CLI sessions
@@ -20,450 +10,93 @@ projects. `README.md` has the user-facing feature list.
 
 ## Read this first
 
-Detail is deliberately not in this file. Before you touch an area, read its file — the path-scoped
-rules load themselves when you read a matching file, but **not** when you only create one, so this
-table is the fallback and it is binding.
+Before you touch an area, read its path-scoped rule file:
 
 | You are about to touch | Read first |
 |---|---|
 | `src/main.js`, `src/app/**`, `src/watch/**`, `src/preload.js` | `.claude/rules/main-process.md` |
 | `src/renderer/**`, `src/shared/**` | `.claude/rules/renderer.md` |
 | `src/db/**`, `src/index/**`, `src/workers/**`, `src/perf.js` | `.claude/rules/db.md` |
-| `src/backends/**`, `src/session/**`, `src/servers/**`, `src/projects/**`, `src/vcs/**` | `.claude/rules/backends.md` |
+| `src/backends/**`, `src/session/**` | `.claude/rules/backends.md` |
+| `src/backends/*-native/**` | `.claude/rules/backends-native.md` + `docs/specs/32-claude-native.md` |
+| `src/projects/**`, `src/servers/**` | `.claude/rules/projects-and-servers.md` |
+| `src/vcs/**` | `.claude/rules/vcs.md` + `docs/specs/15-vcs-status.md` |
 | `test/**`, `scripts/**` | `.claude/rules/guards-and-scripts.md` |
 | `docs/**`, `README.md`, `CONTRIBUTING.md` | `.claude/rules/docs.md` |
-| handoffs — where a packet lives, the picker, leaving the database | `docs/specs/25-handoffs.md` (why) + `docs/handoffs-convention.md` (what) |
-| plans — the list, the picker, the convention, the viewer's liveness | `docs/specs/20-plans.md` (why) + `docs/plans-convention.md` (what) |
-| writing a file a CLI reads — a skill, a rule, a settings blob | `docs/specs/24-resource-editing.md` (why) + `.claude/rules/main-process.md` (the rule) |
-| the settings screen — a category, a count, a per-backend page, what the search may open | `docs/specs/26-settings-screen.md` (why) + `.claude/rules/renderer.md` (the rule) |
-| the welcome tour — a pane, a control that writes a setting, a figure that follows one | `docs/specs/27-welcome-tour.md` (why) + `test/welcome-tour.test.js` (the guard) |
-| attention — busy/ready, the hooks, a turn that announces nothing | `docs/specs/05-hook-attention-detection.md` (why) + `.claude/rules/main-process.md` (the rule) |
-| session health — the badge, the context fill, a model's context window | `docs/specs/28-session-health.md` (why) + `.claude/rules/backends.md` (the `contextWindow` hook) + `src/backends/claude/model-windows.js` (Claude's measured table) + `.claude/rules/renderer.md` (the rule) |
-| the handoff and plan commands offered INSIDE a CLI session (Pi prompt templates) | `docs/specs/29-agent-side-conventions.md` (why) + `.claude/rules/backends.md` (the prompt-templates hook trio) |
-| skills — the picker, a backend's skill invocation | `docs/specs/21-skills.md` |
-| the command palette | `docs/specs/23-command-palette.md` |
-| saved variables — the manager, a variable's insert, secrets | `docs/specs/12-saved-variables.md` |
-| session lineage — where a session came from, fork and continuation | `docs/specs/13-session-lineage.md` |
-| version-control status — the project glyph, the changes and diff windows | `docs/specs/15-vcs-status.md` (why) + `src/vcs/` (the seam) |
-| the editor's live markdown preview | `docs/specs/19-editor-live-preview.md` |
-| PDFs and other binary files in the viewer | `docs/specs/22-pdf-preview.md` |
-| a session with no terminal — a backend driven over a pipe, the conversation view | `docs/specs/30-pi-native.md` (why) + `.claude/rules/backends.md` (the driver/owner rule) + `.claude/rules/renderer.md` (the terminal-less entry) |
-| Claude driven over its stream-json pipe (`claude-native`) — the launch, the marker, approvals, questions and plans on cards | `docs/specs/32-claude-native.md` (why) + `.claude/rules/backends.md` (the `rpc` half's declarations) + `src/backends/claude-native/rpc-protocol.js` (the measured protocol, in its header) |
-| "Resources from" — a Pi session taking over another CLI's skills, commands, agents, MCP servers and hooks, a per-spawn extension section, a select whose choices the core fills | `docs/specs/31-resources-from.md` (why) + `.claude/rules/backends.md` (the declarations, sections not hook pairs) + `src/app/resource-sources.js` (the one resolver) |
-| a release, a tag, an installer | `docs/ai/release.md` |
-| the human-facing build/run/package instructions | `docs/development.md` |
-| running/verifying, databases, store isolation | `docs/ai/running-and-data.md` |
-| driving the app without clicking | `docs/ai/driving-the-app.md` |
-| a performance question — what the app costs, what a frame did, whether an animation is composited | `docs/ai/driving-the-app.md` (the two tools) + `docs/ai/lessons.md` (how this measurement goes wrong) |
-| remotes, cherry-picking from a fork | `docs/ai/fork-and-porting.md` |
-| the Windows build toolchain | `docs/build-windows.md` |
-| why a rule exists / what it cost | `docs/ai/lessons.md` |
+| handoffs / plans | `docs/specs/25-handoffs.md` + `docs/specs/20-plans.md` |
+| settings / welcome tour / session health | `docs/specs/26-settings-screen.md`, `27-welcome-tour.md`, `28-session-health.md` |
+| driving the app / performance | `docs/ai/driving-the-app.md` + `docs/ai/lessons.md` |
+| running, data isolation, release | `docs/ai/running-and-data.md` + `docs/ai/release.md` |
 
-## The reflexes (these bite everywhere)
+## The reflexes (strictly binding invariants)
 
-### 1. Commit after the behaviour is confirmed
-
-1. **Commit only after the behaviour is confirmed**, not when tests pass. Green tests are not a green
-   light — see `docs/ai/lessons.md` for the four that shipped green and broke on first click.
-
-### 2. On a renderer change the click is the test
-
-2. **On any renderer change the click IS the test.** `node scripts/drive-app.js console` catches the
-   `ReferenceError` the suite cannot see. Two ways to check the wrong thing: a **renderer reload does
-   not reload `src/app/**`** (restart the app, or you are reading the previous main process), and a
-   **synthesised event is not an interaction** (`drive-app.js drag` exists because dispatched
-   `DragEvent`s passed a drag that a real mouse could not perform).
-
-### 3. Migrations are append-only; parsers bump their schema version
-
-3. **Migrations are append-only.** `migrations.length` IS the schema version; renumbering corrupts
-   user databases. **And a parser that starts writing a stored field, or changes what one means, bumps its
-   `PARSER_SCHEMA_VERSION`** — every parser that writes it, in the same change. A parser change moves no
-   file's mtime, so without the bump finished sessions keep the old value for good and no test says so
-   (`.claude/rules/db.md`; the constants live in the backend folders, where that rule does not load).
-
-### 4. No new IPC handler in src/main.js
-
-4. **No new IPC handler in `src/main.js`** — it goes in an `src/app/` module.
-   `test/main-no-new-ipc.test.js` will say so.
-
-### 5. No backend id or backend format outside its own folder
-
-5. **No backend id outside its own folder.** A capability that varies per backend is a descriptor
-   hook, never a `switch (backendId)` in the core, and never `|| 'claude'` as a live launch target.
-   **One exception, and it is live code today**: a NULL `backendId` on a row written before #161 WAS a
-   Claude session, and main-process readers still spell that legacy default as a bare `|| 'claude'`.
-   Those are correct; do not "fix" them in passing, and do not copy the spelling — a new one binds the
-   named constant. Only `src/renderer/**` is guarded for ids at all
-   (`test/backend-integrations.test.js`); `.claude/rules/backends.md` has both halves.
-
-   **And a backend's FORMAT is the same violation with nothing to catch it.** The guards look for an
-   `id` and for a store LAYOUT; a regex over one CLI's transcript markup carries neither, so it sits in
-   the renderer looking like a string utility and no test says a word. #229 shipped that far: the rule
-   for "this row is still only the `/clear` it opened with" was written twice, once in Claude's reader
-   and once beside the renderer, and moving the second copy into `src/shared/` to stop it drifting only
-   made one backend's grammar load in both processes. The question is a backend's, so the BACKEND
-   answers it — `openedWithCommand` on the descriptor, stamped onto the payload by the core, read in the
-   renderer as a plain field. Ask which store the answer comes out of: if it is one CLI's, the renderer
-   may hold the answer and never the derivation.
-
-### 6. No personal or local identifiers
-
-6. **No personal or local identifiers. Anywhere that leaves this machine.** No personal name, email,
-   machine or account name, and **no real path** — that includes a bare drive letter and folder
-   (`<drive>:\<your-folder>\…`), not only a home directory. Use `~`, `<project>`, `<user>`, or an
-   obviously invented path. It binds **every** artifact, and an enumeration is how the last one got missed, so
-   read it as *all of them*: code, comments, tests and their **fixtures**, docs, specs, `.claude/**`,
-   file **names**, commit messages, issue and PR titles, bodies **and comments**. The repo is public;
-   git history and issue **edit history** are world-readable and effectively permanent, so a deletion
-   afterwards un-publishes nothing. **The check happens before you write, because there is no
-   afterwards** — a rewrite of public history is not on the table for a stray path.
-
-### 7. English in every artifact
-
-7. **English. Every artifact in the previous rule, same list — one recorded exception, below.** Not
-   "commits and UI text" — docs, specs, rules, test names, handoffs and issue comments too.
-   `docs/build-windows.md`
-   sat in the public repo in German for months because the rule used to name three artifact kinds and
-   a reader could conclude a doc was not one of them. What you write **to** a person in chat follows
-   the conversation's language; what you write **into a file or an issue** is English regardless.
-   One logical change per commit, Conventional Commits.
-
-   **The exception, and it is the only one: `docs/customizing-colors.md` stays in French.** It is a
-   third-party guide reproduced as its author wrote it, and its steps were verified by running them —
-   translating it would produce a step-by-step nobody has run, which is a worse artifact than a
-   foreign-language one. This was already the de facto state and was never written down, so the rule
-   said "no exceptions" while an exception sat in `docs/`. It is written down now; it does **not**
-   generalise. A new document is English, and a third-party document is either kept verbatim under this
-   line or not taken at all.
-   **Rule 6 has no such exception, and a personal name is exemptable by nothing.** That file carried a
-   byline; the name is gone and the attribution now reads as "third-party guide", which is the fact that
-   was worth keeping. Verbatim stops at the point where the text names a person.
-
-   **The path half is enforced now** — `test/no-local-paths.test.js` fails on any tracked file naming an
-   identifier of the machine it was written on: the account name, the home directory, and the directory
-   the checkout sits in. All three are read at run time, so the test never spells the strings it exists to
-   keep out. Its limit is stated in its own header: on a CI clone the third has nothing to compare
-   against, so the run that counts is the one before the push.
-   The **language** half still has nothing behind it, and `grep -rP '\b(nicht|wird|dass|keine|damit|
-   beim)\b'` over the tracked tree is the whole of it — it finds German and nothing else, so French
-   (`docs/customizing-colors.md`) walks past it.
-   The path grep this line used to recommend was **broken from the day it was written**: it exits 2 with
-   `PCRE does not support \L`, because the doubled backslash in the pattern collapses to one before PCRE
-   sees it, and the user-directory alternative then begins with an escape PCRE rejects. It reported a
-   clean tree while sixty fixtures named a real folder. A recommended command nobody runs is a guess; one
-   that errors out is worse, because its silence reads as a pass.
-
-### 8. A new renderer control reuses existing styling
-
-8. **A new control in the renderer inherits NO styling** — reuse an existing class, never ship a bare
-   `<button>`.
-
-### 9. Settings changes go into docs/settings-reference.md
-
-9. **A setting added/renamed/re-scoped/re-defaulted → `docs/settings-reference.md`.** Same for a new
-   `SWITCHBOARD_*` env var or script.
-
-### 10. Prefer execFile, and close a probe's stdin
-
-10. **Prefer `execFile`** over shell string interpolation for any external process — and a probe that
-    only READS a CLI's output must close the child's stdin, or a CLI that reads standard input hangs until
-    the timeout. `spawnSync`/`execFileSync` take a `stdio` option for that; **`execFile` silently ignores
-    one** and needs `closeStdin(execFile(...))`. `src/backends/cli-probe.js` is the one way there, and it
-    does **not** move: its scope stays `src/backends/**`, so a probe outside that folder closes its own
-    stdin locally — `src/app/terminal/shell-profiles.js` does (#541); the `git` calls in `src/app/vcs.js`
-    and `src/main.js` still do not, and `.claude/rules/main-process.md` says why they were left.
-
-### 11. Never fs.writeFileSync a file a CLI reads
-
-11. **Never `fs.writeFileSync` a file a CLI reads** — `src/app/safe-write.js` is the one way: a baseline
-    compare so a stale editor cannot overwrite an agent's work, an atomic rename so a half-written config
-    is impossible, and the file's own line endings and BOM kept.
-    **One writer is exempt and its header argues the case: `src/backends/rewrite-cwd.js` (#557).** A
-    session's transcript is not a settings blob — the other party appends a line per turn, so a refusal is
-    not an answer and a document-wide EOL would rewrite every line nobody touched. That write is
-    append-aware and per-line instead, and it still imports `renameWithRetry` from `safe-write.js` rather
-    than growing a second copy of the Windows retry. It does not generalise: a new writer goes through
-    `writeTextFile`.
-    **The second recorded exemption is a CLASS, not a file: a per-spawn file the app generates.** The live
-    bindings (`claude/live-binding.js`, `pi/live-binding.js`), Pi's prompt templates, Pi's resources
-    extension and pi-native's runtime extension are written with a raw `writeFileSync`, and each header says
-    why: the file is made fresh for one spawn in a directory only this app writes, has no previous content to
-    keep or race against, and is removed at exit. A CLI READS it, but nobody else WRITES it, which is what the
-    baseline compare exists for. A file that outlives its spawn, sits anywhere the user or a CLI also writes,
-    or is ever re-written in place is not in this class and goes through `writeTextFile`.
-
-### 12. One answer for where a project keeps its documents
-
-12. **Never ask the settings blob where a project keeps its documents** — `src/app/convention-dirs.js` is
-    the one answer for handoffs AND plans, relative and absolute, with the escape guard applied. Three
-    surfaces name those directories (the handoff prompts, the plan prompt, a saved variable's insert
-    template), and a second reading of `eff.handoffDir` is how two of them start naming different ones.
-    **A fourth surface WRITES, and it had that second reading until #623:** `handoffWriteDirName` in
-    `src/app/handoffs.js` read the setting itself, so a `../packets` setting made the prompt say `.handoffs`
-    while the Save button refused the packet as outside the project. The handoff half agrees now.
-    **The plans half agrees since #630:** `planDirFor` in `src/app/plans-memory.js` asks `conventionDirs`
-    instead of reading `eff.planDir`, so a `planDir` that leaves the project falls back to `.plans` for the
-    convention setup's preview too, where it used to be refused to the user's face while the plan prompt
-    beside it fell back. What the preview still refuses is a directory the CALLER named — and **the renderer
-    decides that by comparing the field to its own `defaultValue`**, because the setup dialog's input is
-    PREFILLED with the effective setting. It used to send that field's value unconditionally, so every
-    setup read as a path somebody had just named and the fallback never ran in the app at all; the
-    divergence survived the first fix and only a reading of the call site found it. That split is the one
-    the handoff writer settled: a setting nobody can use
-    falls back silently, a path the user chose is refused, because they named that one and writing somewhere
-    else would not be an answer to it. **And "inside the project" is now STRICTLY inside**, so a setting
-    naming the root itself falls back as well: neither feature means "the whole project is the directory".
-    `test/convention-dirs.test.js` sweeps `src/` for a second reading of either key, and `SECOND_READERS`
-    there is what is exempt from it, so a new one fails by file rather than by review.
-    **A surface that only DRAWS the answer is one of them too (#630):** the welcome tour's Documents pane
-    figures where the next plan and the next handoff will land as you type the names, and it drew the name
-    as typed — so `../plans` appeared as a real directory of the project under a caption promising the file
-    goes there. It cannot ask `conventionDirs`: it edits the GLOBAL setting before any project exists and
-    redraws synchronously on every keystroke, with nothing to stat. The LEXICAL rule therefore lives in
-    `src/shared/convention-dir-name.js`, which both processes load — and `conventionDirs` asks it only where
-    it has no project either, **never as a pre-check in front of `isInside`**: `../<the project's own
-    name>/.plans` climbs out lexically and lands back in on disk. A copy of that rule beside the figure
-    would have been this same divergence one surface further out, and a three-word copy is still one — the
-    figure's own `..` test called `docs/..` "outside the project" when it is the root.
-
-### 13. Path containment is decided on real paths
-
-13. **Never decide "is this path inside that one" with a string compare** — `src/app/path-containment.js`
-    is the one way, and it answers about the REAL path of both sides. A junction or a symlink is spelled
-    inside a project it is not in, and on Windows a `subst` drive hits that without anyone trying. Ask it
-    about the DIRECTORY where the file may not exist yet, and **before** the `stat` — a guard placed after
-    one never sees a path that escaped and had nothing at the end of it (#474, #476).
-
-### 14. Never strip comments with a pair of regexes
-
-14. **Never strip comments with a pair of regexes** — a test that answers a question about code by reading
-    it as text calls `test/helpers/strip-comments.js`, which scans once and knows whether it stands in
-    code, a string, a template, a regex or a comment. A line pass plus a block pass loses real code in
-    BOTH orders, and these are guards where over-stripping HIDES a violation, so they report success about
-    text they never read. `test/strip-comments-shape.test.js` refuses a hand-rolled one anywhere under
-    `test/` or `scripts/` and has no exemption list — keep it that way (#554, `docs/ai/lessons.md`). It is
-    `scripts/**` a guard reads as often as `src/**`, and a help check read raw counted a flag named in a
-    comment as audited (#570).
-
-### 15. Shared working tree: no git stash, reset, checkout or branch switch
-
-15. **This working tree is shared. Never `git stash`, `git reset`, or `git checkout --`.** Several agent
-    sessions and the worktrees under `.claude/worktrees/` run against this checkout at once, and they
-    share the object store and the index. A stash takes another session's uncommitted work with it and
-    gives no sign of having done so; a reset or a checkout destroys it outright. To read how a file
-    looked before a change, use **`git show <ref>:<path>`** — `HEAD:`, `HEAD~1:`, a branch, a SHA — into
-    stdout or a copy under `.claude/scratchpad/`. That is strictly better anyway: it needs no restore
-    step, so an interrupted session cannot leave the tree in a state nobody expects.
-
-    **And do not switch the branch either — `git checkout <branch>` / `git switch`.** It reads as
-    harmless because it destroys nothing, and that is the trap: it rewrites every tracked file at once,
-    so another session mid-edit is suddenly reading and writing a different revision of the code it was
-    working on, with no error anywhere. It happened here while verifying a Dependabot PR
-    (`git checkout pr-538`), and the tree sat on a two-week-old `main` until it was switched back.
-    To work with another revision **without moving this tree**: `git show <ref>:<path>` for a file,
-    `git worktree add` for a whole checkout, and `git fetch origin pull/<n>/head:<branch>` to have the
-    branch locally without standing on it. A PR is the second lesson from that hour anyway — what has to
-    be verified is the MERGE result, not the PR branch, because a branch that predates other merges
-    silently undoes them (that one reverted two security bumps and `npm audit` was the only thing that
-    said so).
-    **And commit with explicit pathspecs** — `git commit <path> <path>`, never `git add -A` / `git add .`
-    / `git commit -a`. The index is shared too, so a blanket add sweeps up whatever a parallel session
-    happens to have staged and puts it in your commit under your message.
-
-### 16. An issue is not law
-
-16. **An issue is not law — check it against the concept before you build it.** An issue records what
-    someone wanted, and believed was the cause, on the day it was written; the tree has moved since and
-    the issue has not. Three things to settle first, and none of them is optional because the issue is
-    detailed:
-    - **Does the requirement still fit?** Does the route exist already under another name, does it
-      contradict a decision that is written down, does it add a second way to do one thing?
-    - **Is the stated cause real?** **An issue body is a hypothesis, not a measurement** — including where
-      it says "proven". #549 named two causes and called both proven; the first was false, and the fix
-      would have gone hunting a producer that had been wired for several commits. #566 named two, and both
-      were wrong. Re-establish the cause yourself before fixing it.
-    - **Does building it create a NEW FLOW?** A new visible step for the user, a new concept in the UI, a
-      new module boundary, a new contract between two parts. If it does, say so BEFORE building: what is
-      new in one sentence, the advantages, the **disadvantages**, and at least two routes with a
-      recommendation — then ask. That the issue already names a route is not evidence the route was
-      weighed. The same goes for an issue carrying its own "worth deciding" list: an agent does not close
-      those silently.
-
-    **A bug report gets MORE scrutiny than a feature request, not less.** A feature builds something new,
-    and nothing beside it can break. A bug fix changes a flow that already exists and that somebody has
-    arranged themselves around. The report names the symptom; it almost never names what today's behaviour
-    was FOR. So also settle: what does the current behaviour do for someone, was there a reason it was
-    built that way (`git log`/`git blame` on the line, the spec chapter, the original issue), and **what
-    does the fix take away** — that gets said even when the fix is right.
-
-    And watch the SUM. Where several fixes land on one area, each was small and each was justified, and
-    the flow at the end is not the one anyone signed off: the project remove/delete path took #563, #565,
-    #566, #574 and #575 in **two hours and twenty-five minutes** of one afternoon, with #578 written on top
-    the same evening. Nobody sees that total, because it is in none of the issues — a review of the whole
-    chain then found a measured defect (#579), a silent success on a destructive act (#580) and a user-
-    visible consequence nobody had stated (#581), none of which any single issue could have shown.
-    Whoever builds the fourth fix in one place states where the whole flow now stands, not only their
-    share of it.
-
-    Not a licence to stall. The default stays "name the concern in a sentence or two and keep building".
-    Stop only where a new flow appears, where the premise is demonstrably wrong, or where the call is
-    plainly the owner's — and closing an issue as "does not fit" is a legitimate result, with the reason
-    in a comment.
-
-### 17. Never assemble project:<path> by hand
-
-17. **Never assemble `project:<path>` by hand** — `settingsOwnerPath` (`src/shared/worktree-path.js`) is
-    the one answer to "whose settings apply here", and a **worktree resolves to its project**: it is a
-    sub-unit and carries no settings of its own. Two readers had already built the key themselves and both
-    had to be corrected in the same commit (the AFK timeout in `src/app/terminal/spawn.js`, the custom
-    launchers in `src/renderer/dialogs/dialogs.js`); a guard in `test/worktree-path.test.js` names them and
-    says it is a wiring guard.
-    **The exception is identity, not settings.** `displayName` is written against the row's OWN path,
-    because renaming a worktree must not rename the project it sits in — the same blob holds both, and
-    only the cascading half resolves. The Add Project dialog holds both halves in one function since #675
-    — the name at the row's own key, a worktree's tags at `settingsOwnerPath`, where the settings editor
-    shows them — and the same test file pins each half.
-    **`worktreeRootOf` beside it answers "whose sub-unit am I", and since #586 that is what EVERY
-    ownership question asks** — the register, the admin rows, the settings cascade, the sidebar's nesting,
-    the delete handler's repo, the unlisted notice and the auto-hide fold. Grep for its callers rather
-    than trusting that list. `parseWorktreePath`'s one-level parent survives in two places — the
-    visibility walk in `src/index/projects-view.js`, which climbs it a level at a time, and
-    `resolveWorktreePath` in `src/session/derive-project-path.js`, which folds a session's cwd into that
-    parent once it exists on disk (whether that one should ask `worktreeRootOf` has not been decided) — and
-    elsewhere only as a yes/no "is this a worktree at all". The worktree dirty check in `src/app/vcs.js` used to hand that
-    parent to `git` as a first `-C` and stopped at #624: a second absolute `-C` replaces the first, so the
-    parent bought nothing and failed the whole call once it was gone. The
-    sidebar used to ask it for the nesting and no longer does.
-    **And a worktree is NAMED by `worktreeLabelOf`, never by splitting the path yourself.** It spells
-    every level between the checkout and its project (`agent-a / hotfix-1`), which is what says where a
-    nested worktree sits once #586 draws it beside its own parent — six call sites across five files (the
-    sidebar row, the hide and the delete dialog, the session card, the project manager's row, the settings
-    window title), and one more that
-    reaches for `.split()` would name two checkouts identically. **Count them in the guard, not here:**
-    `NAMES_A_WORKTREE` in `test/worktree-path.test.js` is the list, by file with the reason each is on it,
-    and this sentence has already been wrong once by omitting the manager's row. The guard works in
-    both directions — that named list, so a surface which stops calling the helper fails by name, and a
-    scan of `src/`
-    for a line that names a worktree while taking a path apart, so a NEW one is caught in whichever file
-    grows it. The scan matches `wtName` as well as `worktree`: this codebase writes the abbreviation, and
-    a pattern named after the full word let the realistic violation straight through when it was tried.
+1. **Commit after the behaviour is confirmed**, not when tests pass. Green tests are not a green light (`docs/ai/lessons.md`).
+2. **On renderer change the click IS the test.** Run `node scripts/drive-app.js console` to catch runtime errors. Note: renderer reload does not reload `src/app/**`, and synthesized events do not match real user interactions.
+3. **Migrations are append-only.** `migrations.length` IS the schema version. Parsers modifying stored field semantics must bump `PARSER_SCHEMA_VERSION` across all affected parsers in the same commit (`.claude/rules/db.md`).
+4. **No new IPC handler in `src/main.js`** — place it in an `src/app/` module and bind in `src/preload.js` (`test/main-no-new-ipc.test.js`).
+5. **No backend id or format outside its own folder.** Capabilities are descriptor hooks; never use `switch (backendId)`. Pre-#161 NULL records defaulting to `|| 'claude'` are grandfathered. Formatting and transcript grammar rules belong in backend descriptors, never renderer/shared helpers (`test/backend-integrations.test.js`).
+6. **No personal or local identifiers anywhere that leaves this machine.** No real names, emails, machines, or local paths (`<drive>:\...`). Use placeholders (`~`, `<project>`, `<user>`). Enforced by `test/no-local-paths.test.js`.
+7. **English in every artifact** (code, tests, commits, issues, docs, rules). Sole exception: `docs/customizing-colors.md` (retained third-party guide).
+8. **A new renderer control reuses existing styling.** Never ship an unstyled bare `<button>` or input element.
+9. **Settings changes go into `docs/settings-reference.md`.** Applies to any added, renamed, or re-defaulted setting, `SWITCHBOARD_*` env var, or script.
+10. **Prefer `execFile` and close a probe's stdin.** Avoid shell interpolation. Because `execFile` ignores `stdio: 'ignore'`, use `closeStdin(execFile(...))` from `src/backends/cli-probe.js`.
+11. **Never `fs.writeFileSync` a file a CLI reads.** Always use `src/app/safe-write.js` (`writeTextFile`) for baseline checks, atomic rename, and EOL retention. Exemptions: `src/backends/rewrite-cwd.js` (per-line append) and ephemeral per-spawn files.
+12. **One answer for where a project keeps its documents.** `src/app/convention-dirs.js` is the sole authority for handoff and plan directories. Lexical fallback rule lives in `src/shared/convention-dir-name.js` (`test/convention-dirs.test.js`).
+13. **Path containment is decided on real paths.** `src/app/path-containment.js` is the only way: checks canonical resolved paths before `fs.stat()`. Never rely on lexical string prefix matching.
+14. **Never strip comments with a pair of regexes.** Always use `test/helpers/strip-comments.js` (`test/strip-comments-shape.test.js`).
+15. **Shared working tree: no git stash, reset, checkout -- or branch switch.** Tree is shared across parallel sessions. Inspect past revisions with `git show <ref>:<path>`. Commit only with explicit pathspecs (`git commit <path1> <path2>`), never `git add -A` or `git commit -a`.
+16. **An issue is not law — check against concept before building.** Verify whether requirements still fit and confirm root causes independently. If building creates a new user flow or contract, state pros/cons and 2+ alternatives before proceeding.
+17. **Never assemble `project:<path>` by hand.** Use `settingsOwnerPath` (`src/shared/worktree-path.js`) for cascading settings; `worktreeRootOf` for ownership; `worktreeLabelOf` for display names (`test/worktree-path.test.js`).
 
 ## Backlog & workflow
 
-The task board is **GitHub Issues** on `deadeye636/switchboard`, not a file. Migrated 2026-07-03 from
-the old `docs/ROADMAP.md` + plan docs — **issue number = old `#nr` (1:1)**, contiguous #1–#62.
-
-- **Read it:** `gh issue list` / `gh issue view <n>`. For in-context grepping the generated mirror
-  `docs/BACKLOG.md`; machine-readable `docs/BACKLOG.jsonl`. Both open-issues-only — **never hand-edit**.
-- **Both are gitignored** — a fresh clone or worktree has neither. If one is missing or stale, run
-  `node scripts/build-backlog.js`; the result stays local and is **never committed**.
-- **Regenerate:** `node scripts/build-backlog.js` after any issue change.
-- **New task:** `gh issue create` with the requirement + labels; plan/discuss in comments.
-- **Issue shape (keep it):** body = **the requirement only**. Plan/design and implementation go in
-  **comments**. Done → an "Umsetzung" comment (with `git log main` commit refs) + close the issue.
-  Open items carry no completion comment.
-- **Labels:** prio `P1`/`P2`/`P3` (open only), type `bug`/`feature`/`port`/`chore`, `source:*`
-  (`jbr`/`brianstanley`/`supacode`/`kreaddis`/`ivandobsky`), `wontfix`, `blocked-on-upstream` for an item
-  waiting on a third-party fix. An effort that spans several issues also
-  carries an **effort label** so its issues stay findable together — `pi-native` is the first, and
-  it sits on the runtime-driven Pi backend plus the work it depends on. List the labels rather than
-  trusting this line: `gh label list`.
-- `gh` default repo is pinned to `deadeye636/switchboard` (`gh repo set-default`) — always our fork,
-  never `doctly`. Decisions still land in commit messages + memory. **A hook refuses** a `gh` command
-  naming `doctly`, and a `git push` to any of the read-only fork remotes
-  (`.claude/hooks/guard-commands.js`).
+Task board is GitHub Issues on `deadeye636/switchboard`:
+- **Read:** `gh issue list` / `gh issue view <n>`. Rebuild local gitignored mirror: `node scripts/build-backlog.js`.
+- **New task:** `gh issue create`. Issue body = requirement only. Plans, designs, and decisions live in issue comments.
+- **Completion:** Comment with `git log main` commit refs + close issue.
+- **Repo constraint:** Pinned to `deadeye636/switchboard` (`gh repo set-default`). Guard hook blocks pushing to read-only remotes or targeting `doctly`.
 
 ## Architecture map
 
-**All app code lives under `src/`.** The repo root holds only project metadata and tooling
-(`package.json`, `docs/`, `scripts/`, `test/`, `build/`). `"main"` in package.json is `src/main.js`,
-and `build.files` is an **allow-list** led by `src/**/*` — so a new directory outside `src/` is silently
-absent from the installer.
+All app code lives under `src/`:
 
 | Area | What lives there |
 |---|---|
-| `src/main.js` | composition root: requires, `DATA_DIR`, the module wiring (count the `.init(` calls rather than trusting a number here), the legacy IPC handlers (`GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there) |
-| `src/app/**` | the areas main.js used to hold — **list the directory**, an enumeration here goes stale (it missed `backend-models` and `backend-resources` for as long as they existed) |
-| `src/preload.js` | the **only** IPC surface — `window.api.*` |
-| `src/shared/**` | the modules **both** processes load — **list the directory**, an enumeration here goes stale |
-| `src/renderer/**` | vanilla JS, no framework; plain `<script>` tags, morphdom, `@xterm/xterm`, CodeMirror via esbuild |
-| `src/db/**` | `db.js` = façade (#217) over `connection`/`schema`/`migrations` + the stores |
-| `src/index/**` | `session-cache.js` = façade (#199) — **list the directory**, "the worker clients" is not what it holds: `projects-view.js` builds the sidebar/admin rows and `worktree-dirs.js` reads the FILESYSTEM (#594) |
-| `src/workers/**` | the scan + search workers — `index-worker.js`, `scan-projects.js`, `search-query.js` |
-| `src/perf.js` | the one timing primitive (`startTimer`), logger-agnostic on purpose so each caller decides where the number goes |
-| `src/watch/**` | `projects.js`, `stores.js`, `adopt.js`, `trigger-watcher.js`, `record-claim.js` |
-| `src/backends/**` | one folder per coding CLI + `index.js` registry + the shared modules beside them (`file-store.js`, `capabilities.js`, `cli-probe.js`, `resource-expand.js`, … — **list the directory**) |
-| `src/session/**` | what happens to a session across its life — transitions, clear-claims, the subagent seam |
-| `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`) |
-| `src/vcs/**` | the VCS seam (#277) — provider registry + git provider + pure porcelain-v2/diff parser; core is VCS-blind. The poller/IPC live in `src/app/vcs.js` |
-| `src/projects/**` | the project registry — backend-neutral since #211 (`projectMeta` / `transcriptPathFor`, no backend module required) |
+| `src/main.js` | Composition root, `DATA_DIR`, module wiring, grandfathered IPC handlers. |
+| `src/app/**` | Core subsystems (settings, terminal, vcs, window management, handoffs, safe-write). |
+| `src/preload.js` | The only IPC surface (`window.api.*`). |
+| `src/shared/**` | Modules loaded by both main and renderer processes. |
+| `src/renderer/**` | Vanilla JS (no framework), morphdom, `@xterm/xterm`, CodeMirror via esbuild. |
+| `src/db/**` | SQLite database façade (`db.js`), connection, schema, and migrations. |
+| `src/index/**` | Cache layer (`session-cache.js`), `projects-view.js`, `worktree-dirs.js`. |
+| `src/workers/**` | Scan and search worker threads (`index-worker.js`, `scan-projects.js`, `search-query.js`). |
+| `src/perf.js` | Timing primitive (`startTimer`). |
+| `src/watch/**` | Store and project filesystem watchers, adoption, trigger watchers. |
+| `src/backends/**` | CLI backend descriptors, registry (`index.js`), file-store, probe utilities. |
+| `src/session/**` | Session transitions, clear-claims, lifecycle coordination. |
+| `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`). |
+| `src/vcs/**` | VCS provider registry, git provider, porcelain-v2 and diff parsers. |
+| `src/projects/**` | Backend-neutral project registry and metadata. |
 
 ## Commands
 
-- `npm test` — `node --test --test-timeout=120000 "test/**/*.test.js"`: the glob is **recursive**, so a new
-  test file is picked up wherever under `test/` it lands, and only a test file is. Node's default discovery
-  ran every `.js` under `test/` as an entry of its own, including the DOM helpers, which cost about 10 s each
-  and could fail a run that had no failing test in it (#625). No Electron needed. Keep it green (run it for
-  the current pass count — don't trust a number written down here). Wall clock is **around a minute** —
-  48-70 s measured (2026-09), and it moves with what else is running on the machine. It is the sum of the
-  whole suite, not one file: `trigger-watcher.test.js` uses real `fs.watch`/timers and is still the slowest
-  single file (~20 s alone), but it stopped setting the wall clock some time ago. Time it rather than
-  believing this line; the point of the number is only that a run of several minutes is wrong.
-  `trigger-watcher.test.js` has **hung outright** more than once under
-  load — the run sits there with its child alive and no output, for hours if nobody looks — which is why
-  the script carries a timeout at all: a test that stops making progress fails loudly instead.
-  **The cap is per TEST, and node applies it to each FILE too** — which is why it is 120 s and not tighter.
-  `panes-view.test.js` held 206 tests, each fast, and the file took 41 s under the suite's own
-  concurrency; at 60 s another agent session on the machine was enough to cancel it, and a cancelled file
-  prints `not ok … # fail 0`, which reads like nothing at all. It has since been split by subject into
-  `panes-view` / `-tabs` / `-views` / `-drag`, because node parallelises across FILES and not within one,
-  and `test/npm-test-script.test.js` projects the cost of a jsdom file so the drift back shows up there
-  instead of in a red run under load
-  (`.claude/rules/guards-and-scripts.md` has both causes of that line and how to tell them apart).
-  A run past three minutes is still worth killing and re-running rather than waiting out.
-- `npm run demo:start` — **the default for dev/verify work**: an isolated demo instance against
-  seeded stores under `C:\temp\switchboard`. Backend limitations and the explicit read-only usage
-  exception are documented in `docs/demo-env.md`. `npm run demo:seed` seeds
-  without launching; `npm run demo:auth` copies credentials into the isolated home. See
-  `docs/demo-env.md`. **Leave it clean after every test** — stop and close every session, quit cleanly, and
-  take back what the test wrote into the demo's CLI homes (`docs/demo-env.md`, "Leave the demo clean after a
-  test"); a demo left dirty relaunches the last test's sessions and skews the next measurement.
-- `npm start` — stamps `build-info.json`, bundles CodeMirror and PDF.js, then launches Electron against the **real** stores. The exception,
-  for when you deliberately want live data.
-- `npm run start:debug` — the same with DevTools port 9222 open → `docs/ai/driving-the-app.md`.
-- `npm run stop:dev` — stop **this checkout's** dev run. Killing every `electron` image takes the
-  installed app and the other checkouts with it, so a hook refuses that
-  (`.claude/hooks/guard-commands.js`).
-- `npm run build:win` — NSIS installer → `dist/Switchboard Setup <ver>.exe` → `docs/ai/release.md`.
-- `npm run upstream:check` / `upstream:seen` — → `docs/ai/fork-and-porting.md`.
-- `npm run backends:help-check` (and one per backend) — does each CLI still advertise the flags this app
-  sends, and has it grown any nobody has decided about? Every exclusion carries its reason in the script.
-- `npm run backends:changelog-check` / `backends:changelog-seen` — what the backend CLIs shipped since
-  the last review. Reports only; whether an entry is worth an issue is a conversation, not a filter.
-  Flags and the seen-marker: `docs/settings-reference.md`.
-
-Both start commands can **refuse** on purpose (single-instance lock, occupied debug port). That is
-the guard working, not a bug — `docs/ai/running-and-data.md` has the two-line fix.
+- `npm test` — runs recursive suite (`test/**/*.test.js`) with 120s timeout.
+- `npm run demo:start` — **default for dev/verify**: isolated demo instance against `C:\temp\switchboard`. Clean up after tests (`docs/demo-env.md`).
+- `npm start` — bundles CodeMirror/PDF.js and launches Electron against real stores.
+- `npm run start:debug` — launch with DevTools port 9222 open (`docs/ai/driving-the-app.md`).
+- `npm run stop:dev` — stop this checkout's dev run (guard blocks global `taskkill /IM electron`).
+- `npm run build:win` — build NSIS installer (`docs/ai/release.md`).
+- `npm run backends:help-check` / `backends:changelog-check` — audit CLI flags and upstream changelogs.
 
 ## Which database
 
-`npm start` (dev) → `~/.switchboard-dev/switchboard.db`. The installed app → `~/.switchboard/switchboard.db`.
-A sandbox → `$SWITCHBOARD_DATA_DIR`. **A fix confirmed under `npm start` is confirmed in the DEV
-database only.** Verifying against the wrong one looks exactly like a schema the migrations never
-touched. Isolation, `userData`, and the per-backend store overrides: `docs/ai/running-and-data.md`.
+- `npm start` (dev) → `~/.switchboard-dev/switchboard.db`.
+- Installed app → `~/.switchboard/switchboard.db`.
+- Sandbox / demo → `$SWITCHBOARD_DATA_DIR` (`docs/ai/running-and-data.md`).
 
 ## Logging
 
-Three tiers (electron-log). Packaged builds default to `info`; the level is a global setting
-(**Maintenance → Log level**) and applies live.
-
-| Level | Use it for | Rule of thumb |
-|---|---|---|
-| `log.info` | **transitions & lifecycle** — busy edges, subagent spawn/complete, hook signals, server start | a handful of lines per turn |
-| `log.debug` | **per-decision detail** while diagnosing | readable at a few lines per second |
-| `log.silly` | **firehose** — one line per raw event (OSC titles fire on every spinner frame) | only while reproducing a bug |
-
-Put the **state change** at `info` and the **raw event that led to it** at `silly`. Never log a
-per-frame event at `info` or `debug` — landing a diagnostic at `debug` is what made #120 invisible.
-Log file locations differ between dev and installed: `docs/ai/running-and-data.md`.
+Three tiers via `electron-log`:
+- `log.info`: Lifecycle edges and transitions (session spawn, subagents, hook signals).
+- `log.debug`: Per-decision diagnostics while troubleshooting.
+- `log.silly`: High-volume raw events (OSC spinner frames). Never put per-frame events in `info`/`debug`.
