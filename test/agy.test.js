@@ -232,23 +232,30 @@ test('agy descriptor: probe reports installed/not-installed with an actionable r
   if (!res.ok) assert.ok(res.reason && res.reason.length > 10);
 });
 
-// #510 — agy inserts the MODEL row when a turn starts and fills it in as the answer streams, so the last
-// message step is 15 from the first moment and the old role rule could never report busy. `steps.status`
-// is what says so: 8 while a step runs, 3 once it is done.
-test('agy state: the last step\'s status decides busy, not which role wrote it (#510)', () => {
+// #510/#735 — 1.1.x held status 8 while a step ran. In 1.2.14 user/tool rows stay at 3 and status 8 is
+// only a brief edge near the final answer. The last step type therefore carries the durable turn shape.
+test('agy state: user and tool steps stay busy until the final model step (#510, #735)', () => {
   const state = require('../src/backends/agy/state');
   const fresh = new Date().toISOString();
-  // The exact shape a live turn produces: a model step (15) that has not finished.
-  assert.equal(state.deriveState({ lastStatus: 8, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
+  assert.equal(state.deriveState({ lastStatus: 8, lastStepType: 15, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
     'a running model step is a turn in progress, whatever the role says');
-  assert.equal(state.deriveState({ lastStatus: 3, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle');
-  // A tool step runs too, and the question about it is the same one.
-  assert.equal(state.deriveState({ lastStatus: 8, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy');
-  assert.equal(state.deriveState({ lastStatus: 3, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
-    'a finished step is finished even behind a trailing user message');
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 14, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy',
+    'agy 1.2.14 records a live user step as status 3');
+  for (const toolType of [9, 132]) {
+    assert.equal(state.deriveState({ lastStatus: 3, lastStepType: toolType, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
+      `tool step ${toolType} means the model still owes an answer`);
+  }
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle',
+    'the final model step closes the turn');
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 23, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
+    'a lifecycle/title step must not leave the session working');
+  for (const lifecycleType of [23, 98]) {
+    assert.equal(state.deriveState({ lastStatus: 8, lastStepType: lifecycleType, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
+      `running status on lifecycle step ${lifecycleType} is not a user turn`);
+  }
   // Anything not known to mean "in progress" is idle: a session stuck on Working is the worse failure.
-  for (const unknown of [0, 7, 99]) {
-    assert.equal(state.deriveState({ lastStatus: unknown, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
+  for (const unknown of [0, 6, 7, 99]) {
+    assert.equal(state.deriveState({ lastStatus: unknown, lastStepType: 132, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
       `status ${unknown} is not a turn in progress`);
   }
   // No status at all (a scanned row, or a store that reports none) falls back to the role rule.
@@ -260,19 +267,19 @@ test('agy state: the safeguards still bound a step left running (#166, #510)', (
   const state = require('../src/backends/agy/state');
   const now = Date.now();
   const stale = new Date(now - state.ACTIVITY_WINDOW_MS - 1000).toISOString();
-  const running = { lastStatus: 8, lastRole: 'assistant', lastEntryAt: stale };
+  const running = { lastStatus: 3, lastStepType: 132, lastRole: 'assistant', lastEntryAt: stale };
 
   assert.equal(state.deriveState(running, now), 'idle', 'silent past the activity window -> idle');
   assert.equal(state.deriveState(running, now, { lastOutputMs: now - 5000 }), 'busy',
     'the PTY keeps it alive, but only because the store already said running');
-  assert.equal(state.deriveState({ lastStatus: 3, lastRole: 'assistant', lastEntryAt: stale }, now, { lastOutputMs: now }), 'idle',
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, lastRole: 'assistant', lastEntryAt: stale }, now, { lastOutputMs: now }), 'idle',
     'output never DECLARES a turn — a finished step stays finished');
 
-  const wedged = { lastStatus: 8, lastRole: 'assistant', lastEntryAt: new Date(now - state.OUTPUT_LIVENESS_CEILING_MS - 1000).toISOString() };
+  const wedged = { lastStatus: 8, lastStepType: 15, lastRole: 'assistant', lastEntryAt: new Date(now - state.OUTPUT_LIVENESS_CEILING_MS - 1000).toISOString() };
   assert.equal(state.deriveState(wedged, now, { lastOutputMs: now }), 'idle', 'past the ceiling it heals itself');
 });
 
-test('agy state: readDbFacts reports the last step\'s status, and copes without the column (#510)', () => {
+test('agy state: readDbFacts reports the last step\'s type/status, and copes without status (#510, #735)', () => {
   const { DatabaseSync } = require('node:sqlite');
   const state = require('../src/backends/agy/state');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-status-'));
@@ -284,6 +291,7 @@ test('agy state: readDbFacts reports the last step\'s status, and copes without 
     db.close();
     let facts = state.readDbFacts(withStatus);
     assert.equal(facts.lastStatus, 8, 'the LAST step, not the last message step');
+    assert.equal(facts.lastStepType, 15);
     assert.equal(facts.lastRole, 'assistant');
 
     // A store with no status column must still be readable — the role rule takes over.
@@ -294,6 +302,7 @@ test('agy state: readDbFacts reports the last step\'s status, and copes without 
     db.close();
     facts = state.readDbFacts(noStatus);
     assert.equal(facts.lastStatus, null, 'no column -> no answer, rather than a failed read');
+    assert.equal(facts.lastStepType, null, 'the status query is optional as a unit for old schemas');
     assert.equal(facts.lastRole, 'user');
   } finally {
     state._clearFactsCache();

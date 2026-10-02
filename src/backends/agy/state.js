@@ -1,12 +1,17 @@
 // backends/agy/state.js — busy/idle derivation for agy (Antigravity CLI).
 //
-// agy DOES state it, in `steps.status`: 8 while a step is running, 3 once it is done. Measured through a
-// live turn, once a second (#510):
+// agy 1.1.x stated it in `steps.status`: 8 while a step was running, 3 once it was done. Measured through
+// a live turn, once a second (#510):
 //
 //   #5 t=15 status=3 bytes=37536     the previous turn, finished
 //   #7 t=15 status=8 bytes=171       the turn starts — the model row is there already
 //   #7 t=15 status=8 bytes=31555     the answer streams into it
 //   #7 t=15 status=3 bytes=39265     finished
+//
+// agy 1.2.14 changed that contract (#735): user and tool steps remain status 3 while the turn is live, and
+// status 8 can be a sub-second edge on the final model step. The stable turn shape is now the last step's
+// TYPE: user (14) means the answer is owed; tool (9 in older stores, 132 now) means the model still owes its
+// answer; model (15) means the turn is complete unless its status explicitly says it is still running.
 //
 // Which is also why the rule this replaced could not work. It read WHICH ROLE wrote the last message step
 // — 14 (a user prompt) running, 15 (a model message) finished — but agy inserts the model row when the
@@ -14,9 +19,8 @@
 // the session never once reported busy. That rule is kept as the fallback for a store that reports no
 // status at all, where inferring from the role is still better than reporting nothing.
 //
-// Only a status known to mean "in progress" reads as busy: a session stuck on Working is worse than one
-// that stays Running. A census of the store found 3 everywhere at rest and a 7 on some lifecycle steps;
-// 8 never appears at rest, which is what makes it the running one.
+// Only those measured turn-bearing types may declare busy. Lifecycle/title steps and failed/cancelled tool
+// statuses stay idle: a session stuck on Working is worse than one that stays Running.
 //
 // The one weaker point vs. Pi: agy's store has no timestamps, so "how long since the last write" is the
 // `.db` file mtime, not an entry time. The safeguards are otherwise Pi's, kept identical on purpose (fix
@@ -32,9 +36,14 @@ const { dbSignature } = require('../livestate-cache');
 const BUSY = 'busy';
 const IDLE = 'idle';
 
-// The one `steps.status` that means "this step has not finished". Everything else — 3, the 7 seen on
-// lifecycle steps, anything a later agy adds — is not a turn in progress.
+// Status 8 explicitly means running. In 1.2.14, status 3 can also mean an answer is still owed, but only
+// on the measured user/tool step types below; other statuses and types never declare work.
 const STEP_STATUS_RUNNING = 8;
+const STEP_STATUS_DONE = 3;
+const STEP_TYPE_USER = 14;
+const STEP_TYPE_MODEL = 15;
+const STEP_TYPES_TOOL = new Set([9, 132]);
+const STEP_TYPES_TURN = new Set([STEP_TYPE_USER, STEP_TYPE_MODEL, ...STEP_TYPES_TOOL]);
 
 // Kept identical to Pi's — the same rule wants the same windows.
 const ACTIVITY_WINDOW_MS = 3 * 60 * 1000;
@@ -42,7 +51,7 @@ const OUTPUT_LIVENESS_MS = 60 * 1000;
 const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
 
 /**
- * Derive from a row/live shape ({ lastStatus, lastRole, lastEntryAt }).
+ * Derive from a row/live shape ({ lastStatus, lastStepType, lastRole, lastEntryAt }).
  *
  * `opts.lastOutputMs` = when this session's PTY last produced output (main.js tracks it). It can only
  * ever KEEP a turn busy past the staleness window, never start one.
@@ -55,8 +64,11 @@ function deriveState(row, now = Date.now(), opts = {}) {
   // The role rule is the fallback, for a row that carries no status — a scanned row, or a store that does
   // not report one. A trailing user step = a turn is running; anything that is not an answered (assistant)
   // turn, with no stop reason, is also treated as running — the same shape Pi's parse-state form uses.
-  const running = row.lastStatus != null
-    ? Number(row.lastStatus) === STEP_STATUS_RUNNING
+  const lastStatus = row.lastStatus == null ? null : Number(row.lastStatus);
+  const lastStepType = row.lastStepType == null ? null : Number(row.lastStepType);
+  const running = lastStatus != null
+    ? ((lastStatus === STEP_STATUS_RUNNING && STEP_TYPES_TURN.has(lastStepType)) || (lastStatus === STEP_STATUS_DONE &&
+      (lastStepType === STEP_TYPE_USER || STEP_TYPES_TOOL.has(lastStepType))))
     : (row.lastRole === 'user' || (row.lastRole !== 'assistant' && !row.lastStopReason));
 
   const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
@@ -90,9 +102,13 @@ function readDbFacts(dbPath) {
     // is the same question about it. A store with no `status` column reports none and the derivation
     // falls back to the role rule rather than the read failing.
     let lastStatus = null;
+    let lastStepType = null;
     try {
-      const s = db.get('SELECT status AS status FROM steps ORDER BY idx DESC LIMIT 1');
-      if (s && s.status != null) lastStatus = Number(s.status);
+      const s = db.get('SELECT step_type AS stepType, status AS status FROM steps ORDER BY idx DESC LIMIT 1');
+      if (s) {
+        if (s.status != null) lastStatus = Number(s.status);
+        if (s.stepType != null) lastStepType = Number(s.stepType);
+      }
     } catch { /* no status column -> stays null */ }
 
     const row = db.get(
@@ -102,7 +118,7 @@ function readDbFacts(dbPath) {
     let mtimeMs = 0;
     try { mtimeMs = require('fs').statSync(dbPath).mtimeMs; } catch { /* leave 0 */ }
     const lastEntryAt = mtimeMs ? new Date(mtimeMs).toISOString() : null;
-    return { lastStatus, lastRole, lastEntryAt };
+    return { lastStatus, lastStepType, lastRole, lastEntryAt };
   } catch {
     return null;
   } finally {
@@ -143,6 +159,7 @@ function _clearFactsCache() { _factsCache.clear(); }
 
 module.exports = {
   deriveState, deriveStateFromDb, readDbFacts, _clearFactsCache,
-  STEP_STATUS_RUNNING, ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS,
+  STEP_STATUS_RUNNING, STEP_STATUS_DONE, STEP_TYPE_USER, STEP_TYPE_MODEL, STEP_TYPES_TOOL,
+  ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS,
   BUSY, IDLE,
 };

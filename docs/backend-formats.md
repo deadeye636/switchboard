@@ -537,13 +537,15 @@ retired CLI and are a decoy. agy's own store is elsewhere.
     that have nothing to do with it — a conversation whose first metadata field is under 128 bytes puts a
     `0a` where the scan reads a length, and the URI is swallowed as `%file:///C`. A conversation with no cwd
     is never paired with the CLI running it, so its session shows "Running" for its whole life (#508).
-  - **step roles** — `step_type` 14 = the user prompt, 15 = a model message, 9 = a tool call/result, others
+  - **step roles** — `step_type` 14 = the user prompt, 15 = a model message, 9 = an older tool call/result,
+    132 = the current tool step, others
     (23, 98) are lifecycle/title steps. Turn/message count derives from the 14/15 rows.
-  - **busy/idle** — `steps.status` on the LAST step: **8 while it is running, 3 once it is done**. That is
-    the whole signal, and it is the only one: agy inserts the model row when a turn *starts* and fills it
-    in as the answer streams, so the last message step is 15 from the first moment and the role order says
-    nothing about whether a turn is in progress (#510). Only 8 means running — a store census found 3
-    everywhere at rest and a 7 on some lifecycle steps, and 8 never at rest.
+  - **busy/idle** — re-measured on 1.2.14 (#735): `status=8` is only a brief edge on the final model row,
+    while live user and tool rows already carry `status=3`. The durable signal is the LAST step's combined
+    type/status: running status 8 on a turn-bearing row (9/14/15/132) is busy; a completed user row (14) is busy because an answer is owed; a
+    completed tool row (9/132) is busy because the model still owes its answer; a completed model row (15)
+    is idle. Other lifecycle types and failed/cancelled statuses do not declare busy. This also covers the
+    first prompt before live-id adoption and tool-heavy turns without depending on a sub-second status edge.
   - **title** — agy generates one ("Fix the build" in the sample); it appears in a step. Fall
     back to the first user prompt (step 14, or `history.jsonl`'s `display` for that workspace) when absent.
   - **model** — recorded as a display string in the blobs (`Gemini 3.5 Flash (Medium)`, also ids like
@@ -552,8 +554,8 @@ retired CLI and are a decoy. agy's own store is elsewhere.
 - **No timestamp lives in the DB blobs** (scanned; none in the 2026 epoch-ms range). So the change marker is
   the **`.db` file mtime** (the file-store default), and `history.jsonl`'s `timestamp` (epoch **ms**) gives a
   birth/first-prompt time per workspace if a first-seen date is wanted.
-- **State**: read from the `steps.status` column above, not inferred from the turn's role — the role order says
-  nothing here, because the model row exists from the moment a turn starts. The safeguards around it are Pi's:
+- **State**: read from the last step's `step_type` and `status` as described above, not from the last message
+  role. The safeguards around it are Pi's:
   the terminal-liveness signal, which can only KEEP a turn busy and never declare one, under a ceiling that
   heals a session left with a step marked running. agy does **not** own an OSC title heuristic (that is
   Claude-only, keyed on the binary).

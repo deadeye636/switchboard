@@ -9,8 +9,9 @@
 //               message (`file:///C:/proj` -> `C:\proj`). Authoritative; never trust
 //               `last_conversations.json`. This ONE field goes through the wire-format walk rather than
 //               the string scan, because losing it costs the session — see #508 and `findWorkspaceUri`.
-//   - roles   — `steps.step_type` 14 = a user prompt, 15 = a model message, 9 = a tool call/result,
-//               23/98 = lifecycle/title steps. Turn/message count is the 14/15 rows.
+//   - roles   — `steps.step_type` 14 = a user prompt, 15 = a model message, 9 = an older tool
+//               call/result, 132 = the current tool step, 23/98 = lifecycle/title steps.
+//               Turn/message count is the 14/15 rows.
 //   - title   — agy generates one ("Fix the build"); it lands in a step_type 23 blob.
 //               Fall back to the first user prompt (step 14) when absent.
 //   - model   — a display string in the blobs (`Gemini 3.5 Flash (Medium)`, matching what `agy models`
@@ -435,7 +436,7 @@ function readMessages(dbPath, opts = {}) {
     const out = [];
     for (const s of steps) {
       const type = Number(s.stepType);
-      if (type !== 14 && type !== 15) continue;   // skip tool (9) and lifecycle (23, 98) steps
+      if (type !== 14 && type !== 15) continue;   // skip tool (9/132) and lifecycle (23, 98) steps
       const text = extractMessageText(asBuffer(s.payload));
       if (!text) continue;                        // no clean prose (a tool-call turn) -> skip, not empty
       out.push({
