@@ -74,8 +74,8 @@
   },
   "overrides": {
     "node-gyp": "13.0.0",
-    "brace-expansion@1": "1.1.18",
-    "brace-expansion@2": "2.1.4",
+    "brace-expansion@1": "1.1.21",
+    "brace-expansion@2": "2.1.7",
     "js-yaml@4": "4.3.2"
   },
   "build": {
