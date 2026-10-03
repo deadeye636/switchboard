@@ -128,8 +128,19 @@ function deriveState(row, now = Date.now(), opts = {}) {
 
     // 3. Completed step (status 3 = done)
     if (lastStatus === STEP_STATUS_DONE) {
-      // Model reply done or lifecycle step -> definitively idle
-      if (lastStepType === STEP_TYPE_MODEL || lastStepType === STEP_TYPE_TITLE || lastStepType === STEP_TYPE_HISTORY) {
+      // Lifecycle step -> definitively idle
+      if (lastStepType === STEP_TYPE_TITLE || lastStepType === STEP_TYPE_HISTORY) {
+        return IDLE;
+      }
+      // Model step completed: if it invoked a tool call, bridge until the tool executes;
+      // otherwise it is the final response to the user -> settle to idle.
+      if (lastStepType === STEP_TYPE_MODEL) {
+        if (row.hasToolCall) {
+          const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
+          if (Number.isFinite(lastMs) && now - lastMs <= TOOL_SETTLE_WINDOW_MS) {
+            return BUSY;
+          }
+        }
         return IDLE;
       }
       // User prompt (14) or incoming message (101): turn started, model owes an answer
@@ -170,6 +181,13 @@ function deriveState(row, now = Date.now(), opts = {}) {
   return IDLE;
 }
 
+function stepHasToolCall(payload) {
+  if (!payload) return false;
+  const buf = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
+  const str = buf.toString('latin1');
+  return /call_[a-zA-Z0-9]+/.test(str) && str.includes('{"');
+}
+
 /**
  * Read the conversation `.db` and report the status of its last step, which role wrote the last message
  * step, and the file mtime as the last-activity edge. Read-only, short-lived — the same discipline the
@@ -188,11 +206,18 @@ function readDbFacts(dbPath) {
     // falls back to the role rule rather than the read failing.
     let lastStatus = null;
     let lastStepType = null;
+    let hasToolCall = false;
     try {
       const s = db.get('SELECT step_type AS stepType, status AS status FROM steps ORDER BY idx DESC LIMIT 1');
       if (s) {
         if (s.status != null) lastStatus = Number(s.status);
         if (s.stepType != null) lastStepType = Number(s.stepType);
+        if (lastStepType === 15) {
+          try {
+            const p = db.get('SELECT step_payload AS payload FROM steps ORDER BY idx DESC LIMIT 1');
+            if (p && p.payload) hasToolCall = stepHasToolCall(p.payload);
+          } catch { /* no step_payload column in test fixture */ }
+        }
       }
     } catch { /* no status column -> stays null */ }
 
@@ -203,7 +228,7 @@ function readDbFacts(dbPath) {
     let mtimeMs = 0;
     try { mtimeMs = require('fs').statSync(dbPath).mtimeMs; } catch { /* leave 0 */ }
     const lastEntryAt = mtimeMs ? new Date(mtimeMs).toISOString() : null;
-    return { lastStatus, lastStepType, lastRole, lastEntryAt };
+    return { lastStatus, lastStepType, lastRole, lastEntryAt, hasToolCall };
   } catch {
     return null;
   } finally {

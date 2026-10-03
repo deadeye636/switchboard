@@ -280,8 +280,14 @@ test('agy state: user, active tool, and model steps stay busy until the final mo
   const pastBridge = new Date(Date.now() - state.TOOL_SETTLE_WINDOW_MS - 1000).toISOString();
   assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 132, lastRole: 'assistant', lastEntryAt: pastBridge }, Date.now()), 'idle',
     'finished tool step settles to idle past the bridge window (e.g. aborted with Esc)');
-  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle',
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, hasToolCall: true, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
+    'a tool-invoking model step bridges until the tool executes');
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, hasToolCall: true, lastRole: 'assistant', lastEntryAt: pastBridge }, Date.now()), 'idle',
+    'a tool-invoking model step settles to idle past the bridge window');
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, hasToolCall: false, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle',
     'the final model step closes the turn');
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle',
+    'model step without tool call closes the turn');
   assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 23, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
     'a lifecycle/title step must not leave the session working');
   for (const lifecycleType of [23, 98]) {
@@ -339,6 +345,18 @@ test('agy state: readDbFacts reports the last step\'s type/status, and copes wit
     assert.equal(facts.lastStatus, null, 'no column -> no answer, rather than a failed read');
     assert.equal(facts.lastStepType, null, 'the status query is optional as a unit for old schemas');
     assert.equal(facts.lastRole, 'user');
+
+    // A store with step_payload containing a tool call
+    const withToolCall = path.join(dir, 'with-tool-call.db');
+    db = new DatabaseSync(withToolCall);
+    db.exec('CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, step_payload BLOB)');
+    const toolPayload = Buffer.from('foo call_123456 run_command {"cmd":"test"} bar');
+    db.prepare('INSERT INTO steps (idx, step_type, status, step_payload) VALUES (?, ?, ?, ?)').run(0, 15, 3, toolPayload);
+    db.close();
+    facts = state.readDbFacts(withToolCall);
+    assert.equal(facts.lastStatus, 3);
+    assert.equal(facts.lastStepType, 15);
+    assert.equal(facts.hasToolCall, true, 'tool call pattern in step_payload must be detected');
   } finally {
     state._clearFactsCache();
     fs.rmSync(dir, { recursive: true, force: true });
