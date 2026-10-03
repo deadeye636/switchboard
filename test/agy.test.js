@@ -102,6 +102,32 @@ test('agy parser: sessionId from the filename, cwd from the metadata blob, 14/15
   });
 });
 
+test('agy parser: long prompt (>127 bytes with UTF-8 umlauts) is preserved without fragmenting into "sch"', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-long-prompt-'));
+  const dbPath = path.join(dir, 'test-long-prompt.db');
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    db.exec(`
+      CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, step_payload BLOB, metadata BLOB);
+      CREATE TABLE trajectory_metadata_blob (id TEXT PRIMARY KEY, data BLOB);
+    `);
+    const longPrompt = 'schau dir das letzte geschlossene issue zu agy status indicator an und die aenderungen. der working indicator wird nicht ausgeloest. ' + 'x'.repeat(200);
+    // Wire format: field 2 wire type 2, varint length > 127
+    const promptBuf = Buffer.from(longPrompt, 'utf8');
+    const lenField2 = Buffer.concat([Buffer.from([0x12]), Buffer.from([0x80 | (promptBuf.length & 0x7f), promptBuf.length >> 7]), promptBuf]);
+    db.prepare('INSERT INTO steps (idx, step_type, step_payload, metadata) VALUES (?, ?, ?, ?)').run(0, 14, lenField2, null);
+    db.close();
+
+    const row = parser.parseSession({ kind: 'file', path: dbPath });
+    assert.ok(row);
+    assert.equal(row.firstPrompt.startsWith('schau dir das letzte'), true, 'prompt must not be truncated to "sch"');
+    assert.equal(row.summary.startsWith('schau dir das letzte'), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // #508 — the cwd used to come out of a printable-run scan, and whether it survived depended on bytes
 // that have nothing to do with the string: a one-byte outer length puts a `0a` where the scan reads a
 // length, and it swallowed the URI as "%file:///C". A session with no cwd is never paired with its
@@ -232,19 +258,28 @@ test('agy descriptor: probe reports installed/not-installed with an actionable r
   if (!res.ok) assert.ok(res.reason && res.reason.length > 10);
 });
 
-// #510/#735 — 1.1.x held status 8 while a step ran. In 1.2.14 user/tool rows stay at 3 and status 8 is
-// only a brief edge near the final answer. The last step type therefore carries the durable turn shape.
-test('agy state: user and tool steps stay busy until the final model step (#510, #735)', () => {
+// #510/#735 — 1.1.x held status 8 while a step ran. In 1.2.x user/tool rows record status 3 when done,
+// status 2 while running (tools/shell/subagents), and status 8 while the model generates.
+test('agy state: user, active tool, and model steps stay busy until the final model step (#510, #735)', () => {
   const state = require('../src/backends/agy/state');
   const fresh = new Date().toISOString();
   assert.equal(state.deriveState({ lastStatus: 8, lastStepType: 15, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
     'a running model step is a turn in progress, whatever the role says');
+  assert.equal(state.deriveState({ lastStatus: 2, lastStepType: 132, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
+    'status 2 on a tool step is actively running (e.g. pytest or subagent)');
+  assert.equal(state.deriveState({ lastStatus: 2, lastStepType: 21, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
+    'status 2 on run_command is actively running');
   assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 14, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy',
-    'agy 1.2.14 records a live user step as status 3');
+    'agy records a live user step as status 3');
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 101, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy',
+    'status 3 on incoming message/subagent step 101 starts a turn');
   for (const toolType of [9, 132]) {
     assert.equal(state.deriveState({ lastStatus: 3, lastStepType: toolType, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'busy',
-      `tool step ${toolType} means the model still owes an answer`);
+      `freshly finished tool step ${toolType} bridges until model response`);
   }
+  const pastBridge = new Date(Date.now() - state.TOOL_SETTLE_WINDOW_MS - 1000).toISOString();
+  assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 132, lastRole: 'assistant', lastEntryAt: pastBridge }, Date.now()), 'idle',
+    'finished tool step settles to idle past the bridge window (e.g. aborted with Esc)');
   assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 15, lastRole: 'assistant', lastEntryAt: fresh }, Date.now()), 'idle',
     'the final model step closes the turn');
   assert.equal(state.deriveState({ lastStatus: 3, lastStepType: 23, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
@@ -253,10 +288,10 @@ test('agy state: user and tool steps stay busy until the final model step (#510,
     assert.equal(state.deriveState({ lastStatus: 8, lastStepType: lifecycleType, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
       `running status on lifecycle step ${lifecycleType} is not a user turn`);
   }
-  // Anything not known to mean "in progress" is idle: a session stuck on Working is the worse failure.
-  for (const unknown of [0, 6, 7, 99]) {
-    assert.equal(state.deriveState({ lastStatus: unknown, lastStepType: 132, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
-      `status ${unknown} is not a turn in progress`);
+  // Terminal / canceled / interrupted / error statuses are immediately idle (e.g. Esc on permission prompt)
+  for (const aborted of [0, 6, 7, 9, 12, 99]) {
+    assert.equal(state.deriveState({ lastStatus: aborted, lastStepType: 132, lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'idle',
+      `status ${aborted} is not a turn in progress`);
   }
   // No status at all (a scanned row, or a store that reports none) falls back to the role rule.
   assert.equal(state.deriveState({ lastRole: 'user', lastEntryAt: fresh }, Date.now()), 'busy');
@@ -267,7 +302,7 @@ test('agy state: the safeguards still bound a step left running (#166, #510)', (
   const state = require('../src/backends/agy/state');
   const now = Date.now();
   const stale = new Date(now - state.ACTIVITY_WINDOW_MS - 1000).toISOString();
-  const running = { lastStatus: 3, lastStepType: 132, lastRole: 'assistant', lastEntryAt: stale };
+  const running = { lastStatus: 2, lastStepType: 132, lastRole: 'assistant', lastEntryAt: stale };
 
   assert.equal(state.deriveState(running, now), 'idle', 'silent past the activity window -> idle');
   assert.equal(state.deriveState(running, now, { lastOutputMs: now - 5000 }), 'busy',

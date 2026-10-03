@@ -36,19 +36,62 @@ const { dbSignature } = require('../livestate-cache');
 const BUSY = 'busy';
 const IDLE = 'idle';
 
-// Status 8 explicitly means running. In 1.2.14, status 3 can also mean an answer is still owed, but only
-// on the measured user/tool step types below; other statuses and types never declare work.
-const STEP_STATUS_RUNNING = 8;
+// CortexStepStatus enum values from the agy protobuf descriptor:
+//   0: UNSPECIFIED, 1: PENDING, 2: RUNNING, 3: DONE, 4: INVALID, 5: CLEARED,
+//   6: CANCELED, 7: ERROR, 8: GENERATING, 9: WAITING, 11: QUEUED, 12: INTERRUPTED, 13: HALTED
+const STEP_STATUS_PENDING = 1;
+const STEP_STATUS_RUNNING = 2;
 const STEP_STATUS_DONE = 3;
-const STEP_TYPE_USER = 14;
-const STEP_TYPE_MODEL = 15;
-const STEP_TYPES_TOOL = new Set([9, 132]);
-const STEP_TYPES_TURN = new Set([STEP_TYPE_USER, STEP_TYPE_MODEL, ...STEP_TYPES_TOOL]);
+const STEP_STATUS_CANCELED = 6;
+const STEP_STATUS_ERROR = 7;
+const STEP_STATUS_GENERATING = 8;
+const STEP_STATUS_WAITING = 9;
+const STEP_STATUS_QUEUED = 11;
+const STEP_STATUS_INTERRUPTED = 12;
+
+const STEP_STATUSES_ACTIVE = new Set([
+  STEP_STATUS_PENDING,
+  STEP_STATUS_RUNNING,
+  STEP_STATUS_GENERATING,
+  STEP_STATUS_QUEUED,
+]);
+
+// CortexStepType values:
+const STEP_TYPE_USER = 14;      // USER_INPUT
+const STEP_TYPE_MODEL = 15;     // PLANNER_RESPONSE
+const STEP_TYPE_MESSAGE = 101;  // SYSTEM_MESSAGE (subagent prompts, task notifications)
+const STEP_TYPE_TITLE = 23;     // CHECKPOINT
+const STEP_TYPE_HISTORY = 98;   // CONVERSATION_HISTORY
+
+const STEP_TYPES_TOOL = new Set([
+  8,    // VIEW_FILE
+  9,    // LIST_DIRECTORY
+  21,   // RUN_COMMAND
+  31,   // READ_URL_CONTENT
+  33,   // SEARCH_WEB
+  38,   // MCP_TOOL
+  112,  // SHELL_EXEC
+  127,  // INVOKE_SUBAGENT
+  132,  // GENERIC (view_file, run_command, write_to_file, etc.)
+  138,  // ASK_QUESTION
+]);
+
+const STEP_TYPES_TURN = new Set([
+  STEP_TYPE_USER,
+  STEP_TYPE_MODEL,
+  STEP_TYPE_MESSAGE,
+  ...STEP_TYPES_TOOL,
+]);
 
 // Kept identical to Pi's — the same rule wants the same windows.
 const ACTIVITY_WINDOW_MS = 3 * 60 * 1000;
 const OUTPUT_LIVENESS_MS = 60 * 1000;
 const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
+
+// When a tool has finished (status 3), it briefly bridges until the model step appears (~1-5 s).
+// If the turn was aborted with Esc or completed, no model step follows: settle to idle.
+// Deliberately not extended by terminal output: once a tool finishes, terminal activity is prompt redraw/typing.
+const TOOL_SETTLE_WINDOW_MS = 15 * 1000;
 
 /**
  * Derive from a row/live shape ({ lastStatus, lastStepType, lastRole, lastEntryAt }).
@@ -59,29 +102,71 @@ const OUTPUT_LIVENESS_CEILING_MS = 5 * ACTIVITY_WINDOW_MS;   // 15 minutes
 function deriveState(row, now = Date.now(), opts = {}) {
   if (!row) return null;
 
-  // The store's own answer where there is one: the last step says whether it has finished.
-  //
-  // The role rule is the fallback, for a row that carries no status — a scanned row, or a store that does
-  // not report one. A trailing user step = a turn is running; anything that is not an answered (assistant)
-  // turn, with no stop reason, is also treated as running — the same shape Pi's parse-state form uses.
   const lastStatus = row.lastStatus == null ? null : Number(row.lastStatus);
   const lastStepType = row.lastStepType == null ? null : Number(row.lastStepType);
-  const running = lastStatus != null
-    ? ((lastStatus === STEP_STATUS_RUNNING && STEP_TYPES_TURN.has(lastStepType)) || (lastStatus === STEP_STATUS_DONE &&
-      (lastStepType === STEP_TYPE_USER || STEP_TYPES_TOOL.has(lastStepType))))
-    : (row.lastRole === 'user' || (row.lastRole !== 'assistant' && !row.lastStopReason));
 
+  if (lastStatus != null) {
+    // 1. Canceled, interrupted, error, or waiting statuses are immediately idle (e.g. Esc on permission prompt)
+    if (lastStatus === STEP_STATUS_CANCELED ||
+        lastStatus === STEP_STATUS_INTERRUPTED ||
+        lastStatus === STEP_STATUS_ERROR ||
+        lastStatus === STEP_STATUS_WAITING ||
+        lastStatus === 4 || lastStatus === 5 || lastStatus === 13) {
+      return IDLE;
+    }
+
+    // 2. Actively running or generating step (status 2 = running tool/shell/subagent, 8 = model generating)
+    if (STEP_STATUSES_ACTIVE.has(lastStatus) && STEP_TYPES_TURN.has(lastStepType)) {
+      const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
+      const stale = Number.isFinite(lastMs) && now - lastMs > ACTIVITY_WINDOW_MS;
+      if (!stale) return BUSY;
+      if (Number.isFinite(lastMs) && now - lastMs >= OUTPUT_LIVENESS_CEILING_MS) return IDLE;
+      const out = Number(opts.lastOutputMs || 0);
+      if (out && now - out <= OUTPUT_LIVENESS_MS) return BUSY;
+      return IDLE;
+    }
+
+    // 3. Completed step (status 3 = done)
+    if (lastStatus === STEP_STATUS_DONE) {
+      // Model reply done or lifecycle step -> definitively idle
+      if (lastStepType === STEP_TYPE_MODEL || lastStepType === STEP_TYPE_TITLE || lastStepType === STEP_TYPE_HISTORY) {
+        return IDLE;
+      }
+      // User prompt (14) or incoming message (101): turn started, model owes an answer
+      if (lastStepType === STEP_TYPE_USER || lastStepType === STEP_TYPE_MESSAGE) {
+        const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
+        const stale = Number.isFinite(lastMs) && now - lastMs > ACTIVITY_WINDOW_MS;
+        if (!stale) return BUSY;
+        if (Number.isFinite(lastMs) && now - lastMs >= OUTPUT_LIVENESS_CEILING_MS) return IDLE;
+        const out = Number(opts.lastOutputMs || 0);
+        if (out && now - out <= OUTPUT_LIVENESS_MS) return BUSY;
+        return IDLE;
+      }
+      // Tool step (132, 9, etc.) completed: brief bridge window while model computes next response.
+      // Settle to idle if no next step appears (e.g. aborted with Esc or prompt finished).
+      if (STEP_TYPES_TOOL.has(lastStepType)) {
+        const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
+        if (Number.isFinite(lastMs) && now - lastMs <= TOOL_SETTLE_WINDOW_MS) {
+          return BUSY;
+        }
+        return IDLE;
+      }
+    }
+
+    // Any other status -> idle (safer than stuck on working)
+    return IDLE;
+  }
+
+  // Fallback for legacy stores or scanned rows without status column
+  const running = row.lastRole === 'user' || (row.lastRole !== 'assistant' && !row.lastStopReason);
   const lastMs = row.lastEntryAt ? Date.parse(row.lastEntryAt) : NaN;
   const stale = Number.isFinite(lastMs) && now - lastMs > ACTIVITY_WINDOW_MS;
 
   if (!running) return IDLE;
   if (!stale) return BUSY;
-
-  // Silent past the ceiling: over, whatever the terminal is doing (#166).
   if (Number.isFinite(lastMs) && now - lastMs >= OUTPUT_LIVENESS_CEILING_MS) return IDLE;
-
   const out = Number(opts.lastOutputMs || 0);
-  if (out && now - out <= OUTPUT_LIVENESS_MS) return BUSY;    // still working, just not writing
+  if (out && now - out <= OUTPUT_LIVENESS_MS) return BUSY;
   return IDLE;
 }
 
@@ -112,9 +197,9 @@ function readDbFacts(dbPath) {
     } catch { /* no status column -> stays null */ }
 
     const row = db.get(
-      'SELECT step_type AS stepType FROM steps WHERE step_type IN (14, 15) ORDER BY idx DESC LIMIT 1'
+      'SELECT step_type AS stepType FROM steps WHERE step_type IN (14, 15, 101) ORDER BY idx DESC LIMIT 1'
     );
-    const lastRole = row ? (Number(row.stepType) === 14 ? 'user' : 'assistant') : null;
+    const lastRole = row ? (Number(row.stepType) === 15 ? 'assistant' : 'user') : null;
     let mtimeMs = 0;
     try { mtimeMs = require('fs').statSync(dbPath).mtimeMs; } catch { /* leave 0 */ }
     const lastEntryAt = mtimeMs ? new Date(mtimeMs).toISOString() : null;
@@ -159,7 +244,9 @@ function _clearFactsCache() { _factsCache.clear(); }
 
 module.exports = {
   deriveState, deriveStateFromDb, readDbFacts, _clearFactsCache,
-  STEP_STATUS_RUNNING, STEP_STATUS_DONE, STEP_TYPE_USER, STEP_TYPE_MODEL, STEP_TYPES_TOOL,
-  ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS,
+  STEP_STATUS_RUNNING, STEP_STATUS_GENERATING, STEP_STATUS_DONE,
+  STEP_STATUS_CANCELED, STEP_STATUS_INTERRUPTED,
+  STEP_TYPE_USER, STEP_TYPE_MODEL, STEP_TYPE_MESSAGE, STEP_TYPES_TOOL,
+  ACTIVITY_WINDOW_MS, OUTPUT_LIVENESS_MS, OUTPUT_LIVENESS_CEILING_MS, TOOL_SETTLE_WINDOW_MS,
   BUSY, IDLE,
 };

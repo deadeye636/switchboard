@@ -33,7 +33,8 @@ const { driver } = require('../sqlite-driver');
 // agy session already in the cache re-reads itself, so a change reaches the UI without a manual Rebuild.
 //   v1: first real parser (cwd, title, model, message/user counts)
 //   v2: cwd read through the protobuf wire-format walk instead of the printable-run scan (#508)
-const PARSER_SCHEMA_VERSION = 2;
+//   v3: prompt and title use wire-format walk with submessage disambiguation; avoids truncating prompts with multi-byte varints or non-ASCII characters
+const PARSER_SCHEMA_VERSION = 3;
 
 // A conversation is a handful of turns; the blobs we care about hold SHORT strings (a cwd URI, a title,
 // a prompt, a model name), so a single-byte protobuf length prefix (<= 127 bytes) recovers them exactly.
@@ -185,15 +186,15 @@ function readConversation(db) {
         if (type === 14) {
           facts.userMessageCount++;
           if (!facts.firstPrompt) {
-            const p = protoStrings(payload, 2).find(looksLikePrompt);
+            const p = extractMessageText(payload) || protoStrings(payload, 2).find(looksLikePrompt);
             if (p) facts.firstPrompt = p.slice(0, 500);
           }
         }
       }
 
       if (type === 23 && !facts.title) {
-        const t = protoStrings(payload, 4).find(looksLikeTitle);
-        if (t) facts.title = t;
+        const t = extractMessageText(payload) || protoStrings(payload, 4).find(looksLikeTitle);
+        if (t && looksLikeTitle(t)) facts.title = t;
       }
 
       // Model can appear in any step's blobs; collect the printable text for the hunt.
@@ -292,10 +293,21 @@ function readVarint(buf, i) {
   return [null, i];
 }
 
+function isSubMessage(buf) {
+  if (!buf || buf.length < 2) return false;
+  const tag = buf[0];
+  if ((tag & 0x07) === 2) { // wire type 2 length-delimited
+    const [len, afterLen] = readVarint(buf, 1);
+    if (len !== null && len >= 0 && afterLen + len === buf.length) return true;
+  }
+  return false;
+}
+
 /** Are these bytes pure text (a proto STRING), or a nested message? A nested message carries field
  *  tags/lengths in the C0 control range; genuine text has none but \t \n \r (high bytes are UTF-8). */
 function isTextBytes(buf) {
   if (buf.length === 0) return false;
+  if (isSubMessage(buf)) return false;
   for (let k = 0; k < buf.length; k++) {
     const c = buf[k];
     if (c === 9 || c === 10 || c === 13) continue;
