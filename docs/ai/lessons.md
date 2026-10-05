@@ -876,6 +876,9 @@ accounted for about 2 % of the traffic.
 
 - **A plausible mechanism that reproduces in a probe is not the mechanism.** The `fs.watch` behaviour was
   real, reproducible, and almost irrelevant — it fires once every few minutes, not once per append.
+  The probes behind the `fs.watch` finding are `scripts/fswatch-probe.js`,
+  `scripts/fswatch-probe-rate.js` and `scripts/fswatch-probe-dirs.js`; the every-few-minutes rate came
+  from the read-only watcher on the real store, not from them.
 - **Timing distributions identify callers.** "Which code posted this?" is answerable without instrumenting
   the code, if two callers would produce different latencies and one of them is zero.
 - **The issue was rewritten rather than deleted, with the correction as a comment.** The measurements were
