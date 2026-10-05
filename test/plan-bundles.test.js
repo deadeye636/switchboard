@@ -294,4 +294,30 @@ test('a linked plan file is listed exactly when it opens', (t) => {
   assert.equal(plansMemory.readPlan(path.join(plans, 'to-fine.md')).content, '# Shared\n');
   assert.equal(plansMemory.readPlan(path.join(plans, 'to-hidden.md')).content, '');
   assert.equal(plansMemory.readPlan(path.join(plans, 'to-deep.md')).content, '');
+
+  const rows = plansMemory.getPlans().plans.filter(p => p.projectPath === project && p.title === 'Shared');
+  assert.equal(rows.length, 1, 'a link and its target are one row');
+});
+
+test('a folder junction in the middle of the path does not open a hidden or too-deep file', (t) => {
+  const project = path.join(ROOT, 'mid-junction');
+  const plans = path.join(project, 'docs', 'plans');
+  write(path.join(plans, '.drafts', 'secret.md'), '# Hidden draft\n');
+  write(path.join(plans, 'a', 'b', 'c', 'd', 'deep.md'), '# Too deep\n');
+  write(path.join(plans, 'kept', 'PLAN.md'), '# Kept\n');
+  if (!linkDir(path.join(plans, '.drafts'), path.join(plans, 'alias-hidden'))
+    || !linkDir(path.join(plans, 'a', 'b', 'c', 'd'), path.join(plans, 'alias-deep'))) {
+    t.skip('this system cannot create a directory link');
+    return;
+  }
+  init([project]);
+  assert.equal(plansMemory.readPlan(path.join(plans, 'alias-hidden', 'secret.md')).content, '',
+    'spelled `alias-hidden/secret.md`, real path under `.drafts`');
+  assert.equal(plansMemory.readPlan(path.join(plans, 'alias-deep', 'deep.md')).content, '',
+    'spelled one folder down, real path four folders down');
+  assert.equal(plansMemory.savePlan(path.join(plans, 'alias-hidden', 'secret.md'), 'x', null).ok, false);
+  assert.equal(plansMemory.savePlan(path.join(plans, 'alias-deep', 'deep.md'), 'x', null).ok, false);
+  assert.equal(plansMemory.readPlan(path.join(plans, 'kept', 'PLAN.md')).content, '# Kept\n');
+  const rels = plansMemory._walkPlanFiles(plans).map(f => f.relPath);
+  assert.deepEqual(rels, ['kept/PLAN.md'], 'and neither junction is walked');
 });

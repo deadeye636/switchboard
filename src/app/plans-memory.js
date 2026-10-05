@@ -111,7 +111,8 @@ function watchPlansDirs() {
       if (!fs.existsSync(dir)) continue;
       // A directory watch answers for a file appearing, being renamed and being removed — all three are
       // list changes and none of them touches a file this side already had open.
-      plansWatchers.push(watchPlansDir(dir, { recursive: !atRoot.has(dir) }));
+      const recursive = !atRoot.has(dir) && !recursiveWatchFailed.has(dir);
+      plansWatchers.push(watchPlansDir(dir, { recursive }));
     } catch { /* a plans dir that cannot be watched is one whose list simply stays as stale as before */ }
   }
 }
@@ -132,20 +133,30 @@ function watchPlansDirs() {
  * watcher — and the one case where it would not be, a plans directory that is the project root, is
  * watched flat by the caller.
  *
- * A watch that fails later (the folder removed, a handle revoked) is closed and logged at debug; the
- * next list load re-establishes the set.
+ * A watch that fails later (the folder removed, a handle revoked, Linux out of inotify watches) is
+ * closed and logged at debug; the next list load re-establishes the set - flat, if it was the recursive
+ * watch that failed.
  */
+// Plans directories whose RECURSIVE watch failed once, at the call or later (Linux answers ENOSPC
+// asynchronously when the inotify budget runs out). They are watched flat from then on, for the session:
+// retrying recursive on every rebuild would fail the same way every time.
+const recursiveWatchFailed = new Set();
+
 function watchPlansDir(dir, { recursive = true } = {}) {
   const onChange = (_event, filename) => {
     if (filename && !planWatchEventRelevant(String(filename))) return;
     announcePlansChanged();
   };
-  let watcher;
+  let watcher = null;
+  let isRecursive = false;
   if (recursive) {
-    try { watcher = fs.watch(dir, { recursive: true }, onChange); } catch { watcher = null; }
+    try { watcher = fs.watch(dir, { recursive: true }, onChange); isRecursive = true; } catch {
+      recursiveWatchFailed.add(dir);
+    }
   }
   if (!watcher) watcher = fs.watch(dir, onChange);
   watcher.on('error', (err) => {
+    if (isRecursive) recursiveWatchFailed.add(dir);
     try {
       if (ctx && ctx.log && typeof ctx.log.debug === 'function') {
         ctx.log.debug('[plans] a plans-directory watch failed and was closed:', err && err.code);
@@ -714,8 +725,10 @@ function logPlanWalkCap(dir) {
  *
  * Containment is decided on REAL paths, through `path-containment.js` (CLAUDE.md reflex 13): a folder
  * whose real path leaves `root` is not entered, so a junction spelled inside the plans directory cannot
- * pull another tree onto the list. A link is never descended through at all — a linked FILE is listed
- * only when its target is inside `root`, which is what the flat read did for a linked plan before.
+ * pull another tree onto the list. A link is never descended through at all. A linked FILE is listed
+ * only when the walk could have listed its target itself: inside `root`, on a real path below it that
+ * passes `planRelPathAllowed` (no hidden or build folder, not past the depth). Such an entry carries
+ * `realPath`, the target, so a link and its target make one row.
  *
  * A folder below `root` that holds a `PLAN.md` (any case) IS a bundle, and only that file is a plan
  * (owner decision on #743): the notes, research and README beside it and below it are the plan's
@@ -732,14 +745,17 @@ function walkPlanFiles(root, { limit = Infinity } = {}) {
   // not past the depth). That is the rule the read/save guard applies to a link, so a listed link opens.
   // The extension stays case-sensitive as it always was (the read guard asks the same), so `PLAN.MD` is
   // neither a plan nor a bundle marker; `PLAN.md`, `Plan.md` and `plan.md` all are.
+  //
+  // Answers null for "not a plan", `{}` for a plain file, and `{ realPath }` for a link.
   let realRoot = null;
   const listable = (e, full) => {
-    if (!e.name.endsWith('.md')) return false;
-    if (e.isFile()) return true;
-    if (!e.isSymbolicLink() || !isInside(full, root)) return false;
+    if (!e.name.endsWith('.md')) return null;
+    if (e.isFile()) return {};
+    if (!e.isSymbolicLink() || !isInside(full, root)) return null;
     if (realRoot === null) realRoot = realPathish(root);
-    if (!planRelPathAllowed(path.relative(realRoot, realPathish(full)))) return false;
-    try { return fs.statSync(full).isFile(); } catch { return false; /* dangling */ }
+    const realPath = realPathish(full);
+    if (!planRelPathAllowed(path.relative(realRoot, realPath))) return null;
+    try { return fs.statSync(full).isFile() ? { realPath } : null; } catch { return null; /* dangling */ }
   };
   const out = [];
   const stack = [{ dir: root, rel: '', depth: 0 }];
@@ -756,10 +772,14 @@ function walkPlanFiles(root, { limit = Infinity } = {}) {
       entries = entries.slice(0, PLAN_WALK_MAX_ENTRIES);
     }
     if (depth > 0) {
-      const plan = entries.find(e => e.name.toLowerCase() === BUNDLE_PLAN_NAME
-        && listable(e, path.join(dir, e.name)));
-      if (plan) {
-        out.push({ filePath: path.join(dir, plan.name), relPath: rel + '/' + plan.name });
+      let bundle = null;
+      for (const e of entries) {
+        if (e.name.toLowerCase() !== BUNDLE_PLAN_NAME) continue;
+        const ok = listable(e, path.join(dir, e.name));
+        if (ok) { bundle = { ...ok, filePath: path.join(dir, e.name), relPath: rel + '/' + e.name }; break; }
+      }
+      if (bundle) {
+        out.push(bundle);
         continue;
       }
     }
@@ -773,8 +793,9 @@ function walkPlanFiles(root, { limit = Infinity } = {}) {
         if (depth >= PLAN_WALK_MAX_DEPTH || skippedPlanFolder(e.name)) continue;
         if (!isInside(full, root)) continue;
         stack.push({ dir: full, rel: relPath, depth: depth + 1 });
-      } else if (e.name.endsWith('.md') && listable(e, full)) {
-        out.push({ filePath: full, relPath });
+      } else if (e.name.endsWith('.md')) {
+        const ok = listable(e, full);
+        if (ok) out.push({ ...ok, filePath: full, relPath });
       }
     }
   }
@@ -838,7 +859,9 @@ function unfulfilledPlanDirs() {
 /**
  * Which file a row is, for the dedupe in `getPlans`: the real path of its FOLDER plus its name. One
  * realpath per folder rather than per file — `pathKey` remembers a folder it has just resolved, and every
- * plan in that folder shares it. The name is case-folded where `pathKey` folds, on Windows.
+ * plan in that folder shares it. The name is case-folded where `pathKey` folds, on Windows. A linked
+ * file is keyed by its TARGET's real path, which the walk hands over, so a link and its target are one
+ * row; a plain file's folder is resolved anyway, and a link is the one case where that is not enough.
  */
 function planRowKey(filePath) {
   const name = path.basename(filePath);
@@ -850,8 +873,8 @@ function getPlans() {
   const sigFiles = [];
   const bodies = new Map(); // filePath -> content (single read: title + FTS body)
   const refOf = new Map();  // filePath -> the reference its own backend knows it by
-  // The files that already have a row, by `pathKey`: one file spelled in two cases on Windows (two
-  // candidates `docs/plans` and `Docs/Plans`), or reached through two nested candidates, is one row.
+  // The files that already have a row, by `planRowKey`: one file spelled in two cases on Windows, reached
+  // through two nested candidates, or reached once directly and once through a file link, is one row.
   const listed = new Set();
   let hasStore = false;
   for (const b of memoryBackends()) {
@@ -886,16 +909,17 @@ function getPlans() {
   for (const source of projectPlanSources()) {
     let files = [];
     try { files = walkPlanFiles(source.dir); } catch { continue; }
-    for (const { filePath, relPath } of files) {
+    for (const { filePath, relPath, realPath } of files) {
       // Two candidate names can nest (`docs` and `docs/plans`), and a walk reaches the inner one's files
       // from the outer one too. One file is one row.
-      if (listed.has(planRowKey(filePath))) continue;
+      const rowKey = planRowKey(realPath || filePath);
+      if (listed.has(rowKey)) continue;
       try {
         const stat = fs.statSync(filePath);
         if (!stat.isFile()) continue;
         const content = fs.readFileSync(filePath, 'utf8');
         const title = planTitle(content, relPath);
-        listed.add(planRowKey(filePath));
+        listed.add(rowKey);
         plans.push({
           // The path below the plans directory, not the bare name (#743): every bundle has a PLAN.md,
           // and a list of identical filenames tells nobody which is which. A top-level plan's is
@@ -968,30 +992,30 @@ function plansDirs(sources = null) {
  *
  * Since bundles are walked (#743) the walk's own limits apply here as well: a file below a hidden or
  * build folder, or past the depth limit, is not a plan, so the viewer does not open what the list would
- * never show. Which path below the directory is judged:
+ * never show. The path between the two REAL paths is always judged, and the spelled path as well when it
+ * leads down from the directory (how every listed row is spelled). Both, because each closes a hole the
+ * other leaves:
  *
- *   - spelled DOWN from the directory (how every listed row is spelled): that lexical path — and, when
- *     the file itself is a link, its target's real path below the directory as well, which is exactly
- *     the rule the walk lists a linked file by. Listed and openable stay one set.
- *   - spelled any other way (a junction to the plans directory, a `subst` drive): the path between the
- *     two REAL paths, so a second spelling meets the same limits instead of skipping them.
+ *   - the real path catches a link anywhere along the way — a file link to `.drafts/x.md`, or a folder
+ *     junction `alias` -> `.drafts` or -> `a/b/c/d` in the middle of the path, which an `lstat` of the
+ *     leaf never sees — and a second spelling of the plans directory (a junction to it, a `subst` drive);
+ *   - the spelled path keeps a file the walk would skip by NAME skipped, whatever it resolves to.
+ *
+ * A row the walk lists has the two paths alike, or a link whose target passed the same test, so listed
+ * and openable stay one set.
  *
  * Containment has already been answered on real paths by then; a real relative path that still climbs or
  * changes volume means the two answers disagree, and that is refused rather than waved through.
  */
 function inPlansDir(resolved, contains) {
   const climbs = (rel) => rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel);
-  // Never a plan, and the `lstat` below would hold it open for the session (`build-dirs.js`).
+  // Never a plan, and resolving its real path below would hold it open for the session (`build-dirs.js`).
   if (isAsarArchive(path.basename(resolved))) return false;
   return plansDirs().some((d) => {
     if (!contains(resolved, d)) return false;
     const lexical = path.relative(d, resolved);
-    if (lexical && !climbs(lexical)) {
-      if (!planRelPathAllowed(lexical)) return false;
-      let link = false;
-      try { link = fs.lstatSync(resolved).isSymbolicLink(); } catch { link = false; }
-      if (!link) return true;
-    } else if (!lexical) return true;
+    if (!lexical) return true;
+    if (!climbs(lexical) && !planRelPathAllowed(lexical)) return false;
     const real = path.relative(realPathish(d), realPathish(resolved));
     if (!real) return true;
     if (climbs(real)) return false;

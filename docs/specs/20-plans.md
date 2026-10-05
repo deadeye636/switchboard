@@ -170,14 +170,16 @@ Claude `plansDirectory` of `.`) is kept, because that is where the CLI writes; t
 
 Candidate directories are deduplicated by `pathKey` (real path, case-folded on Windows), and rows by the
 `pathKey` of their folder plus their name, so nested candidates or two spellings of one directory give one
-row per file at one realpath per folder rather than per file.
+row per file at one realpath per folder rather than per file. A linked file is keyed by its target's real
+path, so a link and its target are one row as well.
 
 The open and save guards ask the same question: a file the walk would not reach (under `.git`, past the
-depth) is refused even when it is inside a plans directory. A path spelled down from the directory, which
-is how every row is spelled, is judged as spelled, plus its target's real path when the file is a link,
-the walk's own rule for links. Any other spelling (a junction to the plans directory, a `subst` drive) is
-judged by the path between the two REAL paths, so it meets the same limits. Listed and openable must stay
-one set, for the reason already given above `plansDirs()`: a row the viewer refuses is worse than no row.
+depth) is refused even when it is inside a plans directory. The path between the two REAL paths is always
+judged, and the spelled path too when it leads down from the directory. The real path is what catches a
+link anywhere along the way, a file link or a folder junction in the MIDDLE of the path (`alias` ->
+`.drafts`), which an `lstat` of the leaf never sees, and a second spelling of the plans directory. A walked
+row has both paths alike, or is a link whose target passed the same test, so listed and openable stay one
+set, for the reason already given above `plansDirs()`: a row the viewer refuses is worse than no row.
 
 **What a row is called changed; what it IS did not.** A row's identity was `filePath` before and stays
 so, which is what the selection, the reader, the save and a detached viewer all key on. `filename`
@@ -209,7 +211,8 @@ takes no exclusion list, so on Linux every subfolder of a plans directory costs 
 ones included. That is accepted for a directory people and agents fill by hand. The one plans directory
 for which it is not, a CLI setting that names the project ROOT, is watched flat: recursively it would be
 a watch over the whole checkout. A watch that errors later is closed, logged at `debug`, and rebuilt on
-the next list load.
+the next list load. A RECURSIVE watch that failed once (Linux reports an exhausted inotify budget as an
+asynchronous `ENOSPC`) is rebuilt flat for the rest of the session rather than retried on every load.
 
 ## Asking for one, without writing it (#486)
 
