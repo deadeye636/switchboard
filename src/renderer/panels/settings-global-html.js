@@ -889,7 +889,7 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Show second line</span>${help}</div>
                     <div class="settings-description">Add a line under each project header with the project's tags as coloured dots, and the branch &amp; change counts when those are on.</div>
-                    <div class="settings-more">Hover a dot to see its tag. Projects only; a worktree never gets one. A project with nothing to show on the line gets no extra row. A project shows "Show branch &amp; change counts" (Version control) only here.</div>
+                    <div class="settings-more">Hover a dot to see its tag. Projects only; a worktree never gets one. A project with nothing to show on the line gets no extra row. With "Show branch &amp; change counts" (Version control) on, a project shows that badge here and drops its git button.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-sidebar-second-line" ${sidebarProjectSecondLineValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
@@ -944,8 +944,8 @@
                 <div class="settings-field" id="sv-vcs-badge-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Show branch &amp; change counts</span>
-                    <div class="settings-description">Off shows only the git button (opens the changes window); on adds the branch and file-count badge. A project shows it in its second line, where it replaces the git button. A worktree or a grid card shows it as before.</div>
-                    <div class="settings-hint" id="sv-vcs-badge-requires"${sidebarProjectSecondLineValue ? ' hidden' : ''}>For projects, the badge shows in the second line (Projects &amp; sidebar → Sidebar).</div>
+                    <div class="settings-description">Off shows only the git button (opens the changes window); on adds the branch and file-count badge under the header. With “Show second line” on, a project shows it in that line instead, where it replaces the git button.</div>
+                    <div class="settings-hint" id="sv-vcs-badge-requires"${sidebarProjectSecondLineValue ? ' hidden' : ''}>With “Show second line” on (Projects &amp; sidebar → Sidebar), a project shows the badge in that line.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-vcs-badge" ${vcsShowBadgeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>

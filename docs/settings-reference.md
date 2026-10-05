@@ -280,7 +280,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `projectSortMode` | Project order | `activity` \| `alpha` \| `manual` | `activity` | global |
 | `favoritesOwnList` | Favorites as a separate list | bool | `false` | global |
 | `vcsChipEnabled` | Show version-control status — *Version control* | `true` \| `false` | `true` | global |
-| `vcsShowBadge` | Show branch & change counts badge — *Version control*; a main project shows it only in its second line (`sidebarProjectSecondLine`) | `true` \| `false` | `false` | global |
+| `vcsShowBadge` | Show branch & change counts badge — *Version control*; a main project shows it in its second line while `sidebarProjectSecondLine` is on | `true` \| `false` | `false` | global |
 | `vcsPollSeconds` | Version-control poll interval (s) — *Version control* | integer, min 5 | `20` | global |
 | `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
@@ -321,12 +321,12 @@ no click action — the filter bar is where a tag filters. A hidden tag still ge
 filter bar), a disabled one does not. A project with nothing to show on the line gets no row at all, so
 turning it on adds no blank space under untagged projects. The line folds with its project.
 
-For a main project, `vcsShowBadge` draws its branch & change counts badge in that line and nowhere else
-(#742). With both on, the project's header drops its git button, because the badge in the line opens the
-changes window itself. With the badge on and the line off, a main project keeps its git button and shows no
-badge; the settings screen says so with a hint under the switch, which stays usable. Worktrees and grid cards
-are not affected by the line: a worktree keeps its git button and shows the badge in a row under its header,
-and a card shows it in its chip, whenever `vcsShowBadge` is on.
+With `vcsShowBadge` on as well, a main project draws its branch & change counts badge in that line (#742)
+and its header drops the git button, because the badge in the line opens the changes window itself. With
+the badge on and the line off, a main project keeps its git button and shows the badge in a row under its
+header, as it always did; a hint under the switch in the settings screen says where the badge goes once the
+line is on. Worktrees and grid cards are not affected by the line: a worktree keeps its git button and shows
+the badge in a row under its header, and a card shows it in its chip, whenever `vcsShowBadge` is on.
 
 `contextFillHandoffPercent` decides "Handoff Recommended" (#620). The badge comes from how full the model's
 context window was on the session's last turn, measured against that model's window; the older

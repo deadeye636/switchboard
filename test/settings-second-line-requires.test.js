@@ -2,9 +2,10 @@
 // "Show branch & change counts" and "Show second line" (#742).
 //
 // WHY THIS EXISTS:
-//   A main project shows its badge only in the second line, while worktrees and grid cards follow the badge
-//   switch alone. So the switch stays a normal control, and while the line is off a hint says where a
-//   project's badge went, following the second-line toggle live. That happens at render time and inside a
+//   With the second line on, a main project shows its badge in that line; otherwise the badge stays in its
+//   row under the header, and worktrees and grid cards follow the badge switch alone. So the switch stays a
+//   normal control, and while the line is off a hint says where a project's badge goes once it is on,
+//   following the second-line toggle live. That happens at render time and inside a
 //   `change` handler, which the load-time smoke test cannot see. This loads the panel the way settings.html
 //   does (the same harness as settings-project-action-close.test.js), opens the GLOBAL scope and flips the
 //   real toggle.
