@@ -215,6 +215,44 @@ test('agy local usage: several pids keep the strongest failure and any reading w
   }
 });
 
+test('agy local usage: a 429 without Retry-After is still a rate limit, with the shared default wait', async () => {
+  const { DEFAULT_USAGE_RETRY_SECONDS } = require('../src/backends/usage-cache');
+  const noWait = () => { const err = new Error('slow down'); err.status = 429; err.retryAfterSeconds = 0; throw err; };
+  const result = await local.fetchFromPid(42, { listeningPorts: async () => [43111], postJson: async () => noWait() });
+  assert.deepEqual(result, { kind: 'rateLimited', retryAfterSeconds: DEFAULT_USAGE_RETRY_SECONDS });
+});
+
+test('agy local usage: the longest named wait across ports wins', async () => {
+  const waits = { 43111: 30, 43112: 90, 43113: 45 };
+  const result = await local.fetchFromPid(42, {
+    listeningPorts: async () => [43111, 43112, 43113],
+    postJson: async (port) => { const err = new Error('slow'); err.status = 429; err.retryAfterSeconds = waits[port]; throw err; },
+  });
+  assert.equal(result.kind, 'rateLimited');
+  assert.equal(result.retryAfterSeconds, 90);
+});
+
+test('agy local usage: a rate limit stops the pid search, an auth or CSRF refusal does not', async () => {
+  const asked = [];
+  const run = async (handlersByPid) => {
+    asked.length = 0;
+    local.resetProbeBackoff();
+    return local.fetchLocalRaw({
+      livePids: [11, 12, 13],
+      allowLaunch: false,
+      deps: {
+        discoverPids: async () => [],
+        listeningPorts: async pid => [40000 + pid],
+        postJson: async (port) => { const pid = port - 40000; if (!asked.includes(pid)) asked.push(pid); return handlersByPid[pid](); },
+      },
+    });
+  };
+  assert.equal((await run({ 11: csrf401, 12: limited429, 13: reading })).kind, 'rateLimited');
+  assert.deepEqual(asked, [11, 12]);
+  assert.equal((await run({ 11: plain401, 12: csrf401, 13: reading })).kind, 'summary');
+  assert.deepEqual(asked, [11, 12, 13]);
+});
+
 test('agy local usage: a payload with a shapeless groups field is not a reading', async () => {
   const result = await local.fetchFromPid(42, {
     listeningPorts: async () => [43111],

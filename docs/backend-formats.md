@@ -641,6 +641,19 @@ does not return a reading backs off — five minutes, doubling to an hour — an
 while the wait runs, so an install that is present but not signed in is not respawned once a minute for
 the app's whole lifetime.
 
+**Which process answers.** The search goes through the candidate processes in that order. A reading ends
+it. A rate limit (any HTTP 429, with or without `Retry-After`; none named means the shared default wait)
+also ends it, because the next process would be asked with `forceRefresh` against the same account. An
+authentication or CSRF refusal does not end it: the search keeps going, and if no process yields a
+reading it reports the strongest failure it saw (rate limited, then CSRF, then not signed in).
+
+**CSRF-gated quota endpoint (#738).** On some installs the service answers 401
+`{"code":"unauthenticated","message":"missing CSRF token"}`. The account is signed in; the request lacks
+a per-run token AGY's own clients send. This is its own result (`csrfRequired`), not "not signed in".
+Switchboard keeps the legacy remote fallback, and if that gives no reading either (it returns 403 for
+Google AI subscription accounts) the status bar says the local endpoint needs a token Switchboard cannot
+obtain yet. Discovering that token is #746.
+
 **"No durable cached reading" is the whole of that condition, and it used to never become true again.**
 The gate is `allowLaunch: !hasCachedUsage`, and `hasCachedUsage` is read from the persistent setting
 `usage:lastSuccessful:agy`, which nothing cleared or aged. So the first reading that succeeded turned the

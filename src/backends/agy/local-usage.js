@@ -10,6 +10,7 @@ const https = require('https');
 const os = require('os');
 const { execFile } = require('child_process');
 const { closeStdin } = require('../cli-probe');
+const { DEFAULT_USAGE_RETRY_SECONDS } = require('../usage-cache');
 
 const QUOTA_SUMMARY_PATH = '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary';
 const USER_STATUS_PATH = '/exa.language_server_pb.LanguageServerService/GetUserStatus';
@@ -244,7 +245,14 @@ async function fetchFromPid(pid, deps = {}) {
   const post = deps.postJson || postJson;
   let sawAuth = false;
   let sawCsrf = false;
+  let limited = false;
   let retryAfterSeconds = 0;
+  // A 429 is a rate limit whether or not it names a wait. The longest wait any answer named wins; none
+  // named falls back to the shared default rather than reading as "unavailable" and being asked again.
+  const noteRateLimit = (err) => {
+    limited = true;
+    retryAfterSeconds = Math.max(retryAfterSeconds, Number(err.retryAfterSeconds || 0));
+  };
   for (const port of ports) {
     try {
       const raw = await post(port, QUOTA_SUMMARY_PATH, { forceRefresh: true }, deps);
@@ -252,7 +260,7 @@ async function fetchFromPid(pid, deps = {}) {
     } catch (err) {
       if (isCsrfRejection(err)) sawCsrf = true;
       else if (err?.status === 401 || err?.status === 403) sawAuth = true;
-      if (err?.status === 429) retryAfterSeconds = Number(err.retryAfterSeconds || 0);
+      if (err?.status === 429) noteRateLimit(err);
     }
     for (const requestPath of [USER_STATUS_PATH, MODEL_CONFIG_PATH]) {
       try {
@@ -263,11 +271,11 @@ async function fetchFromPid(pid, deps = {}) {
       } catch (err) {
         if (isCsrfRejection(err)) sawCsrf = true;
         else if (err?.status === 401 || err?.status === 403) sawAuth = true;
-        if (err?.status === 429) retryAfterSeconds = Number(err.retryAfterSeconds || 0);
+        if (err?.status === 429) noteRateLimit(err);
       }
     }
   }
-  if (retryAfterSeconds) return { kind: 'rateLimited', retryAfterSeconds };
+  if (limited) return { kind: 'rateLimited', retryAfterSeconds: retryAfterSeconds || DEFAULT_USAGE_RETRY_SECONDS };
   if (sawCsrf) return { kind: 'csrfRequired' };
   if (sawAuth) return { kind: 'authRequired' };
   return { kind: 'unavailable' };
@@ -371,8 +379,10 @@ async function fetchLocalRaw({ livePids = [], allowLaunch = true, findExecutable
   };
 
   let failure = null;
+  // A reading ends the search, and so does a rate limit: asking the next process with forceRefresh would
+  // only hit the same account again. Only an auth or CSRF refusal is worth a second opinion.
   const consider = (result) => {
-    if (isReading(result)) return true;
+    if (isReading(result) || result.kind === 'rateLimited') return true;
     failure = strongerFailure(failure, result);
     return false;
   };
