@@ -507,6 +507,52 @@ test('a note and the picked option\'s preview go back as annotations; "chat abou
   assert.match(chat.message, /What the user wrote:\nNeither — what about C\?$/);
 });
 
+// #724, in the shape measured on 2.1.289: the line with the call's result carries what was asked and chosen,
+// as `tool_use_result` on the stream and `toolUseResult` in the transcript, under the same uuid.
+test('an answered question is the user\'s entry after its call, live and reopened alike, under one key (#724)', () => {
+  const asked = { questions: [
+    { question: 'Pick a colour', header: 'Colour', multiSelect: false, options: [{ label: 'Red' }, { label: 'Blue' }] },
+    { question: 'Pick fruits', header: 'Fruits', multiSelect: true, options: [{ label: 'Apple' }, { label: 'Pear' }] },
+    { question: 'Skipped one', header: 'Skip', multiSelect: false, options: [{ label: 'X' }] },
+  ] };
+  const result = { questions: asked.questions, answers: { 'Pick a colour': 'Red', 'Pick fruits': 'Apple, Pear' },
+    annotations: { 'Pick a colour': { notes: 'warm\nand bright' }, 'Pick fruits': { preview: 'ignored' } } };
+  const call = { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'AskUserQuestion', input: asked }] } };
+  const content = [{ type: 'tool_result', tool_use_id: 't1', content: 'The user answered: …' }];
+  const live = decodeAll([call, { type: 'user', uuid: 'u1', tool_use_result: result, message: { role: 'user', content } }]);
+  const appends = live.filter(o => o.op === 'append').map(o => o.entry);
+  assert.deepEqual(appends.map(protocol.entryKey), ['a1', 'u1', 'u1:answer']);
+  const answer = appends[2];
+  assert.equal(answer.type, 'user');
+  assert.equal(answer.prompt, true, 'the user\'s own input');
+  assert.equal(answer.message.content,
+    '- Pick a colour → Red\n  - Note: warm\n    and bright\n- Pick fruits → Apple, Pear',
+    'in the order asked, a note under its answer, an unanswered question and a preview left out');
+  assert.equal(live.findIndex(o => o.op === 'append' && o.entry === answer) > live.findIndex(o => o.op === 'tool' && o.id === 't1'), true);
+
+  const reopened = protocol.conversationEntries([call, { type: 'user', uuid: 'u1', toolUseResult: result, message: { role: 'user', content } }]);
+  assert.deepEqual(reopened.map(protocol.entryKey), ['a1', 'u1', 'u1:answer']);
+  assert.deepEqual(reopened[2], { ...answer, timestamp: reopened[2].timestamp });
+
+  // A line break in a question stays inside its list item.
+  const [, , twoLines] = protocol.conversationEntries([call, { type: 'user', uuid: 'u2', message: { role: 'user', content },
+    toolUseResult: { questions: [{ question: 'First line\nsecond line' }], answers: { 'First line\nsecond line': 'Yes' } } }]);
+  assert.equal(twoLines.message.content, '- First line\n  second line → Yes');
+});
+
+test('a declined or unanswered question draws no answer entry, and neither does a subagent\'s (#724)', () => {
+  const content = [{ type: 'tool_result', tool_use_id: 't1', content: 'declined', is_error: true }];
+  const declined = { type: 'user', uuid: 'u1', toolUseResult: 'Error: The user wants to clarify these questions.', message: { role: 'user', content } };
+  assert.deepEqual(protocol.conversationEntries([declined]).map(protocol.entryKey), ['u1']);
+  const empty = { type: 'user', uuid: 'u2', toolUseResult: { questions: [{ question: 'Q' }], answers: {} }, message: { role: 'user', content } };
+  assert.deepEqual(protocol.conversationEntries([empty]).map(protocol.entryKey), ['u2']);
+  const answered = { questions: [{ question: 'Q' }], answers: { Q: 'A' } };
+  const sub = { type: 'user', uuid: 'u3', isSidechain: true, toolUseResult: answered, message: { role: 'user', content } };
+  assert.deepEqual(protocol.conversationEntries([sub]), []);
+  const subLive = decodeAll([{ type: 'user', uuid: 'u4', parent_tool_use_id: 't0', tool_use_result: answered, message: { role: 'user', content } }]);
+  assert.deepEqual(subLive.filter(o => o.op === 'append'), []);
+});
+
 test('ExitPlanMode is a plan card: approve lets it start, keep planning ends the turn as kept, not failed', () => {
   const input = { plan: '# Plan\n\n1. Do it', planFilePath: 'plans/x.md' };
   const decoder = protocol.createDecoder();

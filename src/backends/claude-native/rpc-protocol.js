@@ -57,7 +57,9 @@
 //        `decision_reason` sentence (about the `cd` before a git command). `askReason` turns that into `reason`.
 //      - `AskUserQuestion` is a question, not a permission. Its answer is an allow whose `updatedInput`
 //        carries `answers: { <question>: <text> }`; a multi-select answer is the labels joined with ", ",
-//        and any text is taken as a free answer (both measured).
+//        and any text is taken as a free answer (both measured). The line with the call's result carries the
+//        questions, the answers and the annotations back (`tool_use_result` here, `toolUseResult` in the
+//        transcript, same uuid; measured on 2.1.289), and both paths draw them as the user's entry (#724).
 //      - `ExitPlanMode` carries the plan as markdown and NO permission suggestions. Approving is a plain
 //        allow (the session goes back to its mode before planning); "keep planning" is a deny with
 //        `interrupt: true`, which ends the turn with the same `error_during_execution` result a Stop gets —
@@ -121,7 +123,7 @@ const { isUsersPrompt } = require('../claude/session-reader');
 // Claude's injected lines as neutral entries — one copy, shared with the history viewer (#705).
 const {
   plainUserText, subagentIdOf, kindOfTool, isTaskNotification, taskNoticeEntry, isPeerMessage, peerReportEntry, displayedLine,
-  localCommandEntry, taskOutputFileOf,
+  localCommandEntry, taskOutputFileOf, questionAnswerEntry,
 } = require('../claude/transcript-view');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
@@ -633,6 +635,10 @@ function createDecoder() {
         if (file) toolOutputs.set(b.tool_use_id, file[1]);
       }
     }
+    // An answered question (#724): what the user chose, as their entry after the call it answers.
+    const answer = questionAnswerEntry(msg);
+    // Its `prompt` can match no `/` line still due (point 12): its text always opens with "- ".
+    if (answer) ops.push({ op: 'append', entry: answer });
     return ops;
   }
 
@@ -1212,6 +1218,9 @@ function conversationEntries(lines) {
     const shown = displayedLine(line);
     // The user's own line (#709), by the rule Claude's reader keeps for the transcript.
     if (shown) out.push(isUsersPrompt(line) ? { ...shown, prompt: true } : shown);
+    // An answered question (#724), as the stream draws it.
+    const answer = questionAnswerEntry(line);
+    if (answer) out.push(answer);
   }
   return out;
 }

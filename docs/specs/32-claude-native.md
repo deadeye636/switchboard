@@ -333,6 +333,18 @@ Three kinds of question arrive, all as `can_use_tool`:
   added to the decline under "What the user wrote:". The CLI offers notes only where the options carry
   previews; the card offers one on every single-choice question.
 
+  **The answer stays in the conversation (#724).** Once answered, the question used to leave only the
+  collapsed `AskUserQuestion` tool row, and the turn after it read as if Claude had decided alone. The line
+  that carries the call's result also carries what was asked and chosen: `tool_use_result` on the stream,
+  `toolUseResult` in the transcript, the same `{ questions, answers, annotations }` under the same uuid
+  (measured on 2.1.289 with `scripts/measure-claude-question-answer.js`). Both paths turn it into a user entry after the call, keyed `<uuid>:answer`, with
+  each answered question and its answer in the order asked and the user's note beneath it. The entry carries
+  `prompt: true`, because it is the user's own input. A reopened conversation reads it from the transcript,
+  never from the card. A declined question ("Chat about this", dismissed) carries a string there and no
+  answers, so it draws nothing; what the user wrote for "Chat about this" is still only inside the decline
+  sent to the model. The message history viewer does not show the entry: its reading keeps one entry per
+  transcript line, because bookmarks are keyed on the position.
+
   **A card stands in the input's place** (owner decision P1, replacing the first version's A1, where the
   input stayed and doubled as the chat field). As in the CLI, a question, an approval, a plan or a pi-native
   dialog waiting on the user is drawn in a dock where the input was; the input, Send and Steer are hidden,

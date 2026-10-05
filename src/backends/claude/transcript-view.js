@@ -148,6 +148,41 @@ function peerReportEntry(line, toolUseIdOf) {
   };
 }
 
+// The answer to an `AskUserQuestion` call as the user's entry (#724). Claude keeps what was asked and what was
+// chosen on the line that carries the call's result: `toolUseResult` in the transcript, `tool_use_result` on the
+// stream, the same shape under the same uuid (measured on 2.1.289): `{ questions, answers: { <question>: <text> },
+// annotations?: { <question>: { preview?, notes? } } }`, a multi-select answer being the labels joined with ", ".
+// A declined question ("Chat about this", dismissed) has a string there and no answers, so it draws nothing.
+// The entry is keyed on the line's uuid with a suffix, so the stream and an attach give it the same key and the
+// tool result under the plain uuid keeps its own. It carries `prompt: true`: it is the user's own input, and the
+// turn that follows answers it. `null` when the line holds no answered question.
+function questionAnswerEntry(line) {
+  const r = line && (line.toolUseResult || line.tool_use_result);
+  if (!r || typeof r !== 'object' || !Array.isArray(r.questions) || !r.answers || typeof r.answers !== 'object') return null;
+  if (typeof line.uuid !== 'string' || !line.uuid) return null;
+  const annotations = r.annotations && typeof r.annotations === 'object' ? r.annotations : {};
+  // A line break inside an answer or a note would end the list item it is in.
+  const indented = (text, by) => text.trim().split(/\r?\n/).join(`\n${by}`);
+  const items = [];
+  for (const q of r.questions) {
+    if (!q || typeof q.question !== 'string' || !q.question) continue;
+    const answer = r.answers[q.question];
+    if (typeof answer !== 'string' || !answer.trim()) continue;
+    items.push(`- ${indented(q.question, '  ')} → ${indented(answer, '  ')}`);
+    const a = annotations[q.question];
+    const note = a && typeof a.notes === 'string' ? a.notes.trim() : '';
+    if (note) items.push(`  - Note: ${indented(note, '    ')}`);
+  }
+  if (!items.length) return null;
+  return {
+    type: 'user',
+    uuid: `${line.uuid}:answer`,
+    timestamp: typeof line.timestamp === 'string' ? line.timestamp : new Date().toISOString(),
+    message: { role: 'user', content: items.join('\n') },
+    prompt: true,
+  };
+}
+
 // A user line as the conversation view should read it (#680). Claude records a slash command as a user
 // line of nothing but `<command-name>`/`<command-message>`/`<command-args>` tags, and a local command's
 // output as one wrapped in `<local-command-stdout>`. The terminal shows neither as markup, so neither does
@@ -265,6 +300,7 @@ module.exports = {
   taskOutputFileOf,
   isPeerMessage,
   peerReportEntry,
+  questionAnswerEntry,
   displayedLine,
   localCommandEntry,
   normalizeTranscriptEntries,
