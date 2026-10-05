@@ -77,13 +77,33 @@ function conversationIdOf(sessionId) {
   return colon === -1 ? rest : rest.slice(colon + 1);
 }
 
-/** `{ parent, root }` conversation ids named in one gen_metadata blob; either may be null. */
+/** `{ parent, root }` conversation ids named in one gen_metadata blob, spelled as written; either may be
+ *  null. Case is settled where the link is made (`rootRowIdFor`), not here. */
 function findCascadeIds(buf) {
   if (!buf || !buf.length) return { parent: null, root: null };
   const text = buf.toString('latin1');
   const p = text.match(PARENT_CASCADE_RE);
   const r = text.match(ROOT_CASCADE_RE);
-  return { parent: p ? p[1].toLowerCase() : null, root: r ? r[1].toLowerCase() : null };
+  return { parent: p ? p[1] : null, root: r ? r[1] : null };
+}
+
+/**
+ * The row id the root conversation is cached under, for a link read out of a child. A root's row id is its
+ * `.db` basename as the filesystem spells it, and that spelling is kept (changing it would re-key every
+ * existing root row). The link may be spelled in another case, and the sidebar nests by exact id — so the
+ * child takes the spelling of the sibling file it names. Only a subagent row pays the readdir. No sibling
+ * found (the root was deleted, or lives elsewhere) -> the link as written.
+ */
+function rootRowIdFor(link, dbPath) {
+  const want = String(link).toLowerCase();
+  let names;
+  try { names = fs.readdirSync(path.dirname(dbPath)); } catch { return link; }
+  for (const name of names) {
+    if (!/\.db$/i.test(name)) continue;
+    const id = name.slice(0, -3);
+    if (id.toLowerCase() === want) return id;
+  }
+  return link;
 }
 
 // A conversation is a handful of turns; the blobs we care about hold SHORT strings (a cwd URI, a title,
@@ -285,9 +305,11 @@ function buildRow(facts, dbPath, opts = {}) {
   if (!conversationId) return null;
 
   // A subagent conversation (#739) nests under its root session. A link that names the conversation itself
-  // is not a parent, and degrades to a top-level row like a missing one.
-  const parent = facts.rootCascadeId || facts.parentCascadeId || null;
-  const isSubagent = !!parent && parent !== conversationId.toLowerCase();
+  // (in any case) is not a parent, and degrades to a top-level row like a missing one — including a root
+  // that records only `root_cascade_id` pointing at itself.
+  const link = facts.rootCascadeId || facts.parentCascadeId || null;
+  const isSubagent = !!link && link.toLowerCase() !== conversationId.toLowerCase();
+  const parent = isSubagent ? rootRowIdFor(link, dbPath) : null;
   const sessionId = isSubagent ? subagentSessionId(parent, conversationId) : conversationId;
 
   // No timestamp lives in the blobs, so the file's own times are the honest source. The scan buckets by

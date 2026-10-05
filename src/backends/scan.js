@@ -88,12 +88,6 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
       deleteIds.push(row.sessionId);
     }
   }
-  // A file re-read under a new id (#739) leaves its old row behind, because the diff above keys file rows
-  // on the file. This is not a guess about absence — the same file answered with another id — so it holds
-  // on a partial read too.
-  for (const id of reply.replacedIds || []) {
-    if (!deleteIds.includes(id)) deleteIds.push(id);
-  }
 
   // Apply-time REMOVED gate (isRemovedProject is a DB read — runs on MAIN, not in the pure loop): a removed
   // project is not indexed back in, but its already-cached row is left alone. The row is still in
@@ -103,6 +97,16 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
   let sessions = reply.sessions;
   if (dropIds && dropIds.size) sessions = sessions.filter(row => !dropIds.has(row.sessionId));
   const toIndex = sessions.filter(row => !isRemovedProject(row.projectPath));
+
+  // A file re-read under a new id (#739) leaves its old row behind, because the diff above keys file rows
+  // on the file. This is not a guess about absence — the same file answered with another id — so it holds
+  // on a partial read too. But only once the replacement is actually INDEXED: a replacement held back by
+  // the removed gate (or the delete-epoch guard) leaves the already-cached row alone, like any other.
+  const indexedIds = new Set(toIndex.map(row => row.sessionId));
+  for (const r of reply.replaced || []) {
+    if (!r || !r.sessionId || !indexedIds.has(r.replacedBy)) continue;
+    if (!deleteIds.includes(r.sessionId)) deleteIds.push(r.sessionId);
+  }
 
   // The one neutral sink: upserts (with markPersisted + setName + per-day metrics 'if-nonempty', #154)
   // and the per-id reconcile deletes, all scoped through each row's own backendId.

@@ -370,3 +370,60 @@ test('an empty-metrics session does not clobber existing metrics (metricsMode if
     assert.equal(kept[0].inputTokens, 5);
   } finally { cleanup(w); }
 });
+
+// --- 7. a file re-read under a NEW id (#739) — the replay deletes the old row only when the new one lands ---
+// The delete-diff keys file rows on the FILE, which is still there, so without `replaced` the old row would
+// survive beside its replacement (agy's parser v4 re-keys subagent conversations under their root). Driven
+// through `applyBackendReply` directly: the reply is what the worker would have sent.
+const backendScan = require('../src/backends/scan');
+
+function rekeyReply(w, { incomplete = false } = {}) {
+  const filePath = path.join(w.root, 'store', 'child.db');
+  const oldRow = { sessionId: 'child-old', backendId: 'rekeytest', folder: w.folder, projectPath: w.projectCwd, filePath, summary: 'old', modified: '2026-07-01T00:00:00.000Z' };
+  const newRow = { ...oldRow, sessionId: 'rekeytest-sub:root:child-old', parentSessionId: 'root', agentId: 'child-old', summary: 'new', modified: '2026-07-02T00:00:00.000Z' };
+  const reply = {
+    sessions: [newRow], seenIds: [newRow.sessionId], seenFiles: [filePath], skippedIds: [], storeProjects: [],
+    replaced: [{ sessionId: oldRow.sessionId, replacedBy: newRow.sessionId }],
+    incomplete, scanned: 1, skipped: 0,
+  };
+  return { oldRow, newRow, reply };
+}
+
+test('a re-keyed file: the old row is deleted and the new one indexed (#739)', () => {
+  const w = setup();
+  try {
+    const { oldRow, newRow, reply } = rekeyReply(w);
+    w.db._cache.set(oldRow.sessionId, { ...oldRow });
+    const stats = backendScan.applyBackendReply('rekeytest', reply, { cached: [{ ...oldRow }], stats: {} });
+    assert.equal(w.db._cache.has(oldRow.sessionId), false, 'the superseded row is gone — not left beside its replacement');
+    assert.ok(w.db._cache.has(newRow.sessionId), 'the replacement is indexed');
+    assert.equal(stats.deleted, 1);
+  } finally { cleanup(w); }
+});
+
+test('a re-keyed file on a PARTIAL read still drops the old row — the same file answered with another id (#739)', () => {
+  const w = setup();
+  try {
+    const { oldRow, newRow, reply } = rekeyReply(w, { incomplete: true });
+    w.db._cache.set(oldRow.sessionId, { ...oldRow });
+    const other = { sessionId: 'unseen-1', backendId: 'rekeytest', folder: w.folder, projectPath: w.projectCwd, filePath: path.join(w.root, 'store', 'unseen.db') };
+    w.db._cache.set(other.sessionId, { ...other });
+    backendScan.applyBackendReply('rekeytest', reply, { cached: [{ ...oldRow }, { ...other }], stats: {} });
+    assert.equal(w.db._cache.has(oldRow.sessionId), false, 'the re-key is not a guess about absence');
+    assert.ok(w.db._cache.has(newRow.sessionId));
+    assert.ok(w.db._cache.has(other.sessionId), 'but an UNSEEN row survives a partial read, as before (#197)');
+  } finally { cleanup(w); }
+});
+
+test('a re-keyed file in a REMOVED project leaves the already-cached row alone (#739)', () => {
+  const w = setup();
+  try {
+    w.db._states.set(w.projectCwd, { registered: 0, removedAt: new Date().toISOString() });
+    const { oldRow, newRow, reply } = rekeyReply(w);
+    w.db._cache.set(oldRow.sessionId, { ...oldRow });
+    const stats = backendScan.applyBackendReply('rekeytest', reply, { cached: [{ ...oldRow }], stats: {} });
+    assert.ok(w.db._cache.has(oldRow.sessionId), 'the replacement is held back by the removed gate, so the old row stays');
+    assert.equal(w.db._cache.has(newRow.sessionId), false, 'a removed project is not indexed back in');
+    assert.equal(stats.deleted, 0);
+  } finally { cleanup(w); }
+});

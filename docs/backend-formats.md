@@ -578,7 +578,8 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   and keys the row under the **root** (falling back to the parent) as `agy-sub:<root>:<conversation>` with
   `parentSessionId` / `agentId` set — the sidebar nests one level, so a grandchild under a child row would
   surface as an orphan. A link that names the conversation itself, or a value that is not a conversation id,
-  reads as a root. No agent type or task description is read (unmeasured), and there is no live
+  reads as a root, compared without case. The link takes the spelling of the root's `.db` file, so a child
+  nests under the root row whatever case its blob uses, and a root's own id is never re-keyed. No agent type or task description is read (unmeasured), and there is no live
   spawn/finish status: no watcher drives this store (`listSubagents` answers `null`). Resume, the transcript
   export and the live ref take the conversation id back out of the row id.
 - Resource discovery is read-only through agy's `listResources()` hook. It surfaces safe Gemini and

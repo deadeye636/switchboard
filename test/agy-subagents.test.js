@@ -128,6 +128,9 @@ test('agy subagents: missing or garbled metadata degrades to a top-level row wit
     { name: 'the key with a truncated id', gen: [cascadeEntry('parent_cascade_id', ROOT.slice(0, 20))] },
     { name: 'the key with a non-uuid value', gen: [cascadeEntry('parent_cascade_id', 'not-a-conversation-id-at-all-xxxxxxx')] },
     { name: 'a link that names the conversation itself', gen: [cascadeEntry('parent_cascade_id', CHILD), cascadeEntry('root_cascade_id', CHILD)] },
+    // A root that records only `root_cascade_id`, pointing at itself, is still a root — and so in any case.
+    { name: 'only root_cascade_id, naming itself', gen: [cascadeEntry('root_cascade_id', CHILD)] },
+    { name: 'only root_cascade_id, naming itself in upper case', gen: [cascadeEntry('root_cascade_id', CHILD.toUpperCase())] },
   ];
   for (const c of cases) {
     withStore((dir) => {
@@ -217,7 +220,8 @@ test('agy subagents: a file re-read under a new id reports the old id as replace
     });
     assert.equal(reply.sessions.length, 1);
     assert.equal(reply.sessions[0].sessionId, agy.subagentSessionId(ROOT, CHILD));
-    assert.deepEqual(reply.replacedIds, [CHILD], 'the old top-level row is named for deletion');
+    assert.deepEqual(reply.replaced, [{ sessionId: CHILD, replacedBy: agy.subagentSessionId(ROOT, CHILD) }],
+      'the old top-level row is named for deletion, with the row that replaces it');
 
     // Same id as cached: nothing is replaced.
     const current = { sessionId: agy.subagentSessionId(ROOT, CHILD), filePath: p, modified: 'older', parserVersion: 3 };
@@ -226,6 +230,33 @@ test('agy subagents: a file re-read under a new id reports the old id as replace
       cachedByFile: new Map([[p, current]]),
       cachedById: new Map(),
     });
-    assert.deepEqual(again.replacedIds, []);
+    assert.deepEqual(again.replaced, []);
+  });
+});
+
+// The sidebar nests by EXACT id, and a root's row id is its `.db` basename as the filesystem spells it.
+// A link spelled in another case must still land on that row — without re-keying the root.
+test('agy subagents: a child nests under its root whatever case the link is spelled in', () => {
+  const cases = [
+    { name: 'upper-case link, lower-case root file', rootFile: ROOT, link: ROOT.toUpperCase() },
+    { name: 'lower-case link, upper-case root file', rootFile: ROOT.toUpperCase(), link: ROOT },
+  ];
+  for (const c of cases) {
+    withStore((dir) => {
+      makeDb(path.join(dir, `${c.rootFile}.db`));
+      const p = path.join(dir, `${CHILD}.db`);
+      makeDb(p, { gen: [cascadeEntry('root_cascade_id', c.link)] });
+      const root = parse(path.join(dir, `${c.rootFile}.db`));
+      const child = parse(p);
+      assert.equal(root.sessionId, c.rootFile, `${c.name}: the root keeps its own spelling`);
+      assert.equal(child.parentSessionId, root.sessionId, `${c.name}: the child names the root's row id exactly`);
+      assert.equal(child.sessionId, agy.subagentSessionId(root.sessionId, CHILD));
+    });
+  }
+  // The root is not in the store (deleted): the link is used as written, never dropped.
+  withStore((dir) => {
+    const p = path.join(dir, `${CHILD}.db`);
+    makeDb(p, { gen: [cascadeEntry('root_cascade_id', ROOT.toUpperCase())] });
+    assert.equal(parse(p).parentSessionId, ROOT.toUpperCase());
   });
 });
