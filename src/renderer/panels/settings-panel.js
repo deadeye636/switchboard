@@ -999,18 +999,13 @@
       });
     });
 
-    // #742: the branch & change counts badge lives in the project second line, so its switch means nothing
-    // while the line is off. Greyed out and disabled then, with the line saying why — the same look as an
-    // option that needs another one on (#731, `settings-field-inactive`). The stored value is kept: a
-    // disabled checkbox still reports its `checked`, so Save writes back what was there.
+    // #742: a PROJECT shows the branch & change counts badge only in its second line. The switch still
+    // drives worktrees and grid cards, so it stays a normal control; while the line is off a hint says
+    // where a project's badge went. It follows the second-line toggle live.
     const secondLineCb = settingsViewerBody.querySelector('#sv-sidebar-second-line');
     const syncVcsBadgeRequires = () => {
-      const on = !!secondLineCb?.checked;
-      settingsViewerBody.querySelector('#sv-vcs-badge-field')?.classList.toggle('settings-field-inactive', !on);
-      const badgeCb = settingsViewerBody.querySelector('#sv-vcs-badge');
-      if (badgeCb) badgeCb.disabled = !on;
       const note = settingsViewerBody.querySelector('#sv-vcs-badge-requires');
-      if (note) note.hidden = on;
+      if (note) note.hidden = !!secondLineCb?.checked;
     };
     secondLineCb?.addEventListener('change', syncVcsBadgeRequires);
 

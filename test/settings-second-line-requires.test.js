@@ -1,12 +1,13 @@
 'use strict';
-// "Show branch & change counts" needs "Show second line" (#742).
+// "Show branch & change counts" and "Show second line" (#742).
 //
 // WHY THIS EXISTS:
-//   The badge is drawn in the project second line, so its switch means nothing while the line is off. The
-//   settings screen greys the field out, disables the checkbox and shows a hint, and follows the second-line
-//   toggle live. All of that happens at render time and inside a `change` handler, which the load-time smoke
-//   test cannot see. This loads the panel the way settings.html does (the same harness as
-//   settings-project-action-close.test.js), opens the GLOBAL scope and flips the real toggle.
+//   A main project shows its badge only in the second line, while worktrees and grid cards follow the badge
+//   switch alone. So the switch stays a normal control, and while the line is off a hint says where a
+//   project's badge went, following the second-line toggle live. That happens at render time and inside a
+//   `change` handler, which the load-time smoke test cannot see. This loads the panel the way settings.html
+//   does (the same harness as settings-project-action-close.test.js), opens the GLOBAL scope and flips the
+//   real toggle.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -79,26 +80,26 @@ async function openGlobalSettings(stored) {
   return { state, toggleSecondLine, destroy: () => window.close() };
 }
 
-test('#742: with the second line off the badge switch is greyed, disabled and says why — stored value kept', async () => {
+test('#742: with the second line off the badge switch stays usable and the hint shows', async () => {
   const h = await openGlobalSettings({ sidebarProjectSecondLine: false, vcsShowBadge: true });
   try {
-    assert.deepEqual(h.state(), { inactive: true, disabled: true, hintHidden: false, checked: true });
+    assert.deepEqual(h.state(), { inactive: false, disabled: false, hintHidden: false, checked: true });
   } finally { h.destroy(); }
 });
 
-test('#742: with the second line on the badge switch is a normal control', async () => {
+test('#742: with the second line on there is no hint', async () => {
   const h = await openGlobalSettings({ sidebarProjectSecondLine: true, vcsShowBadge: false });
   try {
     assert.deepEqual(h.state(), { inactive: false, disabled: false, hintHidden: true, checked: false });
   } finally { h.destroy(); }
 });
 
-test('#742: the badge switch follows the second-line toggle live, both ways', async () => {
+test('#742: the hint follows the second-line toggle live, both ways, and the switch is never disabled', async () => {
   const h = await openGlobalSettings({ sidebarProjectSecondLine: false, vcsShowBadge: true });
   try {
     h.toggleSecondLine(true);
     assert.deepEqual(h.state(), { inactive: false, disabled: false, hintHidden: true, checked: true });
     h.toggleSecondLine(false);
-    assert.deepEqual(h.state(), { inactive: true, disabled: true, hintHidden: false, checked: true });
+    assert.deepEqual(h.state(), { inactive: false, disabled: false, hintHidden: false, checked: true });
   } finally { h.destroy(); }
 });

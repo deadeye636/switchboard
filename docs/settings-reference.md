@@ -280,12 +280,12 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `projectSortMode` | Project order | `activity` \| `alpha` \| `manual` | `activity` | global |
 | `favoritesOwnList` | Favorites as a separate list | bool | `false` | global |
 | `vcsChipEnabled` | Show version-control status — *Version control* | `true` \| `false` | `true` | global |
-| `vcsShowBadge` | Show branch & change counts badge — *Version control*; needs `sidebarProjectSecondLine` | `true` \| `false` | `false` | global |
+| `vcsShowBadge` | Show branch & change counts badge — *Version control*; a main project shows it only in its second line (`sidebarProjectSecondLine`) | `true` \| `false` | `false` | global |
 | `vcsPollSeconds` | Version-control poll interval (s) — *Version control* | integer, min 5 | `20` | global |
 | `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
 | `pixelSessionIcon` | Pixel session icon — *Sidebar* | bool | `false` | global |
-| `sidebarProjectSecondLine` | Show second line — *Sidebar* | bool | `false` | global |
+| `sidebarProjectSecondLine` | Show second line — *Sidebar*; also where a main project shows `vcsShowBadge` | bool | `false` | global |
 | `contextFillHandoffPercent` | Recommend a handoff at context fill (%) — *Session health* | 1–100 | `80` | global |
 | `showContextFill` | Show context fill — *Session health* | bool | `true` | global |
 | `showBackgroundTasks` | Show background tasks — *Session health* (a session row's "◉ n": shells and agents still running in its background; only sessions whose backend reports it, #691) | bool | `true` | global |
@@ -321,13 +321,12 @@ no click action — the filter bar is where a tag filters. A hidden tag still ge
 filter bar), a disabled one does not. A project with nothing to show on the line gets no row at all, so
 turning it on adds no blank space under untagged projects. The line folds with its project.
 
-`vcsShowBadge` draws its branch & change counts badge in that line (#742), so it needs
-`sidebarProjectSecondLine`: while the line is off the switch is greyed out and disabled, and the badge is
-not drawn anywhere — not in the sidebar and not on grid cards — even when the stored value is `true` from
-before. The stored value is kept, so turning the line back on brings the badge back. With both on, a main
-project's header drops its git button, because the badge in the line opens the changes window itself. A
-worktree has no second line: it keeps its git button and shows the badge in a row under its header, as
-before.
+For a main project, `vcsShowBadge` draws its branch & change counts badge in that line and nowhere else
+(#742). With both on, the project's header drops its git button, because the badge in the line opens the
+changes window itself. With the badge on and the line off, a main project keeps its git button and shows no
+badge; the settings screen says so with a hint under the switch, which stays usable. Worktrees and grid cards
+are not affected by the line: a worktree keeps its git button and shows the badge in a row under its header,
+and a card shows it in its chip, whenever `vcsShowBadge` is on.
 
 `contextFillHandoffPercent` decides "Handoff Recommended" (#620). The badge comes from how full the model's
 context window was on the session's last turn, measured against that model's window; the older

@@ -14,10 +14,11 @@
 // It owns no sidebar state: it appends a glyph button + a branch/counts pill to a header, and reports the
 // on-screen repo cwds back to main via `vcsWatch` so main polls exactly what's visible (#277 F1).
 //
-// Since #742 the badge lives in the project second line (#741): it shows only while that line is on, a
-// main project carries it INSIDE the line and drops the header button (the badge is the click-through
-// now), and a worktree keeps its button plus the pill row under its header. `headerLayout` is the one
-// answer to "what does this header carry", asked by the render and by the patch alike.
+// Since #742 a MAIN project's badge lives in its second line (#741): with the badge and the line both on,
+// the project carries the pill INSIDE the line and drops the header button (the badge is the click-through
+// now); with the line off it keeps the button and shows no badge. Worktrees and grid cards are not part of
+// that: they follow the badge setting alone, as before. `headerLayout` is the one answer to "what does
+// this header carry", asked by the render and by the patch alike.
 (function () {
   'use strict';
 
@@ -29,19 +30,23 @@
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s)) : String(s));
   const chipEnabled = () => (typeof vcsChipEnabled === 'undefined' ? true : !!vcsChipEnabled);
   // The branch/counts BADGE is opt-in (default off): the glyph button alone opens the window; the
-  // badge just adds the at-a-glance branch + file counts (#277). It REQUIRES the project second line
-  // (#742) — the settings screen greys the switch out while the line is off, so a value stored from
-  // before must not keep drawing the badge somewhere the screen says it has no effect.
+  // badge just adds the at-a-glance branch + file counts (#277).
+  const showBadge = () => (typeof vcsShowBadge === 'undefined' ? false : !!vcsShowBadge);
   const secondLineOn = () => (typeof sidebarProjectSecondLine === 'undefined' ? false : !!sidebarProjectSecondLine);
-  const showBadge = () => (typeof vcsShowBadge === 'undefined' ? false : !!vcsShowBadge) && secondLineOn();
 
   // What a decorated header carries. `mainProject` is a top-level project header; a worktree header is
   // not one. The render (`decorateHeader`, `secondLinePill`) and the patch (`patchSidebarChips`) both ask
   // this, so the patch can never expect a shape the render stopped drawing.
+  //
+  // A main project shows its badge ONLY in the second line (#742): badge and line on, the pill goes there
+  // and the header button goes away; the line off, the button stays and there is no badge — no pill row
+  // under a main project any more. A worktree keeps its button and gets the pill row whenever the badge is on.
   function headerLayout(mainProject) {
-    const badge = showBadge();
-    const inSecondLine = badge && !!mainProject;
-    return { button: !inSecondLine, pill: badge, pillInSecondLine: inSecondLine };
+    if (mainProject) {
+      const inSecondLine = showBadge() && secondLineOn();
+      return { button: !inSecondLine, pill: inSecondLine, pillInSecondLine: inSecondLine };
+    }
+    return { button: true, pill: showBadge(), pillInSecondLine: false };
   }
 
   const GLYPH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M18 10.5c0 4-6 3-6 7"/><path d="M6 8.5v7"/></svg>';
@@ -270,6 +275,7 @@
     }
 
     // A worktree's badge keeps its own row, a SIBLING of the header between it and the session list.
+    // `pill && !pillInSecondLine` only ever holds for a worktree (`headerLayout`).
     if (layout.pill && !layout.pillInSecondLine) {
       const row = buildPillRow(s, cwd);
       if (group && sessionsList && sessionsList.parentNode === group) group.insertBefore(row, sessionsList);
