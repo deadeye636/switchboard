@@ -889,7 +889,7 @@
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Show second line</span>${help}</div>
                     <div class="settings-description">Add a line under each project header with the project's tags as coloured dots, and the branch &amp; change counts when those are on.</div>
-                    <div class="settings-more">Hover a dot to see its tag. Projects only, not worktrees. A project with nothing to show on the line gets no extra row. "Show branch &amp; change counts" (Version control) needs this line.</div>
+                    <div class="settings-more">Hover a dot to see its tag. Projects only; a worktree never gets one. A project with nothing to show on the line gets no extra row. "Show branch &amp; change counts" (Version control) needs this line.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-sidebar-second-line" ${sidebarProjectSecondLineValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
