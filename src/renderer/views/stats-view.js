@@ -280,7 +280,10 @@ function buildUsageSection(payload) {
       } else if (usage._error) {
         notice.textContent = usage.message || 'Could not fetch usage data.';
       } else {
-        notice.textContent = 'No usage limit reported yet.';
+        // A backend that named why no limit is exposed says it here, as the status bar does.
+        notice.textContent = usage._limitsUnavailable && usage.message
+          ? usage.message
+          : 'No usage limit reported yet.';
       }
       group.appendChild(notice);
       container.appendChild(group);

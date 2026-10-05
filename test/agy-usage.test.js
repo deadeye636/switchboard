@@ -178,6 +178,17 @@ test('agy usage: a CSRF-gated local endpoint with a failing remote says so, neve
   }
 });
 
+test('agy usage: a rate-limited remote beats the CSRF message', async () => {
+  const usage = await fetchUsage({
+    hasCachedUsage: true,
+    livePids: [4242],
+    localDeps: CSRF_LOCAL,
+    remoteFetch: async () => ({ kind: 'rateLimited', retryAfterSeconds: 90 }),
+  });
+  assert.equal(usage._rateLimited, true);
+  assert.equal(usage.retryAfterSeconds, 90);
+});
+
 test('agy usage: a CSRF-gated local endpoint still yields to a working remote source', async () => {
   const usage = await fetchUsage({
     hasCachedUsage: true,

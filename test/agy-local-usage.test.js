@@ -162,6 +162,59 @@ test('agy local usage: a 401 saying the CSRF token is missing is csrfRequired, a
   assert.equal(plain.kind, 'authRequired');
 });
 
+const CSRF_BODY = '{"code":"unauthenticated","message":"missing CSRF token"}';
+const failing = (status, body = '{}') => () => {
+  const err = new Error(`HTTP ${status}`);
+  err.status = status;
+  err.body = body;
+  err.retryAfterSeconds = status === 429 ? 30 : 0;
+  throw err;
+};
+const csrf401 = failing(401, CSRF_BODY);
+const plain401 = failing(401);
+const limited429 = failing(429);
+const reading = () => ({ response: { groups: [{ displayName: 'Gemini', buckets: [] }] } });
+
+test('agy local usage: ports of one pid combine by strength, whatever the order', async () => {
+  const cases = [
+    ['csrf then plain 401', [csrf401, plain401], 'csrfRequired'],
+    ['plain 401 then csrf', [plain401, csrf401], 'csrfRequired'],
+    ['csrf then 429', [csrf401, limited429], 'rateLimited'],
+    ['429 then csrf', [limited429, csrf401], 'rateLimited'],
+  ];
+  for (const [name, handlers, kind] of cases) {
+    const result = await local.fetchFromPid(42, {
+      listeningPorts: async () => handlers.map((_, i) => 43111 + i),
+      postJson: async (port) => handlers[port - 43111](),
+    });
+    assert.equal(result.kind, kind, name);
+  }
+});
+
+test('agy local usage: several pids keep the strongest failure and any reading wins', async () => {
+  const run = (handlersByPid, livePids) => local.fetchLocalRaw({
+    livePids,
+    allowLaunch: false,
+    deps: {
+      discoverPids: async () => [],
+      listeningPorts: async pid => [40000 + pid],
+      postJson: async port => handlersByPid[port - 40000](),
+    },
+  });
+  const cases = [
+    ['csrf, plain', { 11: csrf401, 12: plain401 }, [11, 12], 'csrfRequired'],
+    ['plain, csrf', { 11: plain401, 12: csrf401 }, [11, 12], 'csrfRequired'],
+    ['csrf, 429', { 11: csrf401, 12: limited429 }, [11, 12], 'rateLimited'],
+    ['429, csrf', { 11: limited429, 12: csrf401 }, [11, 12], 'rateLimited'],
+    ['csrf, reading', { 11: csrf401, 12: reading }, [11, 12], 'summary'],
+    ['reading, csrf', { 11: reading, 12: csrf401 }, [11, 12], 'summary'],
+  ];
+  for (const [name, handlers, pids, kind] of cases) {
+    local.resetProbeBackoff();
+    assert.equal((await run(handlers, pids)).kind, kind, name);
+  }
+});
+
 test('agy local usage: a payload with a shapeless groups field is not a reading', async () => {
   const result = await local.fetchFromPid(42, {
     listeningPorts: async () => [43111],

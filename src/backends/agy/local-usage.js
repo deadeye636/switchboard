@@ -350,6 +350,15 @@ function recordProbeResult(result, now) {
   return result;
 }
 
+// What a failed PID answer is worth when several PIDs answer: the most specific reason wins, and any
+// reading beats all of them.
+const FAILURE_RANK = { rateLimited: 3, csrfRequired: 2, authRequired: 1 };
+
+function strongerFailure(current, next) {
+  if (!next || !FAILURE_RANK[next.kind]) return current;
+  return !current || FAILURE_RANK[next.kind] > FAILURE_RANK[current.kind] ? next : current;
+}
+
 async function fetchLocalRaw({ livePids = [], allowLaunch = true, findExecutable, deps = {} } = {}) {
   const tried = new Set();
   const askPid = async (pid) => {
@@ -361,17 +370,25 @@ async function fetchLocalRaw({ livePids = [], allowLaunch = true, findExecutable
     return result;
   };
 
+  let failure = null;
+  const consider = (result) => {
+    if (isReading(result)) return true;
+    failure = strongerFailure(failure, result);
+    return false;
+  };
+
   for (const pid of [...new Set(livePids)].filter(validPid)) {
     const result = await askPid(pid);
-    if (result) return result;
+    if (result && consider(result)) return result;
   }
   // "Prefer an already-running AGY process, INCLUDING a PTY launched by Switchboard" (#509) names a set
   // of which our own launch is one member. A CLI the user started in their own terminal owns the same
   // quota service, so ask it before spawning a second process next to it.
   for (const pid of await (deps.discoverPids || discoverPids)(deps)) {
     const result = await askPid(pid);
-    if (result) return result;
+    if (result && consider(result)) return result;
   }
+  if (failure) return failure;
 
   if (!allowLaunch || typeof findExecutable !== 'function') return { kind: 'unavailable' };
   const now = (deps.now || Date.now)();
