@@ -1560,6 +1560,30 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   display: none;
 }
 
+/* The project second line (#741): tag dots under a main project's header. Indented to the project name
+   rather than the chevron, and kept short so it reads as part of the header, not as a row of its own. */
+.project-second-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 10px 4px 28px;
+}
+.project-tag-dots {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+/* Scoped, so it wins over `.session-tag-dot` (the shared tag swatch), which is declared further down. */
+.project-tag-dots .project-tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  cursor: default;
+}
+
 /* Missing project path */
 .project-group.missing,
 .worktree-group.missing {

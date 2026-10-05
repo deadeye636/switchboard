@@ -285,6 +285,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
 | `pixelSessionIcon` | Pixel session icon — *Sidebar* | bool | `false` | global |
+| `sidebarProjectSecondLine` | Show second line — *Sidebar* | bool | `false` | global |
 | `contextFillHandoffPercent` | Recommend a handoff at context fill (%) — *Session health* | 1–100 | `80` | global |
 | `showContextFill` | Show context fill — *Session health* | bool | `true` | global |
 | `showBackgroundTasks` | Show background tasks — *Session health* (a session row's "◉ n": shells and agents still running in its background; only sessions whose backend reports it, #691) | bool | `true` | global |
@@ -313,6 +314,12 @@ working and types on a laptop while at least one session is. "Working" is the `b
 terminal sitting at a prompt does not count — over every session the window knows, not only the ones
 open in a tab. It deliberately keeps animating under `prefers-reduced-motion`; the setting is the way
 out. Off by default, and while it is off the pixel element is never built.
+
+`sidebarProjectSecondLine` adds a line under each main project's header (#741); worktree headers never get
+one. It shows the project's tags as coloured dots, in the tag's own colour, with the tag name on hover and
+no click action — the filter bar is where a tag filters. A hidden tag still gets its dot (it only leaves the
+filter bar), a disabled one does not. A project with nothing to show on the line gets no row at all, so
+turning it on adds no blank space under untagged projects. The line folds with its project.
 
 `contextFillHandoffPercent` decides "Handoff Recommended" (#620). The badge comes from how full the model's
 context window was on the session's last turn, measured against that model's window; the older

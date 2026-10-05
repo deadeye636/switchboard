@@ -18,14 +18,16 @@
 // filterProjectSessionsByTags, in refreshSidebar's project-filter pass). This controller WRITES it through
 // the shared scope, the way sidebar.js writes sortedOrder — never wrapped in a factory (that would shadow
 // the binding, #218):
-//   projectTagMap, sessionTagMap                     reassigned in _refreshProjectTagFilter (foreign let write)
+//   projectTagMap, sessionTagMap,
+//   projectTagDisplayMap (#741)                      reassigned in _refreshProjectTagFilter (foreign let write)
 //   activeProjectTagFilter, activeSessionTagFilter   Sets, mutated in place
 //   showArchived, showStarredOnly, showRunningOnly,
 //   showTodayOnly, showFavoritedProjectsOnly         flags, flipped in the toggle handlers (foreign let
 //                                                    writes; sidebar.js reads them too)
 //
 // Globals it also uses at call time: projectTagFilters (DOM), refreshSidebar, buildProjectTagMap /
-// buildSessionTagMap and escapeHtml (lib/utils.js + the tag-map builders), ICONS for the toggle glyphs.
+// buildProjectTagDisplayMap / buildSessionTagMap and escapeHtml (lib/utils.js + the tag-map builders),
+// sidebarProjectSecondLine (app.js, #741), ICONS for the toggle glyphs.
 
 // --- The tag filter chip bar (#98 project tags, #164 session tags) ---
 //
@@ -91,6 +93,16 @@ async function _refreshProjectTagFilter() {
 
   projectTagMap = (typeof buildProjectTagMap === 'function') ? buildProjectTagMap(proj.assigned) : new Map();
   sessionTagMap = (typeof buildSessionTagMap === 'function') ? buildSessionTagMap(sess.assigned) : new Map();
+  // The project second line draws these as dots (#741). Its render reads the map synchronously, and the map
+  // arrives after the first paint and after every tag edit — so a change has to ask for one render, but only
+  // when the line is on and what it would draw actually moved.
+  const displayMap = (typeof buildProjectTagDisplayMap === 'function') ? buildProjectTagDisplayMap(proj.assigned) : new Map();
+  const displayChanged = JSON.stringify([...displayMap]) !== JSON.stringify([...projectTagDisplayMap]);
+  projectTagDisplayMap = displayMap;
+  if (displayChanged && typeof sidebarProjectSecondLine !== 'undefined' && sidebarProjectSecondLine
+      && typeof refreshSidebar === 'function') {
+    refreshSidebar();
+  }
 
   if (!projectTagFilters) return;
   if (proj.tags.length === 0 && sess.tags.length === 0) {

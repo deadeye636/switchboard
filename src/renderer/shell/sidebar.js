@@ -3,7 +3,8 @@
 // launchPending, sessionMap, lastActivityTime, sortedOrder, searchMatchIds,
 // searchMatchProjectPaths, showStarredOnly, showRunningOnly, showTodayOnly,
 // visibleSessionCount, sessionMaxAgeDays, attentionSessions, responseReadySessions,
-// sessionBusyState, cachedProjects, cachedAllProjects, gridCards, gridViewActive (app.js)
+// sessionBusyState, cachedProjects, cachedAllProjects, gridCards, gridViewActive,
+// sidebarProjectSecondLine, projectTagDisplayMap (app.js)
 // Depends on: cleanDisplayName, formatDate, escapeHtml (utils.js), ICONS (icons.js),
 // showSession (terminal-manager.js), confirmAndStopSession, pollActiveSessions,
 // showNewSessionPopover, openSettingsViewer, showResumeSessionDialog,
@@ -570,6 +571,34 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
   return sessionsList;
 }
 
+// The project second line (#741): a row under a MAIN project's header, never a worktree's. It carries the
+// project's tags as coloured dots, each naming its tag on hover and nothing more — the filter bar is
+// where a tag is clicked. Returns null when the setting is off or the line would be empty, so a project
+// with nothing to show gets no blank row. It sits between the header and the sessions list, and folds
+// with the header through `.project-header.collapsed ~ *` (#744).
+function buildProjectSecondLine(projectPath) {
+  if (typeof sidebarProjectSecondLine === 'undefined' || !sidebarProjectSecondLine) return null;
+  const line = document.createElement('div');
+  line.className = 'project-second-line';
+  const tags = (typeof projectTagDisplayMap !== 'undefined' && projectTagDisplayMap.get(projectPath)) || [];
+  if (tags.length) {
+    const pickColor = (window.bookmarksTags && typeof window.bookmarksTags.pickColor === 'function')
+      ? window.bookmarksTags.pickColor
+      : () => '#61afef';
+    const dots = document.createElement('span');
+    dots.className = 'project-tag-dots';
+    for (const { tag, color } of tags) {
+      const dot = document.createElement('span');
+      dot.className = 'session-tag-dot project-tag-dot';
+      dot.style.background = color || pickColor(tag);
+      dot.title = tag;
+      dots.appendChild(dot);
+    }
+    line.appendChild(dots);
+  }
+  return line.childNodes.length ? line : null;
+}
+
 // Build the project groups (with nested worktrees) into `container`, recording
 // each project's item order into `newSortedOrder`.
 function appendProjectGroups(container, projects, resort, newSortedOrder, { sortable = false } = {}) {
@@ -722,6 +751,8 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     }
 
     group.appendChild(header);
+    const secondLine = buildProjectSecondLine(project.projectPath);
+    if (secondLine) group.appendChild(secondLine);
     group.appendChild(sessionsList);
     if (window.vcsView) window.vcsView.decorateHeader(header, group, sessionsList, project.projectPath);
 

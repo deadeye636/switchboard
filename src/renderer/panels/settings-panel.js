@@ -330,6 +330,8 @@
     // #383 pixel Sessions icon (global only). Default OFF, so an unset key must read false — hence
     // `=== true` rather than the `!== false` the default-on toggles above use.
     const pixelSessionIconValue = !isProject ? current.pixelSessionIcon === true : false;
+    // #741 project second line (global only), default off.
+    const sidebarProjectSecondLineValue = !isProject ? current.sidebarProjectSecondLine === true : false;
     // #620 session health (global only): how full the context window must be before a handoff is
     // recommended (1..100, default 80 — anything else reads as the default, like session-health.js does),
     // and whether the fill is shown as text in the session row (default ON, so only an explicit false hides it).
@@ -879,7 +881,7 @@
         favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-        pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
+        pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
         projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
@@ -1319,6 +1321,7 @@
         settings.projectSortMode = settingsViewerBody.querySelector('#sv-project-sort')?.value || 'activity';
         settings.favoritesOwnList = !!settingsViewerBody.querySelector('#sv-favorites-own-list')?.checked;
         settings.pixelSessionIcon = !!settingsViewerBody.querySelector('#sv-pixel-session-icon')?.checked;
+        settings.sidebarProjectSecondLine = !!settingsViewerBody.querySelector('#sv-sidebar-second-line')?.checked;
         {
           // #620. The blob is REPLACED on save, so both keys are always written. A number outside 1–100 is
           // clamped to the nearest bound (the `min`/`max` attributes do not stop typing); only a value that is

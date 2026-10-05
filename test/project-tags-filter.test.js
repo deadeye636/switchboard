@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 
-const { buildProjectTagMap, filterProjectsByTags } = require('../src/renderer/bookmarks/project-tags-filter.js');
+const { buildProjectTagMap, buildProjectTagDisplayMap, filterProjectsByTags } = require('../src/renderer/bookmarks/project-tags-filter.js');
 
 test('buildProjectTagMap groups tags per project', () => {
   const rows = [
@@ -69,4 +69,24 @@ test('non-Map tagMap is treated as no tags (filter active -> empty)', () => {
 
 test('handles non-array projects input', () => {
   assert.deepStrictEqual(filterProjectsByTags(null, MAP, new Set(['work'])), []);
+});
+
+// #741: the project second line draws each project's tags as dots, so it needs the colour and the order.
+test('buildProjectTagDisplayMap keeps tag order and colour per project, one entry per tag', () => {
+  const rows = [
+    { projectPath: '/a', tag: 'work', color: '#111' },
+    { projectPath: '/a', tag: 'urgent', color: '#222' },
+    { projectPath: '/a', tag: 'work', color: '#111' },
+    { projectPath: '/b', tag: 'nocolor' },
+    { projectPath: '', tag: 'orphan' },
+    null,
+  ];
+  const map = buildProjectTagDisplayMap(rows);
+  assert.deepStrictEqual(map.get('/a'), [{ tag: 'work', color: '#111' }, { tag: 'urgent', color: '#222' }]);
+  assert.deepStrictEqual(map.get('/b'), [{ tag: 'nocolor', color: '' }]);
+  assert.strictEqual(map.size, 2);
+});
+
+test('buildProjectTagDisplayMap tolerates non-array input', () => {
+  assert.strictEqual(buildProjectTagDisplayMap(undefined).size, 0);
 });

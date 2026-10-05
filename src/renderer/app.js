@@ -254,6 +254,8 @@ let showFavoritedProjectsOnly = false;
 // holds the selected tags; projectTagMap is projectPath -> Set<tag> for matching.
 let activeProjectTagFilter = new Set();
 let projectTagMap = new Map();
+// The same tags kept for display (#741): projectPath -> [{ tag, color }], read by the project second line.
+let projectTagDisplayMap = new Map();
 // Session tag filter (#164), in the SAME chip bar. A project tag drops whole projects; a session tag
 // drops session rows and a project disappears as a consequence. Selected together they AND across the
 // two kinds — "sessions tagged bug IN projects tagged kunde" — which is the reason they share one bar.
@@ -291,6 +293,7 @@ let sidebarCollapseDefault = 'auto';
 let sidebarCollapseAgeDays = 3;
 let vcsChipEnabled = true;   // #277: master switch for the sidebar/card VCS chip (read by sidebar-vcs.js)
 let vcsShowBadge = false;    // #277: show the branch/counts badge (default off — the glyph button alone opens the window)
+let sidebarProjectSecondLine = false;   // #741: a line under each main project header (tag dots); default off
 const pendingSessions = new Map(); // sessionId → { session, projectPath, folder }
 
 // Sessions whose PTY has RUN AND EXITED while still pending (#290). A pending entry survives the exit on
@@ -2423,6 +2426,7 @@ async function reapplyGlobalSettings() {
   // #277: VCS chip globals apply live on a settings change, not only at boot.
   vcsChipEnabled = g.vcsChipEnabled !== false;
   vcsShowBadge = g.vcsShowBadge === true;
+  sidebarProjectSecondLine = g.sidebarProjectSecondLine === true;   // #741
   refreshSidebar?.();
   // #620: the handoff threshold and the fill text judge grid cards too. The sidebar rebuilds above; a grid
   // card only re-reads its health on a status update, which could be 30 s away in an idle window.
@@ -2627,6 +2631,7 @@ setTimeout(() => {
     if (Number.isFinite(global.sidebarCollapseAgeDays)) sidebarCollapseAgeDays = global.sidebarCollapseAgeDays;
     vcsChipEnabled = global.vcsChipEnabled !== false;   // #277: default on
     vcsShowBadge = global.vcsShowBadge === true;        // #277: badge default off
+    sidebarProjectSecondLine = global.sidebarProjectSecondLine === true;   // #741: default off
     if (global.terminalTheme && TERMINAL_THEMES[global.terminalTheme]) {
       currentThemeName = global.terminalTheme;
       TERMINAL_THEME = getTerminalTheme();

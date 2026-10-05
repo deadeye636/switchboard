@@ -56,7 +56,7 @@
       favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
-      pixelSessionIconValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
+      pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
       projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
@@ -883,6 +883,16 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-pixel-session-icon" ${pixelSessionIconValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Show second line</span>${help}</div>
+                    <div class="settings-description">Add a line under each project header with the project's tags as coloured dots.</div>
+                    <div class="settings-more">Hover a dot to see its tag. Projects only, not worktrees. A project with nothing to show on the line gets no extra row.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-sidebar-second-line" ${sidebarProjectSecondLineValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
               </div>
