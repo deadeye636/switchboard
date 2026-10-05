@@ -321,3 +321,36 @@ test('a folder junction in the middle of the path does not open a hidden or too-
   const rels = plansMemory._walkPlanFiles(plans).map(f => f.relPath);
   assert.deepEqual(rels, ['kept/PLAN.md'], 'and neither junction is walked');
 });
+
+test('a link to a bundle plan does not take the bundle row', (t) => {
+  const project = path.join(ROOT, 'link-to-bundle');
+  const plans = path.join(project, 'docs', 'plans');
+  const target = write(path.join(plans, '80-slug', 'PLAN.md'), '# The bundle\n');
+  try { fs.symlinkSync(target, path.join(plans, 'to-bundle.md'), 'file'); } catch {
+    t.skip('this system needs a privilege to create a file link');
+    return;
+  }
+  init([project]);
+  const rows = plansMemory.getPlans().plans.filter(p => p.projectPath === project);
+  assert.deepEqual(rows.map(p => p.filename), ['80-slug/PLAN.md'],
+    'one row, and it is the file, not the link the walk met first');
+});
+
+test('only a resource failure makes a plans directory fall back to a flat watch', () => {
+  const dir = path.join(ROOT, 'watch-errors');
+  fs.mkdirSync(dir, { recursive: true });
+  const failed = plansMemory._recursiveWatchFailed;
+  failed.clear();
+  const errorWith = (code) => Object.assign(new Error(code), { code });
+
+  const first = plansMemory._watchPlansDir(dir);
+  first.emit('error', errorWith('EPERM'));
+  assert.equal(failed.has(dir), false, 'a revoked handle is not about the recursion: retry recursive');
+
+  const second = plansMemory._watchPlansDir(dir);
+  second.emit('error', errorWith('ENOSPC'));
+  assert.equal(failed.has(dir), true, 'an exhausted inotify budget: flat from now on');
+
+  init([]);
+  assert.equal(failed.has(dir), false, 'init starts over');
+});

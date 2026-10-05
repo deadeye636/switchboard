@@ -171,7 +171,8 @@ Claude `plansDirectory` of `.`) is kept, because that is where the CLI writes; t
 Candidate directories are deduplicated by `pathKey` (real path, case-folded on Windows), and rows by the
 `pathKey` of their folder plus their name, so nested candidates or two spellings of one directory give one
 row per file at one realpath per folder rather than per file. A linked file is keyed by its target's real
-path, so a link and its target are one row as well.
+path, so a link and its target are one row as well, and that row is the file's own: the real files are
+taken before the links, because the walk meets a top-level link before the bundle folder it points into.
 
 The open and save guards ask the same question: a file the walk would not reach (under `.git`, past the
 depth) is refused even when it is inside a plans directory. The path between the two REAL paths is always
@@ -211,8 +212,10 @@ takes no exclusion list, so on Linux every subfolder of a plans directory costs 
 ones included. That is accepted for a directory people and agents fill by hand. The one plans directory
 for which it is not, a CLI setting that names the project ROOT, is watched flat: recursively it would be
 a watch over the whole checkout. A watch that errors later is closed, logged at `debug`, and rebuilt on
-the next list load. A RECURSIVE watch that failed once (Linux reports an exhausted inotify budget as an
-asynchronous `ENOSPC`) is rebuilt flat for the rest of the session rather than retried on every load.
+the next list load. A RECURSIVE watch that failed for want of a resource (Linux reports an exhausted
+inotify budget as an asynchronous `ENOSPC`; `EMFILE`), or that the platform refused, is rebuilt flat for
+the rest of the session rather than retried on every load. Any other failure is not about the recursion
+and gets the recursive watch again.
 
 ## Asking for one, without writing it (#486)
 

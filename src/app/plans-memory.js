@@ -50,6 +50,7 @@ let ctx = null;
  */
 function init(context) {
   ctx = context;
+  recursiveWatchFailed.clear();
   watchPlansDirs();
 }
 
@@ -137,10 +138,13 @@ function watchPlansDirs() {
  * closed and logged at debug; the next list load re-establishes the set - flat, if it was the recursive
  * watch that failed.
  */
-// Plans directories whose RECURSIVE watch failed once, at the call or later (Linux answers ENOSPC
-// asynchronously when the inotify budget runs out). They are watched flat from then on, for the session:
-// retrying recursive on every rebuild would fail the same way every time.
+// Plans directories whose RECURSIVE watch cannot work: the platform refused the option, or the watch ran
+// out of a resource (Linux answers ENOSPC asynchronously when the inotify budget is spent; EMFILE is the
+// descriptor limit). They are watched flat from then on — retrying recursive on every rebuild would fail
+// the same way every time. Any OTHER failure (the folder removed, a handle revoked) is not about the
+// recursion, so it only closes the watch and the next rebuild tries recursive again. Cleared by `init`.
 const recursiveWatchFailed = new Set();
+const RECURSIVE_WATCH_GIVE_UP = new Set(['ENOSPC', 'EMFILE', 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM']);
 
 function watchPlansDir(dir, { recursive = true } = {}) {
   const onChange = (_event, filename) => {
@@ -150,13 +154,13 @@ function watchPlansDir(dir, { recursive = true } = {}) {
   let watcher = null;
   let isRecursive = false;
   if (recursive) {
-    try { watcher = fs.watch(dir, { recursive: true }, onChange); isRecursive = true; } catch {
-      recursiveWatchFailed.add(dir);
+    try { watcher = fs.watch(dir, { recursive: true }, onChange); isRecursive = true; } catch (err) {
+      if (err && RECURSIVE_WATCH_GIVE_UP.has(err.code)) recursiveWatchFailed.add(dir);
     }
   }
   if (!watcher) watcher = fs.watch(dir, onChange);
   watcher.on('error', (err) => {
-    if (isRecursive) recursiveWatchFailed.add(dir);
+    if (isRecursive && err && RECURSIVE_WATCH_GIVE_UP.has(err.code)) recursiveWatchFailed.add(dir);
     try {
       if (ctx && ctx.log && typeof ctx.log.debug === 'function') {
         ctx.log.debug('[plans] a plans-directory watch failed and was closed:', err && err.code);
@@ -906,10 +910,19 @@ function getPlans() {
   // none — they live inside the project, so the path already answers the question.
   let displayNames = new Map();
   try { displayNames = ctx.db.getProjectDisplayNames(); } catch {}
+  // Every source's walk first, then one pass with the real files ahead of the links. A link and its
+  // target are one row (`planRowKey`), and the row must be the FILE: the walk meets a top-level link
+  // before the bundle folder it points into, and taking the link's row there would hide the bundle's
+  // own. The sort is stable, so each group keeps the walk's order.
+  const found = [];
   for (const source of projectPlanSources()) {
     let files = [];
     try { files = walkPlanFiles(source.dir); } catch { continue; }
-    for (const { filePath, relPath, realPath } of files) {
+    for (const file of files) found.push({ source, file });
+  }
+  found.sort((a, b) => (a.file.realPath ? 1 : 0) - (b.file.realPath ? 1 : 0));
+  {
+    for (const { source, file: { filePath, relPath, realPath } } of found) {
       // Two candidate names can nest (`docs` and `docs/plans`), and a walk reaches the inner one's files
       // from the outer one too. One file is one row.
       const rowKey = planRowKey(realPath || filePath);
@@ -1609,6 +1622,7 @@ module.exports = {
   // it does not follow, and what a plan is called when it has no heading.
   _walkPlanFiles: walkPlanFiles, _planTitle: planTitle, _unfulfilledPlanDirs: unfulfilledPlanDirs,
   _planRelPathAllowed: planRelPathAllowed, _planWatchEventRelevant: planWatchEventRelevant,
+  _recursiveWatchFailed: recursiveWatchFailed, _watchPlansDir: watchPlansDir,
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,
