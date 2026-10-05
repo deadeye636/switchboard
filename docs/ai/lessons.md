@@ -3,6 +3,12 @@
 Not rules. The rules live in `CLAUDE.md` and `.claude/rules/`. This is the evidence behind them, kept
 because "we tried it, here is what broke" is the part that stops an argument.
 
+A new entry is a `##` heading that names the trap, with the issue number, and answers four things:
+the symptom (what broke), the root cause, why the tests or the first assumption missed it, and the
+invariant or guard that now prevents it. Record one when a suite passed but the behaviour was broken,
+when an architectural assumption failed, or after a critical bug. Planner and orchestrator read this
+file before they design a plan.
+
 ## A green suite is not a working app
 
 | What shipped | What the suite said | What it took to see it |
