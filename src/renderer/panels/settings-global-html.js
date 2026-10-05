@@ -888,8 +888,8 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Show second line</span>${help}</div>
-                    <div class="settings-description">Add a line under each project header with the project's tags as coloured dots.</div>
-                    <div class="settings-more">Hover a dot to see its tag. Projects only, not worktrees. A project with nothing to show on the line gets no extra row.</div>
+                    <div class="settings-description">Add a line under each project header with the project's tags as coloured dots, and the branch &amp; change counts when those are on.</div>
+                    <div class="settings-more">Hover a dot to see its tag. Projects only, not worktrees. A project with nothing to show on the line gets no extra row. "Show branch &amp; change counts" (Version control) needs this line.</div>
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-sidebar-second-line" ${sidebarProjectSecondLineValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
@@ -942,13 +942,14 @@
                     <label class="settings-toggle"><input type="checkbox" id="sv-vcs-enabled" ${vcsChipEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
-                <div class="settings-field">
+                <div class="settings-field${sidebarProjectSecondLineValue ? '' : ' settings-field-inactive'}" id="sv-vcs-badge-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Show branch &amp; change counts</span>
-                    <div class="settings-description">Off shows only the git button (opens the changes window); on adds the branch and file-count badge.</div>
+                    <div class="settings-description">Off shows only the git button (opens the changes window); on adds the branch and file-count badge to the project's second line, where it replaces the git button. Worktrees keep their button and show the badge under their header.</div>
+                    <div class="settings-hint" id="sv-vcs-badge-requires"${sidebarProjectSecondLineValue ? ' hidden' : ''}>Requires “Show second line” (Projects &amp; sidebar → Sidebar).</div>
                   </div>
                   <div class="settings-field-control">
-                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-badge" ${vcsShowBadgeValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                    <label class="settings-toggle"><input type="checkbox" id="sv-vcs-badge" ${vcsShowBadgeValue ? 'checked' : ''}${sidebarProjectSecondLineValue ? '' : ' disabled'}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

@@ -18,7 +18,7 @@ const { JSDOM } = require('jsdom');
 
 const SRC = path.join(__dirname, '..', 'src', 'renderer', 'shell', 'sidebar-vcs.js');
 
-function setup({ showBadge = true, chipEnabled = true } = {}) {
+function setup({ showBadge = true, chipEnabled = true, secondLine = true } = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="sidebar"></div></body></html>', {
     url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true,
   });
@@ -33,22 +33,27 @@ function setup({ showBadge = true, chipEnabled = true } = {}) {
     escapeHtml: (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])),
     vcsChipEnabled: chipEnabled,
     vcsShowBadge: showBadge,
+    // #742: the badge needs the project second line; on by default here so `showBadge` alone decides.
+    sidebarProjectSecondLine: secondLine,
     refreshSidebar: () => { refreshCalls.n++; },
   });
   window.api = { onVcsStatusChanged: (cb) => { pushHandler = cb; }, openChangesWindow: () => {} };
 
   vm.runInContext(fs.readFileSync(SRC, 'utf8'), ctx);
 
-  // The sidebar's own markup for one decorated project header, as decorateHeader builds it.
-  const mount = (cwd) => {
+  // The sidebar's own markup for one decorated header, as decorateHeader builds it. A worktree header
+  // (the default) keeps its glyph button and puts the pill in a row under it; a main project (#742) puts
+  // the pill into its second line and drops the button while the badge is on.
+  const mount = (cwd, { main = false } = {}) => {
+    const badge = showBadge && secondLine;
     const group = window.document.createElement('div');
-    group.innerHTML =
-      '<div class="project-header">'
-      + '<button class="project-vcs-btn vcs-open" data-vcs-cwd="' + cwd + '"></button>'
-      + '</div>'
-      + (showBadge
-        ? '<div class="vcs-pill-row"><span class="vcs-pill vcs-open" data-vcs-cwd="' + cwd + '"></span></div>'
-        : '');
+    const btn = '<button class="project-vcs-btn vcs-open" data-vcs-cwd="' + cwd + '"></button>';
+    const pill = '<span class="vcs-pill vcs-open" data-vcs-cwd="' + cwd + '"></span>';
+    group.innerHTML = main
+      ? '<div class="project-header" data-vcs-header="' + cwd + '">' + (badge ? '' : btn) + '</div>'
+        + (badge ? '<div class="project-second-line">' + pill + '</div>' : '')
+      : '<div class="worktree-header" data-vcs-header="' + cwd + '">' + btn + '</div>'
+        + (badge ? '<div class="vcs-pill-row">' + pill + '</div>' : '');
     window.document.getElementById('sidebar').appendChild(group);
   };
 
@@ -213,4 +218,86 @@ test('#515: a push for a cwd with no chip on screen still falls back to the rend
       } catch (e) { done(e); } finally { h.destroy(); }
     }, 250);
   } catch (e) { h.destroy(); throw e; }
+});
+
+// --- #742: the badge lives in a main project's second line ---
+
+test('#742: a main project with the badge in its second line is patched there, with no button expected', () => {
+  const h = setup();
+  try {
+    h.mount('/repo/a', { main: true });
+    assert.equal(h.btn('/repo/a'), null, 'the header carries no git button');
+    assert.equal(h.patch('/repo/a', DIRTY), true, 'handled without a rebuild');
+    assert.match(h.pill('/repo/a').innerHTML, /\+1/, 'the pill in the second line shows the counts');
+  } finally { h.destroy(); }
+});
+
+test('#742: the second line going off under a rendered badge is STRUCTURAL', () => {
+  const h = setup();
+  try {
+    h.mount('/repo/a', { main: true });
+    h.ctx.sidebarProjectSecondLine = false;
+    assert.equal(h.patch('/repo/a', DIRTY), false, 'the button has to come back and the pill go: rebuild');
+  } finally { h.destroy(); }
+});
+
+test('#742: a main project and a worktree on one cwd are compared header by header', () => {
+  const h = setup();
+  try {
+    h.mount('/repo/a', { main: true });
+    h.mount('/repo/a');
+    assert.equal(h.patch('/repo/a', DIRTY), true, 'one button (the worktree), two pills');
+    assert.equal(h.window.document.querySelectorAll('.vcs-pill[data-vcs-cwd="/repo/a"]').length, 2);
+  } finally { h.destroy(); }
+});
+
+// What decorateHeader and secondLinePill DRAW, against a seeded cache.
+function decorate(h, { mainProject }) {
+  const doc = h.window.document;
+  h.window.vcsView._cache.set('/repo/a', DIRTY);
+  const group = doc.createElement('div');
+  const header = doc.createElement('div');
+  header.className = mainProject ? 'project-header' : 'worktree-header';
+  const list = doc.createElement('div');
+  group.append(header, list);
+  doc.getElementById('sidebar').appendChild(group);
+  h.window.vcsView.decorateHeader(header, group, list, '/repo/a', { mainProject });
+  return {
+    button: !!header.querySelector('.project-vcs-btn'),
+    pillRow: !!group.querySelector('.vcs-pill-row'),
+    secondLinePill: !!h.window.vcsView.secondLinePill('/repo/a'),
+  };
+}
+
+test('#742: both on — a main project drops its button and its pill goes to the second line', () => {
+  const h = setup();
+  try {
+    assert.deepEqual(decorate(h, { mainProject: true }), { button: false, pillRow: false, secondLinePill: true });
+  } finally { h.destroy(); }
+});
+
+test('#742: both on — a worktree keeps its button and its pill row', () => {
+  const h = setup();
+  try {
+    assert.deepEqual(decorate(h, { mainProject: false }), { button: true, pillRow: true, secondLinePill: true });
+  } finally { h.destroy(); }
+});
+
+test('#742: badge stored on but second line off — button kept, no badge anywhere', () => {
+  const h = setup({ showBadge: true, secondLine: false });
+  try {
+    assert.deepEqual(decorate(h, { mainProject: true }), { button: true, pillRow: false, secondLinePill: false });
+    const doc = h.window.document;
+    doc.getElementById('sidebar').innerHTML = '';
+    assert.deepEqual(decorate(h, { mainProject: false }), { button: true, pillRow: false, secondLinePill: false });
+    assert.equal(h.window.vcsView.buildCardChip('/repo/a').classList.contains('vcs-glyph-only'), true,
+      'a grid card shows the glyph only, like the badge being off');
+  } finally { h.destroy(); }
+});
+
+test('#742: second line on, badge off — the button stays and no pill is drawn', () => {
+  const h = setup({ showBadge: false });
+  try {
+    assert.deepEqual(decorate(h, { mainProject: true }), { button: true, pillRow: false, secondLinePill: false });
+  } finally { h.destroy(); }
 });

@@ -60,6 +60,28 @@ test('#741: no line when the setting is off', () => {
   } finally { h.destroy(); }
 });
 
+test('#742: the VCS badge alone is enough for a line, and sits after the tag dots', () => {
+  const h = setup({
+    projectTagDisplayMap: new Map([['/tagged', [{ tag: 'work', color: '#ff0000' }]]]),
+  });
+  try {
+    const doc = h.window.document;
+    h.window.vcsView = {
+      secondLinePill: (cwd) => {
+        const pill = doc.createElement('span');
+        pill.className = 'vcs-pill vcs-open';
+        pill.dataset.vcsCwd = cwd;
+        return pill;
+      },
+    };
+    const untagged = h.call('buildProjectSecondLine', '/untagged');
+    assert.ok(untagged, 'a project with no tags still gets the line for its badge');
+    assert.equal(untagged.querySelector('.vcs-pill').dataset.vcsCwd, '/untagged');
+    const tagged = h.call('buildProjectSecondLine', '/tagged');
+    assert.deepEqual([...tagged.children].map(c => c.className), ['project-tag-dots', 'vcs-pill vcs-open']);
+  } finally { h.destroy(); }
+});
+
 test('#741: no empty row for a project with nothing to show', () => {
   const h = setup();
   try {

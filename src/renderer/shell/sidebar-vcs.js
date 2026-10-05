@@ -13,6 +13,11 @@
 //
 // It owns no sidebar state: it appends a glyph button + a branch/counts pill to a header, and reports the
 // on-screen repo cwds back to main via `vcsWatch` so main polls exactly what's visible (#277 F1).
+//
+// Since #742 the badge lives in the project second line (#741): it shows only while that line is on, a
+// main project carries it INSIDE the line and drops the header button (the badge is the click-through
+// now), and a worktree keeps its button plus the pill row under its header. `headerLayout` is the one
+// answer to "what does this header carry", asked by the render and by the patch alike.
 (function () {
   'use strict';
 
@@ -24,8 +29,20 @@
   const esc = (s) => (typeof escapeHtml === 'function' ? escapeHtml(String(s)) : String(s));
   const chipEnabled = () => (typeof vcsChipEnabled === 'undefined' ? true : !!vcsChipEnabled);
   // The branch/counts BADGE is opt-in (default off): the glyph button alone opens the window; the
-  // badge just adds the at-a-glance branch + file counts (#277).
-  const showBadge = () => (typeof vcsShowBadge === 'undefined' ? false : !!vcsShowBadge);
+  // badge just adds the at-a-glance branch + file counts (#277). It REQUIRES the project second line
+  // (#742) — the settings screen greys the switch out while the line is off, so a value stored from
+  // before must not keep drawing the badge somewhere the screen says it has no effect.
+  const secondLineOn = () => (typeof sidebarProjectSecondLine === 'undefined' ? false : !!sidebarProjectSecondLine);
+  const showBadge = () => (typeof vcsShowBadge === 'undefined' ? false : !!vcsShowBadge) && secondLineOn();
+
+  // What a decorated header carries. `mainProject` is a top-level project header; a worktree header is
+  // not one. The render (`decorateHeader`, `secondLinePill`) and the patch (`patchSidebarChips`) both ask
+  // this, so the patch can never expect a shape the render stopped drawing.
+  function headerLayout(mainProject) {
+    const badge = showBadge();
+    const inSecondLine = badge && !!mainProject;
+    return { button: !inSecondLine, pill: badge, pillInSecondLine: inSecondLine };
+  }
 
   const GLYPH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M18 10.5c0 4-6 3-6 7"/><path d="M6 8.5v7"/></svg>';
   const GLYPH_SM = '<svg class="vcs-pill-glyph" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M18 10.5c0 4-6 3-6 7"/><path d="M6 8.5v7"/></svg>';
@@ -98,17 +115,37 @@
     return { html, inProgress };
   }
 
-  function buildPillRow(s) {
-    const row = document.createElement('div');
-    row.className = 'vcs-pill-row';
+  const shortLabelOf = (cwd) => cwd.split('/').filter(Boolean).slice(-1)[0] || cwd;
+
+  // The sidebar's branch/counts pill. It carries the cwd itself: it sits OUTSIDE the header (in the pill
+  // row or the second line), so a header-scoped delegate cannot catch its click — the top-level
+  // `.vcs-open` branch in sidebar-events.js reads it.
+  function buildPill(s, cwd) {
     const pill = document.createElement('span');
     pill.className = 'vcs-pill vcs-open';
     pill.title = 'Open changes';
     const { html, inProgress } = pillInner(s);
     if (inProgress) pill.classList.add('vcs-inprogress');
     pill.innerHTML = html;
-    row.appendChild(pill);
+    pill.dataset.vcsCwd = cwd;
+    pill.dataset.vcsLabel = shortLabelOf(cwd);
+    return pill;
+  }
+
+  function buildPillRow(s, cwd) {
+    const row = document.createElement('div');
+    row.className = 'vcs-pill-row';
+    row.appendChild(buildPill(s, cwd));
     return row;
+  }
+
+  // The pill for a main project's second line (#742), or null when that header does not carry one there
+  // (chip off, badge off, second line off, no status yet). The sidebar puts it into the line it builds.
+  function secondLinePill(cwd) {
+    if (!chipEnabled() || !cwd) return null;
+    const s = status(cwd);
+    if (!s || !headerLayout(true).pillInSecondLine) return null;
+    return buildPill(s, cwd);
   }
 
   // Fill a card chip with either the full branch/counts badge or, when the badge is off, just the git
@@ -174,14 +211,23 @@
     // touch, and the render is the one that takes the chips away.
     if (!chipEnabled() || !cwd) return false;
     const sel = '[data-vcs-cwd="' + (window.CSS && CSS.escape ? CSS.escape(cwd) : cwd) + '"]';
-    const btns = document.querySelectorAll('.project-vcs-btn' + sel);
+    const headers = document.querySelectorAll('[data-vcs-header="' + (window.CSS && CSS.escape ? CSS.escape(cwd) : cwd) + '"]');
     // No chip on screen for this cwd yet (a repo reporting for the first time), or one that now has to
     // go: both change what the row contains, not just what it says.
-    if (!summary || btns.length === 0) return false;
-    // One pill per glyph button while the badge is on, none while it is off. Anything else means the
-    // badge setting changed under us, or a header rendered without its pill — rebuild rather than guess.
-    const pills = document.querySelectorAll('.vcs-pill-row .vcs-pill' + sel);
-    if (pills.length !== (showBadge() ? btns.length : 0)) return false;
+    if (!summary || headers.length === 0) return false;
+    // Exactly the buttons and pills the render would draw for these headers (`headerLayout`). Anything
+    // else means a setting changed under us, or a header rendered without its chip — rebuild rather
+    // than guess.
+    let wantButtons = 0;
+    let wantPills = 0;
+    for (const header of headers) {
+      const layout = headerLayout(header.classList.contains('project-header'));
+      if (layout.button) wantButtons++;
+      if (layout.pill) wantPills++;
+    }
+    const btns = document.querySelectorAll('.project-vcs-btn' + sel);
+    const pills = document.querySelectorAll('.vcs-pill-row .vcs-pill' + sel + ', .project-second-line .vcs-pill' + sel);
+    if (btns.length !== wantButtons || pills.length !== wantPills) return false;
 
     for (const btn of btns) btn.classList.toggle('has-changes', isDirty(summary));
     for (const pill of pills) {
@@ -192,9 +238,11 @@
     return true;
   }
 
-  // header  = the .project-header / .worktree-header element (gets the glyph button)
-  // group   = the group container; the pill row is inserted before sessionsList
-  function decorateHeader(header, group, sessionsList, cwd) {
+  // header      = the .project-header / .worktree-header element (gets the glyph button)
+  // group       = the group container; the pill row is inserted before sessionsList
+  // mainProject = a top-level project header: its pill goes into the second line (`secondLinePill`, built
+  //               by the sidebar before this runs), and it then carries no glyph button (#742)
+  function decorateHeader(header, group, sessionsList, cwd, { mainProject = false } = {}) {
     if (!chipEnabled() || !cwd || !header) return;
     if (collecting) collecting.add(cwd);
 
@@ -203,29 +251,31 @@
     // then — and forever for a non-repo — show nothing.
     if (!s) return;
 
-    const shortLabel = cwd.split('/').filter(Boolean).slice(-1)[0] || cwd;
-    const btn = document.createElement('button');
-    btn.className = 'project-vcs-btn vcs-open';
-    btn.title = 'Open changes';
-    btn.innerHTML = GLYPH;
-    btn.dataset.vcsCwd = cwd;
-    btn.dataset.vcsLabel = shortLabel;
-    if (isDirty(s)) btn.classList.add('has-changes');
-    // Sit just left of the New (+) button to match the mockup; else append.
-    const newBtn = header.querySelector('.project-new-btn');
-    if (newBtn) header.insertBefore(btn, newBtn); else header.appendChild(btn);
+    // The patch finds every decorated header by this, so it can compare what is on screen with what
+    // `headerLayout` says the render draws.
+    header.dataset.vcsHeader = cwd;
+    const layout = headerLayout(mainProject);
 
-    // The branch/counts badge is opt-in. The pill row is a SIBLING of the header (between it and the
-    // session list), so its click can't be caught by a header-scoped delegate — it carries the cwd
-    // itself, read by the top-level `.vcs-open` branch in sidebar-events.js.
-    if (showBadge()) {
-      const pill = buildPillRow(s);
-      const pillEl = pill.querySelector('.vcs-pill');
-      if (pillEl) { pillEl.dataset.vcsCwd = cwd; pillEl.dataset.vcsLabel = shortLabel; }
-      if (group && sessionsList && sessionsList.parentNode === group) group.insertBefore(pill, sessionsList);
-      else if (group) group.appendChild(pill);
+    if (layout.button) {
+      const btn = document.createElement('button');
+      btn.className = 'project-vcs-btn vcs-open';
+      btn.title = 'Open changes';
+      btn.innerHTML = GLYPH;
+      btn.dataset.vcsCwd = cwd;
+      btn.dataset.vcsLabel = shortLabelOf(cwd);
+      if (isDirty(s)) btn.classList.add('has-changes');
+      // Sit just left of the New (+) button to match the mockup; else append.
+      const newBtn = header.querySelector('.project-new-btn');
+      if (newBtn) header.insertBefore(btn, newBtn); else header.appendChild(btn);
+    }
+
+    // A worktree's badge keeps its own row, a SIBLING of the header between it and the session list.
+    if (layout.pill && !layout.pillInSecondLine) {
+      const row = buildPillRow(s, cwd);
+      if (group && sessionsList && sessionsList.parentNode === group) group.insertBefore(row, sessionsList);
+      else if (group) group.appendChild(row);
     }
   }
 
-  window.vcsView = { status, decorateHeader, buildCardChip, patchSidebarChips, beginCollect, endCollect, _cache: cache };
+  window.vcsView = { status, decorateHeader, secondLinePill, buildCardChip, patchSidebarChips, beginCollect, endCollect, _cache: cache };
 })();

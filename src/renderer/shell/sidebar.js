@@ -573,9 +573,10 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
 
 // The project second line (#741): a row under a MAIN project's header, never a worktree's. It carries the
 // project's tags as coloured dots, each naming its tag on hover and nothing more — the filter bar is
-// where a tag is clicked. Returns null when the setting is off or the line would be empty, so a project
-// with nothing to show gets no blank row. It sits between the header and the sessions list, and folds
-// with the header through `.project-header.collapsed ~ *` (#744).
+// where a tag is clicked — and, at its end, the VCS branch/counts badge when that is on (#742; the header
+// then drops its git button, see `headerLayout` in sidebar-vcs.js). Returns null when the setting is off
+// or the line would be empty, so a project with nothing to show gets no blank row. It sits between the
+// header and the sessions list, and folds with the header through `.project-header.collapsed ~ *` (#744).
 function buildProjectSecondLine(projectPath) {
   if (typeof sidebarProjectSecondLine === 'undefined' || !sidebarProjectSecondLine) return null;
   const line = document.createElement('div');
@@ -596,6 +597,10 @@ function buildProjectSecondLine(projectPath) {
     }
     line.appendChild(dots);
   }
+  const pill = window.vcsView && typeof window.vcsView.secondLinePill === 'function'
+    ? window.vcsView.secondLinePill(projectPath)
+    : null;
+  if (pill) line.appendChild(pill);
   return line.childNodes.length ? line : null;
 }
 
@@ -754,7 +759,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     const secondLine = buildProjectSecondLine(project.projectPath);
     if (secondLine) group.appendChild(secondLine);
     group.appendChild(sessionsList);
-    if (window.vcsView) window.vcsView.decorateHeader(header, group, sessionsList, project.projectPath);
+    if (window.vcsView) window.vcsView.decorateHeader(header, group, sessionsList, project.projectPath, { mainProject: true });
 
     // The worktrees go into a fold of their own (#598). Appended straight into the session list they
     // landed AFTER the "N older" toggle: a sub-unit of the project read as part of that fold, and

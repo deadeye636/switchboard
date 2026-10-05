@@ -280,7 +280,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 | `projectSortMode` | Project order | `activity` \| `alpha` \| `manual` | `activity` | global |
 | `favoritesOwnList` | Favorites as a separate list | bool | `false` | global |
 | `vcsChipEnabled` | Show version-control status — *Version control* | `true` \| `false` | `true` | global |
-| `vcsShowBadge` | Show branch & change counts badge — *Version control* | `true` \| `false` | `false` | global |
+| `vcsShowBadge` | Show branch & change counts badge — *Version control*; needs `sidebarProjectSecondLine` | `true` \| `false` | `false` | global |
 | `vcsPollSeconds` | Version-control poll interval (s) — *Version control* | integer, min 5 | `20` | global |
 | `vcsCountUntracked` | Count untracked files — *Version control* | `true` \| `false` | `true` | global |
 | `projectAutoAdd` | Add projects automatically | bool | `true` | global (own IPC, not the blob) |
@@ -320,6 +320,14 @@ one. It shows the project's tags as coloured dots, in the tag's own colour, with
 no click action — the filter bar is where a tag filters. A hidden tag still gets its dot (it only leaves the
 filter bar), a disabled one does not. A project with nothing to show on the line gets no row at all, so
 turning it on adds no blank space under untagged projects. The line folds with its project.
+
+`vcsShowBadge` draws its branch & change counts badge in that line (#742), so it needs
+`sidebarProjectSecondLine`: while the line is off the switch is greyed out and disabled, and the badge is
+not drawn anywhere — not in the sidebar and not on grid cards — even when the stored value is `true` from
+before. The stored value is kept, so turning the line back on brings the badge back. With both on, a main
+project's header drops its git button, because the badge in the line opens the changes window itself. A
+worktree has no second line: it keeps its git button and shows the badge in a row under its header, as
+before.
 
 `contextFillHandoffPercent` decides "Handoff Recommended" (#620). The badge comes from how full the model's
 context window was on the session's last turn, measured against that model's window; the older

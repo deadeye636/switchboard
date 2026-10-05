@@ -1569,6 +1569,10 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   min-width: 0;
   padding: 0 10px 4px 28px;
 }
+.project-second-line .vcs-pill {
+  margin-left: auto;   /* the badge sits at the line's end, the tag dots at its start (#742) */
+  min-width: 0;
+}
 .project-tag-dots {
   display: inline-flex;
   align-items: center;
