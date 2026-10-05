@@ -31,6 +31,11 @@ rather than "no directories": a list that can be emptied is a setting that hides
 Reading is all it does. Nothing on that list is created, and a directory that is not there costs a failed
 stat and nothing else.
 
+A plan can also be a folder of its own: `docs/plans/60-migration-lock-timeout/PLAN.md`, with notes or
+attachments beside it. Each directory on the list is searched up to three folder levels down, and the row
+shows the path below the plans directory so a dozen `PLAN.md` files can be told apart. Hidden folders,
+`node_modules`, build output and links that lead out of the plans directory are not searched.
+
 ## What a plan looks like
 
 The first heading is the title. That is the whole requirement for being listed, because a document

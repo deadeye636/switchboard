@@ -181,9 +181,9 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `planDirNames` | Plan directories to look for | list of project-relative paths | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global + project |
+| `planDirNames` | Plan directories to look for | list of project-relative paths, each searched up to three folder levels down for plan bundles (#743) | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global + project |
 | `planDir` | Where this project keeps plans | project-relative path | `.plans` | global + project |
-| `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` | `Follow the plan at {path}` | global + project |
+| `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` (for a bundle plan, `{filename}` is its path below the plans directory, e.g. `<slug>/PLAN.md`) | `Follow the plan at {path}` | global + project |
 | `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
 | `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
 | `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global + project |

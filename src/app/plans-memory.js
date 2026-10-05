@@ -60,9 +60,10 @@ function init(context) {
 // frozen, and the list is sorted by that timestamp — the ordering the user was looking at was a snapshot
 // of whenever they last changed tabs.
 //
-// Only the plans directories are watched, and that is deliberate: they are flat and small. The other
-// lists this file serves walk project trees that reach tens of thousands of files, where a recursive
-// watch would cost more than the staleness it fixes.
+// Only the plans directories are watched, and that is deliberate: they are small. The other lists this
+// file serves walk project trees that reach tens of thousands of files, where a recursive watch would
+// cost more than the staleness it fixes. A plans directory is watched RECURSIVELY since #743, because a
+// plan bundle (`docs/plans/<slug>/PLAN.md`) is written one level down, where a flat watch never fires.
 const plansWatchers = [];
 let plansChangeTimer = null;
 const PLANS_DEBOUNCE_MS = 400;
@@ -105,8 +106,29 @@ function watchPlansDirs() {
       if (!fs.existsSync(dir)) continue;
       // A directory watch answers for a file appearing, being renamed and being removed — all three are
       // list changes and none of them touches a file this side already had open.
-      plansWatchers.push(fs.watch(dir, () => announcePlansChanged()));
+      plansWatchers.push(watchPlansDir(dir));
     } catch { /* a plans dir that cannot be watched is one whose list simply stays as stale as before */ }
+  }
+}
+
+/**
+ * One plans directory, watched with its bundle folders (#743).
+ *
+ * Recursive where the platform has it — Windows and macOS natively, Linux since Node 20, and Electron 41
+ * ships a later Node — and flat where it throws, which is the watch this had before: top-level plans
+ * stay live, a bundle's PLAN.md shows up on the next list load. An event from a folder the walk does
+ * not enter (a `.git` inside the plans folder, a build directory) is dropped here, so a tool churning
+ * in one of those does not rebuild the list for files it will never show.
+ */
+function watchPlansDir(dir) {
+  const onChange = (_event, filename) => {
+    if (filename && !planRelPathAllowed(String(filename), { file: false })) return;
+    announcePlansChanged();
+  };
+  try {
+    return fs.watch(dir, { recursive: true }, onChange);
+  } catch {
+    return fs.watch(dir, onChange);
   }
 }
 
@@ -577,6 +599,99 @@ function projectPlanSources() {
   return out;
 }
 
+// --- Plan bundles: a plan one folder down (#743) ----------------------------------------------------
+//
+// A plans directory used to be read flat. A project that keeps a plan as a BUNDLE — `docs/plans/<slug>/
+// PLAN.md` beside its notes and attachments — had nothing on the list, and its plans directory was
+// reported empty above the list while it held a dozen plans.
+//
+// So a project plans directory is walked, and the walk is kept small on purpose: three folder levels
+// below the plans directory, never into a hidden folder or a build/dependency directory
+// (`build-dirs.js`), never through a link, and a bounded number of entries per directory. A plans folder
+// is something a person or an agent writes by hand; anything that needs more than that is not one.
+//
+// A backend's OWN store is still read flat: it is a CLI's directory, and the CLI writes it flat.
+const PLAN_WALK_MAX_DEPTH = 3;
+const PLAN_WALK_MAX_ENTRIES = 2000;
+
+/** A folder the walk does not enter: hidden, generated, fetched, or one Electron would hold open. */
+function skippedPlanFolder(name) {
+  return name.startsWith('.') || isBuildDir(name) || isAsarArchive(name);
+}
+
+/**
+ * Could the walk have reached this path, spelled relative to its plans directory?
+ *
+ * The read/save guard asks it too, so the viewer opens exactly what the list can show — a file under a
+ * `.git` or past the depth limit is not a plan here, however it is asked for. `file: false` is the
+ * watcher's question, which gets a path to a folder as often as to a file and asks no depth.
+ */
+function planRelPathAllowed(rel, { file = true } = {}) {
+  const parts = String(rel || '').split(/[\\/]+/).filter(Boolean);
+  if (parts.some(p => p === '..')) return false;
+  const folders = parts.slice(0, -1);
+  if (file && folders.length > PLAN_WALK_MAX_DEPTH) return false;
+  return !folders.some(skippedPlanFolder);
+}
+
+/**
+ * Every `.md` file under `root` the plans list may show, as `{ filePath, relPath }` (relPath with `/`).
+ *
+ * Containment is decided on REAL paths, through `path-containment.js` (CLAUDE.md reflex 13): a folder
+ * whose real path leaves `root` is not entered, so a junction spelled inside the plans directory cannot
+ * pull another tree onto the list. A link is never descended through at all — a linked FILE is listed
+ * only when its target is inside `root`, which is what the flat read did for a linked plan before.
+ *
+ * Throws when `root` itself cannot be read, so a caller can tell "unreadable" from "empty"; a subfolder
+ * that cannot be read is skipped. `limit` stops at that many files — the empty-check needs one.
+ */
+function walkPlanFiles(root, { limit = Infinity } = {}) {
+  const out = [];
+  const stack = [{ dir: root, rel: '', depth: 0 }];
+  let first = true;
+  while (stack.length && out.length < limit) {
+    const { dir, rel, depth } = stack.pop();
+    let entries;
+    if (first) { entries = fs.readdirSync(dir, { withFileTypes: true }); first = false; }
+    else {
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    }
+    let seen = 0;
+    for (const e of entries) {
+      if (++seen > PLAN_WALK_MAX_ENTRIES || out.length >= limit) break;
+      // Before the join: the cheapest place not to touch a file is before there is a path to it (#483).
+      if (isAsarArchive(e.name)) continue;
+      const full = path.join(dir, e.name);
+      const relPath = rel ? rel + '/' + e.name : e.name;
+      if (e.isDirectory()) {
+        if (depth >= PLAN_WALK_MAX_DEPTH || skippedPlanFolder(e.name)) continue;
+        if (!isInside(full, root)) continue;
+        stack.push({ dir: full, rel: relPath, depth: depth + 1 });
+      } else if (e.name.endsWith('.md')) {
+        if (e.isFile()) out.push({ filePath: full, relPath });
+        else if (e.isSymbolicLink() && isInside(full, root)) {
+          try { if (fs.statSync(full).isFile()) out.push({ filePath: full, relPath }); } catch { /* dangling */ }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A plan's title: its first `# ` heading, else the bundle folder it sits in, else the filename (#743).
+ *
+ * The folder before the filename because a bundle's file is named for its ROLE — every bundle has a
+ * `PLAN.md` — and the folder is what names the plan.
+ */
+function planTitle(content, relPath) {
+  const firstLine = content.split('\n').find(l => l.trim());
+  if (firstLine && firstLine.startsWith('# ')) return firstLine.slice(2).trim();
+  const parts = String(relPath).split('/');
+  if (parts.length > 1) return parts[parts.length - 2];
+  return parts[0].replace(/\.md$/, '');
+}
+
 /**
  * A project that asked its CLI to write plans here, and got none (#450).
  *
@@ -603,7 +718,8 @@ function unfulfilledPlanDirs() {
       else {
         try {
           if (!fs.existsSync(resolved)) reason = 'not created yet';
-          else if (!fs.readdirSync(resolved).some(f => f.endsWith('.md'))) reason = 'empty';
+          // Walked, not read flat (#743): a directory holding only bundle folders holds plans.
+          else if (walkPlanFiles(resolved, { limit: 1 }).length === 0) reason = 'empty';
         } catch { reason = 'unreadable'; }
       }
       if (!reason) continue;
@@ -621,6 +737,7 @@ function getPlans() {
   const sigFiles = [];
   const bodies = new Map(); // filePath -> content (single read: title + FTS body)
   const refOf = new Map();  // filePath -> the reference its own backend knows it by
+  const listed = new Set(); // filePaths that already have a row
   let hasStore = false;
   for (const b of memoryBackends()) {
     let dir = null;
@@ -634,9 +751,9 @@ function getPlans() {
       try {
         const stat = fs.statSync(filePath);
         const content = fs.readFileSync(filePath, 'utf8');
-        const firstLine = content.split('\n').find(l => l.trim());
-        const title = firstLine && firstLine.startsWith('# ') ? firstLine.slice(2).trim() : file.replace(/\.md$/, '');
+        const title = planTitle(content, file);
         plans.push({ filename: file, filePath, title, modified: stat.mtime.toISOString(), backendId: b.id });
+        listed.add(filePath);
         bodies.set(filePath, content);
         sigFiles.push({ filePath, mtimeMs: stat.mtimeMs, size: stat.size });
         if (typeof b.planRef === 'function') {
@@ -653,17 +770,22 @@ function getPlans() {
   try { displayNames = ctx.db.getProjectDisplayNames(); } catch {}
   for (const source of projectPlanSources()) {
     let files = [];
-    try { files = fs.readdirSync(source.dir).filter(f => f.endsWith('.md')); } catch { continue; }
-    for (const file of files) {
-      const filePath = path.join(source.dir, file);
+    try { files = walkPlanFiles(source.dir); } catch { continue; }
+    for (const { filePath, relPath } of files) {
+      // Two candidate names can nest (`docs` and `docs/plans`), and a walk reaches the inner one's files
+      // from the outer one too. One file is one row.
+      if (listed.has(filePath)) continue;
       try {
         const stat = fs.statSync(filePath);
         if (!stat.isFile()) continue;
         const content = fs.readFileSync(filePath, 'utf8');
-        const firstLine = content.split('\n').find(l => l.trim());
-        const title = firstLine && firstLine.startsWith('# ') ? firstLine.slice(2).trim() : file.replace(/\.md$/, '');
+        const title = planTitle(content, relPath);
+        listed.add(filePath);
         plans.push({
-          filename: file, filePath, title, modified: stat.mtime.toISOString(),
+          // The path below the plans directory, not the bare name (#743): every bundle has a PLAN.md,
+          // and a list of identical filenames tells nobody which is which. A top-level plan's is
+          // unchanged. The row's identity is `filePath`, as before — this is what it is CALLED.
+          filename: relPath, filePath, title, modified: stat.mtime.toISOString(),
           projectPath: source.projectPath,
           shortName: projectShortName(source.projectPath),
           displayName: displayNames.get(source.projectPath) || '',
@@ -725,11 +847,29 @@ function plansDirs() {
   return dirs;
 }
 
+/**
+ * Is `resolved` a plan file the list could show? `contains` is the containment question asked of each
+ * plans directory — `isAtOrInside` for a read, `isInside` for a write — and it decides on real paths.
+ *
+ * Since bundles are walked (#743) the walk's own limits apply here as well: a file below a hidden or
+ * build folder, or past the depth limit, is not a plan, so the viewer does not open what the list would
+ * never show. That half is LEXICAL and only narrows: where the spelled path does not lead down from the
+ * directory (another spelling of the same place), the real-path answer stands alone.
+ */
+function inPlansDir(resolved, contains) {
+  return plansDirs().some((d) => {
+    if (!contains(resolved, d)) return false;
+    const rel = path.relative(d, resolved);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return true;
+    return planRelPathAllowed(rel);
+  });
+}
+
 function readPlan(filePath) {
   try {
     const resolved = path.resolve(filePath);
     if (!resolved.endsWith('.md')) return { content: '', filePath: '' };
-    const ok = plansDirs().some(d => isAtOrInside(resolved, d));
+    const ok = inPlansDir(resolved, isAtOrInside);
     if (!ok) return { content: '', filePath: '' };
     return { content: fs.readFileSync(resolved, 'utf8'), filePath: resolved };
   } catch (err) {
@@ -759,7 +899,7 @@ function writeFailure(result, fallback) {
 function savePlan(filePath, content, baseline = null) {
   try {
     const resolved = path.resolve(filePath);
-    const ok = plansDirs().some(d => isInside(resolved, d));
+    const ok = inPlansDir(resolved, isInside);
     if (!ok) return { ok: false, error: 'path outside a plans directory' };
     // Same write core as every other save (#441): a plan is a document an agent rewrites while it is
     // open, which is the case the baseline compare exists for.
@@ -1307,6 +1447,9 @@ module.exports = {
   // nothing could see it: the tab renders the same either way unless a project actually has a directory
   // of its own.
   _planDirCandidates: planDirCandidates, _projectPlanSources: projectPlanSources,
+  // …and how a plans directory is walked for bundles (#743): the depth, the folders it skips, the links
+  // it does not follow, and what a plan is called when it has no heading.
+  _walkPlanFiles: walkPlanFiles, _planTitle: planTitle, _unfulfilledPlanDirs: unfulfilledPlanDirs,
   // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
   invalidateFtsSignature,
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,

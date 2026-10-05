@@ -1,6 +1,6 @@
 # 20 — Plans
 
-Status: **built** (#448, #449, #450, #452, #453, #454), with follow-ups in #442, #455 and #456.
+Status: **built** (#448, #449, #450, #452, #453, #454, #743), with follow-ups in #442, #455 and #456.
 Written after the fact, as a design record.
 
 The user-facing half is [`docs/plans-convention.md`](../plans-convention.md). This file is the why.
@@ -143,6 +143,43 @@ answer to it. The root falls back rather than being accepted because Claude refu
 three refusals above — so taking it would only move the silent failure into the CLI.
 
 
+### A plan can be a folder (#743)
+
+A project directory on the read list is WALKED, not read flat. Teams that keep a plan as a bundle,
+`docs/plans/<slug>/PLAN.md` with its notes beside it, had an empty list, and a CLI's configured directory
+holding only bundle folders was reported "empty" above it. The walk in `plans-memory.js` has four limits,
+each one a place where a plan could vanish or a foreign file appear, and `test/plan-bundles.test.js` pins all
+of them:
+
+- **Three folder levels** below the plans directory. A plans folder is written by hand; deeper than that
+  is a checkout or an archive, not a plan.
+- **No hidden folder and nothing `build-dirs.js` names** (`.git`, `node_modules`, `dist` and the rest). The
+  same list the other walks use, for the same reason.
+- **No links.** A folder is entered only if its REAL path is inside the plans directory, asked through
+  `path-containment.js` (CLAUDE.md reflex 13); a link to a folder is never followed, and a linked file is
+  listed only when its target is inside. A junction spelled inside the directory cannot put another tree
+  on the list.
+- **A bounded number of entries per folder**, so a plans directory somebody unpacked a dump into costs a
+  bounded read.
+
+The open and save guards ask the same question: a file the walk would not reach (under `.git`, past the
+depth) is refused even when it is inside a plans directory. They must not drift from the list, for the
+reason already given above `plansDirs()`: a row the viewer refuses is worse than no row.
+
+**What a row is called changed; what it IS did not.** A row's identity was `filePath` before and stays
+so, which is what the selection, the reader, the save and a detached viewer all key on. `filename`
+becomes the path below the plans directory (`60-migration-lock-timeout/PLAN.md`) for a nested file and
+stays the bare name for a top-level one, so the list, the picker and `{filename}` in the insert template
+all name the bundle. A plan without a heading takes its folder's name before its filename stem: a bundle's
+file is named for its role, and the folder is what names the plan.
+
+A backend's OWN store is still read flat. It belongs to the CLI, which writes it flat.
+
+The watch follows: a plans directory is watched **recursively** — natively on Windows and macOS, and on
+Linux since Node 20, which Electron 41 is well past. Where a recursive watch throws, it falls back to the
+flat one it had before, so top-level plans stay live and a bundle appears on the next list load. Events
+from a folder the walk does not enter are dropped before they rebuild the list.
+
 ## Asking for one, without writing it (#486)
 
 The rule above holds, and this is the shape that respects it: the command palette's **Write a plan** types
@@ -236,7 +273,7 @@ The four that shape the design:
   Switchboard does not write into a project's `AGENTS.md`, and does not install a skill into another
   CLI's store. Both would be the same decision one step further and deserve their own issue.
 - Claude writes a `.workshop.md` sibling next to a plan when a session is forked. It is listed as an
-  ordinary plan today. Treating a plan as a bundle would change the shape of the list and has no demand
+  ordinary plan today. Folding it into the row of the plan it belongs to would change the shape of the list and has no demand
   behind it yet.
 - Only the plans directories are watched for liveness. The other lists this module serves walk project
   trees reaching tens of thousands of files, where a recursive watch would cost more than the staleness
