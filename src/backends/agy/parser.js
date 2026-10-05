@@ -45,10 +45,13 @@ const PARSER_SCHEMA_VERSION = 4;
 // parent's workspace — so before #739 each one stood in the sidebar as a session the user never started,
 // usually with an empty title. agy records the link inside the child's own database: its `gen_metadata`
 // blobs carry `parent_cascade_id` and `root_cascade_id`, each followed by the 36-character conversation id
-// (owner recon in #739). A root conversation carries neither key. The per-file signal is used on purpose:
-// it keeps parsing local to the one file the scan is already reading. `conversation_summaries.db` holds the
-// same link plus an agent name, but reading it would mean a second database per scan, and its id column was
-// not measured — so the agent name stays unknown rather than guessed.
+// (owner recon in #739). A ROOT may carry a key too: measured, half the roots that had one carried a
+// `root_cascade_id` naming THEMSELVES (docs/backend-formats.md, agy, "Subagents"). So "has a key" does not
+// mean "is a subagent" — the self-reference check in `buildRow` is load-bearing, not a nicety. The per-file
+// signal is used on purpose: it keeps parsing local to the one file the scan is already reading.
+// `conversation_summaries.db` holds the same link plus an agent name, but reading it would mean a second
+// database per scan, so the agent name stays unknown rather than guessed. It is the cross-check instead:
+// `scripts/measure-agy-subagent-links.js` compares the two.
 //
 // The row nests under the ROOT conversation, not the immediate parent: the sidebar nests one level, under a
 // top-level row, and a grandchild hung under a child row would surface as an orphan at the top level.
@@ -282,7 +285,8 @@ function readConversation(db) {
     for (const r of gen) {
       const buf = asBuffer(r.data);
       modelText.push(...printableRuns(buf, 5));
-      // The subagent link (#739) sits in the same blobs. First sighting wins; a root has neither key.
+      // The subagent link (#739) sits in the same blobs. First sighting wins. A root may name itself here
+      // (`root_cascade_id` = its own id) — buildRow tells that apart, not this loop.
       if (!facts.parentCascadeId || !facts.rootCascadeId) {
         const ids = findCascadeIds(buf);
         if (!facts.parentCascadeId && ids.parent) facts.parentCascadeId = ids.parent;
@@ -305,8 +309,9 @@ function buildRow(facts, dbPath, opts = {}) {
   if (!conversationId) return null;
 
   // A subagent conversation (#739) nests under its root session. A link that names the conversation itself
-  // (in any case) is not a parent, and degrades to a top-level row like a missing one — including a root
-  // that records only `root_cascade_id` pointing at itself.
+  // (in any case) is not a parent, and degrades to a top-level row like a missing one. This is the common
+  // shape for a root, not an edge case: measured, 11 of the 22 files carrying a key were roots whose
+  // `root_cascade_id` names themselves. Drop this check and every one of them nests under itself.
   const link = facts.rootCascadeId || facts.parentCascadeId || null;
   const isSubagent = !!link && link.toLowerCase() !== conversationId.toLowerCase();
   const parent = isSubagent ? rootRowIdFor(link, dbPath) : null;

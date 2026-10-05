@@ -2,7 +2,8 @@
 // agy subagent conversations (#739). Every subagent agy spawns writes a conversation `.db` of its own and
 // inherits the parent's workspace, so before #739 each one stood in the sidebar as a top-level session the
 // user never started. The child names its root in its own `gen_metadata` blobs (`parent_cascade_id`,
-// `root_cascade_id`); a root conversation carries neither. These tests pin what the parser and the
+// `root_cascade_id`); a root may carry `root_cascade_id` naming ITSELF (measured — half the keyed files
+// were such roots), so the self-reference check matters. These tests pin what the parser and the
 // descriptor do with that: a root stays top-level, a child is keyed under its root with the shared
 // subagent fields, and anything missing or garbled degrades to a top-level row without throwing.
 

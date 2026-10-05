@@ -570,11 +570,12 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   directory and inherits the parent's workspace, so it looks exactly like a user conversation from outside.
   The link is in the child's own `gen_metadata` blobs: the string `parent_cascade_id`, a few bytes of
   framing, then the parent's 36-character conversation id (seen in a string dump as
-  `parent_cascade_id $<uuid>` — `$` is the 0x24 length byte), and the same for `root_cascade_id`. A root
-  conversation carries neither key. `conversation_summaries.db` holds the same link
-  (`parent_conversation_id`, `""` for a root; `nesting_depth`, 0 for a root; `agent_name`, e.g. `research`)
-  — not read: it is a second database per scan, and the column holding the conversation's own id was not
-  measured. The parser reads the per-file signal, tolerating the framing bytes rather than spelling them,
+  `parent_cascade_id $<uuid>` — `$` is the 0x24 length byte), and the same for `root_cascade_id`. **A root
+  may carry a key as well**: a `root_cascade_id` naming the conversation itself. So a key alone does not make
+  a subagent, and the self-reference check is what keeps those roots top-level. `conversation_summaries.db`
+  holds the same link (`conversation_id`, the conversation's own id; `parent_conversation_id`, `""` for a
+  root; `nesting_depth`, 0 for a root; `agent_name`, e.g. `research`) — not read by the parser, because it
+  is a second database per scan; it serves as the cross-check below. The parser reads the per-file signal, tolerating the framing bytes rather than spelling them,
   and keys the row under the **root** (falling back to the parent) as `agy-sub:<root>:<conversation>` with
   `parentSessionId` / `agentId` set — the sidebar nests one level, so a grandchild under a child row would
   surface as an orphan. A link that names the conversation itself, or a value that is not a conversation id,
@@ -582,6 +583,19 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   nests under the root row whatever case its blob uses, and a root's own id is never re-keyed. No agent type or task description is read (unmeasured), and there is no live
   spawn/finish status: no watcher drives this store (`listSubagents` answers `null`). Resume, the transcript
   export and the live ref take the conversation id back out of the row id.
+
+  **Measured 2026-10-05 on a real store (agy 1.2.x)** with `scripts/measure-agy-subagent-links.js`, which is
+  read-only and prints counts only:
+  - 44 conversation `.db` files; 22 carry a cascade key in `gen_metadata`.
+  - Bytes between a key and the id after it: 2 in 3202 hits; 25 and 27 once each (outside the parser's
+    0-8 window); 32 key hits with no id within 64 bytes. The window is enough: no file was misread for it.
+  - Parser: 11 subagent, 33 root, 0 no row. 11 files carry a key and still parse as root — roots whose
+    `root_cascade_id` names themselves.
+  - Against `conversation_summaries.db`: 11 subagents and 33 roots classified correctly, 0 roots taken for a
+    subagent, 0 subagents missed.
+
+  Re-run it after an agy update that touches the store: `node scripts/measure-agy-subagent-links.js
+  [<agy-home>]` (default `~/.gemini/antigravity-cli`).
 - Resource discovery is read-only through agy's `listResources()` hook. It surfaces safe Gemini and
   Antigravity settings, builtin/implicit resource directories, the knowledge directory, the global
   customization root's `plugins/` and `skills/` directories (`~/.gemini/config/`, #611), and per project
