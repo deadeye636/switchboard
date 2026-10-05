@@ -930,7 +930,6 @@
                 </div>
               </div>
 
-              ${hasSubagentsValue ? `
               <div class="settings-subhead">Version control</div>
               <div class="settings-section">
                 <div class="settings-field">
@@ -972,6 +971,7 @@
                 </div>
               </div>
 
+              ${hasSubagentsValue ? `
               <div class="settings-subhead">Subagents</div>
               <div class="settings-section">
                 <div class="settings-field">

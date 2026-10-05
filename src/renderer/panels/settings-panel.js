@@ -1320,10 +1320,16 @@
         // save from here does not put it back.
         settings.sidebarCollapseDefault = settingsViewerBody.querySelector('#sv-collapse-default').value || 'auto';
         // #277 VCS chip settings (global).
-        settings.vcsChipEnabled = !!settingsViewerBody.querySelector('#sv-vcs-enabled')?.checked;
-        settings.vcsShowBadge = !!settingsViewerBody.querySelector('#sv-vcs-badge')?.checked;
-        { const n = parseInt(settingsViewerBody.querySelector('#sv-vcs-poll')?.value, 10); settings.vcsPollSeconds = Number.isFinite(n) && n > 0 ? n : 20; }
-        settings.vcsCountUntracked = !!settingsViewerBody.querySelector('#sv-vcs-count-untracked')?.checked;
+        // A field that is not on screen keeps what was there, like the subagent fields below (#745): the
+        // section used to sit inside the subagent conditional, and a Save then wrote every one of these off.
+        { const el = settingsViewerBody.querySelector('#sv-vcs-enabled'); settings.vcsChipEnabled = el ? !!el.checked : vcsChipEnabledValue; }
+        { const el = settingsViewerBody.querySelector('#sv-vcs-badge'); settings.vcsShowBadge = el ? !!el.checked : vcsShowBadgeValue; }
+        {
+          const el = settingsViewerBody.querySelector('#sv-vcs-poll');
+          const n = el ? parseInt(el.value, 10) : vcsPollSecondsValue;
+          settings.vcsPollSeconds = Number.isFinite(n) && n > 0 ? n : 20;
+        }
+        { const el = settingsViewerBody.querySelector('#sv-vcs-count-untracked'); settings.vcsCountUntracked = el ? !!el.checked : vcsCountUntrackedValue; }
         settings.sessionDisplayMode = settingsViewerBody.querySelector('#sv-display-mode').value || 'panes';
         settings.paneToolsPlacement = settingsViewerBody.querySelector('#sv-pane-tools')?.value || 'bar';
         settings.paneCloseEmpty = !!settingsViewerBody.querySelector('#sv-pane-close-empty')?.checked;
