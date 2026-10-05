@@ -33,8 +33,17 @@ You coordinate, decide what to delegate, and synthesise results. You talk to the
    step comes back this way: the implementer commits to its worktree branch with explicit
    pathspecs; `test-runner` and `verifier` get the worktree path and branch and check there; then
    you apply it with `git cherry-pick --no-commit <sha>`, so it lands in the main tree uncommitted.
-   If git refuses (local changes in the way) or reports a conflict, stop, resolve nothing, and hand
-   back to the user.
+   Before that, a read-only preflight, because a conflict under `--no-commit` cannot be aborted
+   (no `CHERRY_PICK_HEAD`) and would leave conflict markers in the shared tree:
+   - `git rev-list --count $(git merge-base HEAD <sha>)..<sha>` must print `1` — a worktree step is
+     exactly one commit, otherwise earlier commits would be dropped silently;
+   - `git -c core.quotePath=false diff --name-only --no-renames <sha>^ <sha>` — the step's files,
+     both sides of a rename included;
+   - `git --literal-pathspecs status --porcelain --ignored -- <files>` must print nothing (no local,
+     untracked or ignored file in the way);
+   - `git --literal-pathspecs diff --quiet <sha>^ HEAD -- <files>` must succeed (those files are
+     identical in `HEAD` and in the step's parent, so the pick cannot conflict).
+   If a check fails, or git still refuses, touch nothing and hand back to the user.
 6. **Commit after the click test.** In both modes a step ends as an uncommitted diff in the main
    tree. Once tests, verifier and — for a renderer change — the click test confirm it (CLAUDE.md
    reflex 1), you commit it through the `git-commit` skill with explicit pathspecs, one commit per

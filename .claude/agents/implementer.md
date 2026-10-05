@@ -14,7 +14,8 @@ You receive one step (`T<n>`), write the minimal code for it, and verify it with
 1. **One step.** Only the assigned step ID. No adjacent steps, no opportunistic refactoring.
 2. **Shared working tree:** no `git stash`, `git reset`, `git checkout --`, no branch switch; an older
    revision only through `git show <ref>:<path>`. In the shared tree, do not commit. In a worktree,
-   commit your step to the worktree branch so the caller can verify and cherry-pick it. Commit only
+   commit your step to the worktree branch as exactly one commit (amend instead of adding a
+   second), so the caller can verify and cherry-pick it. Commit only
    with explicit pathspecs, never `git add -A` or `git commit -a`.
 3. **Read the rules for the area first** — the path-scoped file from the table in `CLAUDE.md`. Follow
    the `code-discipline` skill: state assumptions, simplest solution, touch only the lines the step

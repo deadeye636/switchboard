@@ -1302,3 +1302,30 @@ warned about, produced by the tool that was supposed to prevent it.
 by place: `src/renderer/**` reloads, the rest of `src/` restarts. One launcher behaviour stays: the
 relaunched process belongs to Electron's relauncher and not to `npm start` or `demo:start`, so those exit
 when the old process does. Changing that would take a supervising launcher, which is a separate decision.
+
+## A cherry-pick without a commit cannot be aborted (#737)
+
+**Symptom.** The orchestrator flow brings a worktree step back with `git cherry-pick --no-commit`, so
+the step lands uncommitted and is committed only after the click test. A dry run in a throwaway clone
+showed what happens on a conflict: the file is left with conflict markers (`AA`), and
+`git cherry-pick --abort` fails with "no cherry-pick or revert in progress".
+
+**Root cause.** `--no-commit` does not create `CHERRY_PICK_HEAD`, so git has no operation to abort.
+Getting back would take `git reset` or `git checkout --`, both banned in the shared tree.
+
+**Why it was missed.** The rule said "on a conflict, stop and hand back to the user", which assumed
+there was a clean state to stop in. Nobody had run the failure path.
+
+**Invariant.** Before the pick, a read-only preflight (`.claude/agents/orchestrator.md` rule 5): the
+step is exactly one commit; its files, listed with `--no-renames`, are clean in the main tree
+(ignored files included) and identical in `HEAD` and in the step's parent. The first draft listed
+files with plain `git diff --name-only`, whose rename detection reports only the new path: a step
+that renamed and edited a file which `main` had also edited passed the check and still conflicted,
+reproduced in a throwaway repo. With `--no-renames` both paths are listed and the check fails as it
+should.
+
+The same dry run measured the rest of the flow: the clean pick lands
+staged without a commit; a foreign staged change elsewhere ends up mixed into the index, which the
+pathspec commit keeps out; an untracked file at the same path makes git refuse without touching the
+tree; a worktree under `.claude/worktrees/` resolves the main checkout's `node_modules`, so targeted
+tests run there without an install.

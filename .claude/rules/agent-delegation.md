@@ -45,10 +45,13 @@ to you and spawns nothing itself.
    when another session works in this checkout, two builders run at once, or the tree holds
    uncommitted changes that are not this step's — never a builder beside those edits, never two in
    one tree. A worktree step is committed to its branch, verified there, and brought back with
-   `git cherry-pick --no-commit`; on a refusal or conflict the main session stops and hands back to
-   the user. In both modes the step ends uncommitted in the main tree and is committed only after
-   tests, verifier and click test confirm it (CLAUDE.md reflex 1). One go covers every step of the
-   plan it was given for — not the next plan, and not steps added after it.
+   `git cherry-pick --no-commit` after a read-only preflight: the step is one commit, and its files
+   (both sides of a rename) are clean in the main tree and identical in `HEAD` and in the step's
+   parent — see `.claude/agents/orchestrator.md` rule 5. When the preflight fails or git refuses,
+   the main session touches nothing and hands back to the user. In both modes the step ends
+   uncommitted in the main tree and is committed only after tests, verifier and click test confirm
+   it (CLAUDE.md reflex 1). One go covers every step of the plan it was given for — not the next
+   plan, and not steps added after it.
 
 ## Do it in the main session
 
