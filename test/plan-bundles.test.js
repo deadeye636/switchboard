@@ -261,3 +261,37 @@ test('a bundle with nothing but its PLAN.md keeps a configured directory from re
   init([project], { backends: [backend] });
   assert.ok(!plansMemory._unfulfilledPlanDirs().some(u => u.projectPath === project));
 });
+
+test('a watch event for a skipped folder itself is dropped', () => {
+  const relevant = plansMemory._planWatchEventRelevant;
+  assert.equal(relevant('.git'), false, 'the VCS folder being touched');
+  assert.equal(relevant('node_modules'), false);
+  assert.equal(relevant('dist'), false);
+  assert.equal(relevant('.git/index'), false);
+  assert.equal(relevant('top.md'), true);
+  assert.equal(relevant('.hidden-plan.md'), true, 'a top-level file is judged as a file, not a folder');
+  assert.equal(relevant('70-search'), true, 'a new bundle folder is announced');
+});
+
+test('a linked plan file is listed exactly when it opens', (t) => {
+  const project = path.join(ROOT, 'file-links');
+  const plans = path.join(project, 'docs', 'plans');
+  const hidden = write(path.join(plans, '.drafts', 'real.md'), '# Hidden draft\n');
+  const deep = write(path.join(plans, 'a', 'b', 'c', 'd', 'deep.md'), '# Too deep\n');
+  const fine = write(path.join(plans, 'shared', 'real.md'), '# Shared\n');
+  const links = { 'to-hidden.md': hidden, 'to-deep.md': deep, 'to-fine.md': fine };
+  for (const [name, target] of Object.entries(links)) {
+    try { fs.symlinkSync(target, path.join(plans, name), 'file'); } catch {
+      t.skip('this system needs a privilege to create a file link');
+      return;
+    }
+  }
+  init([project]);
+  const listed = new Set(plansMemory._walkPlanFiles(plans).map(f => f.relPath));
+  assert.ok(listed.has('to-fine.md'));
+  assert.ok(!listed.has('to-hidden.md'), 'its target is under a hidden folder');
+  assert.ok(!listed.has('to-deep.md'), 'its target is past the depth');
+  assert.equal(plansMemory.readPlan(path.join(plans, 'to-fine.md')).content, '# Shared\n');
+  assert.equal(plansMemory.readPlan(path.join(plans, 'to-hidden.md')).content, '');
+  assert.equal(plansMemory.readPlan(path.join(plans, 'to-deep.md')).content, '');
+});

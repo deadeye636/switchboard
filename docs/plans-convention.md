@@ -35,11 +35,13 @@ A plan can also be a folder of its own: `docs/plans/60-migration-lock-timeout/PL
 attachments beside it. Each directory on the list is searched up to three folder levels down, and the row
 shows the path below the plans directory so a dozen `PLAN.md` files can be told apart. Hidden folders,
 `node_modules` and build output are not searched, and a folder link (a symlink or junction) is never
-followed. A linked plan file is listed only when its target is inside the plans directory.
+followed. A linked plan file is listed only when its target would be listed itself: inside the plans
+directory, not in a hidden or build folder, and not past the depth.
 
 A folder that holds a `PLAN.md` (in any letter case) is a bundle, and only that file is listed. The notes,
 research and README beside it or below it are the plan's material, not more plans. A folder without a
 `PLAN.md` is just a folder: every `.md` file in it is a plan, as before.
+
 ## What a plan looks like
 
 The first heading is the title. That is the whole requirement for being listed, because a document

@@ -147,18 +147,19 @@ three refusals above — so taking it would only move the silent failure into th
 
 A project directory on the read list is WALKED, not read flat. Teams that keep a plan as a bundle,
 `docs/plans/<slug>/PLAN.md` with its notes beside it, had an empty list, and a CLI's configured directory
-holding only bundle folders was reported "empty" above it. The walk in `plans-memory.js` has four limits,
-each one a place where a plan could vanish or a foreign file appear, and `test/plan-bundles.test.js` pins all
-of them:
+holding only bundle folders was reported "empty" above it. The walk in `plans-memory.js` has four
+limits, each one a place where a plan could vanish or a foreign file appear, and
+`test/plan-bundles.test.js` pins all of them:
 
 - **Three folder levels** below the plans directory. A plans folder is written by hand; deeper than that
   is a checkout or an archive, not a plan.
 - **No hidden folder and nothing `build-dirs.js` names** (`.git`, `node_modules`, `dist` and the rest). The
   same list the other walks use, for the same reason.
 - **No links.** A folder is entered only if its REAL path is inside the plans directory, asked through
-  `path-containment.js` (CLAUDE.md reflex 13); a link to a folder is never followed, and a linked file is
-  listed only when its target is inside. A junction spelled inside the directory cannot put another tree
-  on the list.
+  `path-containment.js` (CLAUDE.md reflex 13); a link to a folder is never followed. A linked FILE is
+  listed only when the walk could have listed its target itself: inside the directory, and on a real path
+  below it that passes the same limits (a link to `.drafts/x.md` or past the depth is not a plan). A
+  junction spelled inside the directory cannot put another tree on the list.
 - **A bounded number of entries per folder**, so a plans directory somebody unpacked a dump into costs a
   bounded read. A folder the cap cuts short is logged once at `debug`, so a missing plan has an answer.
 
@@ -167,13 +168,16 @@ way a blank entry already was, and any other spelling of the root is dropped on 
 root would list every markdown file three levels deep. A BACKEND's own setting that names the root (a
 Claude `plansDirectory` of `.`) is kept, because that is where the CLI writes; the depth limit bounds it.
 
-Rows are deduplicated by `pathKey` (real path, case-folded on Windows), so nested candidates or two
-spellings of one directory give one row per file.
+Candidate directories are deduplicated by `pathKey` (real path, case-folded on Windows), and rows by the
+`pathKey` of their folder plus their name, so nested candidates or two spellings of one directory give one
+row per file at one realpath per folder rather than per file.
 
 The open and save guards ask the same question: a file the walk would not reach (under `.git`, past the
-depth) is refused even when it is inside a plans directory. The path below the directory is taken between
-the two REAL paths, so a second spelling of the plans directory meets the same limits. They must not drift from the list, for the
-reason already given above `plansDirs()`: a row the viewer refuses is worse than no row.
+depth) is refused even when it is inside a plans directory. A path spelled down from the directory, which
+is how every row is spelled, is judged as spelled, plus its target's real path when the file is a link,
+the walk's own rule for links. Any other spelling (a junction to the plans directory, a `subst` drive) is
+judged by the path between the two REAL paths, so it meets the same limits. Listed and openable must stay
+one set, for the reason already given above `plansDirs()`: a row the viewer refuses is worse than no row.
 
 **What a row is called changed; what it IS did not.** A row's identity was `filePath` before and stays
 so, which is what the selection, the reader, the save and a detached viewer all key on. `filename`
@@ -200,8 +204,12 @@ The watch follows: a plans directory is watched **recursively** — natively on 
 Linux since Node 20, which Electron 41 is well past. Where a recursive watch throws, it falls back to the
 flat one it had before, so top-level plans stay live and a bundle appears on the next list load. Events
 from a folder the walk does not enter, or from past its depth, are dropped before they rebuild the list.
-Dropped, not unwatched: `fs.watch` takes no exclusion list, so on Linux every subfolder of a plans
-directory costs an inotify watch, skipped ones included. Accepted for a directory this small.
+So is an event for a skipped folder itself (`.git` being touched). Dropped, not unwatched: `fs.watch`
+takes no exclusion list, so on Linux every subfolder of a plans directory costs an inotify watch, skipped
+ones included. That is accepted for a directory people and agents fill by hand. The one plans directory
+for which it is not, a CLI setting that names the project ROOT, is watched flat: recursively it would be
+a watch over the whole checkout. A watch that errors later is closed, logged at `debug`, and rebuilt on
+the next list load.
 
 ## Asking for one, without writing it (#486)
 
