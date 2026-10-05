@@ -37,7 +37,7 @@ function linkDir(target, at) {
   } catch { return false; }
 }
 
-function init(projects, { backends = [] } = {}) {
+function init(projects, { backends = [], planDirNames = ['docs/plans'] } = {}) {
   const states = new Map(projects.map(p => [p, { registered: true, hidden: false, autoHidden: false }]));
   plansMemory.init({
     backends: { list: () => backends },
@@ -50,7 +50,7 @@ function init(projects, { backends = [] } = {}) {
     log: { warn() {}, error() {}, info() {}, debug() {} },
     activeSessions: new Map(),
     dataDir: ROOT,
-    effectiveSettings: () => ({ planDirNames: ['docs/plans'] }),
+    effectiveSettings: () => ({ planDirNames }),
   });
 }
 
@@ -152,4 +152,69 @@ test('a link pointing out of the plans directory is neither listed nor openable'
     'a `..` that climbs out is refused');
   const save = plansMemory.savePlan(path.join(plans, 'escape', 'foreign', 'PLAN.md'), 'x', null);
   assert.equal(save.ok, false, 'and is not writable through the link');
+});
+
+test('the watch drops what the walk could not list, at the same depth', () => {
+  const allowed = plansMemory._planRelPathAllowed;
+  assert.equal(allowed('top.md'), true);
+  assert.equal(allowed('a/b/c/PLAN.md'), true, 'three folders down is listed, so it is announced');
+  assert.equal(allowed('a/b/c/d/deep.md'), false, 'past the depth: no rebuild');
+  assert.equal(allowed('.git/index'), false);
+  assert.equal(allowed('kept/node_modules/x.md'), false);
+  assert.equal(allowed(path.join('a', '.cache', 'x.md')), false, 'a native separator is split too');
+  assert.equal(allowed('..foo/PLAN.md'), false, 'a folder named `..foo` is hidden, not a climb');
+});
+
+test('a folder whose name starts with `..` is neither listed nor openable', (t) => {
+  const project = path.join(ROOT, 'dotdot');
+  const plans = path.join(project, 'docs', 'plans');
+  let file;
+  try { file = write(path.join(plans, '..foo', 'PLAN.md')); } catch { t.skip('this filesystem refuses the name'); return; }
+  write(path.join(plans, 'kept.md'));
+  init([project]);
+  assert.deepEqual(plansMemory._walkPlanFiles(plans).map(f => f.relPath), ['kept.md']);
+  assert.equal(plansMemory.readPlan(file).content, '', 'the guard reads `..foo` as a folder name');
+});
+
+test('a plan reached through another spelling of its plans directory meets the same limits', (t) => {
+  const project = path.join(ROOT, 'alias');
+  const plans = path.join(project, 'docs', 'plans');
+  write(path.join(plans, 'kept', 'PLAN.md'), '# Kept\n');
+  write(path.join(plans, '.git', 'notes.md'), '# Hidden\n');
+  const alias = path.join(project, 'plans-alias');
+  if (!linkDir(plans, alias)) { t.skip('this system cannot create a directory link'); return; }
+  init([project]);
+  assert.equal(plansMemory.readPlan(path.join(alias, 'kept', 'PLAN.md')).content, '# Kept\n');
+  assert.equal(plansMemory.readPlan(path.join(alias, '.git', 'notes.md')).content, '',
+    'the hidden folder is judged on the real path, not waved through for being spelled elsewhere');
+});
+
+test('the project root is not a plan directory on the read list', () => {
+  const project = path.join(ROOT, 'rootname');
+  write(path.join(project, 'README.md'), '# Not a plan\n');
+  write(path.join(project, 'plans', 'real.md'), '# Real\n');
+  init([project], { planDirNames: ['.', './', 'docs/..', '../rootname', 'plans'] });
+  assert.deepEqual(plansMemory._planDirCandidates(project), ['../rootname', 'plans'],
+    'the lexical spellings of the root are dropped like a blank entry');
+  const dirs = plansMemory._projectPlanSources().filter(x => x.projectPath === project).map(x => x.dir);
+  assert.deepEqual(dirs, [path.join(project, 'plans')], 'a spelling that climbs back in is dropped on real paths');
+});
+
+test('a heading-less bundle is titled after its folder in the list', () => {
+  const project = path.join(ROOT, 'untitled');
+  write(path.join(project, 'docs', 'plans', '61-cache-warmup', 'PLAN.md'), 'status: draft\n\nBody.\n');
+  init([project]);
+  const row = plansMemory.getPlans().plans.find(p => p.projectPath === project);
+  assert.ok(row);
+  assert.equal(row.filename, '61-cache-warmup/PLAN.md');
+  assert.equal(row.title, '61-cache-warmup');
+});
+
+test('one file is one row, whatever case its directory is named in', (t) => {
+  if (process.platform !== 'win32') { t.skip('case-insensitive paths are a Windows property'); return; }
+  const project = path.join(ROOT, 'casefold');
+  write(path.join(project, 'docs', 'plans', 'only.md'), '# Only\n');
+  init([project], { planDirNames: ['docs/plans', 'Docs/Plans'] });
+  const rows = plansMemory.getPlans().plans.filter(p => p.projectPath === project);
+  assert.equal(rows.length, 1);
 });

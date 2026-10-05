@@ -34,7 +34,8 @@ stat and nothing else.
 A plan can also be a folder of its own: `docs/plans/60-migration-lock-timeout/PLAN.md`, with notes or
 attachments beside it. Each directory on the list is searched up to three folder levels down, and the row
 shows the path below the plans directory so a dozen `PLAN.md` files can be told apart. Hidden folders,
-`node_modules`, build output and links that lead out of the plans directory are not searched.
+`node_modules` and build output are not searched, and a folder link (a symlink or junction) is never
+followed. A linked plan file is listed only when its target is inside the plans directory.
 
 ## What a plan looks like
 

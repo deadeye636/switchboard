@@ -160,10 +160,19 @@ of them:
   listed only when its target is inside. A junction spelled inside the directory cannot put another tree
   on the list.
 - **A bounded number of entries per folder**, so a plans directory somebody unpacked a dump into costs a
-  bounded read.
+  bounded read. A folder the cap cuts short is logged once at `debug`, so a missing plan has an answer.
+
+**The read list may not name the project root.** `.`, `./` or `docs/..` in `planDirNames` is dropped the
+way a blank entry already was, and any other spelling of the root is dropped on real paths: walked, the
+root would list every markdown file three levels deep. A BACKEND's own setting that names the root (a
+Claude `plansDirectory` of `.`) is kept, because that is where the CLI writes; the depth limit bounds it.
+
+Rows are deduplicated by `pathKey` (real path, case-folded on Windows), so nested candidates or two
+spellings of one directory give one row per file.
 
 The open and save guards ask the same question: a file the walk would not reach (under `.git`, past the
-depth) is refused even when it is inside a plans directory. They must not drift from the list, for the
+depth) is refused even when it is inside a plans directory. The path below the directory is taken between
+the two REAL paths, so a second spelling of the plans directory meets the same limits. They must not drift from the list, for the
 reason already given above `plansDirs()`: a row the viewer refuses is worse than no row.
 
 **What a row is called changed; what it IS did not.** A row's identity was `filePath` before and stays
@@ -178,7 +187,9 @@ A backend's OWN store is still read flat. It belongs to the CLI, which writes it
 The watch follows: a plans directory is watched **recursively** — natively on Windows and macOS, and on
 Linux since Node 20, which Electron 41 is well past. Where a recursive watch throws, it falls back to the
 flat one it had before, so top-level plans stay live and a bundle appears on the next list load. Events
-from a folder the walk does not enter are dropped before they rebuild the list.
+from a folder the walk does not enter, or from past its depth, are dropped before they rebuild the list.
+Dropped, not unwatched: `fs.watch` takes no exclusion list, so on Linux every subfolder of a plans
+directory costs an inotify watch, skipped ones included. Accepted for a directory this small.
 
 ## Asking for one, without writing it (#486)
 
