@@ -218,3 +218,46 @@ test('one file is one row, whatever case its directory is named in', (t) => {
   const rows = plansMemory.getPlans().plans.filter(p => p.projectPath === project);
   assert.equal(rows.length, 1);
 });
+
+test('a folder with a PLAN.md is a bundle: only that file is a plan', () => {
+  const project = path.join(ROOT, 'bundle-rule');
+  const plans = path.join(project, 'docs', 'plans');
+  write(path.join(plans, 'PLAN.md'), '# A top-level PLAN.md is one plan among others\n');
+  write(path.join(plans, 'loose.md'));
+  write(path.join(plans, '70-search', 'PLAN.md'), '# Search\n');
+  write(path.join(plans, '70-search', 'notes.md'));
+  write(path.join(plans, '70-search', 'research', 'sources.md'));
+  write(path.join(plans, '71-lower', 'plan.md'), '# Lowercase marker\n');
+  write(path.join(plans, '71-lower', 'README.md'));
+  write(path.join(plans, 'drafts', 'one.md'));
+  write(path.join(plans, 'drafts', 'two.md'));
+  write(path.join(plans, 'drafts', '72-nested', 'PLAN.md'));
+  write(path.join(plans, 'drafts', '72-nested', 'scratch.md'));
+
+  const rels = plansMemory._walkPlanFiles(plans).map(f => f.relPath).sort();
+  assert.deepEqual(rels, [
+    '70-search/PLAN.md',
+    '71-lower/plan.md',
+    'PLAN.md',
+    'drafts/72-nested/PLAN.md',
+    'drafts/one.md',
+    'drafts/two.md',
+    'loose.md',
+  ]);
+
+  init([project]);
+  const rows = plansMemory.getPlans().plans.filter(p => p.projectPath === project);
+  assert.ok(!rows.some(p => /notes|sources|README|scratch/.test(p.filename)), 'bundle material is not a plan');
+  assert.equal(rows.find(p => p.filename === '71-lower/plan.md').title, 'Lowercase marker');
+});
+
+test('a bundle with nothing but its PLAN.md keeps a configured directory from reading as empty', () => {
+  const project = path.join(ROOT, 'unfulfilled-bundle');
+  write(path.join(project, 'cli-plans', 'only', 'PLAN.md'));
+  const backend = {
+    id: 'test-backend', isProfile: false, status: 'ready',
+    plansDir: ({ projectPath } = {}) => (projectPath ? path.join(projectPath, 'cli-plans') : null),
+  };
+  init([project], { backends: [backend] });
+  assert.ok(!plansMemory._unfulfilledPlanDirs().some(u => u.projectPath === project));
+});

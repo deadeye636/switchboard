@@ -182,6 +182,18 @@ stays the bare name for a top-level one, so the list, the picker and `{filename}
 all name the bundle. A plan without a heading takes its folder's name before its filename stem: a bundle's
 file is named for its role, and the folder is what names the plan.
 
+**A folder with a `PLAN.md` is a bundle, and only its `PLAN.md` is a plan** (owner decision on #743). The
+first version listed every `.md` in a bundle, so a plan's notes, research and README sat in the list
+beside it as plans of their own. Now the walk lists the bundle's `PLAN.md` (matched in any letter case;
+the `.md` extension stays case-sensitive, as everywhere in this list) and does not descend further. A
+folder without one keeps the plain rule, every `.md` in it within the depth limit, so a `drafts/` folder of
+loose plans still works. The plans directory ITSELF is never a bundle: a `PLAN.md` at its top is one plan
+among the others there. The empty-check uses the same walk, so a bundle holding only its `PLAN.md` counts.
+
+The open and save guards were deliberately NOT narrowed for this. A note inside a bundle is no longer
+listed, but it is still inside a plans directory and within the walk's limits, so opening it by path is
+allowed. Refusing it would add a rule only the guard knows, for a file nobody can reach from the list.
+
 A backend's OWN store is still read flat. It belongs to the CLI, which writes it flat.
 
 The watch follows: a plans directory is watched **recursively** — natively on Windows and macOS, and on

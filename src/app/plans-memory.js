@@ -638,6 +638,8 @@ function projectPlanSources() {
 // A backend's OWN store is still read flat: it is a CLI's directory, and the CLI writes it flat.
 const PLAN_WALK_MAX_DEPTH = 3;
 const PLAN_WALK_MAX_ENTRIES = 2000;
+// The file that makes a folder a bundle, compared lowercased (#743, owner decision).
+const BUNDLE_PLAN_NAME = 'plan.md';
 
 /** A folder the walk does not enter: hidden, generated, fetched, or one Electron would hold open. */
 function skippedPlanFolder(name) {
@@ -681,10 +683,25 @@ function logPlanWalkCap(dir) {
  * pull another tree onto the list. A link is never descended through at all — a linked FILE is listed
  * only when its target is inside `root`, which is what the flat read did for a linked plan before.
  *
+ * A folder below `root` that holds a `PLAN.md` (any case) IS a bundle, and only that file is a plan
+ * (owner decision on #743): the notes, research and README beside it and below it are the plan's
+ * material, not more plans, so the walk lists the one file and does not descend. A folder without one
+ * keeps the plain rule — its `.md` files are plans, within the depth limit. `root` itself is never a
+ * bundle: a `PLAN.md` at the top of a plans directory is one plan among the others there.
+ *
  * Throws when `root` itself cannot be read, so a caller can tell "unreadable" from "empty"; a subfolder
  * that cannot be read is skipped. `limit` stops at that many files — the empty-check needs one.
  */
 function walkPlanFiles(root, { limit = Infinity } = {}) {
+  // A markdown file the list may show: a plain file, or a link whose target is inside `root`. The
+  // extension stays case-sensitive as it always was (the read guard asks the same), so `PLAN.MD` is
+  // neither a plan nor a bundle marker; `PLAN.md`, `Plan.md` and `plan.md` all are.
+  const listable = (e, full) => {
+    if (!e.name.endsWith('.md')) return false;
+    if (e.isFile()) return true;
+    if (!e.isSymbolicLink() || !isInside(full, root)) return false;
+    try { return fs.statSync(full).isFile(); } catch { return false; /* dangling */ }
+  };
   const out = [];
   const stack = [{ dir: root, rel: '', depth: 0 }];
   let first = true;
@@ -699,6 +716,14 @@ function walkPlanFiles(root, { limit = Infinity } = {}) {
       logPlanWalkCap(dir);
       entries = entries.slice(0, PLAN_WALK_MAX_ENTRIES);
     }
+    if (depth > 0) {
+      const plan = entries.find(e => e.name.toLowerCase() === BUNDLE_PLAN_NAME
+        && listable(e, path.join(dir, e.name)));
+      if (plan) {
+        out.push({ filePath: path.join(dir, plan.name), relPath: rel + '/' + plan.name });
+        continue;
+      }
+    }
     for (const e of entries) {
       if (out.length >= limit) break;
       // Before the join: the cheapest place not to touch a file is before there is a path to it (#483).
@@ -709,11 +734,8 @@ function walkPlanFiles(root, { limit = Infinity } = {}) {
         if (depth >= PLAN_WALK_MAX_DEPTH || skippedPlanFolder(e.name)) continue;
         if (!isInside(full, root)) continue;
         stack.push({ dir: full, rel: relPath, depth: depth + 1 });
-      } else if (e.name.endsWith('.md')) {
-        if (e.isFile()) out.push({ filePath: full, relPath });
-        else if (e.isSymbolicLink() && isInside(full, root)) {
-          try { if (fs.statSync(full).isFile()) out.push({ filePath: full, relPath }); } catch { /* dangling */ }
-        }
+      } else if (e.name.endsWith('.md') && listable(e, full)) {
+        out.push({ filePath: full, relPath });
       }
     }
   }
