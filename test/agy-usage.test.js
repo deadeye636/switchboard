@@ -150,6 +150,63 @@ test('agy usage: a forbidden legacy endpoint is limits-unavailable, not signed-o
   assert.equal(usage._error, undefined);
 });
 
+const CSRF_LOCAL = {
+  ...NO_LOCAL_PROCESSES,
+  listeningPorts: async () => [43111],
+  postJson: async () => {
+    const err = new Error('csrf');
+    err.status = 401;
+    err.body = '{"code":"unauthenticated","message":"missing CSRF token"}';
+    throw err;
+  },
+};
+
+test('agy usage: a CSRF-gated local endpoint with a failing remote says so, never "not signed in"', async () => {
+  for (const remote of [{ kind: 'permissionDenied' }, { kind: 'authRequired' }, { kind: 'notConfigured' }, { kind: 'error', status: 500 }]) {
+    const usage = await fetchUsage({
+      hasCachedUsage: true,
+      livePids: [4242],
+      localDeps: CSRF_LOCAL,
+      remoteFetch: async () => remote,
+    });
+    assert.equal(usage._error, undefined);
+    assert.equal(usage._noData, true);
+    assert.equal(usage._limitsUnavailable, true);
+    assert.match(usage.message, /requires a token Switchboard cannot obtain yet/);
+    assert.match(usage.message, /#746/);
+    assert.doesNotMatch(usage.message, /not signed in/i);
+  }
+});
+
+test('agy usage: a CSRF-gated local endpoint still yields to a working remote source', async () => {
+  const usage = await fetchUsage({
+    hasCachedUsage: true,
+    livePids: [4242],
+    localDeps: CSRF_LOCAL,
+    remoteFetch: async () => ({
+      kind: 'quota',
+      raw: { buckets: [{ modelId: 'gemini-2.5-pro', tokenType: 'REQUESTS', remainingFraction: 0.5, resetTime: farReset }] },
+    }),
+  });
+  assert.equal(usage.buckets.length, 1);
+  assert.equal(usage.buckets[0].percent, 50);
+});
+
+test('agy usage: a plain local 401 is still reported as not signed in', async () => {
+  const usage = await fetchUsage({
+    hasCachedUsage: true,
+    livePids: [4242],
+    localDeps: {
+      ...NO_LOCAL_PROCESSES,
+      listeningPorts: async () => [43111],
+      postJson: async () => { const err = new Error('denied'); err.status = 401; err.body = '{}'; throw err; },
+    },
+    remoteFetch: async () => { throw new Error('remote must not be reached'); },
+  });
+  assert.equal(usage._error, true);
+  assert.match(usage.message, /not signed in/i);
+});
+
 test('agy usage: authentication and throttling remain distinct states', async () => {
   const auth = await fetchUsage({
     hasCachedUsage: true,

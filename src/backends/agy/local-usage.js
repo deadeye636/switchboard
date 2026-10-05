@@ -232,17 +232,26 @@ function modelConfigsPayload(raw) {
   return Array.isArray(list) ? list : null;
 }
 
+// The loopback service answers 401 {"code":"unauthenticated","message":"missing CSRF token"} when the
+// request lacks the per-run token AGY's own clients send. That is not a sign-in problem: the account is
+// signed in, Switchboard just cannot supply the token (discovery is #746).
+function isCsrfRejection(err) {
+  return err?.status === 401 && /csrf/i.test(String(err.body || ''));
+}
+
 async function fetchFromPid(pid, deps = {}) {
   const ports = await (deps.listeningPorts || listeningPorts)(pid, deps);
   const post = deps.postJson || postJson;
   let sawAuth = false;
+  let sawCsrf = false;
   let retryAfterSeconds = 0;
   for (const port of ports) {
     try {
       const raw = await post(port, QUOTA_SUMMARY_PATH, { forceRefresh: true }, deps);
       if (quotaSummaryPayload(raw)) return { kind: 'summary', raw };
     } catch (err) {
-      if (err?.status === 401 || err?.status === 403) sawAuth = true;
+      if (isCsrfRejection(err)) sawCsrf = true;
+      else if (err?.status === 401 || err?.status === 403) sawAuth = true;
       if (err?.status === 429) retryAfterSeconds = Number(err.retryAfterSeconds || 0);
     }
     for (const requestPath of [USER_STATUS_PATH, MODEL_CONFIG_PATH]) {
@@ -252,14 +261,15 @@ async function fetchFromPid(pid, deps = {}) {
         }, deps);
         if (modelConfigsPayload(raw)) return { kind: 'models', raw };
       } catch (err) {
-        if (err?.status === 401 || err?.status === 403) sawAuth = true;
+        if (isCsrfRejection(err)) sawCsrf = true;
+        else if (err?.status === 401 || err?.status === 403) sawAuth = true;
         if (err?.status === 429) retryAfterSeconds = Number(err.retryAfterSeconds || 0);
       }
     }
   }
-  if (retryAfterSeconds || sawAuth) {
-    return retryAfterSeconds ? { kind: 'rateLimited', retryAfterSeconds } : { kind: 'authRequired' };
-  }
+  if (retryAfterSeconds) return { kind: 'rateLimited', retryAfterSeconds };
+  if (sawCsrf) return { kind: 'csrfRequired' };
+  if (sawAuth) return { kind: 'authRequired' };
   return { kind: 'unavailable' };
 }
 

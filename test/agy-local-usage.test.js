@@ -143,6 +143,25 @@ test('agy local usage: an HTTP status is carried on the error, 401 included', as
   assert.equal(denied.kind, 'authRequired');
 });
 
+test('agy local usage: a 401 saying the CSRF token is missing is csrfRequired, a plain 401 stays authRequired', async () => {
+  const csrfBody = '{"code":"unauthenticated","message":"missing CSRF token"}';
+  const csrf = await local.fetchFromPid(42, {
+    listeningPorts: async () => [43111],
+    postJson: (port, requestPath, payload, opts) => local.postJson(port, requestPath, payload, {
+      ...opts, requestImpl: fakeRequest({ statusCode: 401, body: csrfBody }),
+    }),
+  });
+  assert.equal(csrf.kind, 'csrfRequired');
+
+  const plain = await local.fetchFromPid(42, {
+    listeningPorts: async () => [43111],
+    postJson: (port, requestPath, payload, opts) => local.postJson(port, requestPath, payload, {
+      ...opts, requestImpl: fakeRequest({ statusCode: 401, body: '{"code":"unauthenticated","message":"not signed in"}' }),
+    }),
+  });
+  assert.equal(plain.kind, 'authRequired');
+});
+
 test('agy local usage: a payload with a shapeless groups field is not a reading', async () => {
   const result = await local.fetchFromPid(42, {
     listeningPorts: async () => [43111],

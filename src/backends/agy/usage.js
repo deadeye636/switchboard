@@ -331,6 +331,15 @@ async function fetchUsage(context = {}) {
     if (remote.kind === 'rateLimited') {
       return { backendId: 'agy', live: true, _rateLimited: true, retryAfterSeconds: remote.retryAfterSeconds };
     }
+    // The local service is up and the account is signed in, but it wants a CSRF token Switchboard cannot
+    // obtain yet (#746). If the remote source gave no reading either, say that instead of a vague or false
+    // "not signed in" / "could not be read".
+    if (local.kind === 'csrfRequired' && remote.kind !== 'quota') {
+      return {
+        backendId: 'agy', live: true, buckets: [], quota: null, _noData: true, _limitsUnavailable: true,
+        message: 'AGY is signed in, but its local quota endpoint requires a token Switchboard cannot obtain yet. Live limits for Google AI subscriptions are unavailable (#746).',
+      };
+    }
     if (remote.kind === 'permissionDenied') {
       return {
         backendId: 'agy', live: true, buckets: [], quota: null, _noData: true, _limitsUnavailable: true,
