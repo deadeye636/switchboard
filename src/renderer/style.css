@@ -1552,7 +1552,11 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   padding: 0 0 3px;
 }
 
-.project-header.collapsed + .project-sessions {
+/* A collapsed header hides EVERYTHING after it in its group, not just the next sibling (#744). Rows
+   sit between a header and its sessions list (the VCS badge row, the project second line), and an
+   adjacent-sibling rule stopped matching the moment one was inserted: the chevron turned, the sessions
+   stayed. The group holds only the header, those rows and the list, so `~ *` is the whole fold. */
+.project-header.collapsed ~ * {
   display: none;
 }
 
@@ -1696,8 +1700,8 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   padding: 0 0 2px;
 }
 
-.worktree-header.collapsed + .worktree-sessions,
-.worktree-header.collapsed + .project-sessions {
+/* Same rule as `.project-header.collapsed ~ *` above (#744). */
+.worktree-header.collapsed ~ * {
   display: none;
 }
 

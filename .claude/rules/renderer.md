@@ -287,8 +287,9 @@ reopens a user's collapse on every render otherwise. The worktrees fold copies `
 **Where the fold is INSERTED is three constraints, and each one is a bug if you get it wrong.** It goes
 before both the `.sessions-more-toggle` and the `.sidebar-orphan-subagents` anchor (the orphan group is
 appended last in either shape); it matches DIRECT children only, because `appendSubagentChildren` drops
-carets of its own into that list; and it sits INSIDE `.project-sessions`, because project collapse works
-through `.project-header.collapsed + .project-sessions` and a fold outside it would survive a collapse.
+carets of its own into that list; and it sits INSIDE `.project-sessions`, because it is part of the project's session list. Project
+collapse hides every sibling after the header (`.project-header.collapsed ~ *`, #744), so a row placed
+between the header and that list (the VCS badge row, the second line) folds with it as well.
 
 **What "a project's worktrees" means has widened twice since, and the fold holds both.** Since #586 a
 worktree of a worktree is in there too, flat at one level — it attaches to the top-most project and is

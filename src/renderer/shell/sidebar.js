@@ -839,9 +839,9 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       ariaButton(wtToggle, wtLabel);   // click/keyboard delegated in sidebar-events.js
       wtList.style.display = wtCollapsed ? 'none' : '';
       // BEFORE the "N older" toggle, so the fold of the project's own sessions stays last — and inside
-      // `.project-sessions`, because collapsing a project works through
-      // `.project-header.collapsed + .project-sessions` and a sibling beside that list would stay on
-      // screen with the project collapsed.
+      // `.project-sessions`, because it is part of the project's session list. A collapsed header hides
+      // every sibling after it (`.project-header.collapsed ~ *`, #744), so a row placed between the
+      // header and that list collapses with it too.
       sessionsList.insertBefore(wtToggle, wtBefore);
       sessionsList.insertBefore(wtList, wtBefore);
     }

@@ -370,8 +370,8 @@ closed; this one copies `display` and toggles `expanded` explicitly.
 
 **Where it is INSERTED is three constraints.** Before both the `.sessions-more-toggle` and the
 `.sidebar-orphan-subagents` anchor; DIRECT children only, because `appendSubagentChildren` drops carets of
-its own into that list; and INSIDE `.project-sessions`, because project collapse works through
-`.project-header.collapsed + .project-sessions` and a fold outside it would survive a collapse.
+its own into that list; and INSIDE `.project-sessions`, because it is part of the project's session
+list. Project collapse hides every sibling after the header (`.project-header.collapsed ~ *`, #744).
 
 What "a project's worktrees" means has widened twice since: a worktree of a worktree is in there too, flat
 at one level (#586), and a fold row need not be backed by any session at all (#594).
