@@ -149,7 +149,8 @@ function buildLaunch({ cwd, resume, sessionId, options } = {}) {
   const args = [];
 
   if (resume && sessionId) {
-    args.push('--conversation', String(sessionId));
+    // A subagent row's id is not a conversation id (#739); agy resumes the conversation behind it.
+    args.push('--conversation', parser.conversationIdOf(sessionId));
   }
 
   if (opts.model) args.push('--model', String(opts.model));
@@ -229,7 +230,22 @@ module.exports = {
   // No confirmed fork flag — declaring false HIDES the Fork button for agy's sessions rather than
   // launching an unrelated empty session when it is pressed.
   supportsFork: false,
-  supportsSubagents: false,   // no subagent concept (#230)
+  // Subagents (#739): each one agy spawns writes a conversation `.db` of its own, and the parser keys it
+  // under its root session (`parentSessionId` + `agentId`, the fields Claude's subagent rows carry), so it
+  // nests in the sidebar instead of standing as a session the user never started. Read through the same
+  // export as any agy conversation.
+  //
+  // What it does NOT have is the seam's fourth part, the live drive: `detectSubagentTransitions` is only
+  // driven from Claude's store watch, and finding a session's children here means opening every
+  // conversation database — the scan does that off the main thread and stores the answer in the cache,
+  // which is what the sidebar and the viewer read. So `listSubagents` answers `null` ("nothing to watch"),
+  // and there is no live spawn/finish status for an agy subagent. Declared `limited` below for that reason.
+  supportsSubagents: true,
+  listSubagents: () => null,
+  // agy names no agent type or task description in a field that has been measured (#739).
+  subagentMeta: () => null,
+  // `agy-sub:<root>:<conversation>` — agy's own id space, kept apart from Claude's `sub:` one.
+  subagentSessionId: parser.subagentSessionId,
   // Lineage (#193): agy's `.db` has a `parent_references` table, but it is an unschema'd protobuf blob and
   // no forked/parent agy conversation was available to reverse-engineer what it points at. Declares none
   // until the reference is verified against a real forked trajectory (honest gap).
@@ -282,7 +298,7 @@ module.exports = {
     modelList: 'yes',
     endpoint: 'no',
     projectTrust: 'no',
-    subagentSessions: 'no',
+    subagentSessions: { state: 'limited', note: 'nested and readable, but without live spawn or finish status' },
     liveOwners: { state: 'no', note: 'unmeasured for this CLI' },
     stopLiveOwner: { state: 'no', note: 'it reports no live owners, so there is no process to name' },
     liveRebinding: 'no',
@@ -318,8 +334,9 @@ module.exports = {
   // The transcript viewer + handoff read the conversation through here (transcriptAccess: 'export'), not
   // off the binary `.db`. `readMessages` takes the file path, so the sessionId is resolved to its `.db`
   // via the file store's own suffix match (the same map resume uses).
+  // A subagent row's id names its root too (#739), so the conversation id is taken out of it first.
   readMessages: (sessionId, opts) => {
-    const ref = store.liveRefFor(sessionId);
+    const ref = store.liveRefFor(parser.conversationIdOf(sessionId));
     return ref ? parser.readMessages(ref, opts) : [];
   },
 
@@ -331,7 +348,7 @@ module.exports = {
   watchTargets: store.watchTargets,
   deriveState,
   matchLiveSession: store.matchLiveSession,
-  liveRefFor: store.liveRefFor,
+  liveRefFor: (sessionId) => store.liveRefFor(parser.conversationIdOf(sessionId)),
   liveState,
   // The conversation database appears with the FIRST PROMPT, not at launch — agy behaves like
   // `agy --print` here, measured while working on adoption (docs/ai/driving-the-app.md). Until it

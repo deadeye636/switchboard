@@ -2054,8 +2054,18 @@ const resolveSubagentFile = (parentSessionId, agentId) =>
 ipcMain.handle('read-subagent-jsonl', async (_event, parentSessionId, agentId) => {
   const resolved = resolveSubagentFile(parentSessionId, agentId);
   if (resolved.error) return { error: resolved.error };
+  const b = backends.get(resolved.backendId);
+  // A backend that EXPORTS its transcript (agy's binary `.db`, #739) is read through `readMessages`, the
+  // same branch read-session-jsonl takes for a top-level row — never handed to the JSONL reader.
+  if (((b && b.transcriptAccess) || 'file') !== 'file' && typeof b.readMessages === 'function') {
+    try {
+      return normalizeTranscriptResult(b, { entries: b.readMessages(resolved.sessionId) || [] });
+    } catch (err) {
+      return { error: readableError(err, 'That transcript could not be read.', log) };
+    }
+  }
   // Read the way the parent's history is read (#705): through the owning backend's normaliser.
-  return normalizeTranscriptResult(backends.get(resolved.backendId), await readJsonlEntries(resolved.filePath));
+  return normalizeTranscriptResult(b, await readJsonlEntries(resolved.filePath));
 });
 
 ipcMain.handle('list-subagents', (_event, parentSessionId) => {
@@ -2078,6 +2088,11 @@ ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
   // The lines are drawn the way a reopen draws them (#717), through the owning backend's normaliser over the
   // whole file — `src/session/subagent-tail.js` says why.
   const backend = backends.get(resolved.backendId);
+  // A byte tail of an exported transcript is not a transcript (#739: agy's `.db` is binary). Declined, and
+  // the viewer then draws no live marker and polls nothing.
+  if (((backend && backend.transcriptAccess) || 'file') !== 'file') {
+    return { error: `${backend.label || backend.id} cannot follow a subagent transcript live.` };
+  }
   const tail = createSubagentTail(backend && backend.normalizeTranscriptEntries);
 
   const watchId = ++subagentWatcherSeq;

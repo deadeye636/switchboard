@@ -251,6 +251,9 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
       if (sinceMs != null && birth < sinceMs) continue;
       const row = parseSession(handle);
       if (!row || !row.sessionId || !row.cwd) continue;
+      // A subagent's record is never the record of a launch (#739): it is born inside a parent's turn, in
+      // the parent's cwd, and would otherwise be paired with a session started there a moment earlier.
+      if (row.parentSessionId) continue;
       if (cwd && path.resolve(row.cwd) !== path.resolve(cwd)) continue;
       // `bornMs` is what lets the core ask whether the ASKING session could have written this record
       // (#527) — the correlation itself only knows a directory and a window.

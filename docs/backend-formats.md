@@ -566,6 +566,21 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   exporter. `readMessages` walks the `steps` (14 = user, 15 = model; tool/lifecycle steps skipped) and pulls
   each turn's prose out of the protobuf blob with a shallow wire-format walk — a model reply is one
   length-delimited field whose value carries newlines and markdown, so a naive byte scan would split it.
+- **Subagents (#739)**: every subagent agy spawns writes a `<conversation-id>.db` of its own in the same
+  directory and inherits the parent's workspace, so it looks exactly like a user conversation from outside.
+  The link is in the child's own `gen_metadata` blobs: the string `parent_cascade_id`, a few bytes of
+  framing, then the parent's 36-character conversation id (seen in a string dump as
+  `parent_cascade_id $<uuid>` — `$` is the 0x24 length byte), and the same for `root_cascade_id`. A root
+  conversation carries neither key. `conversation_summaries.db` holds the same link
+  (`parent_conversation_id`, `""` for a root; `nesting_depth`, 0 for a root; `agent_name`, e.g. `research`)
+  — not read: it is a second database per scan, and the column holding the conversation's own id was not
+  measured. The parser reads the per-file signal, tolerating the framing bytes rather than spelling them,
+  and keys the row under the **root** (falling back to the parent) as `agy-sub:<root>:<conversation>` with
+  `parentSessionId` / `agentId` set — the sidebar nests one level, so a grandchild under a child row would
+  surface as an orphan. A link that names the conversation itself, or a value that is not a conversation id,
+  reads as a root. No agent type or task description is read (unmeasured), and there is no live
+  spawn/finish status: no watcher drives this store (`listSubagents` answers `null`). Resume, the transcript
+  export and the live ref take the conversation id back out of the row id.
 - Resource discovery is read-only through agy's `listResources()` hook. It surfaces safe Gemini and
   Antigravity settings, builtin/implicit resource directories, the knowledge directory, the global
   customization root's `plugins/` and `skills/` directories (`~/.gemini/config/`, #611), and per project

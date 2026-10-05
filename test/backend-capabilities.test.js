@@ -93,7 +93,9 @@ const PINNED = {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
     modelList: 'yes', endpoint: 'no', projectTrust: 'no',
-    subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
+    // limited (#739): subagent conversations nest under their root and read through the export, but no
+    // watcher drives agy's store, so there is no live spawn/finish status for them.
+    subagentSessions: 'limited', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
     viewportPaging: 'yes',

@@ -42,7 +42,9 @@ of its plan files is **referred to** in its sessions and what it would take to *
 plans directory** (`planRef` / `planDirSetup`, #449/#450), where it keeps **handoff packets inside a
 project** (`handoffDirs({ projectPath })`, #468 — Claude's handoff skills write into `.claude/handoffs`,
 and a core that spelled that would have learned one backend's layout), whether it has
-**subagents** (`supportsSubagents`, #230 — only Claude implements the seam; Hermes writes delegated child
+**subagents** (`supportsSubagents`, #230 — Claude implements the whole seam; agy implements it without the
+live drive since #739: its parser keys a subagent conversation under its root, `listSubagents` answers
+`null`, and the row id is its own `agy-sub:<root>:<conversation>`, never Claude's `sub:` space; Hermes writes delegated child
 sessions its descriptor could describe and deliberately does not, because a child belongs to its parent's
 turn and the seam's fourth part — the DRIVE — exists only for Claude's store, #553), where its CLI
 **publishes what changed**

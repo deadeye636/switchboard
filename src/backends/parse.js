@@ -59,13 +59,15 @@ const FILE_READ_STATE_MAX = 512;
 //                   breaks the tombstone/bring-back. `newestAt` is the RAW row's recency, captured before
 //                   shaping overwrites row.modified; `startedAt` is the reader's own start time, which is
 //                   what the TOMBSTONE is judged on (#575) and is `null` for a store that has none.
+//   replacedIds   — cached ids whose FILE was re-read under a different id (#739). The file is still there,
+//                   so the file-keyed delete-diff would keep them; main deletes them explicitly.
 //   incomplete    — `handles.incomplete` (#197): a partial read; main skips the reconcile delete-diff.
 //   scanned/skipped — the stat counters (pure to compute; main copies them onto its return stats).
 // (storeMissing is NOT computed here — storeExists is a main-side check; main handles it as an early return
 //  before ever calling this loop, which IS the store-not-found gate.)
 function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = false }) {
   const reply = {
-    sessions: [], seenIds: [], seenFiles: [], skippedIds: [], storeProjects: [],
+    sessions: [], seenIds: [], seenFiles: [], skippedIds: [], storeProjects: [], replacedIds: [],
     incomplete: !!handles.incomplete, scanned: 0, skipped: 0,
   };
   // A marker match is not enough on its own: bumping a parser does not touch a file's mtime or a Hermes
@@ -184,6 +186,11 @@ function parseBackendSessions(b, { handles, cachedByFile, cachedById, force = fa
       // field and its descriptor's resolveLineage turns it into lineageParentId at the neutral sink. This
       // generic path stays free of any per-backend lineage shape.
     }
+
+    // The same file now answers to a different id (#739: a parser bump re-keyed agy's subagent
+    // conversations under their root). The reconcile below keys file rows on the FILE, which is still
+    // there, so it would keep the old row beside the new one — report the old id as replaced instead.
+    if (isFile && hit && hit.sessionId && hit.sessionId !== row.sessionId) reply.replacedIds.push(hit.sessionId);
 
     seenIds.add(row.sessionId);
     reply.sessions.push(row);

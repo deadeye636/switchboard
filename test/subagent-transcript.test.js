@@ -44,7 +44,7 @@ test('the owning backend resolves its own subagent transcript', () => {
     { backends: registry(ownerBackend()), getCachedSession: (k) => rows[k] || null },
     'parent-1', 'a1',
   );
-  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude' });
+  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude', sessionId: 'sub:parent-1:a1' });
 });
 
 test('a backend that declines subagents is never asked — and its row never resolves to another store', () => {
@@ -65,7 +65,7 @@ test('a decliner sitting BEFORE the owner does not shadow it', () => {
     { backends: registry(declining('codex'), ownerBackend(), declining('pi')), getCachedSession: (k) => rows[k] || null },
     'parent-1', 'a1',
   );
-  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude' });
+  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude', sessionId: 'sub:parent-1:a1' });
 });
 
 test('no cached row: an error, not a reconstructed path', () => {
@@ -92,11 +92,29 @@ test('a backend whose id minting throws is skipped, not fatal', () => {
     { backends: registry(broken, ownerBackend()), getCachedSession: (k) => rows[k] || null },
     'parent-1', 'a1',
   );
-  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude' });
+  assert.deepEqual(res, { filePath: CLAUDE_STORE, backendId: 'claude', sessionId: 'sub:parent-1:a1' });
 });
 
 test('missing parent or agent id resolves nothing', () => {
   const deps = { backends: registry(ownerBackend()), getCachedSession: () => ({ sessionId: 'x' }) };
   assert.ok(resolveSubagentFile(deps, '', 'a1').error);
   assert.ok(resolveSubagentFile(deps, 'parent-1', '').error);
+});
+
+// #739: a second backend with subagents, whose ids live in a space of their own. Asked after Claude, it
+// still resolves its own row, and the row id comes back so an EXPORTING backend can read by it (agy's
+// transcript is a binary `.db`, read through `readMessages(rowId)`, never through the path).
+test('a second owner with its own id space resolves its own row, and hands back the row id', () => {
+  const AGY_DB = '/store/agy/conversations/child-1.db';
+  const rows = { 'agy-sub:parent-1:child-1': { sessionId: 'agy-sub:parent-1:child-1', filePath: AGY_DB } };
+  const agyLike = {
+    id: 'agy', label: 'agy', supportsSubagents: true,
+    subagentSessionId: (p, a) => `agy-sub:${p}:${a}`,
+    transcriptPathFor: (row) => row.filePath,
+  };
+  const res = resolveSubagentFile(
+    { backends: registry(ownerBackend(), agyLike), getCachedSession: (k) => rows[k] || null },
+    'parent-1', 'child-1',
+  );
+  assert.deepEqual(res, { filePath: AGY_DB, backendId: 'agy', sessionId: 'agy-sub:parent-1:child-1' });
 });

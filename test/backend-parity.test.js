@@ -84,15 +84,19 @@ test('every backend states whether it can fork — and only a forker gets forkFr
 
 // #230: subagents are a Claude concept the core used to assume. Every backend now DECLARES whether it has
 // them (supportsSubagents), the same way it declares supportsFork, so a feature or setting built on top has
-// an honest per-backend answer instead of hard-wiring Claude. Claude is the one that does; the rest decline.
-test('every backend declares supportsSubagents — and only Claude has them today', () => {
+// an honest per-backend answer instead of hard-wiring Claude. Claude does, and agy since #739 (each subagent
+// writes a conversation of its own, linked to its root); the rest decline.
+test('every backend declares supportsSubagents — and only Claude and agy have them today', () => {
   for (const b of READY) {
     assert.equal(typeof b.supportsSubagents, 'boolean', `${b.id} must state supportsSubagents`);
   }
+  const HAVE = new Set(['claude', 'agy']);
   const claude = READY.find(b => b.id === 'claude');
   assert.equal(claude && claude.supportsSubagents, true, 'Claude spawns Task subagents — it must declare so');
+  const agy = READY.find(b => b.id === 'agy');
+  assert.equal(agy && agy.supportsSubagents, true, 'agy writes a conversation per subagent — it must declare so (#739)');
   for (const b of READY) {
-    if (b.id === 'claude') continue;
+    if (HAVE.has(b.id)) continue;
     assert.equal(b.supportsSubagents, false, `${b.id} has no subagent concept — it must not claim one`);
   }
 });

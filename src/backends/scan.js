@@ -88,6 +88,12 @@ function applyBackendReply(backendId, reply, { cached = [], stats = {}, dropIds 
       deleteIds.push(row.sessionId);
     }
   }
+  // A file re-read under a new id (#739) leaves its old row behind, because the diff above keys file rows
+  // on the file. This is not a guess about absence — the same file answered with another id — so it holds
+  // on a partial read too.
+  for (const id of reply.replacedIds || []) {
+    if (!deleteIds.includes(id)) deleteIds.push(id);
+  }
 
   // Apply-time REMOVED gate (isRemovedProject is a DB read — runs on MAIN, not in the pure loop): a removed
   // project is not indexed back in, but its already-cached row is left alone. The row is still in

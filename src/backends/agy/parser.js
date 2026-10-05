@@ -19,7 +19,8 @@
 //               a miss is "unknown", never an error.
 //
 // No timestamp lives in the DB blobs (scanned — none in the 2026 epoch-ms range), so the change marker
-// is the `.db` file mtime, and identity is the filename: `sessionId` = the basename, no header parse.
+// is the `.db` file mtime, and identity is the filename: `sessionId` = the basename, no header parse —
+// except for a subagent conversation, which is keyed under its root session (#739, see below).
 //
 // SQLite is read with the shared dual driver (better-sqlite3 in Electron, node:sqlite under
 // `node --test`), read-only / query_only / short-lived — the same rules Hermes reads under.
@@ -34,7 +35,56 @@ const { driver } = require('../sqlite-driver');
 //   v1: first real parser (cwd, title, model, message/user counts)
 //   v2: cwd read through the protobuf wire-format walk instead of the printable-run scan (#508)
 //   v3: prompt and title use wire-format walk with submessage disambiguation; avoids truncating prompts with multi-byte varints or non-ASCII characters
-const PARSER_SCHEMA_VERSION = 3;
+//   v4: a subagent conversation (`parent_cascade_id` / `root_cascade_id` in gen_metadata) is keyed under its
+//       root session as a subagent row instead of standing as a top-level session (#739)
+const PARSER_SCHEMA_VERSION = 4;
+
+// --- Subagent conversations (#739) ---
+//
+// Every subagent agy spawns gets a conversation `.db` of its own, beside the user's, and inherits the
+// parent's workspace — so before #739 each one stood in the sidebar as a session the user never started,
+// usually with an empty title. agy records the link inside the child's own database: its `gen_metadata`
+// blobs carry `parent_cascade_id` and `root_cascade_id`, each followed by the 36-character conversation id
+// (owner recon in #739). A root conversation carries neither key. The per-file signal is used on purpose:
+// it keeps parsing local to the one file the scan is already reading. `conversation_summaries.db` holds the
+// same link plus an agent name, but reading it would mean a second database per scan, and its id column was
+// not measured — so the agent name stays unknown rather than guessed.
+//
+// The row nests under the ROOT conversation, not the immediate parent: the sidebar nests one level, under a
+// top-level row, and a grandchild hung under a child row would surface as an orphan at the top level.
+const CASCADE_UUID = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
+// The key, then a few bytes of protobuf framing (a field tag and the 0x24 length byte), then the id. The
+// gap is tolerated rather than spelled, because the exact framing was read off a string dump, not decoded.
+const PARENT_CASCADE_RE = new RegExp('parent_cascade_id[\\s\\S]{0,8}?' + CASCADE_UUID, 'i');
+const ROOT_CASCADE_RE = new RegExp('root_cascade_id[\\s\\S]{0,8}?' + CASCADE_UUID, 'i');
+
+// The row id a subagent conversation is cached under. agy's shape, not Claude's `sub:<parent>:<agent>`:
+// the cache is one table, and an id in Claude's space would be resolved as Claude's row. The conversation
+// id stays recoverable (`conversationIdOf`), because resume and the transcript export need the `.db` name.
+const SUBAGENT_ID_PREFIX = 'agy-sub:';
+
+function subagentSessionId(parentSessionId, agentId) {
+  if (String(parentSessionId).includes(':')) throw new TypeError(`parentSessionId must not contain ':': ${parentSessionId}`);
+  return `${SUBAGENT_ID_PREFIX}${parentSessionId}:${agentId}`;
+}
+
+/** The agy conversation id behind a row id — the `.db` basename `agy --conversation` takes. */
+function conversationIdOf(sessionId) {
+  const id = String(sessionId == null ? '' : sessionId);
+  if (!id.startsWith(SUBAGENT_ID_PREFIX)) return id;
+  const rest = id.slice(SUBAGENT_ID_PREFIX.length);
+  const colon = rest.indexOf(':');
+  return colon === -1 ? rest : rest.slice(colon + 1);
+}
+
+/** `{ parent, root }` conversation ids named in one gen_metadata blob; either may be null. */
+function findCascadeIds(buf) {
+  if (!buf || !buf.length) return { parent: null, root: null };
+  const text = buf.toString('latin1');
+  const p = text.match(PARENT_CASCADE_RE);
+  const r = text.match(ROOT_CASCADE_RE);
+  return { parent: p ? p[1].toLowerCase() : null, root: r ? r[1].toLowerCase() : null };
+}
 
 // A conversation is a handful of turns; the blobs we care about hold SHORT strings (a cwd URI, a title,
 // a prompt, a model name), so a single-byte protobuf length prefix (<= 127 bytes) recovers them exactly.
@@ -160,6 +210,8 @@ function readConversation(db) {
     messageCount: 0,
     userMessageCount: 0,
     lastRole: null,      // 'user' | 'assistant' — the last 14/15 step
+    parentCascadeId: null,   // set only on a subagent conversation (#739)
+    rootCascadeId: null,
   };
 
   // cwd — the workspace URI in the trajectory metadata blob, read off the wire format (#508).
@@ -207,8 +259,17 @@ function readConversation(db) {
   // table: a fixture without it must not fail.
   try {
     const gen = db.all('SELECT data FROM gen_metadata');
-    for (const r of gen) modelText.push(...printableRuns(asBuffer(r.data), 5));
-  } catch { /* no gen_metadata -> model may stay null */ }
+    for (const r of gen) {
+      const buf = asBuffer(r.data);
+      modelText.push(...printableRuns(buf, 5));
+      // The subagent link (#739) sits in the same blobs. First sighting wins; a root has neither key.
+      if (!facts.parentCascadeId || !facts.rootCascadeId) {
+        const ids = findCascadeIds(buf);
+        if (!facts.parentCascadeId && ids.parent) facts.parentCascadeId = ids.parent;
+        if (!facts.rootCascadeId && ids.root) facts.rootCascadeId = ids.root;
+      }
+    }
+  } catch { /* no gen_metadata -> model may stay null, and the conversation reads as a root */ }
 
   facts.model = extractModel(modelText.join('\n'));
   return facts;
@@ -220,8 +281,14 @@ function buildRow(facts, dbPath, opts = {}) {
   try { stat = fs.statSync(dbPath); } catch { return null; }
 
   // The `.db` basename IS the conversation id — the same id `agy --conversation <id>` resumes.
-  const sessionId = path.basename(dbPath).replace(/\.db$/i, '');
-  if (!sessionId) return null;
+  const conversationId = path.basename(dbPath).replace(/\.db$/i, '');
+  if (!conversationId) return null;
+
+  // A subagent conversation (#739) nests under its root session. A link that names the conversation itself
+  // is not a parent, and degrades to a top-level row like a missing one.
+  const parent = facts.rootCascadeId || facts.parentCascadeId || null;
+  const isSubagent = !!parent && parent !== conversationId.toLowerCase();
+  const sessionId = isSubagent ? subagentSessionId(parent, conversationId) : conversationId;
 
   // No timestamp lives in the blobs, so the file's own times are the honest source. The scan buckets by
   // `modified`; busy/idle rides on `lastEntryAt` (state.js) with the file mtime as the last-activity edge.
@@ -246,6 +313,12 @@ function buildRow(facts, dbPath, opts = {}) {
     // (uuids, tool scaffolding, field names) into search — it would be low-signal noise.
     textContent: [facts.title, facts.firstPrompt].filter(Boolean).join('\n'),
     slug: null, customTitle: null, aiTitle: null,
+    // The shared subagent fields (#739), the ones Claude's subagent rows carry. agy names no agent type or
+    // task description in a field that has been measured, so those two stay null.
+    parentSessionId: isSubagent ? parent : null,
+    agentId: isSubagent ? conversationId : null,
+    subagentType: null,
+    description: null,
     startedAt: null,                  // no timestamp in the store
     lastEntryAt: modifiedIso,         // the file mtime stands in for last activity (state.js)
     activeMinutes: 0,
@@ -498,7 +571,10 @@ module.exports = {
   parseSession,
   parseSessionIncremental,
   readMessages,
+  subagentSessionId,
+  conversationIdOf,
   // exported for the unit test / reuse
+  findCascadeIds,
   protoStrings,
   findWorkspaceUri,
   printableRuns,

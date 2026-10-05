@@ -16,7 +16,7 @@
  * @param {(id: string) => object|null} deps.getCachedSession
  * @param {string} parentSessionId
  * @param {string} agentId
- * @returns {{filePath: string, backendId: string} | {error: string}}
+ * @returns {{filePath: string, backendId: string, sessionId: string} | {error: string}}
  */
 function resolveSubagentFile({ backends, getCachedSession }, parentSessionId, agentId) {
   if (!parentSessionId || !agentId) return { error: 'Subagent session not found in cache' };
@@ -38,7 +38,9 @@ function resolveSubagentFile({ backends, getCachedSession }, parentSessionId, ag
     if (!filePath) return { error: `${b.label || b.id} cannot say where this subagent's transcript lives.` };
     // The backend comes back too: its `normalizeTranscriptEntries` reads the file the way it reads the
     // parent's, so a subagent's history draws its injected lines as the parent's history does (#705).
-    return { filePath, backendId: b.id };
+    // The row id rides along for a backend that EXPORTS its transcript rather than having it read as
+    // JSONL (#739, agy's binary `.db`): its `readMessages` takes the row id, not the path.
+    return { filePath, backendId: b.id, sessionId: row.sessionId || key };
   }
   return { error: 'Subagent session not found in cache' };
 }
