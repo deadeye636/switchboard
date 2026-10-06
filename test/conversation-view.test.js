@@ -216,6 +216,14 @@ test('Ctrl+End, Ctrl+Home, PageUp and PageDown are taken from the input for the 
 // On show it goes back to the end once, without waiting for a resize that no longer comes.
 test('a hidden conversation reads no layout as entries arrive, and goes back to the end when shown', async () => {
   const h = setup();
+  // Frames run when the test says so, not after a wait: a wall-clock wait for two frames failed under the
+  // suite's own load.
+  vm.runInContext(`
+    var __frames = [];
+    function requestAnimationFrame(f) { __frames.push(f); return __frames.length; }
+    function __runFrames() { for (let i = 0; i < 10 && __frames.length; i++) __frames.splice(0).forEach(f => f(0)); }
+  `, h.w);
+  const runFrames = () => vm.runInContext('__runFrames()', h.w);
   h.entry.element.classList.remove('visible');
   await h.settle();
   const log = h.entry.element.querySelector('.conversation-log');
@@ -239,7 +247,8 @@ test('a hidden conversation reads no layout as entries arrive, and goes back to 
   // The entry takes its real height a frame or two later (`content-visibility: auto`), moving no box the
   // ResizeObserver watches: the reader at the end is followed once more then.
   height = 3100;
-  await new Promise(r => setTimeout(r, 80));
+  assert.equal(scrollTop, 2400, 'not before the next frames');
+  runFrames();
   assert.equal(scrollTop, 3100, 'followed again once the new entry has its real height');
 });
 
