@@ -183,3 +183,45 @@ test('nothing to name is not a row that says nothing', () => {
     assert.equal(paletteMetaWithDate(null, null), '');
   } finally { delete global.formatDate; }
 });
+
+// #751: a row runs on the LIST's mousedown, and running it closes the palette. The same press then bubbles to
+// the palette's own mousedown listener with the palette already gone, which threw on every mouse pick. Built
+// in a jsdom window because the defect is the order two real listeners run in, which no pure function shows.
+test('picking a row with the mouse throws nothing after the palette closes', async (t) => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM('<!doctype html><body></body>', { pretendToBeVisual: true });
+  const keys = ['window', 'document', 'HTMLElement', 'Node'];
+  const saved = Object.fromEntries(keys.map(k => [k, globalThis[k]]));
+  for (const k of keys) globalThis[k] = dom.window[k];
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};   // jsdom lays nothing out
+  const errors = [];
+  dom.window.addEventListener('error', (e) => errors.push(e.error || e.message));
+  t.after(() => {
+    for (const k of keys) { if (saved[k] === undefined) delete globalThis[k]; else globalThis[k] = saved[k]; }
+    dom.window.close();
+  });
+  const modulePath = require.resolve('../src/renderer/terminal/palette-core');
+  delete require.cache[modulePath];
+  const core = require(modulePath);
+  t.after(() => { delete require.cache[modulePath]; });
+
+  const picked = [];
+  await core.openPalette({
+    id: 'pick751', centered: true, placeholder: 'p', ariaLabel: 'a', listLabel: 'l', failedText: 'f',
+    load: async () => ({ rows: [{ key: 'one', label: 'One' }] }),
+    filter: (rows) => rows,
+    rowKey: (r) => r.key,
+    row: (r) => ({ main: r.label }),
+    pick: (r) => { picked.push(r.key); },
+  }, null, null);
+
+  const row = dom.window.document.querySelector('.vpal-row');
+  assert.ok(row, 'the row is drawn');
+  row.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  await new Promise(r => setImmediate(r));
+
+  assert.deepEqual(picked, ['one'], 'the press ran the row');
+  assert.equal(dom.window.document.querySelector('.vpal-list'), null, 'and closed the palette');
+  await new Promise(r => setTimeout(r, 20));   // the palette's own zero-delay timers, before teardown
+  assert.deepEqual(errors.map(String), [], 'with nothing thrown on the way out');
+});

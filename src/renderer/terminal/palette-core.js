@@ -514,6 +514,9 @@
       // this to tell "the user grabbed something in here" from "the user left".
       lastInsideMouseDown = Date.now();
       if (event.target === input) return;
+      // The list's own mousedown runs a row first, and running it can close the palette: the same press
+      // then bubbles here with `palette` already null (#751). Nothing is left to keep the focus in.
+      if (!palette) return;
       // A mousedown past the content box is the native scrollbar of the scrollable list; defaulting
       // that away would kill dragging it. Anything else keeps the focus in the filter.
       const t = event.target;
