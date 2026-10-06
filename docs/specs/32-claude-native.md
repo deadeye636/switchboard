@@ -113,7 +113,7 @@ how it was driven is a field of its own. Only the marker is different.
    `sdk-switchboard`) forked from a terminal-style launch gave a fork whose copied user and assistant lines
    all read that launch's own entrypoint. So the parent's marker cannot move a fork into the GUI, and a fork
    needs no copy of the parent's stored choice: it starts in the view the parent opens in, and its own lines
-   record that view.
+   record that view. `scripts/measure-claude-fork-marker.js` repeats the measurement.
 
 **Claude's own `/resume` picker does not list these sessions.** It hides every `sdk-*` entrypoint
 (measured), so a session started here is found in Switchboard, not in the CLI's picker. The terminal
