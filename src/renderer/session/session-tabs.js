@@ -246,6 +246,15 @@ if (typeof module !== 'undefined' && module.exports) {
     initialized = true;
   }
 
+  // Owner and view, the way the sidebar row names it (#683) — never the driver a GUI session opens with.
+  // `sessionBackendName` lives in dialogs.js, which every page with a tab strip loads; a page without it
+  // still names the backend the session opens with rather than nothing.
+  function backendNameOf(session) {
+    if (typeof sessionBackendName === 'function') return sessionBackendName(session);
+    const backend = (typeof window.getBackend === 'function') ? window.getBackend(session.backendId) : null;
+    return backend && backend.label;
+  }
+
   // The tooltip for a session's tab, wherever that tab is (#334). Panes mode calls this too: the two
   // strips build their tabs from the same session data, and a tooltip that said different things in
   // the two modes would be worse than the name-only one it replaces. The state comes from
@@ -253,13 +262,13 @@ if (typeof module !== 'undefined' && module.exports) {
   // its own declared label, never an id.
   window.tabTooltipFor = function (session, status) {
     if (!session) return '';
-    const backend = (typeof window.getBackend === 'function') ? window.getBackend(session.backendId) : null;
+    const backendName = backendNameOf(session);
     const name = (typeof cleanDisplayName === 'function'
       ? cleanDisplayName(session.name || session.aiTitle || session.summary) : '') || session.sessionId;
     return buildTabTooltip({
       name,
       project: projectTailOf(session.projectPath),
-      backend: backend && backend.label,
+      backend: backendName,
       state: status && status.label,
       note: (typeof noStoreRecordFor === 'function') ? noStoreRecordFor(session.sessionId) : null,
     });
@@ -270,7 +279,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // reason `tabTooltipFor` exists: two compositions of the same facts is the pair that drifts.
   window.sessionBarTooltipFor = function (session, status, ptyTitle) {
     if (!session) return '';
-    const backend = (typeof window.getBackend === 'function') ? window.getBackend(session.backendId) : null;
+    const backendName = backendNameOf(session);
     const name = (typeof cleanDisplayName === 'function'
       ? cleanDisplayName(session.name || session.aiTitle || session.summary) : '') || session.sessionId;
     return buildSessionBarTooltip({
@@ -280,7 +289,7 @@ if (typeof module !== 'undefined' && module.exports) {
       ptyTitle,
       sessionId: session.sessionId,
       project: sessionProjectName(session),
-      backend: backend && backend.label,
+      backend: backendName,
       state: status && status.label,
       // Two notes can be true at once — a backend that reports through its store AND a spawn whose live
       // binding never arrived (Pi is both kinds) — so they are joined rather than one winning. Both

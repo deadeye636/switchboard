@@ -945,6 +945,19 @@ function sessionViewOf(session) {
   };
 }
 
+// How a surface NAMES a session's backend in words (#683): the pair's owner and the view it opens in, the way
+// the sidebar row shows it with a badge and a glyph — "Claude (GUI)", "Pi (terminal)". Brackets, not a
+// middle dot: the tooltips join their fields with one, and "Claude · GUI" read as two fields. A session with no pair
+// to choose from is named by the backend it opens with, as before. The tooltips of the tab strip and the
+// session bar read this, so a GUI session no longer reads as its driver there while the sidebar names the CLI.
+function sessionBackendName(session) {
+  const view = sessionViewOf(session);
+  if (view) return `${view.pair.terminal.label || view.pair.terminal.id} (${view.inGui ? 'GUI' : 'terminal'})`;
+  const id = (typeof sessionBackendId === 'function' ? sessionBackendId(session) : session && session.backendId) || '';
+  const backend = (typeof window.getBackend === 'function') ? window.getBackend(id) : null;
+  return (backend && backend.label) || null;
+}
+
 // Open a DORMANT session in the other view of its pair, and remember that choice (#670 E5 — every explicit
 // choice is stored; main stores it once the spawn succeeded). Asked again here rather than trusted from the
 // caller: the row or the palette may have been drawn while the session was dormant and it has started since.

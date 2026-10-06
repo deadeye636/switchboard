@@ -196,9 +196,16 @@ function stopWatchingPlansDirs() {
 // only the launchable ones — a project's CLAUDE.md / AGENTS.md is on disk whether or not its backend is
 // enabled, and the tab has always shown those files unconditionally. Profiles are skipped (they forward a
 // base's dirs, which would only duplicate — dedupe by path handles the rest).
+//
+// And one entry per CLI (#683): a driver (`transcriptsOf`, the native GUI backends) forwards its owner's
+// resources, so it showed up as a group of its own and claimed the owner's files under its own name — the
+// same CLI twice, named the way the sidebar no longer names it. `oneAskerPerCli` keeps the owner and lets a
+// driver answer only when its owner is not listed.
 function memoryBackends() {
-  try { return ctx.backends.list().filter(b => !b.isProfile && b.status === 'ready'); }
-  catch { return []; }
+  try {
+    const ready = ctx.backends.list().filter(b => !b.isProfile && b.status === 'ready');
+    return typeof ctx.backends.oneAskerPerCli === 'function' ? ctx.backends.oneAskerPerCli(ready) : ready;
+  } catch { return []; }
 }
 
 // The projects the register says are visible — every backend's, not one store's (#227). This is the same

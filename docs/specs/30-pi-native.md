@@ -47,6 +47,15 @@ field of its own:
    in `src/renderer/dialogs/dialogs.js`). The badge names the CLI, the glyph the view; replacing the badge
    made a Claude row and a Pi row look alike.
 
+   **The other surfaces name a session the same way (#683).** The tab strip's and the session bar's tooltips
+   read `sessionBackendName` beside `sessionViewOf` and say "<owner> (GUI)" or "<owner> (terminal)" rather
+   than the driver's label. The memory view lists one group per CLI: `memoryBackends` in
+   `src/app/plans-memory.js` goes through `oneAskerPerCli`, so a driver, which forwards its owner's
+   resources, no longer forms a group of its own or claims the owner's files under its name. The task and
+   bookmark views already show the owner: neither table stores a backend, and `src/main.js` reads it from the
+   session cache, which holds the owner. The grid card shows no backend at all, on purpose — the CLI's own
+   screen says which it is.
+
    **A stored choice sits beside the marker (#670), in the same function.** `openerFor(row, storedChoice,
    launchable)` takes the view the user picked for this session (`session_meta.opener`, a backend id) and
    honours it before the marker, without requiring the transport match: the owner itself, or a driver of

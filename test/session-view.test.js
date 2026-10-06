@@ -465,3 +465,39 @@ test('main.js wires the module and preload exposes the binding', () => {
   const preload = fs.readFileSync(path.join(__dirname, '..', 'src', 'preload.js'), 'utf8');
   assert.match(preload, /resetSessionView:\s*\(sessionId\)\s*=>\s*ipcRenderer\.invoke\('session-view:reset', sessionId\)/);
 });
+
+// #683: the surfaces that name a session's backend in WORDS (the tab strip's and the session bar's tooltips)
+// name it the way the row does: the pair's owner and the view, never the driver a GUI session opens with.
+test('a session is named by its owner and its view, and a session with no pair by its backend', () => {
+  const app = setup();
+  try {
+    const name = app.call('sessionBackendName');
+    assert.equal(name(inTerminal), 'Own (terminal)');
+    assert.equal(name(inGui), 'Own (GUI)', 'not "Own (native)"');
+    assert.equal(name({ ...inTerminal, backendId: 'solo', ownerBackendId: 'solo' }), 'Solo', 'no pair: the backend as before');
+  } finally { app.destroy(); }
+  const noGui = setup({ backends: registry({ drv: { enabled: false } }) });
+  try {
+    assert.equal(noGui.call('sessionBackendName')(inTerminal), 'Own', 'a pair that cannot launch is no pair (E8), so the sidebar shows the plain badge and so does this');
+    assert.equal(noGui.call('sessionBackendName')(inGui), 'Own (native)', 'and a row that opens with the driver is named by it, like its badge');
+  } finally { noGui.destroy(); }
+});
+
+// Wiring, read as text because session-tabs.js needs the whole shell: both tooltips ask the shared helper.
+test('the tab and session-bar tooltips name the backend through sessionBackendName', () => {
+  const { stripComments } = require('./helpers/strip-comments');
+  const src = stripComments(fs.readFileSync(path.join(REN, 'session', 'session-tabs.js'), 'utf8'));
+  for (const fn of ['tabTooltipFor', 'sessionBarTooltipFor']) {
+    const at = src.indexOf(`window.${fn} = function`);
+    assert.notEqual(at, -1, `${fn} is gone`);
+    const body = src.slice(at, src.indexOf('\n  };', at));
+    assert.match(body, /backendNameOf\(session\)/, `${fn} names the backend through backendNameOf`);
+    assert.doesNotMatch(body, /getBackend\(/, `${fn} must not name the opener directly`);
+  }
+  const at = src.indexOf('function backendNameOf(');
+  assert.notEqual(at, -1, 'backendNameOf is gone');
+  const helper = src.slice(at, src.indexOf('\n  }', at));
+  const shared = helper.indexOf('sessionBackendName(session)');
+  assert.ok(shared !== -1 && shared < helper.indexOf('getBackend('),
+    'the shared helper is asked first; the opener label is only the fallback for a page without dialogs.js');
+});
