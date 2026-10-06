@@ -120,9 +120,10 @@ chart rather than a row of zeroes.
   reopen where they were driven.
   → [`docs/specs/32-claude-native.md`](docs/specs/32-claude-native.md)
 - **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (native),
-  Pi and Pi (native)), each sidebar row shows where it opens, and a dormant session can be opened in the
-  other view from the row, the command palette or *Resume with config*. The choice is remembered for that
-  session until you pick *Use the default view*.
+  Pi and Pi (native)), each sidebar row shows where it opens, and a session can be opened in the other view
+  from the row, the pane menu, the command palette or *Resume with config*. A running session is stopped
+  and opened there again in the same tab, once it is idle. The choice is remembered for that session until
+  you pick *Use the default view*.
 - **Subagents for Pi** — an opt-in `subagent` tool that hands one task to an agent from a markdown
   definition, run as a separate Pi process with a fresh context; the result says what it cost.
   → [`docs/settings-reference.md`](docs/settings-reference.md)

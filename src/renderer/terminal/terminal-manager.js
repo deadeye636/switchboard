@@ -1780,7 +1780,7 @@ function syncPtySize(sessionId) {
 }
 
 // Clean up a closed session entry (dispose terminal, remove DOM, remove from maps).
-function destroySession(sessionId) {
+function destroySession(sessionId, opts) {
   const entry = openSessions.get(sessionId);
   if (!entry) return;
   // Tear down any open right-click menu for this session before disposing the
@@ -1844,8 +1844,10 @@ function destroySession(sessionId) {
   // session it no longer had, and the "Move to <window>" entries built from its title said so too.
   if (typeof window.updateDetachedWindowTitle === 'function') window.updateDetachedWindowTitle();
   // Panes mode: the session's tab goes with it, and a pane emptied by that
-  // disappears (#309 O10).
-  if (window.panesView) window.panesView.dropSession(sessionId);
+  // disappears (#309 O10). `keepTab` is a view switch (#670): the same session is mounted again at once, and
+  // its tab stays where the user put it — dropped, it would come back at the end of the active pane, and a
+  // pane it was alone in would close.
+  if (window.panesView && !(opts && opts.keepTab)) window.panesView.dropSession(sessionId);
 }
 
 // Make a session visible in the current view mode (grid or single).

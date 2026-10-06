@@ -2643,12 +2643,6 @@ body.window-hidden .sidebar-tab *,
   display: none;
 }
 
-/* Switching a RUNNING session's view is its own act (#670, a later step). The builder puts the button on every
-   pair row that is not detached, and this hides it while the row has a process, so it is already there the
-   moment a session exits (an exit patches this class and does not rebuild the row). */
-.session-item.has-running-pty > .session-row .session-view-switch-btn {
-  display: none;
-}
 
 .session-item.is-terminal > .session-row .session-fork-btn {
   display: none;

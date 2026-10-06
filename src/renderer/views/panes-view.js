@@ -2581,6 +2581,8 @@ window.__sessionDragId = null;
       separator();
       groupLabel('Session', tabBaseName(sessionSubject));
       window.appendWindowItems(subjectId, item, () => activeMenu === pop);
+      // …and the other view of it, Terminal or GUI (#670), for a session that has one.
+      if (typeof window.appendViewSwitchItem === 'function') window.appendViewSwitchItem(subjectId, item);
     }
 
     // A view named by a right-click can go to another window too (#364), or to one of its own

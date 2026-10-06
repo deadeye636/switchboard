@@ -459,11 +459,10 @@ function buildSessionItem(session, opts = {}) {
     // "Resume with config" sits next to the other session-starting actions; Archive is the odd one out
     // (it removes the row), so it goes last, away from the buttons that launch something.
     actions.appendChild(launchConfigBtn);
-    // Open in the other view (#670, surface 2): offered for a DORMANT session of a pair only. Its icon is
-    // the view it switches TO. It is built for every pair row that is not detached and the CSS hides it while
-    // the row has a process (`.has-running-pty`): a session that exits patches only that class and does not
-    // rebuild its row, and the button has to be there right then, which is when it is wanted most. The click
-    // asks `sessionIsDormant` again, so a stale row can never switch a running session.
+    // Open in the other view (#670): a dormant session opens there, a running one is stopped and opened there
+    // in the same tab (`switchSessionView` in dialogs.js, which refuses a busy one and asks first). Its icon is
+    // the view it switches TO. Built for every pair row that is not detached, whether or not it has a process:
+    // the row is not rebuilt when a session starts or exits, and the click decides from the state it finds.
     if (view && !(typeof window.isSessionDetached === 'function' && window.isSessionDetached(session.sessionId))) {
       const viewSwitchBtn = document.createElement('button');
       viewSwitchBtn.className = 'session-view-switch-btn';

@@ -2,8 +2,9 @@
 //
 // Three surfaces read ONE derivation (`sessionViewOf` in dialogs/dialogs.js): the sidebar row's symbol (beside the
 // badge, which names the pair's owner, E21a), the row's "Open in GUI" / "Open in terminal" button (built on
-// every pair row that is not detached, hidden while it runs, acting only on a dormant session), and two command-palette actions. And one write that is not a spawn: clearing a stored
-// choice, in `src/app/session-view.js`.
+// every pair row that is not detached), two command-palette actions and, since step S3, an entry in the pane menu.
+// A dormant session opens in the other view; a running one is stopped and opened there (`switchSessionView`).
+// And one write that is not a spawn: clearing a stored choice, in `src/app/session-view.js`.
 //
 // The renderer half loads the REAL files into a jsdom vm context, the way sidebar-session-row-vm.test.js does,
 // so a name the row reaches for that nothing defines is a ReferenceError here. Backend ids below are invented
@@ -74,14 +75,26 @@ function setup({ backends = registry(), showAllBadges = true } = {}) {
   let focused = null;
   window.focusedActionSession = () => focused;
   const resets = [];
-  window.api = { resetSessionView: async (id) => { resets.push(id); return { ok: true, cleared: true }; } };
+  const stops = [];
+  const toasts = [];
+  const dialogs = [];
+  const answers = { confirm: true, stop: { ok: true } };
+  window.api = {
+    resetSessionView: async (id) => { resets.push(id); return { ok: true, cleared: true }; },
+    stopSession: async (id) => { stops.push(id); return answers.stop; },
+  };
+  window.showControlToast = (o) => { toasts.push(o.message); };
+  const destroyed = [];
+  window.destroySession = (id, opts) => { destroyed.push({ id, opts }); state.openSessions.delete(id); };
+  window.showControlDialog = async (o) => { dialogs.push(o); return answers.confirm; };
 
   for (const rel of ['lib/a11y-utils.js', 'lib/icons.js', 'shell/command-actions.js', 'dialogs/dialogs.js', 'shell/sidebar-session-row.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
   const call = (name) => vm.runInContext(name, ctx);
   return {
-    window, state, opened, resets,
+    window, state, opened, resets, stops, toasts, dialogs, answers, destroyed,
+    call,
     focus: (s) => { focused = s; },
     build: (session) => call('buildSessionItem')(session),
     viewOf: (session) => call('sessionViewOf')(session),
@@ -170,7 +183,7 @@ test('a plain terminal row and a subagent row get nothing about views', () => {
   } finally { t.destroy(); }
 });
 
-test('the switch button is offered for a DORMANT session only, with the icon of the view it switches to', () => {
+test('the switch button is on every pair row, with the icon of the view it switches to', () => {
   const t = setup();
   try {
     const btn = t.build(inTerminal).querySelector('.session-view-switch-btn');
@@ -178,13 +191,13 @@ test('the switch button is offered for a DORMANT session only, with the icon of 
     assert.equal(btn.title, 'Open in GUI');
     assert.equal(t.build(inGui).querySelector('.session-view-switch-btn').title, 'Open in terminal');
 
-    // A running row carries the button too, hidden by the `.has-running-pty` rule: an exit patches only that
-    // class and does not rebuild the row, and the button must be there the moment the session ends. The
-    // click asks `sessionIsDormant` again, so it cannot switch a running session.
+    // A running row carries it too and shows it (step S3): the click stops the session and opens it there.
     t.state.activePtyIds.add('s1');
     const running = t.build(inTerminal);
-    assert.ok(running.classList.contains('has-running-pty'), 'the running row is marked, which hides the button');
-    assert.ok(running.querySelector('.session-view-switch-btn'), 'and it is already there for the exit');
+    assert.ok(running.classList.contains('has-running-pty'));
+    assert.ok(running.querySelector('.session-view-switch-btn'), 'offered while it runs');
+    const css = fs.readFileSync(path.join(REN, 'style.css'), 'utf8');
+    assert.ok(!/has-running-pty[^{]*session-view-switch-btn/.test(css), 'no rule hides it while the row runs');
     t.state.activePtyIds.delete('s1');
 
     t.state.openSessions.set('s1', { closed: true });
@@ -210,13 +223,15 @@ test('the palette offers the other view for a dormant focused session, and opens
     open = t.actions().find(a => a.id === 'session.view.open-other');
     assert.equal(open.title, 'Open “Refactor” in terminal');
 
-    // Running: not offered, and a run that raced the start does nothing.
+    // A process with no surface in this window (another window renders it, or nothing has mounted it): not
+    // offered, and a run that raced the start does nothing.
     t.focus(inTerminal);
     const stale = t.actions().find(a => a.id === 'session.view.open-other');
     t.state.activePtyIds.add('s1');
     assert.ok(!t.actions().some(a => a.id === 'session.view.open-other'));
     stale.run();
-    assert.equal(t.opened.length, 1, 'the run asks again and a running session is not switched here');
+    assert.equal(t.opened.length, 1, 'the run asks again and switches nothing it does not hold');
+    assert.equal(t.stops.length, 0);
 
     t.focus(null);
     assert.ok(!t.actions().some(a => a.id.startsWith('session.view.')), 'no focused session, no action');
@@ -245,6 +260,135 @@ test('"Use the default view" is offered only while a choice is stored, and clear
     t.focus(running);
     assert.ok(t.actions().some(a => a.id === 'session.view.reset'));
   } finally { t.destroy(); }
+});
+
+// --- step S3: a RUNNING session, stopped and opened in the other view (`switchSessionView`) ---
+
+// A session running in this window: a live process and a surface that holds it.
+function runHere(t, session) {
+  t.state.activePtyIds.add(session.sessionId);
+  t.state.openSessions.set(session.sessionId, { closed: false, session });
+  t.state.sessionMap.set(session.sessionId, session);
+}
+const until = async (cond) => { for (let i = 0; i < 50 && !cond(); i++) await new Promise(r => setTimeout(r, 0)); };
+
+test('a running idle session is asked about, stopped, and opened in the other view once its exit is handled', async () => {
+  const t = setup();
+  try {
+    runHere(t, inTerminal);
+    t.focus(inTerminal);
+    const action = t.actions().find(a => a.id === 'session.view.open-other');
+    assert.ok(action, 'offered while it runs here');
+    assert.equal(action.title, 'Open “Fix the drag” in GUI');
+    const done = action.run();
+    await until(() => t.stops.length === 1);
+    assert.equal(t.dialogs.length, 1, 'asked first');
+    assert.equal(t.dialogs[0].confirmLabel, 'Switch to GUI');
+    assert.deepEqual(t.stops, ['s1']);
+    assert.equal(t.opened.length, 0, 'nothing is opened before the exit has been handled');
+    assert.equal(t.call('takeViewSwitchExit')('s1'), true, 'the exit handler hands this exit to the switch');
+    assert.equal(t.call('takeViewSwitchExit')('s1'), false, 'and only once');
+    assert.equal(await done, true);
+    assert.deepEqual(JSON.parse(JSON.stringify(t.destroyed)), [{ id: 's1', opts: { keepTab: true } }],
+      'the old surface is unmounted with its pane tab kept, so the reopen lands in the same tab');
+    assert.equal(t.opened.length, 1);
+    assert.equal(t.opened[0].opts.openerChoice, 'drv', 'opened with the other view as an explicit choice, which main stores');
+    assert.equal(t.opened[0].opts.ignoreLiveOwner, true, 'the process it just stopped is not taken for a foreign owner');
+  } finally { t.destroy(); }
+});
+
+test('a second switch of the same session while one is under way does nothing', async () => {
+  const t = setup();
+  try {
+    runHere(t, inTerminal);
+    const first = t.call('switchSessionView')(inTerminal);
+    await until(() => t.stops.length === 1);
+    assert.equal(await t.call('switchSessionView')(inTerminal), false);
+    assert.equal(t.stops.length, 1, 'not stopped twice');
+    t.call('takeViewSwitchExit')('s1');
+    assert.equal(await first, true);
+    assert.equal(t.opened.length, 1);
+  } finally { t.destroy(); }
+});
+
+test('a session that ended on its own between the confirmation and the stop is still opened in the other view', async () => {
+  const t = setup();
+  try {
+    runHere(t, inTerminal);
+    // The exit arrives before main answers the stop, which then says "not running".
+    t.window.api.stopSession = async (id) => { t.stops.push(id); t.call('takeViewSwitchExit')(id); return { ok: false, error: 'not running' }; };
+    assert.equal(await t.call('switchSessionView')(inTerminal), true);
+    assert.equal(t.toasts.length, 0, 'not reported as a failed stop');
+    assert.equal(t.opened.length, 1);
+    assert.equal(t.opened[0].opts.openerChoice, 'drv');
+  } finally { t.destroy(); }
+});
+
+test('a running session that is working, waiting for an answer or has no conversation yet is not switched', async () => {
+  for (const [what, mark, why] of [
+    ['working on a turn', (t) => t.state.sessionBusyState.set('s1', true), /once it is idle/],
+    ['waiting for an answer', (t) => t.state.attentionSessions.add('s1'), /once it is idle/],
+    ['still pending, with no transcript', (t) => { t.window.pendingSessions = new Map([['s1', {}]]); }, /after its first turn/],
+  ]) {
+    const t = setup();
+    try {
+      runHere(t, inTerminal);
+      mark(t);
+      assert.equal(await t.call('switchSessionView')(inTerminal), false, what);
+      assert.equal(t.stops.length, 0, `${what}: nothing stopped`);
+      assert.equal(t.dialogs.length, 0, `${what}: nothing asked`);
+      assert.match(t.toasts[0], why, `${what}: the user is told why`);
+    } finally { t.destroy(); }
+  }
+});
+
+test('a cancelled confirmation or a refused stop leaves the session running and opens nothing', async () => {
+  const t = setup();
+  try {
+    runHere(t, inTerminal);
+    t.answers.confirm = false;
+    assert.equal(await t.call('switchSessionView')(inTerminal), false);
+    assert.equal(t.stops.length, 0, 'cancelled: not stopped');
+
+    t.answers.confirm = true;
+    t.answers.stop = { ok: false, error: 'not running' };
+    assert.equal(await t.call('switchSessionView')(inTerminal), false);
+    assert.equal(t.opened.length, 0, 'a refused stop opens nothing');
+    assert.match(t.toasts[0], /could not be stopped/);
+    assert.equal(t.call('takeViewSwitchExit')('s1'), false, 'and leaves no switch waiting for an exit');
+  } finally { t.destroy(); }
+});
+
+test('the pane menu offers the other view for its session, disabled while it is busy', () => {
+  const t = setup();
+  try {
+    const items = [];
+    const item = (label, handler, opts = {}) => { items.push({ label, handler, disabled: !!opts.disabled }); };
+    t.state.sessionMap.set('s1', inTerminal);
+    t.window.appendViewSwitchItem('s1', item);
+    assert.deepEqual(items.map(i => [i.label, i.disabled]), [['Open in GUI', false]], 'a dormant session');
+
+    items.length = 0;
+    runHere(t, inTerminal);
+    t.state.sessionBusyState.set('s1', true);
+    t.window.appendViewSwitchItem('s1', item);
+    assert.deepEqual(items.map(i => [i.label, i.disabled]), [['Open in GUI', true]], 'running and busy: shown, not usable');
+
+    items.length = 0;
+    t.state.sessionMap.set('x', { ...inTerminal, sessionId: 'x', backendId: 'solo', ownerBackendId: 'solo' });
+    t.window.appendViewSwitchItem('x', item);
+    assert.equal(items.length, 0, 'no pair, no entry');
+  } finally { t.destroy(); }
+});
+
+test('the exit handler gives a switching session its exit before any banner or tab close', () => {
+  const src = fs.readFileSync(path.join(REN, 'shell', 'session-ipc.js'), 'utf8');
+  const handler = src.slice(src.indexOf('window.api.onProcessExited'));
+  const take = handler.indexOf('takeViewSwitchExit(sessionId)');
+  assert.ok(take > 0, 'the handler asks for the switch');
+  for (const later of ['markExited', 'session exited (code', 'closeTabNow', 'scheduleTabAutoClose', 'destroySession(sessionId)']) {
+    assert.ok(handler.indexOf(later) > take, `${later} comes after it`);
+  }
 });
 
 // --- the main-process half: src/app/session-view.js ---

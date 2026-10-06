@@ -108,6 +108,15 @@ how it was driven is a field of its own. Only the marker is different.
    The sidebar row of such a session keeps the owner's backend badge and shows where it opens (a terminal
    or a conversation glyph) right after it, and *Use the default view* in the palette clears the choice. While either half cannot
    launch, the row keeps its badge and no surface offers a view.
+   **A RUNNING session is switched in place** (step S3, route B): the row's button, the pane menu's Session
+   group and the palette all call `switchSessionView` (`src/renderer/dialogs/dialogs.js`). It refuses while a
+   turn runs, while something waits for an answer, and before the first turn (a session still pending has no
+   transcript, so there would be nothing to resume), asks, stops the process, waits until the exit has been handled
+   and opens the session again with the other view as an explicit choice, which the spawn validates and
+   stores as for a dormant one. The exit handler hands that exit to the switch (`takeViewSwitchExit`), so no
+   banner is written and the tab stays. Chosen over a main-side sequence with a pre-flight because it reuses
+   only existing acts; the price is that the target is checked only by the spawn, after the stop, so a launch
+   that fails leaves the session stopped with the ordinary error rather than still running in the old view.
 6. **A fork carries the marker of where it was made, not of its parent** (measured 2026-10-06, #670). Claude
    rewrites `entrypoint` on the lines a fork copies: a parent driven over the pipe (every line
    `sdk-switchboard`) forked from a terminal-style launch gave a fork whose copied user and assistant lines

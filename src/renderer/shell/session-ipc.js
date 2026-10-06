@@ -324,6 +324,14 @@ window.api.onProcessExited((sessionId, exitCode) => {
   // CLI session keeps its terminal mounted with the exit banner on purpose, so nothing else on the way
   // would take the caption down; it would sit over the banner until the user re-launched.
   if (typeof clearTerminalAttentionNotice === 'function') clearTerminalAttentionNotice(sessionId);
+  // A view switch (#670, `switchSessionView` in dialogs.js) stopped this process to open the session again in
+  // the other view, in the same tab or pane. It takes the exit from here: no banner, no "session ended", and
+  // none of the tab closing a stop brings below. The closed entry is replaced by the reopen.
+  if (typeof takeViewSwitchExit === 'function' && takeViewSwitchExit(sessionId)) {
+    if (entry) entry.closed = true;
+    pollActiveSessions();
+    return;
+  }
   if (entry) {
     entry.closed = true;
     // 'exited' is recorded by the PTY's own exit handler in main (#396) — it knows the code and it knows

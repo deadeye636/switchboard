@@ -957,6 +957,129 @@ function openSessionInOtherView(session) {
   return true;
 }
 
+// --- Switching a RUNNING session to the other view (#670, step S3) ---
+// The existing acts, chained: stop the process, wait until its exit has been handled, open the session again
+// with the other view as an explicit choice. The spawn validates and stores that choice as for a dormant
+// session, so nothing new crosses to main. The switch keeps the session's tab or pane: its exit is taken by
+// `takeViewSwitchExit` (shell/session-ipc.js), which leaves out the exit banner and the tab close a stop
+// would otherwise bring. What this does not do is check the target BEFORE stopping: a launch that fails is
+// reported the way any failed resume is, and the session is then stopped rather than running in the old view.
+const viewSwitchExits = new Map(); // sessionId -> resolve, while a switch waits for that session's exit
+const VIEW_SWITCH_EXIT_TIMEOUT_MS = 15000;
+
+// Called by the exit handler: true when this exit belongs to a view switch, which then takes it from here.
+function takeViewSwitchExit(sessionId) {
+  const resolve = viewSwitchExits.get(sessionId);
+  if (!resolve) return false;
+  viewSwitchExits.delete(sessionId);
+  resolve();
+  return true;
+}
+
+// Is this session running in THIS window, on a surface it holds? A detached session is switched only in the
+// window that renders it, where this answers yes.
+function sessionIsRunningHere(session) {
+  const id = session && session.sessionId;
+  if (!id) return false;
+  if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(id)) return false;
+  if (typeof activePtyIds === 'undefined' || !activePtyIds.has(id)) return false;
+  const entry = typeof openSessions !== 'undefined' ? openSessions.get(id) : null;
+  return !!(entry && !entry.closed);
+}
+
+// Why a running session may not be switched right now, or null. A turn in progress would be cut off, and an
+// open approval or question would be dropped unanswered. A session still pending has no transcript the index
+// has read — Claude writes one only with the first turn — so the reopen would resume a conversation that does
+// not exist. With no busy signal at all (a backend that reports none) this answers null and the confirmation
+// below is the only guard.
+function viewSwitchBlocker(sessionId) {
+  if (typeof pendingSessions !== 'undefined' && pendingSessions.has(sessionId)) return 'has no conversation yet';
+  if (typeof sessionBusyState !== 'undefined' && sessionBusyState.get(sessionId)) return 'is working on a turn';
+  if (typeof attentionSessions !== 'undefined' && attentionSessions.has(sessionId)) return 'is waiting for an answer';
+  return null;
+}
+
+// Is the other view on offer for this session: dormant (it opens there), or running here and idle (it is
+// stopped and opened there)?
+function canSwitchSessionView(session) {
+  if (!session || !sessionViewOf(session)) return false;
+  return sessionIsDormant(session) || sessionIsRunningHere(session);
+}
+
+async function switchSessionView(session) {
+  if (!session) return false;
+  if (sessionIsDormant(session)) return openSessionInOtherView(session);
+  if (!sessionIsRunningHere(session)) return false;
+  const view = sessionViewOf(session);
+  if (!view) return false;
+  const id = session.sessionId;
+  const name = sessionViewSubjectName(session) || id;
+  const say = (message) => { if (typeof showControlToast === 'function') showControlToast({ message }); };
+  // One switch at a time per session: a second one would take over the first one's exit.
+  if (viewSwitchExits.has(id)) return false;
+  const blocked = viewSwitchBlocker(id);
+  const later = (why) => (why === 'has no conversation yet' ? 'Switch its view after its first turn.' : 'Switch its view once it is idle.');
+  if (blocked) { say(`“${name}” ${blocked}. ${later(blocked)}`); return false; }
+  const confirmed = await showControlDialog({
+    title: `Open in ${view.otherLabel}`,
+    message: `The running process is stopped and the session opens again in the ${view.otherLabel}, in the same tab. Text typed but not sent is lost.`,
+    confirmLabel: `Switch to ${view.otherLabel}`,
+    details: { Session: name },
+  });
+  if (!confirmed) return false;
+  // The dialog was open for a while: the session may have ended, moved or started a turn meanwhile, or a
+  // second switch of it may have gone ahead.
+  if (!sessionIsRunningHere(session) || viewSwitchExits.has(id)) return false;
+  const late = viewSwitchBlocker(id);
+  if (late) { say(`“${name}” ${late}. ${later(late)}`); return false; }
+  let ended = false;
+  const exited = new Promise((resolve) => viewSwitchExits.set(id, () => { ended = true; resolve(); }));
+  let stopped = null;
+  try { stopped = await window.api.stopSession(id); } catch { stopped = null; }
+  // A refused stop is "not running" when the process ended on its own between the confirmation and the stop.
+  // That exit came to this switch, so it goes on and opens the session in the other view; otherwise nothing
+  // happened and nothing is waited for.
+  if ((!stopped || !stopped.ok) && !ended) {
+    viewSwitchExits.delete(id);
+    say(`“${name}” could not be stopped, so its view was not switched.`);
+    return false;
+  }
+  activePtyIds.delete(id);
+  let timer = null;
+  const timedOut = await Promise.race([
+    exited.then(() => false),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(true), VIEW_SWITCH_EXIT_TIMEOUT_MS); }),
+  ]);
+  clearTimeout(timer);
+  if (timedOut) {
+    // A re-key between the stop and the exit lands here too: the exit names the new id, the ordinary exit
+    // path takes it, and the session is left stopped. Opening it from the sidebar recovers it.
+    viewSwitchExits.delete(id);
+    say(`“${name}” was stopped but did not end in time, so it was not opened again. Open it from the sidebar.`);
+    return false;
+  }
+  // Unmounted here rather than by `openSession`, which would drop the pane tab with it: the tab stays where it
+  // was, and the reopen below mounts the other view into it.
+  if (typeof destroySession === 'function') destroySession(id, { keepTab: true });
+  // The live-owner guard may still list the process this switch just stopped — its cache outlives the exit —
+  // and would ask whether to resume a session "running elsewhere". It was this app's own.
+  await openSession((typeof sessionMap !== 'undefined' && sessionMap.get(id)) || session, null,
+    { openerChoice: view.otherId, ignoreLiveOwner: true });
+  return true;
+}
+
+// The pane menu's entry (#670): in its Session group, beside where the session renders. panes-view.js knows
+// nothing about views or backends; it hands over the session id and its `item` builder.
+window.appendViewSwitchItem = function (sessionId, item) {
+  const session = (typeof sessionMap !== 'undefined' && sessionMap.get(sessionId))
+    || (typeof openSessions !== 'undefined' && openSessions.get(sessionId) && openSessions.get(sessionId).session) || null;
+  if (!canSwitchSessionView(session)) return;
+  const view = sessionViewOf(session);
+  item(`Open in ${view.otherLabel}`, () => switchSessionView(session), {
+    disabled: sessionIsRunningHere(session) && !!viewSwitchBlocker(sessionId),
+  });
+};
+
 // Take back the view the user chose, so the session opens the automatic way again (#670). Main clears it and
 // pushes projects-changed, because the automatic view is derived there (`openerFor`) and cannot be here.
 async function resetSessionView(session) {
@@ -982,8 +1105,9 @@ function sessionViewSubjectName(session) {
 }
 
 // The command palette's half of #670. Both act on the FOCUSED session (`focusedActionSession`, app.js), are
-// absent where they do not apply — no pair, both halves not launchable (E8), not dormant, nothing stored —
-// and ask again inside `run`, because the palette may have been open while the session started or ended.
+// absent where they do not apply — no pair, both halves not launchable (E8), neither dormant nor running here,
+// nothing stored — and ask again inside `run`, because the palette may have been open while the session started
+// or ended. A running session is switched through `switchSessionView`, which refuses a busy one and asks first.
 if (typeof registerCommandAction === 'function') {
   registerCommandAction({
     id: 'session.view.open-other',
@@ -998,11 +1122,11 @@ if (typeof registerCommandAction === 'function') {
     keywords: 'view terminal gui conversation native switch open in',
     available: () => {
       const session = focusedActionSession();
-      return !!(session && sessionIsDormant(session) && sessionViewOf(session));
+      return canSwitchSessionView(focusedActionSession());
     },
     run: () => {
       const session = focusedActionSession();
-      if (session) openSessionInOtherView(session);
+      if (session) return switchSessionView(session);
     },
   });
   registerCommandAction({

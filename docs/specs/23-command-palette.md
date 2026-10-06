@@ -142,7 +142,11 @@ because all three read one answer: `sessionViewOf`, which says whether the sessi
 owner/driver pair (a CLI in a terminal and the same CLI driven in the GUI) and which half it opens in.
 
 - **`Open “…” in GUI` / `Open “…” in terminal`** opens the focused session in the other view and stores that
-  choice. Offered only for a DORMANT session: switching a running one is a separate act with a busy gate.
+  choice. A dormant session opens there. A session running in this window is switched in place
+  (`switchSessionView`): refused with a toast while a turn runs, while something waits for an answer or
+  before its first turn, otherwise
+  confirmed, stopped and opened again in the other view, in the same tab. A process this window holds no
+  surface for (rendered in another window) is not offered.
 - **`Use the default view for “…”`** clears a stored choice, so the session opens the automatic way again.
   Offered only while a choice is stored. It is the one write about views that is not a spawn, so it goes
   through its own channel (`src/app/session-view.js`), and main pushes `projects-changed` afterwards because
@@ -181,8 +185,9 @@ and not at registration, that a resolver which throws still leaves the row stand
 action never pays for a name nobody reads. `test/handoff-command-action.test.js` covers the action itself
 — absent with no session, named with one, and reaching the same flow the health chip opens.
 `test/session-view.test.js` (#670) covers the two view actions against the real `dialogs.js`: offered for a
-dormant session of a pair, absent while it runs or when a half cannot launch, and the reset only while a
-choice is stored.
+dormant session of a pair and for one running in this window, absent when a half cannot launch, the switch
+of a running session (asked first, stopped, opened only after its exit is handled, refused while busy), and
+the reset only while a choice is stored.
 
 The keyboard path has no test and cannot have a useful one: `node scripts/drive-app.js` is what proves
 F1 opens it from a focused terminal, that the same key closes it, and that a chord no longer

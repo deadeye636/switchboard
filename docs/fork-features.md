@@ -426,8 +426,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   `Pi` / `Pi (native)`) opens where the user last put it, stored per session in `session_meta.opener`.
   Without a stored choice the old routing applies: the transcript marker while the driver can launch,
   otherwise the terminal. The sidebar row keeps the owner's backend badge and shows a terminal or a
-  conversation glyph beside it; a hover button, a palette action and the View field of *Resume with config* open a dormant session
-  in the other view and store the choice, and *Use the default view* clears it. When either half cannot
+  conversation glyph beside it; a hover button, a pane menu entry, a palette action and the View field of
+  *Resume with config* open a session in the other view and store the choice, and *Use the default view*
+  clears it. A running session is switched in place: only while idle (no turn running, nothing waiting for
+  an answer), after a confirmation, by stopping it and opening it again in the same tab. When either half cannot
   launch, none of this is shown and a stored choice waits until it can. Specs:
   [`specs/32-claude-native.md`](specs/32-claude-native.md), [`specs/23-command-palette.md`](specs/23-command-palette.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
