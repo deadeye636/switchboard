@@ -108,6 +108,12 @@ how it was driven is a field of its own. Only the marker is different.
    The sidebar row of such a session keeps the owner's backend badge and shows where it opens (a terminal
    or a conversation glyph) right after it, and *Use the default view* in the palette clears the choice. While either half cannot
    launch, the row keeps its badge and no surface offers a view.
+6. **A fork carries the marker of where it was made, not of its parent** (measured 2026-10-06, #670). Claude
+   rewrites `entrypoint` on the lines a fork copies: a parent driven over the pipe (every line
+   `sdk-switchboard`) forked from a terminal-style launch gave a fork whose copied user and assistant lines
+   all read that launch's own entrypoint. So the parent's marker cannot move a fork into the GUI, and a fork
+   needs no copy of the parent's stored choice: it starts in the view the parent opens in, and its own lines
+   record that view.
 
 **Claude's own `/resume` picker does not list these sessions.** It hides every `sdk-*` entrypoint
 (measured), so a session started here is found in Switchboard, not in the CLI's picker. The terminal
