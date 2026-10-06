@@ -369,6 +369,12 @@ window for a given time, `scripts/renderer-priority.ps1` prints the priorities,
 `scripts/conversation-replay.js` sends the same synthetic stream of ops into a conversation view on
 every run, so a covered run and a visible one can be compared without a model turn.
 
+`drive-app.js console` shows a `VERBOSE Rendering was performed in a subtree hidden by content-visibility`
+from `conversation-view.js` once per time a conversation view is shown again. That is expected: `shown()`
+reads `log.clientHeight` to put the reader back, and that one layout is the cost of showing the view. Measured
+in #723 as four lines for three hide/show cycles and no lines while ops arrived. Many of them while
+nothing is being shown would be a regression.
+
 ## Opening several terminal tabs to verify (WebGL, shared atlas)
 
 To reproduce more than one live terminal at once — needed to see the tabs-mode shared-atlas behaviour
