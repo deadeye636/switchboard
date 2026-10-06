@@ -212,6 +212,8 @@ const store = createFileStore({
 
 `findOnPath(name)` sits there too (PATHEXT-aware, because the npm CLIs are `.cmd` shims on Windows) and is
 used by the db backend as well — PATH resolution is not a file-store concern, but it is not Codex' either.
+It answers from a listing of the PATH directories that every lookup shares for a few seconds (#750): one stat
+per directory per PATHEXT extension cost 45-100 ms per name on the main thread, the listing ~27 ms for all.
 A db backend composes nothing else: its store has no files.
 
 ### The identity seam — three hooks, or a resume bug

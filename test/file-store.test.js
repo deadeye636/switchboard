@@ -10,7 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { createFileStore, findOnPath, pathExtensions, walkStore, BIRTH_HINT_SKEW_MS } = require('../src/backends/file-store');
+const { createFileStore, findOnPath, forgetPathIndex, pathExtensions, walkStore, BIRTH_HINT_SKEW_MS } = require('../src/backends/file-store');
 
 // A store shaped like a real one: nested folders, a mix of matching and non-matching files.
 // `<root>/2026/07/12/log-<id>.jsonl`, with a sidecar the backend must ignore.
@@ -387,6 +387,84 @@ test('findOnPath honours PATHEXT — the npm CLIs are .cmd shims on Windows', ()
     assert.equal(findOnPath('faketool'), exe);
     assert.equal(findOnPath('nosuchtool'), null);
   } finally {
+    process.env.PATH = oldPath;
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// #750: findOnPath answers from a listing of each PATH directory instead of one stat per directory per
+// extension. The answer must not change: first directory wins, then PATHEXT order, a directory named like
+// the tool is not the tool, and a name with a separator below a PATH entry is still found.
+test('findOnPath answers from the directory listing exactly as the stat walk did', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'file-store-index-'));
+  const oldPath = process.env.PATH;
+  const oldExt = process.env.PATHEXT;
+  try {
+    const win = process.platform === 'win32';
+    const first = path.join(root, 'first');
+    const second = path.join(root, 'second');
+    fs.mkdirSync(path.join(first, win ? 'dirtool.CMD' : 'dirtool'), { recursive: true });
+    fs.mkdirSync(path.join(second, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(second, win ? 'dirtool.cmd' : 'dirtool'), '');
+    fs.writeFileSync(path.join(first, win ? 'twice.bat' : 'twice'), '');
+    fs.writeFileSync(path.join(second, win ? 'twice.cmd' : 'twice'), '');
+    fs.writeFileSync(path.join(second, 'tools', win ? 'nested.cmd' : 'nested'), '');
+    process.env.PATH = [path.join(root, 'missing'), first, second].join(path.delimiter);
+    process.env.PATHEXT = '.EXE;.CMD;.BAT';
+
+    assert.equal(findOnPath('dirtool'), path.join(second, win ? 'dirtool.CMD' : 'dirtool'),
+      'a directory named like the tool is skipped; the extension is spelled as PATHEXT spells it');
+    assert.equal(findOnPath('twice'), path.join(first, win ? 'twice.BAT' : 'twice'), 'the first PATH directory wins');
+    assert.equal(findOnPath(path.join('tools', 'nested')), path.join(second, 'tools', win ? 'nested.CMD' : 'nested'));
+  } finally {
+    process.env.PATH = oldPath;
+    if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// #750: the listing is shared for a few seconds, so its edges are pinned: a directory it may not list keeps
+// the name-by-name stat, a tool installed after a lookup is found once the listing expires or is dropped
+// (the spawn path drops it before a launch), and a clock set back does not hold a listing forever.
+test('findOnPath: an unlistable directory still answers, and a dropped or expired listing is read again', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'file-store-expiry-'));
+  const oldPath = process.env.PATH;
+  const oldExt = process.env.PATHEXT;
+  try {
+    const ext = process.platform === 'win32' ? '.CMD' : '';
+    process.env.PATH = dir;
+    process.env.PATHEXT = '.EXE;.CMD;.BAT';
+    let now = 5_000_000;
+    t.mock.method(Date, 'now', () => now);
+
+    assert.equal(findOnPath('latecomer'), null);
+    const exe = path.join(dir, 'latecomer' + ext);
+    fs.writeFileSync(exe, '');
+    assert.equal(findOnPath('latecomer'), null, 'inside its lifetime the listing is what answers');
+    forgetPathIndex();
+    assert.equal(findOnPath('latecomer'), exe, 'a dropped listing is read again');
+
+    fs.rmSync(exe);
+    assert.equal(findOnPath('latecomer'), null, 'a listed name that is gone is checked on disk, not believed');
+    fs.writeFileSync(exe, '');
+    now += 60_000;
+    assert.equal(findOnPath('latecomer'), exe, 'an expired listing is read again');
+
+    const second = path.join(dir, 'second' + ext);
+    fs.writeFileSync(second, '');
+    now -= 3_600_000;
+    assert.equal(findOnPath('second'), second, 'a clock set back is a stale listing, not an eternal one');
+
+    forgetPathIndex();
+    const realReaddir = fs.readdirSync;
+    t.mock.method(fs, 'readdirSync', (p, ...rest) => {
+      if (p === dir) { const e = new Error('denied'); e.code = 'EPERM'; throw e; }
+      return realReaddir(p, ...rest);
+    });
+    assert.equal(findOnPath('latecomer'), exe, 'a directory that cannot be listed is asked name by name');
+  } finally {
+    forgetPathIndex();
     process.env.PATH = oldPath;
     if (oldExt === undefined) delete process.env.PATHEXT; else process.env.PATHEXT = oldExt;
     fs.rmSync(dir, { recursive: true, force: true });

@@ -746,6 +746,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         // A probe that THREW says nothing a user can act on, and its message names the binary it looked
         // for (#457). The line below already reports the descriptor's own reason when there is one.
         try {
+          // The PATH listing a probe reads is shared for a few seconds (#750); a CLI installed just before
+          // this click must not be refused for that, so a launch reads the directories again.
+          if (typeof ctx.backends.forgetPathListing === 'function') ctx.backends.forgetPathListing();
           avail = backend.probe({ launch: true });
           if (avail && typeof avail.then === 'function') {
             avail = await avail;

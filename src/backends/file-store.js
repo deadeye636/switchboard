@@ -36,15 +36,68 @@ function pathExtensions() {
   return (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').map(e => e.trim()).filter(Boolean);
 }
 
+// What each PATH directory holds, read once and shared by every lookup for a few seconds (#750).
+//
+// Asking the disk name by name costs one stat per directory per extension: 92 PATH entries times 14 PATHEXT
+// extensions is ~1,300 stats, measured at 45-100 ms for ONE name on the main thread — and that once for
+// every backend in the roster. Listing the same directories measured ~27 ms for all of them, after which a
+// lookup is a set probe and a single stat of the hit. Keyed on PATH, PATHEXT and the working directory (a relative PATH entry
+// is listed against it), so a changed environment — a test, a settings override — is read afresh.
+//
+// The lifetime is how long a CLI installed into a directory already listed stays unseen. For the availability
+// cache that is noise beside its own 15 s. For a LAUNCH it is not: a user who has just installed a CLI and
+// clicks would be refused for up to five seconds. So the spawn path drops the listing first
+// (`forgetPathIndex`, through the registry's `forgetPathListing`) and pays the ~27 ms once per launch.
+const PATH_INDEX_TTL_MS = 5000;
+let _pathIndex = null;   // { key, at, exts, fold, dirs: [{ dir, names: Set | null }] }
+
+function pathIndex() {
+  const raw = process.env.PATH || '';
+  const exts = pathExtensions();
+  const key = `${raw}\0${exts.join(';')}\0${process.cwd()}`;
+  const now = Date.now();
+  // A clock set back makes the age negative; that is a stale listing too, not an eternal one.
+  const age = _pathIndex ? now - _pathIndex.at : -1;
+  if (_pathIndex && _pathIndex.key === key && age >= 0 && age < PATH_INDEX_TTL_MS) return _pathIndex;
+  // NTFS names are case-insensitive, so `.CMD` finds `codex.cmd`. Off Windows the listing compares exactly,
+  // which is stricter than a stat on a case-insensitive volume (macOS by default); every caller asks for a
+  // lowercase CLI name that its installer writes in lowercase, and `main.js` never asks off Windows.
+  const fold = process.platform === 'win32';
+  const dirs = raw.split(path.delimiter).filter(Boolean).map((dir) => {
+    try {
+      const names = new Set();
+      for (const n of fs.readdirSync(dir)) names.add(fold ? n.toLowerCase() : n);
+      return { dir, names };
+    } catch (err) {
+      // A directory that is not there holds nothing. One we may not LIST may still hold a file we may stat,
+      // so it keeps the name-by-name lookup (`names: null`) rather than being read as empty.
+      const absent = err && (err.code === 'ENOENT' || err.code === 'ENOTDIR');
+      return { dir, names: absent ? new Set() : null };
+    }
+  });
+  _pathIndex = { key, at: now, exts, fold, dirs };
+  return _pathIndex;
+}
+
+/** Drop the PATH listing, so the next lookup reads the directories again (a launch is about to act on it). */
+function forgetPathIndex() {
+  _pathIndex = null;
+}
+
 /**
  * Resolve an executable NAME on PATH. On Windows the extension matters: npm ships these CLIs as `.cmd`
- * shims, so a bare `codex` never stats — hence PATHEXT.
+ * shims, so a bare `codex` never stats — hence PATHEXT. First directory wins, then first extension, and the
+ * answer is spelled `<dir>/<name><ext>` as PATHEXT spells the extension.
  */
 function findOnPath(name) {
-  const exts = pathExtensions();
-  for (const dir of (process.env.PATH || '').split(path.delimiter).filter(Boolean)) {
+  const { exts, fold, dirs } = pathIndex();
+  // A listing names a directory's own entries; `tools/x` lives a level below, so it is asked of the disk.
+  const nested = /[\\/]/.test(name);
+  for (const { dir, names } of dirs) {
     for (const ext of exts) {
-      const p = path.join(dir, name + ext);
+      const file = name + ext;
+      if (names && !nested && !names.has(fold ? file.toLowerCase() : file)) continue;
+      const p = path.join(dir, file);
       try { if (fs.statSync(p).isFile()) return p; } catch { /* keep looking */ }
     }
   }
@@ -283,4 +336,4 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   return { discoverSessions, watchTargets, matchLiveSession, liveRefFor };
 }
 
-module.exports = { createFileStore, findOnPath, pathExtensions, walkStore, readFileTail, BIRTH_HINT_SKEW_MS };
+module.exports = { createFileStore, findOnPath, forgetPathIndex, pathExtensions, walkStore, readFileTail, BIRTH_HINT_SKEW_MS };

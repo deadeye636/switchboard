@@ -764,9 +764,17 @@ install Node, and held that for five minutes. Two rules come out of it:
 not** — so it stays a PATH walk. **And a stale answer is renewed off the caller's path (#722):** the walk
 measured 45-95 ms per backend with 93 PATH entries, and every caller that came less often than the 15 s cache
 lifetime paid the whole roster synchronously — the 45 s live-owners poll held the main thread for up to 1.35 s.
-`availability()` in `src/backends/index.js` returns the last answer and renews it in a timer task of its own
-per backend; only a backend's first answer is taken synchronously. Do not "simplify" that back to a blocking
-refresh, and a caller that needs `isLaunchable` for each row of a `list()` it already holds reads `status` and
+`availability()` in `src/backends/index.js` returns the last answer and renews it off the caller's path; only a
+backend's first answer is taken synchronously. **The renewals are a queue, one `setImmediate` per backend,
+each taken after the last has finished (#750).** A `setTimeout(..., 0)` per backend looked spread out and was
+not: the roster goes stale together, and Node runs every expired timer in one timers phase before it polls
+I/O, so the whole roster ran back to back (1.1-1.6 s) and Claude Code dropped its 1 s hook request to us.
+And `findOnPath` answers from a short-lived listing of the PATH directories (`pathIndex` in `file-store.js`),
+not from one stat per directory per PATHEXT extension — ~27 ms for every directory against 45-100 ms per
+name. The spawn path drops that listing before `probe({ launch: true })` (`forgetPathListing`), so a CLI
+installed a moment before the click is not refused for the listing's lifetime. Do not "simplify" either
+back: not to a blocking refresh, not to timers, not to the stat walk. A caller that needs `isLaunchable` for
+each row of a `list()` it already holds reads `status` and
 `enabled` off those rows instead (`answeringBackends` in `src/app/live-owners.js`). A check that needs a child answers only `probe({ launch: true })`, which
 the spawn path passes when a session is about to start, and may return a Promise there (the spawn path
 awaits it and re-checks for a quit afterwards). claude-native reads `claude --version` that way (#660);

@@ -535,10 +535,19 @@ function has(id) {
 // on each tick, and `get-usage` the same. A stale answer is now returned at once and renewed in a task of its
 // own per backend, so the walk is spread out rather than blocking whoever asked. Only the very first answer
 // for a backend is taken synchronously — there is nothing to return before it.
+//
+// And ONE renewal per turn of the loop (#750). A `setTimeout(..., 0)` per backend was not spread out at all:
+// the roster goes stale together, the timers expire together, and Node runs every expired timer in one timers
+// phase before it looks at I/O again — the whole roster back to back, measured at 1.1-1.6 s, and a Claude Code
+// hook waiting on 127.0.0.1 gave up after its 1 s. The renewals are a queue now, and the next one is taken
+// with `setImmediate` only after the last has finished, so the loop polls I/O between any two of them.
 const PROBE_TTL_MS = 15000;
 const _probeCache = new Map();   // id -> { at, result }
 const _probeRefreshing = new Set();
+const _probeQueue = [];
+let _probeDraining = false;
 const { measured } = require('../perf');
+const { forgetPathIndex } = require('./file-store');
 
 function runProbe(b) {
   try {
@@ -554,11 +563,36 @@ function runProbe(b) {
 function refreshProbeLater(b) {
   if (_probeRefreshing.has(b.id)) return;
   _probeRefreshing.add(b.id);
-  const timer = setTimeout(measured(`backends:probe:${b.id}`, () => {
-    _probeRefreshing.delete(b.id);
+  _probeQueue.push(b);
+  if (!_probeDraining) {
+    _probeDraining = true;
+    renewNextProbe();
+  }
+}
+
+function renewNextProbe() {
+  const b = _probeQueue.shift();
+  if (!b) { _probeDraining = false; return; }
+  // Not `unref`'d: an unreferenced immediate does not keep the poll phase from blocking, so the chain would
+  // wait for the next unrelated I/O. It runs on the next turn either way and holds nothing open after that.
+  // The chain is continued OUTSIDE the measured wrapper, so nothing the measurement does can stop it.
+  const renew = measured(`backends:probe:${b.id}`, () => {
     _probeCache.set(b.id, { at: Date.now(), result: runProbe(b) });
-  }), 0);
-  if (timer && typeof timer.unref === 'function') timer.unref();
+  });
+  setImmediate(() => {
+    try {
+      renew();
+    } finally {
+      // After the answer is stored: a probe that asks list() itself must not queue its own renewal again.
+      _probeRefreshing.delete(b.id);
+      renewNextProbe();
+    }
+  });
+}
+
+/** Drop the shared PATH listing before a launch acts on a probe (#750) — see `forgetPathIndex`. */
+function forgetPathListing() {
+  forgetPathIndex();
 }
 
 function availability(b) {
@@ -735,6 +769,10 @@ function plannedDummy({ id, label, monogram, colour }) {
 // --- test hook: wipe + re-seed the registry deterministically.
 function _resetForTests() {
   registry.clear();
+  // A renewal queued by one test must not run into the next one's registry.
+  _probeCache.clear();
+  _probeRefreshing.clear();
+  _probeQueue.length = 0;
 }
 
 // Seed the default registry: the real adapters (Claude default + Codex, Phase 4) + the planned dummies.
@@ -761,6 +799,6 @@ _seedDefaults();
 
 module.exports = {
   init, register, get, has, list, backendCoreEnv,
-  getDefaultLaunchTarget, isEnabled, isLaunchable, launchable, launchableIds, isOpenerFor, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, storeIsRead, profileToDescriptor,
+  getDefaultLaunchTarget, forgetPathListing, isEnabled, isLaunchable, launchable, launchableIds, isOpenerFor, oneAskerPerCli, openerFor, recordOwnerOf, rowOwnerOf, cliOwnerOf, storesRead, storeIsRead, profileToDescriptor,
   _resetForTests, _seedDefaults, plannedDummy,
 };
