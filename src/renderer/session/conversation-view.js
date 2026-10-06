@@ -268,7 +268,11 @@ function createConversationView(getSession, container) {
   // A hidden WINDOW says no as well: a window covered by others turns `document.hidden` about six seconds after it
   // is covered, and its shown tab keeps `.visible` meanwhile (docs/ai/driving-the-app.md). Measured with a stream
   // of ops, the two layouts per op in such a window cost 23 s of 36.
-  const drawable = () => container.classList.contains('visible') && !document.hidden;
+  // And a grid card scrolled out of the mosaic (#747): every card is `.visible`, so the off-screen set grid-view's
+  // IntersectionObserver keeps is asked, the same one `isSessionVisible` asks for a terminal card. That observer
+  // calls `reveal` when the card scrolls back in.
+  const offscreenInGrid = () => typeof gridOffscreenSessions !== 'undefined' && gridOffscreenSessions.has(getSession().sessionId);
+  const drawable = () => container.classList.contains('visible') && !document.hidden && !offscreenInGrid();
   const shown = () => drawable() && log.clientHeight > 0;
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < CONVERSATION_STICK_PX;
   const renderJump = () => { jumpBtn.hidden = stuck || !shown(); schedulePinned(); };
@@ -2439,6 +2443,8 @@ function createConversationView(getSession, container) {
     // a reveal can drop the log's scroll position without a resize or a scroll event — measured: re-showing
     // the active tab put it back at 0. So the place is put back here too (#689).
     focus: () => { focusView(); reveal(); },
+    // Back on screen without a class change or a window event: a grid card scrolled back in (#747).
+    reveal,
     // The font size changed (#720), and with it every entry's height. The log itself is not zoomed, so no
     // resize reaches the observer: a reader's kept place is scaled with the text, and a reader at the end stays
     // there. Hidden or shown alike — a hidden tab puts `readerTop` back when it is shown.

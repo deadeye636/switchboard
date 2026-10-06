@@ -738,6 +738,9 @@ function initGridObservers() {
           if (typeof flushTerminalBuffer === 'function') flushTerminalBuffer(sid);
           gridOffscreenSessions.delete(sid);
           if (typeof drainReplayBuffer === 'function') drainReplayBuffer(sid);
+          // A conversation card has no replay buffer: its view kept what arrived and draws it now (#747).
+          const entry = openSessions.get(sid);
+          if (entry && entry.conversation && typeof entry.conversation.reveal === 'function') entry.conversation.reveal();
         } else {
           gridOffscreenSessions.add(sid);
           suspendTerminalWebgl(sid);

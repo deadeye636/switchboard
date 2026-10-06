@@ -325,6 +325,36 @@ test('a hidden window counts as hidden: no layout, no drawing, caught up on visi
   assert.equal(log.querySelectorAll(':scope > .jsonl-entry').length, 10, 'a disposed view no longer listens to the window');
 });
 
+// #747: a grid card scrolled out of the mosaic keeps `.visible`; grid-view's off-screen set says it cannot be
+// seen, and its IntersectionObserver calls `reveal` when the card scrolls back in.
+test('a grid card scrolled out of view draws nothing, and catches up when revealed', () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const log = h.entry.element.querySelector('.conversation-log');
+  vm.runInContext('var gridOffscreenSessions = new Set(["s1"]);', h.w);
+  let reads = 0;
+  Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => { reads++; return 300; } });
+  for (let i = 0; i < 5; i++) conv.apply({ op: 'append', entry: { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `g${i}` }] } } });
+  assert.equal(reads, 0, 'no layout read while off-screen');
+  assert.equal(log.querySelectorAll(':scope > .jsonl-entry').length, 0, 'and nothing built');
+  vm.runInContext('gridOffscreenSessions.delete("s1");', h.w);
+  conv.reveal();
+  assert.equal(log.querySelectorAll(':scope > .jsonl-entry').length, 5, 'drawn once the card is back');
+});
+
+// The other half of #747 is grid-view's IntersectionObserver, which jsdom does not have — so its source is read.
+// What is pinned is the order: the card leaves the off-screen set BEFORE the view is asked to catch up, or
+// `reveal` would still find it off-screen and draw nothing until the next op.
+test('grid-view takes a card out of the off-screen set before it reveals its conversation', () => {
+  const { stripComments } = require('./helpers/strip-comments.js');
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'views', 'grid-view.js'), 'utf8'));
+  const branch = src.slice(src.indexOf('if (e.isIntersecting)'), src.indexOf('} else {', src.indexOf('if (e.isIntersecting)')));
+  const cleared = branch.indexOf('gridOffscreenSessions.delete(sid)');
+  const revealed = branch.indexOf('.conversation.reveal()');
+  assert.ok(cleared > 0, 'the intersecting branch clears the off-screen mark');
+  assert.ok(revealed > cleared, 'and reveals the conversation after that');
+});
+
 test('while hidden: a reset drops what was waiting, a shell line keeps its place, a cleared stream stays cleared', async () => {
   const h = setup();
   const conv = h.entry.conversation;
