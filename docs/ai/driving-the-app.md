@@ -351,6 +351,24 @@ node scripts/drive-app.js eval "window.__raf"    # 0 after a second → nothing 
 Layout still measures correctly there: `clientWidth`, `getBoundingClientRect` and a synchronous
 `safeFit` all answer honestly on a hidden window. It is only the deferred and the observed that stop.
 
+**A window COVERED by another window counts as hidden, after a delay** (#723, measured on Windows 11 with
+the demo instance). Chromium's native occlusion tracking is on: about six seconds after another window
+covers it completely, `document.visibilityState` turns `hidden` and `requestAnimationFrame` stops. Before
+that the page is `visible` and draws at 60 fps. Two more measured details:
+
+- **The renderer process drops to `Idle` priority** (base priority 4 instead of 8) while covered. The
+  same DOM work then took 6.5 times as long. A covered window is slow for every renderer job, not only
+  for the ones that wait on a frame.
+- **Only an ordinary window covers it.** A form without a taskbar entry (a tool window) laid over it
+  left the page `visible` for 24 seconds. To cover the window in a test, use a window with a taskbar
+  entry.
+
+The tools for this, Windows only for the first two: `scripts/cover-window.ps1` covers this checkout's
+window for a given time, `scripts/renderer-priority.ps1` prints the priorities,
+`scripts/watch-visibility.js` reads the visibility state from outside once a second, and
+`scripts/conversation-replay.js` sends the same synthetic stream of ops into a conversation view on
+every run, so a covered run and a visible one can be compared without a model turn.
+
 ## Opening several terminal tabs to verify (WebGL, shared atlas)
 
 To reproduce more than one live terminal at once — needed to see the tabs-mode shared-atlas behaviour
