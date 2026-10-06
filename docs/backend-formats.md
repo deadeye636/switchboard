@@ -684,6 +684,13 @@ Switchboard keeps the legacy remote fallback, and if that gives no reading eithe
 Google AI subscription accounts) the status bar says the local endpoint needs a token Switchboard cannot
 obtain yet. Discovering that token is #746.
 
+**MCP servers do not get the token (measured on agy 1.3.0, Windows, 2026-10-06, #746).** A stdio MCP
+server registered with `agy mcp add` and started by an interactive agy session received no variable
+matching `ANTIGRAVITY`, `CODEIUM`, `CSRF`, `LANGUAGE_SERVER`, `LS_` or `GEMINI` in its environment, at start
+and still none five minutes later. So `ANTIGRAVITY_CSRF_TOKEN` and `ANTIGRAVITY_LS_ADDRESS` are not handed to
+MCP children; the only delivery seen so far is to sidecars agy starts itself (#738). Untested: whether shell
+commands agy runs for the agent inherit them.
+
 **"No durable cached reading" is the whole of that condition, and it used to never become true again.**
 The gate is `allowLaunch: !hasCachedUsage`, and `hasCachedUsage` is read from the persistent setting
 `usage:lastSuccessful:agy`, which nothing cleared or aged. So the first reading that succeeded turned the
