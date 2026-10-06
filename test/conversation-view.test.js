@@ -21,6 +21,9 @@ const { composerPathToken } = require('../src/renderer/session/composer-completi
 function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths = {} } = {}) {
   const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>');
   const w = dom.window;
+  // A window in view: jsdom reports `document.hidden` unless told otherwise, and a hidden window draws
+  // nothing (#723). A test of a hidden window redefines it.
+  Object.defineProperty(w.document, 'hidden', { configurable: true, get: () => false });
   const calls = { send: [], abort: 0, attach: 0, copied: [] };
   let resolveSend = null;
   w.api = {
@@ -238,6 +241,116 @@ test('a hidden conversation reads no layout as entries arrive, and goes back to 
   height = 3100;
   await new Promise(r => setTimeout(r, 80));
   assert.equal(scrollTop, 3100, 'followed again once the new entry has its real height');
+});
+
+// #723: a view nobody can see keeps what arrives and draws it once when it is shown — the entries in the order
+// they came, a tool call with every result that arrived meanwhile, and the last state of a streamed turn.
+test('a hidden conversation draws nothing as ops arrive, and draws them in order when shown', async () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const log = h.entry.element.querySelector('.conversation-log');
+  const drawn = () => [...log.querySelectorAll(':scope > .jsonl-entry')].map(d => d.textContent);
+  const text = (t) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: t }] } });
+  const use = (id) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Bash', input: {} }] } });
+  const result = (id) => ({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'out' }] } });
+  conv.apply({ op: 'append', entry: use('t1') });
+  assert.equal(drawn().length, 1);
+  let draws = 0;
+  vm.runInContext('var __draw = renderJsonlEntry; renderJsonlEntry = function (e, r) { __draws++; return __draw(e, r); }; var __draws = 0;', h.w);
+  const counted = () => vm.runInContext('__draws', h.w);
+  h.entry.element.classList.remove('visible');
+  await h.settle();
+  conv.apply({ op: 'append', entry: text('second') });
+  conv.apply({ op: 'append', entry: result('t1') });
+  conv.apply({ op: 'append', entry: use('t2') });
+  conv.apply({ op: 'append', entry: result('t2') });
+  for (let i = 0; i < 5; i++) conv.apply({ op: 'partial', entry: text(`stream ${i}`) });
+  draws = counted();
+  assert.equal(draws, 0, 'nothing is built while hidden');
+  assert.equal(drawn().length, 1);
+  h.entry.element.classList.add('visible');
+  await h.settle();
+  assert.equal(counted(), 4, 'on show: the first call once with its result, the two new entries, the streamed turn once');
+  const shown = drawn();
+  assert.equal(shown.length, 3);
+  assert.match(shown[0], /t1/);
+  assert.match(shown[1], /second/);
+  assert.match(shown[2], /t2/);
+  assert.match(log.querySelector('.conversation-partial').textContent, /stream 4/, 'the last state of the streamed turn');
+});
+
+test('a notice while hidden lands after the entries that arrived before it', async () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const log = h.entry.element.querySelector('.conversation-log');
+  h.entry.element.classList.remove('visible');
+  await h.settle();
+  conv.apply({ op: 'append', entry: { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'before' }] } } });
+  conv.apply({ op: 'notice', level: 'info', text: 'the notice' });
+  conv.apply({ op: 'append', entry: { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'after' }] } } });
+  h.entry.element.classList.add('visible');
+  await h.settle();
+  const order = [...log.querySelectorAll(':scope > .jsonl-entry')].map(d => d.textContent);
+  assert.equal(order.length, 3);
+  assert.match(order[0], /before/);
+  assert.equal(order[1], 'the notice');
+  assert.match(order[2], /after/);
+});
+
+// A covered or minimised window: `.visible` stays, `document.hidden` turns true. The view reads no layout and
+// builds nothing, and catches up when the window is back.
+test('a hidden window counts as hidden: no layout, no drawing, caught up on visibilitychange', async () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const log = h.entry.element.querySelector('.conversation-log');
+  let hidden = true;
+  Object.defineProperty(h.w.document, 'hidden', { configurable: true, get: () => hidden });
+  let reads = 0;
+  let scrollTop = 0;
+  Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => { reads++; return 300; } });
+  Object.defineProperty(log, 'scrollHeight', { configurable: true, get: () => { reads++; return 2000; } });
+  Object.defineProperty(log, 'scrollTop', { configurable: true, get: () => scrollTop, set: (v) => { scrollTop = v; } });
+  for (let i = 0; i < 10; i++) conv.apply({ op: 'append', entry: { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `e${i}` }] } } });
+  assert.equal(reads, 0, 'no layout read while the window is hidden');
+  assert.equal(log.querySelectorAll(':scope > .jsonl-entry').length, 0, 'and nothing built');
+  hidden = false;
+  h.w.document.dispatchEvent(new h.w.Event('visibilitychange'));
+  assert.equal(log.querySelectorAll(':scope > .jsonl-entry').length, 10, 'drawn when the window is back');
+  assert.equal(scrollTop, 2000, 'and back at the end');
+  conv.dispose();
+  hidden = true;
+  conv.apply({ op: 'append', entry: { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'late' }] } } });
+  hidden = false;
+  h.w.document.dispatchEvent(new h.w.Event('visibilitychange'));
+  assert.equal(log.querySelectorAll(':scope > .jsonl-entry').length, 10, 'a disposed view no longer listens to the window');
+});
+
+test('while hidden: a reset drops what was waiting, a shell line keeps its place, a cleared stream stays cleared', async () => {
+  const h = setup();
+  const conv = h.entry.conversation;
+  const log = h.entry.element.querySelector('.conversation-log');
+  const text = (t) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: t }] } });
+  const drawn = () => [...log.querySelectorAll(':scope > .jsonl-entry')].map(d => d.textContent);
+  conv.apply({ op: 'partial', entry: text('streaming') });
+  assert.match(log.querySelector('.conversation-partial').textContent, /streaming/);
+  h.entry.element.classList.remove('visible');
+  await h.settle();
+  conv.apply({ op: 'append', entry: text('dropped') });
+  conv.apply({ op: 'reset', entries: [text('kept')] });
+  conv.apply({ op: 'append', entry: text('before the shell line') });
+  conv.apply({ op: 'localCommand', id: 'c1', command: 'ls', output: '', status: 'running' });
+  conv.apply({ op: 'localCommand', id: 'c1', output: 'a.txt', status: 'done' });
+  conv.apply({ op: 'append', entry: text('after the shell line') });
+  conv.apply({ op: 'partial', entry: null });
+  h.entry.element.classList.add('visible');
+  await h.settle();
+  const order = drawn();
+  assert.equal(order.length, 4, order.join(' | '));
+  assert.match(order[0], /kept/);
+  assert.match(order[1], /before the shell line/);
+  assert.equal(order[2], 'ls\na.txt', 'the shell line with its final output, where it started');
+  assert.match(order[3], /after the shell line/);
+  assert.equal(log.querySelector('.conversation-partial').childElementCount, 0, 'the stream that ended while hidden is gone');
 });
 
 // #709: the prompt of the turn being read is pinned over the log's top edge once it has scrolled out above,

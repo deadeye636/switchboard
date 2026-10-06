@@ -265,7 +265,11 @@ function createConversationView(getSession, container) {
   // log's height inside it would make the browser lay out the very content it is skipping — per arriving
   // entry, while nobody can see it. `clientHeight` is still asked after that, for a container that is shown but
   // has no size yet (the restore at launch, a pane still being built).
-  const shown = () => container.classList.contains('visible') && log.clientHeight > 0;
+  // A hidden WINDOW says no as well: a window covered by others turns `document.hidden` about six seconds after it
+  // is covered, and its shown tab keeps `.visible` meanwhile (docs/ai/driving-the-app.md). Measured with a stream
+  // of ops, the two layouts per op in such a window cost 23 s of 36.
+  const drawable = () => container.classList.contains('visible') && !document.hidden;
+  const shown = () => drawable() && log.clientHeight > 0;
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < CONVERSATION_STICK_PX;
   const renderJump = () => { jumpBtn.hidden = stuck || !shown(); schedulePinned(); };
 
@@ -366,6 +370,9 @@ function createConversationView(getSession, container) {
   if (typeof ResizeObserver === 'function') {
     new ResizeObserver(() => { restore(); renderJump(); tick(); }).observe(log);
   }
+  // Shown again, by either of the two signals below: what arrived meanwhile is drawn once, and the reader is put
+  // back. `follow` after `restore`, because the entries just drawn take their real height a frame later.
+  const reveal = () => { if (drawable()) flushDeferred(); restore(); follow(); renderJump(); tick(); };
   // …and shown again without changing size (#723): a hidden container keeps its box now, so the observer above
   // does not fire on a tab switch. The `.visible` class is what both display modes set on show — panes, and
   // grid in its single view and on its cards.
@@ -375,9 +382,12 @@ function createConversationView(getSession, container) {
       const now = container.classList.contains('visible');
       if (now === wasShown) return;
       wasShown = now;
-      if (now) { restore(); renderJump(); tick(); }
+      if (now) reveal();
     }).observe(container, { attributes: true, attributeFilter: ['class'] });
   }
+  // …and the window itself back in view: uncovered, restored from the taskbar. Removed again in `dispose`.
+  const onWindowVisibility = () => { if (!document.hidden) reveal(); };
+  document.addEventListener('visibilitychange', onWindowVisibility);
   jumpBtn.addEventListener('click', () => { toEnd(); focusView(); });
 
   // The CLI's keys for its history (#689): Ctrl+Home / Ctrl+End to either end, PageUp / PageDown a page at a
@@ -435,6 +445,31 @@ function createConversationView(getSession, container) {
     if (!el) return;
     // Before the partial/activity/asks tail, which always stays at the bottom of the log.
     log.insertBefore(el, partialEl);
+  }
+
+  // What arrived while the view could not be seen (#723). The entries are kept as they arrive; only their
+  // drawing waits: the indices whose element is missing or out of date, and whether the streaming entry is.
+  // Measured with a stream of ops, building them in a covered window cost 6.5 times what it costs in view.
+  // Drawn once by `flushDeferred` when the view is shown again — and before anything else is inserted into the
+  // log, so the order the ops arrived in is the order on screen.
+  const deferred = new Set();
+  let partialDeferred = false;
+  function flushDeferred() {
+    if (!deferred.size && !partialDeferred) return;
+    const indices = [...deferred].sort((a, b) => a - b);
+    deferred.clear();
+    for (const index of indices) {
+      const old = view.elements[index];
+      const fresh = renderOne(index);
+      // An index never drawn (`undefined`, not the `null` of an entry that draws nothing) is one appended
+      // meanwhile; they are in order, so each goes at the end.
+      if (old === undefined) { view.elements[index] = fresh; insertEntryEl(index, fresh); continue; }
+      if (fresh) old.replaceWith(fresh);
+      view.elements[index] = fresh || old;
+    }
+    if (partialDeferred) { partialDeferred = false; renderPartial(); }
+    // `promptIndices` skips an entry that has no element yet and does not come back for it.
+    promptCache.entries = null;
   }
 
   // --- A sent message, until the runtime plays it back (#694) ---
@@ -556,6 +591,8 @@ function createConversationView(getSession, container) {
     settlePendingSend(entry);
     const index = view.entries.push(entry) - 1;
     conversationNoteResults(view.results, entry);
+    const hidden = !drawable();
+    if (!hidden) flushDeferred();
     const resultIds = conversationResultIds(entry);
     if (resultIds) {
       view.elements[index] = null;
@@ -563,6 +600,8 @@ function createConversationView(getSession, container) {
         view.tools.delete(id);
         const owner = conversationOwnerIndex(view, id);
         if (owner < 0) continue;
+        // Its call is drawn again with every result: once on show, however many arrived meanwhile.
+        if (hidden) { deferred.add(owner); continue; }
         const old = view.elements[owner];
         const fresh = renderOne(owner);
         if (old && fresh) old.replaceWith(fresh);
@@ -571,6 +610,7 @@ function createConversationView(getSession, container) {
       renderActivity();
       return;
     }
+    if (hidden) { deferred.add(index); return; }
     const el = renderOne(index);
     view.elements[index] = el;
     insertEntryEl(index, el);
@@ -586,6 +626,8 @@ function createConversationView(getSession, container) {
   function localCommand(op) {
     const id = String(op.id == null ? '' : op.id);
     if (!id) return;
+    // Drawn even while hidden, so it lands after what arrived before it (#723). A shell line is rare enough.
+    flushDeferred();
     const known = view.localCommands.get(id);
     const command = op.command != null ? String(op.command) : (known ? known.command : '');
     const entry = { type: 'local-command', _localCmd: { cmd: command, output: String(op.output || '') } };
@@ -627,6 +669,7 @@ function createConversationView(getSession, container) {
     view.entries = [];
     view.elements = [];
     view.results = new Map();
+    deferred.clear();
     // A re-mount re-reads the conversation from the runtime, and a finished shell line is in it as an
     // ordinary entry — so nothing here may still claim an index into the list just thrown away.
     view.localCommands.clear();
@@ -636,6 +679,9 @@ function createConversationView(getSession, container) {
   }
 
   function renderPartial() {
+    // A streamed turn sends its whole text again with every delta; a hidden view draws the last one on show.
+    if (!drawable()) { partialDeferred = true; return; }
+    partialDeferred = false;
     partialEl.replaceChildren();
     if (!view.partial) return;
     const el = renderJsonlEntry(view.partial, new Map());
@@ -1445,6 +1491,8 @@ function createConversationView(getSession, container) {
   // reasons: a page is handed to the OS browser, a file to the OS default application, and main guards
   // the second against sensitive paths. Neither field says which backend asked.
   function notice(level, text, links, files) {
+    // Drawn even while hidden, so it lands after what arrived before it (#723). Notices are rare.
+    flushDeferred();
     const div = document.createElement('div');
     div.className = 'jsonl-entry jsonl-meta-entry conversation-notice conversation-notice-' + (level || 'info');
     const line = document.createElement('div');
@@ -2390,7 +2438,7 @@ function createConversationView(getSession, container) {
     // Every path that shows this view calls it (showSession, focusGridCard, the panes' applyPendingFocus), and
     // a reveal can drop the log's scroll position without a resize or a scroll event — measured: re-showing
     // the active tab put it back at 0. So the place is put back here too (#689).
-    focus: () => { focusView(); restore(); renderJump(); tick(); },
+    focus: () => { focusView(); reveal(); },
     // The font size changed (#720), and with it every entry's height. The log itself is not zoomed, so no
     // resize reaches the observer: a reader's kept place is scaled with the text, and a reader at the end stays
     // there. Hidden or shown alike — a hidden tab puts `readerTop` back when it is shown.
@@ -2401,7 +2449,7 @@ function createConversationView(getSession, container) {
       if (stuck) follow(); else log.scrollTop = readerTop;
       renderJump();
     },
-    dispose: () => {},
+    dispose: () => { document.removeEventListener('visibilitychange', onWindowVisibility); },
   };
 }
 
