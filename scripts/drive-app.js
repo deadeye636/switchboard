@@ -10,8 +10,8 @@
 //        node scripts/drive-app.js shot out.png            a screenshot of the window
 //        node scripts/drive-app.js eval "<js>"             run JS in the renderer, print the result
 //        node scripts/drive-app.js text "<selector>"       the text content of the first match
-//        node scripts/drive-app.js click "<selector>"      click the first match
-//        node scripts/drive-app.js clicktext "<sel>" "<s>" click the first match whose text contains <s>
+//        node scripts/drive-app.js click "<selector>"      a real mouse click at the first match
+//        node scripts/drive-app.js clicktext "<sel>" "<s>" the same, at the first match whose text contains <s>
 //        node scripts/drive-app.js count "<selector>"      how many match
 //        node scripts/drive-app.js dims ["<sessionId>"]     the active terminal's geometry + renderer state
 //        node scripts/drive-app.js console [seconds]       what the renderer logged, incl. failed loads
@@ -139,13 +139,7 @@ const COMMANDS = {
 
   async click(cdp, [selector]) {
     if (!selector) throw new Error('click needs a selector');
-    return evaluate(cdp, `(() => {
-      const el = document.querySelector(${lit(selector)});
-      if (!el) return 'NOT FOUND: ' + ${lit(selector)};
-      el.scrollIntoView({ block: 'center' });
-      el.click();
-      return 'clicked: ' + (el.innerText || el.title || el.className || el.tagName).slice(0, 60);
-    })()`);
+    return pointerClick(cdp, `document.querySelector(${lit(selector)})`, `'NOT FOUND: ' + ${lit(selector)}`);
   },
 
   // A REAL HTML5 drag from one element to a point inside another.
@@ -277,16 +271,56 @@ const COMMANDS = {
   // The one that matters in a list: "the row that says X, and the button in it".
   async clicktext(cdp, [selector, needle]) {
     if (!selector || !needle) throw new Error('clicktext needs a selector and a string');
-    return evaluate(cdp, `(() => {
-      const all = [...document.querySelectorAll(${lit(selector)})];
-      const el = all.find(e => (e.innerText || '').includes(${lit(needle)}));
-      if (!el) return 'NOT FOUND: ' + all.length + ' candidates, none containing ' + ${lit(needle)};
-      el.scrollIntoView({ block: 'center' });
-      el.click();
-      return 'clicked: ' + (el.innerText || el.className).slice(0, 60);
-    })()`);
+    return pointerClick(cdp,
+      `[...document.querySelectorAll(${lit(selector)})].find(e => (e.innerText || '').includes(${lit(needle)}))`,
+      `'NOT FOUND: ' + document.querySelectorAll(${lit(selector)}).length + ' candidates, none containing ' + ${lit(needle)}`);
   },
 };
+
+// A REAL click: the mouse moves to the element's centre, presses and releases there through CDP (#682).
+//
+// `el.click()` dispatches one synthetic `click` and nothing else. A control that acts on `mousedown` or
+// `pointerdown` never sees it — the command palette's rows run on `mousedown` — and the command still
+// printed `clicked:`, so a click test reported an interaction that had not happened and the app looked
+// broken where only the tool was. The same lesson `drag` above was built on: a synthesised event is not an
+// interaction.
+//
+// A real press lands on whatever is TOPMOST at that point, which is the honest answer and also a new way to
+// miss: an overlay, a tooltip or a closed menu's backdrop over the element takes the click instead. So the
+// point is hit-tested first and the command says what is in the way rather than pressing on it.
+// `locate` is an expression that yields the element or nothing; `missing` yields the message for nothing.
+async function pointerClick(cdp, locate, missing) {
+  const spot = await evaluate(cdp, `(() => {
+    const el = ${locate};
+    if (!el) return { error: ${missing} };
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    const r = el.getBoundingClientRect();
+    // getAttribute, not className: on an SVG element className is an object, not the class string.
+    const classesOf = (n) => (n.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean);
+    const named = (n) => n.id ? '#' + n.id : (classesOf(n).length ? '.' + classesOf(n).join('.') : n.tagName);
+    const label = (el.innerText || el.title || named(el)).toString().slice(0, 60) + (el.disabled ? ' (disabled)' : '');
+    if (r.width === 0 || r.height === 0) return { error: 'NOT VISIBLE (zero size): ' + label };
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const top = document.elementFromPoint(x, y);
+    if (!top) return { error: 'NOT VISIBLE (outside the window): ' + label };
+    // An element with pointer-events:none (an icon inside a button) passes the press to what holds it.
+    const passesThrough = getComputedStyle(el).pointerEvents === 'none' && top.contains(el);
+    if (top !== el && !el.contains(top) && !passesThrough) {
+      return { error: 'COVERED by ' + named(top) + ' — a real click would land there, not on: ' + label };
+    }
+    // Said in the result: the press reached the holder, and only that, so a disabled bar's button whose
+    // pointer-events are switched off must not read as a plain success.
+    if (passesThrough && top !== el) return { x, y, label, landed: named(top) };
+    return { x, y, label };
+  })()`);
+  if (!spot || spot.error) return spot ? spot.error : 'NOT FOUND';
+  const at = { x: spot.x, y: spot.y, button: 'left', clickCount: 1 };
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: spot.x, y: spot.y, button: 'none', buttons: 0 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, buttons: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, buttons: 0 });
+  if (spot.landed) return `clicked through (pointer-events:none, the press landed on ${spot.landed}): ${spot.label}`;
+  return 'clicked: ' + spot.label;
+}
 
 async function main() {
   const argv = process.argv.slice(2);

@@ -10,7 +10,7 @@ npm run start:debug                                   # app + DevTools port 9222
 node scripts/drive-app.js eval "<js>"                 # run JS in the renderer, print the result
 node scripts/drive-app.js text "<selector>"           # innerText of the first match
 node scripts/drive-app.js count "<selector>"          # how many match
-node scripts/drive-app.js click "<selector>"          # click the first match
+node scripts/drive-app.js click "<selector>"          # a REAL click at the first match's centre
 node scripts/drive-app.js clicktext "<sel>" "<text>"  # click the first match containing <text>
 node scripts/drive-app.js drag "<from>" "<to>" [zone] # a REAL drag: center|left|right|top|bottom of <to>
 node scripts/drive-app.js console [seconds]           # renderer console (default 2 s) — finds a ReferenceError in seconds
@@ -18,6 +18,14 @@ node scripts/drive-app.js dims ["<sessionId>"]        # active terminal geometry
 node scripts/drive-app.js shot [out.png]              # screenshot the window (default app.png)
 node scripts/drive-app.js --target=settings shot s.png  # …a SECOND window, by title or URL
 ```
+
+`click` and `clicktext` press and release the mouse at the element's centre through CDP, so a handler on
+`mousedown`, `pointerdown` or `click` sees what a hand would give it (#682). They used to call `el.click()`,
+which fires one synthetic `click` and nothing else: a command palette row, which runs on `mousedown`, stayed
+put while the tool printed `clicked:`. The point is hit-tested first, so an overlay or a backdrop over the
+element is reported as `COVERED by …` instead of taking the press, and an element of zero size as
+`NOT VISIBLE`. The pointer stays where it pressed, as a hand would leave it, so a hover tooltip may open
+there and cover the next target. There is no synthetic form left; when a script really wants one, `eval` says so in its own text.
 
 The other half of "run it and look" is what the app costs while nobody looks. `scripts/perf-sample.js`
 reads the same port on an interval and writes one JSON line per sample — the per-page counters that are
@@ -109,7 +117,7 @@ would do. Give the renderer a second after launch; a query fired too early answe
 
 The tour shows on any profile whose global settings carry no `welcomeDismissed`, and a sandbox created
 for one agent run is exactly that. It is a modal overlay, so the first `click` or `clicktext` of a script
-that has not accounted for it lands on `.wt-overlay` and reports nothing useful.
+that has not accounted for it reports `COVERED by …`, naming the tour's overlay or dialog, and presses nothing.
 
 `npm run demo:start` is covered — `scripts/demo-settings.js` stamps the flag when it is absent — but a
 sandbox pointed at a bare `SWITCHBOARD_DATA_DIR` is not. Two ways out, and the first is the cheap one:
