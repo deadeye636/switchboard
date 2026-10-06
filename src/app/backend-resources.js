@@ -255,9 +255,14 @@ async function writeResource(backendId, resourcePath, content, projectPath, base
   if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
   // Whether the format could be checked at all travels with the answer: a backend may declare an
   // extension this app has no parser for, and "saved without a check" is a different promise from
-  // "checked and fine". The panel says which one happened.
-  const checked = validateContent(resourcePath, content);
-  return { ok: true, content: result.content, mtimeMs: result.mtimeMs, unchecked: !!checked.unchecked };
+  // "checked and fine". The panel says which one happened. Read off the write's own verdict: parsing the
+  // same text again here doubled the cost of every save (#610). `tooLarge` says why a known format was not
+  // checked, so the panel does not claim it cannot check TOML at all.
+  const checked = result.verdict || {};
+  return {
+    ok: true, content: result.content, mtimeMs: result.mtimeMs,
+    unchecked: !!checked.unchecked, tooLarge: !!checked.tooLarge,
+  };
 }
 
 /**

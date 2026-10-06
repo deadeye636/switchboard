@@ -63,6 +63,14 @@ and a backend that invents a format gets an entry here rather than a rule of its
 check would refuse files they are perfectly happy with. A format with no parser is saved and *says* it
 was not checked — a different promise from checked and fine.
 
+**A ceiling per parser (#610).** The parse runs on the main process, so a large document held the whole app
+while it was checked: `smol-toml` grows with the square of the key count and took seconds at the reader's
+own 2 MB. Above `CHECK_CEILING` the save goes ahead unchecked and the reply carries `tooLarge`, which the
+panel words as "too large to check" rather than "cannot check this format". The numbers and the measurement
+behind them sit beside the constant; `node scripts/measure-format-validate.js` re-runs it. The write's own
+check is also the reply's answer now (`writeTextFile` returns its `verdict`), so a save parses once, not
+twice.
+
 ## What each backend allows is the backend's answer
 
 Two declarations, because both questions are its own:

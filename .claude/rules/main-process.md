@@ -303,7 +303,10 @@ had already happened somewhere:
   save would otherwise rewrite every line of a CRLF file.
 
 `format-validate.js` decides whether the text still parses, by EXTENSION rather than by backend. Syntax
-only, never schema: the CLIs change their own schemas whenever they like.
+only, never schema: the CLIs change their own schemas whenever they like. It parses on this process, so
+each parser has a ceiling (`CHECK_CEILING`, #610): above it the save goes ahead UNCHECKED with `tooLarge`,
+never refused, and `writeTextFile` hands back its validator's `verdict` so a caller reports the check
+without parsing the text a second time.
 
 Every writer goes through it — `saveMemory`, `savePlan`, `saveHandoff` (#468), `save-file-for-panel`, the
 resource writer in `backend-resources.js`, the attention hook's settings writes, `planConventionApply`, and

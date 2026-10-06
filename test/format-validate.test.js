@@ -7,7 +7,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { validateContent, canValidate } = require('../src/app/format-validate');
+const { validateContent, canValidate, CHECK_CEILING } = require('../src/app/format-validate');
 
 const BOM = '﻿';
 
@@ -72,4 +72,26 @@ test('a missing name or empty text is an answer, not a throw', () => {
   assert.equal(validateContent(null, 'anything').ok, true);
   assert.equal(validateContent('settings.json', '').ok, false, 'an empty settings file is not valid JSON');
   assert.equal(validateContent('notes.md', '').ok, true);
+});
+
+// #610: the parse runs on the main process, so above a per-format ceiling the save goes ahead UNCHECKED and
+// says why, rather than holding the app for seconds. Just under the ceiling a broken document is still caught.
+test('above its ceiling a document is saved unchecked and marked too large; below it the check still runs', () => {
+  const cases = [
+    ['a.json', CHECK_CEILING.json, (n) => '"' + 'x'.repeat(n) + '"', (n) => '{' + 'x'.repeat(n)],
+    ['a.toml', CHECK_CEILING.toml, (n) => 'k = "' + 'x'.repeat(n) + '"', (n) => 'k = ' + 'x'.repeat(n)],
+    ['a.yaml', CHECK_CEILING.yaml, (n) => 'k: ' + 'x'.repeat(n), (n) => 'k: [' + 'x'.repeat(n)],
+  ];
+  for (const [file, ceiling, valid, broken] of cases) {
+    assert.deepEqual({ ...validateContent(file, valid(ceiling)) }, { ok: true, unchecked: true, tooLarge: true }, `${file}: over the ceiling`);
+    assert.deepEqual(validateContent(file, valid(ceiling - 20)), { ok: true }, `${file}: under it, checked and fine`);
+    assert.equal(validateContent(file, broken(ceiling - 20)).ok, false, `${file}: under it, a broken document is still refused`);
+  }
+  const front = (n) => '---\nk: ' + 'x'.repeat(n) + '\n---\nbody';
+  assert.equal(validateContent('SKILL.md', front(CHECK_CEILING.yaml)).tooLarge, true, 'a frontmatter block shares the YAML ceiling');
+  assert.deepEqual(validateContent('SKILL.md', '---\nk: v\n---\n' + 'prose '.repeat(200000)), { ok: true }, 'a long BODY is no reason to skip the check');
+});
+
+test('the ceilings keep the order the measurement found: TOML is the most expensive parser by far', () => {
+  assert.ok(CHECK_CEILING.toml < CHECK_CEILING.yaml && CHECK_CEILING.yaml < CHECK_CEILING.json);
 });

@@ -177,3 +177,16 @@ test('a directory where a file belongs is a failure, not a missing file', () => 
   assert.equal(result.code, 'failed');
   assert.equal(result.cause && result.cause.code, 'EISDIR');
 });
+
+// #610: the write hands back what its validator answered, so a caller that reports how the check went does
+// not parse the same text a second time.
+test('a successful write returns the validator\'s verdict, and null without one', () => {
+  const file = tmpFile('settings.json', '{"a":1}\n');
+  const verdict = { ok: true, unchecked: true, tooLarge: true };
+  let calls = 0;
+  const result = writeTextFile(file, '{"a":2}\n', { validate: () => { calls++; return verdict; } });
+  assert.equal(result.ok, true);
+  assert.equal(result.verdict, verdict);
+  assert.equal(calls, 1);
+  assert.equal(writeTextFile(file, '{"a":3}\n').verdict, null);
+});

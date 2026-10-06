@@ -122,10 +122,12 @@ function failed(err) {
  *   mustExist      — refuse when the file is not there (an edit, as opposed to a create).
  *   validate       — `(text) => ({ ok, error })`; runs on the caller's text before anything is written.
  *
- * Returns `{ ok: true, content, mtimeMs }` with the text as it was actually WRITTEN — which is not what
- * was handed in, once the file's own line endings and BOM are back on it, and is therefore what a caller
- * should move its baseline to. On refusal: `{ ok: false, code }` where `code` is `missing`, `stale`
- * (with `conflict` and `diskContent`), `invalid` (with `error`) or `failed` (with `cause`, unworded).
+ * Returns `{ ok: true, content, mtimeMs, verdict }` with the text as it was actually WRITTEN — which is not
+ * what was handed in, once the file's own line endings and BOM are back on it, and is therefore what a
+ * caller should move its baseline to. `verdict` is what `validate` answered (null without one), so a caller
+ * that reports how the check went reads it instead of parsing the same text a second time (#610).
+ * On refusal: `{ ok: false, code }` where `code` is `missing`, `stale` (with `conflict` and `diskContent`),
+ * `invalid` (with `error`) or `failed` (with `cause`, unworded).
  */
 function writeTextFile(file, content, { expectPrevious = null, mustExist = true, validate = null, rename = fs.renameSync } = {}) {
   const target = path.resolve(file);
@@ -149,8 +151,8 @@ function writeTextFile(file, content, { expectPrevious = null, mustExist = true,
       diskContent: onDisk,
     };
   }
+  let verdict = null;
   if (typeof validate === 'function') {
-    let verdict = null;
     // A validator that throws is a validator that could not answer, and an unanswered check is a no: the
     // whole point of this step is that a file a CLI reads is not left in a state nobody verified. Its own
     // words are not passed on — a thrown parser message can carry the path it was reading.
@@ -178,7 +180,7 @@ function writeTextFile(file, content, { expectPrevious = null, mustExist = true,
   if (renameErr) return failed(renameErr);
   let mtimeMs = 0;
   try { mtimeMs = fs.statSync(target).mtimeMs; } catch { /* it was written; an unreadable stat is not a failure */ }
-  return { ok: true, content: text, mtimeMs };
+  return { ok: true, content: text, mtimeMs, verdict };
 }
 
 // `renameWithRetry` is exported under its own name because a second caller earned it: the transcript

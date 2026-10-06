@@ -373,3 +373,21 @@ test('the listed directory itself is never the delete target', async () => {
   assert.equal(res.ok, false);
   assert.equal(fs.existsSync(box.skillsDir), true);
 });
+
+// #610: one parse per save. The write's own check answers whether the format was checked; asking the parser
+// again for the reply doubled what every save cost on the main process.
+test('a save parses its text once, and says when it was too large to check', async (t) => {
+  const box = setup();
+  const parse = t.mock.method(JSON, 'parse');
+  const res = await backendResources.writeResource('stub', box.settings, '{\n  "a": 2\n}\n', null, null);
+  assert.equal(res.ok, true);
+  assert.equal(res.unchecked, false);
+  const ofSave = parse.mock.calls.filter(c => String(c.arguments[0]).includes('"a": 2'));
+  assert.equal(ofSave.length, 1, 'the saved text went through the parser once');
+
+  const { CHECK_CEILING } = require('../src/app/format-validate');
+  const big = '{"a":"' + 'x'.repeat(CHECK_CEILING.json) + '"}\n';
+  const large = await backendResources.writeResource('stub', box.settings, big, null, null);
+  assert.equal(large.ok, true, 'saved all the same');
+  assert.deepEqual([large.unchecked, large.tooLarge], [true, true], 'and the reply says why it was not checked');
+});

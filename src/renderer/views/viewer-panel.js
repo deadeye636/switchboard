@@ -807,7 +807,12 @@ class ViewerPanel {
         // A format this app has no parser for is saved, and says so (#441). The flash above means "it is
         // on disk"; without this line it would also read as "and it is valid", which nobody checked.
         if (result && result.unchecked && typeof showControlToast === 'function') {
-          showControlToast({ message: 'Saved. Switchboard cannot check this format for you.', timeoutMs: 3000 });
+          // Too large is a different sentence (#610): the format is one Switchboard checks, just not at this
+          // size, because the check would hold the app for seconds.
+          const message = result.tooLarge
+            ? 'Saved. The file is too large for Switchboard to check its format.'
+            : 'Saved. Switchboard cannot check this format for you.';
+          showControlToast({ message, timeoutMs: 3000 });
         }
       } else {
         // A refusal is not a disaster: an invalid TOML file or a path the backend will not edit is
