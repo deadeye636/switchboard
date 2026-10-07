@@ -84,6 +84,15 @@ const CATALOG = [
     declaredBy: 'contextWindow',
   },
   {
+    // #754: what a RESUME launches on. A backend that can read the model the session last ran on from its own
+    // store answers `yes`; the others resume on the configured default, as before.
+    id: 'resumeModel',
+    group: 'sessions',
+    label: 'Resume on the model it last ran on',
+    description: 'Launch a resumed session on the model it last used, instead of the configured default.',
+    declaredBy: 'resumeLaunchOptions',
+  },
+  {
     id: 'modelList',
     group: 'models',
     label: 'Pick a model from a list',

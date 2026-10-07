@@ -208,6 +208,7 @@ module.exports = {
   resolveLineage: pi.resolveLineage,
   openedWithCommand: pi.openedWithCommand,
   contextWindow: pi.contextWindow,
+  resumeLaunchOptions: pi.resumeLaunchOptions,
   transcriptPathFor: pi.transcriptPathFor,
   plansDir: pi.plansDir,
   memorySources: pi.memorySources,

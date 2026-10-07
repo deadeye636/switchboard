@@ -154,6 +154,30 @@ function readFileTail(file, size, bytes) {
 }
 
 /**
+ * The asynchronous, bounded sibling of `readFileTail`, for a descriptor hook that runs on a click (#754): one
+ * open and one read of at most `bytes` from the END, through `fs.promises`, never the whole file and never a
+ * synchronous call. Same answer shape — the (probably cut) first line is dropped only when the file was
+ * longer than the window. A file that cannot be opened or read rejects; the caller decides what that means.
+ * The window is capped at MAX_TAIL_BYTES whatever a caller asks, so no caller can turn it into a whole-file read.
+ */
+const MAX_TAIL_BYTES = 256 * 1024;
+async function readFileTailAsync(file, bytes) {
+  const fh = await fs.promises.open(file, 'r');
+  try {
+    const { size } = await fh.stat();
+    const want = Math.max(0, Math.min(Math.floor(bytes) || 0, MAX_TAIL_BYTES, size));
+    const buf = Buffer.allocUnsafe(want);
+    const { bytesRead } = want ? await fh.read(buf, 0, want, size - want) : { bytesRead: 0 };
+    const text = buf.toString('utf8', 0, bytesRead);
+    if (want >= size) return { text, partial: false };
+    const nl = text.indexOf('\n');
+    return { text: nl === -1 ? '' : text.slice(nl + 1), partial: true };
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
  * How far a filename-derived birth may be WRONG before we stop trusting it to mean "old" (#209).
  *
  * Deliberately huge. A transcript filename carries no timezone in the formats we read (Codex writes
@@ -336,4 +360,4 @@ function createFileStore({ root, matches, parseSession, refSuffix, birthHint, su
   return { discoverSessions, watchTargets, matchLiveSession, liveRefFor };
 }
 
-module.exports = { createFileStore, findOnPath, forgetPathIndex, pathExtensions, walkStore, readFileTail, BIRTH_HINT_SKEW_MS };
+module.exports = { createFileStore, findOnPath, forgetPathIndex, pathExtensions, walkStore, readFileTail, readFileTailAsync, MAX_TAIL_BYTES, BIRTH_HINT_SKEW_MS };

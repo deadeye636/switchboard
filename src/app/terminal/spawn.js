@@ -47,6 +47,7 @@ const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
 const { conptyBuildHint } = require('./conpty');
 const { measured } = require('../../perf');
+const { resolveResumeOptions, withoutResumeMark } = require('./resume-options');
 
 let ctx = null;
 
@@ -879,12 +880,49 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // What a RESUME launches on (#754): the backend may say which option the session last ran on, and that
+      // replaces the settings the renderer resolved — unless the user chose explicitly for this launch. Asked
+      // once, here, on the resume of one session and nowhere else; a fork is not a resume. Always passes
+      // through, so the renderer's `resumeOverride` mark is stripped even when nothing is asked.
+      const resumeOnly = !isNew && !resumeUnknown && !sessionOptions?.forkFrom;
+      let launchOptions = withoutResumeMark(sessionOptions);
+      // The user's own variables for this backend and the template's bundle: the layers the launch adds over
+      // the process environment. Read once, here, and used by the hook and by `envLayers` below, so a settings
+      // save during the hook's wait cannot give the two different answers.
+      let envLayerParts = null;
+      const userEnvLayers = () => {
+        if (envLayerParts) return envLayerParts;
+        const allEnv = (ctx.getSetting('global') || {}).backendEnv || {};
+        const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
+        envLayerParts = { userEnv: allEnv[baseId] || {}, templateEnv: backend.isProfile ? (backend.templateEnv || {}) : {} };
+        return envLayerParts;
+      };
+      if (resumeOnly && typeof backend.resumeLaunchOptions === 'function') {
+        let resumeRow = null;
+        try { resumeRow = ownerOfLookup().row; } catch { resumeRow = null; }
+        // `env` is the layered ADDITIONS (the `contextWindow` contract), resolved and without a word — the spawn
+        // below says what is missing. The backend's own bundle is not in it: it comes out of `buildLaunch`,
+        // which needs the answer of this very call.
+        let hookEnv = {};
+        try {
+          const { userEnv, templateEnv } = userEnvLayers();
+          hookEnv = ctx.resolveSpawnEnv({ ...userEnv, ...templateEnv }, backend.label || backend.id, sessionId, { noticeMissing: false });
+        } catch { hookEnv = {}; }
+        launchOptions = (await resolveResumeOptions({
+          backend, resume: true, row: resumeRow, projectPath, sessionOptions, env: hookEnv, log: ctx.log,
+        })).options;
+        // The same re-check as after the probe above: the await may have outlived a quit or a second open.
+        if (ctx.getAppQuitting()) return { ok: false, error: 'The app is quitting.' };
+        const racedOpen = ctx.activeSessions.get(sessionId);
+        if (racedOpen && !racedOpen.exited) return openTerminal(sessionId, projectPath, isNew, sessionOptions);
+      }
+
       const launch = backend.buildLaunch({
         cwd: projectPath,
         resume: !isNew && !resumeUnknown,
         sessionId,
         forkFrom: sessionOptions?.forkFrom,
-        options: sessionOptions || {},
+        options: launchOptions,
       });
       // LIVE RE-IDENTIFICATION (#223). A backend that can tell us mid-flight that this terminal moved to
       // a new session id gets the chance to set that up now: it receives the terminal's tag and the URL
@@ -945,12 +983,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // the same env before the spawn assembles it: a source expands `${VAR}` in an MCP server against it
       // (#633), and a second copy of this layering is how the two would drift.
       const envLayers = () => {
-        const allEnv = (ctx.getSetting('global') || {}).backendEnv || {};
-        const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
-        const templateEnv = backend.isProfile ? (backend.templateEnv || {}) : {};
+        const { userEnv, templateEnv } = userEnvLayers();
         const baseEnv = { ...(launch.env || {}) };
         for (const key of Object.keys(templateEnv)) delete baseEnv[key];
-        return { baseEnv, userEnv: allEnv[baseId] || {}, templateEnv };
+        return { baseEnv, userEnv, templateEnv };
       };
       // The same env, resolved and without a word: its missing references are said once, by the spawn below.
       const quietSessionEnv = () => {
@@ -960,7 +996,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       };
       if (backend.providesSessionResources === true && typeof backend.buildSessionResources === 'function') {
         try {
-          const options = spawnOptionsFor(backend, projectPath, sessionOptions);
+          const options = spawnOptionsFor(backend, projectPath, launchOptions);
           const built = await backend.buildSessionResources({
             dir: ctx.bindingDir,
             tag: terminalTag,
@@ -1020,7 +1056,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             dir: ctx.promptTemplateDir,
             tag: terminalTag,
             dirs,
-            options: spawnOptionsFor(backend, projectPath, sessionOptions),
+            options: spawnOptionsFor(backend, projectPath, launchOptions),
             log: ctx.log,
           });
           if (built && Array.isArray(built.args) && built.args.length) {
@@ -1207,7 +1243,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         // templates above, with the same rule: best-effort, and never a launch failure.
         try {
           const built = backend.providesRuntimeExtension === true && typeof backend.buildRuntimeExtension === 'function'
-            ? backend.buildRuntimeExtension({ dir: ctx.bindingDir, tag: terminalTag, options: spawnOptionsFor(backend, projectPath, sessionOptions), log: ctx.log })
+            ? backend.buildRuntimeExtension({ dir: ctx.bindingDir, tag: terminalTag, options: spawnOptionsFor(backend, projectPath, launchOptions), log: ctx.log })
             : null;
           if (built && Array.isArray(built.args) && built.args.length) {
             launch.args = [...launch.args, ...built.args];
@@ -1229,10 +1265,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           label: backend.label || backend.id,
           forkFrom: sessionOptions?.forkFrom || null,
           // The options `buildLaunch` was handed, for a mode the launch set before the runtime names one (#730).
-          options: sessionOptions || {},
+          options: launchOptions,
           // …and the options the spawn-applied hooks were handed (the per-spawn extension above), for a backend
           // whose modes follow one of those (#731: pi-native offers modes only with its approval gate on).
-          appliedOptions: spawnOptionsFor(backend, projectPath, sessionOptions),
+          appliedOptions: spawnOptionsFor(backend, projectPath, launchOptions),
           // Whose approvals the app remembers for this session (#731, `app/approval-memory.js`).
           backendId: backend.id,
         });

@@ -362,9 +362,10 @@ test('the spawn path resolves against the session\'s working directory and place
   assert.equal((src.match(/backendEnv \|\| \{\}/g) || []).length, 1, 'one reading of the user\'s backend variables');
   assert.doesNotMatch(call, /settingsOwnerPath/);
   // The options are the CASCADED ones: the global and project settings are where `resourcesFrom` is set, and
-  // the raw session options would silently drop both.
+  // the raw session options would silently drop both. `launchOptions` are the session options with a resume's
+  // model merged in (#754), so they carry the same cascade.
   const block = src.slice(src.lastIndexOf('if (backend.providesSessionResources === true', shared), shared);
-  assert.match(block, /const options = spawnOptionsFor\(backend, projectPath, sessionOptions\)/);
+  assert.match(block, /const options = spawnOptionsFor\(backend, projectPath, launchOptions\)/);
 });
 
 test('after the shared-resources await, a quit or a second open of the same session stops this spawn', () => {

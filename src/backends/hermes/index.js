@@ -268,6 +268,9 @@ module.exports = {
   // How full the context window is (#620): Hermes stores token TOTALS per session, and `messages.token_count`
   // was empty in every measured row, so the last turn's input is not in its store. Declines.
   contextWindow: () => null,
+  // The launch option a resume should carry (#754): `sessions.model` is readable, but whether it follows a
+  // mid-session switch and whether `-r <id> --model` is honoured were not measured. Declines on purpose.
+  resumeLaunchOptions: () => null,
   // Hermes sessions are rows in state.db, not files — there is no transcript path (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Hermes keeps no plans store (#227).
@@ -329,6 +332,7 @@ module.exports = {
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     contextFill: { state: 'no', note: 'its store keeps token totals per session, not what the last turn sent' },
+    resumeModel: { state: 'no', note: 'whether its stored model follows a mid-session switch and whether resume honours --model is unmeasured' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',

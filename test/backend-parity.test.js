@@ -388,6 +388,64 @@ test('every backend declares contextWindow — a window or an honest null', () =
   }
 });
 
+// #754: what a RESUME launches on. The hook is asked once, on the resume of one session, and answers a patch
+// of launch options (`{ options, label }`) or declines with null. Every backend answers; none throws on a
+// row that names nothing. A real answer is async and bounded (the core awaits it with a timeout), so the
+// declining shape is what is pinned here.
+test('every backend declares resumeLaunchOptions — a patch or an honest null', () => {
+  for (const b of READY) {
+    const id = b.id;
+    assert.equal(typeof b.resumeLaunchOptions, 'function',
+      `${id} must declare resumeLaunchOptions (return null if it cannot read the model a session last ran on)`);
+    for (const row of [null, {}]) {
+      assert.equal(b.resumeLaunchOptions(row, {}), null, `${id}.resumeLaunchOptions(${JSON.stringify(row)}) must be null, not a throw`);
+    }
+    assert.equal(b.resumeLaunchOptions(null), null, `${id}.resumeLaunchOptions(null) with no context must be null`);
+  }
+});
+
+// #754 (binding owner performance rule): the hook runs on the click, in the main process. Whatever it reads, it
+// reads through `readFileTailAsync` — never a synchronous fs call. A source check of the hook's own text, comments
+// stripped by the shared scanner. It errs towards CATCHING: any `*Sync` call and `readFileTail` (the sync tail
+// reader) count, and `readFileTailAsync` does not. LIMIT: a call hidden in a helper the hook delegates to is
+// not seen; the hook's body is what is read, so a helper a hook calls must be async by the same rule.
+const SYNC_FS_CALL = /\b\w+Sync\b|\breadFileTail\b/g;
+function syncFsCallsIn(fn) {
+  return [...stripComments(Function.prototype.toString.call(fn)).matchAll(SYNC_FS_CALL)].map(m => m[0]);
+}
+
+test('a resumeLaunchOptions hook makes no synchronous fs call', () => {
+  const seen = new Set();
+  for (const b of backends.list().filter(x => typeof x.resumeLaunchOptions === 'function')) {
+    if (seen.has(b.resumeLaunchOptions)) continue;
+    seen.add(b.resumeLaunchOptions);
+    assert.deepEqual(syncFsCallsIn(b.resumeLaunchOptions), [],
+      `${b.id}.resumeLaunchOptions reads synchronously — use readFileTailAsync from src/backends/file-store.js`);
+  }
+  assert.ok(seen.size > 0);
+});
+
+test('the sync-fs hook guard catches the shapes it exists for, and not prose or the async reader', () => {
+  const caught = [
+    (row) => fs.readFileSync(row.filePath, 'utf8'),
+    (row) => { const fd = fs.openSync(row.filePath, 'r'); return fd; },
+    (row, ctx) => { const b = Buffer.alloc(8); fs.readSync(3, b, 0, 8, 0); return b; },
+    (row) => fs.statSync(row.filePath).size,
+    (row) => (fs.existsSync(row.filePath) ? {} : null),
+    (row) => require('../src/backends/file-store').readFileTail(row.filePath, 100, 10),
+    (row) => fs.lstatSync(row.filePath),
+    async (row) => { const { readFileSync: r } = fs; return r(row.filePath); },
+  ];
+  for (const fn of caught) assert.ok(syncFsCallsIn(fn).length > 0, `must catch: ${fn}`);
+  const clean = [
+    // readFileSync only in comments
+    async (row) => { /* fs.readFileSync */ return null; // existsSync
+    },
+    async (row) => (await require('../src/backends/file-store').readFileTailAsync(row.filePath, 100)).text,
+  ];
+  for (const fn of clean) assert.deepEqual(syncFsCallsIn(fn), [], `must pass: ${fn}`);
+});
+
 // #211: the Projects admin remaps and deletes a project's transcripts, and they do not all live in
 // Claude's store. It used to reconstruct Claude's path inline (resolveJsonlPath(PROJECTS_DIR, row)) — a
 // backend-specific require in the neutral core. Every backend now answers transcriptPathFor(row): a file

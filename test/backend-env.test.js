@@ -135,11 +135,17 @@ test('the spawn merges backend env BETWEEN the backend and the template', () => 
   const layersAt = SPAWN.indexOf('const envLayers = () => {');
   assert.notEqual(layersAt, -1, 'the layering must still be in spawn.js');
   const layers = SPAWN.slice(layersAt, SPAWN.indexOf('\n      };', layersAt));
-  assert.match(layers, /const allEnv = \(ctx\.getSetting\('global'\) \|\| \{\}\)\.backendEnv \|\| \{\};/);
+  // The user's and the template's layers are read once (`userEnvLayers`, #754), because a resume hook needs
+  // them before `buildLaunch` and the launch must see the same answer.
+  assert.match(layers, /const \{ userEnv, templateEnv \} = userEnvLayers\(\);/);
+  const userAt = SPAWN.indexOf('const userEnvLayers = () => {');
+  assert.notEqual(userAt, -1, 'the user/template layers must still be read in spawn.js');
+  const userLayers = SPAWN.slice(userAt, SPAWN.indexOf('\n      };', userAt));
+  assert.match(userLayers, /const allEnv = \(ctx\.getSetting\('global'\) \|\| \{\}\)\.backendEnv \|\| \{\};/);
   // The template's own keys are lifted back out of launch.env first...
   assert.match(layers, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,
     'or the user\'s backend variables would land on top of the template');
-  assert.match(layers, /userEnv: allEnv\[baseId\] \|\| \{\}/);
+  assert.match(userLayers, /userEnv: allEnv\[baseId\] \|\| \{\}/);
 
   // The PTY env's own use of the layers — the one that says what is missing, unlike the quiet copy the
   // resources hook gets (`quietSessionEnv`), which reads the same layers first.

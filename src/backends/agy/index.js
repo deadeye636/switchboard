@@ -256,6 +256,9 @@ module.exports = {
   // How full the context window is (#620): its per-generation metadata is an unschema'd protobuf blob, so
   // no token count can be read out of it without a measured field map. Declines.
   contextWindow: () => null,
+  // The launch option a resume should carry (#754): the store holds only a display string for the model,
+  // and the launch flag takes another spelling with no mapping. Declines on purpose.
+  resumeLaunchOptions: () => null,
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
@@ -304,6 +307,7 @@ module.exports = {
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     contextFill: { state: 'no', note: 'its generation metadata is a protobuf blob with no readable token counts' },
+    resumeModel: { state: 'no', note: 'its store holds only a display name for the model, with no mapping to the launch flag' },
     quota: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

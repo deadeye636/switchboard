@@ -48,6 +48,7 @@ const NOT_INHERITED = {
   endpointEnv: 'names the variable a template EXISTS to set; its own values are templateEnv',
   sharedResources: '#632 — src/app/resource-sources.js offers only built-in backends as a source, because a template reads its base\'s store and would offer the same directories a second time under another name',
   listSharedMcpServers: '#633 — the MCP half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
+  resumeLaunchOptions: '#754 — a template\'s transcript model may be a name its env bundle maps from an alias, and handing it back as the launch model could override that mapping; a template resumes on its configured default',
   listSharedHooks: '#635 — the hook half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
 
   // Store internals and root setters. Not descriptor hooks the core dispatches on — main.js sets the

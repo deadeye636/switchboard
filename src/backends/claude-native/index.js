@@ -287,6 +287,7 @@ module.exports = {
   openedWithCommand: claude.openedWithCommand,
   normalizeTranscriptEntries: claude.normalizeTranscriptEntries,
   contextWindow: claude.contextWindow,
+  resumeLaunchOptions: claude.resumeLaunchOptions,
   transcriptPathFor: claude.transcriptPathFor,
   plansDir: claude.plansDir,
   memorySources: claude.memorySources,

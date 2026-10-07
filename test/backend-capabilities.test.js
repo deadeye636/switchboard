@@ -21,7 +21,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
-    modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
+    resumeModel: 'no', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
@@ -30,7 +30,7 @@ const PINNED = {
   codex: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'yes',   // it reports the window itself with every token_count (#620)
-    modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
@@ -39,7 +39,7 @@ const PINNED = {
   hermes: {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'no',    // token totals per session only, no last turn (#620)
-    modelList: 'no', endpoint: 'no', projectTrust: 'no',
+    resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
     // one answer in this table that would read as an oversight without a line saying otherwise. Hermes
     // does write a session row per delegated child, in the same database this backend reads. They are not
@@ -56,7 +56,7 @@ const PINNED = {
   pi: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
-    modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
     // whose extension never reported has no answer at all rather than an empty one.
@@ -70,7 +70,7 @@ const PINNED = {
   'pi-native': {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
-    modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
@@ -83,7 +83,7 @@ const PINNED = {
   'claude-native': {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
-    modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'no', projectConfig: 'no',
@@ -92,7 +92,7 @@ const PINNED = {
   agy: {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
-    modelList: 'yes', endpoint: 'no', projectTrust: 'no',
+    resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no
     // watcher drives agy's store, so there is no live spawn/finish status for them.
     subagentSessions: 'limited', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',

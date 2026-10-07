@@ -547,6 +547,15 @@ module.exports = {
   openedWithCommand: (row) => readerOpenedWithCommand(row && row.summary) || null,
   // Which context window a stored row's last turn ran against (#620) — see `contextWindow` above.
   contextWindow,
+  // The launch option a RESUME of this session should carry (#754), as `{ options: { <key>: value }, label }`
+  // or `null`. The core asks it ONCE, on the resume of one session — never in a scan, the index or a list —
+  // and awaits it with a short timeout; a throw, a timeout or `null` launches exactly as before. So a real
+  // answer may do one bounded ASYNCHRONOUS read of that session's own transcript, and nothing synchronous:
+  // a hook reads a file only through `readFileTailAsync` (`../file-store.js`) — never `readFileTail` or any
+  // other sync fs call, which `test/backend-parity.test.js` refuses in a hook's source. `ctx.env` is the
+  // layered additions of the launch, as for `contextWindow`.
+  // Declines until the Claude reader answers it (#754 T5).
+  resumeLaunchOptions: () => null,
   projectTrust,
   projectMeta,
   rewriteProjectPath,
@@ -1006,6 +1015,7 @@ description:
     // `limited` (#620): the transcript never says `[1m]`, and for a model whose 1M window is opt-in
     // (Sonnet 4.5/4.6, Opus 4.6) a session with no `[1m]` spec anywhere reads as its base window.
     contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
+    resumeModel: { state: 'no', note: 'not read from its transcript yet' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

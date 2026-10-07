@@ -240,6 +240,9 @@ module.exports = {
     const w = row && Number(row.contextWindowReported);
     return w > 0 ? { windowTokens: w, source: 'cli' } : null;
   },
+  // The launch option a resume should carry (#754) — see Claude's `resumeLaunchOptions` for the contract
+  // (asked once, on one session's resume only). Declines until the Codex reader answers it (#754 T6).
+  resumeLaunchOptions: () => null,
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Codex keeps no plans store (#227).
@@ -291,6 +294,7 @@ description:
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     contextFill: 'yes',
+    resumeModel: { state: 'no', note: 'not read from its rollout yet' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

@@ -2003,6 +2003,9 @@ async function openSession(session, customOptions, { show = true, ignoreLiveOwne
   const resumeOptions = customOptions || await resolveLaunchOptionsFor({ projectPath }, resumeBackendId);
   if (resumeOptions) delete resumeOptions.backendId;
   if (resumeOptions && requestedView) resumeOptions.openerChoice = requestedView;
+  // Options the user chose for this launch (the Resume-with-config dialog) beat the model the session last ran on;
+  // settings-resolved ones do not (#754). Main reads the mark and never passes it on.
+  if (resumeOptions && customOptions) resumeOptions.resumeOverride = true;
   // The `worktree` default applies to NEW sessions only. Resuming must reuse the
   // session's existing directory, so never pass --worktree on resume — otherwise
   // a plain-click resume tries to spin up a fresh git worktree and fails to attach
