@@ -653,6 +653,16 @@ calls and one background agent. What the stream carries, all as `system` lines t
   named in the `agent-<task_id>.meta.json` beside it (`toolUseId`, `requestShape: background|foreground`).
   The `.output` file of a finished agent was empty in both runs, so it is no stand-in for the transcript.
 
+- **A running subagent wears the agent badge** (#762), on the row and the tab, as it does for a terminal
+  Claude session. claude-native keeps `supportsSubagents: false`: the subagents are written to Claude's store,
+  so `subagentBackendFor` in `src/session/session-transitions.js` asks the owner of that store (`cliOwnerOf`),
+  and Claude's seam finds them. pi-native asks Pi the same way, which has no subagents, so a Pi (GUI) session
+  shows none. A template on either asks its base's owner. The edges come from the store scan alone — this backend has no live binding, so no `SubagentStart` /
+  `SubagentStop` hook — and the scan calls an agent finished after 30 s without a write, so the badge stays
+  that long after the agent ends (measured: about 30 s past the end of a turn). A session's first subagent is
+  seen in the scan's bootstrap walk, because the store answers nothing until `<id>/subagents/` exists; a file
+  written after the app opened the session (`session._openedAt`) counts as a spawn there.
+
 Found by listing the control and message subtypes in the CLI binary first; each one above was then seen on the
 pipe. pi-native has no background tasks of its own: Pi runs a tool inside its turn, and the user's own shell
 lines are already tracked by the view. Its context fill and window come from `get_session_stats`

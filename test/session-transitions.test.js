@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const sessionTransitions = require('../src/session/session-transitions');
+const backendRegistry = require('../src/backends');
 const { detectSubagentTransitions, detectSessionTransitions, init, readNewSessionSignals, hasOpenSubagents } = sessionTransitions;
 
 function mkTmp() {
@@ -27,8 +28,9 @@ function makeMockWindow() {
   };
 }
 
-/** Initialize the module with mocks. Returns the recorded-events array. */
-function setupModule() {
+/** Initialize the module with mocks. Returns the recorded-events array. `getSessionBackend` stands in for
+ *  the launch overlay; left out, every session is the legacy default. */
+function setupModule({ getSessionBackend } = {}) {
   const win = makeMockWindow();
   init({
     PROJECTS_DIR: '/unused',
@@ -36,6 +38,7 @@ function setupModule() {
     getMainWindow: () => win,
     log: { info: () => {}, debug: () => {}, warn: () => {}, error: () => {} },
     rekeyMcpServer: () => {},
+    getSessionBackend,
   });
   return win._events;
 }
@@ -188,6 +191,51 @@ test('post-bootstrap: a brand-new agent file emits exactly one subagent-spawned 
     cleanup(tmp);
   }
 });
+
+// #762: a session's first subagent is seen in the bootstrap walk, because the store answers `null` until its
+// directory exists. A file written after the app started the session is still a spawn; one from before is not.
+test('bootstrap: an agent file written after the session was opened is a spawn, an older one is not', () => {
+  const events = setupModule();
+  const tmp = mkTmp();
+  try {
+    const sessionId = 'fresh-parent';
+    seedAgents(tmp, sessionId, [{ id: 'before', ageMs: 20000 }, { id: 'after' }]);
+    const session = { _openedAt: Date.now() - 10000 };
+    detectSubagentTransitions(sessionId, session, tmp);
+    const spawned = events.filter(e => e.channel === 'subagent-spawned').map(e => e.payload.agentId);
+    assert.deepEqual(spawned, ['after']);
+    assert.equal(session.knownSubagents.size, 2, 'the older one is still recorded, silently');
+  } finally {
+    cleanup(tmp);
+  }
+});
+
+// #762: a backend that drives another's binary writes that backend's store, so its subagents are found
+// through the owner. Claude (GUI) gets the badge a terminal Claude session gets; Pi (GUI) answers through Pi,
+// which has no subagents, and stays silent. A template on either asks its base's owner the same way.
+const TEMPLATES = [
+  { id: 'tpl-on-claude-native', name: 'Template on Claude (GUI)', backendId: 'claude-native' },
+  { id: 'tpl-on-pi-native', name: 'Template on Pi (GUI)', backendId: 'pi-native' },
+];
+for (const [launched, expected] of [['claude-native', 1], ['pi-native', 0], ['tpl-on-claude-native', 1], ['tpl-on-pi-native', 0]]) {
+  test(`a session launched as ${launched} is asked through its store's owner: ${expected} spawn event(s)`, (t) => {
+    backendRegistry.init({ getGlobalSettings: () => ({}), profiles: { list: () => TEMPLATES, get: (id) => TEMPLATES.find(p => p.id === id) || null } });
+    t.after(() => backendRegistry.init({ getGlobalSettings: () => ({}), profiles: { list: () => [], get: () => null } }));
+    const events = setupModule({ getSessionBackend: () => ({ backendId: launched }) });
+    const tmp = mkTmp();
+    try {
+      const sessionId = 'driven-parent';
+      fs.mkdirSync(path.join(tmp, sessionId, 'subagents'), { recursive: true });
+      const session = {};
+      detectSubagentTransitions(sessionId, session, tmp);
+      seedAgents(tmp, sessionId, [{ id: 'worker' }]);
+      detectSubagentTransitions(sessionId, session, tmp);
+      assert.equal(events.filter(e => e.channel === 'subagent-spawned').length, expected);
+    } finally {
+      cleanup(tmp);
+    }
+  });
+}
 
 test('post-bootstrap with no new agents emits zero events (IPC-flood regression)', () => {
   const events = setupModule();

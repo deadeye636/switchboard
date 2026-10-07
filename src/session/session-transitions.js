@@ -112,8 +112,10 @@ function stopSubagentSweep() {
   subagentSweepTimer = null;
 }
 
-/** The backend that owns this session's subagents, or null if it has none (#235). A backend that
- *  declares supportsSubagents: false is never probed — "no subagents" is an answer, not a miss.
+/** The backend that owns this session's subagents, or null if it has none (#235). The question goes to
+ *  the backend whose store the session writes (`cliOwnerOf`, #762): a driver asks its owner, a template its
+ *  base's owner. An owner that declares supportsSubagents: false is never probed — "no subagents" is an
+ *  answer, not a miss.
  *
  *  The id comes from the LAUNCH OVERLAY (session-backends.js), which is what actually knows which
  *  backend spawned a live session. An `activeSessions` entry carries no `backendId` field — reading one
@@ -121,17 +123,17 @@ function stopSubagentSweep() {
  *  quietly land on the legacy default no matter what was running.
  *
  *  HONEST LIMIT, not an oversight: the only caller of the enclosing detection is the fs.watch on
- *  CLAUDE's store (`src/watch/projects.js` → detectSessionTransitions), so today nothing but a Claude
- *  session reaches here anyway. Generalising the WATCH is #235's sibling, not this seam — but the
- *  dispatch below is real, so the day a second store is watched this asks the right backend instead of
- *  answering "claude" for all of them. */
+ *  CLAUDE's store (`src/watch/projects.js` → detectSessionTransitions), so today nothing but a session
+ *  writing that store — terminal Claude or Claude (GUI) — reaches here anyway. Generalising the WATCH is
+ *  #235's sibling, not this seam — but the dispatch below is real, so the day a second store is watched
+ *  this asks the right backend instead of answering "claude" for all of them. */
 function subagentBackendFor(sessionId, session) {
   const overlay = getSessionBackend(sessionId) || (session && session.realSessionId ? getSessionBackend(session.realSessionId) : null);
   // No overlay entry = a session from before the multi-LLM era (#161), when a session was always Claude's.
   // A NAMED legacy default for a historical record — never a `|| 'claude'` guess at a live launch target.
   const id = (overlay && overlay.backendId) || LEGACY_SESSION_BACKEND;
   let b = null;
-  try { b = backendRegistry.get(id); } catch { return null; }
+  try { b = backendRegistry.cliOwnerOf(backendRegistry.get(id)); } catch { return null; }
   if (!b || b.supportsSubagents !== true) return null;
   if (typeof b.listSubagents !== 'function') return null;
   return b;
@@ -162,7 +164,8 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
   // existing file silently so we don't flood the renderer with spawn/complete
   // events for agents that already finished before Switchboard started watching.
   // Files modified in the last 60s get a normal lifecycle; older ones are
-  // recorded as already-completed without IPC.
+  // recorded as already-completed without IPC. A file written after the app
+  // opened the session is the one exception: that is a spawn (see below, #762).
   const isBootstrap = !session.knownSubagents;
   if (isBootstrap) {
     session.knownSubagents = new Map();
@@ -187,7 +190,12 @@ function detectSubagentTransitions(sessionId, session, folderPath) {
       // 5-minute GC from resurrecting them: the entry is dropped from memory but
       // the agent-<id>.jsonl stays on disk, so the next walk rediscovers it (#122).
       const looksAlive = (now - mtimeMs) < BOOTSTRAP_LIVE_MS;
-      if (isBootstrap || !looksAlive) {
+      // The bootstrap is for agents that were running before anything watched them. A session's first
+      // subagent is also first seen in a bootstrap — the store answers `null` until its directory exists, and
+      // by then the file is in it — but it was written after this app started the session, so it is a spawn
+      // (#762). Without the live hooks a terminal Claude session has, that was the only edge it would get.
+      const bornWatched = isBootstrap && looksAlive && Number.isFinite(session._openedAt) && mtimeMs >= session._openedAt;
+      if ((isBootstrap && !bornWatched) || !looksAlive) {
         session.knownSubagents.set(agentId, {
           mtimeMs,
           completed: !looksAlive,
