@@ -257,6 +257,9 @@ module.exports = {
     launchMode,
     configuredModeCommand: protocol.configuredModeCommand,
     configuredModeFromResponse: protocol.configuredModeFromResponse,
+    // …and what either becomes on the session's model (#753): `auto` where the model takes it, `default` where
+    // it refuses it.
+    startModeFor: protocol.startModeFor,
     commandsCommand: protocol.commandsCommand,
     commandsFromResponse: protocol.commandsFromResponse,
     // A bare `/mcp` is answered by the app, from `mcp_status`, and never written as a turn (#719); the view

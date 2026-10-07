@@ -557,6 +557,60 @@ test('the mode at the start comes from the launch, else from the backend\'s ask,
   assert.ok(!ops(none).some((o) => o.op === 'mode'), 'nothing known, nothing drawn');
 });
 
+// #753: a start mode that depends on the model is decided with the first context answer.
+test('the start mode is asked of the backend again with the session\'s context, where it declares that', async (t) => {
+  const info = (id) => ({ id, label: id, symbol: '', tone: '' });
+  const seen = [];
+  const base = {
+    modeCycle: ['one', 'two'],
+    modeInfo: info,
+    setModeCommand: (id, mode) => ({ type: 'ctl', request_id: id, what: mode }),
+    configuredModeCommand: (id) => ({ type: 'ctl', request_id: id, what: 'configured' }),
+    configuredModeFromResponse: (res) => (res.data.what === 'configured' ? 'maybe' : null),
+    contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }),
+    contextFromResponse: (res) => (res.data.what === 'ctx' ? { percent: 5, model: 'Big 1', modelId: 'big-1' } : null),
+    startModeFor: (id, context) => { seen.push([id, context && context.modelId]); return context && context.modelId === 'big-1' ? 'two' : null; },
+  };
+
+  const h = streamHarness(t, { rpc: base });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'mode'));
+  assert.deepEqual(ops(h).find((o) => o.op === 'mode').mode, info('two'), 'the backend\'s answer for this model');
+  assert.deepEqual(seen[seen.length - 1], ['maybe', 'big-1'], 'settled with the model the context named');
+  await stopped(h);
+
+  let declined = false;
+  const none = streamHarness(t, { rpc: { ...base, startModeFor: () => { declined = true; return null; } } });
+  t.after(() => stopped(none));
+  await until(() => declined);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(!ops(none).some((o) => o.op === 'mode'), 'a mode the backend cannot settle for this model is not drawn');
+  await stopped(none);
+
+  // A mode that needs no model is drawn without waiting for the context: the context is never answered here.
+  const fixed = streamHarness(t, { rpc: {
+    ...base,
+    launchMode: () => 'one',
+    contextCommand: (id) => ({ type: 'never', request_id: id }),
+    startModeFor: (id) => (id === 'one' ? 'one' : null),
+  }, options: {} });
+  t.after(() => stopped(fixed));
+  assert.deepEqual((await agentRpc.attach('launch-id')).mode, info('one'), 'drawn at once, not after the context');
+  await stopped(fixed);
+
+  // The runtime names its mode while the context is still out: the late answer is dropped.
+  let raced = false;
+  const race = streamHarness(t, { rpc: {
+    ...base,
+    contextFromResponse: () => { race.proc._agent.mode = info('runtime'); raced = true; return { percent: 1, modelId: 'big-1' }; },
+  } });
+  t.after(() => stopped(race));
+  await until(() => raced);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(!ops(race).some((o) => o.op === 'mode'), 'no start mode drawn over the runtime\'s own');
+  assert.deepEqual(race.proc._agent.mode, info('runtime'));
+});
+
 // #731: an approval the user already gave is answered by the core without a card — from the mode, from what was
 // allowed for the session, from the project's rules — and an answer the user gives is kept for the next one.
 function approvalRpc(extra) {

@@ -390,17 +390,19 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // The context fill and the model (#691), asked where the backend can be asked (`contextCommand` +
   // `contextFromResponse`), at the start and after every settled run — and, where the half declares
   // `contextDuringTurn`, during a turn as well (`followContextSoon`, #697).
-  // Not awaited by anyone: an answer that never comes leaves the line as it was.
+  // Not awaited for the line: an answer that never comes leaves it as it was. The start mode awaits the first one
+  // (`followStartMode`), so it answers the context it read, or null.
   async function followContext() {
-    if (typeof rpc.contextCommand !== 'function' || typeof rpc.contextFromResponse !== 'function') return;
+    if (typeof rpc.contextCommand !== 'function' || typeof rpc.contextFromResponse !== 'function') return null;
     const asked = ++state.contextAsked;
     const res = await request(rpc.contextCommand);
     let context = null;
     try { context = res && res.success !== false ? rpc.contextFromResponse(res) : null; } catch { context = null; }
-    if (!context || asked < state.contextApplied) return;
+    if (!context || asked < state.contextApplied) return context;
     state.contextApplied = asked;
     state.context = context;
     sendOp(state, { op: 'context', context });
+    return context;
   }
   state.followContext = followContext;
 
@@ -408,14 +410,22 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // first turn, and until then the line showed none. The backend answers from what it knows: the mode its launch
   // set (`launchMode(options, appliedOptions)`: the options `buildLaunch` was handed, and those the spawn-applied
   // hooks were), else one it can ask for (`configuredModeCommand` + `configuredModeFromResponse`), each answering a
-  // mode id or null. Whatever the runtime itself names wins: an answer that arrives after a `mode` op is dropped.
-  async function followStartMode() {
+  // mode id or null. A backend whose start mode depends on the model (`startModeFor(id, context)`, #753) is asked
+  // with the first context answer, `contextAsked`. Whatever the runtime itself names wins: an answer that arrives
+  // after a `mode` op is dropped.
+  async function followStartMode(contextAsked) {
     if (typeof rpc.modeInfo !== 'function') return;
     let id = null;
     try { id = typeof rpc.launchMode === 'function' ? rpc.launchMode(options || {}, state.appliedOptions) : null; } catch { id = null; }
     if (!id && typeof rpc.configuredModeCommand === 'function' && typeof rpc.configuredModeFromResponse === 'function') {
       const res = await request(rpc.configuredModeCommand);
       try { id = res && res.success !== false ? rpc.configuredModeFromResponse(res) : null; } catch { id = null; }
+    }
+    if (id && typeof rpc.startModeFor === 'function') {
+      // Asked with what is known now first, so a mode that needs no model is drawn at once; only one the backend
+      // cannot settle without the model waits for the context.
+      const settle = (context) => { try { return rpc.startModeFor(id, context); } catch { return null; } };
+      id = settle(state.context) || settle((await contextAsked) || state.context);
     }
     if (!id || state.mode || state.exited) return;
     const mode = rpc.modeInfo(id);
@@ -1021,8 +1031,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   }
 
   followIdentity();
-  followContext();
-  followStartMode();
+  followStartMode(followContext());
 
   return {
     pid: child.pid,

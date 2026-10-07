@@ -1063,7 +1063,7 @@ test('an agent\'s notice from the transcript carries its kind and cost, and stop
   assert.deepEqual(protocol.contextCommand('r2').request, { subtype: 'get_context_usage' });
   assert.deepEqual(
     protocol.contextFromResponse({ success: true, data: { totalTokens: 37984, maxTokens: 200000, percentage: 19, model: 'claude-haiku-4-5-20251001' } }),
-    { percent: 19, tokens: 37984, window: 200000, model: 'Haiku 4.5' });
+    { percent: 19, tokens: 37984, window: 200000, model: 'Haiku 4.5', modelId: 'claude-haiku-4-5-20251001' });
   assert.equal(protocol.contextFromResponse({ success: true, data: { model: 'claude-opus-5-5[1m]' } }).model, 'Opus 5.5');
   assert.equal(protocol.contextFromResponse({ success: false, error: 'no' }), null);
 });
@@ -1156,7 +1156,16 @@ test('the mode at the start is the launch\'s, else the settings\' default withou
     response: { effective: { permissions: { allow: [], ...(defaultMode ? { defaultMode } : {}) } }, sources: [], applied: {} } } }).payload;
   assert.equal(protocol.configuredModeFromResponse(settings('plan')), 'plan');
   assert.equal(protocol.configuredModeFromResponse(settings('acceptEdits')), 'acceptEdits');
-  assert.equal(protocol.configuredModeFromResponse(settings('auto')), null, 'auto waits for the first turn');
+  assert.equal(protocol.configuredModeFromResponse(settings('auto')), 'auto', 'auto is answered; the model decides what it becomes');
+  // #753, measured on 2.1.292: a refused `auto` runs in `default`, on Haiku from the settings and from the flag.
+  const ctxOf = (modelId) => ({ percent: 1, model: '', modelId });
+  assert.equal(protocol.startModeFor('auto', ctxOf('claude-opus-5-5[1m]')), 'auto');
+  assert.equal(protocol.startModeFor('auto', ctxOf('claude-sonnet-5-5')), 'auto');
+  assert.equal(protocol.startModeFor('auto', ctxOf('claude-haiku-4-5-20251001')), 'default', 'Haiku refuses auto');
+  assert.equal(protocol.startModeFor('auto', ctxOf('claude-fable-5-1')), null, 'a family not measured waits for the first turn');
+  assert.equal(protocol.startModeFor('auto', null), null, 'no model yet, no guess');
+  assert.equal(protocol.startModeFor('plan', null), 'plan', 'any other mode needs no model');
+  assert.equal(protocol.startModeFor(null, ctxOf('claude-opus-5-5')), null);
   assert.equal(protocol.configuredModeFromResponse(settings(null)), 'default', 'no default in the settings is the CLI\'s own');
   assert.equal(protocol.configuredModeFromResponse({ success: true, data: {} }), null, 'an answer without settings says nothing');
   assert.equal(protocol.configuredModeFromResponse({ success: false, error: 'refused' }), null);

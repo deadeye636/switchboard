@@ -530,8 +530,10 @@ answers instead of the core learning its format:
   mode `buildLaunch` put on the command line for those options, or `null` — and `configuredModeCommand` +
   `configuredModeFromResponse` (a pair), asked only when the launch named none. Each answers a mode id; the
   core draws it through `modeInfo` and drops it once a mode is known otherwise — named by the runtime or
-  switched by the user. A backend answers `null` where its answer would be a guess (claude-native for `auto`
-  from the settings, which a model can refuse), and the line then stays empty.
+  switched by the user. A backend answers `null` where its answer would be a guess, and the line then stays
+  empty. Where the answer depends on the model, the backend declares `startModeFor(id, context)` (#753): the
+  core asks it with the first `contextFromResponse` answer and draws what it returns, or nothing for `null`.
+  claude-native turns `auto` into `auto` or `default` by the model's family, because a model can refuse it.
   **Modes the app owns** (#731): `modeLocal: true` means a switch sends nothing to the runtime and sets the mode
   in the core alone (pi-native's gate, whose answers are the app's); `setModeCommand` is then not needed.
   `modesOffered(options)` says whether a launch has modes at all (pi-native: only with the gate on). After a

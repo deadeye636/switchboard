@@ -905,16 +905,27 @@ const setModeCommand = (id, mode) => control(id, { subtype: 'set_permission_mode
 // The mode a session starts in, before its first `system/init` names it (#730), measured on 2.1.286: no request
 // names the running mode. `get_settings` answers `effective.permissions.defaultMode`, the mode the settings
 // files name, which is blind to `--permission-mode` (asked only when none was sent) and to a mode the model
-// refuses: `auto` from the settings started a Haiku session in `default`. So `auto` is not taken from here and
-// waits for the first turn to name it; any other configured mode was the mode the turn ran in. Settings that
-// name no default leave the CLI's own, `default`.
+// refuses: `auto` from the settings started a Haiku session in `default`. So `auto` is answered as it is and
+// `startModeFor` below decides what it becomes; any other configured mode was the mode the turn ran in. Settings
+// that name no default leave the CLI's own, `default`.
 const configuredModeCommand = (id) => control(id, { subtype: 'get_settings' });
 function configuredModeFromResponse(response) {
   const d = response && response.success !== false && response.data && typeof response.data === 'object' ? response.data : null;
   if (!d || !d.effective || typeof d.effective !== 'object') return null;
   const perms = d.effective.permissions;
-  const mode = perms && typeof perms.defaultMode === 'string' && perms.defaultMode ? perms.defaultMode : 'default';
-  return mode !== 'auto' ? mode : null;
+  return perms && typeof perms.defaultMode === 'string' && perms.defaultMode ? perms.defaultMode : 'default';
+}
+
+// What a start mode becomes on the session's model (#753). `auto` is the one mode a model can refuse, and a
+// refused `auto` runs in `default` (measured on 2.1.292: from the settings and from `--permission-mode auto`
+// alike, a Haiku session's first `system/init` said `default`; Sonnet and Opus ran in `auto`). The model is the
+// id `get_context_usage` answered. A family not measured, or no model yet, answers null: the first `system/init`
+// names the mode then.
+const AUTO_BY_FAMILY = { opus: 'auto', sonnet: 'auto', haiku: 'default' };
+function startModeFor(mode, context) {
+  if (mode !== 'auto') return mode || null;
+  const m = /^claude-([a-z]+)-/.exec(String((context && context.modelId) || ''));
+  return (m && AUTO_BY_FAMILY[m[1]]) || null;
 }
 
 // `claude-opus-5-5`, `claude-haiku-4-5-20251001`, `claude-opus-5-5[1m]` → `Opus 5.5`, `Haiku 4.5`. An id of
@@ -934,7 +945,8 @@ function contextFromResponse(response) {
   const tokens = num(d.totalTokens);
   const window = num(d.maxTokens);
   const percent = num(d.percentage) != null ? num(d.percentage) : (tokens != null && window ? Math.round((tokens / window) * 100) : null);
-  return { percent, tokens, window, model: typeof d.model === 'string' ? modelLabel(d.model) : '' };
+  const modelId = typeof d.model === 'string' ? d.model : '';
+  return { percent, tokens, window, model: modelId ? modelLabel(modelId) : '', modelId };
 }
 
 // A command the app answers instead of writing it as a turn (point 13): the op the core handles for it, or
@@ -1258,6 +1270,7 @@ module.exports = {
   MODE_CYCLE,
   configuredModeCommand,
   configuredModeFromResponse,
+  startModeFor,
   commandsCommand,
   commandsFromResponse,
   appCommandOp,
