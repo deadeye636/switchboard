@@ -321,6 +321,27 @@ Measured on Codex CLI 0.160.0.
   value `-m` takes); a model missing from a cache that parses is not handed back. A missing, unreadable or
   unparsable cache blocks nothing.
 
+### The app-server daemon and a held thread (#759)
+Measured on Codex CLI 0.160.1, in a Codex home of its own, without Switchboard.
+
+- **Who starts it.** A plain `codex` (new session) runs in-process and starts no daemon. `codex resume <id>` in the
+  TUI starts one, `codex app-server --listen unix:// --managed-daemon` plus a `daemon pid-update-loop`, from a copy
+  of the binary under `<codex home>/packages/app-server-daemon/releases/`. It detaches, so no stop or quit of the
+  app ends it, and it serves every TUI resume of that home. `codex exec resume <id>` does not use it.
+- **One writer per thread.** The TUI takes a thread through the daemon. While another client still holds it, the
+  TUI shows its own screen — "This conversation is open in another app. Close it there and press R to continue
+  here", with `r` retry, `f` fork and `esc` exit — instead of the `thread/resume failed: … already has an active
+  writer (code -32600)` error 0.160.0 printed.
+- **The hold is short.** After a TUI that held the thread ended — hard-killed (`taskkill /T /F`) mid-turn or after
+  it, stopped with the app by `npm run stop:dev`, or quit with Ctrl+C — the next resume met that screen in about
+  one of five tries, and was free again at the next try, at most 15 s later. A block that lasts was not
+  reproduced. `thread-writer-locks/<id>.lock` stays on disk after a hard kill and blocks nothing; `codex exec
+  resume` took such a thread at once.
+- **A fresh daemon can fail its first resume.** Right after it started, the TUI ended after about 30 s with exit
+  code 1 and `account/read failed during TUI bootstrap: … workspace routing discovery failed (code -32603)`, and
+  its log said `failed to refresh available models: Connection failed`. The next resume worked. A resume that
+  dies on its own after half a minute is this, not a held thread.
+
 ## Hermes — SQLite
 
 ```
