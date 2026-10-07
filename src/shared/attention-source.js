@@ -96,6 +96,15 @@
     if (!payload || typeof payload !== 'object') return null;
     const kind = payload.kind;
     if (kind === 'busy' || kind === 'idle') return { kind, reason: 'terminal binding' };
+    // A subagent's exact start and end (#769), the same edges the SubagentStart / SubagentStop hooks give a
+    // terminal session. Without the subagent's id it says nothing.
+    if (kind === 'subagent-start' || kind === 'subagent-stop') {
+      const agentId = typeof payload.agent_id === 'string' && payload.agent_id ? payload.agent_id : null;
+      if (!agentId) return null;
+      return kind === 'subagent-start'
+        ? { kind: 'subagent-live-start', reason: 'Subagent started', agentId }
+        : { kind: 'subagent-live-stop', reason: 'Subagent finished', agentId };
+    }
     if (kind === 'waiting') {
       const promptKind = String(payload.prompt_kind || payload.promptKind || '').toLowerCase();
       // `hasOwnProperty`, not a plain lookup: `constructor` and `__proto__` are keys on every object

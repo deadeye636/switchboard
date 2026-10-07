@@ -16,6 +16,9 @@
 //   'tool'    the reply calls a tool that needs an approval, and runs it once allowed
 //   '/clear'  the conversation is reset and continues under a new id, as Claude's /clear does
 //   '/cost'   a local command: not played back, answered by an assistant line whose model is `<synthetic>`
+//   'agent'   the reply runs one foreground agent: its `task_started`, a `task_updated` that ends it and its
+//             `task_notification` (#768, #769, measured on 2.1.293); 'agent-hang' starts one and then exits;
+//             'agent-start' / 'agent-end' start and end a background agent in two turns
 //
 // Control requests answered with something: `initialize` (the command list), `interrupt`, and `mcp_status` (two
 // servers, one with a `config` carrying a secret the app must not pass on), and the server actions of #728
@@ -79,6 +82,27 @@ function start(text) {
   const user = { type: 'user', uuid: uuid(), message: { role: 'user', content: text } };
   record(user);
   emit({ ...user, isReplay: true, parent_tool_use_id: null });
+  // A background agent that outlives its turn: 'agent-start' starts it, 'agent-end' ends it (#769).
+  if (text === 'agent-start' || text === 'agent-end') {
+    emit(text === 'agent-start'
+      ? { type: 'system', subtype: 'task_started', task_id: 'agent-bg', description: 'Long', is_backgrounded: true, task_type: 'local_agent' }
+      : { type: 'system', subtype: 'task_updated', task_id: 'agent-bg', patch: { status: 'completed' } });
+    streamText('ok');
+    finish();
+    return;
+  }
+  if (text === 'agent' || text === 'agent-hang') {
+    assistantBlock({ type: 'tool_use', id: 'toolu_a', name: 'Agent', input: { subagent_type: 'verifier', description: 'Review' } });
+    emit({ type: 'system', subtype: 'task_started', task_id: 'agent-1', tool_use_id: 'toolu_a', description: 'Review', subagent_type: 'verifier', is_backgrounded: false, task_type: 'local_agent' });
+    if (text === 'agent-hang') { setTimeout(() => process.exit(0), 50); return; }
+    setTimeout(() => {
+      emit({ type: 'system', subtype: 'task_updated', task_id: 'agent-1', patch: { status: 'completed' } });
+      emit({ type: 'system', subtype: 'task_notification', task_id: 'agent-1', tool_use_id: 'toolu_a', status: 'completed', summary: 'ok' });
+      streamText('finished');
+      finish();
+    }, 50);
+    return;
+  }
   if (text === 'tool') {
     assistantBlock({ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'echo hi' } });
     waitingApproval = 'perm-1';

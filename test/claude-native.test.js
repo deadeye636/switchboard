@@ -1041,7 +1041,7 @@ test('an agent task names its subagent, live and in its notice; a shell names no
   const [t] = d.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'a276f270c03197f1c', task_type: 'local_agent', description: 'bg date' }] })[0].tasks;
   assert.equal(t.kind, 'agent');
   assert.equal(t.subagentId, 'a276f270c03197f1c');
-  const [live] = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'a276f270c03197f1c', tool_use_id: 'toolu_a', status: 'completed', summary: 'done' });
+  const live = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'a276f270c03197f1c', tool_use_id: 'toolu_a', status: 'completed', summary: 'done' }).find(o => o.op === 'append');
   assert.equal(live.entry._task.subagentId, 'a276f270c03197f1c');
   const shell = protocol.createDecoder().decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'x' }] })[0].tasks[0];
   assert.equal(shell.subagentId, null);
@@ -1054,7 +1054,7 @@ test('a foreground agent is counted from its start to its end, beside the backgr
   d.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'Dev server' }] });
   d.decode({ type: 'assistant', uuid: 'u1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_f', name: 'Agent', input: { subagent_type: 'verifier' } }] } });
   const start = d.decode({ type: 'system', subtype: 'task_started', task_id: 'af1', tool_use_id: 'toolu_f', description: 'Review', subagent_type: 'verifier', task_type: 'local_agent', is_backgrounded: false });
-  assert.deepEqual(start.map(o => o.op), ['tasks']);
+  assert.deepEqual(start.map(o => o.op), ['tasks', 'subagent']);
   assert.deepEqual(start[0].tasks.map(t => [t.id, t.kind]), [['b1', 'shell'], ['af1', 'agent']]);
   const [fg] = start[0].tasks.slice(-1);
   assert.equal(fg.description, 'Review');
@@ -1065,7 +1065,7 @@ test('a foreground agent is counted from its start to its end, beside the backgr
   assert.deepEqual(list[0].tasks.map(t => t.id), ['af1']);
   assert.deepEqual(d.decode({ type: 'system', subtype: 'task_progress', task_id: 'af1' }), [], 'progress changes nothing');
   const end = d.decode({ type: 'system', subtype: 'task_updated', task_id: 'af1', patch: { status: 'completed' } });
-  assert.deepEqual(end.map(o => o.op), ['tasks']);
+  assert.deepEqual(end.map(o => o.op), ['tasks', 'subagent']);
   assert.deepEqual(end[0].tasks, []);
   // The notification after it still draws the notice, and no second list.
   const notice = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'af1', tool_use_id: 'toolu_f', status: 'completed', summary: 'ok' });
@@ -1083,7 +1083,7 @@ test('a stopped foreground agent drops out, and so does one whose end never came
   // A notification alone ends it too.
   started('n1');
   const viaNotice = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'n1', status: 'completed', summary: '' });
-  assert.deepEqual(viaNotice.map(o => o.op), ['tasks', 'append']);
+  assert.deepEqual(viaNotice.map(o => o.op), ['tasks', 'subagent', 'append']);
   assert.deepEqual(viaNotice[0].tasks, []);
   // A foreground agent cannot outlive its turn.
   started('lost');
@@ -1093,7 +1093,7 @@ test('a stopped foreground agent drops out, and so does one whose end never came
   // A turn that ends with nothing running sends no list.
   assert.equal(d.decode({ type: 'result', subtype: 'success', is_error: false, result: '' }).some(o => o.op === 'tasks'), false);
   // A BACKGROUND agent's start is not counted here: it comes with the list.
-  assert.deepEqual(d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg', task_type: 'local_agent', is_backgrounded: true }), []);
+  assert.deepEqual(d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg', task_type: 'local_agent', is_backgrounded: true }).map(o => o.op), ['subagent'], 'only its subagent edge (#769)');
 });
 
 test('an agent\'s notice from the transcript carries its kind and cost, and stop and the figures are control requests', () => {
@@ -1239,4 +1239,22 @@ test('a notice read back from the transcript names its output file, from the tag
   // The history viewer hands its entries straight to the renderer, so its notice carries no path at all.
   const history = require('../src/backends/claude/transcript-view').normalizeTranscriptEntries([call('toolu_1'), notice('b1', 'toolu_1', '/tmp/x/tasks/b1-final.output')]);
   assert.ok(!JSON.stringify(history).includes('/tmp/x'));
+});
+
+// #769: every agent's start and end, foreground or background, once each and keyed by its agentId; a shell has none.
+test('an agent task reports its subagent\'s exact start and end, once each', () => {
+  const d = protocol.createDecoder();
+  const edges = (ops) => ops.filter(o => o.op === 'subagent').map(o => [o.agentId, o.live]);
+  assert.deepEqual(edges(d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg1', task_type: 'local_agent', is_backgrounded: true })), [['bg1', true]]);
+  assert.deepEqual(edges(d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg1', task_type: 'local_agent', is_backgrounded: true })), [], 'a repeated start');
+  assert.deepEqual(edges(d.decode({ type: 'system', subtype: 'task_started', task_id: 'sh1', task_type: 'local_bash', is_backgrounded: true })), [], 'a shell');
+  assert.deepEqual(edges(d.decode({ type: 'system', subtype: 'task_updated', task_id: 'bg1', patch: { status: 'running' } })), []);
+  assert.deepEqual(edges(d.decode({ type: 'system', subtype: 'task_updated', task_id: 'bg1', patch: { status: 'killed' } })), [['bg1', false]]);
+  assert.deepEqual(edges(d.decode({ type: 'system', subtype: 'task_notification', task_id: 'bg1', status: 'stopped', summary: '' })), [], 'its notification after the end');
+  // A background agent outlives the turn: a result ends nothing of it.
+  d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg2', task_type: 'local_agent', is_backgrounded: true });
+  assert.deepEqual(edges(d.decode({ type: 'result', subtype: 'success', is_error: false, result: '' })), []);
+  // A foreground agent left at the result is ended there.
+  d.decode({ type: 'system', subtype: 'task_started', task_id: 'fg1', task_type: 'local_agent', is_backgrounded: false });
+  assert.deepEqual(edges(d.decode({ type: 'result', subtype: 'success', is_error: false, result: '' })), [['fg1', false]]);
 });

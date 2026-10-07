@@ -557,7 +557,10 @@ answers instead of the core learning its format:
   half without it offers no Stop in the Background list. The running list itself is a `tasks` op the decoder
   sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, subagentId, startedAt }` — `subagentId` is
   the `agentId` of the subagent row an agent task is, or `null`; #695) — what runs beside the turn, which for
-  claude-native includes a foreground agent while the turn waits for it (#768) — and a finished
+  claude-native includes a foreground agent while the turn waits for it (#768) — and a `subagent` op
+  (`{ agentId, live }`, #769) is a subagent's exact start or end, which the core delivers as a binding's
+  `subagent-start` / `subagent-stop` and closes on exit; a decoder sends one only for edges its runtime states
+  for every agent, a stopped one included — and a finished
   task is a neutral `task-notice` entry — the renderer reads neither CLI's markup. The decoder may declare
   `taskOutputFile(taskId)`: the file its runtime named for that task, which the core reads by task id so the
   view never names a path. A `task-notice` entry may carry the same file as `_task.outputFile` — live and read

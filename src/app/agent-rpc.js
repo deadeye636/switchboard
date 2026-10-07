@@ -229,6 +229,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     localOps: new Map(),     // id -> the newest running op not sent yet (coalesced, like the partial)
     localTimer: null,
     composerLines: new Set(), // shell lines the composer sent that the runtime has not raised yet
+    liveSubagents: new Map(), // agentId -> the session id its start went out under, until its end (#769); closed on exit
     navigations: new Set(),  // moves in the branch tree this process asked for and has not heard back on
     queue: { steering: [], followUp: [] },
     busy: false,
@@ -516,6 +517,28 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
 
   state.report = report;
 
+  // A subagent's exact start or end (#769), through the one delivery path a terminal binding's edges take — never
+  // as a busy edge of the session, and without the queue report `report` adds. An end goes to the session id its
+  // start went out under: the view files the agent under that parent, and a re-key in between (`/clear`) would
+  // otherwise leave the start standing there for good.
+  function deliverSubagentEdge(agentId, live) {
+    if (typeof ctx.deliverBindSignal !== 'function') return;
+    let sessionId;
+    if (live) {
+      const found = findSession(tag);
+      if (!found) return;
+      sessionId = found.id;
+      state.liveSubagents.set(agentId, sessionId);
+    } else {
+      sessionId = state.liveSubagents.get(agentId);
+      state.liveSubagents.delete(agentId);
+      if (!sessionId) return;
+    }
+    try { ctx.deliverBindSignal(sessionId, { kind: live ? 'subagent-start' : 'subagent-stop', agent_id: agentId }); } catch (err) {
+      ctx.log.warn(`[agent-rpc] subagent edge not delivered: ${err.message}`);
+    }
+  }
+
   // The owed-turn count, kept at the busy edges (`turnQueueOf`). A turn beginning is the one fact that proves
   // a queued line ran, so it takes one off. A count that no turn ever answers — a line the runtime folded
   // into the running turn after all — is dropped once the session has stayed idle for OWED_GRACE_MS, so a
@@ -642,6 +665,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         sendOp(state, op);
         announceBackground(state);
         return;
+      case 'subagent': {
+        // A subagent's exact start or end (#769). It goes the way a terminal session's SubagentStart /
+        // SubagentStop hooks go, through the one delivery path, and never as a busy edge of the session.
+        if (!op.agentId) return;
+        deliverSubagentEdge(String(op.agentId), !!op.live);
+        return;
+      }
       case 'queue':
         state.queue = { steering: op.steering || [], followUp: op.followUp || [] };
         flushPartial();
@@ -908,6 +938,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     sendOp(state, { op: 'held', items: [], paused: false });
     // A background task does not outlive the process that ran it; the sidebar stops counting it (#691).
     if (state.tasks.length) { state.tasks = []; announceBackground(state); }
+    // …and neither does a subagent (#769): an edge that said "started" is closed here, because the end the
+    // runtime would have stated cannot come any more.
+    for (const agentId of [...state.liveSubagents.keys()]) deliverSubagentEdge(agentId, false);
     for (const [, waiting] of state.pending) { clearTimeout(waiting.timer); waiting.resolve({ success: false, error: 'exited' }); }
     state.pending.clear();
     if (state.stderrTail.trim()) ctx.log.info(`[agent-rpc] stderr before exit: ${state.stderrTail.trim().slice(-600)}`);

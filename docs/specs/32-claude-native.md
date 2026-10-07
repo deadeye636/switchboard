@@ -664,11 +664,30 @@ calls and one background agent. What the stream carries, all as `system` lines t
   Claude session. claude-native keeps `supportsSubagents: false`: the subagents are written to Claude's store,
   so `subagentBackendFor` in `src/session/session-transitions.js` asks the owner of that store (`cliOwnerOf`),
   and Claude's seam finds them. pi-native asks Pi the same way, which has no subagents, so a Pi (GUI) session
-  shows none. A template on either asks its base's owner. The edges come from the store scan alone — this backend has no live binding, so no `SubagentStart` /
-  `SubagentStop` hook — and the scan calls an agent finished after 30 s without a write, so the badge stays
-  that long after the agent ends (measured: about 30 s past the end of a turn). A session's first subagent is
+  shows none. A template on either asks its base's owner. A session's first subagent is
   seen in the scan's bootstrap walk, because the store answers nothing until `<id>/subagents/` exists; a file
   written after the app opened the session (`session._openedAt`) counts as a spawn there.
+  **The edges are the pipe's since #769.** At first they came from the store scan alone — this backend has no
+  `SubagentStart` / `SubagentStop` hook — and the scan calls an agent finished after 30 s without a write, and
+  for good after about two minutes (#518). A subagent inside a long tool call writes nothing for that long: a
+  verifier in a real session was called finished 52 s after its start and reopened several times, and the
+  badge and the open transcript's live tail went out with each guess. Every agent, foreground and background,
+  gets a `task_started` and an end (`task_updated` or `task_notification`, #768), and its task id is its
+  agentId (#695), so the decoder sends a neutral `subagent` op for each edge, once. The core delivers it through
+  `hooks.deliverBindSignal` as a binding's `subagent-start` / `subagent-stop` — never as a busy edge, and without
+  touching a held ready — and closes every open one when the process exits. The renderer files a binding's
+  subagent edge under the source `exact` (`src/renderer/session/subagent-live.js`): no scan guess retracts it, the
+  settled one included, and a scan sighting after its end is the file settling, not the agent coming back. The
+  scan still opens an agent first when the view saw nothing else, and the exact start takes it over. An open
+  transcript stops following the file 2.5 s after the end, because the end can arrive before the agent's last
+  lines reach the file and the watch polls once a second. An end goes out under the session id its start went
+  out under, so a re-key in between (`/clear`) closes the entry the view holds. Two limits are known and left:
+  a window reloaded while an agent runs shows no badge for it until its end, because the start is not replayed
+  and the scan has already announced it once; and an agent id that came back after its stated end would not be
+  believed, which Claude has not been seen doing (a task id is a new id per agent).
+  Measured in the demo instance with Haiku: an agent that wrote nothing for 78 s kept its badge on the row and
+  the tab and its open transcript's live tail, while the scan logged `[subagent-complete]` 40 s after the start.
+  Both went out with the exact end, the tail took the last entries first, and the view stood at the bottom.
 
 - **A foreground agent is counted in the Background buttons too** (#768). Measured on Claude Code 2.1.293
   (Haiku, one foreground agent per run; `scripts/measure-claude-foreground-agent.js` repeats it): `task_started` with `is_backgrounded: false` and `task_type:
@@ -680,8 +699,8 @@ calls and one background agent. What the stream carries, all as `system` lines t
   start to that end and sends them in the `tasks` op behind the background list, and the Background list offers
   Open and Stop for them as for any agent. A notification without the `task_updated` ends one too, and a turn's
   `result` drops any left, because a foreground agent cannot outlive the turn that waits for it. The same run
-  went 51 s between two writes of the subagent's transcript, which is longer than the scan's 30 s end guess for
-  the row and tab badge above. The decoder lives as long as the process, and an attach is handed the core's
+  went 51 s between two writes of the subagent's transcript, which is longer than the scan's 30 s end guess the
+  row and tab badge above used until #769. The decoder lives as long as the process, and an attach is handed the core's
   last list, so a view mounted mid-run still counts the agent. The sidebar row then carries both marks for the
   one agent, the agent badge and the `◉` count, as it already did for a background agent; they answer two
   questions (is a subagent of this session live, what runs beside its turn) and are left side by side.
@@ -837,7 +856,8 @@ turn, and in pi-native the model has to read the file itself.
 
 - the pipe, the line framing, the request/response wait, the stop and the tree kill: `src/app/agent-rpc.js`;
 - the neutral ops the decoder produces (`append`, `partial`, `tool`, `busy`, `notice`, `ask`, `answered`,
-  `reset`, and `identity`, which the core handles itself) and the one channel that carries them to the view;
+  `reset`, and `identity`, which the core handles itself) and the one channel that carries them to the view —
+  plus `tasks` (#691) and `subagent` (#769), which only claude-native's decoder sends today;
 - the attach sequence contract, the re-key, the open-question registry and its answers, and the count of
   owed turns;
 - the conversation view, its composer, its cards and the pickers anchored in it;

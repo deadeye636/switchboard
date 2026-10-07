@@ -299,8 +299,9 @@ function applyAttention(sessionId, signal) {
   } else if (kind === 'subagent-live-start' || kind === 'subagent-live-stop') {
     // Exact subagent edges from the SubagentStart/SubagentStop hooks (#119). The
     // JSONL scan writes to the same set, so a subagent seen twice counts once.
+    // From a binding (#769) they are the runtime's own task lines, which state every end.
     if (signal.agentId && typeof window._setSubagentLive === 'function') {
-      window._setSubagentLive(sessionId, signal.agentId, kind === 'subagent-live-start', 'hook');
+      window._setSubagentLive(sessionId, signal.agentId, kind === 'subagent-live-start', source === 'bind' ? 'exact' : 'hook');
     }
   }
 }

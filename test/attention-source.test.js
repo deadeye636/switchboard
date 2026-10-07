@@ -219,3 +219,14 @@ test('a bind signal beats the OSC-9 heuristic, both ways round (#529)', () => {
   assert.deepEqual(reduceAttention(osc9, bind), bind);
   assert.deepEqual(reduceAttention(bind, osc9), bind);
 });
+
+// #769: a binding's subagent edges, keyed by the agent; without its id it says nothing.
+test('a binding reports a subagent start and stop under the agent\'s id', () => {
+  const start = classifyAttentionSignal({ source: 'bind', payload: { kind: 'subagent-start', agent_id: 'a1' } });
+  assert.deepEqual(start, { kind: 'subagent-live-start', reason: 'Subagent started', agentId: 'a1', source: 'bind' });
+  const stop = classifyAttentionSignal({ source: 'bind', payload: { kind: 'subagent-stop', agent_id: 'a1' } });
+  assert.equal(stop.kind, 'subagent-live-stop');
+  assert.equal(stop.agentId, 'a1');
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: { kind: 'subagent-start' } }), null);
+  assert.equal(classifyAttentionSignal({ source: 'bind', payload: { kind: 'subagent-stop', agent_id: 7 } }), null);
+});

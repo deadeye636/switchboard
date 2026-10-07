@@ -311,6 +311,27 @@ function deliverBindSignal(sessionId, hook) {
     }
   }
 
+  // A subagent edge (#769) says nothing about the session's own busy state and must not touch a held
+  // ready: it goes out the way the SubagentStart / SubagentStop hooks do, and nothing else happens.
+  if (bindSignal && (bindSignal.kind === 'subagent-live-start' || bindSignal.kind === 'subagent-live-stop')) {
+    const mainWindow = ctx.getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('attention-signal', {
+        sessionId,
+        kind: bindSignal.kind,
+        reason: bindSignal.reason,
+        source: bindSignal.source,
+        agentId: bindSignal.agentId,
+        agentType: null,
+      });
+      ctx.log.info(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} agentId=${bindSignal.agentId}`);
+    }
+    if (ctx.sendTimelineSignal) {
+      ctx.sendTimelineSignal(sessionId, { kind: bindSignal.kind, reason: bindSignal.reason, source: bindSignal.source });
+    }
+    return;
+  }
+
   if (bindSignal) {
     // `needs-attention` from a binding is a CLI blocked on a question mid-turn (#529): it is
     // attention AND it is the end of being busy. The classifier states the second half as `busy`,

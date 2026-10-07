@@ -9,7 +9,7 @@ let currentViewerSessionId = null;
 let agentMatchCounters = {};
 
 // --- Live subagent tracking ---
-// Map<"<parentSessionId>:<agentId>", 'hook' | 'scan'> — which source vouches for
+// Map<"<parentSessionId>:<agentId>", 'hook' | 'scan' | 'exact'> — which source vouches for
 // this agent still running. Edge rules live in subagent-live.js (#121).
 const liveSubagents = new Map();
 // Exposed so the sidebar can seed the running-subagent indicator on (re)render (#111).
@@ -20,9 +20,10 @@ window._liveSubagentCount = (parentSessionId) => liveSubagentCount(liveSubagents
 // setting is toggled back on (#112).
 window._liveSubagentParents = () => liveSubagentParents(liveSubagents);
 
-// Single mutation point for the live set, fed by two sources (#119):
+// Single mutation point for the live set, fed by three sources (#119, #769):
 //   'hook' — SubagentStart/SubagentStop, exact on both edges
 //   'scan' — the JSONL spawn/complete heuristic, the fallback when hooks are off
+//   'exact' — a runtime's own task lines over a pipe (#769), which no scan guess retracts
 // The scan may not retract a hook-tracked agent: a subagent inside a long tool call
 // writes nothing, so the stable-mtime heuristic would call it finished mid-run (#121).
 function setSubagentLive(parentSessionId, agentId, isLive, source = 'scan') {
@@ -31,11 +32,15 @@ function setSubagentLive(parentSessionId, agentId, isLive, source = 'scan') {
     window._updateSubagentLive(parentSessionId, agentId, isLive);
   }
   if (!isLive) {
-    // Let an open watch container stop its watch and hide its indicator.
+    // Let an open watch container stop its watch and hide its indicator — a little after the end, because an
+    // exact end (#769) can arrive before the agent's last lines reach the file, and the watch polls once a second.
     const key = parentSessionId + ':' + agentId;
-    document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
-      el.dispatchEvent(new CustomEvent('subagent-completed-internal'));
-    });
+    setTimeout(() => {
+      if (isSubagentLive(liveSubagents, parentSessionId, agentId)) return;
+      document.querySelectorAll('[data-subagent-watch-key="' + key + '"]').forEach(el => {
+        el.dispatchEvent(new CustomEvent('subagent-completed-internal'));
+      });
+    }, 2500);
   }
 }
 window._setSubagentLive = setSubagentLive;

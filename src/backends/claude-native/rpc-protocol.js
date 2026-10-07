@@ -376,6 +376,7 @@ function createDecoder() {
   // `task_updated` that ends it (measured). Kept here from the one to the other, in start order, so it is counted
   // beside the background tasks while it runs.
   let foreground = [];            // [{ id, kind: 'agent', description }]
+  const liveAgents = new Set();   // agent task ids whose start has been reported and whose end has not (#769)
   const started = new Map();      // task id -> { toolUseId, description, detail, startedAt }
   const toolKinds = new Map();    // tool_use id -> 'shell' | 'agent' | 'task'
   const readCalls = new Map();    // tool_use id -> { file_path, pages } of a Read (#755)
@@ -705,16 +706,19 @@ function createDecoder() {
           detail: typeof msg.subagent_type === 'string' ? msg.subagent_type : '',
           startedAt: Date.now(),
         });
+        const live = msg.task_type === 'local_agent' ? subagentEdge(id, true) : [];
         if (msg.is_backgrounded === false && msg.task_type === 'local_agent' && !foreground.some(f => f.id === id)) {
           foreground.push({ id, kind: 'agent', description: typeof msg.description === 'string' ? msg.description : '' });
-          return [tasksOp()];
+          return [tasksOp(), ...live];
         }
-        return running.some(t => t.id === id) ? [tasksOp()] : [];
+        return running.some(t => t.id === id) ? [tasksOp(), ...live] : live;
       }
-      // Only a foreground agent's end is read here (#768): a background task's end is the list shrinking.
+      // A foreground agent's end (#768) and every agent's end (#769): a background task's place in the list
+      // ends with the list shrinking.
       case 'task_updated': {
         const status = msg.patch && typeof msg.patch.status === 'string' ? msg.patch.status : '';
-        return status && status !== 'running' && endForeground(msg.task_id) ? [tasksOp()] : [];
+        if (!status || status === 'running') return [];
+        return [...(endForeground(msg.task_id) ? [tasksOp()] : []), ...subagentEdge(msg.task_id, false)];
       }
       case 'background_tasks_changed':
         running = (Array.isArray(msg.tasks) ? msg.tasks : [])
@@ -726,7 +730,7 @@ function createDecoder() {
         if (!id) return [];
         if (typeof msg.output_file === 'string' && msg.output_file) taskOutputs.set(id, msg.output_file);
         // A notification without the `task_updated` before it still ends a foreground agent (#768).
-        const ended = endForeground(id) ? [tasksOp()] : [];
+        const ended = [...(endForeground(id) ? [tasksOp()] : []), ...subagentEdge(id, false)];
         // The user line Claude injects for the model is NOT sent on the pipe (measured in the app: the turn it
         // starts arrives, the line does not), only written to the transcript. So the live notice is drawn from
         // this line, and an injected line for the same task — replayed after all, or read back — is dropped.
@@ -737,6 +741,15 @@ function createDecoder() {
       default:
         return [];
     }
+  }
+
+  // A subagent's exact start or end (#769), once each: the task id of an agent IS its subagent's agentId (#695).
+  // The core hands it on the way a terminal session's SubagentStart / SubagentStop hooks arrive.
+  function subagentEdge(taskId, live) {
+    const id = typeof taskId === 'string' ? taskId : '';
+    if (!id || liveAgents.has(id) === live) return [];
+    if (live) liveAgents.add(id); else liveAgents.delete(id);
+    return [{ op: 'subagent', agentId: id, live }];
   }
 
   // Drops a foreground agent (#768); true when one was there to drop.
@@ -801,7 +814,12 @@ function createDecoder() {
       endTurn();
       // A foreground agent cannot outlive the turn that waits for it, so one whose end never came is gone (#768).
       // A subagent's own result ends no turn of ours.
-      if (foreground.length && !ofSubagent(msg)) { foreground = []; ops.push(tasksOp()); }
+      if (foreground.length && !ofSubagent(msg)) {
+        const left = foreground;
+        foreground = [];
+        ops.push(tasksOp());
+        for (const f of left) ops.push(...subagentEdge(f.id, false));
+      }
     }
     return ops;
   }

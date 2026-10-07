@@ -144,3 +144,28 @@ test('count and parents are derived per parent session', () => {
   assert.strictEqual(liveSubagentCount(live, 'parent-3'), 0);
   assert.deepStrictEqual([...liveSubagentParents(live)].sort(), ['parent-1', 'parent-2']);
 });
+
+// #769: a runtime that states both edges of every agent over its pipe.
+test('an exact agent is retracted by its own end only, not by any scan guess', () => {
+  const live = new Map();
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', true, 'exact'), true);
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan'), false, 'the 30 s guess');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan-final'), false, 'the settled guess too');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', true, 'scan'), false, 'a scan sighting changes nothing');
+  assert.strictEqual(isSubagentLive(live, P, 'a1'), true);
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'exact'), true);
+  assert.strictEqual(isSubagentLive(live, P, 'a1'), false);
+});
+
+test('an exact start takes over an agent the scan saw first, and its end is final', () => {
+  const live = new Map();
+  applySubagentEdge(live, P, 'a1', true, 'scan');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', true, 'exact'), false, 'already visible');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', false, 'scan-final'), false);
+  applySubagentEdge(live, P, 'a1', false, 'exact');
+  assert.strictEqual(applySubagentEdge(live, P, 'a1', true, 'scan'), false, 'a last write after the end is not the agent coming back');
+  assert.strictEqual(isSubagentLive(live, P, 'a1'), false);
+  // An exact end that arrives first still marks the agent ended.
+  applySubagentEdge(live, P, 'a2', false, 'exact');
+  assert.strictEqual(applySubagentEdge(live, P, 'a2', true, 'scan'), false);
+});

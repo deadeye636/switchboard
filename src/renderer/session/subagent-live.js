@@ -1,8 +1,9 @@
 // --- Live subagent set: source-aware edges (pure logic, #121) ---
 //
-// Two sources feed the same set and they are not equally trustworthy:
+// Three sources feed the same set and they are not equally trustworthy:
 //   'hook' — SubagentStart / SubagentStop. Exact, both edges, no lag.
 //   'scan' — the JSONL spawn→complete heuristic. The fallback when hooks are off.
+//   'exact' — a runtime's own task lines over a pipe (#769). Both edges, always; see SUBAGENT_SOURCE_EXACT.
 //
 // The scan decides completion from a stable mtime, but a subagent sitting inside a
 // long tool call writes nothing for minutes, so the scan can declare it finished
@@ -17,6 +18,10 @@ const SUBAGENT_SOURCE_SCAN = 'scan';
 // It may retract a hook-owned agent, and it is the only thing that may: a cancelled subagent emits no
 // SubagentStop, so without this the entry the hook opened has no edge that can ever close it.
 const SUBAGENT_SOURCE_FINAL = 'scan-final';
+// A runtime that states BOTH edges of every agent, a stopped one included (#769: a session driven over a pipe,
+// whose core also closes every open edge when the process exits). Nothing the scan guesses may retract it,
+// the settled guess included, because the end that guess stands in for is guaranteed to come.
+const SUBAGENT_SOURCE_EXACT = 'exact';
 
 function subagentKey(parentSessionId, agentId) {
   return parentSessionId + ':' + agentId;
@@ -30,6 +35,10 @@ function subagentKey(parentSessionId, agentId) {
 // and cannot re-assert anything, so the set remembers on the hook's behalf. Only a real SubagentStop
 // forgets: that agent is over, and nothing about it needs protecting any more.
 const hookOwned = new WeakMap();
+
+// Which agents an exact source has ended, per live set (#769). An agent id is used once, so a scan sighting of
+// one of these is the file settling after the end, and is not believed.
+const exactEnded = new WeakMap();
 
 function rememberedAsHook(live, key) {
   const seen = hookOwned.get(live);
@@ -45,6 +54,13 @@ function applySubagentEdge(live, parentSessionId, agentId, isLive, source = SUBA
   const current = live.get(key);
 
   if (isLive) {
+    if (current === SUBAGENT_SOURCE_EXACT) return false;
+    if (source === SUBAGENT_SOURCE_EXACT) {
+      live.set(key, SUBAGENT_SOURCE_EXACT);
+      return current === undefined;
+    }
+    // A last write after the stated end is the scan seeing the file settle, not the agent coming back.
+    if (exactEnded.has(live) && exactEnded.get(live).has(key)) return false;
     if (source === SUBAGENT_SOURCE_HOOK) {
       if (!hookOwned.has(live)) hookOwned.set(live, new Set());
       hookOwned.get(live).add(key);
@@ -63,7 +79,13 @@ function applySubagentEdge(live, parentSessionId, agentId, isLive, source = SUBA
     const seen = hookOwned.get(live);
     if (seen) seen.delete(key);
   }
+  if (source === SUBAGENT_SOURCE_EXACT) {
+    if (!exactEnded.has(live)) exactEnded.set(live, new Set());
+    exactEnded.get(live).add(key);
+  }
   if (current === undefined) return false;
+  // An exactly tracked agent ends only with its own stated end.
+  if (current === SUBAGENT_SOURCE_EXACT && source !== SUBAGENT_SOURCE_EXACT) return false;
   // The heuristic may only retract what it owns — unless it is the settled one, which outranks a hook
   // edge that was never going to arrive.
   if (source === SUBAGENT_SOURCE_SCAN && current === SUBAGENT_SOURCE_HOOK) return false;
@@ -95,6 +117,7 @@ if (typeof module !== 'undefined' && module.exports) {
     SUBAGENT_SOURCE_HOOK,
     SUBAGENT_SOURCE_SCAN,
     SUBAGENT_SOURCE_FINAL,
+    SUBAGENT_SOURCE_EXACT,
     subagentKey,
     applySubagentEdge,
     isSubagentLive,

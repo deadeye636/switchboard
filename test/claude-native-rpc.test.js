@@ -59,6 +59,40 @@ test('a line queued behind a running turn is reported busy when it starts, with 
     'the queued line is drawn where it ran, after the first reply');
 });
 
+// #769: the pipe's task lines become the same subagent edges a terminal session's hooks give, through the one
+// delivery path, and none of them is a busy edge of the session.
+test('an agent\'s start and end go out as subagent edges, counted beside the background list while it runs', async (t) => {
+  const h = claudeHarness(t);
+  await agentRpc.sendTurn('launch-id', { text: 'agent', mode: 'prompt' });
+  await until(() => idles(h) === 1);
+  assert.deepEqual(h.signals.map((s) => s.kind), ['busy', 'subagent-start', 'subagent-stop', 'idle']);
+  const edges = h.signals.filter((s) => s.kind.startsWith('subagent'));
+  assert.ok(edges.every((s) => s.agent_id === 'agent-1' && s.sessionId === 'sess-1'), 'keyed by the agent, under the session');
+  assert.ok(edges.every((s) => !('pending' in s)), 'no queue report rides on a subagent edge');
+  const lists = ops(h).filter((o) => o.op === 'tasks').map((o) => o.tasks.map((x) => x.id));
+  assert.deepEqual(lists, [['agent-1'], []], 'the foreground agent is listed from its start to its end (#768)');
+});
+
+test('a subagent whose end never came is closed when the process exits', async (t) => {
+  const h = claudeHarness(t);
+  await agentRpc.sendTurn('launch-id', { text: 'agent-hang', mode: 'prompt' });
+  await until(() => h.signals.some((s) => s.kind === 'subagent-stop'));
+  assert.deepEqual(h.signals.filter((s) => s.kind.startsWith('subagent')).map((s) => [s.kind, s.agent_id]),
+    [['subagent-start', 'agent-1'], ['subagent-stop', 'agent-1']]);
+});
+
+test('a subagent\'s end goes to the session its start went out under, across a re-key', async (t) => {
+  const h = claudeHarness(t);
+  await agentRpc.sendTurn('launch-id', { text: 'agent-start', mode: 'prompt' });
+  await until(() => idles(h) === 1);
+  await agentRpc.sendTurn('sess-1', { text: '/clear', mode: 'prompt' });
+  await until(() => h.rekeys.some((r) => r.to === 'sess-1-cleared'));
+  await agentRpc.sendTurn('sess-1-cleared', { text: 'agent-end', mode: 'prompt' });
+  await until(() => h.signals.some((s) => s.kind === 'subagent-stop'));
+  assert.deepEqual(h.signals.filter((s) => s.kind.startsWith('subagent')).map((s) => [s.kind, s.sessionId]),
+    [['subagent-start', 'sess-1'], ['subagent-stop', 'sess-1']]);
+});
+
 test('an approval is asked in the view and answered with the tool\'s own input', async (t) => {
   const h = claudeHarness(t);
   await agentRpc.sendTurn('launch-id', { text: 'tool', mode: 'prompt' });

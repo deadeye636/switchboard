@@ -460,6 +460,17 @@ test('an ordinary busy binding is unchanged and raises no attention (#529)', asy
   assert.deepEqual(ctx.sent.filter(s => s.channel === 'attention-signal'), [], 'busy is not attention');
 });
 
+test('a binding\'s subagent edge goes out as one, with no busy edge and no hand on a held ready (#769)', async () => {
+  let cancelled = 0;
+  const ctx = makeCtx({ adoptSessionId: () => null, cancelHeldReady: () => { cancelled++; }, log: { info() {}, warn() {}, debug() {}, error() {} } });
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'subagent-start', agent_id: 'a1' }, TOKEN);
+  await post(BIND_URL, { session_id: 'sess-9', kind: 'subagent-stop', agent_id: 'a1' }, TOKEN);
+  assert.deepEqual(ctx.sent.filter(s => s.channel === 'cli-busy-state'), [], 'the session\'s own state is not touched');
+  const edges = ctx.sent.filter(s => s.channel === 'attention-signal').map(s => [s.payload.kind, s.payload.agentId, s.payload.source]);
+  assert.deepEqual(edges, [['subagent-live-start', 'a1', 'bind'], ['subagent-live-stop', 'a1', 'bind']]);
+  assert.equal(cancelled, 0, 'a held ready stays held');
+});
+
 test('a binding with no lifecycle kind still binds and sends nothing (#529)', async () => {
   // `session_start` and `session_info_changed` post the id alone — they say where the terminal is, not
   // what it is doing, and inventing an edge for them would flip the row on every rename.
