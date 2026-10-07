@@ -1,6 +1,7 @@
 // document-viewer.js — the overlay a document card opens over the conversation (#755).
 //
-// `openDocumentViewer({ host, name, count, srcAt })` appends ONE overlay inside `host` (the conversation root,
+// `openDocumentViewer({ host, name, count, srcAt, content, actions, focusFallback })` — `content` and `actions` are
+// described below — appends ONE overlay inside `host` (the conversation root,
 // never document.body, so it follows its pane through tabs, panes, grid and a detached window) and shows the
 // page `srcAt(i)` builds. The pages are not held here: `srcAt` builds a data URL for the current page only and
 // the previous one is dropped when the page changes, so a page nobody opens is never decoded (D9, R3).
@@ -15,6 +16,9 @@
 // and Home/End are left to the scroll: Markdown's stage takes the focus, an HTML frame takes it once loaded and its
 // document hands the viewer's own keys and Ctrl+wheel back (the only listeners not on the overlay element). The
 // scroller (stage or frame) is part of the Tab cycle.
+//
+// `opts.actions = [{ label, run }]` (#765) puts the card's open actions in the bar; each closes the viewer and then
+// runs. The card passes them only where it shows its own buttons, so the history viewer has none here either.
 //
 // Reads `isMac` (terminal/terminal-manager.js), `htmlWithBase` (shared/preview-kind.js) and `DOMPurify` /
 // `window.marked` (their own tags in index.html) at call time, guarded. `opts.focusFallback`, when given, takes the
@@ -81,6 +85,15 @@ function openDocumentViewer(opts) {
     b.addEventListener('click', onClick);
     return b;
   };
+
+  // The card's open actions (#765), when the card has them: each closes the viewer first, then runs.
+  const actions = Array.isArray(opts.actions) ? opts.actions.filter(a => a && a.label && typeof a.run === 'function') : [];
+  if (actions.length) {
+    const group = document.createElement('span');
+    group.className = 'document-viewer-group document-viewer-actions';
+    for (const a of actions) group.appendChild(btn(a.label, a.label, () => { close(); a.run(); }));
+    bar.appendChild(group);
+  }
 
   const prev = btn('Previous page (←)', '‹', () => go(index - 1));
   const next = btn('Next page (→)', '›', () => go(index + 1));

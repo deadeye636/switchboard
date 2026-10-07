@@ -175,6 +175,12 @@ function renderDocumentCard(resultData, ctx) {
   }
   card.appendChild(meta);
 
+  // The same two actions in the viewer's bar (#765), only where the card shows them.
+  const viewerActions = canAct ? [
+    { label: 'Open in default app', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'default', false) },
+    { label: 'Open in tab', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'tab', false) },
+  ] : [];
+
   const openViewer = () => {
     const host = (ctx && ctx.host) || card.closest('#jsonl-viewer') || card.ownerDocument.body;
     openDocumentViewer({
@@ -182,6 +188,7 @@ function renderDocumentCard(resultData, ctx) {
       name,
       count: pages.length,
       srcAt: (i) => documentPageSrc(pages[i]),
+      actions: viewerActions,
       focusFallback: ctx && ctx.focusFallback,
     });
   };
@@ -205,6 +212,7 @@ function renderDocumentCard(resultData, ctx) {
       host,
       name,
       content: { kind: res.kind, text: res.text, dirUrl: typeof fileDirUrl === 'function' ? fileDirUrl(doc.path) : '' },
+      actions: viewerActions,
       focusFallback: ctx && ctx.focusFallback,
     });
   };

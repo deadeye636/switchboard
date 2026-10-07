@@ -31,7 +31,11 @@ function setup() {
     ctx.__o = { host: d.getElementById('host'), name: 'a.md', content };
     return vm.runInContext('openDocumentViewer(__o)', ctx);
   };
-  return { w, d, open, openText, key, docKeys };
+  const openWith = (extra) => {
+    ctx.__o = { host: d.getElementById('host'), name: 'a.pdf', count: 2, srcAt: (i) => `data:image/png;base64,P${i}`, ...extra };
+    return vm.runInContext('openDocumentViewer(__o)', ctx);
+  };
+  return { w, d, open, openText, openWith, key, docKeys };
 }
 
 test('opens inside the host, shows page 1 of N and takes focus', () => {
@@ -147,6 +151,29 @@ test('text mode: the stage is in the Tab cycle, so the keys can scroll again', (
   assert.notEqual(h.d.activeElement, stage);
   h.key(h.d.activeElement, 'Tab', { shiftKey: true });
   assert.equal(h.d.activeElement, stage);
+});
+
+test('actions (#765): shown in the bar, close the viewer first, then run; none without them', () => {
+  const h = setup();
+  const ran = [];
+  assert.equal(h.open().el.querySelector('.document-viewer-actions'), null, 'no actions passed: none drawn');
+  const withActs = h.openWith({ actions: [{ label: 'Open in tab', run: () => ran.push(h.d.querySelector('.document-viewer') ? 'open' : 'closed') }] });
+  const b = withActs.el.querySelector('.document-viewer-actions button');
+  assert.equal(b.textContent, 'Open in tab');
+  assert.match(b.className, /new-session-secondary-btn/);
+  b.click();
+  assert.deepEqual(ran, ['closed']);
+});
+
+test('actions are in the Tab trap', () => {
+  const h = setup();
+  const v = h.openWith({ actions: [{ label: 'Open in default app', run: () => {} }, { label: 'Open in tab', run: () => {} }] });
+  const btns = [...v.el.querySelectorAll('button')].filter((b) => !b.disabled);
+  const seen = new Set();
+  let at = btns[btns.length - 1];
+  at.focus();
+  for (let i = 0; i < btns.length; i++) { h.key(h.d.activeElement, 'Tab'); seen.add(h.d.activeElement.textContent); }
+  assert.ok(seen.has('Open in default app') && seen.has('Open in tab'));
 });
 
 test('a second open replaces the first', () => {

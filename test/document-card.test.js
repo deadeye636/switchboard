@@ -187,6 +187,32 @@ test('markdown click reads the file only then and shows it rendered; Ctrl/Cmd ke
   assert.equal(h.calls.read.length, 1);
 });
 
+test('the viewer carries the open actions (#765) for every kind, and none in the history viewer', async () => {
+  const h = setup({});
+  const pdf = h.draw([el(), img()], { ...ACT, host: h.w.document.body });
+  pdf.querySelector('.document-card').click();
+  const btns = [...h.w.document.querySelectorAll('.document-viewer-actions button')].map(b => b.textContent);
+  assert.deepEqual(btns, ['Open in default app', 'Open in tab']);
+  h.setAnswer({ ok: true, action: 'tab', path: '/d/report.pdf' });
+  h.w.document.querySelectorAll('.document-viewer-actions button')[1].click(); await flush();
+  assert.equal(h.w.document.querySelector('.document-viewer'), null);
+  assert.deepEqual(h.calls.open[0], ['s1', '/d/report.pdf', 'tab', false]);
+  assert.deepEqual(h.calls.panel[0], ['s1', '/d/report.pdf']);
+
+  const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
+  md.querySelector('.document-card').click(); await flush();
+  assert.equal(h.w.document.querySelectorAll('.document-viewer-actions button').length, 2);
+  h.setAnswer({ ok: true, action: 'default' });
+  h.w.document.querySelectorAll('.document-viewer-actions button')[0].click(); await flush();
+  assert.deepEqual(h.calls.open[1], ['s1', '/d/a.md', 'default', false]);
+  assert.equal(h.w.document.querySelector('.document-viewer'), null);
+
+  const hist = h.draw([el(), img()], { host: h.w.document.body });
+  hist.querySelector('.document-card').click();
+  assert.ok(h.w.document.querySelector('.document-viewer'));
+  assert.equal(h.w.document.querySelector('.document-viewer-actions'), null);
+});
+
 test('html click opens a sandboxed frame without scripts', async () => {
   const h = setup({});
   h.setRead({ ok: true, kind: 'html', text: '<p>hi</p>' });

@@ -145,6 +145,9 @@ replaces the first.
 - Zoom: 25 % to 400 % in 25 % steps, `+`/`-`/`0`, Ctrl+wheel (Cmd on a Mac, the conversation's own test; the wheel stops at the stage so it never nudges
   the app font size); the label button resets to 100 %.
 - Esc, the close button and a click on the empty backdrop close it.
+- **Open actions (#765)**: "Open in default app" and "Open in tab" sit in the bar for every kind, as on the card and
+  only where the card has them (not in the history viewer). Each closes the viewer, then goes through the card's own
+  `document-open` call.
 - **Keys are handled by a listener on the overlay element only, never on `document`.** While the viewer is closed
   no listener exists, so the composer's keys cannot be shadowed by construction. Focus moves into the overlay on
   open, Tab is trapped between its buttons, and focus returns to the element that had it on close. When that
