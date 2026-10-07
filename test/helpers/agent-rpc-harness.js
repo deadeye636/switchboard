@@ -14,7 +14,11 @@ const agentRpc = require('../../src/app/agent-rpc');
 const piNative = require('../../src/backends/pi-native');
 
 const FIXTURE = path.join(__dirname, '..', 'fixtures', 'fake-rpc-agent.js');
-const TAG = 'tag-1';
+// Every harness gets a tag of its own (#715, #763). `agentRpc` holds one module-level ctx and finds a session
+// by its tag, so with one tag for all of them a session still dying is found in the NEXT harness's map and
+// its late ops — with its own sequence numbers — land in that test's window. The app never sees this: there
+// a tag names one terminal for the life of the process.
+let harnesses = 0;
 // The session's project, and therefore what an `@` completes against and what a relative path a user
 // types is resolved from. It is the TEST directory rather than this one: tests assert against paths
 // inside it (`fixtures/…`), and it must not move when a helper does.
@@ -32,6 +36,7 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
   const rekeys = [];
   const clipped = [];
   const logged = [];
+  const tag = `tag-${++harnesses}`;
   const window = { isDestroyed: () => false, webContents: { send: (ch, id, op) => sent.push({ ch, id, op }) } };
   agentRpc.init({
     activeSessions,
@@ -62,16 +67,17 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
     approvalMemory,
   });
   const proc = agentRpc.start({
-    tag: TAG, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId,
+    tag, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId,
   });
-  activeSessions.set('launch-id', { pty: proc, _terminalTag: TAG, exited: false });
-  return { activeSessions, sent, signals, rekeys, clipped, logged, proc };
+  activeSessions.set('launch-id', { pty: proc, _terminalTag: tag, exited: false });
+  return { activeSessions, sent, signals, rekeys, clipped, logged, proc, tag };
 }
 
-// Kill the child AND wait for it to be gone. `agentRpc` holds one module-level ctx, so a late op from a
-// session still dying is delivered to whatever window is current — which is the NEXT test's. That is a
-// property of driving one module from several harnesses, not of the app, where there is one ctx for the
-// life of the process; waiting here is what keeps it out of the next test's assertions.
+// Kill the child AND wait for it to be gone, so a file's tests do not pile up processes. Waiting is NOT what
+// keeps a late op out of the next test — the tag above is. Node fires a child's 'exit' before its stdout is
+// read to the end, and an op parsed after that can arm the partial timer (PARTIAL_INTERVAL_MS) and be sent
+// well after the short wait below has ended. And under load the 2 s fallback can resolve before 'exit'
+// at all, so the exit handler's own `held` op arrives during the next test.
 const stopped = (h) => new Promise((resolve) => {
   let done = false;
   const end = () => { if (!done) { done = true; setTimeout(resolve, 20); } };
@@ -96,4 +102,4 @@ const until = async (cond, ms = 20000) => {
   }
 };
 
-module.exports = { harness, stopped, tempDataDir, until, agentRpc, piNative, FIXTURE, TAG, SESSION_CWD };
+module.exports = { harness, stopped, tempDataDir, until, agentRpc, piNative, FIXTURE, SESSION_CWD };
