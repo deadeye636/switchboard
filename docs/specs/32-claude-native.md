@@ -567,7 +567,8 @@ What the view draws from it, since #691:
   `contextFromResponse` + `contextDuringTurn` on the `rpc` half, #697); the model id is shown as the TUI names
   it (`claude-haiku-4-5-…` → `Haiku 4.5`).
 - **Background buttons** beside it, `2 shells` / `1 agent`, only while something runs, from the `tasks` op the
-  decoder sends for every `background_tasks_changed`. A click opens the Background list: per task its
+  decoder sends for every `background_tasks_changed`, plus the foreground agents running in the turn (#768,
+  below). A click opens the Background list: per task its
   description, its command or agent type, its elapsed time, **Output** (a shell: the end of the file Claude
   named for that task, read in main by task id — the view never names a path) or **Open** (an agent: its own
   transcript, see below), and **Stop** (`stop_task` for that one task). ↑/↓, Enter, X and Esc work in the list.
@@ -668,6 +669,22 @@ calls and one background agent. What the stream carries, all as `system` lines t
   that long after the agent ends (measured: about 30 s past the end of a turn). A session's first subagent is
   seen in the scan's bootstrap walk, because the store answers nothing until `<id>/subagents/` exists; a file
   written after the app opened the session (`session._openedAt`) counts as a spawn there.
+
+- **A foreground agent is counted in the Background buttons too** (#768). Measured on Claude Code 2.1.293
+  (Haiku, one foreground agent per run; `scripts/measure-claude-foreground-agent.js` repeats it): `task_started` with `is_backgrounded: false` and `task_type:
+  'local_agent'`, `task_progress` lines while it works (a `description` such as "Running Sleep for 25 seconds"
+  and a running `usage`), then `task_updated` `{ status: 'completed' }` and a `task_notification`; no
+  `background_tasks_changed` at any point. `stop_task` stops it as it stops a background task: `task_updated`
+  `killed`, a `stopped` notification and a success answer at once; the call's `tool_result` reads "[Request
+  interrupted by user for tool use]" and the turn goes on. So the decoder keeps the foreground agents from their
+  start to that end and sends them in the `tasks` op behind the background list, and the Background list offers
+  Open and Stop for them as for any agent. A notification without the `task_updated` ends one too, and a turn's
+  `result` drops any left, because a foreground agent cannot outlive the turn that waits for it. The same run
+  went 51 s between two writes of the subagent's transcript, which is longer than the scan's 30 s end guess for
+  the row and tab badge above. The decoder lives as long as the process, and an attach is handed the core's
+  last list, so a view mounted mid-run still counts the agent. The sidebar row then carries both marks for the
+  one agent, the agent badge and the `◉` count, as it already did for a background agent; they answer two
+  questions (is a subagent of this session live, what runs beside its turn) and are left side by side.
 
 Found by listing the control and message subtypes in the CLI binary first; each one above was then seen on the
 pipe. pi-native has no background tasks of its own: Pi runs a tool inside its turn, and the user's own shell

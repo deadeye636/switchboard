@@ -372,6 +372,10 @@ function createDecoder() {
   // `task_started` and from the call that started each one. The rest outlives a task's end: which kind a call
   // was (for the notice that arrives after it), what it ran, and where each task wrote its output.
   let running = [];
+  // A FOREGROUND agent (#768) is never in that list, but gets a `task_started` with `is_backgrounded: false` and a
+  // `task_updated` that ends it (measured). Kept here from the one to the other, in start order, so it is counted
+  // beside the background tasks while it runs.
+  let foreground = [];            // [{ id, kind: 'agent', description }]
   const started = new Map();      // task id -> { toolUseId, description, detail, startedAt }
   const toolKinds = new Map();    // tool_use id -> 'shell' | 'agent' | 'task'
   const readCalls = new Map();    // tool_use id -> { file_path, pages } of a Read (#755)
@@ -486,7 +490,7 @@ function createDecoder() {
   }
   const tasksOp = () => ({
     op: 'tasks',
-    tasks: running.map((t) => {
+    tasks: running.concat(foreground.filter(f => !running.some(t => t.id === f.id))).map((t) => {
       const s = started.get(t.id) || {};
       return {
         id: t.id,
@@ -701,7 +705,16 @@ function createDecoder() {
           detail: typeof msg.subagent_type === 'string' ? msg.subagent_type : '',
           startedAt: Date.now(),
         });
+        if (msg.is_backgrounded === false && msg.task_type === 'local_agent' && !foreground.some(f => f.id === id)) {
+          foreground.push({ id, kind: 'agent', description: typeof msg.description === 'string' ? msg.description : '' });
+          return [tasksOp()];
+        }
         return running.some(t => t.id === id) ? [tasksOp()] : [];
+      }
+      // Only a foreground agent's end is read here (#768): a background task's end is the list shrinking.
+      case 'task_updated': {
+        const status = msg.patch && typeof msg.patch.status === 'string' ? msg.patch.status : '';
+        return status && status !== 'running' && endForeground(msg.task_id) ? [tasksOp()] : [];
       }
       case 'background_tasks_changed':
         running = (Array.isArray(msg.tasks) ? msg.tasks : [])
@@ -712,16 +725,25 @@ function createDecoder() {
         const id = typeof msg.task_id === 'string' ? msg.task_id : '';
         if (!id) return [];
         if (typeof msg.output_file === 'string' && msg.output_file) taskOutputs.set(id, msg.output_file);
+        // A notification without the `task_updated` before it still ends a foreground agent (#768).
+        const ended = endForeground(id) ? [tasksOp()] : [];
         // The user line Claude injects for the model is NOT sent on the pipe (measured in the app: the turn it
         // starts arrives, the line does not), only written to the transcript. So the live notice is drawn from
         // this line, and an injected line for the same task — replayed after all, or read back — is dropped.
-        if (noticed.has(id)) return [];
+        if (noticed.has(id)) return ended;
         noticed.add(id);
-        return [{ op: 'append', entry: withOutputFile(liveTaskNotice(msg), taskOutputFile(id)) }];
+        return [...ended, { op: 'append', entry: withOutputFile(liveTaskNotice(msg), taskOutputFile(id)) }];
       }
       default:
         return [];
     }
+  }
+
+  // Drops a foreground agent (#768); true when one was there to drop.
+  function endForeground(taskId) {
+    const before = foreground.length;
+    foreground = foreground.filter(f => f.id !== taskId);
+    return foreground.length !== before;
   }
 
   function onControlRequest(msg) {
@@ -775,7 +797,12 @@ function createDecoder() {
 
   function decode(msg) {
     const ops = placeCommand(translate(msg));
-    if (msg && msg.type === 'result') endTurn();
+    if (msg && msg.type === 'result') {
+      endTurn();
+      // A foreground agent cannot outlive the turn that waits for it, so one whose end never came is gone (#768).
+      // A subagent's own result ends no turn of ours.
+      if (foreground.length && !ofSubagent(msg)) { foreground = []; ops.push(tasksOp()); }
+    }
     return ops;
   }
 

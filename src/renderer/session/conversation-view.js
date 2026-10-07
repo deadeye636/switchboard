@@ -1304,7 +1304,7 @@ function createConversationView(getSession, container) {
       chip.type = 'button';
       chip.className = `conversation-bg-chip conversation-bg-${kind}`;
       chip.classList.toggle('on', !bgPop.hidden);
-      chip.title = 'Show what runs in the background';
+      chip.title = 'Show the shells and agents running beside the conversation';
       const dot = document.createElement('span');
       dot.className = 'conversation-bg-dot';
       chip.appendChild(dot);

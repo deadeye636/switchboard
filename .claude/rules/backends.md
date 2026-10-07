@@ -556,7 +556,8 @@ answers instead of the core learning its format:
 - `stopTaskCommand(id, taskId)` — optional (#691). Stops ONE background task and leaves the turn alone; a
   half without it offers no Stop in the Background list. The running list itself is a `tasks` op the decoder
   sends (`{ id, kind: 'shell'|'agent'|'task', description, detail, toolUseId, subagentId, startedAt }` — `subagentId` is
-  the `agentId` of the subagent row an agent task is, or `null`; #695), and a finished
+  the `agentId` of the subagent row an agent task is, or `null`; #695) — what runs beside the turn, which for
+  claude-native includes a foreground agent while the turn waits for it (#768) — and a finished
   task is a neutral `task-notice` entry — the renderer reads neither CLI's markup. The decoder may declare
   `taskOutputFile(taskId)`: the file its runtime named for that task, which the core reads by task id so the
   view never names a path. A `task-notice` entry may carry the same file as `_task.outputFile` — live and read

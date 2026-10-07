@@ -1047,6 +1047,55 @@ test('an agent task names its subagent, live and in its notice; a shell names no
   assert.equal(shell.subagentId, null);
 });
 
+// #768, measured on 2.1.293: a foreground agent gets `task_started` (`is_backgrounded: false`) and a `task_updated`
+// that ends it, but never a place in `background_tasks_changed`.
+test('a foreground agent is counted from its start to its end, beside the background list', () => {
+  const d = protocol.createDecoder();
+  d.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'Dev server' }] });
+  d.decode({ type: 'assistant', uuid: 'u1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_f', name: 'Agent', input: { subagent_type: 'verifier' } }] } });
+  const start = d.decode({ type: 'system', subtype: 'task_started', task_id: 'af1', tool_use_id: 'toolu_f', description: 'Review', subagent_type: 'verifier', task_type: 'local_agent', is_backgrounded: false });
+  assert.deepEqual(start.map(o => o.op), ['tasks']);
+  assert.deepEqual(start[0].tasks.map(t => [t.id, t.kind]), [['b1', 'shell'], ['af1', 'agent']]);
+  const [fg] = start[0].tasks.slice(-1);
+  assert.equal(fg.description, 'Review');
+  assert.equal(fg.subagentId, 'af1', 'Open finds its transcript');
+  assert.equal(fg.toolUseId, 'toolu_f');
+  // The background list changing keeps it.
+  const list = d.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+  assert.deepEqual(list[0].tasks.map(t => t.id), ['af1']);
+  assert.deepEqual(d.decode({ type: 'system', subtype: 'task_progress', task_id: 'af1' }), [], 'progress changes nothing');
+  const end = d.decode({ type: 'system', subtype: 'task_updated', task_id: 'af1', patch: { status: 'completed' } });
+  assert.deepEqual(end.map(o => o.op), ['tasks']);
+  assert.deepEqual(end[0].tasks, []);
+  // The notification after it still draws the notice, and no second list.
+  const notice = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'af1', tool_use_id: 'toolu_f', status: 'completed', summary: 'ok' });
+  assert.deepEqual(notice.map(o => o.op), ['append']);
+  // A background task's own `task_updated` is not read: its end is the list shrinking.
+  assert.deepEqual(d.decode({ type: 'system', subtype: 'task_updated', task_id: 'b1', patch: { status: 'completed' } }), []);
+});
+
+test('a stopped foreground agent drops out, and so does one whose end never came once its turn is over', () => {
+  const d = protocol.createDecoder();
+  const started = (id) => d.decode({ type: 'system', subtype: 'task_started', task_id: id, description: id, task_type: 'local_agent', is_backgrounded: false });
+  started('k1');
+  // Measured: `stop_task` on a foreground agent answers `killed`, then a `stopped` notification.
+  assert.deepEqual(d.decode({ type: 'system', subtype: 'task_updated', task_id: 'k1', patch: { status: 'killed' } })[0].tasks, []);
+  // A notification alone ends it too.
+  started('n1');
+  const viaNotice = d.decode({ type: 'system', subtype: 'task_notification', task_id: 'n1', status: 'completed', summary: '' });
+  assert.deepEqual(viaNotice.map(o => o.op), ['tasks', 'append']);
+  assert.deepEqual(viaNotice[0].tasks, []);
+  // A foreground agent cannot outlive its turn.
+  started('lost');
+  const result = d.decode({ type: 'result', subtype: 'success', is_error: false, result: '' });
+  const last = result.filter(o => o.op === 'tasks').pop();
+  assert.deepEqual(last && last.tasks, []);
+  // A turn that ends with nothing running sends no list.
+  assert.equal(d.decode({ type: 'result', subtype: 'success', is_error: false, result: '' }).some(o => o.op === 'tasks'), false);
+  // A BACKGROUND agent's start is not counted here: it comes with the list.
+  assert.deepEqual(d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg', task_type: 'local_agent', is_backgrounded: true }), []);
+});
+
 test('an agent\'s notice from the transcript carries its kind and cost, and stop and the figures are control requests', () => {
   const lines = [
     { type: 'assistant', uuid: 'a', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_9', name: 'Agent', input: { subagent_type: 'general-purpose' } }] } },

@@ -176,7 +176,8 @@ function buildSessionItem(session, opts = {}) {
     if (background.shells) words.push(`${background.shells} shell${background.shells === 1 ? '' : 's'}`);
     if (background.agents) words.push(`${background.agents} agent${background.agents === 1 ? '' : 's'}`);
     if (background.other) words.push(`${background.other} other task${background.other === 1 ? '' : 's'}`);
-    bgChip.title = `Running in the background: ${words.join(', ')}`;
+    // A foreground agent is counted too (#768), so "background" would be too narrow.
+    bgChip.title = `Running beside the conversation: ${words.join(', ')}`;
     detailEl.appendChild(bgChip);
   }
   // IDE emulation, next to the state it qualifies (#321). It sat in every pane's bar, where four
