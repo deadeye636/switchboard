@@ -80,6 +80,10 @@ caveat, because it is an honest approximation rather than a measurement: Hermes 
 message — only per session — so its message counts are per day while its token totals land on the day
 the session was last active.
 
+Stats counts by CLI, not by view: a session driven in the GUI is counted under the CLI it ran, beside that
+CLI's terminal sessions, and the backend filter offers one entry per CLI. A CLI's filter also takes in the
+templates that run on it, a template on its GUI backend included (#752).
+
 ## Profiles: Claude Code against another endpoint
 
 A **profile** runs the Claude binary against a different API endpoint (DeepSeek, GLM, OpenRouter, or a

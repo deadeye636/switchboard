@@ -148,11 +148,21 @@ function buildBackendFilterBar() {
   // was just spelled `'claude'`, so with another backend as the default the list led with a CLI the user
   // may not even run (#225). '' (nothing launchable, or the registry has not answered) matches nobody and
   // leaves a plain alphabetical list, which is the right answer when there is no "assumed" one.
-  const defaultId = window._defaultBackendId;
+  //
+  // One pill per CLI (#752): a GUI driver is folded into its owner's pill, which is named by the owner even
+  // when only the GUI is enabled. The DB files a GUI session under the owner, so a pill of the driver's own
+  // scoped every chart to nothing.
+  const defaultId = window._defaultBackendId ? statsBucketOf(window._defaultBackendId) : '';
+  const perCli = new Map();
+  for (const b of launchable) {
+    if (b.isProfile) continue;
+    const ownerId = statsBucketOf(b.id);
+    if (perCli.has(ownerId)) continue;
+    const owner = (typeof getBackend === 'function' && getBackend(ownerId)) || b;
+    perCli.set(ownerId, { ...owner, id: ownerId });
+  }
   const pills = [{ id: 'all', label: 'All backends' }].concat(
-    launchable
-      .filter(b => !b.isProfile)
-      .slice()
+    Array.from(perCli.values())
       .sort((a, b) => (a.id === defaultId ? -1 : b.id === defaultId ? 1 : String(a.label).localeCompare(String(b.label))))
       .map(b => ({ id: b.id, label: b.label, icon: b.icon || b.colour || b.id, monogram: b.monogram }))
   );
@@ -441,7 +451,7 @@ function collectBackendUsage() {
       // session in the corpus under Claude, which is the same "invented as Claude" the line above refuses
       // (#225). Skip instead: a stat that is wrong is worse than a stat that is absent for one paint.
       if (typeof sessionBackendId !== 'function') continue;
-      const id = sessionBackendId(session);
+      const id = statsBucketOf(sessionBackendId(session));
       let acc = byBackend.get(id);
       if (!acc) {
         acc = {
@@ -467,6 +477,21 @@ function collectBackendUsage() {
     }
   }
   return byBackend;
+}
+
+/**
+ * The bucket a backend's work is counted under: the CLI it ran (#752).
+ *
+ * A backend that drives another's binary (`transcriptsOf`, the GUI of an owner/driver pair) is not a CLI of
+ * its own — its sessions are the owner's transcripts, and the DB already files them under the owner, so the
+ * charts the filter scopes count them there. The opener a row carries says only which view it opens in.
+ * Read off the descriptor, not off `sessionViewOf`: that answers null as soon as one half of the pair cannot
+ * launch, and a user who runs only the GUI would get their owner's numbers split again. A template declares
+ * no `transcriptsOf` and keeps its own id, as before.
+ */
+function statsBucketOf(id) {
+  const b = typeof getBackend === 'function' ? getBackend(id) : null;
+  return (b && !b.isProfile && b.transcriptsOf) || id;
 }
 
 function backendLabelOf(id) {
@@ -966,7 +991,8 @@ function buildBackendTokensChart(stats) {
   if (!present.size) return;   // nothing inside the window — an empty chart is worse than no chart
 
   // Same rule as the filter pills: the default backend's series leads, the rest are alphabetical (#225).
-  const defaultId = window._defaultBackendId;
+  // The series are the DB's, keyed by owner, so a GUI default is mapped to its CLI the same way (#752).
+  const defaultId = window._defaultBackendId ? statsBucketOf(window._defaultBackendId) : '';
   const ids = Array.from(present).sort((a, b) => (a === defaultId ? -1 : b === defaultId ? 1 : a.localeCompare(b)));
   const totals = days.map(d => {
     const t = byDate.get(d) || {};

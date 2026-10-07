@@ -1184,7 +1184,9 @@ function backendFilterIds(backendId) {
   const ids = [base];
   try {
     for (const b of backends.list()) {
-      if (b.isProfile && (b.baseId || 'claude') === base) ids.push(b.id);
+      // A template on a GUI driver belongs to the driver's owner (#752): the Stats filter offers one entry
+      // per CLI, so the driver has no filter of its own that could reach those sessions.
+      if (b.isProfile && backends.rowOwnerOf(b.baseId || 'claude') === base) ids.push(b.id);
     }
   } catch { /* registry unavailable -> the base alone is still the honest answer */ }
   return ids;
