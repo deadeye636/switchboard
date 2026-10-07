@@ -662,7 +662,8 @@ module.exports = {
   // answer may do one bounded ASYNCHRONOUS read of that session's own transcript, and nothing synchronous:
   // a hook reads a file only through `readFileTailAsync` (`../file-store.js`) — never `readFileTail` or any
   // other sync fs call, which `test/backend-parity.test.js` refuses in a hook's source. `ctx.env` is the
-  // layered additions of the launch, as for `contextWindow`.
+  // layered additions of the launch, as for `contextWindow`. The `options` patch is applied as a UNIT (dropped
+  // whole when the user's per-launch override sets any of its keys); a `null` value clears that key.
   resumeLaunchOptions,
   projectTrust,
   projectMeta,

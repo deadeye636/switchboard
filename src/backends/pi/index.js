@@ -38,6 +38,7 @@ const { deleteTranscripts } = require('../delete-sessions');
 const { deriveState, deriveStateFromFileTail, deriveStateFromFileTailGated } = require('./state');
 const { changelogSource } = require('./changelog');
 const modelWindows = require('./model-windows');
+const resumeModel = require('./resume-model');
 // How to start Pi without a shell — shared with the runtime-driven backend (#568), so it is not a key here.
 const { piExecCommand } = require('./exec-command');
 
@@ -538,8 +539,9 @@ module.exports = {
   // The context window of the model the last turn ran on (#620), from Pi's own catalog — see model-windows.js.
   contextWindow: modelWindows.contextWindow,
   // The launch option a resume should carry (#754) — see Claude's `resumeLaunchOptions` for the contract
-  // (asked once, on one session's resume only). Declines until the Pi reader answers it (#754 T7).
-  resumeLaunchOptions: () => null,
+  // (asked once, on one session's resume only). The last model + provider of the transcript tail, by file order
+  // across `model_change` and assistant entries — see ./resume-model.js.
+  resumeLaunchOptions: (row) => resumeModel.resumeLaunchOptions(row),
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Does this session still owe a turn (#530)? The answer is pushed by the per-spawn binding extension and
@@ -583,7 +585,7 @@ module.exports = {
     liveRebinding: 'yes',
     queuedTurn: { state: 'limited', note: 'its extension reports whether a prompt waits, but not how many' },
     contextFill: { state: 'limited', note: "only for a model its own catalog lists with a context window" },
-    resumeModel: { state: 'no', note: 'not read from its transcript yet' },
+    resumeModel: 'yes',
     quota: { state: 'no', note: 'reports no plan allowance' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

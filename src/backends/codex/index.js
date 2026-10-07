@@ -20,6 +20,7 @@ const path = require('path');
 const parser = require('./parser');
 const trust = require('./trust');
 const resources = require('./resources');
+const resumeModel = require('./resume-model');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -241,8 +242,10 @@ module.exports = {
     return w > 0 ? { windowTokens: w, source: 'cli' } : null;
   },
   // The launch option a resume should carry (#754) — see Claude's `resumeLaunchOptions` for the contract
-  // (asked once, on one session's resume only). Declines until the Codex reader answers it (#754 T6).
-  resumeLaunchOptions: () => null,
+  // (asked once, on one session's resume only). Codex does not restore the model itself, so the last
+  // `turn_context.model` of the rollout tail is handed back as `-m` — see ./resume-model.js, which also checks it
+  // against the model catalog in the Codex home (`ctx.env.CODEX_HOME`, else `codexHome()`).
+  resumeLaunchOptions: (row, ctx) => resumeModel.resumeLaunchOptions(row, ctx, codexHome),
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Codex keeps no plans store (#227).
@@ -294,7 +297,7 @@ description:
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     contextFill: 'yes',
-    resumeModel: { state: 'no', note: 'not read from its rollout yet' },
+    resumeModel: 'yes',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

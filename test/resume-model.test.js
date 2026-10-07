@@ -34,6 +34,40 @@ test('an empty key under an explicit override is filled from the hook', async ()
   }
 });
 
+const pair = (model, provider) => () => ({ options: { model, provider }, label: model });
+
+test('a patch is applied as a unit: an override that sets any key drops the whole patch', async () => {
+  const r = await run({ backend: fake(pair('last', 'p-last')), sessionOptions: { model: 'chosen', resumeOverride: true } });
+  assert.deepEqual(r.options, { model: 'chosen' });
+  assert.deepEqual(r.applied, []);
+  const r2 = await run({ backend: fake(pair('last', 'p-last')), sessionOptions: { provider: 'chosen-p', resumeOverride: true } });
+  assert.deepEqual(r2.options, { provider: 'chosen-p' });
+});
+
+test('an override that sets nothing of the patch takes the full patch', async () => {
+  const r = await run({ backend: fake(pair('last', 'p-last')), sessionOptions: { effort: 'high', model: '', resumeOverride: true } });
+  assert.deepEqual(r.options, { effort: 'high', model: 'last', provider: 'p-last' });
+  assert.deepEqual(r.applied, ['model', 'provider']);
+});
+
+test('without the mark every key of the patch replaces the settings', async () => {
+  const r = await run({ backend: fake(pair('last', 'p-last')), sessionOptions: { model: 's', provider: 'sp' } });
+  assert.deepEqual(r.options, { model: 'last', provider: 'p-last' });
+});
+
+test('a null value clears the key; undefined and empty string leave it alone', async () => {
+  const r = await run({ backend: fake(pair('last', null)), sessionOptions: { model: 's', provider: 'sp', effort: 'high' } });
+  assert.deepEqual(r.options, { model: 'last', effort: 'high' });
+  assert.ok(!('provider' in r.options));
+  assert.deepEqual(r.applied, ['model', 'provider']);
+  const r2 = await run({ backend: fake(() => ({ options: { model: 'last', provider: undefined, effort: '' } })), sessionOptions: { provider: 'sp', effort: 'high' } });
+  assert.deepEqual(r2.options, { model: 'last', provider: 'sp', effort: 'high' });
+  // a lone null that clears nothing is no answer
+  const r3 = await run({ backend: fake(() => ({ options: { provider: null } })), sessionOptions: { model: 's' } });
+  assert.deepEqual(r3.options, { model: 's' });
+  assert.deepEqual(r3.applied, []);
+});
+
 test('a launch that is not a resume does not ask, and still drops the mark', async () => {
   let asked = 0;
   const r = await run({ resume: false, backend: fake(() => { asked++; return answer('last')(); }), sessionOptions: { model: 's', resumeOverride: true } });

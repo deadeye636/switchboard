@@ -30,7 +30,7 @@ const PINNED = {
   codex: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'yes',   // it reports the window itself with every token_count (#620)
-    resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'no', resourcesFrom: 'no', plans: 'no', planDirSetting: 'no', projectConfig: 'no',
@@ -56,7 +56,7 @@ const PINNED = {
   pi: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
-    resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
     // whose extension never reported has no answer at all rather than an empty one.
@@ -70,7 +70,7 @@ const PINNED = {
   'pi-native': {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
-    resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'limited', skillInvoke: 'yes', resourcesFrom: 'yes', plans: 'no', planDirSetting: 'no', projectConfig: 'no',

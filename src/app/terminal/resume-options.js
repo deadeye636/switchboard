@@ -7,8 +7,9 @@
 //
 // PRECEDENCE: an explicit per-launch override (the renderer marks it with `resumeOverride`, #754 T4) > what
 // the hook says the session last ran on > the backend/project setting the renderer sent. Without the mark the
-// options are "settings", so the hook's answer replaces them; with it, a non-empty key of the caller's stays
-// and an empty one is filled from the hook.
+// options are "settings", so every key of the hook's answer replaces them; with it, a caller that set ANY key of
+// the answer to a non-empty value keeps its options entirely and the whole answer is dropped (a model and its
+// provider are one choice), otherwise the whole answer applies. A `null` value clears that key.
 //
 // PERFORMANCE (binding): the hook is asked once, on the resume of one session, from the spawn path only —
 // never in a scan, the index or a list. It is awaited with a short timeout, so a slow or hung backend delays
@@ -72,12 +73,19 @@ async function resolveResumeOptions({ backend, resume, row, projectPath, session
     ? answer.options : null;
   if (!patch) return none;
 
+  // The patch is ONE answer (a model and its provider belong together), so it is applied whole or not at all.
+  // `null` clears the key; `undefined` and '' leave it alone.
+  const keys = Object.keys(patch).filter((key) => patch[key] !== undefined && patch[key] !== '');
+  if (resumeOverride && Object.keys(patch).some((key) => !isEmpty(sent[key]))) return none;   // the user's explicit choice for this launch wins, whole
   const options = { ...sent };
   const applied = [];
-  for (const key of Object.keys(patch)) {
-    if (isEmpty(patch[key])) continue;
-    if (resumeOverride && !isEmpty(sent[key])) continue;   // the user's explicit choice for this launch wins
-    options[key] = patch[key];
+  for (const key of keys) {
+    if (patch[key] === null) {
+      if (!(key in options)) continue;
+      delete options[key];
+    } else {
+      options[key] = patch[key];
+    }
     applied.push(key);
   }
   if (!applied.length) return none;
