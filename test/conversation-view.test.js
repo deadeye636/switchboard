@@ -1508,3 +1508,32 @@ test('a slash command played back with its output settles its bubble; a reset dr
   h.entry.conversation.apply({ op: 'reset', entries: [] });
   assert.equal(pending(), 0);
 });
+
+// #770: an agent call opens its transcript in place; the draw is told which subagent the call started, from the
+// neutral fields the backend sends (a running task's `subagentId` beside its call, and an ended task's notice).
+test('the draw is told which subagent an agent call started, and how to open it in a tab', async () => {
+  const h = setup();
+  const seen = [];
+  h.w.__seen = seen;
+  vm.runInContext(`
+    renderJsonlEntry = function (entry, map, ctx) {
+      __seen.push(ctx);
+      const d = document.createElement('div');
+      d.className = 'jsonl-entry';
+      return d;
+    };
+  `, h.w);
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'append', entry: { type: 'assistant', uuid: 'u1', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_r', name: 'Agent', input: {} }] } } });
+  const ctx = seen[seen.length - 1];
+  assert.equal(typeof ctx.subagentIdFor, 'function');
+  assert.equal(typeof ctx.openSubagent, 'function');
+  assert.equal(ctx.sessionId(), 's1');
+  assert.equal(ctx.subagentIdFor('toolu_r'), null, 'nothing named yet');
+  conv.apply({ op: 'tasks', tasks: [{ id: 'a-run', kind: 'agent', toolUseId: 'toolu_r', subagentId: 'a-run' }] });
+  assert.equal(ctx.subagentIdFor('toolu_r'), 'a-run', 'a running task names it');
+  conv.apply({ op: 'tasks', tasks: [] });
+  conv.apply({ op: 'append', entry: { type: 'task-notice', timestamp: 't', _task: { id: 'a-run', toolUseId: 'toolu_r', kind: 'agent', subagentId: 'a-run' } } });
+  assert.equal(ctx.subagentIdFor('toolu_r'), 'a-run', 'and so does its notice once it ended');
+  assert.equal(ctx.subagentIdFor('toolu_other'), null);
+});

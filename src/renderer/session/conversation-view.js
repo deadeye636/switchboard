@@ -441,6 +441,25 @@ function createConversationView(getSession, container) {
     if (pageKey(e)) e.preventDefault();
   });
 
+  // The subagent an agent call started (#770): a running task names it beside its call, and so does the notice of
+  // one that ended (#695). Both are the backend's answer in neutral fields; `null` when neither has said.
+  function subagentIdFor(toolUseId) {
+    if (!toolUseId) return null;
+    const running = (view.tasks || []).find(t => t && t.toolUseId === toolUseId && t.subagentId);
+    if (running) return running.subagentId;
+    for (let i = view.entries.length - 1; i >= 0; i--) {
+      const task = view.entries[i] && view.entries[i]._task;
+      if (task && task.toolUseId === toolUseId && task.subagentId) return task.subagentId;
+    }
+    return null;
+  }
+
+  // What every draw of this view hands the shared renderers — the entries, the streaming one and a card's call alike.
+  const drawContext = {
+    sessionId: () => getSession().sessionId, host: container, focusFallback: () => input.focus(),
+    subagentIdFor, openSubagent: (subagentId, toolUseId) => openAgent(subagentId, toolUseId),
+  };
+
   function renderOne(index) {
     const entry = view.entries[index];
     // A fresh map per draw: `renderJsonlEntry` CLAIMS the results it draws under a call by deleting them,
@@ -448,9 +467,9 @@ function createConversationView(getSession, container) {
     // A document a call read is drawn as a card that can open it (#755): the session it belongs to — a function,
     // because a re-key moves it after the draw — the view the card's viewer covers, and where the caret goes
     // when that viewer closes with nothing left to return to.
-    const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), {
-      sessionId: () => getSession().sessionId, host: container, focusFallback: () => input.focus(),
-    });
+    // An agent call opens its transcript in place (#770): which subagent it started, from what the backend
+    // named for it, and the same opener the Background list uses for "Open in tab".
+    const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), drawContext);
     if (el) el.dataset.entryIndex = String(index);
     return el;
   }
@@ -700,7 +719,7 @@ function createConversationView(getSession, container) {
     partialDeferred = false;
     partialEl.replaceChildren();
     if (!view.partial) return;
-    const el = renderJsonlEntry(view.partial, new Map());
+    const el = renderJsonlEntry(view.partial, new Map(), drawContext);
     if (el) {
       el.classList.add('conversation-streaming');
       partialEl.appendChild(el);
@@ -1589,7 +1608,7 @@ function createConversationView(getSession, container) {
     const block = findToolUse(request.toolCallId);
     if (block && typeof renderToolUse === 'function') {
       try {
-        const shown = renderToolUse(block);
+        const shown = renderToolUse(block, drawContext);
         if (shown) { shown.classList.add('conversation-approval-call'); card.appendChild(shown); }
       } catch { /* the question still stands without its picture */ }
     }

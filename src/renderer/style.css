@@ -5668,6 +5668,19 @@ mark.jsonl-search-hit-active {
   margin-bottom: 2px;
 }
 
+/* An agent's transcript inside the conversation (#770): a box of its own, so a long run does not push the
+   conversation away. Its "Open in tab" bar heads the transcript in both viewers. */
+.jsonl-subagent-inline {
+  max-height: 24em;
+  overflow-y: auto;
+}
+
+.jsonl-subagent-inline-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 0;
+}
+
 .jsonl-toggle {
   font-size: 11px;
   font-weight: 500;

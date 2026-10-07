@@ -689,6 +689,25 @@ calls and one background agent. What the stream carries, all as `system` lines t
   the tab and its open transcript's live tail, while the scan logged `[subagent-complete]` 40 s after the start.
   Both went out with the exact end, the tail took the last entries first, and the view stood at the bottom.
 
+- **An agent call opens its transcript in place** (#770). The conversation draws an `Agent` call with the
+  history viewer's own Agent block (`toolRenderers.Agent` in `src/renderer/jsonl/jsonl-viewer.js`), whose caret
+  opens the subagent's transcript under the call and follows it live. It did nothing here at first: the block
+  took its parent session from the history viewer's `currentViewerSessionId`, which the conversation never
+  sets. `renderToolUse` now hands a tool renderer the conversation's draw context, and the block asks
+  `ctx.sessionId()` at the click. Which subagent a call started comes from `ctx.subagentIdFor(toolUseId)`: the
+  view answers it from the neutral fields the backend already sends, a running task's `subagentId` beside its
+  `toolUseId` and an ended task's notice. Where neither has said (a transcript from before #695), the block falls
+  back to what it always read: the call's `description` and `subagent_type`, Claude's own fields in the shared
+  Agent renderer, and the call's place among the calls on screen with the same pair. Inline the transcript
+  scrolls in a box of its own and follows its end while the reader is there; a bar on top offers **Open in
+  tab**, the same opener as the Background list's Open (the history viewer opens the sidebar's own row for it).
+  Only an agent that is live at the click is tailed inline — one opened in the second between its start and
+  its exact live edge shows what it has and does not follow. Its tail is kept apart from the viewers' own, so
+  opening a plan or a history transcript beside the conversation does not freeze the box; it ends with the
+  agent, a collapse, or the newer box of the same call. A call the reader opened opens again when the
+  conversation redraws it — its result arrives at the agent's end — keyed by the call id. Clicked in the demo instance with Haiku: the box grew from 4 to 8 entries while the agent ran,
+  stayed open past the end, and Open in tab showed the agent's transcript.
+
 - **A foreground agent is counted in the Background buttons too** (#768). Measured on Claude Code 2.1.293
   (Haiku, one foreground agent per run; `scripts/measure-claude-foreground-agent.js` repeats it): `task_started` with `is_backgrounded: false` and `task_type:
   'local_agent'`, `task_progress` lines while it works (a `description` such as "Running Sleep for 25 seconds"
