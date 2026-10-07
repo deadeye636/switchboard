@@ -8,7 +8,11 @@
 // Reads, at CALL time, from other classic scripts: documentPreviewMode / documentPreviewMaxBytes
 // (jsonl/jsonl-viewer.js, which calls renderDocumentCard from renderToolResult), openDocumentViewer
 // (jsonl/document-viewer.js), openFileInPanel (views/file-panel.js), showControlMessage
-// (dialogs/control-dialogs.js, guarded). `window.api.openDocument` / `openInEditor` are the preload's.
+// (dialogs/control-dialogs.js, guarded), fileDirUrl (shared/preview-kind.js, guarded). `window.api.openDocument` /
+// `readDocument` / `openInEditor` are the preload's.
+//
+// A card without pages (a whole PDF, Markdown, HTML) follows `fileClickTarget` on a click — except Markdown and
+// HTML, which open the viewer with the file rendered (#764) and keep that open for Ctrl/Cmd-click.
 //
 // The page images stay in the result the entry already holds. The card keeps a reference to that result and
 // builds a data URL only for the page it is about to show (the thumbnail when visible, a page in the
@@ -47,6 +51,8 @@ function documentBaseName(p) {
 }
 
 const DOCUMENT_KIND_LABELS = { pdf: 'PDF', image: 'Image', markdown: 'Markdown', html: 'HTML' };
+// The kinds the viewer shows as rendered text, read on the click (#764). Mirrors TEXT_KINDS in src/app/documents.js.
+const DOCUMENT_TEXT_KINDS = ['markdown', 'html'];
 
 // A `range` ("1-3", the call's page argument) marks a partial read; else the pages held, else the kind.
 function documentCardSubtitle(kind, pageCount, range) {
@@ -179,9 +185,39 @@ function renderDocumentCard(resultData, ctx) {
       focusFallback: ctx && ctx.focusFallback,
     });
   };
+  // A Markdown or HTML card reads its file on the click, never before, and shows it rendered (#764). Ctrl/Cmd
+  // keeps what a plain click did before: the `fileClickTarget` open, not inverted.
+  let reading = false;
+  const openTextViewer = async () => {
+    if (reading) return;
+    reading = true;
+    let res = null;
+    try { res = await window.api.readDocument(sessionIdNow(), doc.path); } catch (err) { res = { ok: false, error: String(err && err.message || err) }; }
+    reading = false;
+    if (!res || res.ok !== true) {
+      const msg = res && res.error ? res.error : 'The document could not be read.';
+      if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot show document', message: msg });
+      return;
+    }
+    if (!card.isConnected) return;
+    const host = (ctx && ctx.host) || card.closest('#jsonl-viewer') || card.ownerDocument.body;
+    openDocumentViewer({
+      host,
+      name,
+      content: { kind: res.kind, text: res.text, dirUrl: typeof fileDirUrl === 'function' ? fileDirUrl(doc.path) : '' },
+      focusFallback: ctx && ctx.focusFallback,
+    });
+  };
   const activate = (e) => {
     if (pages.length) { openViewer(); return; }
-    if (canAct) requestDocumentOpen(sessionIdNow(), doc.path, 'click', !!(e && (e.ctrlKey || e.metaKey)));
+    if (!canAct) return;
+    const modified = !!(e && (e.ctrlKey || e.metaKey));
+    if (DOCUMENT_TEXT_KINDS.includes(doc.kind)) {
+      if (modified) requestDocumentOpen(sessionIdNow(), doc.path, 'click', false);
+      else openTextViewer();
+      return;
+    }
+    requestDocumentOpen(sessionIdNow(), doc.path, 'click', modified);
   };
   card.classList.add('document-card-clickable');
   card.tabIndex = 0;

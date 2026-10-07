@@ -15,10 +15,12 @@ const flush = () => new Promise((r) => setImmediate(r));
 function setup(settings, { observer = false } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>');
   const w = dom.window;
-  const calls = { open: [], panel: [], editor: [] };
+  const calls = { open: [], panel: [], editor: [], read: [] };
   let answer = { ok: true, action: 'default' };
+  let readAnswer = { ok: true, kind: 'markdown', text: '# Title\n\nbody' };
   w.api = new Proxy({}, { get: (_t, k) => {
     if (k === 'openDocument') return async (...a) => { calls.open.push(a); return answer; };
+    if (k === 'readDocument') return async (...a) => { calls.read.push(a); return readAnswer; };
     if (k === 'openInEditor') return (p) => calls.editor.push(p);
     return () => {};
   } });
@@ -52,7 +54,7 @@ function setup(settings, { observer = false } = {}) {
     w.document.body.appendChild(el);
     return el;
   };
-  return { w, draw, calls, observers, setAnswer: (a) => { answer = a; } };
+  return { w, draw, calls, observers, setAnswer: (a) => { answer = a; }, setRead: (a) => { readAnswer = a; } };
 }
 
 const el = (over) => ({ type: 'document', path: '/d/report.pdf', kind: 'pdf', name: 'report.pdf', pages: 2, ...over });
@@ -145,7 +147,7 @@ test('open buttons go through openDocument; tab finishes only on the answer', as
   assert.equal(h.calls.panel.length, 1);
 });
 
-test('card click: pages open the viewer; without pages it follows openDocument incl. editor/tab', async () => {
+test('card click: pages open the viewer; a whole pdf follows openDocument, Ctrl/Cmd inverting it', async () => {
   const h = setup({});
   const withPages = h.draw([el(), img()], { ...ACT, host: h.w.document.body });
   withPages.querySelector('.document-card').click();
@@ -153,15 +155,52 @@ test('card click: pages open the viewer; without pages it follows openDocument i
   assert.equal(h.calls.open.length, 0);
   h.w.document.querySelector('.document-viewer')._close();
 
-  const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], ACT);
-  h.setAnswer({ ok: true, action: 'editor', path: '/d/a.md' });
-  md.querySelector('.document-card').click(); await flush();
-  assert.deepEqual(h.calls.open[0], ['s1', '/d/a.md', 'click', false]);
-  assert.deepEqual(h.calls.editor, ['/d/a.md']);
-
-  h.setAnswer({ ok: true, action: 'tab', path: '/d/a.md' });
-  md.querySelector('.document-card').dispatchEvent(new h.w.MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  const pdf = h.draw([el({ pages: 0 })], ACT);
+  h.setAnswer({ ok: true, action: 'tab', path: '/d/report.pdf' });
+  pdf.querySelector('.document-card').click(); await flush();
+  assert.deepEqual(h.calls.open[0], ['s1', '/d/report.pdf', 'click', false]);
+  pdf.querySelector('.document-card').dispatchEvent(new h.w.MouseEvent('click', { bubbles: true, ctrlKey: true }));
   await flush();
   assert.equal(h.calls.open[1][3], true);
-  assert.deepEqual(h.calls.panel[0], ['s1', '/d/a.md']);
+  assert.equal(h.calls.read.length, 0);
+});
+
+test('markdown click reads the file only then and shows it rendered; Ctrl/Cmd keeps the old open (#764)', async () => {
+  const h = setup({});
+  const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
+  assert.equal(h.calls.read.length, 0, 'nothing is read before the click');
+  md.querySelector('.document-card').click(); await flush();
+  assert.deepEqual(h.calls.read[0], ['s1', '/d/a.md']);
+  assert.equal(h.calls.open.length, 0);
+  const viewer = h.w.document.querySelector('.document-viewer');
+  assert.ok(viewer);
+  assert.ok(viewer.querySelector('.document-viewer-text'), 'the text block, not a page image');
+  assert.equal(viewer.querySelector('.document-viewer-img'), null);
+  assert.equal(viewer.querySelector('.document-viewer-pager'), null);
+  viewer._close();
+
+  h.setAnswer({ ok: true, action: 'editor', path: '/d/a.md' });
+  md.querySelector('.document-card').dispatchEvent(new h.w.MouseEvent('click', { bubbles: true, ctrlKey: true }));
+  await flush();
+  assert.deepEqual(h.calls.open[0], ['s1', '/d/a.md', 'click', false], 'not inverted: what a plain click did before');
+  assert.deepEqual(h.calls.editor, ['/d/a.md']);
+  assert.equal(h.calls.read.length, 1);
+});
+
+test('html click opens a sandboxed frame without scripts', async () => {
+  const h = setup({});
+  h.setRead({ ok: true, kind: 'html', text: '<p>hi</p>' });
+  const page = h.draw([el({ kind: 'html', pages: 0, path: '/d/a.html', name: 'a.html' })], { ...ACT, host: h.w.document.body });
+  page.querySelector('.document-card').click(); await flush();
+  const frame = h.w.document.querySelector('.document-viewer iframe.document-viewer-frame');
+  assert.ok(frame);
+  assert.equal(frame.getAttribute('sandbox'), 'allow-same-origin');
+});
+
+test('a refused read shows no viewer', async () => {
+  const h = setup({});
+  h.setRead({ ok: false, error: 'This document is too large to show here. Open it in a tab instead.' });
+  const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
+  md.querySelector('.document-card').click(); await flush();
+  assert.equal(h.w.document.querySelector('.document-viewer'), null);
 });

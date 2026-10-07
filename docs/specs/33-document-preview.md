@@ -122,9 +122,12 @@ backend and no tool: it reads the element and the image blocks that follow.
   function (`() => getSession().sessionId`) and the card calls it when it is drawn and at each click, so a re-key
   after the draw is followed. `focusFallback` is the composer's focus. "Open in default app" is `how: 'default'`, "Open in tab" is `how: 'tab'`; neither
   consults `fileClickTarget`.
-- **Card click** (also Enter and Space, the card is a button): with page images it opens the viewer. Without them
-  (a whole-PDF read, Markdown, HTML) it asks main for `how: 'click'`.
-- **Markdown and HTML (O3)**: card above a collapsed "Text" result, so the text is still there.
+- **Card click** (also Enter and Space, the card is a button): with page images it opens the viewer. A Markdown or
+  HTML card reads its file then (`document-read`, #764) and opens the viewer with it rendered; Ctrl/Cmd-click asks
+  main for `how: 'click'` without inverting, which is what a plain click did before #764. A whole-PDF read asks for
+  `how: 'click'`, Ctrl/Cmd inverting it.
+- **Markdown and HTML (O3)**: card above a collapsed "Text" result, so the text is still there. The card draws no
+  preview: the file is read only when the card is clicked, never ahead of time (the owner's call on #764).
 - **Whole-PDF read (O10)**: name and "PDF", no thumbnail; the click opens the file in the file view, which already
   pages and zooms through pdf.js ([`22-pdf-preview.md`](22-pdf-preview.md)). Rendering the first page in the
   renderer was left for its own issue.
@@ -150,6 +153,20 @@ replaces the first.
   handlers; only the keys the viewer uses are also `preventDefault`ed.
 - Only the current page has a `src`; changing the page replaces it. The card hands the viewer a function that builds
   a data URL, not a copy of the pages.
+- **Text mode (#764)**: `content = { kind, text, dirUrl }` shows one Markdown or HTML document with the file view's two
+  renderings — Markdown through `marked` and `DOMPurify`, HTML in an `iframe` sandboxed with `allow-same-origin` and
+  no `allow-scripts`, its relative links resolved against the file's directory. No pager; zoom scales the text; the
+  arrows, the page keys and Home/End scroll. For Markdown the stage takes the focus; an HTML document scrolls inside
+  its frame, so the frame takes it once loaded, and the frame's document hands the viewer's own keys (Esc, zoom, the
+  Tab trap) and Ctrl+wheel back to the viewer's handlers. The scroller (stage or frame) is in the Tab cycle, so the
+  keys can scroll again after a Tab. A click beside the Markdown column closes, as a click beside a page does, but
+  only when the press started there too: a text selection dragged out of the column keeps the viewer open.
+
+`document-read` answers that text through the same checks as `document-open` (`checkDocument` in
+`src/app/documents.js`), only for the Markdown and HTML kinds, and only up to 2 MB (`READ_MAX_BYTES`): past it the
+user is told to open the file in a tab, whose editor is built for large files. It refuses a path whose spelled and
+resolved kinds differ (a link `a.md` to a picture), and bounds the read itself, not only the `stat` before it,
+because an agent may still be writing the file.
 
 Controls reuse existing styling (`.new-session-secondary-btn`); the overlay is modelled on
 `.jsonl-screenshot-fullscreen`. A real mouse-and-keyboard check in tabs, panes and grid was the plan's T10 and is
@@ -177,8 +194,9 @@ with `external`, a PDF, an image or an HTML file goes to the system's default pr
 configured editor (O4, the owner's decision; the issue said "exactly as the terminal does"). With `internal` the
 answer is `tab` and the renderer calls `openFileInPanel`.
 
-The click only reaches this route for a card with no page images. A card with pages opens the viewer on click and
-leaves "which target" to the two explicit buttons.
+The click only reaches this route for a card with no page images, and for Markdown and HTML only with Ctrl/Cmd held.
+A card with pages, and a Markdown or HTML card on a plain click, opens the viewer and leaves "which target" to the two
+explicit buttons.
 
 ## Performance
 
@@ -216,6 +234,9 @@ leaves "which target" to the two explicit buttons.
 - **Codex, Hermes and agy** do not stamp the element, so their images stay inline whatever the setting says.
 - **Page total.** The document's own page count is never in a Claude result, so a partial read cannot say "3 of 40".
 - **Whole-PDF thumbnail.** No first page without rendering the PDF; deferred.
+- **A link inside an HTML document (#764)** navigates the sandboxed frame. When it leads somewhere the app cannot
+  reach, the frame's document no longer forwards Esc, zoom and the Tab trap while it has the focus; the close button
+  and the backdrop still close the viewer. Not measured live.
 - The two older open-anything IPCs (`open-path`, `open-in-editor`) are untouched and still take any non-sensitive
   path; this feature only avoids adding a third.
 
@@ -225,6 +246,8 @@ leaves "which target" to the two explicit buttons.
   old drawing.
 - A stamped image read is a card, so enlarging it is a click on the card and not on the image. An image from any
   other tool is unchanged.
+- Since #764 a plain click on a Markdown or HTML card no longer opens the file view or the editor; Ctrl/Cmd-click and
+  the two buttons still do.
 
 ## What was measured
 
@@ -243,7 +266,7 @@ depend on the provider.
 | `src/backends/claude/transcript-view.js` | `noteReadCalls`, `stampDocuments` |
 | `src/backends/claude-native/rpc-protocol.js` | stamps live and on attach |
 | `src/backends/pi/transcript-view.js`, `src/backends/pi-native/rpc-protocol.js` | Pi's stamping, with the cwd and a call map |
-| `src/app/documents.js` | the registry and `document-open` |
+| `src/app/documents.js` | the registry, `document-open` and `document-read` |
 | `src/app/agent-rpc.js` | notes the paths per session, exposes the registry |
 | `src/renderer/jsonl/document-card.js`, `src/renderer/jsonl/document-viewer.js` | card and viewer |
 | `src/renderer/jsonl/jsonl-viewer.js`, `src/renderer/session/conversation-view.js` | the hook and the `ctx` |

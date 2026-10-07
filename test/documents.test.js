@@ -258,15 +258,71 @@ test("how 'click' with external: pdf, image and html go to the default app, mark
   assert.equal((await documents.openDocument(SID, path.join(dir, 'a.pdf'), 'click', true)).action, 'tab');
 });
 
-test('registerIpc binds one channel and passes its arguments through', async (t) => {
+test('registerIpc binds the open and the read and passes their arguments through', async (t) => {
   const dir = tmp(t);
   const file = path.join(dir, 'a.pdf');
   fs.writeFileSync(file, '%PDF-1.4');
+  const md = path.join(dir, 'a.md');
+  fs.writeFileSync(md, '# hi');
   const { registry } = setup();
   registry.note(docEntry(file));
+  registry.note(docEntry(md));
   const handlers = new Map();
   documents.registerIpc({ handle: (ch, fn) => handlers.set(ch, fn) });
-  assert.deepEqual([...handlers.keys()], ['document-open']);
+  assert.deepEqual([...handlers.keys()], ['document-open', 'document-read']);
   const res = await handlers.get('document-open')({}, SID, file, 'tab');
   assert.equal(res.action, 'tab');
+  assert.deepEqual(await handlers.get('document-read')({}, SID, md), { ok: true, kind: 'markdown', text: '# hi' });
+});
+
+test('readDocument refuses a markdown name that links to another kind of file', async (t) => {
+  const dir = tmp(t);
+  const target = path.join(dir, 'scan.png');
+  fs.writeFileSync(target, 'png');
+  const link = path.join(dir, 'notes.md');
+  try { fs.symlinkSync(target, link); } catch { t.skip('symlinks need a privilege here'); return; }
+  const { registry } = setup();
+  registry.note(docEntry(link));
+  assert.equal((await documents.readDocument(SID, link)).ok, false);
+});
+
+// #764: the text of a Markdown or HTML document, read for the card's viewer through the open's checks.
+test('readDocument answers the text of a registered markdown or html file', async (t) => {
+  const dir = tmp(t);
+  const md = path.join(dir, 'a.md');
+  const html = path.join(dir, 'b.html');
+  fs.writeFileSync(md, '# Title\n');
+  fs.writeFileSync(html, '<p>x</p>');
+  const { registry, opened } = setup();
+  registry.note(docEntry(md));
+  registry.note(docEntry(html));
+  assert.deepEqual(await documents.readDocument(SID, md), { ok: true, kind: 'markdown', text: '# Title\n' });
+  assert.deepEqual(await documents.readDocument(SID, html), { ok: true, kind: 'html', text: '<p>x</p>' });
+  assert.deepEqual(opened, [], 'a read opens nothing');
+});
+
+test('readDocument refuses what the open refuses, other kinds, and a file past the bound', async (t) => {
+  const dir = tmp(t);
+  const md = path.join(dir, 'a.md');
+  fs.writeFileSync(md, '# x');
+  const pdf = path.join(dir, 'a.pdf');
+  fs.writeFileSync(pdf, '%PDF-1.4');
+  const big = path.join(dir, 'big.md');
+  fs.writeFileSync(big, Buffer.alloc(documents.READ_MAX_BYTES + 1, 0x61));
+  const { registry, sessions } = setup({ sensitive: (p) => p.endsWith('secret.md') });
+  assert.equal((await documents.readDocument(SID, md)).ok, false, 'not registered');
+  registry.note(docEntry(md));
+  sessions.set('session-2', documents.createRegistry());
+  assert.equal((await documents.readDocument('session-2', md)).ok, false, 'another session');
+  registry.note(docEntry(pdf));
+  assert.equal((await documents.readDocument(SID, pdf)).ok, false, 'a pdf has its pages already');
+  registry.note(docEntry(big));
+  assert.match((await documents.readDocument(SID, big)).error, /too large/);
+  const secret = path.join(dir, 'secret.md');
+  fs.writeFileSync(secret, 'k');
+  registry.note(docEntry(secret));
+  assert.equal((await documents.readDocument(SID, secret)).ok, false, 'sensitive');
+  registry.note(docEntry('//host/share/a.md'));
+  assert.equal((await documents.readDocument(SID, '//host/share/a.md')).ok, false, 'network');
+  assert.equal((await documents.readDocument(SID, '')).ok, false);
 });

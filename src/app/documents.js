@@ -29,6 +29,9 @@
  * default program and Markdown to the configured editor — `externalEditorCommand` means a code editor, and
  * a PDF belongs in a viewer. The answer names the action taken or left to the renderer
  * (`default` | `tab` | `editor`), and carries the path for the two the renderer finishes.
+ *
+ * `document-read` (#764) answers the TEXT of a Markdown or HTML document for the card's viewer, through the
+ * same checks (`checkDocument`), only when the card is clicked, and only up to `READ_MAX_BYTES`.
  */
 
 'use strict';
@@ -46,6 +49,11 @@ let ctx = null;
 const REGISTRY_CAP = 500;
 
 const HOWS = ['default', 'tab', 'click'];
+
+// What the viewer reads as text (#764), and how much of it: a document past this is opened in a tab instead,
+// whose editor is built for large files.
+const TEXT_KINDS = ['markdown', 'html'];
+const READ_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
  * @param {object} context
@@ -108,19 +116,12 @@ const hasStream = (p) => p.replace(/^[A-Za-z]:/, '').includes(':');
 const refuse = (error) => ({ ok: false, error });
 
 /**
- * @param {string} sessionId
- * @param {string} filePath  the path the element carried, exactly as stamped
- * @param {'default'|'tab'|'click'} how
- * @param {boolean} [invert]  Ctrl/Cmd held — only read for 'click'
- * @returns {Promise<{ok: true, action: 'default'|'tab'|'editor', path?: string}|{ok: false, error: string}>}
+ * Every check above, for one path a renderer named. Answers the real path, the kind and the file's size, or
+ * the refusal. Shared by the open and the read, so the two cannot accept different paths. `kind` is the spelled
+ * path's, `realKind` the resolved one's — a link named `a.md` may lead to a picture.
+ * @returns {Promise<{ok: true, real: string, kind: string, realKind: string, size: number}|{ok: false, error: string}>}
  */
-async function openDocument(sessionId, filePath, how, invert) {
-  if (!ctx) return refuse('Documents are not available yet.');
-  if (typeof sessionId !== 'string' || !sessionId || typeof filePath !== 'string' || !filePath) {
-    return refuse('No document was named.');
-  }
-  if (!HOWS.includes(how)) return refuse('That is not a way to open a document.');
-
+async function checkDocument(sessionId, filePath) {
   const registry = ctx.registryFor ? ctx.registryFor(sessionId) : null;
   if (!registry) return refuse('This session is not running.');
   if (!registry.has(filePath)) return refuse('This session did not read that document.');
@@ -135,15 +136,37 @@ async function openDocument(sessionId, filePath, how, invert) {
 
   const real = realPathish(filePath);
   if (NETWORK_PATH.test(real)) return refuse('Only local files can be opened.');
-  if (hasStream(real) || !kindOfPath(real)) return refuse('That kind of file is not opened from here.');
+  const realKind = kindOfPath(real);
+  if (hasStream(real) || !realKind) return refuse('That kind of file is not opened from here.');
   if (ctx.isSensitivePath(real)) return refuse('Access to that path is denied.');
 
+  let stat;
   try {
-    const stat = await fs.promises.stat(real);
-    if (!stat.isFile()) return refuse('That is not a file.');
+    stat = await fs.promises.stat(real);
   } catch (err) {
     return refuse(readableError(err, 'The document could not be opened.', ctx.log));
   }
+  if (!stat.isFile()) return refuse('That is not a file.');
+  return { ok: true, real, kind, realKind, size: stat.size };
+}
+
+/**
+ * @param {string} sessionId
+ * @param {string} filePath  the path the element carried, exactly as stamped
+ * @param {'default'|'tab'|'click'} how
+ * @param {boolean} [invert]  Ctrl/Cmd held — only read for 'click'
+ * @returns {Promise<{ok: true, action: 'default'|'tab'|'editor', path?: string}|{ok: false, error: string}>}
+ */
+async function openDocument(sessionId, filePath, how, invert) {
+  if (!ctx) return refuse('Documents are not available yet.');
+  if (typeof sessionId !== 'string' || !sessionId || typeof filePath !== 'string' || !filePath) {
+    return refuse('No document was named.');
+  }
+  if (!HOWS.includes(how)) return refuse('That is not a way to open a document.');
+
+  const checked = await checkDocument(sessionId, filePath);
+  if (!checked.ok) return checked;
+  const { real, kind } = checked;
 
   let action = how;
   if (how === 'click') {
@@ -168,9 +191,42 @@ async function openDocument(sessionId, filePath, how, invert) {
   return { ok: true, action: 'default' };
 }
 
+/**
+ * The text of a Markdown or HTML document, for the card's viewer (#764). Read only when the user clicks the
+ * card, through the same checks as the open. Other kinds are refused: their pages are already in the result.
+ * @returns {Promise<{ok: true, kind: 'markdown'|'html', text: string}|{ok: false, error: string}>}
+ */
+async function readDocument(sessionId, filePath) {
+  if (!ctx) return refuse('Documents are not available yet.');
+  if (typeof sessionId !== 'string' || !sessionId || typeof filePath !== 'string' || !filePath) {
+    return refuse('No document was named.');
+  }
+  const checked = await checkDocument(sessionId, filePath);
+  if (!checked.ok) return checked;
+  // Text on both sides of a link, and the same text: a link `a.md` to `b.png` is not Markdown.
+  if (!TEXT_KINDS.includes(checked.kind) || checked.realKind !== checked.kind) return refuse('That kind of file is not shown here.');
+  const tooLarge = refuse('This document is too large to show here. Open it in a tab instead.');
+  if (checked.size > READ_MAX_BYTES) return tooLarge;
+  // Bounded by the read itself, not only by the stat before it: an agent may still be writing the file.
+  let handle = null;
+  try {
+    handle = await fs.promises.open(checked.real, 'r');
+    // Sized by the stat, plus one byte that catches a file grown since; never past the bound plus one.
+    const buf = Buffer.alloc(Math.min(checked.size, READ_MAX_BYTES) + 1);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    if (bytesRead > READ_MAX_BYTES) return tooLarge;
+    return { ok: true, kind: checked.kind, text: buf.toString('utf8', 0, bytesRead) };
+  } catch (err) {
+    return refuse(readableError(err, 'The document could not be read.', ctx.log));
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
 /** @param {Electron.IpcMain} ipc */
 function registerIpc(ipc) {
   ipc.handle('document-open', (_event, sessionId, filePath, how, invert) => openDocument(sessionId, filePath, how, invert));
+  ipc.handle('document-read', (_event, sessionId, filePath) => readDocument(sessionId, filePath));
 }
 
-module.exports = { init, registerIpc, createRegistry, openDocument, documentPathsOf };
+module.exports = { init, registerIpc, createRegistry, openDocument, readDocument, documentPathsOf, READ_MAX_BYTES };

@@ -27,7 +27,11 @@ function setup() {
     target.dispatchEvent(e);
     return e;
   };
-  return { w, d, open, key, docKeys };
+  const openText = (content) => {
+    ctx.__o = { host: d.getElementById('host'), name: 'a.md', content };
+    return vm.runInContext('openDocumentViewer(__o)', ctx);
+  };
+  return { w, d, open, openText, key, docKeys };
 }
 
 test('opens inside the host, shows page 1 of N and takes focus', () => {
@@ -101,6 +105,48 @@ test('closed: no document-level key listener, and the composer key is untouched'
   assert.deepEqual(h.docKeys, [], 'the viewer never listens on document');
   assert.equal(h.key(h.d.getElementById('composer'), 'ArrowRight').defaultPrevented, false);
   assert.equal(h.key(h.d.getElementById('composer'), 'Escape').defaultPrevented, false);
+});
+
+test('text mode (#764): one rendered block, no pager, arrows left to the scroll, zoom scales the text, Esc closes', () => {
+  const h = setup();
+  const composer = h.d.getElementById('composer');
+  composer.focus();
+  const opened = h.openText({ kind: 'markdown', text: '# T' });
+  assert.ok(opened.el.querySelector('.document-viewer-text'));
+  assert.equal(opened.el.querySelector('.document-viewer-img'), null);
+  assert.equal(opened.el.querySelector('.document-viewer-pager'), null);
+  assert.equal(h.d.activeElement, opened.el.querySelector('.document-viewer-stage'), 'the stage has the focus, so keys scroll it');
+  assert.equal(h.key(opened.el.querySelector('.document-viewer-stage'), 'ArrowDown').defaultPrevented, false);
+  assert.equal(h.key(opened.el.querySelector('.document-viewer-stage'), 'End').defaultPrevented, false);
+  h.key(opened.el, '+');
+  assert.equal(opened.el.querySelector('.document-viewer-text').style.zoom, '1.25');
+  h.key(opened.el, 'Escape');
+  assert.equal(h.d.querySelector('.document-viewer'), null);
+  assert.equal(h.d.activeElement, composer);
+});
+
+test('text mode: a click on the stage beside the text closes, a click on the text does not', () => {
+  const h = setup();
+  const opened = h.openText({ kind: 'markdown', text: '# T' });
+  opened.el.querySelector('.document-viewer-text').click();
+  assert.ok(h.d.querySelector('.document-viewer'));
+  // A selection dragged out of the text: pressed on the text, released on the stage.
+  opened.el.querySelector('.document-viewer-text').dispatchEvent(new h.w.MouseEvent('mousedown', { bubbles: true }));
+  opened.el.querySelector('.document-viewer-stage').click();
+  assert.ok(h.d.querySelector('.document-viewer'), 'a drag out of the text keeps it open');
+  opened.el.querySelector('.document-viewer-stage').dispatchEvent(new h.w.MouseEvent('mousedown', { bubbles: true }));
+  opened.el.querySelector('.document-viewer-stage').click();
+  assert.equal(h.d.querySelector('.document-viewer'), null);
+});
+
+test('text mode: the stage is in the Tab cycle, so the keys can scroll again', () => {
+  const h = setup();
+  const opened = h.openText({ kind: 'markdown', text: '# T' });
+  const stage = opened.el.querySelector('.document-viewer-stage');
+  h.key(stage, 'Tab');
+  assert.notEqual(h.d.activeElement, stage);
+  h.key(h.d.activeElement, 'Tab', { shiftKey: true });
+  assert.equal(h.d.activeElement, stage);
 });
 
 test('a second open replaces the first', () => {
