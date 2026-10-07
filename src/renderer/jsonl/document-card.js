@@ -198,6 +198,9 @@ function renderDocumentCard(resultData, ctx) {
   const openTextViewer = async () => {
     if (reading) return;
     reading = true;
+    // The host is taken now: the view may redraw its entries while the read is out (an attach, a deferred
+    // draw), and the card clicked is then no longer in the document — the conversation still is (#766).
+    const host = (ctx && ctx.host) || card.closest('#jsonl-viewer') || card.ownerDocument.body;
     let res = null;
     try { res = await window.api.readDocument(sessionIdNow(), doc.path); } catch (err) { res = { ok: false, error: String(err && err.message || err) }; }
     reading = false;
@@ -206,8 +209,7 @@ function renderDocumentCard(resultData, ctx) {
       if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot show document', message: msg });
       return;
     }
-    if (!card.isConnected) return;
-    const host = (ctx && ctx.host) || card.closest('#jsonl-viewer') || card.ownerDocument.body;
+    if (!host.isConnected) return;
     openDocumentViewer({
       host,
       name,

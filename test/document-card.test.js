@@ -15,7 +15,7 @@ const flush = () => new Promise((r) => setImmediate(r));
 function setup(settings, { observer = false } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>');
   const w = dom.window;
-  const calls = { open: [], panel: [], editor: [], read: [] };
+  const calls = { open: [], panel: [], editor: [], read: [], msg: [] };
   let answer = { ok: true, action: 'default' };
   let readAnswer = { ok: true, kind: 'markdown', text: '# Title\n\nbody' };
   w.api = new Proxy({}, { get: (_t, k) => {
@@ -37,9 +37,11 @@ function setup(settings, { observer = false } = {}) {
   ctx.__panel = (...a) => calls.panel.push(a);
   vm.runInContext(read('src/shared/partial-args.js'), ctx);
   vm.runInContext(read('src/renderer/session/subagent-live.js'), ctx);
+  ctx.__msg = (m) => calls.msg.push(m);
   vm.runInContext(`
     function escapeHtml(s) { return String(s); }
     function openFileInPanel(...a) { __panel(...a); }
+    function showControlMessage(m) { __msg(m); }
   `, ctx);
   ctx.__settings = settings;
   vm.runInContext('var appGlobalSettings = __settings;', ctx);
@@ -213,6 +215,16 @@ test('the viewer carries the open actions (#765) for every kind, and none in the
   assert.equal(h.w.document.querySelector('.document-viewer-actions'), null);
 });
 
+test('a card redrawn while its read is out still opens the viewer (#766)', async () => {
+  const h = setup({});
+  const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
+  const card = md.querySelector('.document-card');
+  card.click();
+  card.replaceWith(card.cloneNode(true)); // the view redraws its entries before the answer arrives
+  await flush();
+  assert.ok(h.w.document.querySelector('.document-viewer'));
+});
+
 test('html click opens a sandboxed frame without scripts', async () => {
   const h = setup({});
   h.setRead({ ok: true, kind: 'html', text: '<p>hi</p>' });
@@ -223,10 +235,21 @@ test('html click opens a sandboxed frame without scripts', async () => {
   assert.equal(frame.getAttribute('sandbox'), 'allow-same-origin');
 });
 
-test('a refused read shows no viewer', async () => {
+test('a refused read shows no viewer and says why on screen', async () => {
   const h = setup({});
   h.setRead({ ok: false, error: 'This document is too large to show here. Open it in a tab instead.' });
   const md = h.draw([el({ kind: 'markdown', pages: 0, path: '/d/a.md', name: 'a.md' })], { ...ACT, host: h.w.document.body });
   md.querySelector('.document-card').click(); await flush();
   assert.equal(h.w.document.querySelector('.document-viewer'), null);
+  assert.equal(h.calls.msg.length, 1);
+  assert.match(h.calls.msg[0].message, /too large/);
+});
+
+test('a refused open from a button says why on screen', async () => {
+  const h = setup({});
+  h.setAnswer({ ok: false, error: 'This session did not read that document.' });
+  const root = h.draw([el(), img()], ACT);
+  root.querySelectorAll('.document-card-btn')[1].click(); await flush();
+  assert.equal(h.calls.msg.length, 1);
+  assert.match(h.calls.msg[0].message, /did not read/);
 });

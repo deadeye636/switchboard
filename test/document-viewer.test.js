@@ -176,6 +176,15 @@ test('actions are in the Tab trap', () => {
   assert.ok(seen.has('Open in default app') && seen.has('Open in tab'));
 });
 
+test('focus on body at the open goes to the fallback on close (#766)', () => {
+  const h = setup();
+  h.d.activeElement.blur();
+  let fell = 0;
+  const v = h.openWith({ focusFallback: () => { fell++; } });
+  h.key(v.el, 'Escape');
+  assert.equal(fell, 1);
+});
+
 test('a second open replaces the first', () => {
   const h = setup();
   h.open(); h.open();

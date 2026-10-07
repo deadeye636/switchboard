@@ -171,7 +171,8 @@ function openDocumentViewer(opts) {
     overlay.remove();
     overlay._close = null;
     host.style.position = hostPosition;
-    if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') returnFocus.focus();
+    // `body` means nothing had the focus — the card that did may have been redrawn while its file was read (#766).
+    if (returnFocus && returnFocus !== document.body && returnFocus.isConnected && typeof returnFocus.focus === 'function') returnFocus.focus();
     else if (typeof opts.focusFallback === 'function') opts.focusFallback();
   }
   overlay._close = close;

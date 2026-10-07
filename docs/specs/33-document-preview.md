@@ -127,7 +127,11 @@ backend and no tool: it reads the element and the image blocks that follow.
   main for `how: 'click'` without inverting, which is what a plain click did before #764. A whole-PDF read asks for
   `how: 'click'`, Ctrl/Cmd inverting it.
 - **Markdown and HTML (O3)**: card above a collapsed "Text" result, so the text is still there. The card draws no
-  preview: the file is read only when the card is clicked, never ahead of time (the owner's call on #764).
+  preview: the file is read only when the card is clicked, never ahead of time (the owner's call on #764). The
+  viewer's host is taken at the click: the conversation may redraw its entries while the read is out (an attach, a
+  draw deferred while the window was hidden), and the card clicked is then detached; the view has drawn a new one in
+  its place. Waiting on the old card is what made a click do nothing at all, with no message (#766). Focus that was
+  on `body` at the open (nothing left to return to) goes to the composer on close.
 - **Whole-PDF read (O10)**: name and "PDF", no thumbnail; the click opens the file in the file view, which already
   pages and zooms through pdf.js ([`22-pdf-preview.md`](22-pdf-preview.md)). Rendering the first page in the
   renderer was left for its own issue.
