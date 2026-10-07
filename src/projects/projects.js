@@ -30,7 +30,10 @@ const registry = require('./project-registry');
 const { registerLookup, resolveRegisterRow } = require('./register-lookup');
 // "Is this a worktree, and of what" — the one pattern the sidebar nests by and the delete handler
 // validates against (#582). The unlisted notice asks the same question rather than growing a copy (#583).
-const { parseWorktreePath, worktreeRootOf } = require('../shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf, worktreeRepoOf, knownWorktreeParentOf } = require('../shared/worktree-path');
+// …and the worktrees outside that pattern, recognised by their `.git` file and remembered (#757). It feeds
+// the same module, so every `parseWorktreePath`/`worktreeRootOf` below answers for them too.
+const knownWorktrees = require('./known-worktree');
 // Global-only setting defaults (#239). Requiring app/settings.js here is safe: it pulls in no Electron
 // and no db at load — both arrive through its own ctx.
 const { GLOBAL_ONLY_DEFAULTS } = require('../app/settings');
@@ -57,6 +60,7 @@ let ctx = null;
  */
 function init(context) {
   ctx = context;
+  knownWorktrees.init(context);
 }
 
 // --- helpers ---
@@ -69,8 +73,12 @@ function init(context) {
  * It buries any tombstone and comes back VISIBLE, and it restarts the auto-hide grace timer so a
  * just-added stale project is not immediately hidden again on the next pass (#57).
  */
-function ensureProjectAdded(projectPath) {
+function ensureProjectAdded(projectPath, { fromSession = false } = {}) {
   if (!projectPath) return;
+  // A session opened in a checkout recognised by its `.git` file is work in that worktree, not a request to
+  // list it (#757): registering it would make it a project of its own for good, because a listed path keeps
+  // the behaviour it had. Its project is on the list already — that is how it was recognised.
+  if (fromSession && knownWorktreeParentOf(projectPath)) return;
   try {
     // Onto the row this project already HAS, whatever spelling it is filed under (#566) — a second row
     // for one directory is a tombstone this registration would not bury and a hide it would not clear.
@@ -695,7 +703,14 @@ function syncRegistry() {
     const now = new Date().toISOString();
     let changed = false;
 
-    for (const [projectPath, times] of newest) {
+    // Before the loop, so a worktree outside the layout is recognised by the time discovery asks
+    // `parseWorktreePath` about it — otherwise its first sweep would put it on the list (#757). A new
+    // answer counts as a change: the sidebar nests by it.
+    try {
+      if (knownWorktrees.refresh(newest.keys(), states).changed) changed = true;
+    } catch (err) { ctx.log.warn('[worktree] refresh failed: ' + (err && err.message)); }
+
+    const discover = (projectPath, times) => {
       // A worktree is a SUB-UNIT of its project, not a project beside it, so discovery does not put one
       // on the list. It used to: `syncRegistry` registers every path a session points at, with no
       // exception, and in an agent-driven checkout that filled the register with rows for directories
@@ -704,12 +719,16 @@ function syncRegistry() {
       //
       // Only DISCOVERY is refused. A user who adds one by hand is answering a question nobody asked
       // them, and the register is theirs to write.
-      if (parseWorktreePath(projectPath)) continue;
+      if (parseWorktreePath(projectPath)) return;
+      // …nor one recognised by its `.git` file that has no listed project to belong to right now (#757) — its
+      // project was removed, say. Registered here it would stay a project for good; unregistered it is what a
+      // layout worktree in the same spot is: offered in the notice, and nested again once its project is back.
+      if (knownWorktrees.isWorktreeFact(projectPath)) return;
       const row = rowByKey.get(samePathKey(projectPath));
       const wasRemovedAt = row && row.state && row.state.removedAt;
       if (!registry.shouldRegister(row && row.state, {
         source: 'scan', autoAdd, sessionStartedAt: times.startedAt,
-      })) continue;
+      })) return;
       // Registering does NOT unhide: `registrationState` is for an explicit act by the user. Discovery
       // only puts it on the list, and a project the user hid stays hidden while its sessions pile up.
       ctx.db.setProjectState((row && row.path) || projectPath, { registered: 1, registeredAt: now, removedAt: null });
@@ -728,6 +747,14 @@ function syncRegistry() {
       // them too: the project would sit in the sidebar empty, its sessions on disk, nothing to bring
       // them in.
       if (wasRemovedAt) refreshProjectFolders(projectPath);
+    };
+
+    const registeredBefore = changed;
+    for (const [projectPath, times] of newest) discover(projectPath, times);
+    // A project this sweep put on the list may be the one a remembered worktree belongs to (#757): answer it
+    // now, so the push this sweep makes already nests the checkout rather than the next one moving it.
+    if (changed && !registeredBefore) {
+      try { knownWorktrees.refresh(newest.keys(), ctx.db.getProjectStates()); } catch { /* the next build answers */ }
     }
 
     // The sweep. A tombstone whose sessions are all gone guards nothing — a genuinely new session at that
@@ -1066,8 +1093,14 @@ function unlistedProjects() {
       // by anyone.
       if (row.hidden) continue;
       if (!row.sessionCount) continue;                 // nothing to miss
+      // …and nothing to add (#757): a folder that does not exist would go on the list as a missing project.
+      // This is where deleted checkouts and the leftovers of test runs used to pile up. Not a verdict on the
+      // row — the project manager still lists it as missing, "Clean up missing" still removes it, and it is
+      // offered again by itself once the folder (or the drive it is on) is back. Only a folder that was NEVER
+      // on the list: a removed project keeps the offer it had (owner's constraint — projects behave as before).
       const hit = lookup(row.projectPath);
       const state = hit ? hit.state : null;
+      if (row.missing && !(state && (state.registered || state.removedAt))) continue;
       // The START, not the recency (#575) — the same time the register decides on, so this offer cannot
       // say "you could add this" about a project auto-add would refuse.
       if (!registry.shouldRegister(state, { source: 'scan', autoAdd: true, sessionStartedAt: row.lastStartedAt })) continue;
@@ -1642,7 +1675,11 @@ function cleanupOneMissing(entry) {
     // still have nothing left. A top-level project is not pruned here, for the reason above.
     if (isWorktree) {
       pruneProjectIfGone(projectPath);
-      out.repoRoot = worktreeRootOf(projectPath) || null;
+      // The repository git keeps the worktree's record in — for one recognised by its `.git` file (#757)
+      // that is the repository the file named, not the project it is listed under.
+      out.repoRoot = worktreeRepoOf(projectPath) || null;
+      // Asked before the fact goes: the repository is what the fact remembered.
+      knownWorktrees.forget(projectPath);
     }
 
     out.ok = true;

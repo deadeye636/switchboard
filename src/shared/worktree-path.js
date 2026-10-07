@@ -37,6 +37,60 @@ const WORKTREE_PATH_RE = new RegExp(
   '^(.+?)[\\\\/]\\.(?:' + WORKTREE_DIRS.map(segs => segs.join('[\\\\/]')).join('|') + ')[\\\\/]([^\\\\/]+)[\\\\/]?$',
 );
 
+// --- Worktrees outside the layout (#757) ---
+//
+// An agent does not have to put its checkout in one of the three directories above: `git worktree add
+// ../feature-x` makes a sibling folder that the pattern cannot see, and before this it was an unrelated
+// project — offered in the "not on your list" notice, and offered again after its folder was deleted.
+// Such a checkout is recognised by its `.git` FILE while it exists, the answer is remembered in the
+// database, and main hands the remembered list to this module (and, through the projects payload, to the
+// renderer's copy of it). Every question below then answers for it exactly as for a layout path, so none
+// of the callers had to learn a second rule.
+//
+// Keyed by the spelling with `/` and without case, the same way on both sides. This is a lookup of a path
+// somebody already resolved — the two sides must agree, and neither may stat.
+const knownWorktreeByKey = new Map();
+const knownKey = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+
+/**
+ * Replace the remembered worktrees outside the layout.
+ *
+ * @param {Array<{path: string, parentPath: string, repoPath?: string}>} list  `parentPath` is the project
+ *   it belongs to (the nearest listed project holding its repository), `repoPath` the repository's root.
+ */
+function setKnownWorktrees(list) {
+  knownWorktreeByKey.clear();
+  for (const e of list || []) {
+    if (e && e.path && e.parentPath) knownWorktreeByKey.set(knownKey(e.path), e);
+  }
+}
+
+/**
+ * The project a worktree OUTSIDE the layout belongs to, or null — for a layout path too, which needs no
+ * remembering. Main stamps it on the payload so the renderer's copy of this module can be told the same
+ * list (`setKnownWorktrees`) without a channel of its own.
+ *
+ * @param {string} p
+ * @returns {string|null}
+ */
+function knownWorktreeParentOf(p) {
+  const known = knownWorktreeByKey.size ? knownWorktreeByKey.get(knownKey(p)) : null;
+  return known ? known.parentPath : null;
+}
+
+/**
+ * The repository a worktree's `.git` file points into, read off its `gitdir:` line — pure string work, so
+ * the `.git` layout git uses is spelled here and nowhere else. `<repo>/.git/worktrees/<name>` answers
+ * `<repo>`; anything else (a submodule's `.git/modules/…`, a relative pointer not yet resolved) is null.
+ *
+ * @param {string} gitdir  the absolute path after `gitdir:`
+ * @returns {string|null}
+ */
+function repoOfGitdir(gitdir) {
+  const match = String(gitdir || '').trim().match(/^(.+?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/);
+  return match ? match[1] : null;
+}
+
 /**
  * Split a worktree path into the project it belongs to and its own name.
  *
@@ -45,8 +99,24 @@ const WORKTREE_PATH_RE = new RegExp(
  */
 function parseWorktreePath(p) {
   const match = String(p || '').match(WORKTREE_PATH_RE);
-  if (!match) return null;
-  return { parentPath: match[1], name: match[2] };
+  if (match) return { parentPath: match[1], name: match[2] };
+  const known = knownWorktreeByKey.size ? knownWorktreeByKey.get(knownKey(p)) : null;
+  if (!known) return null;
+  return { parentPath: known.parentPath, name: String(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop() };
+}
+
+/**
+ * The repository `git worktree` commands run in for this worktree. For a layout path that is the project
+ * at the top (the layout lives inside its repository); for a remembered one it is the repository its
+ * `.git` file named, which need not be the project it is listed under.
+ *
+ * @param {string} p
+ * @returns {string|null}
+ */
+function worktreeRepoOf(p) {
+  const known = knownWorktreeByKey.size ? knownWorktreeByKey.get(knownKey(p)) : null;
+  if (known) return known.repoPath || known.parentPath;
+  return worktreeRootOf(p);
 }
 
 /**
@@ -144,5 +214,8 @@ function settingsOwnerPath(p) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseWorktreePath, worktreeRootOf, worktreeLabelOf, worktreeDirsIn, settingsOwnerPath };
+  module.exports = {
+    parseWorktreePath, worktreeRootOf, worktreeLabelOf, worktreeDirsIn, settingsOwnerPath,
+    setKnownWorktrees, knownWorktreeParentOf, repoOfGitdir, worktreeRepoOf,
+  };
 }

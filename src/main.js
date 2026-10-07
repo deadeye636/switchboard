@@ -39,7 +39,7 @@ const { findOnPath } = require('./backends/file-store');
 const { normalizeLauncher } = require('./shared/custom-launchers');
 // "Is this path a worktree, and of which project" — one separator-agnostic answer for the delete handler
 // here, the sidebar's nesting and the unlisted-projects notice (#582).
-const { parseWorktreePath, worktreeRootOf } = require('./shared/worktree-path');
+const { parseWorktreePath, worktreeRepoOf } = require('./shared/worktree-path');
 // Log levels (#121). Raising this from the settings avoids needing a dev build to
 // diagnose a live session. Three tiers, matching electron-log's own ladder:
 //   info  — default. Transitions and lifecycle: busy edges, subagent spawn/complete.
@@ -183,6 +183,7 @@ const {
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones, getPlanRefAttributions,
+  getKnownWorktrees, recordKnownWorktree, forgetKnownWorktree,
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
@@ -457,6 +458,9 @@ sessionCache.init({
   activeSessions,
   getMainWindow: () => mainWindow,
   log,
+  // Worktrees outside the layout, recognised before a payload is built (#757). The module is the one
+  // `projects.init` below wires to the database; until then it answers nothing.
+  refreshKnownWorktrees: (paths, states) => require('./projects/known-worktree').refresh(paths, states),
   // Who else is showing the Projects view (#382). Through ctx rather than a require, for the same
   // reason everything else here is: session-cache is loaded in `node --test`, and detach.js needs
   // Electron's BrowserWindow before it can answer.
@@ -580,6 +584,8 @@ projects.init({
     getCachedByProjectPath, getBackendsByProjectPath,
     // The register (#167): the project list is a stored list, not a derivation.
     setProjectState, getProjectStates, getProjectTombstones,
+    // Worktrees outside the layout, recognised by their `.git` file and remembered (#757).
+    getKnownWorktrees, recordKnownWorktree, forgetKnownWorktree,
     // Discovery reads the cached rows directly (one pass, no store readdir), and a project can own more
     // than one store folder — re-registering it has to index every one of them.
     getAllCached, getAllFolderMeta,
@@ -646,7 +652,9 @@ ipcMain.handle('delete-worktree', (_event, worktreePath) => {
     // so the project answers for all of them, while the immediate parent answers only while it is still
     // there. For a worktree created inside a worktree, deleting the middle one first left the inner one
     // undeletable: `git -C <gone directory>` fails before it reaches the removal.
-    const parentRepo = worktreeRootOf(normalizedPath);
+    // A worktree recognised by its `.git` file (#757) names its repository itself, which need not be the
+    // project it is listed under; `worktreeRepoOf` answers that, and the project for a layout path.
+    const parentRepo = worktreeRepoOf(normalizedPath);
 
     // Helper: run git worktree remove, optionally double-force
     function runRemove(doubleForce, callback) {
@@ -2335,7 +2343,7 @@ spawn.init({
   getOpener,
   setOpener,
   cleanupSecretRefsForSession,
-  ensureProjectAdded: (p) => projects.ensureProjectAdded(p),
+  ensureProjectAdded: (p, opts) => projects.ensureProjectAdded(p, opts),
   startMcpServer,
   shutdownMcpServer,
   // #223 live re-binding: where a backend may put its per-spawn binding file (userData — never the
@@ -2474,7 +2482,7 @@ const lifecycleCtx = {
   SETTING_DEFAULTS,
   resolveShell,
   backends,
-  ensureProjectAdded: (p) => projects.ensureProjectAdded(p),
+  ensureProjectAdded: (p, opts) => projects.ensureProjectAdded(p, opts),
   quoteArgvForShell,
   shellArgs,
   spawnChild: (cmd, args, opts) => require('child_process').spawn(cmd, args, opts),

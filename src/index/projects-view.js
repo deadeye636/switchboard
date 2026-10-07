@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const { encodeProjectPath } = require('../session/encode-project-path');
-const { parseWorktreePath, worktreeRootOf, settingsOwnerPath } = require('../shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf, settingsOwnerPath, knownWorktreeParentOf } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
 // The backend registry, for the one question this file asks a descriptor: what did this session OPEN
 // with (#229). Neutral by construction — the core never reads a transcript format, it asks and passes
@@ -34,6 +34,8 @@ let getAllMeta, getAllCached, getAllFolderMeta, setFolderMeta;
 const _headlessFolders = new Set();
 let getFavoritedProjects, getProjectDisplayNames, getProjectStates;
 let getSetting;
+// Recognise worktrees outside the layout before anything below asks about one (#757) — see the call.
+let refreshKnownWorktrees = null;
 
 function init(ctx) {
   PROJECTS_DIR = ctx.PROJECTS_DIR;
@@ -46,6 +48,7 @@ function init(ctx) {
   getProjectDisplayNames = ctx.db.getProjectDisplayNames;
   getProjectStates = ctx.db.getProjectStates;
   getSetting = ctx.db.getSetting;
+  refreshKnownWorktrees = typeof ctx.refreshKnownWorktrees === 'function' ? ctx.refreshKnownWorktrees : null;
 }
 
 // The later of two timestamps, either of which may be absent. Compared as dates rather than strings
@@ -127,6 +130,16 @@ function buildProjectsFromCache(showArchived) {
   const metaMap = getAllMeta();
   const cachedRows = getAllCached();
   const states = typeof getProjectStates === 'function' ? getProjectStates() : new Map();
+  // Worktrees outside the layout are recognised HERE, before the visibility walk and the nesting ask about
+  // them (#757). Left to the sweep, a new one went out once as a project of its own — or not at all, being
+  // unregistered — and then moved under its project on the next push, and a group that changes parent in
+  // one morph makes morphdom throw (`insertBefore`). Each path's `.git` is read once per run, so this costs
+  // a set lookup per path after the first build.
+  if (refreshKnownWorktrees) {
+    try {
+      refreshKnownWorktrees(new Set(cachedRows.map(r => r.projectPath).filter(Boolean)), states);
+    } catch { /* the sweep's own call answers later */ }
+  }
   // A project is shown when it is on the list and neither hidden by the user nor auto-hidden by staleness.
   //
   // Keyed on the CANONICAL path, exactly like the buckets below (#245). It used to be the raw string, and
@@ -493,10 +506,36 @@ function buildProjectsFromCache(showArchived) {
   // its sessions still indexed and searchable. The alternative was a recursive pass one rail deeper,
   // which costs ~34 px of a 340 px panel per level; what carries the relationship instead is the row's
   // NAME (`worktreeLabelOf`), which spells every level between the checkout and its project.
+  // A worktree whose checkout is gone leaves the sidebar (#757). Nothing is deleted and nothing is stored:
+  // its history, config entry and name stay, the project manager still lists it as missing, and it comes
+  // back by itself when the folder does. Not while the project itself is missing too — an unplugged drive is
+  // likelier than a deleted checkout then — and never while a session in it runs, because a fold must not
+  // hide something that is running (#598). `missing` was stamped above; the project's stat is paid only for
+  // a worktree that is missing, and only when the project has no row of its own to say it.
+  const missingByKey = new Map(projects.map(p => [normPath(p.projectPath), !!p.missing]));
+  for (let i = projects.length - 1; i >= 0; i--) {
+    const proj = projects[i];
+    if (!proj.missing) continue;
+    const root = worktreeRootOf(proj.projectPath);
+    if (!root) continue;
+    const rootKey = normPath(root);
+    if (!missingByKey.has(rootKey)) missingByKey.set(rootKey, !fs.existsSync(root));
+    if (missingByKey.get(rootKey)) continue;
+    const running = proj.sessions.some(s => {
+      const live = activeSessions && activeSessions.get(s.sessionId);
+      return live && !live.exited;
+    });
+    if (!running) projects.splice(i, 1);
+  }
+
   const byKey = new Map(projects.map(p => [normPath(p.projectPath), p.projectPath]));
   for (const proj of projects) {
     const root = worktreeRootOf(proj.projectPath);
     proj.nestUnder = root ? (byKey.get(normPath(root)) || null) : null;
+    // A worktree recognised by its `.git` file rather than its spelling (#757): the renderer's copy of the
+    // shared module cannot see it from the path, so it is told the project here and learns it from the
+    // payload. Null for every other row.
+    proj.knownWorktreeParent = knownWorktreeParentOf(proj.projectPath);
   }
   // No allowlist filter any more. The mode now decides who may WRITE to the register (see
   // project-registry.js); by the time we get here, the register is the list, in both modes.

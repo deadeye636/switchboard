@@ -6,7 +6,7 @@ const path = require('path');
 const { pathKey, isInside } = require('../app/path-containment');
 // The one spelling of "<parent>/<worktrees dir>/<name>" (#582) — pure string work, so requiring it keeps
 // this module the Electron-free leaf the index worker needs.
-const { parseWorktreePath } = require('../shared/worktree-path');
+const { parseWorktreePath, repoOfGitdir } = require('../shared/worktree-path');
 
 // Only the head of the file is scanned: every session/subagent transcript
 // carries `cwd` on its first JSONL line. Reading the whole file here froze
@@ -51,6 +51,22 @@ function isRealGitWorktree(dir) {
     return /^gitdir:\s*\S/.test(fs.readFileSync(dotGit, 'utf8'));
   } catch {
     return false;
+  }
+}
+
+// The repository a real worktree belongs to (#757): its `.git` file's `gitdir:` line, resolved against the
+// worktree when git wrote it relative, and cut back to the repository by the shared module (which owns how
+// git lays that path out). Null for anything that is not a worktree checkout — a directory, a missing
+// folder, a submodule's pointer.
+function worktreeRepoAt(dir) {
+  try {
+    const dotGit = path.join(dir, '.git');
+    if (!fs.statSync(dotGit).isFile()) return null;
+    const match = fs.readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!match) return null;
+    return repoOfGitdir(path.resolve(dir, match[1]));
+  } catch {
+    return null;
   }
 }
 
@@ -227,7 +243,7 @@ function deriveProjectPath(folderPath) {
 
 module.exports = {
   deriveProjectPath, resolveWorktreePath,
-  extractCwdFromJsonl, isRealGitWorktree,
+  extractCwdFromJsonl, isRealGitWorktree, worktreeRepoAt,
   projectRootOf, sessionProjectPath, samePath, normPath, isDescendant, projectShortName,
   _resetRootCache: () => _rootCache.clear(),
 };

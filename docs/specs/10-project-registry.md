@@ -832,6 +832,61 @@ for them. That stopped the entry (#580), so no act could ever clear the row.
 into the parent project (`resolveWorktreePath`), so it never gets a row of its own. The missing row is one
 whose session was indexed while the checkout was still there, and whose file has not changed since.
 
+## A gone checkout leaves the sidebar, and a worktree outside the layout is recognised (#757)
+
+Agents create worktrees, work in them and delete them. Two things followed from that, measured on a real
+install: the sidebar kept every gone checkout, and the "not on your list" notice filled with checkouts an
+agent had put **beside** the project (`git worktree add ../feature-x`), which the layout pattern above cannot
+see, plus the leftovers of test runs. Most of those folders no longer existed.
+
+**A worktree whose checkout is missing is left out of the sidebar.** Derived on every build in
+`buildProjectsFromCache`, nothing stored: the row is a worktree (`worktreeRootOf`), `missing`, its project
+exists, and no session in it runs (the #598 rule — a fold must not hide something running). Its transcripts,
+config entry and display name stay; the project manager keeps the row, marked missing, with a tooltip saying
+the sidebar leaves it out; "Clean up missing" removes it for good, and it comes back by itself when the
+folder does. A project that is missing too keeps everything visible: an unplugged drive is the likelier
+cause. No "N hidden" count in the fold — the manager is where a missing row is found (owner's decision).
+
+**A worktree outside the layout is recognised by its `.git` file.** `git worktree add` leaves a FILE there,
+`gitdir: <repo>/.git/worktrees/<name>`. `syncRegistry` hands every session path to
+`src/projects/known-worktree.js` before discovery runs, which reads that file once per path per run
+(`worktreeRepoAt` in `src/session/derive-project-path.js`; how git lays the pointer out is spelled in
+`src/shared/worktree-path.js`, `repoOfGitdir`). A hit is stored in `worktree_repo` (migration, append-only):
+the evidence goes with the folder, so a checkout deleted after its work was done would otherwise turn back
+into a project of its own. The fact is stored, the project is not: it is the **nearest listed project whose
+directory holds the repository** (owner's decision), recomputed when the list of projects changes.
+
+**Only checkouts that come and go by themselves.** A path somebody acted on keeps the behaviour it had
+(owner's decision): one on the list stays a project of its own however its `.git` reads (#147 — a long-lived
+checkout listed on purpose keeps its own settings, visibility and hide), and one that was removed stays
+removed rather than coming back nested. Nothing automatic lists one of these checkouts, because being listed
+would make it a project for good: discovery never registers a path with a worktree fact (also not while its
+project is removed — it is then offered in the notice, like a layout worktree in the same spot), and opening a
+session in a recognised checkout does not list it (`ensureProjectAdded(…, { fromSession: true })` from the
+spawn path). Only an explicit add does. A remembered path
+whose folder still exists is read again once per run (a directory that stopped being a worktree is
+forgotten); a gone one keeps its fact. "Clean up missing" forgets the fact with the history.
+
+The detection runs before every payload build (`refreshKnownWorktrees`, injected into `projects-view.js`)
+as well as in `syncRegistry`, because the first payload must already nest a new checkout: a group that
+moved from the top level under a project in one morph made morphdom throw `insertBefore` (reproduced in the
+demo). A worktree moving from one project to another nested position does not (also reproduced).
+
+**One seam, every caller.** The remembered list is handed to the shared module (`setKnownWorktrees`), and
+`parseWorktreePath`, `worktreeRootOf`, `worktreeLabelOf` and `settingsOwnerPath` answer for such a path as
+for a layout path — so discovery does not register it, the notice suppresses it under a shown project, the
+sidebar nests it, the manager groups it and its settings cascade to the project, without any of those callers
+changing. The renderer's copy learns the same list from the payload: each group carries `knownWorktreeParent`,
+and `loadProjects` hands it over before anything renders. Where git has to run (`delete-worktree`, the
+cleanup's prune) the answer is `worktreeRepoOf`, the repository the `.git` file named — which need not be the
+project the row is listed under.
+
+**The notice offers no folder that does not exist.** `unlistedProjects` skips a missing row that was never on
+the list (a removed project keeps the offer it had): adding it would
+register a missing project. That covers what was never recognised as a worktree — a checkout deleted before
+this shipped, a test run's folder. The cost, stated: a never-listed project on a drive that is not connected
+is not offered while the drive is away, and is offered again once it is back.
+
 ## Known gaps
 
 - A removed project's sessions are out of **search** until it is registered again. Intended — it was

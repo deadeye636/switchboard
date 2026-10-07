@@ -551,6 +551,21 @@ const migrations = [
   (db) => {
     try { db.exec('ALTER TABLE session_cache ADD COLUMN compactedSinceLastTurn INTEGER DEFAULT 0'); } catch {}
   },
+
+  // Directories that were seen to be a git worktree outside the layout `src/shared/worktree-path.js` spells
+  // (#757), and the repository each one's `.git` file named. Remembered because the evidence goes with the
+  // folder: once the checkout is deleted, nothing on disk says it was a worktree, and it would be offered
+  // as a project to add. A fact the app observed, not a user's decision, so not in project_meta. Nothing
+  // is backfilled: a path is probed the first time a sweep sees it.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS worktree_repo (
+        worktreePath TEXT PRIMARY KEY,
+        repoPath TEXT NOT NULL,
+        seenAt INTEGER NOT NULL
+      )
+    `);
+  },
 ];
 
 /**

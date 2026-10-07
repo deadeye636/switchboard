@@ -1389,6 +1389,14 @@ async function loadProjects({ resort = false } = {}) {
   // so it can't overwrite fresher cachedProjects with older data.
   // (A newer call owns the spinner too, so a stale one leaves it running for them.)
   if (myGen !== loadProjectsGen) return;
+  // The worktrees main recognised by their `.git` file rather than their spelling (#757), into this
+  // window's copy of the shared module before anything below asks it — the sidebar nests by it, the card
+  // and the dialogs name by it. Every group of the full list, so a hidden one is known too.
+  if (typeof setKnownWorktrees === 'function') {
+    setKnownWorktrees((allProjects || [])
+      .filter(p => p && p.knownWorktreeParent)
+      .map(p => ({ path: p.projectPath, parentPath: p.knownWorktreeParent })));
+  }
   setRefreshSpinning(false);
   clearProjectsError();
   cachedProjects = defaultProjects;

@@ -17,7 +17,9 @@ same exports, so `require('../db/db')` is unchanged and no caller outside `src/d
 - stores: `meta-store` (what the **user** decided), `session-store` (what the **scanner** derived),
   `search-store` (FTS5), `tags-store`, `tasks-store`, `settings-store`, `stats-store`,
   `timeline-store` (what HAPPENED to a session, over time — #396; its shape and both retention limits
-  are in `timeline-record.js`, outside it for the same reason `stats-queries.js` is outside `db.js`)
+  are in `timeline-record.js`, outside it for the same reason `stats-queries.js` is outside `db.js`),
+  `worktree-store` (a directory seen to be a git worktree outside the layout, and its repository — #757;
+  an OBSERVED fact, kept apart from `meta-store` because the user decided nothing there)
 - `legacy-handoffs.js` — the handoff library's old table, and only the two calls that empty it (#468).
   Its statements are prepared INSIDE its functions, unlike every store beside it: after the first
   successful export there is no table to prepare against, and a fresh database never had one

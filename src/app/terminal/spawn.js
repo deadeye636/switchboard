@@ -295,7 +295,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // The mode governs DISCOVERY (may a session that merely turned up in a store register its project?),
   // not the user. This used to fire in manual mode only, which read the setting as "I cannot start
   // anything anywhere new", and in auto mode the project appeared only once the transcript existed.
-  if (projectPath) ctx.ensureProjectAdded(projectPath);
+  // `fromSession`: a session in a worktree recognised by its `.git` file does not list that checkout (#757).
+  if (projectPath) ctx.ensureProjectAdded(projectPath, { fromSession: true });
 
   // Reattach to existing session. `exited` is set the moment stop-session issues
   // the kill (#130), so between that and ptyProcess.onExit the entry still exists

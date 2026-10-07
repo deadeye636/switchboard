@@ -43,7 +43,12 @@
   // the sidebar's nesting does and cannot drift from it.
   function worktreeName(row) {
     const label = typeof worktreeLabelOf === 'function' ? worktreeLabelOf(row.projectPath) : null;
-    return label || shortName(row.projectPath);
+    if (label) return label;
+    // A worktree main recognised by its `.git` file (#757) whose checkout is gone is not in the sidebar's
+    // payload, so this window's copy of the helper never heard of it. Main says it is one (`worktreeRoot`);
+    // its own folder name is what the sidebar called it.
+    if (row.worktreeRoot) return String(row.projectPath).replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+    return shortName(row.projectPath);
   }
 
   function parentName(row) {
@@ -124,8 +129,13 @@
   // and it re-checks on click like that one does — this is where the user decides
   // between remap and delete, so "the drive was merely unmounted" has to be one
   // click away, not a dead text badge.
-  function missingIcon() {
-    return '<button type="button" class="pa-missing-icon" data-action="recheck" title="Unavailable — click to re-check (e.g. after mounting the drive)" aria-label="Unavailable — re-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>';
+  // A worktree says one thing more (#757): while its checkout is missing the sidebar leaves it out, and this
+  // row is where it can still be found. Its history is kept; it comes back when the folder does.
+  function missingIcon(isWorktree) {
+    const title = isWorktree
+      ? 'Checkout missing — the sidebar leaves it out while its project is there and nothing runs in it; its history is kept. Click to re-check'
+      : 'Unavailable — click to re-check (e.g. after mounting the drive)';
+    return '<button type="button" class="pa-missing-icon" data-action="recheck" title="' + title + '" aria-label="Unavailable — re-check"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>';
   }
 
   // An eye, like Favorite's star — a glyph, not a sentence. The cell used to spell out "Hidden"/"Visible"
@@ -268,7 +278,7 @@
     return `
       <tr data-path="${escapeHtml(row.projectPath)}" class="${rowClass}">
         <td class="pa-name">
-          ${row.missing ? missingIcon() : ''}
+          ${row.missing ? missingIcon(isWorktree) : ''}
           <div class="pa-name-main">
             ${isWorktree ? BRANCH : ''}<span class="pa-name-text" title="${escapeHtml(row.projectPath)}">${escapeHtml(name)}</span>
             ${of}

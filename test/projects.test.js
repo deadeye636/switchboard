@@ -1951,6 +1951,89 @@ test('#579: a tombstone under ANOTHER spelling still keeps the project out of th
 // spelled with backslashes on purpose — the pattern that answers this was forward-slash-only until #582,
 // so a test that only spells POSIX paths would pass against the code that could not do it at all.
 
+test('#757: a sibling worktree found in the same sweep as its project is not registered beside it', () => {
+  const t = makeCtx();
+  const root = require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'sb-757-sync-'));
+  try {
+    const fsx = require('node:fs');
+    const px = require('node:path');
+    const project = px.join(root, 'proj');
+    const worktree = px.join(project, 'feature-x');
+    const gitdir = px.join(project, 'repo', '.git', 'worktrees', 'feature-x');
+    fsx.mkdirSync(gitdir, { recursive: true });
+    fsx.mkdirSync(worktree, { recursive: true });
+    fsx.writeFileSync(px.join(worktree, '.git'), 'gitdir: ' + gitdir + '\n');
+    t.setCachedRows([
+      { sessionId: 's1', projectPath: project, modified: '2026-07-01T00:00:00.000Z' },
+      { sessionId: 's2', projectPath: worktree, modified: '2026-07-02T00:00:00.000Z' },
+    ]);
+    projects.setProjectAutoAdd(true);
+    projects.syncRegistry();
+    assert.strictEqual(t.state(project).registered, 1, 'the project goes on the list');
+    assert.strictEqual(t.state(worktree), null, 'its checkout does not — it waits for the project and is a sub-unit of it');
+    assert.strictEqual(require('../src/shared/worktree-path').worktreeRootOf(worktree), project);
+  } finally {
+    t.cleanup();
+    require('../src/shared/worktree-path').setKnownWorktrees([]);
+    require('node:fs').rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('#757: with its project removed, a remembered worktree is still not registered by discovery', () => {
+  const t = makeCtx();
+  const fsx = require('node:fs');
+  const px = require('node:path');
+  const root = fsx.mkdtempSync(px.join(require('node:os').tmpdir(), 'sb-757-rm-'));
+  try {
+    const project = px.join(root, 'proj');
+    const worktree = px.join(project, 'feature-r');
+    const gitdir = px.join(project, 'repo', '.git', 'worktrees', 'feature-r');
+    fsx.mkdirSync(gitdir, { recursive: true });
+    fsx.mkdirSync(worktree, { recursive: true });
+    fsx.writeFileSync(px.join(worktree, '.git'), 'gitdir: ' + gitdir + '\n');
+    t.setCachedRows([
+      { sessionId: 's1', projectPath: project, modified: '2026-07-01T00:00:00.000Z' },
+      { sessionId: 's2', projectPath: worktree, modified: '2026-07-02T00:00:00.000Z' },
+    ]);
+    projects.setProjectAutoAdd(true);
+    projects.syncRegistry();                                     // recognised, nested under the project
+    t.ctx.db.setProjectState(project, { registered: 0, removedAt: '2026-07-03T00:00:00.000Z' });
+    projects.syncRegistry();                                     // the project is gone from the list
+    assert.strictEqual(t.state(worktree), null, 'listed now, it would stay a project after its project returns');
+  } finally {
+    t.cleanup();
+    require('../src/shared/worktree-path').setKnownWorktrees([]);
+    fsx.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('#757: a removed project whose folder is gone keeps the offer it had', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    t.ctx.db.setProjectState('D:\\removed-once', { removedAt: '2026-06-01T00:00:00.000Z' });
+    t.setAdminRows([
+      { projectPath: 'D:\\removed-once', registered: false, missing: true, sessionCount: 1,
+        lastActivity: '2026-07-01T10:00:00.000Z', lastStartedAt: '2026-07-01T09:00:00.000Z' },
+    ]);
+    assert.deepStrictEqual(projects.unlistedProjects().projects.map(p => p.projectPath), ['D:\\removed-once'],
+      'only a folder that was never on the list is held back');
+  } finally { t.cleanup(); }
+});
+
+test('#757: a folder that does not exist is not offered as a project to add', () => {
+  const t = makeCtx({ global: { projectAutoAdd: false } });
+  try {
+    t.setAdminRows([
+      { projectPath: 'D:\\gone-checkout', registered: false, missing: true, sessionCount: 3, lastActivity: '2026-07-01T10:00:00.000Z' },
+      { projectPath: 'D:\\still-here', registered: false, missing: false, sessionCount: 2, lastActivity: '2026-07-02T10:00:00.000Z' },
+    ]);
+    const res = projects.unlistedProjects();
+    assert.deepStrictEqual(res.projects.map(p => p.projectPath), ['D:\\still-here'],
+      'adding a missing folder would register a missing project — deleted checkouts and test leftovers piled up here');
+    assert.strictEqual(res.sessionCount, 2);
+  } finally { t.cleanup(); }
+});
+
 test('#583: a worktree of a LISTED project is not offered as a project to add', () => {
   const t = makeCtx({ global: { projectAutoAdd: false } });
   try {

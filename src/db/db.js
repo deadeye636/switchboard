@@ -18,6 +18,7 @@
 //   stats-store.js    — the Stats screen's aggregates (SQL in stats-queries.js).
 //   timeline-store.js — the per-session timeline: what happened, and when (shape + retention in
 //                       timeline-record.js, which is testable because it opens nothing).
+//   worktree-store.js — directories seen to be a git worktree outside the layout, and their repository (#757).
 //
 // `./connection` is required FIRST and that is load-bearing, not style: it resolves DATA_DIR and opens the
 // database at module load, which is exactly what this file used to do on its own first lines. main.js
@@ -58,6 +59,7 @@ const projectRefs = require('./project-refs');
 const sessionStore = require('./session-store');
 const searchStore = require('./search-store');
 const timelineStore = require('./timeline-store');
+const worktreeStore = require('./worktree-store');
 // The handoff library's old table, and only the two calls that empty it (#468). Its statements are
 // prepared inside its functions, so its position here is tidiness rather than an ordering constraint.
 const legacyHandoffs = require('./legacy-handoffs');
@@ -84,6 +86,10 @@ module.exports = {
   setProjectState: metaStore.setProjectState,
   getProjectStates: metaStore.getProjectStates,
   getProjectTombstones: metaStore.getProjectTombstones,
+  // --- worktrees recognised by their `.git` file, outside the layout (worktree-store.js, #757) ---
+  getKnownWorktrees: worktreeStore.getKnownWorktrees,
+  recordKnownWorktree: worktreeStore.recordKnownWorktree,
+  forgetKnownWorktree: worktreeStore.forgetKnownWorktree,
   // --- a project's whole footprint, moved or dropped atomically (project-refs.js) ---
   renameProjectRefs: projectRefs.renameProjectRefs,
   deleteProjectRefs: projectRefs.deleteProjectRefs,

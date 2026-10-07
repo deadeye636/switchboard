@@ -269,8 +269,9 @@ test('the delete-worktree handler validates through the shared helper', () => {
     "main.js must require the shared helper, not keep its own WORKTREE_PATH_RE");
   assert.match(code, /parseWorktreePath\(normalizedPath\)/,
     'the delete handler validates the path it is about to hand to `git worktree remove` through it');
-  assert.match(code, /worktreeRootOf\(normalizedPath\)/,
-    'and it runs `git worktree remove` in the PROJECT (#586), not in the immediate parent — for a ' +
+  assert.match(code, /worktreeRepoOf\(normalizedPath\)/,
+    'and it runs `git worktree remove` in the REPOSITORY — the project for a layout path (#586), the ' +
+    'repository its `.git` file named for one recognised outside the layout (#757) — not in the immediate parent: for a ' +
     'worktree of a worktree the immediate parent may already have been removed, and `git -C` on a ' +
     'directory that is gone fails before it reaches the removal');
 });
