@@ -136,8 +136,13 @@ function createConversationView(getSession, container) {
   input.className = 'conversation-input';
   input.rows = 3;
   const mod = (typeof isMac !== 'undefined' && isMac) ? 'Cmd' : 'Ctrl';
-  input.placeholder = `Message the agent — / for commands, @ for files. Enter sends, Shift+Enter adds a line, ${mod}+Enter steers a running turn, Esc stops it`;
-  const defaultPlaceholder = input.placeholder;
+  // What Enter does while a turn runs (#756): `hold` (the default) keeps the prompt until the turn ends and
+  // `${mod}+Enter` steers; `steer` swaps the two. Read at the moment of use, so a changed setting applies at once.
+  const enterSteers = () => typeof appGlobalSettings !== 'undefined' && !!appGlobalSettings
+    && appGlobalSettings.conversationEnterWhileBusy === 'steer';
+  const keyFor = (steer) => (steer === enterSteers() ? 'Enter' : `${mod}+Enter`);
+  const composerPlaceholder = () => `Message the agent — / for commands, @ for files. Enter sends, Shift+Enter adds a line; while a turn runs ${keyFor(true)} steers it and ${keyFor(false)} queues. Esc stops it`;
+  input.placeholder = composerPlaceholder();
   // The key that reaches an open question card from anywhere in the view (#704).
   const CARD_KEY = 'Alt+A';
   const actions = document.createElement('div');
@@ -153,7 +158,7 @@ function createConversationView(getSession, container) {
     return b;
   };
   const sendBtn = makeButton('Send', 'Send (Enter)', () => submit('prompt'));
-  const steerBtn = makeButton('Steer', `Deliver between the running turn's tool calls (${mod}+Enter)`, () => submit('steer'));
+  const steerBtn = makeButton('Steer', '', () => submit('steer'));
   const stopBtn = makeButton('Stop', 'Stop the running turn (Esc)', () => stop());
   composer.appendChild(input);
   composer.appendChild(actions);
@@ -517,6 +522,8 @@ function createConversationView(getSession, container) {
       const tag = document.createElement('span');
       tag.className = 'conversation-pending-tag';
       tag.textContent = (paused ? 'queued · paused' : 'queued') + (item.images ? ` · ${item.images} image${item.images === 1 ? '' : 's'}` : '');
+      // Which key does what while a turn runs (#756), where the user sees a prompt waiting.
+      tag.title = `Held until the running turn ends (${keyFor(false)}). ${keyFor(true)} steers into the running turn instead.`;
       const actions = document.createElement('span');
       actions.className = 'conversation-held-actions';
       const act = (action, label, title) => {
@@ -734,6 +741,13 @@ function createConversationView(getSession, container) {
   // A send asked for while one is in flight (a skill picked mid-send) runs when that one is back, rather
   // than being dropped while the picker reports success.
   let submitAgain = null;
+  // The first prompt ever held says once how to reach the running turn instead (#756). Remembered per viewer, in
+  // this browser's storage: losing it shows the line once more, nothing worse.
+  const HELD_HINT_KEY = 'conversationHeldHintShown';
+  function hintHeldOnce() {
+    try { if (localStorage.getItem(HELD_HINT_KEY)) return; localStorage.setItem(HELD_HINT_KEY, '1'); } catch { return; }
+    notice('info', `Queued until the running turn ends. ${keyFor(true)} sends into the running turn instead; Settings > Sessions > "Enter while a turn runs" swaps the two keys.`);
+  }
   async function submit(mode) {
     syncAttachmentsToText();
     const text = input.value;
@@ -761,6 +775,7 @@ function createConversationView(getSession, container) {
     try { res = await window.api.agent.send(view.session.sessionId, payload); } catch { res = null; }
     sending = false;
     if (!(res && res.ok) || (res && res.held)) dropPendingSend(pending);
+    if (res && res.ok && res.held) hintHeldOnce();
     if (res && res.ok) {
       // Only what was sent is taken away — something typed while the send was in flight stays, and so does
       // an image attached meanwhile.
@@ -816,7 +831,8 @@ function createConversationView(getSession, container) {
     input.disabled = off;
     sendBtn.disabled = off || sending;
     sendBtn.textContent = view.busy ? 'Queue' : 'Send';
-    sendBtn.title = view.busy ? 'Send when the running turn is done (Enter)' : 'Send (Enter)';
+    sendBtn.title = view.busy ? `Send when the running turn is done (${keyFor(false)})` : 'Send (Enter)';
+    steerBtn.title = `Deliver between the running turn's tool calls (${keyFor(true)})`;
     steerBtn.style.display = view.busy && !off ? '' : 'none';
     steerBtn.disabled = sending;
     stopBtn.style.display = somethingRunning() && !off ? '' : 'none';
@@ -886,7 +902,8 @@ function createConversationView(getSession, container) {
     if (e.shiftKey) return;   // a new line, as in any text field
     const chord = (typeof isMac !== 'undefined' && isMac) ? e.metaKey : e.ctrlKey;
     e.preventDefault();
-    submit(chord && view.busy ? 'steer' : 'prompt');
+    // While a turn runs, plain Enter and the chord are the two choices; which one steers is the setting (#756).
+    submit(view.busy && chord !== enterSteers() ? 'steer' : 'prompt');
   });
 
   // Text a picker chose, placed at the caret. `submit` sends the field as a turn right away, which is what a
@@ -977,7 +994,7 @@ function createConversationView(getSession, container) {
   }
   function renderSuggestion() {
     const on = !!view.suggestion && !input.value;
-    input.placeholder = on ? `${view.suggestion}    — Tab to use it` : defaultPlaceholder;
+    input.placeholder = on ? `${view.suggestion}    — Tab to use it` : composerPlaceholder();
     input.classList.toggle('has-suggestion', on);
   }
   input.addEventListener('input', () => { if (view.suggestion && input.value) setSuggestion(null); });

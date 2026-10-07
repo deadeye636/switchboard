@@ -18,8 +18,8 @@ const { composerPathToken } = require('../src/renderer/session/composer-completi
 
 // `diskPaths` maps a file NAME to the path `getPathForFile` answers for it; a file not in it has none, the
 // way a clipboard bitmap has none.
-function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths = {} } = {}) {
-  const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>');
+function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths = {}, globalSettings, url } = {}) {
+  const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>', url ? { url } : undefined);
   const w = dom.window;
   // A window in view: jsdom reports `document.hidden` unless told otherwise, and a hidden window draws
   // nothing (#723). A test of a hidden window redefines it.
@@ -62,6 +62,8 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
   `, ctx);
   // The right-click setting terminal/terminal-context-menu.js keeps (#690); absent means that file's default.
   if (rightClick) { ctx.__rightClick = rightClick; vm.runInContext('var terminalRightClickMode = __rightClick;', ctx); }
+  // The global settings the view reads at the moment of use (#756); absent means every default.
+  if (globalSettings) { ctx.__gs = globalSettings; vm.runInContext('var appGlobalSettings = __gs;', ctx); }
   // The descriptor the renderer caches, reduced to the one field the image attachment reads (#662).
   ctx.__imageInput = imageInput || null;
   vm.runInContext(`
@@ -603,6 +605,43 @@ test('while a turn runs: Ctrl+Enter steers, Escape stops, Enter is still a plain
   h.input.value = 'later';
   h.key({ key: 'Enter' });
   assert.equal(h.calls.send[1].mode, 'prompt');
+});
+
+// #756: the setting swaps which key queues and which steers, and the view names the pair it is using.
+test('with Enter set to steer, Enter steers a running turn and Ctrl+Enter queues; idle Enter still sends', async () => {
+  const h = setup({ globalSettings: { conversationEnterWhileBusy: 'steer' } });
+  assert.match(h.input.placeholder, /Enter steers it and Ctrl\+Enter queues/);
+  h.input.value = 'idle turn';
+  h.key({ key: 'Enter' });
+  assert.equal(h.calls.send[0].mode, 'prompt', 'nothing runs, so Enter is an ordinary turn');
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.entry.conversation.apply({ op: 'busy', busy: true, seq: 1 });
+  h.input.value = 'change course';
+  h.key({ key: 'Enter' });
+  assert.equal(h.calls.send[1].mode, 'steer');
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.input.value = 'after it';
+  h.key({ key: 'Enter', ctrlKey: true });
+  assert.equal(h.calls.send[2].mode, 'prompt');
+  const def = setup();
+  assert.match(def.input.placeholder, /Ctrl\+Enter steers it and Enter queues/, 'the default names the default pair');
+});
+
+test('the first held prompt says once how to steer instead', async () => {
+  const h = setup({ url: 'http://localhost/' });
+  h.entry.conversation.apply({ op: 'busy', busy: true, seq: 1 });
+  h.input.value = 'later';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true, held: 'h1' });
+  await h.settle();
+  assert.match(h.entry.element.textContent, /Ctrl\+Enter sends into the running turn instead; Settings > Sessions > "Enter while a turn runs"/);
+  h.input.value = 'and later';
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true, held: 'h2' });
+  await h.settle();
+  assert.equal(h.entry.element.textContent.match(/sends into the running turn instead/g).length, 1, 'once, not per prompt');
 });
 
 test('an input method composing a character owns Enter and Escape', () => {

@@ -316,6 +316,7 @@
     const restoreSessionsValue = fieldValue('restoreSessionsOnLaunch', true);
     const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
+    const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
     const secretRefSweepValue = fieldValue('secretRefSweepMinutes', 0);
@@ -882,7 +883,7 @@
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1389,6 +1390,7 @@
         settings.restoreSessionsOnLaunch = settingsViewerBody.querySelector('#sv-restore-sessions').checked;
         settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         settings.expandToolOutput = settingsViewerBody.querySelector('#sv-expand-tool-output').checked;
+        settings.conversationEnterWhileBusy = settingsViewerBody.querySelector('#sv-conversation-enter-while-busy')?.value === 'steer' ? 'steer' : 'hold';
         // The attention hook now lives on the CLAUDE backend page (it patches Claude's own
         // settings.json, so it belongs to Claude — but it is not a launch option, hence still a plain
         // global setting). That page is only in the DOM while it is open: keep the stored value when

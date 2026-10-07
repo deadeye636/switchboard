@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -135,6 +135,19 @@
                   </div>
                   <div class="settings-field-control">
                     <label class="settings-toggle"><input type="checkbox" id="sv-expand-tool-output" ${expandToolOutputValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Enter while a turn runs</span>${help}</div>
+                    <div class="settings-description">In the conversation view: what Enter does with a prompt while the agent works. ${isMacPlatform ? 'Cmd' : 'Ctrl'}+Enter does the other.</div>
+                    <div class="settings-more">Queue holds the prompt until the turn has ended; it can still be edited or withdrawn. Steer sends it into the running turn at its next tool call, as the CLI's own terminal does; it cannot be taken back.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select id="sv-conversation-enter-while-busy" class="settings-select">
+                      <option value="hold" ${conversationEnterWhileBusyValue !== 'steer' ? 'selected' : ''}>Queue</option>
+                      <option value="steer" ${conversationEnterWhileBusyValue === 'steer' ? 'selected' : ''}>Steer</option>
+                    </select>
                   </div>
                 </div>
                 <div class="settings-field">

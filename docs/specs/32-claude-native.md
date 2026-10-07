@@ -167,8 +167,15 @@ calls):
 | View | Line | What Claude does |
 |---|---|---|
 | Send, idle | no `priority` | runs the turn |
-| Queue (Enter while a turn runs) | held by the app, then no `priority` | nothing until the running turn ends (#702, below); then it runs as its own turn |
-| Steer (Ctrl+Enter while a turn runs) | `priority: 'next'` | injects the line into the running turn at its next tool boundary; the turn ends in one `result` |
+| Queue (Enter while a turn runs, by default) | held by the app, then no `priority` | nothing until the running turn ends (#702, below); then it runs as its own turn |
+| Steer (Ctrl+Enter while a turn runs, by default) | `priority: 'next'` | injects the line into the running turn at its next tool boundary; the turn ends in one `result` |
+
+Which of the two keys queues and which steers is the global setting `conversationEnterWhileBusy` (#756): `hold`,
+the default, is the table above; `steer` swaps them, so plain Enter reaches the running turn as it does in
+Claude Code's own terminal UI. The placeholder text, the two buttons' titles and the held prompt's tag name
+the current pair, and the first prompt the view ever holds says once how to steer instead. It applies to every
+backend the conversation view drives, since each offers Steer. A steered line cannot be withdrawn, which is why
+the default stays `hold`.
 
 The protocol's `follow_up` mode maps to `priority: 'later'`, which queues the same way. The view sends
 nothing in that mode today. Claude's third priority, `now`, cuts the running turn off and runs the line at
