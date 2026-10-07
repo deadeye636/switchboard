@@ -446,6 +446,25 @@ test('a notice from the spawn path is handed to every attach until a turn runs, 
   assert.deepEqual((await agentRpc.attach('launch-id')).notices, []);
 });
 
+// #755 verifier G1: an attach that ASKS the runtime for the conversation (pi-native's path) notes the documents
+// in it, as the transcript attach does — or a resumed session's earlier reads could be drawn but not opened.
+test('an attach from the runtime\'s messages notes the documents in them', async (t) => {
+  const doc = { type: 'document', path: '/work/report.pdf', kind: 'pdf', name: 'report.pdf', pages: 2 };
+  const entry = { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: [doc] }] } };
+  const seen = [];
+  const h = streamHarness(t, { rpc: {
+    messagesCommand: (id) => ({ type: 'ctl', request_id: id, what: 'messages' }),
+    entriesFromMessages: (res, opts) => { seen.push(opts); return res.data.what === 'messages' ? [entry] : []; },
+  } });
+  t.after(() => stopped(h));
+  assert.equal(agentRpc.documentRegistryOf('launch-id').has(doc.path), false, 'nothing before the attach');
+  const res = await agentRpc.attach('launch-id');
+  assert.equal(res.ok, true);
+  assert.equal(agentRpc.documentRegistryOf('launch-id').has(doc.path), true);
+  // Verifier L3: the session's directory reaches the backend, so a path it names relative to it can be made whole.
+  assert.ok(seen.length && seen.every((o) => o && typeof o.cwd === 'string' && o.cwd), 'entriesFromMessages gets { cwd }');
+});
+
 // #697: the fill grows with every call inside a turn, so a runtime that answers mid-turn is asked then too.
 test('the context is asked again during a turn only where the half declares that its runtime answers then', async (t) => {
   const ctx = { contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }), contextFromResponse: () => ({ percent: 10 }) };

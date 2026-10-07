@@ -30,6 +30,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { completePaths } = require('./path-completion');
+const { createRegistry: createDocumentRegistry } = require('./documents');
 const { measured } = require('../perf');
 
 let ctx = null;
@@ -217,7 +218,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     label: label || 'The agent',
     cwd,                     // the session's project: what an `@` in its input completes against
     forkFrom: forkFrom || null, // the session this one was forked from, for a transcript read before its first turn
-    decoder: rpc.createDecoder(),
+    // The session's directory goes to the decoder: a runtime may name a file relative to it (#755, Pi's `read`).
+    decoder: rpc.createDecoder({ cwd }),
     pending: new Map(),      // request id -> { resolve, timer }
     asks: new Map(),         // request id -> the ask the renderer has not answered yet
     // Shell lines this process started that have not reported back: id -> the command text. The TEXT is
@@ -248,6 +250,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     stopping: false,         // a graceful stop is waiting for the child — see `kill`
     tasks: [],               // what runs in the background, as the backend last listed it (#691)
     taskFiles: new Map(),    // task id -> the output file a notice named, kept once it held output (#725)
+    documents: createDocumentRegistry(), // the document paths this session's backend reported — what `document-open` accepts (#755)
     suggestion: null,        // the next prompt the runtime proposed after the last turn (#693)
     context: null,           // the context fill and the model, as the backend last read them (#691)
     startNotices: [],        // what the spawn path said through `notice`, handed to an attach until a turn runs (#754)
@@ -784,7 +787,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (!op.ok || typeof rpc.messagesCommand !== 'function') { tell(); return; }
         request(rpc.messagesCommand).then((res) => {
           // Through `handleOp`, like every reset: an attach reading the transcript counts them.
-          if (res && res.success !== false) handleOp({ op: 'reset', entries: rpc.entriesFromMessages(res) });
+          if (res && res.success !== false) handleOp({ op: 'reset', entries: rpc.entriesFromMessages(res, { cwd: state.cwd }) });
           else sendOp(state, { op: 'notice', level: 'warning', text: 'The session switched, but its conversation could not be read again. Reopen the tab to see it.' });
           // A user message the user picked comes back for editing, into the input (owner decision T8).
           if (op.draft) sendOp(state, { op: 'draft', text: op.draft });
@@ -814,6 +817,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // a transcript snapshot can tell the op for it apart from a new one (see `attachFromTranscript`).
         const split = splitTaskOutput(op.entry);
         if (split) op = { ...op, entry: settleTaskOutput(state, split, statSizeSync(split.file)) };
+        state.documents.note(op.entry);
         const key = typeof rpc.entryKey === 'function' && op.entry ? rpc.entryKey(op.entry) : null;
         if (key) {
           state.recentAppends.push(op.entry);
@@ -829,6 +833,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // attach reading the file right now has to know its read may predate this.
         state.recentAppends = [];
         state.resets += 1;
+        // The conversation was replaced: the documents it held are the old one's, the new one's come with it.
+        state.documents.clear();
+        state.documents.noteAll(op.entries);
         flushPartial();
         sendOp(state, op);
         return;
@@ -1127,10 +1134,14 @@ async function attach(sessionId) {
     ctx.log.info(`[agent-rpc] attach ${sessionId} failed (${reason}) ${Date.now() - state.startedAt} ms after the start`);
     return { ok: false, error: attachFailure(reason, Date.now() - state.startedAt) };
   }
+  const entries = state.rpc.entriesFromMessages(res, { cwd: state.cwd });
+  // The documents of the conversation so far, as `attachFromTranscript` notes its own (#755 verifier G1): a
+  // resumed session's earlier reads are drawn as cards, and their open has to find them.
+  state.documents.noteAll(entries);
   return {
     ok: true,
     seq: res._seq || 0,
-    entries: state.rpc.entriesFromMessages(res),
+    entries,
     partial: state.decoder.currentPartial(),
     busy: state.busy,
     queue: state.queue,
@@ -1198,6 +1209,7 @@ async function attachFromTranscript(sessionId, state) {
   }
   if (state.exited) return { ok: false, error: 'This session is not running.' };
   if (!settled) return { ok: false, error: 'The session changed while its conversation was loaded. Reopen the tab to see it.' };
+  state.documents.noteAll(entries);
   const out = entries.slice();
   const seq = state.seq;
   // `keys` names only what came out of the FILE: an entry added from `recentAppends` was sent before the
@@ -1640,6 +1652,12 @@ async function serverAction(sessionId, name, action, extra) {
   return out && typeof out === 'object' ? out : { ok: false, error: 'The session did not answer.' };
 }
 
+// The document paths a running session's backend reported, for `app/documents.js` (#755); null when it is not running.
+function documentRegistryOf(sessionId) {
+  const state = stateFor(sessionId);
+  return state ? state.documents : null;
+}
+
 /** @param {Electron.IpcMain} ipc */
 function registerIpc(ipc) {
   ipc.handle('agent-servers', (_event, sessionId) => listServers(sessionId));
@@ -1662,6 +1680,8 @@ module.exports = {
   init, registerIpc, start,
   // The turn-hold's question about a session this module drives (main.js wires it in front of the descriptor).
   turnQueueOf,
+  // The registry `app/documents.js` asks (#755).
+  documentRegistryOf,
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,

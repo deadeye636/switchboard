@@ -67,10 +67,13 @@ const { parseLink, parseAskTitle, parseDismiss, parseCompletions, parseStats, pa
 // One Pi AgentMessage -> the neutral entries the viewer draws (usually exactly one). A `user` message is the
 // user's own line and is marked `prompt` (#709); a tool result is drawn under the user's role too, but its
 // Pi role is `toolResult`, so it is not.
-function entriesFor(message) {
+// `docs` is `{ cwd, calls }`: the `read` calls seen so far, for the document element a result carries (#755).
+// This file normalises one message at a time, so a result would otherwise not know its call. `cwd` makes a
+// relative `path` absolute; without one only an absolute path is stamped.
+function entriesFor(message, docs) {
   if (!message || typeof message !== 'object') return [];
   const timestamp = typeof message.timestamp === 'number' ? new Date(message.timestamp).toISOString() : undefined;
-  const entries = normalizeTranscriptEntries([{ type: 'message', timestamp, message }]);
+  const entries = normalizeTranscriptEntries([{ type: 'message', timestamp, message }], docs || { cwd: '', calls: null });
   return message.role === 'user' ? entries.map(e => (e && e.type === 'message' ? { ...e, prompt: true } : e)) : entries;
 }
 
@@ -81,8 +84,11 @@ const DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor']);
  * One decoder per running session: it holds the assistant turn being streamed.
  * `decode(line)` takes one parsed stdout record and answers the ops it amounts to (often none).
  */
-function createDecoder() {
+function createDecoder({ cwd } = {}) {
   let partial = null;   // { role: 'assistant', content: [], timestamp }
+  // The session's `read` calls by id, kept for as long as the decoder lives (#755). A partial turn is drawn
+  // without it: a call whose arguments are still streaming must not register a path.
+  const docs = { cwd: typeof cwd === 'string' ? cwd : '', calls: new Map() };
   // A question a session command asked (`./session-commands.js`) -> the request id it went out under, so Pi
   // saying it stopped waiting on it can close the card for it. An entry left behind by a question the
   // user answered names a request that is already closed, so it is harmless; the map is only bounded.
@@ -151,7 +157,7 @@ function createDecoder() {
         const m = msg.message;
         const ops = [];
         if (m && m.role === 'assistant') { partial = null; ops.push({ op: 'partial', entry: null }); }
-        for (const entry of entriesFor(m)) ops.push({ op: 'append', entry });
+        for (const entry of entriesFor(m, docs)) ops.push({ op: 'append', entry });
         if (m && m.role === 'assistant' && m.stopReason === 'error') {
           ops.push({ op: 'notice', level: 'error', text: String(m.errorMessage || NOTICES.modelFailed) });
         } else if (m && m.role === 'assistant' && m.stopReason === 'aborted') {
@@ -733,11 +739,12 @@ function modelFromState(response) {
   return name || (typeof model.id === 'string' && model.id ? model.id : null);
 }
 
-function entriesFromMessages(response) {
+function entriesFromMessages(response, { cwd } = {}) {
   const messages = response && response.data && response.data.messages;
   if (!Array.isArray(messages)) return [];
   const out = [];
-  for (const m of messages) out.push(...entriesFor(m));
+  const docs = { cwd: typeof cwd === 'string' ? cwd : '', calls: new Map() };
+  for (const m of messages) out.push(...entriesFor(m, docs));
   return out;
 }
 

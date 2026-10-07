@@ -339,6 +339,10 @@ contextBridge.exposeInMainWorld('api', {
     serverAction: (id, name, action, extra) => ipcRenderer.invoke('agent-server-action', id, name, action, extra),
   },
 
+  // Open a document an agent read (#755): main opens only a path this session's backend reported. `how` is
+  // 'default' | 'tab' | 'click'; `invert` is Ctrl/Cmd for 'click'. The answer says what the renderer finishes.
+  openDocument: (sessionId, filePath, how, invert) => ipcRenderer.invoke('document-open', sessionId, filePath, how, invert),
+
   // Native notifications, dock/taskbar badge, tray (Spec 01)
   notify: (payload) => ipcRenderer.send('notify', payload),
   setBadge: (count) => ipcRenderer.send('set-badge', count),

@@ -8,6 +8,8 @@
 
 const { TRANSPORT_MARKER_TYPE } = require('./transport-marker');
 const { isPartialArgs } = require('../../shared/partial-args');
+const path = require('path');
+const { documentElement, isDocumentElement, kindOfPath } = require('../document-ref');
 
 function activeEntries(entries) {
   const list = Array.isArray(entries) ? entries : [];
@@ -106,12 +108,51 @@ function contentBlocks(content) {
   if (!Array.isArray(content)) return [];
   return content.map((block) => {
     if (!block || typeof block !== 'object') return null;
+    // Not ours: only the element stamped from a `read` call may carry the neutral `document` shape (#755).
+    if (isDocumentElement(block)) return null;
     if (block.type === 'toolCall') return toolUse(block);
     if (block.type === 'image' && block.data) {
       return { type: 'image', source: { data: block.data, media_type: block.mimeType || 'image/png' } };
     }
     return block;
   }).filter(Boolean);
+}
+
+// --- A `read` of a document (#755) ---
+// The neutral `document` element (src/backends/document-ref.js) is stamped into the content of a `read` result
+// that names a file. Pi's result carries only `toolCallId`, and the path is the CALL's `path` argument, which
+// may be relative to the session's cwd — so the calls are noted as the messages go by (`ctx.calls`, a Map the
+// caller keeps for as long as the conversation runs) and the path is made absolute with `ctx.cwd` before it
+// is stamped. A relative path with no cwd to resolve it against gets NO element: never a guess. Pi returns no
+// PDF pages (measured, T1-5), so a PDF read is left as it is; images and text kinds only.
+const WIN_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+
+function absolutePath(p, cwd) {
+  if (typeof p !== 'string' || !p || p.startsWith('~')) return null;
+  if (WIN_ABSOLUTE.test(p) || p.startsWith('/')) return p;
+  if (typeof cwd !== 'string' || !cwd) return null;
+  return (WIN_ABSOLUTE.test(cwd) ? path.win32 : path.posix).resolve(cwd, p);
+}
+
+function noteReadCalls(message, ctx) {
+  if (!ctx || !ctx.calls || !message || message.role !== 'assistant' || !Array.isArray(message.content)) return;
+  for (const block of message.content) {
+    if (!block || block.type !== 'toolCall' || block.name !== 'read' || !block.id) continue;
+    const args = block.arguments && typeof block.arguments === 'object' ? block.arguments : {};
+    if (isPartialArgs(args)) continue;
+    const file = absolutePath(args.path, ctx.cwd);
+    if (file) ctx.calls.set(block.id, file);
+  }
+}
+
+function stampDocument(message, blocks, ctx) {
+  const file = ctx && ctx.calls ? ctx.calls.get(message.toolCallId) : null;
+  if (!file || message.isError) return blocks;
+  const kind = kindOfPath(file);
+  const images = blocks.filter(b => b && b.type === 'image').length;
+  if (kind === 'pdf' || (kind === 'image' && !images)) return blocks;
+  const el = documentElement({ path: file, pages: kind === 'image' ? images : 0 });
+  return el ? [el, ...blocks] : blocks;
 }
 
 function messageEntry(entry, role, content) {
@@ -136,18 +177,19 @@ function metaEntry(entry, label, content, detail) {
   };
 }
 
-function normalizeMessage(entry) {
+function normalizeMessage(entry, ctx) {
   const m = entry && entry.message;
   if (!m || typeof m !== 'object') return null;
   switch (m.role) {
     case 'user':
     case 'assistant':
+      noteReadCalls(m, ctx);
       return messageEntry(entry, m.role, contentBlocks(m.content));
     case 'toolResult':
       return messageEntry(entry, 'user', [{
         type: 'tool_result',
         tool_use_id: m.toolCallId,
-        content: contentBlocks(m.content),
+        content: stampDocument(m, contentBlocks(m.content), ctx),
         is_error: !!m.isError,
       }]);
     case 'bashExecution': {
@@ -168,20 +210,20 @@ function normalizeMessage(entry) {
   }
 }
 
-function normalizeEntry(entry) {
+function normalizeEntry(entry, ctx) {
   if (!entry || typeof entry !== 'object') return null;
   switch (entry.type) {
     case 'session':
       return null;
     case 'message':
-      return normalizeMessage(entry);
+      return normalizeMessage(entry, ctx);
     case 'session_info':
       return { type: 'custom-title', timestamp: entry.timestamp, customTitle: entry.name || '' };
     case 'compaction': {
       const out = [metaEntry(entry, 'Compaction', entry.summary || '', entry.tokensBefore ? `${entry.tokensBefore} tokens before` : '')];
       if (Array.isArray(entry.retainedTail)) {
         for (const message of entry.retainedTail) {
-          const normalized = normalizeMessage({ ...entry, type: 'message', message });
+          const normalized = normalizeMessage({ ...entry, type: 'message', message }, ctx);
           if (normalized) out.push(normalized);
         }
       }
@@ -208,10 +250,18 @@ function normalizeEntry(entry) {
   }
 }
 
-function normalizeTranscriptEntries(entries) {
+// `ctx` is `{ cwd, calls }` for a caller that keeps the Read calls across messages (pi-native's decoder). The
+// history viewer passes none: the cwd is the session header's, and the calls are this list's own.
+function normalizeTranscriptEntries(entries, ctx) {
   const out = [];
-  for (const entry of activeEntries(entries)) {
-    const normalized = normalizeEntry(entry);
+  const list = activeEntries(entries);
+  const header = list.find(e => e && e.type === 'session');
+  const docs = ctx || {
+    cwd: header && typeof header.cwd === 'string' ? header.cwd : '',
+    calls: new Map(),
+  };
+  for (const entry of list) {
+    const normalized = normalizeEntry(entry, docs);
     if (Array.isArray(normalized)) out.push(...normalized.filter(Boolean));
     else if (normalized) out.push(normalized);
   }

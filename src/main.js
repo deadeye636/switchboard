@@ -2288,6 +2288,11 @@ agentRpc.init({
 });
 agentRpc.registerIpc(ipcMain);
 
+// #755: opening a document an agent read — only a path this session's backend reported.
+const documents = require('./app/documents');
+documents.init({ shell, isSensitivePath, registryFor: (id) => agentRpc.documentRegistryOf(id), getGlobalSettings: () => getSetting('global') || {}, log });
+documents.registerIpc(ipcMain);
+
 const spawn = require('./app/terminal/spawn');
 spawn.init({
   getMainWindow: () => mainWindow,

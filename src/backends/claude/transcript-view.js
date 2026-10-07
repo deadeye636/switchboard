@@ -11,6 +11,7 @@
 'use strict';
 
 const { typedCommand, localCommandOutput } = require('./session-reader');
+const { documentElement, isDocumentElement, kindOfPath } = require('../document-ref');
 
 // The text of a user line, when it is plain text: a string, or a single text block. Anything else (tool
 // results, images, several blocks) is never command markup and is left alone.
@@ -200,6 +201,60 @@ function displayedLine(line) {
   return { ...line, message: { ...line.message, content: output } };
 }
 
+// A `Read` that names a file (#755): which file each call read, and whether it asked for pages. Claude's result
+// never names its path (measured), so the call is the only source. `noteReadCalls` is fed every assistant line
+// before the results are stamped, by the history viewer, the live decoder and the attach alike.
+function noteReadCalls(line, calls) {
+  const content = line && line.type === 'assistant' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
+  for (const b of content) {
+    if (!b || b.type !== 'tool_use' || !b.id || b.name !== 'Read') continue;
+    const input = b.input && typeof b.input === 'object' ? b.input : {};
+    if (typeof input.file_path === 'string' && input.file_path) {
+      calls.set(b.id, { file_path: input.file_path, pages: !!input.pages, range: typeof input.pages === 'string' ? input.pages : '' });
+    }
+  }
+}
+
+// The same line with one neutral `document` element put first in the content of each `Read` result it holds
+// (`documentElement`, src/backends/document-ref.js), the result's own blocks after it untouched. The element
+// rides inside the result's content array because that is all the conversation view's pairing keeps. Pages: the
+// images a PDF read with `pages` holds, or the image itself; a whole-PDF read is one `document` block and no
+// page images, so it stays at 0 (O10). A failed read and a result without a preview kind get nothing, and the
+// input line is never changed. The line's own fields (uuid) are copied as they are, so its key does not move.
+function stampDocuments(line, calls) {
+  if (!line || (line.type !== 'user' && line.type !== 'assistant') || !line.message || !Array.isArray(line.message.content)) return line;
+  let changed = false;
+  // A `document` element that arrives already carrying a path is not ours: Claude's own `document` block has
+  // none, so only what is built below from the call survives (the element's type collides with Claude's).
+  const content = line.message.content.filter(b => !isDocumentElement(b)).map((b) => {
+    if (!b || b.type !== 'tool_result') return b;
+    let inner = typeof b.content === 'string'
+      ? [{ type: 'text', text: b.content }]
+      : Array.isArray(b.content) ? b.content : null;
+    const clean = inner ? inner.filter(c => !isDocumentElement(c)) : null;
+    const dropped = !!inner && clean.length !== inner.length;
+    const call = line.type === 'user' && !b.is_error ? calls.get(b.tool_use_id) : null;
+    let el = null;
+    if (call && clean) {
+      const kind = kindOfPath(call.file_path);
+      const images = clean.filter(c => c && c.type === 'image').length;
+      // An image-kind file read back as text (an `.svg`) has no picture to show: no card, as Pi does (verifier L1).
+      if (!(kind === 'image' && !images)) {
+        el = documentElement({
+          path: call.file_path,
+          pages: kind === 'image' || (kind === 'pdf' && call.pages) ? images : 0,
+          range: kind === 'pdf' && call.pages ? call.range : '',
+        });
+      }
+    }
+    if (!el && !dropped) return b;
+    changed = true;
+    return { ...b, content: el ? [el, ...clean] : clean };
+  });
+  if (content.length !== line.message.content.length) changed = true;
+  return changed ? { ...line, message: { ...line.message, content } } : line;
+}
+
 // A local command's output as the transcript keeps it (a `system/local_command` line, point 6 in claude-native's protocol header) turned into
 // the entry the live stream sends for it: an assistant line from the `<synthetic>` model, same uuid, the
 // output as its text. `null` for an output that is empty or a line without a uuid — nothing to draw, and
@@ -244,7 +299,9 @@ function normalizeTranscriptEntries(lines) {
   // Which call started each subagent, so a report's Open can fall back to it: the Agent call's result
   // carries `toolUseResult.agentId`, the id the report names as its `senderTaskId` (measured on 2.1.284).
   const agentCalls = new Map();
+  const readCalls = new Map();
   for (const line of list) {
+    noteReadCalls(line, readCalls);
     const content = line && line.type === 'assistant' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
     for (const b of content) if (b && b.type === 'tool_use' && b.id) toolKinds.set(b.id, kindOfTool(b.name));
     const agentId = line && line.type === 'user' && line.toolUseResult && typeof line.toolUseResult.agentId === 'string' ? line.toolUseResult.agentId : '';
@@ -286,7 +343,7 @@ function normalizeTranscriptEntries(lines) {
     // One entry out for every line in: the viewer keys its bookmarks on the entry's position, so a line that
     // says nothing (a local command that printed nothing) stays as an empty entry, which draws nothing.
     const shown = displayedLine(line);
-    out.push(shown || EMPTY_ENTRY(line));
+    out.push(shown ? stampDocuments(shown, readCalls) : EMPTY_ENTRY(line));
   }
   return out;
 }
@@ -302,6 +359,8 @@ module.exports = {
   peerReportEntry,
   questionAnswerEntry,
   displayedLine,
+  noteReadCalls,
+  stampDocuments,
   localCommandEntry,
   normalizeTranscriptEntries,
 };

@@ -96,6 +96,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/agent-rpc.js           a session driven over a runtime protocol instead of a terminal
   src/app/resource-sources.js    which of another backend's skills, commands, agents and MCP servers a session takes over
   src/app/session-view.js        which view (terminal or GUI) a session opens in, when that is not a spawn
+  src/app/documents.js           opening a document an agent read (only a path its session's backend reported)
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

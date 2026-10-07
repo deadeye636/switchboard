@@ -123,7 +123,7 @@ const { isUsersPrompt } = require('../claude/session-reader');
 // Claude's injected lines as neutral entries — one copy, shared with the history viewer (#705).
 const {
   plainUserText, subagentIdOf, kindOfTool, isTaskNotification, taskNoticeEntry, isPeerMessage, peerReportEntry, displayedLine,
-  localCommandEntry, taskOutputFileOf, questionAnswerEntry,
+  localCommandEntry, taskOutputFileOf, questionAnswerEntry, noteReadCalls, stampDocuments,
 } = require('../claude/transcript-view');
 
 // The answers an approval card offers. "For this session" only where the CLI suggested something for the
@@ -374,6 +374,7 @@ function createDecoder() {
   let running = [];
   const started = new Map();      // task id -> { toolUseId, description, detail, startedAt }
   const toolKinds = new Map();    // tool_use id -> 'shell' | 'agent' | 'task'
+  const readCalls = new Map();    // tool_use id -> { file_path, pages } of a Read (#755)
   const toolDetails = new Map();  // tool_use id -> the command a shell ran, or an agent's type
   const toolOutputs = new Map();  // tool_use id -> the output file its tool result named
   const taskOutputs = new Map();  // task id -> the output file
@@ -569,6 +570,7 @@ function createDecoder() {
     if (partial) { partial = partial.map(() => undefined); ops.push({ op: 'partial', entry: null }); }
     skillResults = [];
     summaryNext = false;
+    noteReadCalls(msg, readCalls);
     ops.push({ op: 'append', entry: entryOf(msg) });
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_use' && b.id) {
@@ -622,7 +624,7 @@ function createDecoder() {
     // 2.1.284). A local command's output is played back too (`/compact`'s "Compacted", measured), and the
     // stream copy carries no `promptSource`, so the reader's rule without that field decides the rest. The
     // view reads `prompt` and nothing else.
-    const entry = entryOf(shown);
+    const entry = entryOf(stampDocuments(shown, readCalls));
     if (msg.isReplay === true && isUsersPrompt(msg)) entry.prompt = true;
     const ops = [{ op: 'append', entry }];
     for (const b of Array.isArray(m.content) ? m.content : []) {
@@ -1181,7 +1183,10 @@ function conversationEntries(lines) {
   const skillResults = new Map();
   // The file each background shell call named for its output, for a notice that does not name one (#725).
   const shellOutputs = new Map();
+  // The `Read` calls, for the document element their results carry (#755).
+  const readCalls = new Map();
   for (const line of Array.isArray(lines) ? lines : []) {
+    noteReadCalls(line, readCalls);
     const content = line && line.type === 'assistant' && line.message && Array.isArray(line.message.content) ? line.message.content : [];
     for (const b of content) {
       if (b && b.type === 'tool_use' && b.id) toolKinds.set(b.id, kindOfTool(b.name));
@@ -1227,7 +1232,7 @@ function conversationEntries(lines) {
     }
     if (!line || (line.type !== 'user' && line.type !== 'assistant')) continue;
     if (line.isSidechain || line.isMeta || !line.message || typeof line.uuid !== 'string') continue;
-    const shown = displayedLine(line);
+    const shown = stampDocuments(displayedLine(line), readCalls);
     // The user's own line (#709), by the rule Claude's reader keeps for the transcript.
     if (shown) out.push(isUsersPrompt(line) ? { ...shown, prompt: true } : shown);
     // An answered question (#724), as the stream draws it.

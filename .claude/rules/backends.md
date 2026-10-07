@@ -567,6 +567,19 @@ answers instead of the core learning its format:
   or a `reset` adds the same split there first. The view offers Output on that
   field alone, and `taskOutput` reads the file the notice named by task id, so a card read back after a
   restart still opens its output.
+- **A tool result may carry a neutral `document` element (#755).** A backend that knows a result is the file a
+  `Read` named stamps `{ type: 'document', path, kind, name, pages, range? }` first in that result's content
+  array, built only through `src/backends/document-ref.js` (`documentElement` answers `null` without a usable
+  path or a preview kind, so there is no element for an image with no file behind it). It never changes the input
+  line, so `entryKey` does not move. **A `document` element that arrives with a path is foreign and is dropped**;
+  Claude's own `document` block (the base64 PDF) has no path and passes through. The call is the only source of
+  the path, so a decoder keeps a call-id map beside its tool kinds. The core notes the element's path in the
+  session's registry at the same op sites as the task output (an `append`, a `reset`, both attaches) and
+  `src/app/documents.js` opens only a path its session's backend reported. Two contract additions come with it:
+  the core passes its session's working directory to `createDecoder({ cwd })` and to
+  `entriesFromMessages(res, { cwd })`, because Pi names a file relative to it and its normaliser sees one message
+  at a time; a half that does not need it ignores it. A backend that does not stamp (Codex, Hermes, agy) keeps
+  its images inline. Spec 33 has the rest.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own
