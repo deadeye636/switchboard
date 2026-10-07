@@ -247,6 +247,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     taskFiles: new Map(),    // task id -> the output file a notice named, kept once it held output (#725)
     suggestion: null,        // the next prompt the runtime proposed after the last turn (#693)
     context: null,           // the context fill and the model, as the backend last read them (#691)
+    stateModel: null,        // the model the runtime's state names, where the fill's answer names none (#692)
     mode: null,              // the permission mode the runtime last named, in the backend's words (#696)
     contextTimer: null,      // an ask of the fill scheduled during a turn (#697)
     contextAsked: 0,         // the number of the last ask of the fill sent, and of the last one applied —
@@ -384,8 +385,25 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     if (typeof rpc.stateCommand !== 'function' || typeof rpc.sessionIdFromState !== 'function') return;
     const res = await request(rpc.stateCommand);
     adoptIdentity(res && res.success !== false ? rpc.sessionIdFromState(res) : null);
+    noteStateModel(res);
   }
   state.followIdentity = followIdentity;
+
+  // The model, for a runtime whose fill answer does not name it but whose state does (`modelFromState`, #692): the
+  // state is asked anyway, so its model goes into the line's context, and a change of it (a model switched inside
+  // the session) is drawn with the next ask.
+  function noteStateModel(res) {
+    if (typeof rpc.modelFromState !== 'function' || !res || res.success === false) return;
+    let model = null;
+    try { model = rpc.modelFromState(res); } catch { model = null; }
+    if (!model || model === state.stateModel) return;
+    state.stateModel = model;
+    if (state.context && state.context.model === model) return;
+    state.context = { ...(state.context || {}), model };
+    // Before the session is registered no view can hear it and a numbered op would leave a gap; the attach
+    // carries `state.context` instead.
+    if (findSession(tag)) sendOp(state, { op: 'context', context: state.context });
+  }
 
   // The context fill and the model (#691), asked where the backend can be asked (`contextCommand` +
   // `contextFromResponse`), at the start and after every settled run — and, where the half declares
@@ -399,6 +417,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     let context = null;
     try { context = res && res.success !== false ? rpc.contextFromResponse(res) : null; } catch { context = null; }
     if (!context || asked < state.contextApplied) return context;
+    if (!context.model && state.stateModel) context = { ...context, model: state.stateModel };
     state.contextApplied = asked;
     state.context = context;
     sendOp(state, { op: 'context', context });

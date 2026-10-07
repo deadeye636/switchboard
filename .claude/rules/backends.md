@@ -518,7 +518,10 @@ answers instead of the core learning its format:
   would save nothing, and a pi-native attach reads `get_messages`, not the file.
 - `contextCommand` + `contextFromResponse` — optional, a pair (#691). The session line's context fill and
   model, answered as `{ percent, tokens, window, model }`; asked at the start and after every settled run.
-  claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`. `contextDuringTurn: true`
+  claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`. A runtime whose fill answer
+  names no model but whose state does declares `modelFromState(response)` (#692): the core reads it from the
+  `stateCommand` answer it asks anyway and puts it into the context (pi-native: `get_state`'s `model.name`, else
+  its `id`). `contextDuringTurn: true`
   asks it inside a turn too, once per burst of finished entries (#697) — only for a runtime MEASURED to answer
   mid-turn; claude-native declares it, pi-native does not.
 - `modeCycle` + `setModeCommand(id, mode)` + `modeInfo(mode)` — optional, together (#696). The session's

@@ -717,10 +717,20 @@ function responseOf(msg) {
   return msg && msg.type === 'response' ? { id: msg.id, payload: msg } : null;
 }
 
-// What a `get_state` response says about identity. Only the id is used by the core.
+// What a `get_state` response says about identity.
 function sessionIdFromState(response) {
   const data = response && response.data;
   return data && typeof data.sessionId === 'string' && data.sessionId ? data.sessionId : null;
+}
+
+// …and about the model, for the line under the input (#692). `get_session_stats` names none; `get_state` answers
+// Pi's whole model object, before the first turn as well (measured on 0.85.1: `{ id: 'claude-haiku-4-5', name:
+// 'Claude Haiku 4.5 (latest)', provider: 'anthropic', contextWindow: 200000 }`). Its `name` is the one Pi shows.
+function modelFromState(response) {
+  const model = response && response.data && response.data.model;
+  if (!model || typeof model !== 'object') return null;
+  const name = typeof model.name === 'string' && model.name.trim() ? model.name.trim() : '';
+  return name || (typeof model.id === 'string' && model.id ? model.id : null);
 }
 
 function entriesFromMessages(response) {
@@ -759,5 +769,6 @@ module.exports = {
   navigatedNotice,
   answerCommand,
   sessionIdFromState,
+  modelFromState,
   entriesFromMessages,
 };

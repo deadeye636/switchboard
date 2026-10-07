@@ -420,11 +420,24 @@ version nobody pinned, and the copy in this repo would be the wrong one. So the 
 own answer, over the documented `get_session_stats`.
 
 The session line under the input (#691, spec 32 has the view) reads the same answer: `contextUsage.percent`
-and `contextWindow` become the context fill, asked at the start and after every settled run. The model is not
-shown for Pi yet — `get_session_stats` does not name it, and what `get_state` answers about it was not
-measured. Pi has no background tasks of its own (a tool runs inside its turn), so it declares no
-`stopTaskCommand` and its view shows no background buttons. The live view was not click-tested for Pi: the demo
-asks the trust question first, and granting it would have written into Pi's trust file.
+and `contextWindow` become the context fill, asked at the start and after every settled run.
+
+**The model comes from `get_state` (#692).** `get_session_stats` does not name it. `get_state`, which is asked at
+the start and after every settled run anyway for the session id, answers Pi's whole model object, before the
+first turn as well. Measured on 0.85.1 with no turn sent: `{ id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5
+(latest)', provider: 'anthropic', contextWindow: 200000 }`. The line shows its `name`, or the `id` where the name
+is empty, through the `modelFromState` hook, and a model switched inside the session appears after the next
+settled run, because the state is asked only then: after `/model` the line keeps the old name through the next
+turn. Pi documents the field as `null` until a model is chosen; before any model was named the line shows none,
+and a later `null` leaves the last name standing.
+
+**No background tasks (#692).** Pi has none of its own, so it declares no `stopTaskCommand` and its view shows no
+background buttons. Both candidates were checked. The `!` line is Pi's `bash` RPC command: request and
+response, with the response sent when the command has ended (Pi's own RPC documentation), so it cannot outlive the
+turn it belongs to. The `subagent` tool this app hands Pi (#634) starts its child Pi with `-p` and returns the
+child's result as the tool result, so the child ends inside the tool call. Pi's RPC documentation names no
+background facility at all. A shell command that detaches a process of its own (`cmd &`) leaves a process Pi
+does not know about, which is no task either side could report.
 
 Three routes were weighed: reaching for a private field the way the login above does; having the app
 recognise `/session` in the text field before it is sent; or registering the command here and letting the

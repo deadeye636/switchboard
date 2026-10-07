@@ -126,6 +126,12 @@ test('commands: a busy session turns a prompt into a follow-up instead of an err
   assert.deepEqual(protocol.answerCommand('q', { cancelled: true }), { type: 'extension_ui_response', id: 'q', cancelled: true });
   assert.equal(protocol.sessionIdFromState({ data: { sessionId: 'abc' } }), 'abc');
   assert.equal(protocol.sessionIdFromState({ success: false }), null);
+  // #692: the model the line shows, from the same `get_state` answer (measured shape).
+  const state = (model) => ({ success: true, data: { sessionId: 'abc', model } });
+  assert.equal(protocol.modelFromState(state({ id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5 (latest)', provider: 'anthropic', contextWindow: 200000 })), 'Claude Haiku 4.5 (latest)');
+  assert.equal(protocol.modelFromState(state({ id: 'gpt-x', name: '' })), 'gpt-x', 'a model without a name is shown by its id');
+  assert.equal(protocol.modelFromState(state(null)), null, 'Pi answers null before a model is chosen');
+  assert.equal(protocol.modelFromState({ success: false }), null);
 });
 
 test('the runtime extension is written per spawn, carries the marker, and is removed by name only', () => {

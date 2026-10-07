@@ -137,9 +137,11 @@ module.exports = {
     statsCommand: protocol.statsCommand,
     statsNotice: protocol.statsNotice,
     // The line under the input (#691) reads the context from the same answer. Pi has no background tasks of
-    // its own — a tool runs inside its turn — so it declares no `stopTaskCommand`.
+    // its own — a tool runs inside its turn — so it declares no `stopTaskCommand` (#692, spec 30).
     contextCommand: protocol.statsCommand,
     contextFromResponse: protocol.contextFromResponse,
+    // The model is not in that answer; `get_state`, asked anyway for the session id, names it (#692).
+    modelFromState: protocol.modelFromState,
     // `/export` and `/copy` (#643), the same shape: the command says it was typed, the answer is asked
     // for here. Each is a PAIR the core feature-checks together — a backend that cannot write a file of
     // its session, or cannot hand back its last reply, declares neither half and the core does nothing.

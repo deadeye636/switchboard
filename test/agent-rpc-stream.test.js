@@ -409,6 +409,26 @@ test('background tasks and the context reach the view, the sidebar count reaches
   assert.equal((await agentRpc.taskOutput('launch-id', '../../etc/passwd')).ok, false, 'a name is not a path');
 });
 
+// #692: a runtime whose fill answer names no model, but whose state does, shows the state's model on the line.
+test('the model comes from the state answer where the fill names none, and follows a change', async (t) => {
+  let model = 'Model A';
+  const h = streamHarness(t, { rpc: {
+    stateCommand: (id) => ({ type: 'ctl', request_id: id, what: 'state' }),
+    sessionIdFromState: () => null,
+    modelFromState: (res) => (res.data.what === 'state' ? model : null),
+    contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }),
+    contextFromResponse: (res) => (res.data.what === 'ctx' ? { percent: 7, tokens: 7, window: 100, model: '' } : null),
+  } });
+  t.after(() => stopped(h));
+  await until(() => ops(h).some((o) => o.op === 'context' && o.context.model === 'Model A' && o.context.percent === 7));
+  assert.equal((await agentRpc.attach('launch-id')).context.model, 'Model A', 'kept for a view that mounts later');
+  model = 'Model B';
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => ops(h).some((o) => o.op === 'context' && o.context.model === 'Model B'));
+  const last = ops(h).filter((o) => o.op === 'context').pop().context;
+  assert.equal(last.model, 'Model B', 'a model switched inside the session is drawn after the run');
+});
+
 // #697: the fill grows with every call inside a turn, so a runtime that answers mid-turn is asked then too.
 test('the context is asked again during a turn only where the half declares that its runtime answers then', async (t) => {
   const ctx = { contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }), contextFromResponse: () => ({ percent: 10 }) };
