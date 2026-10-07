@@ -62,6 +62,39 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
   never onto a repository root, and carries only trust the project held in its own key — never shared or
   inherited trust, and never into a root the target only sits in.
 
+### Document reads (#755)
+
+Measured on Claude Code 2.1.292 (Haiku), `-p --input-format stream-json --output-format stream-json --verbose`,
+a 3-page PDF of 1.1 KB, a 64x48 PNG and a 4-line Markdown file. The call is a `Read`; **the path is in the
+call's input** (`file_path`, absolute as the model spelled it), never in the result's content blocks.
+
+| Read of | `tool_use.input` | `tool_result.content` | `tool_use_result` (stream) / `toolUseResult` (transcript) |
+|---|---|---|---|
+| PDF, no `pages` | `{file_path}` | `[text "PDF file read: <path> (1.1KB)", document {source:{type:base64, media_type:application/pdf, data}}]` | `{type:'pdf', file:{filePath, base64, originalSize}}` |
+| PDF, `pages: "1-3"` | `{file_path, pages}` | `[text "PDF pages extracted: 3 page(s) from <path> (1.1KB)", image x3 {source:{type:base64, media_type:image/jpeg, data}}]` | `{type:'parts', file:{filePath, originalSize, outputDir, count:3}, firstPage:1}` |
+| PDF, `pages: "2"` | `{file_path, pages:"2"}` | same, one text line (`1 page(s)`), one image | `count:1`, `firstPage:2` |
+| PDF over the page cap | `{file_path}` | a plain STRING, `is_error: true`: "This PDF has 12 pages, which is too many to read at once. Use the pages parameter ... Maximum 20 pages per request." | `"Error: ..."` string |
+| PNG | `{file_path}` | `[image {source:{type:base64, media_type:image/png, data}}]`, no text block | `{type:'image', file:{base64, type, originalSize, dimensions}}` |
+| Markdown | `{file_path}` | a plain STRING, `cat -n` style: `1<TAB># Probe note` per line | `{type:'text', file:{filePath, content, numLines, startLine, totalLines}}` |
+
+- **A whole small PDF is NOT page images.** Without `pages` the CLI sends the PDF itself as one `document`
+  block, and the viewer has no branch for that type (`extractImages` keeps only `image`, `extractResultText`
+  prints the one text line). Page images exist only for a call that carries `pages`. The model chooses that
+  parameter: asked for "page 2", Haiku sent `pages: "2"` on its own; asked to read the whole file, it sent none.
+- **A PDF of 12 pages already failed without `pages`** (25 pages likewise) although the message names 20 as the
+  cap; the 10-page boundary was not bisected. The error is a string result with `is_error`, no images.
+- **Page count and range.** The only count in a page-image result is the text line's `N page(s)` and
+  `tool_use_result.file.count`; the document's own total is never stated (only the over-cap error names it).
+  The range is knowable from the call input `pages` (`"2"`, `"1-3"`); `tool_use_result.firstPage` names its
+  first page. So "N pages" is the number of images the result holds, and "pages a-b" is derivable when `pages` is
+  on the call (#755 D11). Other `pages` spellings (lists, open ranges) were not measured.
+- **Stream and transcript carry the same `message.content`**, byte for byte; they differ only in the sibling
+  field's spelling (`tool_use_result` on the stream, `toolUseResult` in the transcript file) and the transcript's
+  envelope keys. The page images are also written beside the transcript (`<session>/tool-results/pdf-<id>/page-N.jpg`),
+  which the viewer does not use.
+- On the live stream the `tool` op carries only the text of the result (`textOf`); the images ride in the
+  appended `user` entry's `message.content`, as in the transcript.
+
 ### Not every `user` entry is the user (#495, #229)
 
 Five things wear `type: 'user'` and none of them is somebody typing a prompt. Reading them as a turn is how
@@ -497,6 +530,32 @@ The only backend whose history is **not** in files — the reason the discovery 
   subagents (only an example extension), no hooks in Claude's sense, and no approval step of its own.
   What it has instead is an extension API with lifecycle events, where a `tool_call` handler can block a
   call and `registerCommand` still works at `session_start`. Later Pi versions were not re-measured.
+
+### Document reads (#755)
+
+Measured on Pi 0.85.1 over `pi --mode rpc`, a 3-page PDF, a 64x48 PNG and a Markdown file. **The Anthropic
+login on this machine failed its token refresh (HTTP 400 from the OAuth endpoint), so the run used
+`openai-codex` / `gpt-5.5`**; `gpt-5.4-mini` and `gpt-5.4` are refused for a ChatGPT account. The `read` tool
+and its result shapes are Pi's, not the provider's, but the model decides which tool to call.
+
+| Read of | call | `toolResult.content` |
+|---|---|---|
+| PDF | `toolCall` `read`, `arguments: {path}` | `[text <the file's raw bytes as text, "%PDF-1.4 ...">]`: **no page images, no `image` block, no page count** |
+| PNG | `read`, `{path}` | `[text "Read image file [image/png]", image {data, mimeType:'image/png'}]` |
+| Markdown | `read`, `{path}` | `[text <file content, CRLF as on disk>]` |
+
+- **O7 answer: Pi returns no PDF pages.** `read` on a `.pdf` hands the model the file's bytes as one text
+  block. Left to itself the model preferred `bash` (`pdftotext`) for the PDF and used `read` only when told to.
+  Pi therefore yields a document card candidate for images and text kinds only; a PDF `read` is a text result.
+- **The path is in the call, spelled as the model gave it, and may be relative** (`probe-img.png`): it is
+  relative to the session's cwd. The result carries no path. The `read` arguments name it `path`, not
+  `file_path` (the viewer's mapping renames it, `PI_TOOLS.read`); a relative one needs the session cwd to be made
+  absolute.
+- The image block is `{type:'image', data, mimeType}` (flat), not Claude's `{source:{...}}`; the normaliser
+  rewrites it to `source` (`contentBlocks`). Live (`tool_execution_end`, `message_end` of the `toolResult`,
+  `get_messages`) and the session file hold the same `toolResult` message; a `toolResult` message names its call only by `toolCallId` and `toolName`, so it
+  is normalised without the call's arguments.
+- Pi has no page range parameter on `read` (`offset`/`limit` are line windows).
 
 ## agy (Antigravity CLI) — file, per-conversation SQLite (reconned from a real install, v1.1.1)
 
