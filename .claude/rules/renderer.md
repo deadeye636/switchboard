@@ -705,6 +705,21 @@ while the app runs, so routing it would make the copy correct only until somethi
 - Readers are synchronous, so `ensureTimelineLoaded(sessionId)` runs BEFORE them —
   `showTimelineViewer` and `handleSessionViewed` are async for that reason alone.
 
+## The document card and its viewer own their keys only while open (#755)
+
+`jsonl/document-card.js` draws a card for a tool result that carries a neutral `document` element, and
+`jsonl/document-viewer.js` is the overlay it opens. Two things to keep, neither visible in a green suite:
+
+- **The viewer's keys sit on the overlay element, never on `document`.** Closed, nothing listens, so the composer
+  cannot be shadowed by construction; open, focus is inside it and returns to what had it. A key handler moved to
+  `document` "for convenience" breaks typing in the conversation. Click it both ways: keys work while it is open,
+  and the composer takes them after it closes.
+- **A thumbnail gets its `src` when it scrolls into view**, and the page data stays in the result the entry already
+  holds. Do not copy the pages into a second structure or set `src` up front: a long log would decode every page.
+  The card reads no backend and no tool name, only the element and the image blocks (reflex 5).
+
+Spec 33 has the rest.
+
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,

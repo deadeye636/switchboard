@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -148,6 +148,27 @@
                       <option value="hold" ${conversationEnterWhileBusyValue !== 'steer' ? 'selected' : ''}>Queue</option>
                       <option value="steer" ${conversationEnterWhileBusyValue === 'steer' ? 'selected' : ''}>Steer</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Documents in the conversation</span>
+                    <div class="settings-description">How a document an agent read is drawn. Card: one card with the first page, a viewer to page and zoom, and Open buttons. Inline: the tool output as before, every page image in the conversation.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select id="sv-document-preview" class="settings-select">
+                      <option value="card" ${documentPreviewValue !== 'inline' ? 'selected' : ''}>Card</option>
+                      <option value="inline" ${documentPreviewValue === 'inline' ? 'selected' : ''}>Inline</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Largest first page shown as a thumbnail (KB)</span>
+                    <div class="settings-description">A document card draws no thumbnail when its first page image is larger than this; the name and buttons stay. 64 to 65536. Applies to what is drawn next.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input settings-input-compact" id="sv-document-preview-max-kb" min="64" max="65536" value="${documentPreviewMaxKBValue}">
                   </div>
                 </div>
                 <div class="settings-field">

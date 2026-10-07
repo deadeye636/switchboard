@@ -800,6 +800,41 @@ test('a call is drawn with its own result, live and after a reset, and sees no o
   assert.ok(seen.some(s => JSON.stringify(s.map) === JSON.stringify([['c1', 'one']])), 'c1 is redrawn with its result after the reset');
 });
 
+// #755 T9: a document a Read call returned is a card WITH open buttons here, because the view hands the draw the
+// session and its host; the draw is the card's own script, loaded the way the page loads it.
+test('a document a call read is drawn as a card with open buttons, at once and after a hidden draw', async () => {
+  const h = setup();
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'jsonl', 'document-card.js'), 'utf8'), h.w);
+  vm.runInContext(`
+    function documentPreviewMaxBytes() { return 1e9; }
+    function renderJsonlEntry(entry, map, ctx) {
+      const d = document.createElement('div'); d.className = 'jsonl-entry';
+      for (const data of map.values()) { const c = Array.isArray(data) && renderDocumentCard(data, ctx); if (c) d.appendChild(c); }
+      return d;
+    }
+  `, h.w);
+  const doc = { type: 'document', path: '/p/a.pdf', kind: 'pdf', name: 'a.pdf', pages: 1 };
+  const page = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } };
+  const use = { type: 'message', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'r1', name: 'Read', input: {} }] } };
+  const result = { type: 'message', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'r1', content: [doc, page] }] } };
+  const log = h.entry.element.querySelector('.conversation-log');
+  const buttons = () => [...log.querySelectorAll('.document-card .document-card-btn')].map(b => b.textContent);
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'append', seq: 1, entry: use });
+  conv.apply({ op: 'append', seq: 2, entry: result });
+  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab'], 'drawn live with the open buttons');
+  conv.apply({ op: 'reset', entries: [use, result] });
+  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab'], 'and again after a reset');
+  // The same through a draw that waited for the view to be shown.
+  h.entry.element.classList.remove('visible');
+  await h.settle();
+  conv.apply({ op: 'reset', entries: [use, result] });
+  assert.equal(buttons().length, 0, 'nothing is drawn while hidden');
+  h.entry.element.classList.add('visible');
+  await h.settle();
+  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab'], 'drawn on show with the open buttons');
+});
+
 test('an approval is drawn with the call it is about, answers with the value it was given, and holds the status', async () => {
   const h = setup();
   const answers = [];

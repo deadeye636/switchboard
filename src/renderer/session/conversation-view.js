@@ -445,7 +445,12 @@ function createConversationView(getSession, container) {
     const entry = view.entries[index];
     // A fresh map per draw: `renderJsonlEntry` CLAIMS the results it draws under a call by deleting them,
     // so a shared one would hand each result to whichever call happened to be drawn first.
-    const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry));
+    // A document a call read is drawn as a card that can open it (#755): the session it belongs to — a function,
+    // because a re-key moves it after the draw — the view the card's viewer covers, and where the caret goes
+    // when that viewer closes with nothing left to return to.
+    const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), {
+      sessionId: () => getSession().sessionId, host: container, focusFallback: () => input.focus(),
+    });
     if (el) el.dataset.entryIndex = String(index);
     return el;
   }

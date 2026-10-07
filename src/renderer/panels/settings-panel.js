@@ -317,6 +317,8 @@
     const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
+    const documentPreviewValue = fieldValue('documentPreview', 'card');
+    const documentPreviewMaxKBValue = fieldValue('documentPreviewMaxKB', 2048);
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
     const secretRefSweepValue = fieldValue('secretRefSweepMinutes', 0);
@@ -883,7 +885,7 @@
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1391,6 +1393,11 @@
         settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         settings.expandToolOutput = settingsViewerBody.querySelector('#sv-expand-tool-output').checked;
         settings.conversationEnterWhileBusy = settingsViewerBody.querySelector('#sv-conversation-enter-while-busy')?.value === 'steer' ? 'steer' : 'hold';
+        settings.documentPreview = settingsViewerBody.querySelector('#sv-document-preview')?.value === 'inline' ? 'inline' : 'card';
+        {
+          const kb = parseInt(settingsViewerBody.querySelector('#sv-document-preview-max-kb')?.value, 10);
+          settings.documentPreviewMaxKB = Number.isFinite(kb) ? Math.max(64, Math.min(65536, kb)) : 2048;
+        }
         // The attention hook now lives on the CLAUDE backend page (it patches Claude's own
         // settings.json, so it belongs to Claude — but it is not a launch option, hence still a plain
         // global setting). That page is only in the DOM while it is open: keep the stored value when

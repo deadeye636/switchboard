@@ -3,6 +3,9 @@
 Issue: #465. Built: PDFs are shown in the internal viewer, and no binary file lands in the source
 editor by mistake.
 
+See also [`33-document-preview.md`](33-document-preview.md): a PDF an agent reads shows up in the conversation as a
+card, and a whole-PDF card opens the file in this viewer.
+
 ## What was wrong
 
 `previewKindForExt` knew four kinds — image, html, markdown, text — and text was the fallback. A PDF is

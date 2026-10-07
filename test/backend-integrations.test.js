@@ -209,6 +209,8 @@ const ALLOWED_BINDINGS = {
   'src/renderer/session/composer-completion.js': [],
   'src/renderer/session/branch-tree-dialog.js': [],
   'src/renderer/session/servers-dialog.js': [],
+  'src/renderer/jsonl/document-card.js': [],
+  'src/renderer/jsonl/document-viewer.js': [],
   'src/renderer/session/conversation-view.js': [],
   'src/renderer/views/stats-view.js': [],
   'src/renderer/terminal/palette-core.js': [],

@@ -50,6 +50,8 @@ back on Save.
 | `confirmQuitWithRunningSessions` | Ask before closing while sessions run | bool | `true` | global |
 | `expandToolOutput` | Show tool calls expanded | bool | `false` | global |
 | `conversationEnterWhileBusy` | Enter while a turn runs | `hold` \| `steer` | `hold` | global |
+| `documentPreview` | Documents in the conversation | `card` \| `inline` | `card` | global |
+| `documentPreviewMaxKB` | Largest first page shown as a thumbnail (KB) | number, 64-65536 | `2048` | global |
 | `shellProfile` | CLI shell | `auto` or a profile id | `auto` | **cascades** |
 | `terminalShellProfile` | Terminal shell | `inherit` \| `auto` \| profile id | `inherit` | **cascades** |
 | `attentionHooks` | (the toggle lives on Claude's backend page, under Integrations — and on the welcome tour's Attention pane) | bool | `false` | global |

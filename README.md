@@ -119,6 +119,12 @@ chart rather than a row of zeroes.
   in a project Claude trusts, and it has no login of its own. Its sessions are ordinary Claude sessions and
   reopen where they were driven.
   → [`docs/specs/32-claude-native.md`](docs/specs/32-claude-native.md)
+- **Documents an agent reads are cards** — in the conversation view of Claude and Pi without a terminal, a
+  PDF page range, an image, a Markdown or an HTML file the agent reads is one card with a first-page
+  thumbnail, the name and a page count, not every page in the log. A click opens a viewer over the
+  conversation with a pager and zoom, or the file the way your file-click setting says; two buttons open it
+  in the default app or in a tab. `Documents in the conversation` switches back to inline images.
+  → [`docs/specs/33-document-preview.md`](docs/specs/33-document-preview.md)
 - **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (native),
   Pi and Pi (native)), each sidebar row shows where it opens, and a session can be opened in the other view
   from the row, the pane menu, the command palette or *Resume with config*. A running session is stopped

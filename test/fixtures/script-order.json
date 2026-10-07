@@ -96,6 +96,8 @@
     "stats-view.js",
     "subagent-live.js",
     "jsonl-viewer.js",
+    "document-card.js",
+    "document-viewer.js",
     "composer-completion.js",
     "branch-tree-dialog.js",
     "servers-dialog.js",

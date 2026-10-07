@@ -12225,3 +12225,57 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
   font-size: 9px;
   text-align: center;
 }
+
+/* #755: the preview card of a document a tool read, and the overlay its click opens. Buttons reuse
+   .new-session-secondary-btn; the card sits between a tool call's header and its collapsible body. */
+.document-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 6px 0 6px 20px;
+  padding: 8px;
+  max-width: 560px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.document-card:hover { border-color: rgba(255,255,255,0.22); }
+.document-card:focus-visible { outline: 1px solid #7c8cff; }
+.document-card-thumb {
+  flex: none;
+  width: 84px;
+  height: 108px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+}
+.document-card-thumb-empty { font-size: 12px; color: #8888a0; }
+.document-card-img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.document-card-meta { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.document-card-name { font-size: 13px; color: #e6e6f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-card-sub { font-size: 11px; color: #8888a0; }
+.document-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.document-card-btn { font-size: 12px; padding: 4px 10px; }
+
+.document-viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0,0,0,0.88);
+  outline: none;
+}
+.document-viewer-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; color: #e6e6f0; font-size: 13px; }
+.document-viewer-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-viewer-group { display: inline-flex; align-items: center; gap: 6px; }
+.document-viewer-counter { min-width: 56px; text-align: center; color: #c8c8d8; }
+.document-viewer-btn { padding: 4px 10px; font-size: 13px; }
+.document-viewer-btn:disabled { opacity: 0.4; cursor: default; }
+.document-viewer-stage { flex: 1; min-height: 0; overflow: auto; display: flex; padding: 8px; }
+.document-viewer-img { margin: auto; max-width: 100%; max-height: 100%; border-radius: 4px; }
+.document-viewer-img-zoomed { max-width: none; max-height: none; }

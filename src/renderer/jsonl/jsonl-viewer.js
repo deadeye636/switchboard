@@ -270,6 +270,20 @@ function toolOutputStartsExpanded() {
   return typeof appGlobalSettings !== 'undefined' && !!appGlobalSettings && appGlobalSettings.expandToolOutput === true;
 }
 
+// #755: how a document a tool wrote or read is drawn, and how large one may be before its card draws no
+// thumbnail. Both read at call time from the global settings; junk or a missing value gets the default.
+const DOCUMENT_PREVIEW_MAX_KB_DEFAULT = 2048;
+function documentPreviewMode() {
+  const s = typeof appGlobalSettings !== 'undefined' ? appGlobalSettings : null;
+  return s && s.documentPreview === 'inline' ? 'inline' : 'card';
+}
+function documentPreviewMaxBytes() {
+  const s = typeof appGlobalSettings !== 'undefined' ? appGlobalSettings : null;
+  const kb = s ? s.documentPreviewMaxKB : undefined;
+  const ok = typeof kb === 'number' && Number.isFinite(kb) && kb >= 64 && kb <= 65536;
+  return Math.floor(ok ? kb : DOCUMENT_PREVIEW_MAX_KB_DEFAULT) * 1024;
+}
+
 // A header click, remembered by tool_use id: the result arriving redraws the whole entry (the conversation
 // view replaces its element), and a call the user just opened must not snap shut under them.
 const toolExpandChoices = new Map();
@@ -698,7 +712,20 @@ function openImageFullscreen(src) {
 }
 
 // Render a tool result into a container, handling images, text, and mixed content
-function renderToolResult(resultData, container) {
+// `ctx = { sessionId, host }` is given by the conversation view only. A result stamped with a document element
+// (#755) is drawn as ONE card in card mode: the card is RETURNED, not appended, so the caller can seat it outside
+// the collapsible body (a collapsed call still shows its card); Markdown and HTML keep their text, collapsed,
+// inside the body. Anything else draws as it always did and returns null.
+function renderToolResult(resultData, container, ctx) {
+  if (documentPreviewMode() === 'card' && typeof renderDocumentCard === 'function') {
+    const card = renderDocumentCard(resultData, ctx);
+    if (card) {
+      const kind = card.dataset.kind;
+      const text = (kind === 'markdown' || kind === 'html') ? extractResultText(resultData) : null;
+      if (text) container.appendChild(makeCollapsible('jsonl-tool-result', 'Text', text, false));
+      return card;
+    }
+  }
   // Try to extract image data from the result
   const images = extractImages(resultData);
   const textParts = extractResultText(resultData);
@@ -714,6 +741,7 @@ function renderToolResult(resultData, container) {
     imgEl.onclick = () => openImageFullscreen(img.src);
     container.appendChild(imgEl);
   }
+  return null;
 }
 
 function extractImages(data) {
@@ -760,7 +788,7 @@ function extractResultText(data) {
   return JSON.stringify(data, null, 2);
 }
 
-function renderJsonlEntry(entry, toolResultMap) {
+function renderJsonlEntry(entry, toolResultMap, ctx) {
   // Synthetic local command entry from mergeLocalCommandEntries
   if (entry._localCmd) {
     return renderLocalCommand(entry._localCmd);
@@ -1046,7 +1074,8 @@ function renderJsonlEntry(entry, toolResultMap) {
           contentEl.className = 'jsonl-tool-content';
           toolEl.appendChild(contentEl);
         }
-        renderToolResult(resultData, contentEl);
+        const docCard = renderToolResult(resultData, contentEl, ctx);
+        if (docCard) contentEl.parentNode.insertBefore(docCard, contentEl);
       }
       makeToolCollapsible(toolEl, block.id);
       // Where a background agent's "Open" lands (#691, session/conversation-view.js).

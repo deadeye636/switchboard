@@ -432,6 +432,20 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   an answer), after a confirmation, by stopping it and opening it again in the same tab. When either half cannot
   launch, none of this is shown and a stored choice waits until it can. Specs:
   [`specs/32-claude-native.md`](specs/32-claude-native.md), [`specs/23-command-palette.md`](specs/23-command-palette.md).
+- **Document preview card (#755)** — in the conversation view of Claude (native) and Pi (native), and in the
+  Message History viewer, a file the agent reads (a PDF page range, an image, Markdown, HTML) is drawn as one
+  card with a first-page thumbnail, the name and a page label, instead of every page inline. A click opens a
+  viewer over the conversation with a pager, zoom and Esc, built from the pages the result already holds; a
+  card with no pages (a whole-PDF read, Markdown, HTML) follows the file-click setting, with Ctrl/Cmd
+  inverting it, and with `external` sends a PDF, an image or an HTML file to the default program and Markdown
+  to the editor. Two buttons open the file in the default app or in a tab. The backend stamps a neutral
+  `document` element into the read result; main keeps the paths a session's backend reported and the open
+  button is answered only for those (absolute and local, a document extension, a real path that is not
+  sensitive, a regular file), so the renderer names no path of its own. The history viewer shows a card and
+  the pager but no open buttons. `Documents in the conversation` (`card` or `inline`) and `Largest document with
+  a thumbnail (KB)` are in the Sessions category. Pi returns no PDF pages, so its PDF reads stay text; Codex,
+  Hermes and agy do not stamp and keep their images inline; the open buttons are refused once the session has
+  exited. Spec: [`specs/33-document-preview.md`](specs/33-document-preview.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says
