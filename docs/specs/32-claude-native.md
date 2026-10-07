@@ -644,6 +644,12 @@ calls and one background agent. What the stream carries, all as `system` lines t
 - **The session's figures**: the control request `{ subtype: 'get_context_usage' }` answers `totalTokens`,
   `maxTokens`, `percentage`, `model` and a breakdown by category. Every `result` line also carries
   `modelUsage.<model>.contextWindow`, and `system/init` names the `model`.
+  **Answering it costs no tokens** (measured on Claude Code 2.1.292, Haiku, through a logging proxy in
+  front of the API): a fresh session left idle for 60 s sent two `HEAD /api/hello` and a burst of
+  `/v1/messages/count_tokens` requests — the breakdown is counted per category — and no `/v1/messages` at
+  all. The first `/v1/messages` went out only when a prompt was sent. So the fill a new session shows before
+  its first turn is what that turn will carry, not context already spent; a session opened and closed
+  without input bills nothing. #758 makes the line say so.
 
 - **An agent task names its subagent** (#695): the `task_id` of a `local_agent` task is the `agentId` of its
   subagent transcript, character for character — the file is `subagents/agent-<task_id>.jsonl` and every line
