@@ -47,7 +47,8 @@ const modelOf = (answer) => answer && answer.options.model;
 
 test('the last turn_context names the model; the answer is a patch in Codex\'s own key, with a label', async () => {
   const row = fixture([turn('gpt-5.6-luna'), message('hi'), turn('gpt-5.6-sol')]);
-  assert.deepEqual(await codex.resumeLaunchOptions(row, {}), { options: { model: 'gpt-5.6-sol' }, label: 'gpt-5.6-sol' });
+  const a = await codex.resumeLaunchOptions(row, {});
+  assert.deepEqual({ options: a.options, label: a.label }, { options: { model: 'gpt-5.6-sol' }, label: 'gpt-5.6-sol' });
 });
 
 test('a trailing thread_settings_applied carrying another model is NOT the answer', async () => {
@@ -131,4 +132,20 @@ test('ctx.env.CODEX_HOME is honoured over the descriptor home', async () => {
 
 test('the capability row says yes', () => {
   assert.equal(codex.capabilities.resumeModel, 'yes');
+});
+
+// T8: the notice. Codex does not restore the model, so any difference from what was sent is a change.
+test('notice: none only when the sent model is the answered one', async () => {
+  const a = await ask(fixture([turn('gpt-5.6-sol')]), home(catalog('gpt-5.6-sol')));
+  assert.match(a.notice, /instead of Codex's default$/, 'no launchOptions: the default is not that model');
+  const same = await codex.resumeLaunchOptions(fixture([turn('gpt-5.6-sol')]), { env: { CODEX_HOME: home(catalog('gpt-5.6-sol')) }, launchOptions: { model: 'gpt-5.6-sol' } });
+  assert.equal(same.notice, undefined);
+});
+
+test('notice: a different sent model, or none at all, is named', async () => {
+  const h = home(catalog('gpt-5.6-sol'));
+  const other = await codex.resumeLaunchOptions(fixture([turn('gpt-5.6-sol')]), { env: { CODEX_HOME: h }, launchOptions: { model: 'gpt-5.5' } });
+  assert.equal(other.notice, 'Resumed on gpt-5.6-sol, the model this session last used, instead of gpt-5.5');
+  const none = await codex.resumeLaunchOptions(fixture([turn('gpt-5.6-sol')]), { env: { CODEX_HOME: h }, launchOptions: {} });
+  assert.equal(none.notice, "Resumed on gpt-5.6-sol, the model this session last used, instead of Codex's default");
 });

@@ -541,7 +541,7 @@ module.exports = {
   // The launch option a resume should carry (#754) — see Claude's `resumeLaunchOptions` for the contract
   // (asked once, on one session's resume only). The last model + provider of the transcript tail, by file order
   // across `model_change` and assistant entries — see ./resume-model.js.
-  resumeLaunchOptions: (row) => resumeModel.resumeLaunchOptions(row),
+  resumeLaunchOptions: (row, ctx) => resumeModel.resumeLaunchOptions(row, ctx),
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Does this session still owe a turn (#530)? The answer is pushed by the per-spawn binding extension and

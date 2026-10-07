@@ -715,6 +715,22 @@ test('ops arriving while a view mounts are replayed after the snapshot — only 
   assert.match(drawn[1], /new/);
 });
 
+// #754: a notice said at the start reaches the view through the attach, after the conversation — the reset
+// clears the copy the op drew before the attach, and it is not drawn twice.
+test('the notices an attach carries are drawn after the snapshot, once', async () => {
+  let release;
+  const h = setup({ attachAnswer: () => new Promise((r) => { release = r; }) });
+  h.entry.conversation.apply({ op: 'notice', level: 'info', text: 'Resumed on Model A', seq: 1 });
+  const attaching = h.entry.conversation.attach();
+  const user = (text) => ({ type: 'message', message: { role: 'user', content: [{ type: 'text', text }] } });
+  release({ ok: true, entries: [user('old')], seq: 1, busy: false, queue: { steering: [], followUp: [] }, asks: [],
+    notices: [{ level: 'info', text: 'Resumed on Model A' }] });
+  await attaching;
+  const drawn = [...h.entry.element.querySelectorAll('.conversation-log > .jsonl-entry')].map(d => d.textContent);
+  assert.equal(drawn.filter(t => /Resumed on Model A/.test(t)).length, 1, 'once');
+  assert.match(drawn[drawn.length - 1], /Resumed on Model A/, 'after the conversation');
+});
+
 // #657: a snapshot read from a transcript file can hold an entry whose op is still on its way, and that op
 // then arrives numbered past the snapshot. The key main stamps on it is what says it is a repeat — once.
 test('an op for an entry the transcript snapshot already holds is skipped, once', async () => {

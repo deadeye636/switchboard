@@ -516,6 +516,10 @@ answers instead of the core learning its format:
   where the CLI needs one). Its session manager writes each entry synchronously once the session has an
   assistant reply, and keeps the entries before that in memory without flushing them on exit — so a wait
   would save nothing, and a pi-native attach reads `get_messages`, not the file.
+- Not a declaration, but part of the same contract: an attach also answers `notices`, what the spawn path said
+  through the process's `notice` ("resumed on <model>", "started a new one instead"), because the attach's reset
+  clears every notice the view holds (#654). They are kept only until the first turn starts, so a later attach does
+  not draw the start under turns it no longer belongs to (#754).
 - `contextCommand` + `contextFromResponse` — optional, a pair (#691). The session line's context fill and
   model, answered as `{ percent, tokens, window, model }`; asked at the start and after every settled run.
   claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`. A runtime whose fill answer
@@ -723,12 +727,33 @@ suffix `liveRefFor` are the same code for every backend that keeps one transcrip
 declare `root` (lazy), `matches`, `parseSession` and `refSuffix` and take the rest. `findOnPath`
 lives there too (PATHEXT — the npm CLIs are `.cmd` shims).
 
-**`readFileTail` is there for the same reason** (#495). Two backends read a fact out of the END of a
+**`readFileTail` is there for the same reason** (#495), and it is the synchronous one — for a worker or a scan; `readFileTailAsync` below is the one for a launch path. Two backends read a fact out of the END of a
 transcript that grows to tens of megabytes — Codex' rate limits and Claude's prompt queue — and both
 are asked while the user is waiting. One implementation, because reading the whole file for a question
 about its last few kilobytes is exactly the shape this repo has watched get fixed in one backend and
 kept in its twin. It reports whether the view is `partial`, and **that answer is load-bearing**: a
 caller whose question cannot be answered from a fragment has to notice and read the file.
+
+**`readFileTailAsync` is the one for anything asked while a launch waits** (#754). Same window, same
+`partial` answer, same `MAX_TAIL_BYTES` cap (a caller cannot ask for more), on `fs.promises`. Use it wherever
+the question is put on the main thread's path rather than in a worker: `readFileTail` blocks the event loop for
+the read, which is fine in a scan and not in a spawn. A hook that reads a transcript uses the async form only.
+
+**`resumeLaunchOptions(row, {projectPath, env, launchOptions})` (#754)** answers `{ options: { <key>: value }, label, notice? }`
+or `null`: the launch option a resume of this session should carry. A patch, so the option key stays in the
+backend (`model` today, a model and its `provider` for Pi) and the core names none; it is applied as a unit, and a
+`null` value clears that key. The core (`src/app/terminal/resume-options.js`) asks it once, from the spawn path
+of a resume that is not a fork, awaits it with a short timeout, and treats a throw, a timeout or `null` as "launch
+as before" — so the hook is **async-only**: its one read is a bounded `readFileTailAsync` tail, the cached row
+answers only where the tail names nothing, and no synchronous fs call (settings reads included — a hook may read settings asynchronously) may sit on its path (the
+parity guard sees only the hook's own body, so check the helpers it calls by hand). Answer only a value that is
+safe as an argv element, and decline (`null`) where the transcript's value is not one the CLI takes back
+(a template's remapped alias, a model the account cannot use). A template does not inherit the hook. The
+spawn path says `notice` once, through the session's own notice path, only for an answer that was applied. The
+BACKEND words it (English, short, naming the model as the user would recognise it) and sets it only when the launch
+really changes against what would have happened without the hook, given `ctx.launchOptions`: Claude and Pi restore
+the last model themselves, so they speak only when a sent model differs; Codex does not, so it speaks whenever the
+answer differs from the sent model, an empty one included. The core composes no wording.
 
 ## A probe goes through `src/backends/cli-probe.js` (#532)
 

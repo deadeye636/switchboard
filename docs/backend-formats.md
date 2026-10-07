@@ -155,6 +155,21 @@ a hook alone cannot say whether a prompt is still waiting.
   prompt rather than the one whose enqueue sits beside it.
 - These lines carry **no `timestamp`**, unlike the message entries around them.
 
+### The last model of a session, for a resume (#754)
+Measured on Claude Code 2.1.292.
+
+- **Source.** An assistant entry's `message.model`: bare, often dated (`claude-haiku-4-5-20251001`), and without
+  `[1m]`. `<synthetic>` never counts; a `/model` typed after the last assistant turn is the user's switch and wins
+  (the CLI itself does not restore it). The id works verbatim as `--model`, dated or not.
+- **A plain resume restores the last assistant turn's model**, so the drop was the app's own `--model` (and
+  `ANTHROPIC_MODEL`, the settings `model`) outranking the restore. Both `--model` and `ANTHROPIC_MODEL` outrank it.
+- **`[1m]`.** The suffix is emitted only where the decision of `contextWindow` says the variant is in force and the
+  bare id would give a smaller window. Measured with `get_context_usage`: the bare `claude-opus-5-5` and `claude-sonnet-5-5` run at
+  1M, as do the other 5.x ids; the 4.x families run at 200k bare and 1M with the suffix. `[1m]` on a model without
+  the variant is accepted at launch (the CLI computes the window from the suffix alone) and refused only at the
+  first turn without the long-context beta, so `WINDOWS[...].oneM: null` stays the guard. Not measured: whether a real
+  `[1m]` session writes the bare id, because the measuring account has no long-context beta.
+
 ## Codex — file, JSONL (date-bucketed)
 
 ```
@@ -292,6 +307,19 @@ separate append-only file next to the store:
 - It does **not** go through `customTitle`: that field is promoted into `session_meta.name` by the scan,
   which would overwrite a rename the user made in Switchboard, on every rescan. A thread name is a label,
   not a claim on the name column.
+
+### The last model of a session, for a resume (#754)
+Measured on Codex CLI 0.160.0.
+
+- **Source.** The last `turn_context.payload.model` in the rollout (for example `gpt-5.6-luna`), which is also
+  the spelling `-m` takes. **Not** `thread_settings_applied`: a resume writes two of those at its start, carrying
+  the model in force then (the default) before any `turn_context`, so a session that was resumed and abandoned ends in one with the wrong model.
+- **A plain resume does not restore it.** `codex exec resume <id>` without `-m` ran on the CLI default, not on the
+  session's model; with `-m` the next `turn_context` carries that model. `buildLaunch` puts `-m` after `resume <id>`.
+- **The catalog check.** A model the account cannot use makes a resume start and then fail every turn with HTTP
+  400 until `/model`. `models_cache.json` in the Codex home lists what the account can use (`models[].slug`, the
+  value `-m` takes); a model missing from a cache that parses is not handed back. A missing, unreadable or
+  unparsable cache blocks nothing.
 
 ## Hermes — SQLite
 
@@ -451,6 +479,11 @@ The only backend whose history is **not** in files — the reason the discovery 
 - The TUI takes ≈ 12 s to paint (a heavy Python import) — a fresh tab looks dead until then, so the
   descriptor prints a hint.
 
+### The last model of a session, for a resume (#754)
+Declined. `sessions.model` (one value) and `session_model_usage` (per model, with `task` and `last_seen`) are
+readable, but whether the value follows a mid-session switch and whether `-r <id> --model` is honoured were not
+measured, so the hook answers `null`. Measure both before reading it.
+
 ## Pi — file, JSONL
 
 ```
@@ -556,6 +589,20 @@ and its result shapes are Pi's, not the provider's, but the model decides which 
   `get_messages`) and the session file hold the same `toolResult` message; a `toolResult` message names its call only by `toolCallId` and `toolName`, so it
   is normalised without the call's arguments.
 - Pi has no page range parameter on `read` (`offset`/`limit` are line windows).
+
+### The last model of a session, for a resume (#754)
+Measured on Pi 0.85.1.
+
+- **Source.** A `model_change` entry (`provider`, `modelId`) and an assistant message's `provider` / `model`; the
+  last of the two **in file order** is what the session ran on. A resume given `--model` appends **no**
+  `model_change`: the file keeps the stale one and the next assistant line carries the new model, so the entry
+  type alone does not tell which is later.
+- **A failed turn still names a model.** An expired login or an unsupported model is written with the requested
+  provider and model, both on the assistant entry (`stopReason: error`, zero usage) and on its `model_change`.
+  Such a turn never ran and is skipped, and it voids a `model_change` before it that no successful turn followed.
+- **Launch spelling.** `--model <provider>/<id>`, `--model <id>` and `--provider P --model <id>` are all accepted;
+  `provider/id` is self-contained. A plain resume restores the last model on its own, so the app's own `--model`
+  setting is what outranks it.
 
 ## agy (Antigravity CLI) — file, per-conversation SQLite (reconned from a real install, v1.1.1)
 
@@ -782,6 +829,11 @@ with their own OAuth client, so that legacy source may return 403. A denial is r
 unavailable; it never means that a personal account is unmetered or that AGY sessions cannot run. Both the
 loopback service and the remote endpoint are internal interfaces and can change without notice — the honest
 cost of agy exposing no stable quota command or local quota file for machine consumers.
+
+### The last model of a session, for a resume (#754)
+Declined. The store holds only a display string found by a text hunt in the `gen_metadata` protobuf
+(`Gemini 3.8 Flash (High)`), while the launch flag takes the id `agy models` prints (`gemini-3.8-flash-high`),
+and nothing maps one to the other.
 
 ---
 

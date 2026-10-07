@@ -468,6 +468,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // the label comes along because the descriptor is only in scope inside that branch.
   let resumeUnknown = false;
   let resumeUnknownLabel = '';
+  // What a resume says when the backend put it on something the settings would not have (#754): the text comes
+  // from `resolveResumeOptions`, which is also what decides there is anything to say.
+  let resumeModelNotice = null;
   // The descriptor this session launched under, for the exit handler (#172). Hoisted for the same reason
   // as the two above: the guard on the way IN can only fire from a warm cache, so the cold case is caught
   // on the way OUT — and the exit handler lives outside the branch where the backend is in scope.
@@ -908,9 +911,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           const { userEnv, templateEnv } = userEnvLayers();
           hookEnv = ctx.resolveSpawnEnv({ ...userEnv, ...templateEnv }, backend.label || backend.id, sessionId, { noticeMissing: false });
         } catch { hookEnv = {}; }
-        launchOptions = (await resolveResumeOptions({
+        const resumed = await resolveResumeOptions({
           backend, resume: true, row: resumeRow, projectPath, sessionOptions, env: hookEnv, log: ctx.log,
-        })).options;
+        });
+        launchOptions = resumed.options;
+        resumeModelNotice = resumed.notice;
         // The same re-check as after the probe above: the await may have outlived a quit or a second open.
         if (ctx.getAppQuitting()) return { ok: false, error: 'The app is quitting.' };
         const racedOpen = ctx.activeSessions.get(sessionId);
@@ -1381,6 +1386,19 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     session.outputBufferSize += notice.length;
     if (windowLive()) {
       sendTerminalData(sessionId, notice);
+    }
+  }
+
+  // The resume went onto a model the settings would not have chosen (#754). Said once, dim, in the session's
+  // own output: the conversation view through its notice op, a terminal through the buffer like the hint above.
+  if (resumeModelNotice && typeof ptyProcess.notice === 'function') {
+    ptyProcess.notice('info', resumeModelNotice);
+  } else if (resumeModelNotice) {
+    const line = `\x1b[2m── ${resumeModelNotice} ──\x1b[0m\r\n`;
+    session.outputBuffer.push(line);
+    session.outputBufferSize += line.length;
+    if (windowLive()) {
+      sendTerminalData(sessionId, line);
     }
   }
 

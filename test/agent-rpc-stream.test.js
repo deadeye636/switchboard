@@ -429,6 +429,23 @@ test('the model comes from the state answer where the fill names none, and follo
   assert.equal(last.model, 'Model B', 'a model switched inside the session is drawn after the run');
 });
 
+// #754: what the spawn path says at the start reaches a view that attaches later — the attach's reset clears
+// every notice, so the attach hands these back.
+test('a notice from the spawn path is handed to every attach until a turn runs, bounded', async (t) => {
+  const h = streamHarness(t);
+  t.after(() => stopped(h));
+  h.proc.notice('info', 'Resumed on Model A, the model this session last used');
+  for (let i = 0; i < 10; i++) h.proc.notice('info', `extra ${i}`);
+  const first = await agentRpc.attach('launch-id');
+  assert.deepEqual(first.notices[0], { level: 'info', text: 'Resumed on Model A, the model this session last used' });
+  assert.ok(first.notices.length <= 4, 'bounded');
+  assert.deepEqual((await agentRpc.attach('launch-id')).notices[0], first.notices[0], 'a re-mount gets it again');
+  // Once a turn has run, the start is history: a later attach does not draw it under that turn.
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => h.signals.some((s) => s.kind === 'idle'));
+  assert.deepEqual((await agentRpc.attach('launch-id')).notices, []);
+});
+
 // #697: the fill grows with every call inside a turn, so a runtime that answers mid-turn is asked then too.
 test('the context is asked again during a turn only where the half declares that its runtime answers then', async (t) => {
   const ctx = { contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }), contextFromResponse: () => ({ percent: 10 }) };

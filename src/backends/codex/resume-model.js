@@ -62,7 +62,11 @@ async function resumeLaunchOptions(row, ctx, homeOf) {
   const envHome = ctx && ctx.env && ctx.env.CODEX_HOME;
   const slugs = await catalogSlugs(envHome || (typeof homeOf === 'function' ? homeOf() : null));
   if (slugs && !slugs.has(model)) return null;
-  return { options: { model }, label: model };
+  // Codex does not restore the model on a resume, so any difference from what was sent changes the launch.
+  const sent = ctx && ctx.launchOptions && typeof ctx.launchOptions.model === 'string' ? ctx.launchOptions.model.trim() : '';
+  const notice = sent === model ? undefined
+    : `Resumed on ${model}, the model this session last used, instead of ${sent || "Codex's default"}`;
+  return notice ? { options: { model }, label: model, notice } : { options: { model }, label: model };
 }
 
 module.exports = { resumeLaunchOptions, lastTurnContextModel, LAUNCH_MODEL_ARG };

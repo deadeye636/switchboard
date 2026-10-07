@@ -91,6 +91,9 @@ const CONTEXT_FOLLOW_MS = 1500;
 // (see `attach`). The file can lag the stream by the entry being written, never by a whole turn, so this
 // is a bound on a window of milliseconds rather than a second log of the session.
 const RECENT_APPENDS_CAP = 64;
+// The spawn path says one or two things at the start (#754); a bound, so a caller that misuses `notice` for a
+// stream cannot grow what every attach carries.
+const START_NOTICES_CAP = 4;
 
 // How long a turn the runtime owes may take to start after the one before it ended. Measured on Claude Code:
 // a queued line's `system/init` follows the previous `result` within tens of milliseconds, so this is a
@@ -247,6 +250,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     taskFiles: new Map(),    // task id -> the output file a notice named, kept once it held output (#725)
     suggestion: null,        // the next prompt the runtime proposed after the last turn (#693)
     context: null,           // the context fill and the model, as the backend last read them (#691)
+    startNotices: [],        // what the spawn path said through `notice`, handed to an attach until a turn runs (#754)
     stateModel: null,        // the model the runtime's state names, where the fill's answer names none (#692)
     mode: null,              // the permission mode the runtime last named, in the backend's words (#696)
     contextTimer: null,      // an ask of the fill scheduled during a turn (#697)
@@ -593,6 +597,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (state.busy === op.busy) return;
         state.busy = op.busy;
         if (op.busy) state.suggestion = null;
+        // What the start said is about the start: once a turn runs, a later attach would draw it under turns it
+        // no longer belongs to (#754 verifier F4).
+        if (op.busy) state.startNotices = [];
         noteTurnEdge(op.busy);
         ctx.log.info(`[agent-rpc] session=${(findSession(tag) || {}).id || tag.slice(0, 8)} → ${op.busy ? 'BUSY' : 'IDLE'}`);
         // `turn_start` because an RPC `agent_start` IS a turn beginning — the one fact that releases a
@@ -1058,8 +1065,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     _isDisposed: false,
     write: writeKeys,
     kill,
-    // Something to tell the user that is not a turn — the spawn path's "started a new one instead".
-    notice: (level, text) => sendOp(state, { op: 'notice', level, text }),
+    // Something to tell the user that is not a turn — the spawn path's "started a new one instead", "resumed on
+    // <model>" (#754). Kept as well: these are said at the start, before a view has attached, and the attach's
+    // reset clears every notice it finds (#654) — so the attach hands them back to be drawn after the snapshot.
+    notice: (level, text) => {
+      if (state.startNotices.length < START_NOTICES_CAP) state.startNotices.push({ level, text });
+      sendOp(state, { op: 'notice', level, text });
+    },
     onData() { /* ops go out on `agent-event`, not as terminal bytes */ },
     onExit(handler) { if (typeof handler === 'function') exitHandlers.push(handler); },
     resize() {},
@@ -1129,6 +1141,7 @@ async function attach(sessionId) {
     suggestion: state.suggestion,
     mode: state.mode,
     canSwitchMode: canSwitchMode(state),
+    notices: state.startNotices,
   };
 }
 
@@ -1214,6 +1227,7 @@ async function attachFromTranscript(sessionId, state) {
     suggestion: state.suggestion,
     mode: state.mode,
     canSwitchMode: canSwitchMode(state),
+    notices: state.startNotices,
   };
 }
 

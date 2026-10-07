@@ -2,7 +2,7 @@
 // What a RESUME launches with (#754). The launch options a resume arrives with are resolved from settings by
 // the renderer, so a model chosen for one session only (`/model`, a one-off override) is gone the next time
 // it is opened. The backend knows what its session last ran on and says so through the descriptor hook
-// `resumeLaunchOptions(row, ctx)` → `{ options: { <key>: value }, label } | null`; this module merges the
+// `resumeLaunchOptions(row, ctx)` → `{ options: { <key>: value }, label, notice? } | null`; this module merges the
 // answer into the options handed to `buildLaunch`. It names no backend and no option key.
 //
 // PRECEDENCE: an explicit per-launch override (the renderer marks it with `resumeOverride`, #754 T4) > what
@@ -15,6 +15,9 @@
 // never in a scan, the index or a list. It is awaited with a short timeout, so a slow or hung backend delays
 // a launch by that much at most, and a throw, a timeout or `null` launches exactly as it did before. Nothing
 // here touches the filesystem; whatever the backend reads is its own bounded, asynchronous read.
+//
+// NOTICE: an answer may carry `notice: string`, the one line the session says about it. The backend words it and
+// leaves it out when the launch would have been the same without its answer; this module composes no text.
 
 const RESUME_HOOK_TIMEOUT_MS = 500;
 const TIMED_OUT = Symbol('resume hook timed out');
@@ -36,12 +39,12 @@ function withoutResumeMark(sessionOptions) {
  * @param {object} p.sessionOptions   what the caller sent
  * @param {object} [p.env]            environment the hook may consult
  * @param {{debug?:Function}} [p.log]
- * @returns {Promise<{ options: object, label: string|null, applied: string[] }>}
+ * @returns {Promise<{ options: object, label: string|null, applied: string[], notice: string|null }>}
  *   `options` never carries `resumeOverride`, whatever happened.
  */
 async function resolveResumeOptions({ backend, resume, row, projectPath, sessionOptions, env, log, timeoutMs }) {
   const { resumeOverride, ...sent } = sessionOptions || {};
-  const none = { options: sent, label: null, applied: [] };
+  const none = { options: sent, label: null, applied: [], notice: null };
   if (!resume || !backend || typeof backend.resumeLaunchOptions !== 'function') return none;
 
   let answer = null;
@@ -91,7 +94,10 @@ async function resolveResumeOptions({ backend, resume, row, projectPath, session
   if (!applied.length) return none;
   const label = typeof answer.label === 'string' && answer.label ? answer.label : null;
   if (log && log.debug) log.debug(`[resume-options] backend=${backend.id} resumes with ${applied.join(', ')}${label ? ` (${label})` : ''}`);
-  return { options, label, applied };
+  // The backend words the notice and decides whether there is one (it knows what the launch would have done
+  // without its answer); the core only relays it, and only for a patch that was applied.
+  const notice = typeof answer.notice === 'string' && answer.notice.trim() ? answer.notice.trim() : null;
+  return { options, label, applied, notice };
 }
 
 module.exports = { resolveResumeOptions, withoutResumeMark, RESUME_HOOK_TIMEOUT_MS };

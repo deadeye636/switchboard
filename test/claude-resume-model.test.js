@@ -219,3 +219,30 @@ test('a /model before the tail window keeps its [1m] while it names the tail\'s 
   const row = fixture(lines, { lastModel: null, lastModelSpec: 'claude-opus-4-6[1m]' });
   assert.equal(modelOf(await ask(row)), 'claude-opus-4-6[1m]');
 });
+
+// T8: the notice. Claude restores the last model itself, so it speaks only where a sent model differs.
+const noticeOf = (answer) => answer && answer.notice;
+
+test('notice: none without a model setting, or when the setting names the same model', async () => {
+  const row = fixture([assistant('claude-haiku-4-5')]);
+  assert.equal(noticeOf(await ask(row)), undefined);
+  assert.equal(noticeOf(await ask(row, { launchOptions: { model: '' } })), undefined);
+  assert.equal(noticeOf(await ask(row, { launchOptions: { model: 'claude-haiku-4-5' } })), undefined);
+  assert.equal(noticeOf(await ask(row, { launchOptions: { model: 'haiku' } })), undefined, 'an alias of the same family');
+  assert.equal(noticeOf(await ask(row, { launchOptions: { model: 'claude-haiku-4-5-20251001' } })), undefined, 'a dated id');
+});
+
+test('notice: a different model, or a different window, is named with the setting it replaced', async () => {
+  const row = fixture([assistant('claude-haiku-4-5')]);
+  const n = noticeOf(await ask(row, { launchOptions: { model: 'sonnet' } }));
+  assert.match(n, /^Resumed on claude-haiku-4-5, the model this session last used, instead of sonnet$/);
+  assert.match(noticeOf(await ask(row, { launchOptions: { model: 'default' } })), /instead of default$/);
+});
+
+// Verifier F2: ANTHROPIC_MODEL outranks the CLI's own restore too (T1), so it is what would have run without the
+// hook — a different one is said, the same one is not.
+test('notice: ANTHROPIC_MODEL counts as what would have run when no model is sent', async () => {
+  const row = fixture([assistant('claude-haiku-4-5')]);
+  assert.match(noticeOf(await ask(row, { env: { ANTHROPIC_MODEL: 'claude-sonnet-5-5' } })), /instead of claude-sonnet-5-5$/);
+  assert.equal(noticeOf(await ask(row, { env: { ANTHROPIC_MODEL: 'haiku' } })), undefined);
+});

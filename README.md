@@ -25,7 +25,7 @@ terminal tabs and digging through `~/.claude/projects` for that conversation fro
 
 **One sidebar for every agent.** Sessions from all five CLIs group into the same project by working
 directory, are searchable together, and each carries a provider badge. Resume keeps a session on its
-own binary. A backend you do not use can be switched off entirely — a Codex-only setup is a
+own binary and on the model it last ran on. A backend you do not use can be switched off entirely — a Codex-only setup is a
 first-class setup.
 
 **Sessions in panes.** The default layout splits the area the way VS Code splits editor groups: each

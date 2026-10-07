@@ -161,6 +161,7 @@ corrects it (up to ~15 minutes, pre-existing). A PTY exit clears it immediately.
 | `resolveLineage(row)` | → `{lineageParentId, lineageKind}` \| `null` — which session this one continued (Spec 13). Claude: a fork's `forkedFrom`; Hermes: `parent_session_id`; Pi: a fork's `parentSession` path (only a forked session has one); Codex: a forked rollout's `forked_from_id`, read only where the header is not a subagent's (#229); agy `null` until a verified on-disk parent field exists. The core stamps it at one sink and never reads a backend's format (#193/#223). |
 | `openedWithCommand(row)` | → the slash command a session OPENED with, when that is still all it has said, else `null` (#229, Spec 13). Claude reads its own command markup; Codex, Hermes, Pi and agy decline until their formats are measured. The core stamps the answer onto the sidebar payload (`src/index/projects-view.js`) so the renderer can name such a row after the session it continues without holding any backend's grammar. |
 | `contextWindow(row, {env, launchOptions})` | → `{windowTokens, source}` \| `null` — the context window the row's LAST turn ran against, so the core can divide the stored last-turn input by it (#620, Spec 28). Codex returns the window it reported with that request; Pi looks provider + model up in its own catalog; Claude resolves the model and the `[1m]` variant from a `/model` spec, the stored launch `model`, `ANTHROPIC_MODEL` and its settings files, against a table of measured windows; Hermes and agy decline (no per-turn input in their stores). The core asks with the user's per-backend variables and stored launch options, stamps `contextFill` onto the sidebar payload (`src/index/projects-view.js`), and the renderer reads that field. A template forwards the hook with its own env bundle on top. |
+| `resumeLaunchOptions(row, {projectPath, env, launchOptions})` | → `{options: {<key>: value}, label, notice?}` \| `null` — the launch option a RESUME of this session should carry (#754, decision 12). A patch, not a value: the option key stays the backend's. ASYNC-ONLY: asked once, on the resume of one session, never in a scan or the index, and awaited with a short timeout, so the one bounded read it may do goes through `readFileTailAsync` (`src/backends/file-store.js`), never a synchronous call. Claude, Codex and Pi answer with the model the session last ran on; Hermes and agy decline (`docs/backend-formats.md`). A template does not inherit it. |
 | `transcriptPathFor(row)` | → the path to this row's transcript, or `null`. A file backend hands back `row.filePath`; Claude reconstructs from folder + session id over its own roots. The Projects admin's remap/delete no longer reconstructs a Claude path inline (#211). |
 | `normalizeTranscriptEntries(entries)` | OPTIONAL Message History adapter. A backend whose raw transcript has richer or different entry shapes can return renderer-neutral entries (`message` with text/tool blocks, `custom-title`, `local-command`, `transcript-meta`) before the renderer sees them. Pi uses this to follow the active tree leaf and render `toolCall`/`toolResult`, bash executions, compactions, branch summaries and extension messages without a renderer backend-id branch (#409). |
 | `projectTrust` / `projectMeta` | OPTIONAL per-project capabilities. `projectTrust` = the trust gate (Claude's `~/.claude.json`, Codex's config.toml, Pi's `trust.json`): `get`, `getMany`, `set`, an optional `describeMany(paths)` for a backend whose answer can be kept somewhere other than the path asked about (`{trusted, scope, gate, trustedAbove}` per path, with `scope` `own` / `shared` — a gate other paths share — / `inherited`, in neutral words so the Projects manager can say how far a toggle reaches without knowing whose store it is), and an optional `move(oldPath, newPath)` for a backend whose gates can be shared between paths — Claude keys a repository by its root, so a remap's get-then-set would un-trust or grant a gate other checkouts share (#627). `projectMeta` = a backend's own projects table (Claude's `~/.claude.json`: `getMany` display-ready columns, `knownProjects`, `has`, `rename`, `remove`, `removeLabel`). A backend with none declares none, and the Projects admin shows no columns for it rather than borrowing Claude's (#171/#211/#406). |
@@ -495,6 +496,34 @@ The ones that will look wrong to someone tidying up later:
     a shared home is worth revisiting only when a third caller needs one, and the two halves it would
     carry (`PROBE_STDIO` for the synchronous shapes, `closeStdin` for `execFile`) are what any such home
     has to keep apart.
+12. **A resume keeps the model the session last ran on (#754).** The renderer resolves a resume's options from
+    settings, so a model chosen for one session (`/model`, a one-off override) was gone the next time it opened.
+    `openTerminal` (`src/app/terminal/spawn.js`) now asks the descriptor's `resumeLaunchOptions` once, before
+    `buildLaunch`, through `src/app/terminal/resume-options.js`, which names no backend and no option key.
+    - **Precedence:** an explicit per-launch override (Configure / Resume with config; the renderer marks it
+      `resumeOverride`) > what the session last ran on > the backend or project setting. A fork is not a resume and
+      is never asked.
+    - **The answer is a patch applied as a unit.** A model and its provider are one choice, so an override that
+      sets any key of the patch drops the whole patch, and a `null` value clears that key.
+    - **Performance contract:** one bounded asynchronous tail read (at most 256 KB) per resume, the cached row
+      answering only where the tail names nothing; never a whole-transcript read, never a synchronous call on the
+      main thread. A throw, a timeout or `null` launches exactly as before.
+    - **Visibility:** the answer may carry a `notice` string, which the backend words and sets only when the launch
+      really changes against what would have happened without the hook (Claude and Pi restore the last model
+      themselves, so they speak only when a sent model differs; Codex does not, so it speaks whenever the answer
+      differs from the sent model). The core shows it once in the session's own output — a notice line in a
+      terminal, the `notice` op in a session driven over a pipe — and only for an applied patch: not when the hook
+      declined, timed out, was overridden or only cleared. The core composes no wording.
+    - **Why the merge is in main, not the renderer:** a resume has several entry points (row, pane menu, restore,
+      detached window), and the renderer reads no transcript (CLAUDE.md reflex 5). One place on the spawn path,
+      asking the descriptor, covers all of them.
+    - **Why a template declines:** a template remaps models and aliases, so the id in the transcript is not one the
+      CLI behind it takes back; it does not inherit the hook.
+    - **No opt-out setting:** owner decision. The way out is Resume with config, which wins over the hook.
+    - **What it takes away:** a changed default model no longer shows on the resume of an old session; the session
+      keeps the model it last ran on until the user changes it (`/model`, or Resume with config). New sessions are
+      unaffected, and a transcript with no usable model resumes as before. Other options are not kept.
+      Codex used to fall back to the CLI default on a resume and now keeps its model.
 
 ## The provider badge (#187)
 

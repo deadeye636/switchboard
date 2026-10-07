@@ -52,7 +52,20 @@ function lastModelInTail(text) {
   return changed || proven;
 }
 
-async function resumeLaunchOptions(row) {
+// Pi restores the last pair itself on a plain resume (T1), so the launch changes only where `--model` was sent
+// and names another model, or a `--provider` was sent and names another one; an absent setting provider is not a
+// difference. Nothing to say otherwise.
+function resumeNotice(options, label, sentOptions) {
+  const model = sentOptions && typeof sentOptions.model === 'string' ? sentOptions.model.trim() : '';
+  if (!model) return undefined;
+  const provider = typeof sentOptions.provider === 'string' ? sentOptions.provider.trim() : '';
+  if (model === options.model && (!provider || provider === options.provider)) return undefined;
+  // Pi's own model picker stores the pair as one `provider/id` (#754 verifier F1): the same pair, said once.
+  if (options.provider && model === `${options.provider}/${options.model}` && (!provider || provider === options.provider)) return undefined;
+  return `Resumed on ${label}, the model this session last used, instead of ${provider ? `${provider}/` : ''}${model}`;
+}
+
+async function resumeLaunchOptions(row, ctx) {
   if (!row || typeof row !== 'object') return null;
   let seen = null;
   if (row.filePath) {
@@ -66,7 +79,9 @@ async function resumeLaunchOptions(row) {
   // Model and provider are one pair, so both keys are always answered: an unknown provider (or one that would
   // not be safe argv) is `null`, which clears a settings provider instead of pairing it with this model.
   const options = { model: seen.model, provider: seen.provider && LAUNCH_ARG.test(seen.provider) ? seen.provider : null };
-  return { options, label: options.provider ? `${options.provider}/${seen.model}` : seen.model };
+  const label = options.provider ? `${options.provider}/${seen.model}` : seen.model;
+  const notice = resumeNotice(options, label, ctx && ctx.launchOptions);
+  return notice ? { options, label, notice } : { options, label };
 }
 
 module.exports = { resumeLaunchOptions, lastModelInTail, LAUNCH_ARG };

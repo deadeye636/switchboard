@@ -619,7 +619,7 @@ async function resumeLaunchOptions(row, ctx) {
   if (parsed && modelWindows.windowFor(parsed.model, false) == null && seen.lastModel
     && String(seen.lastModel).trim().toLowerCase().startsWith('claude-')) {
     if (!LAUNCH_MODEL_ARG.test(typed.replace(/\[1m\]$/i, ''))) return null;
-    return { options: { model: typed }, label: typed };
+    return { options: { model: typed }, label: typed, ...noticeField(resumeNotice(typed, typed, specs[0])) };
   }
   // The same decision `contextWindow` makes — model, and whether `[1m]` is in force.
   const decided = modelWindows.resolveClaudeVariant({ ...row, ...seen }, specs);
@@ -633,7 +633,22 @@ async function resumeLaunchOptions(row, ctx) {
   const entry = modelWindows.WINDOWS[decided.model];
   const model = decided.oneM && !(entry && entry.oneM === null) ? `${decided.model}[1m]` : bare;
   if (!LAUNCH_MODEL_ARG.test(model.replace(/\[1m\]$/, ''))) return null;
-  return { options: { model }, label: model };
+  return { options: { model }, label: model, ...noticeField(resumeNotice(model, model, specs[0])) };
+}
+
+// Claude restores the last model itself on a plain resume (T1) — unless something outranks that restore: the
+// `--model` sent, `ANTHROPIC_MODEL`, a `model` in the settings files (T1). The first of those, `specs[0]`, is what
+// the launch would have run on without this hook; the notice is said only when it names another model (an alias
+// of the same family, or the same id, is the same one) or another window (`[1m]`). Nothing to say otherwise.
+const noticeField = (notice) => (notice ? { notice } : {});
+
+function resumeNotice(model, label, wouldHaveRun) {
+  const sent = typeof wouldHaveRun === 'string' ? wouldHaveRun.trim() : '';
+  if (!sent) return undefined;
+  const a = modelWindows.parseSpec(sent);
+  const b = modelWindows.parseSpec(model);
+  if (a && b && modelWindows.specNamesModel(sent, model) && a.oneM === b.oneM) return undefined;
+  return `Resumed on ${label}, the model this session last used, instead of ${sent}`;
 }
 
 module.exports = {

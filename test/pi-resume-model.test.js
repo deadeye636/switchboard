@@ -115,3 +115,22 @@ test('capability rows say yes, and pi-native forwards the hook of its owner', ()
   assert.equal(piNative.resumeLaunchOptions, pi.resumeLaunchOptions);
   assert.equal(backends.get('pi-native').resumeLaunchOptions, pi.resumeLaunchOptions);
 });
+
+// T8: the notice. Pi restores the last pair itself, so it speaks only where a sent model or provider differs.
+const askWith = (row, launchOptions) => pi.resumeLaunchOptions(row, { launchOptions });
+
+test('notice: none without a setting, or when the setting names the same model (a missing provider is no difference)', async () => {
+  const row = fixture([assistant('anthropic', 'claude-haiku-4-5')]);
+  assert.equal((await askWith(row, undefined)).notice, undefined);
+  assert.equal((await askWith(row, {})).notice, undefined);
+  assert.equal((await askWith(row, { model: 'claude-haiku-4-5' })).notice, undefined);
+  assert.equal((await askWith(row, { model: 'claude-haiku-4-5', provider: 'anthropic' })).notice, undefined);
+  // Pi's own model picker stores the pair as one `provider/id` (verifier F1).
+  assert.equal((await askWith(row, { model: 'anthropic/claude-haiku-4-5' })).notice, undefined);
+});
+
+test('notice: a different model or provider is named with the setting it replaced', async () => {
+  const row = fixture([assistant('anthropic', 'claude-haiku-4-5')]);
+  assert.equal((await askWith(row, { model: 'gpt-5' })).notice, 'Resumed on anthropic/claude-haiku-4-5, the model this session last used, instead of gpt-5');
+  assert.equal((await askWith(row, { model: 'claude-haiku-4-5', provider: 'openrouter' })).notice, 'Resumed on anthropic/claude-haiku-4-5, the model this session last used, instead of openrouter/claude-haiku-4-5');
+});

@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
+const { stripComments } = require('./helpers/strip-comments');
 const { resolveResumeOptions, withoutResumeMark } = require('../src/app/terminal/resume-options');
 
 const fake = (hook) => ({ id: 'fake', resumeLaunchOptions: hook });
@@ -137,4 +138,44 @@ test('openSession marks only the options the user chose for this launch', () => 
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
   assert.match(src, /if \(resumeOptions && customOptions\) resumeOptions\.resumeOverride = true;/);
   assert.equal((src.match(/resumeOverride = true/g) || []).length, 1, 'no other path sets the mark');
+});
+
+// T8: the backend words the notice; the core relays it, only for an answer that was applied.
+const noted = (notice, extra = {}) => fake(() => ({ options: { model: 'last' }, label: 'last', notice, ...extra }));
+
+test('the core shows the hook notice as given and composes no text of its own', async () => {
+  assert.equal((await run({ backend: noted('  Resumed on X  '), sessionOptions: { model: 'setting' } })).notice, 'Resumed on X');
+  assert.equal((await run({ sessionOptions: { model: 'setting' } })).notice, null, 'a hook with no notice says nothing, however the model differs');
+  for (const bad of ['', '   ', 5, {}, null]) assert.equal((await run({ backend: noted(bad), sessionOptions: {} })).notice, null);
+});
+
+test('no notice when the hook declines, is overridden, only clears, or it is not a resume', async () => {
+  assert.equal((await run({ backend: fake(() => null), sessionOptions: { model: 's' } })).notice, null);
+  assert.equal((await run({ backend: noted('N'), sessionOptions: { model: 'chosen', resumeOverride: true } })).notice, null);
+  assert.equal((await run({ backend: fake(() => ({ options: { provider: null }, notice: 'N' })), sessionOptions: {} })).notice, null, 'nothing to clear: nothing applied');
+  assert.equal((await run({ backend: noted('N'), resume: false, sessionOptions: { model: 's' } })).notice, null);
+  assert.equal((await run({ backend: fake(() => { throw new Error('x'); }), sessionOptions: {} })).notice, null);
+});
+
+test('an empty override key filled from the hook carries the hook notice', async () => {
+  const r = await run({ backend: noted('N'), sessionOptions: { model: '', resumeOverride: true } });
+  assert.equal(r.notice, 'N');
+});
+
+test('the core hands the hook the options that were sent, without the mark', async () => {
+  let seen;
+  await run({ backend: fake((row, ctx) => { seen = ctx.launchOptions; return null; }), sessionOptions: { model: 'm', resumeOverride: true } });
+  assert.deepEqual(seen, { model: 'm' });
+});
+
+test('resume-options.js words nothing itself', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'resume-options.js'), 'utf8');
+  assert.ok(!/Resumed on|last used/.test(stripComments(src)), 'no sentence in code');
+});
+
+test('spawn.js says the notice through the session notice op or the buffer, once', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'terminal', 'spawn.js'), 'utf8');
+  assert.match(src, /resumeModelNotice = resumed\.notice;/);
+  assert.match(src, /ptyProcess\.notice\('info', resumeModelNotice\)/);
+  assert.match(src, /\} else if \(resumeModelNotice\) \{/, 'a terminal gets it through the buffer');
 });

@@ -500,7 +500,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the entry is absent while nothing is saved.
 - **Identity, resume and fork done honestly** — a backend that names its own sessions (Codex, Hermes,
   Pi) has its id adopted, so one session is one row; resume reapplies the recorded backend and never
-  falls back to Claude; Fork is only offered where the backend can actually fork.
+  falls back to Claude; Fork is only offered where the backend can actually fork. A resume keeps the model the
+  session last ran on (Claude, Codex, Pi) unless you chose one for that launch.
 - **What each backend supports, as one table** — a matrix with one row per capability, one column per
   installed backend, each cell supported / limited / not supported with a short note saying what is
   limited. It opens from the global Backends settings page and from the page of a single backend, which

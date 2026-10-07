@@ -2417,6 +2417,9 @@ function createConversationView(getSession, container) {
     setSuggestion(res.suggestion || null);
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();
+    // What the session said at its start (#754: "resumed on <model>", "started a new one instead"): the reset
+    // above cleared every notice, and these belong after the conversation they comment on.
+    for (const n of Array.isArray(res.notices) ? res.notices : []) if (n && n.text) notice(n.level, n.text);
     toEnd();
     // What happened after the snapshot was taken, in order. Older ops are already in it.
     const since = Number(res.seq) || 0;
