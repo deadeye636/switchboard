@@ -390,17 +390,17 @@ test('every backend declares contextWindow — a window or an honest null', () =
 
 // #754: what a RESUME launches on. The hook is asked once, on the resume of one session, and answers a patch
 // of launch options (`{ options, label }`) or declines with null. Every backend answers; none throws on a
-// row that names nothing. A real answer is async and bounded (the core awaits it with a timeout), so the
-// declining shape is what is pinned here.
-test('every backend declares resumeLaunchOptions — a patch or an honest null', () => {
+// row that names nothing. A real answer is async and bounded (the core awaits it with a timeout), so a hook may
+// return a promise: it is awaited here the way the core awaits it.
+test('every backend declares resumeLaunchOptions — a patch or an honest null', async () => {
   for (const b of READY) {
     const id = b.id;
     assert.equal(typeof b.resumeLaunchOptions, 'function',
       `${id} must declare resumeLaunchOptions (return null if it cannot read the model a session last ran on)`);
     for (const row of [null, {}]) {
-      assert.equal(b.resumeLaunchOptions(row, {}), null, `${id}.resumeLaunchOptions(${JSON.stringify(row)}) must be null, not a throw`);
+      assert.equal(await b.resumeLaunchOptions(row, {}), null, `${id}.resumeLaunchOptions(${JSON.stringify(row)}) must be null, not a throw`);
     }
-    assert.equal(b.resumeLaunchOptions(null), null, `${id}.resumeLaunchOptions(null) with no context must be null`);
+    assert.equal(await b.resumeLaunchOptions(null), null, `${id}.resumeLaunchOptions(null) with no context must be null`);
   }
 });
 

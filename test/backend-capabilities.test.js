@@ -21,7 +21,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
-    resumeModel: 'no', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'yes', projectConfig: 'yes',
@@ -83,7 +83,7 @@ const PINNED = {
   'claude-native': {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
-    resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
+    resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
     resourceDiscovery: 'yes', resourceDepth: 'yes', resourceWrite: 'yes', skillInvoke: 'yes', resourcesFrom: 'no', plans: 'yes', planDirSetting: 'no', projectConfig: 'no',

@@ -23,6 +23,9 @@ const BASE_200K = 200000;
 // canonical model -> { base: window of the bare spec, oneM: window with `[1m]`, or null when the variant
 // is not offered for it }. `oneM` equal to `base` means the suffix changes nothing for that model.
 const WINDOWS = {
+  // What the CLI now resolves `opus` / `sonnet` to; both measured at 1M bare and with the suffix (#754 T1).
+  'claude-opus-5-5': { base: ONE_M, oneM: ONE_M },
+  'claude-sonnet-5-5': { base: ONE_M, oneM: ONE_M },
   'claude-opus-5': { base: ONE_M, oneM: ONE_M },
   'claude-sonnet-5': { base: ONE_M, oneM: ONE_M },   // `sonnet[1m]` measured as claude-sonnet-5[1m] at 1M
   'claude-fable-5': { base: ONE_M, oneM: null },
@@ -130,6 +133,19 @@ function windowFor(model, oneM) {
  * Returns `{ windowTokens, source }` or null.
  */
 function resolveClaudeWindow(row, configuredSpecs = []) {
+  const v = resolveClaudeVariant(row, configuredSpecs);
+  return v ? { windowTokens: v.windowTokens, source: v.source } : null;
+}
+
+/**
+ * The decision behind `resolveClaudeWindow`, kept whole so a second reader asks the same question instead of
+ * collecting the candidates again (#754): `{ model, oneM, windowTokens, source, switched }` or null.
+ *   model     the canonical model the decision is about
+ *   oneM      the `[1m]` variant is in force AND it is a larger window than the bare spec would give — so a
+ *             model whose bare window is already 1M, or an unknown `claude-*` id, answers false
+ *   switched  the model is a `/model` spec's own, not the model the last turn ran on
+ */
+function resolveClaudeVariant(row, configuredSpecs = []) {
   if (!row) return null;
   const input = Number(row.lastInputTokens) || 0;
   const ranOn = parseSpec(row.lastModel);
@@ -164,8 +180,11 @@ function resolveClaudeWindow(row, configuredSpecs = []) {
   if (!best) best = { windowTokens: windowFor(model, false), source: 'model', inferred: true };
   if (best.windowTokens == null) return null;
 
-  if (best.inferred && input > BASE_200K && best.windowTokens < ONE_M) return { windowTokens: ONE_M, source: 'floor' };
-  return { windowTokens: best.windowTokens, source: best.source };
+  const bare = windowFor(model, false);
+  if (best.inferred && input > BASE_200K && best.windowTokens < ONE_M) {
+    return { model, oneM: ONE_M > bare, windowTokens: ONE_M, source: 'floor', switched };
+  }
+  return { model, oneM: best.windowTokens > bare, windowTokens: best.windowTokens, source: best.source, switched };
 }
 
-module.exports = { WINDOWS, ALIASES, parseSpec, familyOf, specNamesModel, windowFor, resolveClaudeWindow };
+module.exports = { WINDOWS, ALIASES, parseSpec, familyOf, specNamesModel, windowFor, resolveClaudeWindow, resolveClaudeVariant };

@@ -350,3 +350,22 @@ test('Hermes and agy decline for any row', () => {
     assert.equal(b.contextWindow({ lastInputTokens: 50000, lastModel: 'claude-opus-5', contextWindowReported: 1000000 }), null, id);
   }
 });
+
+// #754: the decision behind the window is one function, asked by the sidebar and by the resume hook.
+test('resolveClaudeVariant: oneM only where the variant buys a larger window than the bare spec', () => {
+  const row = (lastModel, lastModelSpec = null) => ({ lastInputTokens: 100, lastModel, lastModelSpec });
+  const v = (r, specs = []) => windows.resolveClaudeVariant(r, specs);
+  assert.equal(v(row('claude-opus-4-6'), ['claude-opus-4-6[1m]']).oneM, true);
+  assert.equal(v(row('claude-opus-4-6')).oneM, false);
+  // bare 1M already (measured, T1): no suffix needed, whatever a spec says
+  assert.equal(v(row('claude-opus-5-5'), ['claude-opus-5-5[1m]']).oneM, false);
+  assert.equal(v(row('claude-unknown-9'), ['claude-unknown-9[1m]']).oneM, false);
+  // not offered for it
+  assert.equal(v(row('claude-haiku-4-5'), ['claude-haiku-4-5[1m]']).oneM, false);
+  assert.equal(v(row('gpt-5')), null);
+  // resolveClaudeWindow is the same decision, projected
+  assert.deepEqual(windows.resolveClaudeWindow(row('claude-opus-4-6'), ['claude-opus-4-6[1m]']),
+    { windowTokens: 1000000, source: 'configured-spec' });
+  assert.equal(windows.WINDOWS['claude-opus-5-5'].base, 1000000);
+  assert.equal(windows.WINDOWS['claude-sonnet-5-5'].base, 1000000);
+});

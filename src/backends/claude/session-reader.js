@@ -545,6 +545,26 @@ function applyEntryLine(st, line) {
   }
 }
 
+/**
+ * What a slice of a transcript's END says about the model (#754): the same fold `readSessionFile` runs, over
+ * lines already read, so `<synthetic>` turns, zero-input turns and the `/model` forms are skipped and parsed
+ * exactly as the row's `lastModel` / `lastModelSpec` are. On top of that, for a resume: a failed API call
+ * (`isApiErrorMessage`) never names a model that ran, and a subagent's line (`isSidechain`) is not the
+ * session's. Pure — it reads nothing; the caller hands it the text of a bounded tail.
+ * Returns `{ lastModel, lastModelSpec, lastInputTokens }`.
+ */
+function readModelFromTail(text) {
+  const st = createParseState();
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    let entry;
+    try { entry = JSON.parse(line); } catch { continue; }
+    if (!entry || typeof entry !== 'object' || entry.isSidechain || entry.isApiErrorMessage) continue;
+    applyEntryLine(st, line);
+  }
+  return { lastModel: st.lastModel, lastModelSpec: st.lastModelSpec, lastInputTokens: st.lastInputTokens };
+}
+
 /** Assemble the session row from an accumulated parse state + fresh stat.
  *  Returns null when the state doesn't (yet) describe a valid session. */
 function buildSessionRow(st, stat, filePath, folder, projectPath, opts, dailyMetrics) {
@@ -880,4 +900,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand };
+module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand, readModelFromTail };

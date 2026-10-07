@@ -17,7 +17,7 @@
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion, openedWithCommand: readerOpenedWithCommand } = require('./session-reader');
+const { readSessionFile, readSessionFileIncremental, enumerateSessionFiles, resolveJsonlPath, subagentSessionId, readSubagentMeta, PARSER_SCHEMA_VERSION: readerVersion, openedWithCommand: readerOpenedWithCommand, readModelFromTail } = require('./session-reader');
 const transcriptView = require('./transcript-view');
 // The per-spawn hook settings that tie a /clear to its terminal (#223).
 const liveBinding = require('./live-binding');
@@ -41,7 +41,7 @@ const AGENT_TOOL_WORDS = Object.freeze({
 const plugins = require('./plugins');
 // Who is holding a session right now (#172) — the CLI is the only one that knows.
 const liveAgents = require('./live-agents');
-const { findOnPath } = require('../file-store');
+const { findOnPath, readFileTailAsync, MAX_TAIL_BYTES } = require('../file-store');
 const { readFolderSessions } = require('./folder-reader');
 const { encodeProjectPath } = require('../../session/encode-project-path');
 const { projectShortName } = require('../../session/derive-project-path');
@@ -461,19 +461,37 @@ const SETTINGS_TTL_MS = 5000;
 const _settingsModelCache = new Map();   // file -> { at, model }
 const _projectSpecsCache = new Map();    // projectPath|home -> { at, specs }
 
+/** The `model` a settings file's text names, or null. A BOM is legal in a file this app itself wrote back (safe-write keeps the one it found). */
+function modelOfSettingsText(text) {
+  try {
+    const parsed = JSON.parse(String(text).replace(/^\uFEFF/, ''));
+    if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) return parsed.model.trim();
+  } catch { /* absent or unreadable settings say nothing about the model */ }
+  return null;
+}
+
 /** `{ model, at }` for one settings file — `at` is when that answer was READ, which a memo must not outlive. */
 function settingsModel(file, now) {
   const hit = _settingsModelCache.get(file);
   if (hit && now - hit.at < SETTINGS_TTL_MS) return hit;
-  let model = null;
-  try {
-    // A BOM is legal in a file this app itself wrote back (safe-write keeps the one it found).
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-    if (parsed && typeof parsed.model === 'string' && parsed.model.trim()) model = parsed.model.trim();
-  } catch { /* absent or unreadable settings say nothing about the model */ }
-  const entry = { model, at: now };
+  let text = null;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { /* absent */ }
+  const entry = { model: text == null ? null : modelOfSettingsText(text), at: now };
   _settingsModelCache.set(file, entry);
   return entry;
+}
+
+/** The files of the settings cascade for a project, highest precedence first: local, project, user. */
+function settingsFiles(projectPath) {
+  const files = projectPath
+    ? [path.join(projectPath, '.claude', 'settings.local.json'), path.join(projectPath, '.claude', 'settings.json')]
+    : [];
+  files.push(path.join(claudeHome(), 'settings.json'));
+  return files;
+}
+
+function settingsKey(projectPath) {
+  return (projectPath || '') + '\u0000' + claudeHome();
 }
 
 /**
@@ -483,18 +501,58 @@ function settingsModel(file, now) {
  */
 function settingsSpecs(projectPath) {
   const now = Date.now();
-  const home = claudeHome();
-  const key = (projectPath || '') + '\u0000' + home;
+  const key = settingsKey(projectPath);
   const hit = _projectSpecsCache.get(key);
   if (hit && now - hit.at < SETTINGS_TTL_MS) return hit.specs;
-  const files = projectPath
-    ? [path.join(projectPath, '.claude', 'settings.local.json'), path.join(projectPath, '.claude', 'settings.json')]
-    : [];
-  files.push(path.join(home, 'settings.json'));
-  const answers = files.map((file) => settingsModel(file, now));
+  const answers = settingsFiles(projectPath).map((file) => settingsModel(file, now));
   const specs = answers.map((a) => a.model).filter(Boolean);
   _projectSpecsCache.set(key, { at: Math.min(...answers.map((a) => a.at)), specs });
   return specs;
+}
+
+/**
+ * `settingsSpecs` for a caller that must not block the main thread (the resume hook, #754): the same memos,
+ * the same answer, read through `fs.promises`. Both variants fill one cache, so a sidebar payload that just
+ * read the files spares the hook its reads and the other way round.
+ */
+async function settingsSpecsAsync(projectPath) {
+  const now = Date.now();
+  const key = settingsKey(projectPath);
+  const hit = _projectSpecsCache.get(key);
+  if (hit && now - hit.at < SETTINGS_TTL_MS) return hit.specs;
+  const answers = await Promise.all(settingsFiles(projectPath).map(async (file) => {
+    const memo = _settingsModelCache.get(file);
+    if (memo && now - memo.at < SETTINGS_TTL_MS) return memo;
+    let text = null;
+    try { text = await fs.promises.readFile(file, 'utf8'); } catch { /* absent */ }
+    const entry = { model: text == null ? null : modelOfSettingsText(text), at: now };
+    _settingsModelCache.set(file, entry);
+    return entry;
+  }));
+  const specs = answers.map((a) => a.model).filter(Boolean);
+  _projectSpecsCache.set(key, { at: Math.min(...answers.map((a) => a.at)), specs });
+  return specs;
+}
+
+/**
+ * Every spec that can say `[1m]` for a launch, highest precedence first, the CLI's own order: the `--model` a
+ * launch passes (`opts.launchOptions.model`, the stored default for this backend/template in this project —
+ * #620, O5), then ANTHROPIC_MODEL, then the settings files (`configured`). `opts.env` is the layer the launch
+ * adds over this process's environment — read for the one variable, NOT spread: `process.env` enumerates
+ * slowly, and `contextWindow` runs once per row of every sidebar payload (299 ms against 10 ms for 2 000 rows
+ * when it was spread). A value that still holds a `$VAR` reference names no model.
+ */
+function collectSpecs(opts, configured) {
+  const callerEnv = (opts && opts.env) || {};
+  const envModel = Object.prototype.hasOwnProperty.call(callerEnv, 'ANTHROPIC_MODEL')
+    ? callerEnv.ANTHROPIC_MODEL : process.env.ANTHROPIC_MODEL;
+  const usable = (v) => typeof v === 'string' && v.trim() && !v.includes('$');
+  const launchModel = opts && opts.launchOptions && opts.launchOptions.model;
+  return [
+    ...(usable(launchModel) ? [launchModel.trim()] : []),
+    ...(usable(envModel) ? [envModel.trim()] : []),
+    ...configured,
+  ];
 }
 
 /**
@@ -506,25 +564,76 @@ function settingsSpecs(projectPath) {
 function contextWindow(row, opts = {}) {
   // A row naming no model has no window, and asking the settings files for it would only cost reads.
   if (!row || (!row.lastModel && !row.lastModelSpec)) return null;
-  // The one variable this reads, taken from the caller's layer first and the process's second. NOT by
-  // spreading `process.env`: that object enumerates slowly, and this runs once per row of every sidebar
-  // payload — measured at 299 ms against 10 ms for 2 000 rows when it was spread.
-  const callerEnv = (opts && opts.env) || {};
-  const envModel = Object.prototype.hasOwnProperty.call(callerEnv, 'ANTHROPIC_MODEL')
-    ? callerEnv.ANTHROPIC_MODEL : process.env.ANTHROPIC_MODEL;
-  const configured = settingsSpecs(row.projectPath);
-  // Highest precedence first, the CLI's own order: the `--model` a launch passes (`opts.launchOptions.model`,
-  // the stored default for this backend/template in this project — #620, O5), then ANTHROPIC_MODEL, then
-  // the settings files. Among specs naming one model the larger window wins (E12), so the order only breaks
-  // a tie. A value that still holds a `$VAR` reference names no model.
-  const usable = (v) => typeof v === 'string' && v.trim() && !v.includes('$');
-  const launchModel = opts && opts.launchOptions && opts.launchOptions.model;
-  const specs = [
-    ...(usable(launchModel) ? [launchModel.trim()] : []),
-    ...(usable(envModel) ? [envModel.trim()] : []),
-    ...configured,
-  ];
-  return modelWindows.resolveClaudeWindow(row, specs);
+  return modelWindows.resolveClaudeWindow(row, collectSpecs(opts, settingsSpecs(row.projectPath)));
+}
+
+// ── The model a RESUME should launch on (#754) ───────────────────────────────────────────────────────
+//
+// The CLI restores the last assistant turn's model on a plain resume, but the app passes its own `--model`
+// (the setting) and `ANTHROPIC_MODEL` outranks the restore too — so the session's own model is lost. This
+// answers it: the model the session last ran on, or the `/model` the user typed after that turn (O7: the
+// user's switch wins). Errored and zero-input turns and `<synthetic>` are never a model that ran (O8, D4).
+//
+// PERFORMANCE (binding): asked once, on the resume of one session. The transcript's end is read first — one
+// async tail, at most MAX_TAIL_BYTES — because the row's `lastModel` folds a subagent's turns in too and the
+// tail fold does not. The row's `lastModel` / `lastModelSpec` answer only when the tail yields no model (file
+// missing or unreadable, or no main-chain assistant turn inside the window). The settings files come through
+// `settingsSpecsAsync`. No synchronous fs on this path.
+const LAUNCH_MODEL_ARG = /^[A-Za-z0-9][A-Za-z0-9._@-]*$/;   // what may reach `--model`: no whitespace, no `$`, no quote
+
+/** The transcript file of a row, or null. Pure path work. */
+function transcriptFileOf(row) {
+  return row.filePath || resolveJsonlPath(_roots[0], row);
+}
+
+/** What the transcript's tail says, folded with the row where the tail is silent: `{ lastModel, lastModelSpec, lastInputTokens }`. */
+async function lastModelOf(row) {
+  const fromRow = { lastModel: row.lastModel || null, lastModelSpec: row.lastModelSpec || null, lastInputTokens: row.lastInputTokens || 0 };
+  const file = transcriptFileOf(row);
+  if (!file) return fromRow;
+  let tail;
+  try {
+    tail = readModelFromTail((await readFileTailAsync(file, MAX_TAIL_BYTES)).text);
+  } catch { return fromRow; }   // missing or unreadable: resume as before, or on the row's answer
+  if (!tail.lastModel) return fromRow;
+  // The `/model` the tail cannot see (typed before its window) still stands while it names the tail's model.
+  const spec = tail.lastModelSpec
+    || (row.lastModelSpec && modelWindows.specNamesModel(row.lastModelSpec, tail.lastModel) ? row.lastModelSpec : null);
+  return { lastModel: tail.lastModel, lastModelSpec: spec, lastInputTokens: tail.lastInputTokens };
+}
+
+async function resumeLaunchOptions(row, ctx) {
+  if (!row || typeof row !== 'object') return null;
+  const seen = await lastModelOf(row);
+  const projectPath = row.projectPath || (ctx && ctx.projectPath) || null;
+  const specs = collectSpecs(
+    { env: ctx && ctx.env, launchOptions: ctx && ctx.launchOptions },
+    await settingsSpecsAsync(projectPath),
+  );
+  // O7: the user's `/model` switch wins. `/model default` is the CLI's own default, so it applies by itself;
+  // a spec with no Claude window (`opusplan`) is passed through as typed, when the last turn is not another
+  // provider's (a template's remap).
+  const typed = seen.lastModelSpec ? String(seen.lastModelSpec).trim() : '';
+  if (typed && /^default(\[1m\])?$/i.test(typed)) return null;
+  const parsed = typed ? modelWindows.parseSpec(typed) : null;
+  if (parsed && modelWindows.windowFor(parsed.model, false) == null && seen.lastModel
+    && String(seen.lastModel).trim().toLowerCase().startsWith('claude-')) {
+    if (!LAUNCH_MODEL_ARG.test(typed.replace(/\[1m\]$/i, ''))) return null;
+    return { options: { model: typed }, label: typed };
+  }
+  // The same decision `contextWindow` makes — model, and whether `[1m]` is in force.
+  const decided = modelWindows.resolveClaudeVariant({ ...row, ...seen }, specs);
+  if (!decided) return null;   // no model, or one that is not a `claude-*` id (a template's remap)
+  const bare = decided.switched
+    ? typed.replace(/\[1m\]$/i, '')
+    : String(seen.lastModel).trim();
+  // Suffix only where it buys a larger window than the bare spec AND the model offers the variant (the floor
+  // branch can say "ran large" for a model with no `[1m]`); then the canonical id, which is what the variant
+  // was measured on, rather than a dated one.
+  const entry = modelWindows.WINDOWS[decided.model];
+  const model = decided.oneM && !(entry && entry.oneM === null) ? `${decided.model}[1m]` : bare;
+  if (!LAUNCH_MODEL_ARG.test(model.replace(/\[1m\]$/, ''))) return null;
+  return { options: { model }, label: model };
 }
 
 module.exports = {
@@ -554,8 +663,7 @@ module.exports = {
   // a hook reads a file only through `readFileTailAsync` (`../file-store.js`) — never `readFileTail` or any
   // other sync fs call, which `test/backend-parity.test.js` refuses in a hook's source. `ctx.env` is the
   // layered additions of the launch, as for `contextWindow`.
-  // Declines until the Claude reader answers it (#754 T5).
-  resumeLaunchOptions: () => null,
+  resumeLaunchOptions,
   projectTrust,
   projectMeta,
   rewriteProjectPath,
@@ -1015,7 +1123,7 @@ description:
     // `limited` (#620): the transcript never says `[1m]`, and for a model whose 1M window is opt-in
     // (Sonnet 4.5/4.6, Opus 4.6) a session with no `[1m]` spec anywhere reads as its base window.
     contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
-    resumeModel: { state: 'no', note: 'not read from its transcript yet' },
+    resumeModel: 'yes',
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.
