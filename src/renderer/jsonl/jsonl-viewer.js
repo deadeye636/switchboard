@@ -1135,13 +1135,15 @@ function renderJsonlEntry(entry, toolResultMap, ctx) {
       // that. The transcript is agent-processed third-party content, so only load a
       // path that looks like a real image file (absolute, image extension, no
       // traversal); anything else falls through to plain text rather than pointing a
-      // file:// <img> at an arbitrary local file (issue #77).
+      // file:// <img> at an arbitrary local file (issue #77). A second leading slash
+      // or backslash (`//host/x.png`, `/\host\x.png`) would make a UNC path and send
+      // the load to a network share, so a POSIX path takes exactly one.
       const imgMatch = block.text.trim().match(/^\[Image:\s*source:\s*([^\]]+)\]$/);
       if (imgMatch) {
         const rawPath = imgMatch[1].trim();
         const isSafeImagePath = /\.(png|jpe?g|gif|webp|bmp)$/i.test(rawPath)
           && !rawPath.includes('..')
-          && (rawPath.startsWith('/') || /^[A-Za-z]:[\\/]/.test(rawPath));
+          && (/^\/(?![\\/])/.test(rawPath) || /^[A-Za-z]:[\\/](?![\\/])/.test(rawPath));
         if (isSafeImagePath) {
           const imgEl = document.createElement('img');
           imgEl.className = 'jsonl-tool-screenshot jsonl-clickable-img';
