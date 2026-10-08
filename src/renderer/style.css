@@ -1524,7 +1524,8 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   flex-shrink: 0;
 }
 .hidden-project-unhide-btn:hover { background: rgba(255,255,255,0.06); color: #e6e8ec; border-color: rgba(255,255,255,0.2); }
-.hidden-project-auto-badge {
+.hidden-project-auto-badge,
+.resume-last-used-badge {
   flex-shrink: 0;
   font-size: 9px;
   line-height: 1;
@@ -1536,6 +1537,8 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
   padding: 3px 6px;
   border-radius: 4px;
 }
+/* #760: the Resume-with-config field that holds what the session last ran with. Inline after the label. */
+.resume-last-used-badge { margin-left: 6px; vertical-align: 1px; }
 
 .project-header .arrow {
   font-size: 9px;

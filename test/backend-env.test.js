@@ -140,7 +140,11 @@ test('the spawn merges backend env BETWEEN the backend and the template', () => 
   assert.match(layers, /const \{ userEnv, templateEnv \} = userEnvLayers\(\);/);
   const userAt = SPAWN.indexOf('const userEnvLayers = () => {');
   assert.notEqual(userAt, -1, 'the user/template layers must still be read in spawn.js');
-  const userLayers = SPAWN.slice(userAt, SPAWN.indexOf('\n      };', userAt));
+  assert.match(SPAWN.slice(userAt, SPAWN.indexOf('\n      };', userAt)), /envLayerParts = envLayersOf\(backend\);/);
+  // The read itself is `envLayersOf` since #760, which the Resume-with-config preview shares.
+  const helperAt = SPAWN.indexOf('function envLayersOf(backend) {');
+  assert.notEqual(helperAt, -1, 'the user/template layers must still be read in spawn.js');
+  const userLayers = SPAWN.slice(helperAt, SPAWN.indexOf('\n}', helperAt));
   assert.match(userLayers, /const allEnv = \(ctx\.getSetting\('global'\) \|\| \{\}\)\.backendEnv \|\| \{\};/);
   // The template's own keys are lifted back out of launch.env first...
   assert.match(layers, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,

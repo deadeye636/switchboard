@@ -1170,21 +1170,49 @@ async function showGeneratedResumeDialog(session, initialBackend) {
   const initialView = pair ? pair.current : null;
   let backend = pair ? (initialView === pair.gui.id ? pair.gui : pair.terminal) : initialBackend;
   let fields = [];
+  // What each field showed when it was drawn, so Resume can tell a field the user changed from one left as it
+  // was (#760): only a changed field counts as chosen for this launch.
+  let shown = [];
+  // The options a resume of this session would carry from its backend — the model it last ran on (#760). Asked
+  // once per backend the dialog is drawn for (the View switch can draw the other one), never per row.
+  const previews = new Map();
+  // Asked with the options a plain resume sends from settings — the same resolver and the same deletions as
+  // `openSession` — because the backend may answer differently for them (a `[1m]` variant the setting names).
+  const previewFor = (b) => {
+    if (!previews.has(b.id)) {
+      const ask = (async () => {
+        if (!window.api || typeof window.api.getResumeLaunchPreview !== 'function') return null;
+        const sent = await resolveLaunchOptionsFor({ projectPath: session.projectPath }, b.id);
+        delete sent.backendId; delete sent.worktree; delete sent.worktreeName;
+        return window.api.getResumeLaunchPreview(session.sessionId, session.projectPath, b.id, sent);
+      })().catch(() => null);
+      previews.set(b.id, ask);
+    }
+    return previews.get(b.id);
+  };
+  const fieldValue = (f, el) => (f.type === 'toggle' ? el.checked : el.value.trim());
 
   const overlay = document.createElement('div');
   overlay.className = 'new-session-overlay';
   const dialog = document.createElement('div');
   dialog.className = 'new-session-dialog';
 
-  function fieldsHtml(b) {
+  function fieldsHtml(b, last) {
     const saved = storedDefaultsFor(effective, b);
+    const lastOptions = last && last.options && typeof last.options === 'object' ? last.options : {};
     fields = ((schemaBackendOf(b) || {}).configFields || []).filter(f => f.perSession !== false);
     return fields.map((f, i) => {
-      const val = saved[f.id] !== undefined ? saved[f.id] : f.default;
+      let val = saved[f.id] !== undefined ? saved[f.id] : f.default;
+      // The session's own last value replaces the settings' one, marked as such. A select that does not offer it
+      // gets it as one more option, so the dialog shows what an untouched Resume launches with.
+      const fromSession = Object.prototype.hasOwnProperty.call(lastOptions, f.id);
+      if (fromSession) val = lastOptions[f.id] === null ? '' : lastOptions[f.id];
+      const choices = f.type === 'select' && fromSession && val !== '' && !(f.choices || []).some(c => String(c) === String(val))
+        ? [...(f.choices || []), val] : (f.choices || []);
       const id = `grd-${i}`;
       let control;
       if (f.type === 'select') {
-        const opts = (f.choices || []).map(c =>
+        const opts = choices.map(c =>
           `<option value="${escapeHtml(String(c))}" ${String(val) === String(c) ? 'selected' : ''}>${escapeHtml(String((f.choiceLabels || {})[c] || c))}</option>`
         ).join('');
         control = `<select class="settings-select" id="${id}">${opts}</select>`;
@@ -1196,10 +1224,13 @@ async function showGeneratedResumeDialog(session, initialBackend) {
       // A backend's own quirks belong on screen (#160): the description comes from the descriptor, so a
       // CLI's caveat ("at your own risk", "only applies with the local provider above") reaches the user
       // where the decision is made, instead of living in a comment nobody reads.
+      const badge = fromSession
+        ? ` <span class="resume-last-used-badge" data-last-used="${i}" title="What this session last ran with. Leave it as it is to keep it; change it to choose for this launch.">last used</span>`
+        : '';
       return `
       <div class="settings-field settings-field-wide" ${f.requires ? `data-requires="${escapeHtml(f.requires)}"` : ''}>
         <div class="settings-field-info">
-          <span class="settings-label">${escapeHtml(f.label || f.id)}</span>
+          <span class="settings-label">${escapeHtml(f.label || f.id)}${badge}</span>
           ${f.description ? `<div class="settings-description">${escapeHtml(f.description)}</div>` : ''}
         </div>
         <div class="settings-field-control">${control}</div>
@@ -1235,22 +1266,43 @@ async function showGeneratedResumeDialog(session, initialBackend) {
   `;
   // The dialog is built for ONE backend, so choosing the other view rebuilds its options and its title. The
   // View field is rendered with the options, inside one list, so the list's rounded ends stay where they are.
-  function renderFor(b) {
+  // The View switch can be pressed again while the other backend's answer is on its way: the last press wins, and
+  // a render whose press was overtaken draws nothing.
+  let renderTarget = null;
+  async function renderFor(b) {
+    renderTarget = b;
+    const last = await previewFor(b);
+    if (renderTarget !== b) return;
     backend = b;
     dialog.querySelector('.resume-dialog-title').textContent = `Resume ${b.label} — ${sessionName}`;
-    dialog.querySelector('.resume-dialog-fields').innerHTML = viewHtml + fieldsHtml(b);
+    dialog.querySelector('.resume-dialog-fields').innerHTML = viewHtml + fieldsHtml(b, last);
+    shown = fields.map((f, i) => {
+      const el = dialog.querySelector(`#grd-${i}`);
+      return el ? fieldValue(f, el) : undefined;
+    });
+    // The mark says "this is what the session had": it goes away while the field holds something else.
+    dialog.querySelectorAll('[data-last-used]').forEach(badgeEl => {
+      const i = Number(badgeEl.dataset.lastUsed);
+      const el = dialog.querySelector(`#grd-${i}`);
+      if (!el) return;
+      const sync = () => { badgeEl.hidden = fieldValue(fields[i], el) !== shown[i]; };
+      el.addEventListener('input', sync);
+      el.addEventListener('change', sync);
+    });
     dialog.querySelectorAll('.resume-view-switch [data-view]').forEach(btn => {
       const on = btn.dataset.view === b.id;
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       btn.addEventListener('click', () => {
         const next = btn.dataset.view === pair.gui.id ? pair.gui : pair.terminal;
-        if (next.id !== backend.id) renderFor(next);
+        if (!renderTarget || next.id !== renderTarget.id) renderFor(next);
       });
     });
     bindModelDiscovery(dialog);
   }
-  renderFor(backend);
+  // Drawn before it is shown, so the fields do not change under the user: the backend's answer is bounded by the
+  // resume hook's own timeout.
+  await renderFor(backend);
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
 
@@ -1263,10 +1315,13 @@ async function showGeneratedResumeDialog(session, initialBackend) {
     // backend's own options, plus the view when the user CHANGED it (#670 E17): left at its preselected value,
     // nothing is stored, so opening the dialog and pressing Resume does not pin today's automatic route.
     const options = {};
+    const chosen = [];
     fields.forEach((f, i) => {
       const el = dialog.querySelector(`#grd-${i}`);
       if (!el) return;
-      const v = f.type === 'toggle' ? el.checked : el.value.trim();
+      const v = fieldValue(f, el);
+      // A field the user changed is their choice for this launch; one left as it was drawn is not (#760).
+      if (v !== shown[i]) chosen.push(f.id);
       // An empty text field means "not set". A `false` toggle does NOT — it means the user turned the
       // option OFF, and for an option whose default is ON (Claude's IDE emulation) dropping the false is
       // the difference between honouring their choice and silently overriding it. Same rule the stored
@@ -1275,6 +1330,7 @@ async function showGeneratedResumeDialog(session, initialBackend) {
       options[f.id] = v;
     });
     if (pair && backend.id !== initialView) options.openerChoice = backend.id;
+    options.resumeChosen = chosen;
     close();
     openSession(session, options);
   }

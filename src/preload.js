@@ -192,6 +192,9 @@ contextBridge.exposeInMainWorld('api', {
   renameSession: (id, name) => ipcRenderer.invoke('rename-session', id, name),
   archiveSession: (id, archived) => ipcRenderer.invoke('archive-session', id, archived),
   openTerminal: (id, projectPath, isNew, sessionOptions) => ipcRenderer.invoke('open-terminal', id, projectPath, isNew, sessionOptions),
+  // #760: the options a resume of this session would carry from its backend (the model it last ran on), for the
+  // Resume-with-config dialog. Asked once when the dialog opens; null when the backend cannot say.
+  getResumeLaunchPreview: (id, projectPath, backendId, sentOptions) => ipcRenderer.invoke('resume-launch-preview', id, projectPath, backendId, sentOptions),
   search: (type, query, titleOnly) => ipcRenderer.invoke('search', type, query, titleOnly),
   readSessionJsonl: (sessionId) => ipcRenderer.invoke('read-session-jsonl', sessionId),
   readSubagentJsonl: (parentSessionId, agentId) => ipcRenderer.invoke('read-subagent-jsonl', parentSessionId, agentId),

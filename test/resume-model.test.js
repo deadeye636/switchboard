@@ -136,8 +136,38 @@ test('spawn.js hands the merged options, not the raw ones, to buildLaunch and re
 // openSession is not loadable here (app.js is the page's shell), so this is a source check of the one line.
 test('openSession marks only the options the user chose for this launch', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'app.js'), 'utf8');
-  assert.match(src, /if \(resumeOptions && customOptions\) resumeOptions\.resumeOverride = true;/);
-  assert.equal((src.match(/resumeOverride = true/g) || []).length, 1, 'no other path sets the mark');
+  // #760: the mark is the dialog's list of changed fields when it sent one, else `true`.
+  assert.match(src, /if \(resumeOptions && customOptions\) \{[^}]*resumeOptions\.resumeOverride = chosen \|\| true;/);
+  assert.equal((src.match(/resumeOverride = /g) || []).length, 1, 'no other path sets the mark');
+  assert.match(src, /delete resumeOptions\.resumeChosen;/, 'the list never reaches main under its own name');
+});
+
+// #760: the Resume-with-config dialog sends every field and names the ones the user changed.
+test('a list mark counts only the keys it names as chosen', async () => {
+  const kept = await run({ sessionOptions: { model: 'shown', effort: 'high', resumeOverride: ['effort'] } });
+  assert.deepEqual(kept.options, { model: 'last', effort: 'high' }, 'a model left as it was shown does not beat the hook');
+  const chosen = await run({ sessionOptions: { model: 'chosen', resumeOverride: ['model'] } });
+  assert.deepEqual(chosen.options, { model: 'chosen' });
+  assert.deepEqual(chosen.applied, []);
+  const pairPart = await run({ backend: fake(pair('last', 'p-last')), sessionOptions: { model: 'shown', provider: 'chosen-p', resumeOverride: ['provider'] } });
+  assert.deepEqual(pairPart.options, { model: 'shown', provider: 'chosen-p' }, 'one chosen key of the patch still drops it whole');
+  const none = await run({ sessionOptions: { model: 'shown', resumeOverride: [] } });
+  assert.equal(none.options.model, 'last');
+  assert.ok(!('resumeOverride' in none.options));
+});
+
+test('the preview answers what a plain resume would apply, with a cleared key as null, or null', async () => {
+  const { previewResumeOptions } = require('../src/app/terminal/resume-options');
+  const ask = (hook, sessionOptions) => previewResumeOptions({ backend: fake(hook), row: { id: 's' }, projectPath: '/p', env: {}, sessionOptions });
+  assert.deepEqual(await ask(answer('last')), { options: { model: 'last' }, label: 'last' });
+  // Asked with the settings a plain resume sends: a key it clears is shown as cleared.
+  assert.deepEqual(await ask(pair('last', null), { model: 's', provider: 'sp' }), { options: { model: 'last', provider: null }, label: 'last' });
+  // The hook sees those settings (a backend may answer by them), never the mark.
+  let seen = null;
+  await ask((_row, c) => { seen = c.launchOptions; return null; }, { model: 'opus[1m]', resumeOverride: ['model'] });
+  assert.deepEqual(seen, { model: 'opus[1m]' });
+  assert.equal(await ask(() => null), null);
+  assert.equal(await ask(() => { throw new Error('x'); }), null);
 });
 
 // T8: the backend words the notice; the core relays it, only for an answer that was applied.

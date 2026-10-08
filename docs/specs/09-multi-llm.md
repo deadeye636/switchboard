@@ -505,6 +505,15 @@ The ones that will look wrong to someone tidying up later:
       is never asked.
     - **The answer is a patch applied as a unit.** A model and its provider are one choice, so an override that
       sets any key of the patch drops the whole patch, and a `null` value clears that key.
+    - **The Resume-with-config dialog shows the answer and counts only what changed (#760).** It sends every field,
+      so `resumeOverride` may be a list of option keys: only a field the user changed counts as chosen, and one left
+      as the dialog drew it does not beat the session's last model. The dialog asks the same answer once when it
+      opens (`resume-launch-preview` in `src/app/terminal/spawn.js`, `previewResumeOptions` in
+      `resume-options.js`; again only if its View switch draws the other backend), never per row — and asks it with
+      the options a plain resume sends from settings, because a backend may answer by them (Claude keeps the `[1m]`
+      variant a setting names; Pi clears a provider it cannot name). A field holding that answer carries a "last
+      used" chip, gone while the field holds something else; a select that does not offer the value gets it as one
+      more option. A backend that declines shows the settings' value, unmarked, as before.
     - **Performance contract:** one bounded asynchronous tail read (at most 256 KB) per resume, the cached row
       answering only where the tail names nothing; never a whole-transcript read, never a synchronous call on the
       main thread. A throw, a timeout or `null` launches exactly as before.

@@ -47,7 +47,7 @@ const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
 const { conptyBuildHint } = require('./conpty');
 const { measured } = require('../../perf');
-const { resolveResumeOptions, withoutResumeMark } = require('./resume-options');
+const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
 
 let ctx = null;
 
@@ -895,10 +895,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // save during the hook's wait cannot give the two different answers.
       let envLayerParts = null;
       const userEnvLayers = () => {
-        if (envLayerParts) return envLayerParts;
-        const allEnv = (ctx.getSetting('global') || {}).backendEnv || {};
-        const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
-        envLayerParts = { userEnv: allEnv[baseId] || {}, templateEnv: backend.isProfile ? (backend.templateEnv || {}) : {} };
+        if (!envLayerParts) envLayerParts = envLayersOf(backend);
         return envLayerParts;
       };
       if (resumeOnly && typeof backend.resumeLaunchOptions === 'function') {
@@ -907,11 +904,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         // `env` is the layered ADDITIONS (the `contextWindow` contract), resolved and without a word — the spawn
         // below says what is missing. The backend's own bundle is not in it: it comes out of `buildLaunch`,
         // which needs the answer of this very call.
-        let hookEnv = {};
-        try {
-          const { userEnv, templateEnv } = userEnvLayers();
-          hookEnv = ctx.resolveSpawnEnv({ ...userEnv, ...templateEnv }, backend.label || backend.id, sessionId, { noticeMissing: false });
-        } catch { hookEnv = {}; }
+        const hookEnv = resumeHookEnv(backend, userEnvLayers(), sessionId);
         const resumed = await resolveResumeOptions({
           backend, resume: true, row: resumeRow, projectPath, sessionOptions, env: hookEnv, log: ctx.log,
         });
@@ -1792,12 +1785,49 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   return { ok: true, reattached: false, mcpActive: !!mcpServer, pathShell: pathShellOf(session) };
 }
 
+// The user's own variables for a backend and a template's bundle: the layers a launch adds over the process
+// environment. A template reads its base's variables (a NULL base is the pre-#161 Claude template).
+function envLayersOf(backend) {
+  const allEnv = (ctx.getSetting('global') || {}).backendEnv || {};
+  const baseId = backend.isProfile ? (backend.baseId || 'claude') : backend.id;
+  return { userEnv: allEnv[baseId] || {}, templateEnv: backend.isProfile ? (backend.templateEnv || {}) : {} };
+}
+
+// The environment `resumeLaunchOptions` is asked with: the layered additions, resolved and without a word.
+function resumeHookEnv(backend, layers, sessionId) {
+  try {
+    const { userEnv, templateEnv } = layers;
+    return ctx.resolveSpawnEnv({ ...userEnv, ...templateEnv }, backend.label || backend.id, sessionId, { noticeMissing: false });
+  } catch { return {}; }
+}
+
+/**
+ * What a resume of this session would carry from its backend (#760): the same `resumeLaunchOptions` answer the
+ * spawn path applies, for the Resume-with-config dialog to show as the session's last options. Asked once, when
+ * that dialog opens for one session (and again only if the user switches its view) — never per row, never in a
+ * scan. `{ options: { <key>: value|null }, label } | null`; `null` when the backend cannot say.
+ */
+async function resumeLaunchPreview(sessionId, projectPath, backendId, sentOptions) {
+  const backend = backendId ? ctx.backends.get(backendId) : null;
+  if (!sessionId || !backend || typeof backend.resumeLaunchOptions !== 'function') return null;
+  let row = null;
+  try { row = ctx.getCachedSession(sessionId) || null; } catch { row = null; }
+  // `sentOptions` are what a plain resume of this session would send from settings, so the answer is the one
+  // that resume would apply.
+  return previewResumeOptions({
+    backend, row, projectPath, sessionOptions: sentOptions,
+    env: resumeHookEnv(backend, envLayersOf(backend), sessionId), log: ctx.log,
+  });
+}
+
 /**
  * @param {Electron.IpcMain} ipc  passed in, not required — this module needs no electron of its own.
  */
 function registerIpc(ipc) {
   ipc.handle('open-terminal', (_event, sessionId, projectPath, isNew, sessionOptions) =>
     openTerminal(sessionId, projectPath, isNew, sessionOptions));
+  ipc.handle('resume-launch-preview', (_event, sessionId, projectPath, backendId, sentOptions) =>
+    resumeLaunchPreview(sessionId, projectPath, backendId, sentOptions));
   // Synchronous: the renderer needs the ConPTY build hint BEFORE it constructs the
   // xterm Terminal (windowsPty is a constructor option), which happens before
   // open-terminal returns. Resolved per project (project → global conptyBackend
@@ -1817,6 +1847,8 @@ function registerIpc(ipc) {
 // are exercised on the pure function the onData handler calls.
 module.exports = {
   init, registerIpc, openTerminal, scanAltScreen, altScreenFromReplay,
+  // #760: what the Resume-with-config dialog shows as the session's last options; exported for its test.
+  resumeLaunchPreview,
   // #585: the silence notice's text and its deadline. Exported for the same reason the two above are —
   // the timer that uses them sits behind `pty.spawn`, which no test can reach.
   silentTerminalNotice, SILENT_TERMINAL_NOTICE_MS,
