@@ -842,9 +842,18 @@ async function archiveSessionFromRow(session) {
 //                             may be null when released outside any target;
 //                             targetCls is the highlight class it carried,
 //                             already removed by cleanup at this point)
+//   scrollEl (optional)     — scrolled while the pointer is held near its top or
+//                             bottom edge, so a target outside the visible part
+//                             can be reached (#772); the target is re-hit-tested
+//                             after every step, because the content moved under
+//                             a pointer that did not
+const DRAG_SCROLL_EDGE_PX = 36;
+const DRAG_SCROLL_MAX_STEP_PX = 18;
+
 function startPointerDrag(e, opts) {
   const startX = e.clientX, startY = e.clientY;
   let dragging = false, ghost = null, dropEl = null, dropCls = null;
+  let lastX = startX, lastY = startY, scrollRaf = 0;
 
   const clearDropTarget = () => {
     if (dropEl) { dropEl.classList.remove(dropCls); dropEl = null; dropCls = null; }
@@ -870,17 +879,44 @@ function startPointerDrag(e, opts) {
     clearDropTarget();
     if (hit) { dropEl = hit.el; dropCls = hit.cls; dropEl.classList.add(dropCls); }
   };
+  // How far to scroll this frame: zero away from the edges, growing towards the edge itself.
+  const scrollStep = () => {
+    const r = opts.scrollEl.getBoundingClientRect();
+    if (lastX < r.left || lastX > r.right) return 0;
+    if (lastY < r.top + DRAG_SCROLL_EDGE_PX) {
+      return -Math.ceil(DRAG_SCROLL_MAX_STEP_PX * Math.min(1, (r.top + DRAG_SCROLL_EDGE_PX - lastY) / DRAG_SCROLL_EDGE_PX));
+    }
+    if (lastY > r.bottom - DRAG_SCROLL_EDGE_PX) {
+      return Math.ceil(DRAG_SCROLL_MAX_STEP_PX * Math.min(1, (lastY - (r.bottom - DRAG_SCROLL_EDGE_PX)) / DRAG_SCROLL_EDGE_PX));
+    }
+    return 0;
+  };
+  const autoScroll = () => {
+    scrollRaf = 0;
+    if (!dragging || !opts.scrollEl) return;
+    const step = scrollStep();
+    if (!step) return;
+    const before = opts.scrollEl.scrollTop;
+    opts.scrollEl.scrollTop = before + step;
+    if (opts.scrollEl.scrollTop === before) return;   // at the end already
+    updateDropTarget(lastX, lastY);
+    scrollRaf = requestAnimationFrame(autoScroll);
+  };
   const onMove = (ev) => {
     if (!dragging) {
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
       beginDrag();
     }
+    lastX = ev.clientX; lastY = ev.clientY;
     moveGhost(ev.clientX, ev.clientY);
     updateDropTarget(ev.clientX, ev.clientY);
+    if (opts.scrollEl && !scrollRaf) scrollRaf = requestAnimationFrame(autoScroll);
   };
   const cleanup = () => {
+    if (scrollRaf) { cancelAnimationFrame(scrollRaf); scrollRaf = 0; }
     document.removeEventListener('pointermove', onMove);
     document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', cleanup);
     document.body.classList.remove('sidebar-session-dragging');
     opts.dragEl.classList.remove('dragging');
     if (ghost) { ghost.remove(); ghost = null; }
@@ -896,6 +932,23 @@ function startPointerDrag(e, opts) {
 
   document.addEventListener('pointermove', onMove);
   document.addEventListener('pointerup', onUp);
+  // A drag the system took away (no pointerup will follow) drops nothing and leaves no ghost behind.
+  document.addEventListener('pointercancel', cleanup);
+}
+
+// Where a dragged project lands, from the pointer's height alone (#772). The groups are measured by their
+// HEADERS: an expanded project is mostly its session list, and splitting the whole group at half its height
+// made "after a long project" a drag deep into its sessions. The pointer goes before the first header whose
+// middle is below it, or after the last group — so a gap between groups, the space above the first and the
+// space below the last all have an answer, instead of the element under the pointer having to be a group.
+// `candidates` are the possible neighbours in DOM order, the dragged group itself left out.
+function pickProjectDropTarget(candidates, y) {
+  if (!candidates.length) return null;
+  for (const g of candidates) {
+    const h = (g.querySelector(':scope > .project-header') || g).getBoundingClientRect();
+    if (y < h.top + h.height / 2) return { el: g, cls: 'drop-target-before' };
+  }
+  return { el: candidates[candidates.length - 1], cls: 'drop-target-after' };
 }
 
 // #17: manual reorder of project headers (drag from the grip handle). Only active
@@ -909,15 +962,24 @@ function startProjectDrag(project, header, e) {
   const container = group.parentElement;
   if (!container) return;
 
+  // Favorites are pinned above their divider unless they have a list of their own (project-sort.js), so a
+  // drop on the other side would snap back on the next render: only the dragged group's own side is offered.
+  const pinned = !(typeof favoritesOwnList !== 'undefined' && favoritesOwnList);
+  const favorite = group.dataset.favorited === '1';
+
   startPointerDrag(e, {
     dragEl: group,
     ghostLabel: header.querySelector('.project-name')?.textContent || 'Project',
-    findDropTarget: (el, _x, y) => {
-      const g = el && el.closest ? el.closest('.project-group') : null;
-      if (!g || g === group || g.parentElement !== container) return null;
-      const r = g.getBoundingClientRect();
-      const dropAfter = (y - r.top) > r.height / 2;
-      return { el: g, cls: dropAfter ? 'drop-target-after' : 'drop-target-before' };
+    scrollEl: container,
+    findDropTarget: (_el, x, y) => {
+      const bounds = container.getBoundingClientRect();
+      // Left the list — sideways, or well past its top or bottom (the tabs, the search box): releasing cancels.
+      if (x < bounds.left || x > bounds.right) return null;
+      if (y < bounds.top - DRAG_SCROLL_EDGE_PX || y > bounds.bottom + DRAG_SCROLL_EDGE_PX) return null;
+      const candidates = Array.from(container.children).filter(g =>
+        g.classList.contains('project-group') && g !== group
+        && (!pinned || (g.dataset.favorited === '1') === favorite));
+      return pickProjectDropTarget(candidates, y);
     },
     onDrop: (target, targetCls) => {
       if (!target) return;

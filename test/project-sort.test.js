@@ -104,6 +104,23 @@ test('a stale lastActivity never holds a project back (#306)', () => {
   assert.deepStrictEqual(paths(r), ['a/live', 'a/mid']);
 });
 
+test('manual: missing and empty projects follow the order, they are not moved to the end (#772)', () => {
+  const r = sortProjects([
+    P('a/normal', { modified: '2026-05-01' }),
+    P('a/missing', { missing: true }),
+    P('a/empty', { empty: true }),
+  ], { projectSortMode: 'manual', projectOrder: ['a/missing', 'a/empty', 'a/normal'] });
+  assert.deepStrictEqual(paths(r), ['a/missing', 'a/empty', 'a/normal']);
+});
+
+test('manual: favorites stay pinned even when the order puts a missing one first (#772)', () => {
+  const r = sortProjects([
+    P('a/missing', { missing: true }),
+    P('a/fav', { fav: true }),
+  ], { projectSortMode: 'manual', favoritesOwnList: false, projectOrder: ['a/missing', 'a/fav'] });
+  assert.deepStrictEqual(paths(r), ['a/fav', 'a/missing']);
+});
+
 test('manual respects favorites block when pinned', () => {
   const r = sortProjects([
     P('a/restA', { modified: '2026-01-01' }),

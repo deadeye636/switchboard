@@ -660,6 +660,8 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     group.className = 'project-group' + (project.missing ? ' missing' : '');
     group.id = fId;
     group.dataset.projectPath = project.projectPath;
+    // Which side of the favorites divider the group is on — the manual-sort drag offers no drop across it (#772).
+    if (project.favorited) group.dataset.favorited = '1';
 
     const header = document.createElement('div');
     header.className = 'project-header';

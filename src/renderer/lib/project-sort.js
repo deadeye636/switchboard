@@ -3,10 +3,14 @@
 //
 // Rules (stable sort over a copy):
 //   1. unless favoritesOwnList: favorited projects first
-//   2. missing projects last
-//   3. empty projects (no sessions) last
+//   2. missing projects last        (not in manual mode)
+//   3. empty projects (no sessions) last (not in manual mode)
 //   4. by mode: activity = newest session first; alpha = display label;
 //      manual = projectOrder index (unknown → end, tiebreak by activity)
+//
+// Manual mode keeps only rule 1 (#772): the user placed every project by hand, and a rule that moves one
+// back after the drop reads as a drop that did nothing. Favorites stay pinned because their block has a
+// visible divider and the drag never offers a position across it.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
@@ -70,6 +74,10 @@
         const fa = a.favorited ? 0 : 1;
         const fb = b.favorited ? 0 : 1;
         if (fa !== fb) return fa - fb;
+      }
+      if (mode === 'manual') {
+        const mc = modeCompare(a, b);
+        return mc !== 0 ? mc : da.i - db.i;
       }
       const ma = a.missing ? 1 : 0;
       const mb = b.missing ? 1 : 0;

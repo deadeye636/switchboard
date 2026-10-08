@@ -280,7 +280,7 @@ stored preference survives — the setting stopped being about tabs when panes s
 
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
-| `projectSortMode` | Project order | `activity` \| `alpha` \| `manual` | `activity` | global |
+| `projectSortMode` | Project order. `activity` and `alpha` move missing and empty projects to the end; `manual` follows the drag order alone, and only favorites stay pinned on top while `favoritesOwnList` is off (#772) | `activity` \| `alpha` \| `manual` | `activity` | global |
 | `favoritesOwnList` | Favorites as a separate list | bool | `false` | global |
 | `vcsChipEnabled` | Show version-control status — *Version control* | `true` \| `false` | `true` | global |
 | `vcsShowBadge` | Show branch & change counts badge — *Version control*; a main project shows it in its second line while `sidebarProjectSecondLine` is on | `true` \| `false` | `false` | global |
