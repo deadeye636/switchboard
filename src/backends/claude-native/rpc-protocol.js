@@ -384,6 +384,12 @@ function createDecoder() {
   const toolOutputs = new Map();  // tool_use id -> the output file its tool result named
   const taskOutputs = new Map();  // task id -> the output file
   const noticed = new Set();      // task ids whose end has been drawn
+  // Tasks a SUBAGENT started inside its own run (#771). Measured on 2.1.293: their `task_started` carries
+  // `owned_by_subagent: true` and the running list names the agent as `parent_task_id` (taken only when it
+  // names an agent live here), while the
+  // `task_notification` says neither and has no `parent_tool_use_id`. Their end is the subagent's business and
+  // draws no card here; the parent's transcript holds no line for them either, only a queue entry.
+  const subagentTasks = new Set();
   // Point 10: the `Skill` calls seen, and the results that arrived and still wait for their text. The synthetic
   // line holding a skill's text names no call, so it takes the oldest result still waiting — in the order the
   // results came, which is the one measured for a single call; parallel calls are assumed to keep it. A failed
@@ -606,7 +612,7 @@ function createDecoder() {
     // whichever of the two lines about it arrives first.
     if (isTaskNotification(msg)) {
       const entry = taskNoticeEntry(msg, toolKinds);
-      if (entry._task.id && noticed.has(entry._task.id)) return [];
+      if (entry._task.id && (noticed.has(entry._task.id) || subagentTasks.has(entry._task.id))) return [];
       if (entry._task.id) noticed.add(entry._task.id);
       return [{ op: 'append', entry: withOutputFile(entry, taskOutputFileOf(msg) || taskOutputFile(entry._task.id)) }];
     }
@@ -700,6 +706,7 @@ function createDecoder() {
       case 'task_started': {
         const id = typeof msg.task_id === 'string' ? msg.task_id : '';
         if (!id) return [];
+        if (msg.owned_by_subagent === true) subagentTasks.add(id);
         started.set(id, {
           toolUseId: typeof msg.tool_use_id === 'string' ? msg.tool_use_id : null,
           description: typeof msg.description === 'string' ? msg.description : '',
@@ -722,7 +729,15 @@ function createDecoder() {
       }
       case 'background_tasks_changed':
         running = (Array.isArray(msg.tasks) ? msg.tasks : [])
-          .filter(t => t && typeof t.task_id === 'string')
+          .filter(t => t && typeof t.task_id === 'string');
+        // The list's own word for a subagent's task, for a notification whose start this decoder did not see —
+        // taken only when it names an agent that is live here, so a field stamped on every task by a later
+        // CLI could not hide the parent's own cards.
+        for (const t of running) {
+          const parent = typeof t.parent_task_id === 'string' ? t.parent_task_id : '';
+          if (parent && liveAgents.has(parent)) subagentTasks.add(t.task_id);
+        }
+        running = running
           .map(t => ({ id: t.task_id, kind: kindOfTaskType(t.task_type), description: typeof t.description === 'string' ? t.description : '' }));
         return [tasksOp()];
       case 'task_notification': {
@@ -734,7 +749,7 @@ function createDecoder() {
         // The user line Claude injects for the model is NOT sent on the pipe (measured in the app: the turn it
         // starts arrives, the line does not), only written to the transcript. So the live notice is drawn from
         // this line, and an injected line for the same task — replayed after all, or read back — is dropped.
-        if (noticed.has(id)) return ended;
+        if (noticed.has(id) || subagentTasks.has(id)) return ended;
         noticed.add(id);
         return [...ended, { op: 'append', entry: withOutputFile(liveTaskNotice(msg), taskOutputFile(id)) }];
       }
@@ -824,9 +839,28 @@ function createDecoder() {
     return ops;
   }
 
+  // A subagent's own line draws nothing here, but its shell calls are what the Background list shows for the
+  // tasks it starts (#771): the command they ran, and the output file their result names, so Output works while
+  // such a shell runs. Measured on 2.1.293: the result of a subagent's background Bash call carries the same
+  // "Output is being written to" sentence as the parent's.
+  function noteSubagentLine(msg) {
+    const content = msg.message && Array.isArray(msg.message.content) ? msg.message.content : [];
+    for (const b of content) {
+      if (!b || typeof b !== 'object') continue;
+      if (msg.type === 'assistant' && b.type === 'tool_use' && b.id && kindOfTool(b.name) === 'shell') {
+        toolKinds.set(b.id, 'shell');
+        if (b.input && typeof b.input.command === 'string') toolDetails.set(b.id, b.input.command);
+      }
+      if (msg.type === 'user' && b.type === 'tool_result' && b.tool_use_id && toolKinds.get(b.tool_use_id) === 'shell') {
+        const file = OUTPUT_PATH.exec(textOf(b.content) || '');
+        if (file) toolOutputs.set(b.tool_use_id, file[1]);
+      }
+    }
+  }
+
   function translate(msg) {
     if (!msg || typeof msg !== 'object') return [];
-    if (ofSubagent(msg)) return [];
+    if (ofSubagent(msg)) { noteSubagentLine(msg); return []; }
     const ops = followId(msg);
     switch (msg.type) {
       case 'stream_event': return ops.concat(onStreamEvent(msg.event));

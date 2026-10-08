@@ -990,6 +990,42 @@ test('the registry\'s probe walks PATH only; the version is asked only for a lau
   assert.deepEqual(await launch, { ok: true }, 'a version that could not be read does not refuse the launch');
 });
 
+// #771, in the shapes measured on 2.1.293 (scripts/measure-claude-subagent-task.js): a shell a subagent starts
+// inside its own run is announced with `owned_by_subagent: true`, and its notification says nothing of the owner.
+test('background tasks: a shell a subagent started draws no card in the parent, the parent\'s own still does', () => {
+  const d = protocol.createDecoder();
+  const appended = (ops) => ops.filter(o => o.op === 'append');
+  d.decode({ type: 'system', subtype: 'task_started', task_id: 'agent1', task_type: 'local_agent', tool_use_id: 'toolu_a', is_backgrounded: false, description: 'shell probe' });
+  // The subagent's own lines draw nothing, but its shell call and the file its result names are kept.
+  assert.deepEqual(d.decode({ type: 'assistant', parent_tool_use_id: 'toolu_a', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_b', name: 'Bash', input: { command: 'node wait.js', run_in_background: true } }] } }), []);
+  d.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'bo1', task_type: 'local_bash', description: 'Wait 20 seconds', parent_task_id: 'agent1' }] });
+  const startOps = d.decode({ type: 'system', subtype: 'task_started', task_id: 'bo1', task_type: 'local_bash', tool_use_id: 'toolu_b', owned_by_subagent: true, is_backgrounded: true, description: 'Wait 20 seconds' });
+  assert.deepEqual(d.decode({ type: 'user', parent_tool_use_id: 'toolu_a', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_b', content: 'Command running in background with ID: bo1. Output is being written to: /tmp/x/bo1.output' }] } }), []);
+  const listed = startOps.find(o => o.op === 'tasks').tasks.find(t => t.id === 'bo1');
+  assert.equal(listed.detail, 'node wait.js', 'the Background list keeps it, with the command it ran');
+  assert.equal(d.taskOutputFile('bo1'), '/tmp/x/bo1.output', 'Output works while it runs');
+  d.decode({ type: 'system', subtype: 'task_started', task_id: 'bg1', task_type: 'local_bash', tool_use_id: 'toolu_c', owned_by_subagent: true, is_backgrounded: false, description: 'Wait 25 seconds' });
+  // A stop_task for it ends it as measured: killed, a stopped notification — and still no card.
+  d.decode({ type: 'system', subtype: 'task_updated', task_id: 'bo1', patch: { status: 'killed' } });
+  assert.deepEqual(appended(d.decode({ type: 'system', subtype: 'task_notification', task_id: 'bo1', tool_use_id: 'toolu_b', status: 'stopped', summary: 'Wait 20 seconds' })), [],
+    'the subagent\'s background shell');
+  assert.deepEqual(appended(d.decode({ type: 'system', subtype: 'task_notification', task_id: 'bg1', tool_use_id: 'toolu_c', status: 'completed', summary: 'Wait 25 seconds' })), [],
+    'the subagent\'s long foreground shell');
+  // An injected line for it, should the pipe ever play one back, is dropped the same way.
+  assert.deepEqual(d.decode({ type: 'user', uuid: 'u9', origin: { kind: 'task-notification' }, message: { role: 'user', content: '<task-notification>\n<task-id>bo1</task-id>\n<status>completed</status>\n<summary>x</summary>\n</task-notification>' } }), []);
+  assert.equal(appended(d.decode({ type: 'system', subtype: 'task_notification', task_id: 'agent1', tool_use_id: 'toolu_a', status: 'completed', summary: 'done' }))[0].entry.type, 'task-notice',
+    'the parent\'s own agent keeps its card');
+
+  // Only the running list names the owner when the start was not seen — and only for an agent that is live here.
+  const late = protocol.createDecoder();
+  late.decode({ type: 'system', subtype: 'task_started', task_id: 'agent2', task_type: 'local_agent', tool_use_id: 'toolu_x', is_backgrounded: false, description: 'x' });
+  late.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'bo2', task_type: 'local_bash', description: 'x', parent_task_id: 'agent2' }] });
+  assert.deepEqual(appended(late.decode({ type: 'system', subtype: 'task_notification', task_id: 'bo2', status: 'completed', summary: '' })), []);
+  late.decode({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'own1', task_type: 'local_bash', description: 'Dev server', parent_task_id: 'nobody' }] });
+  assert.equal(appended(late.decode({ type: 'system', subtype: 'task_notification', task_id: 'own1', status: 'completed', summary: '' })).length, 1,
+    'a parent_task_id naming no live agent hides nothing');
+});
+
 // #691, in the shapes measured on 2.1.283 (spec 32, "Background tasks and session figures").
 test('background tasks: the running list is Claude\'s own, a start adds the call behind it, the notice replaces the tags', () => {
   const d = protocol.createDecoder();

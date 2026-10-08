@@ -724,6 +724,25 @@ calls and one background agent. What the stream carries, all as `system` lines t
   one agent, the agent badge and the `◉` count, as it already did for a background agent; they answer two
   questions (is a subagent of this session live, what runs beside its turn) and are left side by side.
 
+- **A shell a subagent starts draws no card in the parent** (#771). Measured on Claude Code 2.1.293 (Haiku, one
+  foreground agent; `scripts/measure-claude-subagent-task.js` repeats it in three variants):
+  - `wait` — the agent runs one background shell and one long foreground shell and waits for both. Both get a
+    `task_started` with `owned_by_subagent: true` and later a `task_notification` that names no owner and has no
+    `parent_tool_use_id`. The background one is also in `background_tasks_changed`, with the agent's task id as
+    `parent_task_id`. The parent's transcript holds no injected line for either, only `queue-operation` entries
+    (`enqueue`, then `remove` with `absorbed_mid_turn`), so nothing is drawn on read-back.
+  - `early` — the agent returns at once. Its background shell does not outlive it: it is `killed` and notified as
+    `stopped` within a second, before the agent's own end. So such a shell never becomes the parent's.
+  - `stop` — `stop_task` for the subagent's background shell ends it as it ends the parent's own: `task_updated`
+    `killed`, a `stopped` notification and a success answer at once.
+
+  The decoder marks such a task from `owned_by_subagent`, or from a `parent_task_id` that names an agent live in
+  this decoder, and draws no card for its end — on the system line and on an injected line alike; the parent's
+  own shells and agents keep theirs. **The Background list keeps it** while it runs, as one of the session's
+  shells: it is a real process beside the turn, and Stop ends it (measured above). The subagent's own lines draw
+  nothing, but the decoder takes the shell call's command and the output file its result names from them, so the
+  list shows the command and Output works while the shell runs.
+
 Found by listing the control and message subtypes in the CLI binary first; each one above was then seen on the
 pipe. pi-native has no background tasks of its own: Pi runs a tool inside its turn, and the user's own shell
 lines are already tracked by the view. Its context fill and window come from `get_session_stats`
