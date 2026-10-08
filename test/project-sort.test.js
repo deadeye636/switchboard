@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { sortProjects } = require('../src/renderer/lib/project-sort.js');
+const { sortProjects, moveInProjectOrder } = require('../src/renderer/lib/project-sort.js');
 
 // Helper to build a project with a single session at `modified`.
 // `empty` → no sessions; `lastActivity` → an empty project that still carries a
@@ -130,4 +130,30 @@ test('manual respects favorites block when pinned', () => {
   ], { projectSortMode: 'manual', favoritesOwnList: false, projectOrder: ['a/restC', 'a/restA', 'a/favD', 'a/favB'] });
   // favorites first (favD, favB per order), then rest (restC, restA per order)
   assert.deepStrictEqual(paths(r), ['a/favD', 'a/favB', 'a/restC', 'a/restA']);
+});
+
+test('moveInProjectOrder: only the dragged project moves; unrendered ones keep their place (#773)', () => {
+  // A filter shows b and d only. Dragging d before b must leave a, c and e where they were.
+  const r = moveInProjectOrder(['a', 'b', 'c', 'd', 'e'], ['a', 'b', 'c', 'd', 'e'], 'd', 'b', false);
+  assert.deepStrictEqual(r, ['a', 'd', 'b', 'c', 'e']);
+});
+
+test('moveInProjectOrder: drop after a target', () => {
+  assert.deepStrictEqual(moveInProjectOrder(['a', 'b', 'c'], [], 'a', 'c', true), ['b', 'c', 'a']);
+});
+
+test('moveInProjectOrder: projects the saved order lacks are appended in render order, then the move applies', () => {
+  // Nothing saved yet: the render order is the base, so the first drag does not reshuffle the rest.
+  assert.deepStrictEqual(moveInProjectOrder([], ['x', 'y', 'z'], 'z', 'x', false), ['z', 'x', 'y']);
+  // Saved a, b; c is new and shown after them.
+  assert.deepStrictEqual(moveInProjectOrder(['a', 'b'], ['b', 'a', 'c'], 'c', 'b', false), ['a', 'c', 'b']);
+});
+
+test('moveInProjectOrder: entries for projects no list knows are kept', () => {
+  // A hidden project is in no list the renderer holds; its saved place must survive a drag.
+  assert.deepStrictEqual(moveInProjectOrder(['h', 'a', 'b'], ['a', 'b'], 'b', 'a', false), ['h', 'b', 'a']);
+});
+
+test('moveInProjectOrder: a drop on itself changes nothing; a duplicate keeps its last place, as sortProjects ranks it', () => {
+  assert.deepStrictEqual(moveInProjectOrder(['a', 'b', 'a'], ['b'], 'a', 'a', false), ['b', 'a']);
 });

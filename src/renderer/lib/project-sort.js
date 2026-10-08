@@ -11,6 +11,9 @@
 // Manual mode keeps only rule 1 (#772): the user placed every project by hand, and a rule that moves one
 // back after the drop reads as a drop that did nothing. Favorites stay pinned because their block has a
 // visible divider and the drag never offers a position across it.
+//
+// moveInProjectOrder (#773) is the other half of manual mode: the saved order after one drag, moving only the
+// dragged project. Called by the drop in shell/sidebar-events.js.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();
@@ -93,5 +96,30 @@
     return decorated.map(d => d.p);
   }
 
-  return { sortProjects };
+  // The saved manual order after one drag (#773). Only the dragged project moves: it is placed next to the
+  // neighbour it was dropped beside, and every other entry keeps its place — including projects the sidebar
+  // is not rendering right now (a filter, a search, a hidden project). The order used to be re-read from the
+  // rendered groups, which dropped every hidden project out of it.
+  // `knownPaths` are every project the list knows, in the order the render would put them; the ones the saved
+  // order does not hold yet are appended in that order, which is where the render already shows them.
+  function moveInProjectOrder(savedOrder, knownPaths, dragged, target, after) {
+    const order = [];
+    const seen = new Set();
+    const add = (p) => { if (typeof p === 'string' && p && !seen.has(p)) { seen.add(p); order.push(p); } };
+    // A duplicate keeps its LAST place, the one sortProjects ranks it by (its index map takes the last write).
+    const saved = Array.isArray(savedOrder) ? savedOrder : [];
+    saved.filter((p, i) => saved.lastIndexOf(p) === i).forEach(add);
+    // Entries no list knows are kept, never pruned: a hidden project is in no list here, and dropping it
+    // is exactly what lost its place. The order grows by one short path per project ever seen.
+    (Array.isArray(knownPaths) ? knownPaths : []).forEach(add);
+    add(target);
+    if (!dragged || dragged === target) return order;
+    const from = order.indexOf(dragged);
+    if (from !== -1) order.splice(from, 1);
+    const at = order.indexOf(target);
+    order.splice(after ? at + 1 : at, 0, dragged);
+    return order;
+  }
+
+  return { sortProjects, moveInProjectOrder };
 });

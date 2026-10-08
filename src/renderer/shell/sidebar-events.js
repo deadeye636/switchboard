@@ -27,7 +27,8 @@
 // A classic <script>, like the file it came from: nothing runs at parse time. It reaches back into
 // sidebar.js (getAllRenderableSessions, getSessionRuntimeState, folderId, refreshSidebar's callers), into
 // sidebar-lineage.js (lineageThreadChain, for the archive scope), into app.js's session maps and caches,
-// out to the dialogs — all at click time.
+// into lib/project-sort.js (sortProjects, moveInProjectOrder) and app.js's sort state (projectOrder,
+// projectSortMode, favoritesOwnList) for the manual project drag, out to the dialogs — all at click time.
 //
 // It WRITES fields on objects other files own (`session.archived`, `session.starred`, `session.name` on
 // app.js's sessionMap rows; `p.favorited` on cachedProjects). Those are field writes on shared objects,
@@ -986,9 +987,13 @@ function startProjectDrag(project, header, e) {
       // The highlight class encodes the drop half (recomputed on every move).
       const after = targetCls === 'drop-target-after';
       if (after) target.after(group); else target.before(group);
-      const order = Array.from(container.querySelectorAll('.project-group'))
-        .map(g => g.dataset.projectPath)
-        .filter(Boolean);
+      // Move only the dragged project inside the FULL saved order (#773), not the rendered groups: a filter
+      // or a search leaves projects unrendered, and they keep their place.
+      const known = [...(cachedAllProjects || []), ...(cachedProjects || [])];
+      const knownPaths = sortProjects(known, { favoritesOwnList, projectSortMode: 'manual', projectOrder })
+        .map(p => p.projectPath);
+      const order = moveInProjectOrder(projectOrder, knownPaths,
+        group.dataset.projectPath, target.dataset.projectPath, after);
       if (typeof window._persistProjectOrder === 'function') window._persistProjectOrder(order);
       if (typeof refreshSidebar === 'function') refreshSidebar({ resort: true });
     },
