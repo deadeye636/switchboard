@@ -400,7 +400,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   plan card. A pending card takes the input's place until it is answered, from the keyboard like in the CLI:
   a tab per question, numbered options, notes and "chat about this" (#704). A text field sends, queues and
   steers turns, and Stop interrupts the turn without ending the process. A prompt sent during a turn is held
-  by the app until the session is idle, so it can still be edited or withdrawn (#702). Under the input a
+  by the app until the session is idle, so it can still be edited or withdrawn (#702); Ctrl+Enter steers it
+  into the running turn instead, and *Enter while a turn runs* (`conversationEnterWhileBusy`) swaps the two
+  keys for every conversation view (#756). Under the input a
   session line shows the context fill, the model, the permission mode (Shift+Tab switches it, #696) and the
   working state, and background shells and agents get a list with Output, Open and Stop (#691, #695).
   Claude's prompt suggestions appear greyed in the empty input and Tab takes one (#693), a sent message
@@ -417,7 +419,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   (#719) — and manages them from there by mouse or keyboard: view tools, reconnect, enable or disable (asked
   first, since the CLI stores it for the whole project), sign in through the browser and sign out (#728). A
   subagent's report is drawn as a closed card of its own, opened in place, so it does not read as the main
-  session answering (#729). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  session answering (#729). A running subagent wears the agent badge on the row and the tab, its start and
+  end taken from the pipe rather than from file activity (#762, #769), foreground agents count in the
+  background list (#768), and the caret on an `Agent` call follows that subagent's transcript inline, with
+  *Open in tab* on top (#770). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:
@@ -435,10 +440,11 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Document preview card (#755)** — in the conversation view of Claude (native) and Pi (native), and in the
   Message History viewer, a file the agent reads (a PDF page range, an image, Markdown, HTML) is drawn as one
   card with a first-page thumbnail, the name and a page label, instead of every page inline. A click opens a
-  viewer over the conversation with a pager, zoom and Esc, built from the pages the result already holds; a
-  card with no pages (a whole-PDF read, Markdown, HTML) follows the file-click setting, with Ctrl/Cmd
-  inverting it, and with `external` sends a PDF, an image or an HTML file to the default program and Markdown
-  to the editor. Two buttons open the file in the default app or in a tab. The backend stamps a neutral
+  viewer over the conversation with a pager, zoom and Esc, built from the pages the result already holds. A
+  Markdown or HTML card reads its file on the click and shows it rendered in the same viewer (#764);
+  Ctrl/Cmd-click follows the file-click setting instead. A whole-PDF read follows the file-click setting, with
+  Ctrl/Cmd inverting it. With `external` that setting sends a PDF, an image or an HTML file to the default
+  program and Markdown to the editor. Two buttons open the file in the default app or in a tab. The backend stamps a neutral
   `document` element into the read result; main keeps the paths a session's backend reported and the open
   button is answered only for those (absolute and local, a document extension, a real path that is not
   sensitive, a regular file), so the renderer names no path of its own. The history viewer shows a card and

@@ -114,7 +114,7 @@ chart rather than a row of zeroes.
   own permission questions (with "always allow in this project" where Claude suggests that rule), its
   questions to you and its plans as cards you answer in place, and images you
   paste or drop go out with your message, while any other file is named as `@path`, which Claude reads
-  in. `/mcp` opens the session's MCP servers as the CLI's own `/mcp` does, by mouse or keyboard: their state and tools, and reconnect, enable or disable, sign in or out. Scrolled back through a long turn, the prompt that started it stays pinned at the top of the
+  in. `/mcp` opens the session's MCP servers as the CLI's own `/mcp` does, by mouse or keyboard: their state and tools, and reconnect, enable or disable, sign in or out. A running subagent shows a badge on its row and tab, and its transcript can be followed inline under the call that started it. A setting decides whether Enter during a turn holds the prompt or steers it into the turn. Scrolled back through a long turn, the prompt that started it stays pinned at the top of the
   conversation, in both views without a terminal. It starts only
   in a project Claude trusts, and it has no login of its own. Its sessions are ordinary Claude sessions and
   reopen where they were driven.
@@ -122,8 +122,9 @@ chart rather than a row of zeroes.
 - **Documents an agent reads are cards** — in the conversation view of Claude and Pi without a terminal, a
   PDF page range, an image, a Markdown or an HTML file the agent reads is one card with a first-page
   thumbnail, the name and a page count, not every page in the log. A click opens a viewer over the
-  conversation with a pager and zoom, or the file the way your file-click setting says; two buttons open it
-  in the default app or in a tab. `Documents in the conversation` switches back to inline images.
+  conversation with a pager and zoom, and a Markdown or HTML file opens there rendered; Ctrl/Cmd-click opens
+  it the way your file-click setting says, and a whole-PDF read always follows that setting. Two buttons open
+  it in the default app or in a tab. `Documents in the conversation` switches back to inline images.
   → [`docs/specs/33-document-preview.md`](docs/specs/33-document-preview.md)
 - **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (native),
   Pi and Pi (native)), each sidebar row shows where it opens, and a session can be opened in the other view

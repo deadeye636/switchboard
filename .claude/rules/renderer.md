@@ -724,6 +724,15 @@ while the app runs, so routing it would make the copy correct only until somethi
 
 Spec 33 has the rest.
 
+## A transcript image path loads a LOCAL file or nothing (#77)
+
+The history viewer draws `[Image: source: <path>]` as an `<img>` with a `file://` source
+(`src/renderer/jsonl/jsonl-viewer.js`). The transcript is agent-written, so the path is checked first: an image
+extension, no `..`, and an absolute local path — a POSIX path with **exactly one** leading slash, or a drive
+letter with **one** separator. A second leading slash or backslash (`//host/x.png`, `/\host\x.png`) is a UNC path
+on Windows and would load from a network share; that loophole was open until CodeQL alert 18. Anything that fails
+the check is drawn as plain text. Loosening the check means an agent's text can make the app fetch from any host.
+
 ## `src/shared/`
 
 The modules **both processes load** — `attention-source`, `custom-launchers`, `variable-insert`,

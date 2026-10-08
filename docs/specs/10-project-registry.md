@@ -564,7 +564,9 @@ together is a change of its own.
 | `syncRegistry()` before the list is built; one visibility rule for every view | `src/main.js` |
 | "Listed" toggle (both modes), hide ≠ remove | `src/renderer/panels/projects-admin.js`, `src/renderer/shell/sidebar.js` |
 | The "not on your list" line + the manager's filter (#183) | `src/renderer/app.js`, `src/renderer/panels/projects-admin.js` |
-| Is this a worktree, of what, and what is it called — one pattern, one segment list (#582, #586, #594) | `src/shared/worktree-path.js` (`parseWorktreePath` / `worktreeRootOf` / `worktreeLabelOf` / `worktreeDirsIn` / `settingsOwnerPath`) |
+| Is this a worktree, of what, and what is it called — one pattern, one segment list, plus the remembered list of checkouts outside the layout (#582, #586, #594, #757) | `src/shared/worktree-path.js` (`parseWorktreePath` / `worktreeRootOf` / `worktreeLabelOf` / `worktreeDirsIn` / `settingsOwnerPath`; `setKnownWorktrees` / `worktreeRepoOf` / `repoOfGitdir` for the remembered list) |
+| A checkout outside the layout, recognised by its `.git` file and owned by the nearest listed project (#757) | `src/projects/known-worktree.js` (detection, once per path per run), `src/db/worktree-store.js` (the stored `worktree_repo` fact) |
+| The saved manual project order after a drag, and where a drop lands (#772, #773) | `src/renderer/lib/project-sort.js` (`sortProjects`, `moveInProjectOrder`), `src/renderer/shell/sidebar-events.js` (`pickProjectDropTarget`, the edge scroll) |
 | The third row source: the worktrees a visible project holds on disk (#594) | `src/index/worktree-dirs.js`, driven by `refreshWorktreeDirs` on `src/index/session-cache.js` from main's post-reconcile upkeep |
 | Which row a worktree nests under, on both surfaces (#586, #595, #596) | `src/index/projects-view.js` (`nestUnder`), re-answered for config-only rows in `src/projects/projects.js` |
 | A worktree reads its project's settings, and the window says which worktree it was opened from (#593) | `src/app/settings.js` (`effectiveSettings`), `src/app/windows.js` (`settingsQuery`) |
@@ -886,6 +888,30 @@ the list (a removed project keeps the offer it had): adding it would
 register a missing project. That covers what was never recognised as a worktree — a checkout deleted before
 this shipped, a test run's folder. The cost, stated: a never-listed project on a drive that is not connected
 is not offered while the drive is away, and is offered again once it is back.
+
+## Manual sort: the drop holds, and only the dragged project moves (#772, #773)
+
+`projectSortMode: manual` is a sort mode, not the registration mode of the same name above. These decisions
+make a drop stay where it was put:
+
+**Only favorites stay pinned.** `activity` and `alpha` move missing and empty projects to the end; manual mode
+used to as well, so a drop across that line was saved and then undone by the next render. In manual mode the
+user placed every project, so `sortProjects` keeps only the favorites block, and only while
+`favoritesOwnList` is off. The drag offers no position across the favorites divider for the same reason.
+
+**A drop moves one entry of the full saved order.** The order used to be rebuilt from the rendered groups, so a
+project a filter, a search or the hidden list kept off screen fell out of it and came back at the end.
+`moveInProjectOrder` takes the saved order, appends the projects it does not hold yet in render order, and moves
+only the dragged project next to the neighbour it was dropped beside. Entries no list knows are kept, never
+pruned; the order grows by one short path per project ever seen.
+
+**Where it lands is decided by height alone.** `pickProjectDropTarget` measures the project HEADERS, not the
+groups: the pointer goes before the first header whose middle is below it, or after the last group. A gap
+between groups and the space above the first or below the last all resolve to a position, and an expanded
+project no longer has to be passed halfway down its session list. The list scrolls while the pointer is held
+near its top or bottom edge, and the target is re-measured after each step. A release sideways outside the
+list or well past its ends, or a `pointercancel`, drops nothing. Guarded by `test/project-sort.test.js` and
+`test/sidebar-project-drop-vm.test.js`.
 
 ## Known gaps
 

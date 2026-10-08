@@ -80,8 +80,9 @@ The core already sees every entry on its way to the view, so it keeps what the v
 
 - `src/app/agent-rpc.js` gives each running session a registry (`state.documents`, from `createRegistry`). It
   notes the document paths of an `append` entry, and on a `reset` and on both attach routes it clears and notes the
-  whole conversation read back. The registry holds at most `REGISTRY_CAP` paths (oldest dropped) and reads only
-  the content arrays a result can carry.
+  whole conversation read back. The registry (`src/app/documents.js`) holds at most `REGISTRY_CAP` paths (oldest
+  dropped) and reads only the content arrays a result can carry. Past the cap a card can outlive its path: see
+  Known gaps.
 - `documentRegistryOf(sessionId)` is what `src/main.js` hands `documents.init` as `registryFor`.
 
 `openDocument` then checks, in this order, and each check has its reason:
@@ -244,6 +245,10 @@ explicit buttons.
 - **A link inside an HTML document (#764)** navigates the sandboxed frame. When it leads somewhere the app cannot
   reach, the frame's document no longer forwards Esc, zoom and the Tab trap while it has the focus; the close button
   and the backdrop still close the viewer. Not measured live.
+- **A card past the registry cap (#766).** `REGISTRY_CAP` (500 paths per session) evicts the oldest path, and a
+  card still on screen for an evicted path answers "did not read", which is then untrue. Accepted by design in
+  #766; the only place the registry falls behind the view. #766's own premise (an empty registry after a restart)
+  was wrong: the failure was a card the conversation had redrawn under the click.
 - The two older open-anything IPCs (`open-path`, `open-in-editor`) are untouched and still take any non-sensitive
   path; this feature only avoids adding a third.
 

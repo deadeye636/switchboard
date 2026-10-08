@@ -12,7 +12,8 @@ Rules and invariants for version control integration in Switchboard (#15, #277, 
 - `src/vcs/index.js` is a provider registry mirroring `src/backends/index.js`: `detect(cwd)` identifies the provider owning the working directory, and the core interacts exclusively via descriptor hooks.
 - **Core is VCS-blind:** `src/app/vcs.js` names no specific VCS, matching backend neutrality. Any capability that varies per VCS is a descriptor hook.
 - `git.js` is the primary provider.
-- Pure porcelain-v2 status and diff parsing lives in `parse-git-status.js` and `diff-parser.js` — pure functions without process execution or DOM references.
+- Porcelain-v2 status parsing lives in `parse-git-status.js` — pure functions without process execution or DOM references.
+- Diffs are not parsed: `git.js` only builds the argv (`diffArgs`), and `src/app/vcs.js` hands the raw text to the changes window, which draws it as-is (`src/renderer/changed-files.js`, coloured by line prefix). An untracked file skips `diffArgs` and is read as an all-added diff (`readUntrackedDiff`). The side-by-side diff window gets the two file versions through `showArgs` (`vcsFileVersions`), never diff output. There is no diff parser; do not go looking for one.
 
 ## Key Invariants
 
