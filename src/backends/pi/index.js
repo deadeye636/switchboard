@@ -460,8 +460,12 @@ module.exports = {
   status: 'ready',
   monogram: 'Pi',
   colour: 'pi',
-  // MEASURED, not read off its keymap: Pi ignores ESC[5~/ESC[6~ at its prompt, and it runs on the
-  // NORMAL buffer, so xterm holds the session history. The bare keys therefore page that history here.
+  // MEASURED, not read off its keymap — and it holds for one of Pi's two renderers only. Up to 0.99 Pi ran
+  // on the NORMAL buffer and ignored ESC[5~/ESC[6~ at its prompt, so xterm held the session history and
+  // the bare keys page it here. Since 1.0 its default TUI is fullscreen (`tuiMode`, `--tui-mode`): it draws
+  // on the ALTERNATE screen, holds the history itself, and pages it on ESC[5~/ESC[6~ (measured on 1.1.0).
+  // `renderer/terminal/page-key-routing.js` asks the live buffer at the press, so on the alternate screen
+  // the keys reach Pi; this declaration only answers the regular renderer.
   pageKeyTarget: 'viewport',
   // MEASURED in a real pty: Pi's composer inserts a newline on the kitty protocol's CSI 13;2u, so
   // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.

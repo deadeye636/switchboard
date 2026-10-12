@@ -703,7 +703,8 @@ with the reason, so a new flag shows up as a failing check rather than as silenc
 - **"Stop asking me" in one click.** `codex --approve-for-me` answers the approval prompts for the user.
   Milder than `--dangerously-bypass-approvals-and-sandbox`, which is excluded for the same reason, but the
   button says the same thing.
-- **Unmeasured.** `pi --tui-mode fullscreen` changes how the TUI drives the terminal Switchboard owns, and
+- **Unmeasured.** `pi --tui-mode` changes how the TUI drives the terminal Switchboard owns (fullscreen is
+  Pi's own default since 1.0; what was measured of it is in `docs/backend-formats.md`), and
   `claude --system-prompt-snapshot` changes a caching behaviour nobody here has watched. A control whose
   effect has not been seen is worse than no control.
 
@@ -942,6 +943,7 @@ notice, because those were explicit configuration choices.
 | `node scripts/heap-snapshot.js` / `heap-summary.js` / `heap-retainers.js` | Take and read a heap snapshot of the running app — what grew, and what still holds it (#525). |
 | `node scripts/io-sample.js` | What the app reads and writes while it sits there. |
 | `node scripts/fswatch-probe.js` / `fswatch-probe-rate.js` / `fswatch-probe-dirs.js` | How a recursive `fs.watch` reports on this OS (#524): every event for create, append, delete and nested folders; how often a top-level event fires under sustained appends; whether a folder create or remove ever arrives without a top-level `rename`. Each works in its own fresh directory under the OS temp dir and removes it at the end. Run by hand, not part of the suite. |
+| `ELECTRON_RUN_AS_NODE=1 electron scripts/probe-pty-modes.js [--dll] [--ms=<n>] -- <command> [args...]` | Which DEC private mode requests and OSC numbers a program's output still carries after the PTY layer (#775): starts the command in node-pty as the app does (ConPTY on Windows, `--dll` for the bundled `conpty.dll`), collects for `--ms` (default 8000) and prints the modes, the OSC numbers and a byte count — never the output text. Needs Electron as Node because node-pty is built for its ABI. Run by hand, not part of the suite. The last measurement is in #775: ConPTY drops the mouse modes with either backend, OSC 7501 passes. |
 | `node scripts/pi-rpc-spike.js [cwd] ["prompt"]` | What Pi's RPC mode actually sends (#568): every event type in arrival order, the assistant message assembled from deltas alone (`message_update` carries a delta and no cumulative snapshot), and whether the session file is named the way `src/backends/pi/turn-queue.js` expects. Run by hand, not part of the suite, and it costs one real model call against whatever Pi is authenticated for — keep the prompt small. |
 | `scripts/build-mac.bat` | Builds the macOS installer on GitHub Actions from a Windows machine and downloads the artifacts into `dist/`. It triggers `build.yml` manually with `platform: mac`, waits for the run and fetches the result. Needs an authenticated `gh`. There is no local way to build macOS from here, which is what this exists for. |
 | `scripts/apply-theme.ps1` | Repaints the installed app by rewriting the CSS inside its packaged `app.asar` — three modes (`Cowork` light theme, `Solid` background colour only, `Revert`). Always works from a clean `app.asar.bak` and repacks with the native modules unpacked. It automates by hand what `docs/customizing-colors.md` walks through step by step, and like that document it edits an installed build, not this repo. |
