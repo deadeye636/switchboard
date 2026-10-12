@@ -2057,7 +2057,7 @@ ipcMain.handle('read-session-jsonl', async (_event, sessionId) => {
 // other one would have resolved to a path under Claude's store. `transcriptPathFor` (#211) is the hook
 // that answers this, and Claude's reconstructs from folder + parent id + agent id exactly as before.
 const { resolveSubagentFile: resolveSubagentFileWith } = require('./session/subagent-transcript');
-const { createSubagentTail } = require('./session/subagent-tail');
+const { followSubagentFile } = require('./session/subagent-tail');
 const resolveSubagentFile = (parentSessionId, agentId) =>
   resolveSubagentFileWith({ backends, getCachedSession }, parentSessionId, agentId);
 
@@ -2103,26 +2103,18 @@ ipcMain.handle('start-subagent-watch', (_event, parentSessionId, agentId) => {
   if (((backend && backend.transcriptAccess) || 'file') !== 'file') {
     return { error: `${backend.label || backend.id} cannot follow a subagent transcript live.` };
   }
-  const tail = createSubagentTail(backend && backend.normalizeTranscriptEntries);
+  // A file rewritten in place rather than appended to is answered with every entry and `reset`, and the view
+  // redraws — `followSubagentFile` says how a rewrite is told apart.
+  const follower = followSubagentFile(filePath, backend && backend.normalizeTranscriptEntries);
 
   const watchId = ++subagentWatcherSeq;
-  let offset = 0;
-  // Start at the end: what is already there was drawn from read-subagent-jsonl.
-  try { offset = tail.prime(fs.readFileSync(filePath)); } catch {}
 
   function readNewEntries() {
     try {
-      const stat = fs.statSync(filePath);
-      if (stat.size <= offset) return;
-      const buf = Buffer.alloc(stat.size - offset);
-      const fd = fs.openSync(filePath, 'r');
-      const bytesRead = fs.readSync(fd, buf, 0, buf.length, offset);
-      fs.closeSync(fd);
-      if (bytesRead <= 0) return;
-      const { consumed, entries } = tail.take(buf.subarray(0, bytesRead));
-      offset += consumed;
-      if (entries.length > 0 && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('subagent-watch-event', { parentSessionId, agentId, entries });
+      const update = follower.poll();
+      if (update && mainWindow && !mainWindow.isDestroyed()) {
+        if (update.reset) log.info(`[subagent-watch] transcript rewritten, redrawing watchId=${watchId} agentId=${agentId}`);
+        mainWindow.webContents.send('subagent-watch-event', { parentSessionId, agentId, entries: update.entries, reset: update.reset });
       }
     } catch {}
   }

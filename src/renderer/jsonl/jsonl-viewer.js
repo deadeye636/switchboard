@@ -83,7 +83,9 @@ function drainViewerWatches() {
 // indicatorHost — where the "live" marker is appended (the escape banner, or the Agent block).
 // entries      — what is already rendered. Kept so the tool-result map spans the whole transcript:
 //                a tool_result arriving in a later append must still find its tool_use.
-// renderInto   — called with (freshEntries, toolResultMap) to append the new entries.
+// renderInto   — called with (freshEntries, toolResultMap) to append the new entries, or with a third
+//                argument `{ reset: true }` and EVERY entry when the file was rewritten in place: the caller
+//                removes what it drew from the transcript and draws the list again.
 // registry    — the set the stop function is kept in: the viewer's (drained when the viewer goes) unless given.
 // Returns its own stop function, already registered there.
 function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, agentId, entries, renderInto, registry = activeViewerWatches }) {
@@ -107,7 +109,19 @@ function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, age
 
   function onData(ev) {
     const payload = ev && ev.detail;
-    if (!payload || !payload.entries || !payload.entries.length) return;
+    if (!payload || !Array.isArray(payload.entries)) return;
+    // A rewritten file (the CLI compacted it in place) comes back whole, possibly empty, and replaces the view.
+    if (payload.reset) {
+      const fresh = mergeLocalCommandEntries(payload.entries);
+      all.length = 0;
+      all.push(...fresh);
+      try { renderInto(fresh, buildToolResultMap(all), { reset: true }); } catch {}
+      // The redraw took any expanded Agent block off the page; its own tail has nothing left to draw into.
+      // A nested tail is kept in the same set as the one it was expanded from.
+      for (const stop of [...registry]) if (stop.container && !stop.container.isConnected) stop();
+      return;
+    }
+    if (!payload.entries.length) return;
     const fresh = mergeLocalCommandEntries(payload.entries);
     all.push(...fresh);
     if (indicatorHost && !indicator.isConnected) indicatorHost.appendChild(indicator);
@@ -130,6 +144,7 @@ function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, age
 
   container.dataset.subagentWatchKey = parentSessionId + ':' + agentId;
   stopWatch.watchKey = container.dataset.subagentWatchKey;
+  stopWatch.container = container;
   container.addEventListener('subagent-watch-data', onData);
   // A finished subagent stops polling itself: setSubagentLive stops every watch under its key at the falling edge.
   registry.add(stopWatch);
@@ -613,10 +628,12 @@ const toolRenderers = {
 
       // Nested entries render in the SUBAGENT's session context (its own agent blocks resolve
       // against it), so the swap has to wrap every render — the live tail below included.
-      function renderNested(list, map) {
+      function renderNested(list, map, opts) {
         // Inline the transcript scrolls in a box of its own (#770), and follows its end while the reader is there.
         const box = nestedContainer;
         const atBottom = !inline || box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+        // A rewritten transcript is drawn again from the top; the bar above the entries stays.
+        if (opts && opts.reset) for (const child of [...nestedContainer.children]) if (child !== bar) child.remove();
         const prev = currentViewerSessionId;
         currentViewerSessionId = subSessionId;
         for (const entry of list) {
@@ -1365,27 +1382,43 @@ async function showSubagentTranscript(session) {
     parentSessionId: session.parentSessionId,
     agentId: session.agentId,
     entries,
-    renderInto: (fresh, map) => {
+    renderInto: (fresh, map, opts) => {
       const atBottom = jsonlViewerBody.scrollHeight - jsonlViewerBody.scrollTop - jsonlViewerBody.clientHeight < 40;
+      // A rewritten transcript is drawn again from the top; the escape banner stays.
+      if (opts && opts.reset) {
+        for (const child of [...jsonlViewerBody.children]) if (child !== escapeBanner) child.remove();
+        rendered = 0;
+        entryIndex = 0;
+        agentMatchCounters = {};
+      }
       // The "no messages" placeholder is a lie the moment something arrives.
       if (rendered === 0) jsonlViewerBody.querySelectorAll('.plans-empty').forEach(el => el.remove());
       renderEntries(fresh, map);
+      if (opts && opts.reset) {
+        showEmptyPlaceholder();
+        wireImages();
+        if (typeof window._jsonlSearchReset === 'function') window._jsonlSearchReset();
+      }
       // Only chase the tail if the user was already at it — otherwise reading scrollback fights back.
       if (atBottom) jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;
     },
   });
 
-  if (rendered === 0) {
+  function showEmptyPlaceholder() {
+    if (rendered !== 0) return;
     const emptyEl = document.createElement('div');
     emptyEl.className = 'plans-empty';
     emptyEl.textContent = 'No messages found in this subagent transcript.';
     jsonlViewerBody.appendChild(emptyEl);
   }
-
   // Click-to-fullscreen for inline images
-  jsonlViewerBody.querySelectorAll('.jsonl-clickable-img').forEach(img => {
-    img.onclick = () => openImageFullscreen(img.src);
-  });
+  function wireImages() {
+    jsonlViewerBody.querySelectorAll('.jsonl-clickable-img').forEach(img => {
+      img.onclick = () => openImageFullscreen(img.src);
+    });
+  }
+  showEmptyPlaceholder();
+  wireImages();
 
   jsonlViewerBody.scrollTop = jsonlViewerBody.scrollHeight;
 
