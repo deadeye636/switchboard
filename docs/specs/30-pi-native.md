@@ -337,8 +337,8 @@ conversation through `--conversation-scale` since #720), theme, focus, the grid'
 scrollback, the exit banner, the launch-error writes (`writeEntryError`). The view draws entries with
 `renderJsonlEntry` and `buildToolResultMap`, and redraws a tool call when its result arrives.
 
-`backends-list` carries `transport` to the renderer. `pageKeyTarget` and `newlineKeySequence` are
-deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
+`backends-list` carries `transport` to the renderer. `pageKeyTarget`, `newlineKeySequence` and
+`altScreenWheel` are deliberately absent on this backend, because they are answers for an xterm it never mounts, and the
 terminal-key tests check that.
 
 ## Pi's own commands (#642, #643)

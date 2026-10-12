@@ -467,6 +467,11 @@ module.exports = {
   // `renderer/terminal/page-key-routing.js` asks the live buffer at the press, so on the alternate screen
   // the keys reach Pi; this declaration only answers the regular renderer.
   pageKeyTarget: 'viewport',
+  // MEASURED on 1.1.0 (#775): the fullscreen TUI scrolls its history on SGR wheel reports. It asks for them
+  // with `?1003h`/`?1006h`, which ConPTY consumes, so xterm sends cursor keys instead; written to the PTY, the
+  // reports themselves reach Pi and scroll it. `renderer/terminal/wheel-routing.js` writes them on the
+  // alternate screen only, and steps aside where xterm already reports the mouse.
+  altScreenWheel: 'sgr',
   // MEASURED in a real pty: Pi's composer inserts a newline on the kitty protocol's CSI 13;2u, so
   // Shift+Enter already worked here before #493 and keeps the sequence it was measured on.
   newlineKeySequence: '\x1b[13;2u',

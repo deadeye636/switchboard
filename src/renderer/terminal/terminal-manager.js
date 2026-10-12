@@ -10,6 +10,7 @@
 // Depends on: pasteIntoTerminal, fileUriToPath, terminalCopyText (terminal-context-menu.js)
 // Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
 // Depends on: handleTerminalNewlineKeyEvent (newline-key-routing.js)
+// Depends on: terminalWheelReports (wheel-routing.js)
 
 // --- One insert route for paste and drop (#307) ---
 // Paste and drop hand the terminal the same thing — a DataTransfer — so they read it the same way.
@@ -149,7 +150,7 @@ async function insertFromDataTransfer(dt, terminal, sessionId, { clipboardBitmap
 //   1. attachCustomKeyEventHandler returning false — blocks xterm's key pipeline (onKey/onData)
 //   2. preventDefault on capture-phase keydown — prevents browser inserting \n into textarea
 const isMac = window.api.platform === 'darwin';
-function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, getPageKeyTarget, getNewlineSequence } = {}) {
+function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, getPageKeyTarget, getNewlineSequence, getAltScreenWheel } = {}) {
   // Set when the Insert-variable shortcut (default Ctrl/Cmd+Shift+V) fires, so the
   // paste event that same keystroke also generates is swallowed once (#89).
   let suppressPasteOnce = false;
@@ -336,12 +337,36 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
   // convention). Capture phase + passive:false so we intercept before xterm's
   // own viewport wheel handler (which would otherwise consume the event) and so
   // preventDefault can suppress both Chromium's page zoom and xterm's scroll.
-  // Without the modifier we do nothing → the wheel scrolls as usual.
+  // Without the modifier the wheel scrolls as usual — except over a CLI on the alternate screen whose backend
+  // declares that it reads SGR wheel reports, and whose request for them ConPTY never passed on (#775):
+  // `wheel-routing.js` says why, and when it steps aside.
+  const wheelState = { acc: 0 };
   container.addEventListener('wheel', (e) => {
-    if (!(isMac ? e.metaKey : e.ctrlKey) || e.deltaY === 0) return;
+    if ((isMac ? e.metaKey : e.ctrlKey) && e.deltaY !== 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      window._nudgeTerminalFontSize?.(e.deltaY < 0 ? 1 : -1);
+      return;
+    }
+    const declared = getAltScreenWheel?.();
+    if (!declared) return;
+    const screen = container.querySelector('.xterm-screen');
+    const rect = screen ? screen.getBoundingClientRect() : null;
+    const cellWidth = rect && terminal.cols ? rect.width / terminal.cols : 0;
+    const cellHeight = rect && terminal.rows ? rect.height / terminal.rows : 0;
+    const reports = terminalWheelReports(e, {
+      declared,
+      bufferType: terminal.buffer?.active?.type,
+      mouseTracking: terminal.modes?.mouseTrackingMode,
+      rows: terminal.rows,
+      cellHeight,
+      col: cellWidth ? Math.min(terminal.cols, (e.clientX - rect.left) / cellWidth + 1) : 1,
+      row: cellHeight ? Math.min(terminal.rows, (e.clientY - rect.top) / cellHeight + 1) : 1,
+    }, wheelState);
+    if (!reports) return;
     e.preventDefault();
     e.stopPropagation();
-    window._nudgeTerminalFontSize?.(e.deltaY < 0 ? 1 : -1);
+    if (reports.length) sendSessionInput(getSessionId(), reports.join(''));
   }, { capture: true, passive: false });
 }
 
@@ -1567,6 +1592,11 @@ function createTerminalEntry(session, opts = {}) {
       const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
       const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
       return backend?.newlineKeySequence;
+    },
+    getAltScreenWheel: () => {
+      const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(entry.session) : '';
+      const backend = backendId && typeof getBackend === 'function' ? getBackend(backendId) : null;
+      return backend?.altScreenWheel;
     },
   });
   setupTerminalContextMenu(container, terminal, () => entry.session.sessionId, () => hoveredLinkUri);

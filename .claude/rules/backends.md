@@ -468,8 +468,8 @@ protocol lives: it turns the CLI's lines into the app's own ops and the app's re
 core names no event of it. Its per-spawn extension is a hook pair on the descriptor
 (`providesRuntimeExtension` + `buildRuntimeExtension` / `releaseRuntimeExtension`), called from `spawn.js`
 the way the binding and the templates are, so a spawn-applied option (`approvalGate`) can name it in
-`appliedBy`. It declares no `pageKeyTarget` and no `newlineKeySequence` — there is no xterm
-to read them, and the terminal-key tests check the absence.
+`appliedBy`. It declares no `pageKeyTarget`, no `newlineKeySequence` and no `altScreenWheel` — there is no
+xterm to read them, and the terminal-key tests check the absence.
 
 **A runtime-driven backend keeps its translator and nothing the core already has (#664).** The pipe's line
 reader, the open-question registry and the busy/owed tracking are `src/app/agent-rpc.js`'s, once. What two

@@ -150,6 +150,8 @@ function profileToDescriptor(p) {
     pageKeyTarget: base ? base.pageKeyTarget : 'pty',
     // So does the newline chord (#493): the composer reading it is the base's, not the template's.
     newlineKeySequence: base ? base.newlineKeySequence : null,
+    // And the wheel on the alternate screen (#775): the TUI reading the reports is the base's.
+    altScreenWheel: base ? base.altScreenWheel : undefined,
     supportsSubagents: base ? base.supportsSubagents === true : false,   // #230
     // …and the three hooks that flag answers for (#605). The core looks the descriptor up by the ROW's
     // backendId, which for a template session is the template — so `supportsSubagents: true` with none of

@@ -217,7 +217,8 @@
   //
   // **The arrow keys stay dirty even so**, and that is a deliberate trade rather than an oversight: on the
   // alternate screen the wheel is translated into arrow keys, so scrolling a full-screen TUI still marks
-  // the line and can still delay a delivery. Widening the rule to cover it would mean guessing that a
+  // the line and can still delay a delivery. (Not for a backend that declares `altScreenWheel`: there the
+  // wheel becomes SGR reports, which the rule above already reads as 'none' — #775.) Widening the rule to cover it would mean guessing that a
   // given `\x1b[A` was a wheel notch and not a history recall, which is the one mistake that merges two
   // prompts into one. A delay is the acceptable failure — and it is only acceptable because it is
   // VISIBLE: the row's chip says the prompt is being held (`shell/prompt-staging.js`).

@@ -1738,6 +1738,9 @@ ipcMain.handle('backends-list', () => {
       // No fallback: a backend that declares none gets an inert chord rather than one that submits a
       // half-written prompt through some other CLI's sequence.
       newlineKeySequence: b.newlineKeySequence || null,
+      // How this CLI reads the mouse wheel on the alternate screen when the PTY layer kept its mouse request
+      // from xterm (#775). Absent: xterm's own handling, as for every backend before.
+      altScreenWheel: b.altScreenWheel || null,
       // How the session is driven (#568): absent for a CLI in a PTY, the transport's name for one driven
       // over a pipe. The renderer mounts a conversation view instead of a terminal on it, naming no backend.
       transport: b.transport || null,
