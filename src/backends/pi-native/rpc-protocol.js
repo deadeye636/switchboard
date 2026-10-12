@@ -626,6 +626,9 @@ function treeEntry(entry, isLeaf) {
     case 'session_info': return { kind: 'setting', text: clip('Session name: ' + (entry.name || '')) };
     case 'label': return { kind: 'setting', text: clip('Label: ' + (entry.label || '(removed)')) };
     case 'custom': return { kind: 'setting', text: clip(entry.customType || 'An extension\'s entry') };
+    // Pi 0.87: an edit of what the MODEL sees next, not of the conversation — Pi's own history keeps the
+    // message it omits. Not a row of its own, unless the session stands on it and the tree needs a current row.
+    case 'context_edit': return isLeaf ? { kind: 'setting', text: 'Context edit' } : null;
     default: return { kind: 'other', text: clip(entry.type || '') };
   }
 }

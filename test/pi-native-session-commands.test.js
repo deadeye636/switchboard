@@ -581,6 +581,18 @@ test('the tree becomes flat rows: a depth per fork, the current branch first, no
   assert.deepEqual(protocol.treeRows({ success: true, data: { tree: [], leafId: null } }), { rows: [], truncated: false });
 });
 
+// Pi 0.87's `context_edit` changes what the model sees next, not the conversation: no row of its own, its
+// children still drawn — unless the session stands on it, when the tree needs a current row.
+test('a context edit is no row of its own, except where the session stands on it', () => {
+  const u1 = { entry: { type: 'message', id: 'u1', message: { role: 'user', content: 'go' } }, children: [] };
+  const edit = { entry: { type: 'context_edit', id: 'e1', targetId: 'u1', replacement: null }, children: [] };
+  const u2 = { entry: { type: 'message', id: 'u2', message: { role: 'user', content: 'again' } }, children: [] };
+  u1.children = [edit]; edit.children = [u2];
+  assert.deepEqual(protocol.treeRows({ success: true, data: { tree: [u1], leafId: 'u2' } }).rows.map(r => r.id), ['u1', 'u2']);
+  const atEdit = protocol.treeRows({ success: true, data: { tree: [u1], leafId: 'e1' } }).rows;
+  assert.deepEqual(atEdit.map(r => [r.id, r.kind, r.current]), [['u1', 'user', false], ['e1', 'setting', true], ['u2', 'user', false]]);
+});
+
 // The same shape as `/session`: the command says it was typed, nothing else. What the user typed after it
 // travels, because only the app can decide what to do with a path.
 test('/export says only that it was typed, with whatever was typed after it', async () => {
