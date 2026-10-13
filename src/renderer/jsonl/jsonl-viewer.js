@@ -307,6 +307,12 @@ function documentPreviewMode() {
   const s = typeof appGlobalSettings !== 'undefined' ? appGlobalSettings : null;
   return s && s.documentPreview === 'inline' ? 'inline' : 'card';
 }
+// #782: whether a PDF card without page images reads its file when it scrolls into view, to draw a first-page
+// thumbnail. Default ON; off keeps #764's rule that nothing is read before the click.
+function documentPdfThumbnailsOn() {
+  const s = typeof appGlobalSettings !== 'undefined' ? appGlobalSettings : null;
+  return !(s && s.documentPdfThumbnails === false);
+}
 function documentPreviewMaxBytes() {
   const s = typeof appGlobalSettings !== 'undefined' ? appGlobalSettings : null;
   const kb = s ? s.documentPreviewMaxKB : undefined;

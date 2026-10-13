@@ -72,4 +72,25 @@ async function renderPdfInto(container, bytes, { isCurrent = () => true } = {}) 
   return { ok: true, pages: doc.numPages };
 }
 
+/**
+ * The first page of `bytes` as a PNG data URL `cssWidth` CSS pixels wide, or null — the thumbnail of a document
+ * card whose result carries no page images (#782). Never throws: a card that cannot have a thumbnail keeps its box.
+ */
+async function renderPdfFirstPage(bytes, cssWidth) {
+  let doc = null;
+  try {
+    doc = await pdfjs.getDocument({ data: bytes, isEvalSupported: false }).promise;
+    const page = await doc.getPage(1);
+    const holder = document.createElement('div');
+    await renderPage(page, holder, cssWidth);
+    const canvas = holder.querySelector('canvas');
+    return canvas ? canvas.toDataURL('image/png') : null;
+  } catch {
+    return null;
+  } finally {
+    if (doc) { try { doc.destroy(); } catch { /* already gone */ } }
+  }
+}
+
 window.renderPdfInto = renderPdfInto;
+window.renderPdfFirstPage = renderPdfFirstPage;

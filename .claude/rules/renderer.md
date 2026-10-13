@@ -722,6 +722,9 @@ while the app runs, so routing it would make the copy correct only until somethi
 - **A Markdown, HTML or page-less PDF card reads its file on the click, never on draw** (#764, #781). The owner wanted
   no preview ahead of time; a read per drawn card would also put a file read behind every scroll through a long log.
   A PDF is drawn by the preview tab's `renderPdfInto`, loaded through `window.loadPdfBundle` — never a second pdf.js.
+  **The one exception is the page-less PDF's thumbnail** (#782, `documentPdfThumbnails`, default on): read when the
+  card scrolls into view, one at a time, cached per session and path. It is the owner's choice and a setting; do not
+  widen it to another kind without asking.
 
 Spec 33 has the rest.
 

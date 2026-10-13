@@ -30,8 +30,27 @@ function setup(globalSettings) {
   return {
     mode: () => vm.runInContext('documentPreviewMode()', ctx),
     maxBytes: () => vm.runInContext('documentPreviewMaxBytes()', ctx),
+    pdfThumbs: () => vm.runInContext('documentPdfThumbnailsOn()', ctx),
   };
 }
+
+// #782: `documentPdfThumbnails`, default on; only an explicit false turns it off.
+test('documentPdfThumbnails: on by default, off only when false', () => {
+  assert.equal(setup().pdfThumbs(), true);
+  assert.equal(setup({}).pdfThumbs(), true);
+  assert.equal(setup({ documentPdfThumbnails: true }).pdfThumbs(), true);
+  assert.equal(setup({ documentPdfThumbnails: false }).pdfThumbs(), false);
+  assert.equal(setup({ documentPdfThumbnails: 'no' }).pdfThumbs(), true);
+});
+
+test('the settings screen and the reference carry documentPdfThumbnails (#782)', () => {
+  const panel = stripComments(read('src/renderer/panels/settings-panel.js'));
+  const html = stripComments(read('src/renderer/panels/settings-global-html.js'));
+  assert.match(panel, /fieldValue\('documentPdfThumbnails', true\)/);
+  assert.match(panel, /querySelector\('#sv-document-pdf-thumbnails'\);\s*settings\.documentPdfThumbnails = el \? el\.checked : documentPdfThumbnailsValue;/);
+  assert.match(html, /<input type="checkbox" id="sv-document-pdf-thumbnails"/);
+  assert.match(read('docs/settings-reference.md'), /\| `documentPdfThumbnails` \|[^\n]*\| `true` \| global \|/);
+});
 
 test('defaults: card, 2048 KB, with no settings object at all', () => {
   const h = setup();

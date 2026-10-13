@@ -5,11 +5,14 @@
 // of every page inline: a thumbnail of the first page, the file name, a page count, and — in a host that can
 // act (the conversation view) — "Open in default app" and "Open in tab". It names no backend and no tool.
 //
-// Reads, at CALL time, from other classic scripts: documentPreviewMode / documentPreviewMaxBytes
+// Reads, at CALL time, from other classic scripts: documentPreviewMode / documentPreviewMaxBytes / documentPdfThumbnailsOn
 // (jsonl/jsonl-viewer.js, which calls renderDocumentCard from renderToolResult), openDocumentViewer
 // (jsonl/document-viewer.js), openFileInPanel (views/file-panel.js), showControlMessage
 // (dialogs/control-dialogs.js, guarded), fileDirUrl (shared/preview-kind.js, guarded). `window.api.openDocument` /
 // `readDocument` / `openInEditor` are the preload's.
+//
+// A whole-PDF card reads its file once it scrolls into view to draw a first-page thumbnail (#782), unless
+// `documentPdfThumbnails` is off; `window.renderPdfFirstPage` (views/pdf-setup.js) draws it.
 //
 // A card without pages (a whole PDF, Markdown, HTML) opens the viewer on a click with the file read then and drawn
 // there — Markdown and HTML rendered (#764), a PDF by the preview tab's renderer (#781) — and keeps the
@@ -70,11 +73,76 @@ function documentCardSubtitle(kind, pageCount, range) {
 const documentThumbSources = new WeakMap();
 let documentThumbObserver = null;
 
+// The getter answers a src for a page image, or does its own work and answers nothing (a PDF thumbnail, #782).
 function loadDocumentThumb(img) {
   const get = documentThumbSources.get(img);
   if (!get) return;
   documentThumbSources.delete(img);
-  img.src = get();
+  const src = get();
+  if (typeof src === 'string') img.src = src;
+}
+
+// #782: the first page of a PDF whose result carries no page images, read when its card scrolls into view
+// (`documentPdfThumbnails`, default on; off keeps #764's read-on-click-only rule). One at a time, so a scroll past
+// twenty cards parses twenty PDFs in turn rather than at once, and once per path for the life of the window: a file
+// that cannot be drawn is remembered too, so it is not re-read on every redraw — a refused read is not, so the next
+// draw tries again. Keyed by session and path, not by the file's time — a file rewritten while the window is open
+// keeps its first thumbnail; the viewer and the open read it fresh.
+//
+// pdf.js draws on animation frames, which a hidden window does not run, so a job started there waits until the
+// window is shown and then finishes — its card gets the thumbnail late, never lost. A job that takes longer than
+// DOCUMENT_PDF_THUMB_TIMEOUT_MS of VISIBLE time only lets the queue move on; its card still gets whatever it ends with.
+const DOCUMENT_PDF_THUMB_WIDTH = 84; // .document-card-thumb's width, in CSS pixels
+const DOCUMENT_PDF_THUMB_CAP = 200; // a PNG of 84 px x devicePixelRatio, ~20-130 KB each: a few MB at most
+const DOCUMENT_PDF_THUMB_TIMEOUT_MS = 20000;
+const DOCUMENT_PDF_THUMB_TICK_MS = 500;
+const documentPdfThumbs = new Map(); // `${sessionId}\n${path}` -> Promise<string|null>
+let documentPdfThumbQueue = Promise.resolve();
+
+// Resolves once `ms` have passed while the document was visible, or when `done` settles first.
+function documentVisibleDelay(ms, done) {
+  return new Promise((resolve) => {
+    let seen = 0;
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || !document.hidden) seen += DOCUMENT_PDF_THUMB_TICK_MS;
+      if (seen >= ms) { clearInterval(timer); resolve(); }
+    }, DOCUMENT_PDF_THUMB_TICK_MS);
+    done.finally(() => { clearInterval(timer); resolve(); });
+  });
+}
+
+function documentPdfThumb(sessionId, path) {
+  // With the session: a refusal because a session was not running must not stick to the next one.
+  const key = `${sessionId}\n${path}`;
+  if (documentPdfThumbs.has(key)) return documentPdfThumbs.get(key);
+  let refused = false;
+  const work = async () => {
+    let res = null;
+    // A refused read — or one the IPC itself failed — is not remembered: the session may be relaunched under the
+    // same id, or the file come back.
+    try { res = await window.api.readDocument(sessionId, path); } catch { refused = true; return null; }
+    if (!res || res.ok !== true) { refused = true; return null; }
+    if (res.kind !== 'pdf' || !res.bytes || !res.bytes.length) return null;
+    // The viewer bundle not loading is the app's failure, not the file's: not remembered either (loadPdfBundle
+    // itself lets the next call try again).
+    try { await window.loadPdfBundle(); } catch { refused = true; return null; }
+    if (typeof window.renderPdfFirstPage !== 'function') { refused = true; return null; }
+    return (await window.renderPdfFirstPage(res.bytes, DOCUMENT_PDF_THUMB_WIDTH)) || null;
+  };
+  let started;
+  const begun = new Promise((r) => { started = r; });
+  // The card waits on the work itself; the queue waits on the work or the visible-time bound, whichever comes first.
+  const job = begun.then(() => work()).catch(() => null).then((src) => {
+    if (refused && !src && documentPdfThumbs.get(key) === job) documentPdfThumbs.delete(key);
+    return src;
+  });
+  documentPdfThumbQueue = documentPdfThumbQueue.then(() => {
+    started();
+    return documentVisibleDelay(DOCUMENT_PDF_THUMB_TIMEOUT_MS, job);
+  });
+  documentPdfThumbs.set(key, job);
+  if (documentPdfThumbs.size > DOCUMENT_PDF_THUMB_CAP) documentPdfThumbs.delete(documentPdfThumbs.keys().next().value);
+  return job;
 }
 
 function watchDocumentThumb(img, getSrc) {
@@ -142,6 +210,23 @@ function renderDocumentCard(resultData, ctx) {
   } else {
     thumbWrap.classList.add('document-card-thumb-empty');
     thumbWrap.textContent = DOCUMENT_KIND_LABELS[doc.kind] || 'Document';
+    // A whole PDF (#782): its first page, drawn once the card is on screen; the kind box stays until then, and
+    // when the file cannot be read or drawn (a refused read is tried again by the next draw of the card).
+    if (doc.kind === 'pdf' && !pages.length && canAct && documentPdfThumbnailsOn()) {
+      watchDocumentThumb(thumbWrap, () => {
+        documentPdfThumb(sessionIdNow(), doc.path).then((src) => {
+          if (!src) return;
+          const img = document.createElement('img');
+          img.className = 'document-card-img';
+          img.alt = '';
+          img.decoding = 'async';
+          img.src = src;
+          thumbWrap.classList.remove('document-card-thumb-empty');
+          thumbWrap.replaceChildren(img);
+        });
+        return null;
+      });
+    }
   }
   card.appendChild(thumbWrap);
 
@@ -195,7 +280,8 @@ function renderDocumentCard(resultData, ctx) {
       focusFallback: ctx && ctx.focusFallback,
     });
   };
-  // A Markdown, HTML or page-less PDF card reads its file on the click, never before, and shows it drawn (#764,
+  // A Markdown, HTML or page-less PDF card reads its file for the viewer on the click (a PDF's thumbnail is its own
+  // earlier read, #782), and shows it drawn (#764,
   // #781). Ctrl/Cmd keeps what a plain click did before: the `fileClickTarget` open, not inverted.
   let reading = false;
   const openTextViewer = async () => {

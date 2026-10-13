@@ -319,6 +319,7 @@
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
     const documentPreviewValue = fieldValue('documentPreview', 'card');
     const documentPreviewMaxKBValue = fieldValue('documentPreviewMaxKB', 2048);
+    const documentPdfThumbnailsValue = fieldValue('documentPdfThumbnails', true);
     const attentionHooksValue = fieldValue('attentionHooks', false);
     const secretRefCleanupValue = fieldValue('secretRefCleanupOnSessionStop', true);
     const secretRefSweepValue = fieldValue('secretRefSweepMinutes', 0);
@@ -885,7 +886,7 @@
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1397,6 +1398,11 @@
         {
           const kb = parseInt(settingsViewerBody.querySelector('#sv-document-preview-max-kb')?.value, 10);
           settings.documentPreviewMaxKB = Number.isFinite(kb) ? Math.max(64, Math.min(65536, kb)) : 2048;
+        }
+        {
+          // A field not in the DOM keeps the stored value rather than turning it back on.
+          const el = settingsViewerBody.querySelector('#sv-document-pdf-thumbnails');
+          settings.documentPdfThumbnails = el ? el.checked : documentPdfThumbnailsValue;
         }
         // The attention hook now lives on the CLAUDE backend page (it patches Claude's own
         // settings.json, so it belongs to Claude — but it is not a launch option, hence still a plain

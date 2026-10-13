@@ -150,7 +150,8 @@ test('open buttons go through openDocument; tab finishes only on the answer', as
 });
 
 test('card click: pages open the viewer; a whole pdf is read and drawn there, Ctrl/Cmd keeps the old open (#781)', async () => {
-  const h = setup({});
+  // Thumbnails off, so the only read is the click's (#782 has its own tests below).
+  const h = setup({ documentPdfThumbnails: false });
   const withPages = h.draw([el(), img()], { ...ACT, host: h.w.document.body });
   withPages.querySelector('.document-card').click();
   assert.ok(h.w.document.querySelector('.document-viewer'));
@@ -179,6 +180,103 @@ test('card click: pages open the viewer; a whole pdf is read and drawn there, Ct
   await flush();
   assert.deepEqual(h.calls.open[0], ['s1', '/d/report.pdf', 'click', false]);
   assert.equal(h.calls.read.length, 1);
+});
+
+// #782: a whole-PDF card draws its first page once it is on screen, unless the setting is off.
+function thumbSetup(settings) {
+  const h = setup(settings, { observer: true });
+  const firstPage = [];
+  h.w.loadPdfBundle = () => Promise.resolve();
+  h.w.renderPdfFirstPage = async (bytes, width) => { firstPage.push([bytes.length, width]); return 'data:image/png;base64,T'; };
+  h.setRead({ ok: true, kind: 'pdf', bytes: new Uint8Array([37, 80, 68, 70]) });
+  return { ...h, firstPage };
+}
+const settleThumb = async () => { for (let i = 0; i < 6; i++) await flush(); };
+
+test('a whole-pdf card reads its file only when it scrolls into view and shows the first page (#782)', async () => {
+  const h = thumbSetup({});
+  const root = h.draw([el({ pages: 0, path: '/d/t1.pdf' })], ACT);
+  const thumb = root.querySelector('.document-card-thumb');
+  assert.equal(thumb.textContent, 'PDF', 'the kind box until it is drawn');
+  await settleThumb();
+  assert.equal(h.calls.read.length, 0, 'nothing is read before the card is on screen');
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.deepEqual(h.calls.read, [['s1', '/d/t1.pdf']]);
+  assert.deepEqual(h.firstPage, [[4, 84]]);
+  assert.equal(thumb.querySelector('img.document-card-img').getAttribute('src'), 'data:image/png;base64,T');
+  assert.equal(thumb.classList.contains('document-card-thumb-empty'), false);
+});
+
+test('the same pdf in the same session is read once; a file that cannot be read keeps the box (#782)', async () => {
+  const h = thumbSetup({});
+  h.draw([el({ pages: 0, path: '/d/t2.pdf' })], ACT);
+  h.draw([el({ pages: 0, path: '/d/t2.pdf' })], ACT);
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.equal(h.calls.read.length, 1);
+  h.setRead({ ok: false, error: 'gone' });
+  const broken = h.draw([el({ pages: 0, path: '/d/t3.pdf' })], ACT);
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.equal(broken.querySelector('.document-card-thumb').textContent, 'PDF');
+  assert.equal(broken.querySelector('.document-card-thumb img'), null);
+});
+
+test('thumbnails are read one at a time; a refused read is not remembered (#782)', async () => {
+  const h = thumbSetup({});
+  let inFlight = 0;
+  let most = 0;
+  const releases = [];
+  h.w.api = new Proxy({}, { get: (_t, k) => {
+    if (k === 'readDocument') {
+      return (...a) => {
+        h.calls.read.push(a);
+        inFlight++; most = Math.max(most, inFlight);
+        return new Promise((r) => releases.push(() => { inFlight--; r({ ok: false, error: 'This session is not running.' }); }));
+      };
+    }
+    return () => {};
+  } });
+  h.draw([el({ pages: 0, path: '/d/q1.pdf' })], ACT);
+  h.draw([el({ pages: 0, path: '/d/q2.pdf' })], ACT);
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.equal(h.calls.read.length, 1, 'the second waits for the first');
+  releases.shift()(); await settleThumb();
+  assert.equal(h.calls.read.length, 2);
+  releases.shift()(); await settleThumb();
+  assert.equal(most, 1);
+  // Refused, so a card drawn again reads again (the session may be relaunched under the same id).
+  h.draw([el({ pages: 0, path: '/d/q1.pdf' })], ACT);
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.equal(h.calls.read.length, 3);
+  releases.shift()();
+});
+
+test('a thumbnail that is drawn late still reaches its card, and the next waits for it (#782)', async () => {
+  const h = thumbSetup({});
+  let finish;
+  const renders = [];
+  h.w.renderPdfFirstPage = () => { renders.push(1); return renders.length === 1 ? new Promise((r) => { finish = r; }) : Promise.resolve('data:image/png;base64,B'); };
+  const a = h.draw([el({ pages: 0, path: '/d/late.pdf' })], ACT);
+  h.draw([el({ pages: 0, path: '/d/next.pdf' })], ACT);
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.equal(renders.length, 1, 'the second card waits while the first is still drawing');
+  finish('data:image/png;base64,A');
+  await settleThumb();
+  assert.equal(a.querySelector('.document-card-thumb img').getAttribute('src'), 'data:image/png;base64,A');
+  assert.equal(renders.length, 2);
+});
+
+test('with documentPdfThumbnails off nothing is read before the click (#782)', async () => {
+  const h = thumbSetup({ documentPdfThumbnails: false });
+  h.draw([el({ pages: 0, path: '/d/t4.pdf' })], ACT);
+  h.observers.forEach((o) => o.fire());
+  await settleThumb();
+  assert.equal(h.calls.read.length, 0);
 });
 
 test('markdown click reads the file only then and shows it rendered; Ctrl/Cmd keeps the old open (#764)', async () => {

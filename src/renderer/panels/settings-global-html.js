@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -169,6 +169,15 @@
                   </div>
                   <div class="settings-field-control">
                     <input type="number" class="settings-input settings-input-compact" id="sv-document-preview-max-kb" min="64" max="65536" value="${documentPreviewMaxKBValue}">
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">First-page thumbnail for a whole PDF</span>
+                    <div class="settings-description">A card for a PDF read without page images reads the file once it scrolls into view and shows its first page. Off: nothing is read before you click the card. Applies to what is drawn next.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-document-pdf-thumbnails" ${documentPdfThumbnailsValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
                   </div>
                 </div>
                 <div class="settings-field">

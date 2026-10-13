@@ -57,7 +57,7 @@ What the stampers decide per kind:
   because the document's total is never in the result (T1; `RANGE` in `document-ref.js` keeps a label from carrying
   anything else).
 - **Claude PDF without `pages`**: one `document` block, no page images. The element is stamped with `pages: 0` and
-  the card has no thumbnail (O10).
+  the result carries no thumbnail (O10); since #782 the card draws one from the file itself.
 - **Claude image**: one image block, `pages` 1. An image-kind file read back as text (a Claude `.svg`) holds no
   image, so it gets no element and no card.
 - **Markdown, HTML**: the element, no images; the text result stays.
@@ -134,11 +134,12 @@ backend and no tool: it reads the element and the image blocks that follow.
   draw deferred while the window was hidden), and the card clicked is then detached; the view has drawn a new one in
   its place. Waiting on the old card is what made a click do nothing at all, with no message (#766). Focus that was
   on `body` at the open (nothing left to return to) goes to the composer on close.
-- **Whole-PDF read (O10)**: name and "PDF", no thumbnail. This is what every Claude read of a PDF without `pages`
+- **Whole-PDF read (O10)**: name and "PDF", and no page image in the result. This is what every Claude read of a PDF without `pages`
   looks like: Claude Code hands the model the file as a document block, so the result carries no page images. Until
   #781 the click opened the file view; it now reads the file (`document-read`) and opens the viewer, which draws the
-  pages with the file view's own pdf.js renderer ([`22-pdf-preview.md`](22-pdf-preview.md)). The thumbnail is still
-  left for its own issue.
+  pages with the file view's own pdf.js renderer ([`22-pdf-preview.md`](22-pdf-preview.md)). Since #782 the card
+  draws the first page as its thumbnail once it scrolls into view (`documentPdfThumbnails`, below): the one place a
+  file is read before a click, by the owner's choice on #782, and only for this kind.
 - **Message History (O5)**: no `ctx`. A card appears only when the result holds page images, with the viewer and
   its pager and no open buttons. Markdown, HTML and a whole-PDF read draw as they did before, because a card with
   nothing to open would be a dead control.
@@ -192,7 +193,7 @@ recorded in the issue, not here.
 
 ## Settings
 
-Two global settings, in the Sessions category beside "Show tool calls expanded". Both are in
+Three global settings, in the Sessions category beside "Show tool calls expanded". All are in
 [`docs/settings-reference.md`](../settings-reference.md), which holds the defaults.
 
 - `documentPreview` (`card` or `inline`): `inline` draws the tool output as it was before this feature, including
@@ -200,6 +201,17 @@ Two global settings, in the Sessions category beside "Show tool calls expanded".
 - `documentPreviewMaxKB` (64 to 65536): the largest first page, as encoded characters of its base64 data, that a
   card draws a thumbnail for. Above it the card keeps its name and buttons and shows the kind box. The bound applies
   only in card mode; inline mode has no bound and draws what it always drew.
+- `documentPdfThumbnails` (boolean, default on, #782): a whole-PDF card reads its file (`document-read`, the 15 MB
+  bound) when the `IntersectionObserver` first sees it and draws page 1 with `window.renderPdfFirstPage`
+  (`src/renderer/views/pdf-setup.js`) at the box's 84 CSS pixels. One read at a time, queued, so scrolling past many
+  cards parses them in turn. A thumbnail, or a file that cannot be drawn, is kept per session and path for the life of
+  the window (at most 200, oldest first), so a redraw reads nothing again — and a file rewritten meanwhile keeps its
+  first thumbnail. A refused read (a session not running, a file past the bound, a failed IPC call) is not kept, so the
+  card's next draw tries again. pdf.js draws on animation frames, which a hidden window does not run: a job started
+  there waits until the window is shown and then finishes, so its card gets the thumbnail late rather than never. A
+  job that takes longer than 20 s of VISIBLE time only lets the queue move on to the next card; its own card still
+  gets whatever it ends with, so one render that never settles cannot hold every later thumbnail. Off: nothing is read
+  before the click, as #764 had it.
 
 ## Click routing, `fileClickTarget` and O4
 
@@ -252,7 +264,7 @@ with Ctrl/Cmd held. A card with pages, and a Markdown, HTML or PDF card on a pla
   not measured) gets `N pages` and no range.
 - **Codex, Hermes and agy** do not stamp the element, so their images stay inline whatever the setting says.
 - **Page total.** The document's own page count is never in a Claude result, so a partial read cannot say "3 of 40".
-- **Whole-PDF thumbnail.** No first page without rendering the PDF; deferred.
+- **Whole-PDF thumbnail.** Drawn since #782; a file rewritten while the window is open keeps the thumbnail it had.
 - **A link inside an HTML document (#764)** navigates the sandboxed frame. When it leads somewhere the app cannot
   reach, the frame's document no longer forwards Esc, zoom and the Tab trap while it has the focus; the close button
   and the backdrop still close the viewer. Not measured live.

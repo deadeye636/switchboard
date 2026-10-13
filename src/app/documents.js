@@ -32,7 +32,8 @@
  *
  * `document-read` (#764) answers the TEXT of a Markdown or HTML document for the card's viewer, through the
  * same checks (`checkDocument`), only when the card is clicked, and only up to `READ_MAX_BYTES`. Since #781 it
- * answers the BYTES of a PDF the same way, up to `PDF_READ_MAX_BYTES`.
+ * answers the BYTES of a PDF the same way, up to `PDF_READ_MAX_BYTES` — and since #782 a page-less PDF card also
+ * asks for them when it scrolls into view, for its thumbnail (`documentPdfThumbnails`, default on).
  */
 
 'use strict';
@@ -197,8 +198,9 @@ async function openDocument(sessionId, filePath, how, invert) {
 }
 
 /**
- * The text of a Markdown or HTML document, or the bytes of a PDF (#781), for the card's viewer (#764). Read only
- * when the user clicks the card, through the same checks as the open. An image is refused: its picture is
+ * The text of a Markdown or HTML document, or the bytes of a PDF (#781), for the card's viewer (#764). Read when
+ * the user clicks the card — or, for a page-less PDF, when its card scrolls into view (#782) — through the same
+ * checks as the open. An image is refused: its picture is
  * already in the result.
  * @returns {Promise<{ok: true, kind: 'markdown'|'html', text: string}|{ok: true, kind: 'pdf', bytes: Buffer}|{ok: false, error: string}>}
  */
