@@ -100,7 +100,7 @@
    * and the rows stay quiet. A row that disagrees with its group keeps its badges, and there the badge
    * means something again: this one is not what the heading led you to expect.
    *
-   * Outside such a group (the instruction files, where CLAUDE.md is Claude's and Pi's while AGENTS.md
+   * Outside such a group (the instruction files, where CLAUDE.md is Claude's and Pi's — Claude's is AGENTS.md in a project without one, #777 — while AGENTS.md
    * next to it is Codex' and Pi's) every row shows them, because there the rows really do differ.
    */
   function agentFileRowShowsBadges(file, groupBackendId) {

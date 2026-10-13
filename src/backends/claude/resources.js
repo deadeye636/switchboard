@@ -56,6 +56,14 @@ function isDir(p) {
   try { return fs.statSync(p).isDirectory(); } catch { return false; }
 }
 
+// The project instruction file Claude reads (#777): CLAUDE.md, or AGENTS.md in a project with none
+// (Claude Code 2.1.277). "Project instructions" in Claude's `/config` can change that choice; where it is
+// stored is not known, so this answers the default. The project's root only, like the CLAUDE.md before it.
+function projectInstructionsFile(projectPath) {
+  const claudeMd = path.join(projectPath, 'CLAUDE.md');
+  return isFile(claudeMd) ? claudeMd : path.join(projectPath, 'AGENTS.md');
+}
+
 function add(out, item) {
   if (!item || !item.path) return;
   out.push({
@@ -110,7 +118,7 @@ function addPluginSkills(out, home, projectPath) {
 
 function addProjectResources(out, projectPath) {
   if (!projectPath) return;
-  addFile(out, projectPath, 'CLAUDE.md', 'memory', 'project-context', 'project');
+  addFile(out, projectPath, path.basename(projectInstructionsFile(projectPath)), 'memory', 'project-context', 'project');
   addFile(out, path.join(projectPath, '.claude'), 'settings.json', 'settings', 'project-settings', 'project');
   addFile(out, path.join(projectPath, '.claude'), 'settings.local.json', 'settings', 'project-settings', 'project');
   addDir(out, projectPath, '.claude', 'settings', 'project-claude-directory', 'project');
@@ -173,4 +181,4 @@ const expandResource = createExpandResource(
   (source) => (pluginFromSource(source) ? PLUGIN_SKILLS_RULE : EXPAND_RULES[source]),
 );
 
-module.exports = { createListResources, expandResource, EXPAND_RULES, projectPlansDirectory };
+module.exports = { createListResources, expandResource, EXPAND_RULES, projectPlansDirectory, projectInstructionsFile };
