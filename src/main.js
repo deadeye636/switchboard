@@ -18,7 +18,7 @@ guardIpcHandlers(ipcMain, log);
 require('./perf').noteIpcCalls(ipcMain);
 // getFolderIndexMtimeMs moved to session-cache.js
 const { shouldNoticeMissingRecord, missingRecordMessage } = require('./app/terminal/live-record-notice');
-const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles } = require('./servers/mcp-bridge');
+const { startMcpServer, shutdownMcpServer, shutdownAll: shutdownAllMcp, resolvePendingDiff, hasPendingDiffsForWindow, rejectPendingDiffsForWindow, rekeyMcpServer, cleanStaleLockFiles, setPathGuard: setMcpPathGuard } = require('./servers/mcp-bridge');
 const { isSuccessfulUsage, cachedUsageIsFresh, touchProbeAttempt, withMainProcessUsageCache } = require('./backends/usage-cache');
 // Multi-LLM backend seam (Phase 1): the spawn/env/id-map paths ask a backend instead of
 // assuming Claude. `claude` is the default backend and behaves byte-identically through it.
@@ -283,6 +283,19 @@ function isSensitivePath(filePath) {
   const resolved = path.resolve(filePath);
   return SENSITIVE_PATH_PATTERNS.some(pattern => pattern.test(resolved));
 }
+
+// A network path no known project is on (#780): touching it is an SMB connection to whoever named it.
+// Asked of the path as handed in AND as resolved, before anything stats it.
+// A removed project's share stops counting. Also handed to the MCP bridge, whose paths come from the model.
+const { isForeignNetworkPath, FOREIGN_NETWORK_REASON, FOREIGN_NETWORK_SAVE_REASON } = require('./app/network-path');
+function isForeignNetworkFile(filePath, resolved = path.resolve(String(filePath || ''))) {
+  let projects = [];
+  try {
+    for (const [projectPath, row] of getProjectStates()) if (!(row && row.removedAt)) projects.push(projectPath);
+  } catch { /* no register yet: refuse every share */ }
+  return isForeignNetworkPath(filePath, projects) || isForeignNetworkPath(resolved, projects);
+}
+setMcpPathGuard((p) => isForeignNetworkFile(p));
 
 // (getIndexedProjectRoots + isAllowedMemoryPath moved to src/app/plans-memory.js with the memory
 // handlers — #227. The allowlist is now sourced from the register + each backend's declared home dirs.)
@@ -769,6 +782,8 @@ ipcMain.handle('open-path', (_event, filePath) => {
   // Mirror the read/save-file-for-panel guard: never hand a sensitive path
   // (~/.ssh, credentials, etc.) to the OS default opener.
   if (isSensitivePath(resolved)) return;
+  // Nor a share no project is on (#780): an OSC 8 link's target is not the text the user clicked.
+  if (isForeignNetworkFile(filePath, resolved)) return FOREIGN_NETWORK_REASON;
   return shell.openPath(resolved);
 });
 
@@ -778,6 +793,7 @@ ipcMain.handle('open-path', (_event, filePath) => {
 ipcMain.handle('open-in-editor', (_event, filePath) => {
   if (typeof filePath !== 'string' || !filePath) return { ok: false, error: 'no path' };
   const resolved = path.resolve(filePath);
+  if (isForeignNetworkFile(filePath, resolved)) return { ok: false, error: FOREIGN_NETWORK_REASON };
   if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
   const cmd = (((getSetting('global') || {}).externalEditorCommand) || '').trim();
   if (!cmd) { shell.openPath(resolved); return { ok: true, fallback: true }; }
@@ -970,6 +986,7 @@ function resolvePanelFilePath(filePath) {
 ipcMain.handle('read-file-for-panel', async (_event, filePath) => {
   try {
     const resolved = resolvePanelFilePath(filePath);
+    if (isForeignNetworkFile(filePath, resolved)) return { ok: false, error: FOREIGN_NETWORK_REASON };
     if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
     const content = fs.readFileSync(resolved, 'utf8');
     return { ok: true, content };
@@ -986,6 +1003,7 @@ const PREVIEW_DATAURL_MAX = 15 * 1024 * 1024; // 15 MB
 ipcMain.handle('read-file-dataurl', async (_event, filePath) => {
   try {
     const resolved = resolvePanelFilePath(filePath);
+    if (isForeignNetworkFile(filePath, resolved)) return { ok: false, error: FOREIGN_NETWORK_REASON };
     if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
     const stat = fs.statSync(resolved);
     if (stat.size > PREVIEW_DATAURL_MAX) {
@@ -1003,6 +1021,7 @@ ipcMain.handle('read-file-dataurl', async (_event, filePath) => {
 ipcMain.handle('save-file-for-panel', async (_event, filePath, content, baseline) => {
   try {
     const resolved = resolvePanelFilePath(filePath);
+    if (isForeignNetworkFile(filePath, resolved)) return { ok: false, error: FOREIGN_NETWORK_SAVE_REASON };
     if (isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
     // The bytes go through the one write core (#441), so a file opened in a preview tab gets the same
     // baseline compare, the same atomic rename and the same line endings as one opened in Agent Files.
@@ -1034,7 +1053,7 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content, baseline
 // no refcount, and dropped `rename` — three ways for an open document to stop being live without anything
 // reporting a fault. The module takes the two path helpers from here because they are main's.
 const fileWatch = require('./app/file-watch');
-fileWatch.init({ resolvePanelFilePath, isSensitivePath, log });
+fileWatch.init({ resolvePanelFilePath, isSensitivePath, isForeignNetworkFile, log });
 fileWatch.registerIpc(ipcMain);
 
 // Full re-scan triggered from the UI. Re-reads every jsonl file in the worker

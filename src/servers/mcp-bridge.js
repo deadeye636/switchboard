@@ -25,6 +25,13 @@ function ideDir() {
 // sessionId → ServerEntry
 const servers = new Map();
 
+// May the bridge read the path a client names (#780)? A network path no project is on is an SMB connection
+// to whoever named it, and the path here comes from the model. main.js sets the real answer at boot
+// (`setPathGuard`); until then every network path is refused, so a bridge started first fails closed.
+const { isForeignNetworkPath, FOREIGN_NETWORK_REASON } = require('../app/network-path');
+let refusePath = (p) => isForeignNetworkPath(p, []) || isForeignNetworkPath(path.resolve(String(p || '')), []);
+function setPathGuard(fn) { if (typeof fn === 'function') refusePath = fn; }
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function ensureIdeDir() {
@@ -219,6 +226,10 @@ async function handleToolCall(entry, rpcId, params, log) {
 
 async function handleOpenDiff(entry, rpcId, args, log) {
   const { old_file_path, new_file_contents, tab_name } = args;
+  if (typeof old_file_path === 'string' && refusePath(old_file_path)) {
+    log.info(`[mcp] session=${entry.sessionId} openDiff refused: a network path no project is on`);
+    return sendError(entry, rpcId, -32602, FOREIGN_NETWORK_REASON);
+  }
 
   // Read the current file from disk
   let oldContent = '';
@@ -288,6 +299,10 @@ async function handleOpenDiff(entry, rpcId, args, log) {
 
 async function handleOpenFile(entry, rpcId, args, log) {
   const { filePath, preview, startText, endText } = args;
+  if (typeof filePath === 'string' && refusePath(filePath)) {
+    log.info(`[mcp] session=${entry.sessionId} openFile refused: a network path no project is on`);
+    return sendError(entry, rpcId, -32602, FOREIGN_NETWORK_REASON);
+  }
 
   let content = '';
   try {
@@ -666,4 +681,5 @@ module.exports = {
   rejectPendingDiffsForWindow,
   rekeyMcpServer,
   cleanStaleLockFiles,
+  setPathGuard,
 };

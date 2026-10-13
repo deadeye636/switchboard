@@ -170,6 +170,15 @@ answers `agent-paths` with it against the session's working directory),
 ladder of #307 on the side of the IPC where there is no DataTransfer, so a copied file, a snapshotted
 bitmap and plain text are told apart once rather than per caller. It quotes and cleans nothing: the
 shell family and the secret flag live in `variables.js`, which is where those decisions belong),
+`network-path.js` (may the app touch this network path — #780; touching one is an SMB connection to
+whoever named it, so the answer is LEXICAL and comes before any stat: a network path is allowed only on the
+`\\host\share` of a project the register knows and has not removed. main.js asks it as
+`isForeignNetworkFile`, of the path as handed in and as resolved, in the two panel readers, the panel
+writer, `open-path` and `open-in-editor` (an OSC 8 link's target is not the text clicked), hands it to
+`file-watch.js` through ctx and to the MCP bridge through `setPathGuard` — the bridge refuses every
+network path until then. It fails closed where two names reach one place (`\\nas` and `\\nas.corp`, an IP
+and a name). `documents.js` refuses network paths on its own and does not use it;
+`test/network-path.test.js` checks the wiring by source),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),

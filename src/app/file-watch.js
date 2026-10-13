@@ -35,6 +35,7 @@
 
 const fs = require('fs');
 const { readableError } = require('./readable-error');
+const { FOREIGN_NETWORK_REASON } = require('./network-path');
 
 let ctx = null;
 
@@ -200,6 +201,10 @@ function releaseWebContents(wc) {
 
 function watchFile(wc, filePath) {
   const resolved = ctx.resolvePanelFilePath(filePath);
+  // A watch on a network path no project is on is an SMB connection to whoever named it (#780).
+  if (ctx.isForeignNetworkFile && ctx.isForeignNetworkFile(filePath, resolved)) {
+    return { ok: false, error: FOREIGN_NETWORK_REASON };
+  }
   if (ctx.isSensitivePath(resolved)) return { ok: false, error: 'access to sensitive path denied' };
 
   let entry = entries.get(resolved);

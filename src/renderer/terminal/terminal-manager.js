@@ -1221,7 +1221,13 @@ function openTerminalFilePath(sessionId, filePath, invert = false) {
   const defaultExternal = typeof appGlobalSettings !== 'undefined'
     && appGlobalSettings.fileClickTarget === 'external';
   const external = invert ? !defaultExternal : defaultExternal;
-  if (external) { window.api.openInEditor(filePath); return; }
+  if (external) {
+    // Said, not swallowed: a link to a share no project is on is refused in main (#780).
+    Promise.resolve(window.api.openInEditor(filePath)).then((res) => {
+      if (res && res.ok === false && res.error) window.showControlToast?.({ message: res.error, timeoutMs: 3000 });
+    }).catch(() => {});
+    return;
+  }
   if (typeof openFileInPanel !== 'function') return;
   openFileInPanel(sessionId, filePath);
 }

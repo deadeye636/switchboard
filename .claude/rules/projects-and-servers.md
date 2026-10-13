@@ -23,4 +23,5 @@ Rules for project metadata management and MCP server integrations (#211, #241, #
 - **Window Lifetime (`startMcpServer`):** Takes a GETTER (`() => BrowserWindow`), never a static window object (#392). The bridge outlives window teardowns and re-openings.
 - **Pending Diffs & Windows:** A pending diff records `pending.win` (the window it was sent to, not necessarily the session host). Cleaning up a window must call `rejectPendingDiffsForWindow` and inspect `hasPendingDiffsForWindow` (#393).
 - **Concurrency in Message Handling:** `handleMessage` dispatches `tools/call` without awaiting, allowing multiple simultaneous diffs for a session (#398).
+- **A client's path is the model's (#780):** `openFile` and `openDiff` ask `refusePath` before they read, and a network path no project is on is answered with an error instead. main.js sets the guard with `setPathGuard`; the default refuses every network path, so a bridge used before that fails closed.
 - **DI via Context:** Modules take `ctx`, never top-level `require('electron')`, ensuring testability under unit runners.

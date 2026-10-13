@@ -809,7 +809,11 @@ async function openFileInPanel(sessionId, filePath) {
     return;
   }
   const result = await window.api.readFileForPanel(filePath);
-  if (!result.ok) return;
+  if (!result || !result.ok) {
+    // Said, as the binary branch above says it — a refused network path (#780) used to open nothing silently.
+    window.showControlToast?.({ message: (result && result.error) || 'Cannot open this file', timeoutMs: 3000 });
+    return;
+  }
   openFileTab(sessionId, { filePath, content: result.content });
 }
 
