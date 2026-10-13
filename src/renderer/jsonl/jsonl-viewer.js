@@ -580,6 +580,7 @@ const toolRenderers = {
         nestedContainer.remove();
         nestedContainer = null;
         expanded = false;
+        delete el.dataset.inlineOpen;
         const caret = el.querySelector('.jsonl-agent-caret');
         if (caret) caret.innerHTML = '&#9658;';
         return;
@@ -651,9 +652,16 @@ const toolRenderers = {
       }
       renderNested(nestedEntries, nestedResultMap);
 
+      // One box per conversation (#783): only one can be read at a time, so opening this one folds the other,
+      // and the other's tail stops with it. Several side by side is what "Open in tab" is for.
+      if (inline) {
+        const host = ctx.host && typeof ctx.host.querySelectorAll === 'function' ? ctx.host : document;
+        for (const other of host.querySelectorAll('.jsonl-agent-expandable[data-inline-open]')) if (other !== el) other.click();
+      }
       el.after(nestedContainer);
       if (inline) nestedContainer.scrollTop = nestedContainer.scrollHeight;
       expanded = true;
+      if (inline) el.dataset.inlineOpen = '1';
       if (openKey) {
         inlineAgentsOpen.add(openKey);
         if (inlineAgentsOpen.size > INLINE_AGENTS_OPEN_MAX) inlineAgentsOpen.delete(inlineAgentsOpen.values().next().value);

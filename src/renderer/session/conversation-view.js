@@ -1488,8 +1488,18 @@ function createConversationView(getSession, container) {
     setTimeout(() => el.classList.remove('conversation-flash'), 1200);
     notice('info', 'This agent\'s transcript is not listed yet — showing the call that started it instead.');
   }
+  // The Background list opens an agent in the conversation (#783): the box its call's card opens on a click (#770),
+  // whose "Open in tab" leads on to `openAgent`. A card already open is only brought into view, since a click
+  // would fold it. Without the call on screen, `openAgent` answers as before.
+  function openAgentInline(subagentId, toolUseId) {
+    const el = toolUseId ? log.querySelector(`.jsonl-agent-expandable[data-tool-use-id="${CSS.escape(toolUseId)}"]`) : null;
+    if (!el) { openAgent(subagentId, toolUseId); return; }
+    closeBackground();
+    if (!el.dataset.inlineOpen) el.click();
+    el.scrollIntoView({ block: 'start' });
+  }
   async function openTask(t) {
-    if (t.kind === 'agent') { openAgent(t.subagentId, t.toolUseId); return; }
+    if (t.kind === 'agent') { openAgentInline(t.subagentId, t.toolUseId); return; }
     if (bgOutputFor && bgOutputFor.id === t.id) { bgOutputFor = null; renderBackgroundList(); return; }
     let res;
     try { res = await window.api.agent.taskOutput(view.session.sessionId, t.id); } catch { res = null; }

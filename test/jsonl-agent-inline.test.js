@@ -122,6 +122,32 @@ test('a redrawn call opens again and its new box takes the tail over', async () 
   assert.ok(!h.box(third), 'and is remembered');
 });
 
+test('#783: one box per conversation — opening a second folds the first and stops its tail', async () => {
+  const h = setup({ subagents: [{ agentId: 'a1', sessionId: 'sub-1', description: 'Review', subagentType: 'verifier' }, { agentId: 'a2', sessionId: 'sub-2', description: 'Fix', subagentType: 'verifier' }] });
+  h.ctx.__exact = { toolu_1: 'a1', toolu_2: 'a2' };
+  h.ctx._setSubagentLive('s1', 'a1', true, 'exact');
+  h.ctx._setSubagentLive('s1', 'a2', true, 'exact');
+  const first = h.draw('toolu_1');
+  const second = h.draw('toolu_2', { subagent_type: 'verifier', description: 'Fix' });
+  // The Background list finds the card by its call id (session/conversation-view.js, `openAgentInline`).
+  assert.equal(h.card(first).dataset.toolUseId, 'toolu_1');
+  h.card(first).click();
+  await h.settle();
+  assert.equal(h.card(first).dataset.inlineOpen, '1');
+  h.card(second).click();
+  await h.settle();
+  assert.ok(h.box(second), 'the second is open');
+  assert.ok(!h.box(first), 'the first folded');
+  assert.equal(h.card(first).dataset.inlineOpen, undefined);
+  assert.deepEqual(h.calls.stop, [1], 'and its tail stopped');
+  assert.equal(h.host.querySelectorAll('.jsonl-subagent-inline').length, 1);
+  // A redraw brings back only the box still open.
+  first.remove();
+  const again = h.draw('toolu_1');
+  await h.settle();
+  assert.ok(!h.box(again));
+});
+
 test('the history viewer is unchanged: no session of its own, no expansion', async () => {
   const h = setup();
   vm.runInContext('currentViewerSessionId = null', h.ctx);

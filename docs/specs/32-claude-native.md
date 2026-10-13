@@ -705,13 +705,21 @@ calls and one background agent. What the stream carries, all as `system` lines t
   back to what it always read: the call's `description` and `subagent_type`, Claude's own fields in the shared
   Agent renderer, and the call's place among the calls on screen with the same pair. Inline the transcript
   scrolls in a box of its own and follows its end while the reader is there; a bar on top offers **Open in
-  tab**, the same opener as the Background list's Open (the history viewer opens the sidebar's own row for it).
+  tab**, the opener the Background list's Open used before #783 (the history viewer opens the sidebar's own row for it).
   Only an agent that is live at the click is tailed inline — one opened in the second between its start and
   its exact live edge shows what it has and does not follow. Its tail is kept apart from the viewers' own, so
   opening a plan or a history transcript beside the conversation does not freeze the box; it ends with the
   agent, a collapse, or the newer box of the same call. A call the reader opened opens again when the
   conversation redraws it — its result arrives at the agent's end — keyed by the call id. Clicked in the demo instance with Haiku: the box grew from 4 to 8 entries while the agent ran,
   stayed open past the end, and Open in tab showed the agent's transcript.
+
+- **The Background list opens an agent in place, one box at a time** (#783). Its Open (and Enter) scrolls to the
+  agent's call and opens the #770 box there, instead of switching to the transcript view; a box already open is
+  only brought into view. The call is found by its `data-tool-use-id`; without it on screen (a log not drawn that
+  far) Open falls back to the transcript view as before. A conversation holds at most one box: opening one folds
+  the other and stops its tail, by a click from the list or on a card alike, so the cost stays one watch and one
+  transcript in the log. Reading several side by side is what Open in tab is for. The notice's and the report's
+  *open* buttons in the log still open the transcript view.
 
 - **A foreground agent is counted in the Background buttons too** (#768). Measured on Claude Code 2.1.293
   (Haiku, one foreground agent per run; `scripts/measure-claude-foreground-agent.js` repeats it): `task_started` with `is_backgrounded: false` and `task_type:
