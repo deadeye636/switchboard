@@ -20,6 +20,9 @@
 //             `task_notification` (#768, #769, measured on 2.1.293); 'agent-hang' starts one and then exits;
 //             'agent-start' / 'agent-end' start and end a background agent in two turns
 //
+// A turn whose content carries the shell lines the app ran (#786) is written with its blocks as they came and,
+// as measured on 2.1.296, NOT played back; its LAST text block is what the turn is about.
+//
 // Control requests answered with something: `initialize` (the command list), `interrupt`, and `mcp_status` (two
 // servers, one with a `config` carrying a secret the app must not pass on), and the server actions of #728
 // (`mcp_reconnect`, `mcp_toggle`, `mcp_authenticate`, `mcp_clear_auth`) for those two names.
@@ -59,7 +62,9 @@ function finish() {
   if (queue.length) setImmediate(() => start(queue.shift()));
 }
 
-function start(text) {
+function start(content) {
+  const blocks = Array.isArray(content) && content.some(b => b && /^<local-command-caveat>/.test(String(b.text || ''))) ? content : null;
+  const text = blocks ? (blocks.filter(b => b && b.type === 'text').map(b => b.text).pop() || '') : String(content);
   busy = true;
   if (text === '/clear') {
     emit({ type: 'conversation_reset' });
@@ -79,9 +84,10 @@ function start(text) {
     finish();
     return;
   }
-  const user = { type: 'user', uuid: uuid(), message: { role: 'user', content: text } };
+  const user = { type: 'user', uuid: uuid(), message: { role: 'user', content: blocks || text } };
   record(user);
-  emit({ ...user, isReplay: true, parent_tool_use_id: null });
+  // A turn carrying shell lines is written but not played back (measured on 2.1.296).
+  if (!blocks) emit({ ...user, isReplay: true, parent_tool_use_id: null });
   // A background agent that outlives its turn: 'agent-start' starts it, 'agent-end' ends it (#769).
   if (text === 'agent-start' || text === 'agent-end') {
     emit(text === 'agent-start'
@@ -124,9 +130,9 @@ process.stdin.on('data', (chunk) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { continue; }
     if (msg.type === 'user') {
-      const text = String(msg.message && msg.message.content);
-      if (busy) queue.push(text);
-      else start(text);
+      const content = msg.message && msg.message.content;
+      if (busy) queue.push(content);
+      else start(content);
     } else if (msg.type === 'control_request') {
       const sub = msg.request && msg.request.subtype;
       // #728: a server action names its server; an unknown one is refused with the CLI's own sentence.

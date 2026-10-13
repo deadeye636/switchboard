@@ -505,6 +505,56 @@ session's capabilities arrive with the first turn's `system/init` anyway. The vi
 Claude's in the view. `/clear` re-keys the tab and the sidebar row through the shared re-key and empties the
 view (checked in the demo for #662).
 
+## Shell lines (#786)
+
+In Claude's terminal interface, `!ls` runs `ls` in the session's directory. The output is shown to the user and
+read by the model with the next prompt, and no turn is spent on the command. Over the stream-json pipe there is
+no such thing: `!ls` is a prompt like any other, and the model answers it.
+
+So the app runs the line. `appCommandOp` answers `{ op: 'shell', command }` for a composer line that starts with
+`!` (not `!!`, and not a bare `!`), and the core runs it in `src/app/agent-shell.js`. The shell is the project's
+terminal profile (a POSIX shell as a login shell, PowerShell without its profile) with the session's environment and no stdin. The line is drawn
+through the same `localCommand` ops pi-native's lines use, so the view, Stop and a late mount behave the same.
+The backend words the ending (`shellLineResult`): stdout, then stderr, then `Exit code N`, `[cancelled]` or
+`[output truncated]`, each stream cut to 30 000 characters with both ends kept.
+
+The finished line waits in the core (`shellCarry`) for the next turn. `sendCommand` puts it in front of the
+prompt as the text blocks the terminal interface writes as user lines of their own (measured on 2.1.285): the
+`<local-command-caveat>` once, then per line `<bash-input>` and `<bash-stdout>` + `<bash-stderr>`. The turn is
+then a content array. The grammar sits in `src/backends/claude/session-reader.js` (`shellPrefaceBlocks`,
+`shellPreface`), beside the tags that reader already skips.
+
+What follows from carrying the line in the prompt rather than as lines of its own:
+
+- **A steer and a turn without text do not carry it either** (the core's `carryFor`). The decoder knows a
+  carrying turn by its text and does not track a steer, so neither would be drawn.
+- **PowerShell needed a wrapper** (`commandArgs`, measured on 5.1 and 7): with its streams redirected it wrote
+  CLIXML to stderr on every 5.1 run (progress, errors, warnings, `Write-Host`, `throw`), coloured pwsh's errors,
+  and exited 1 for a native command's 3. The line runs inside a short script that turns progress off, takes
+  every stream into the pipeline, writes it as text and exits with the last native command's code, else 1 when a
+  PowerShell error was raised. That differs from POSIX `-c`, whose code is the last command's. A native
+  command's stderr is not counted as a failure. PowerShell runs with `-NoProfile`, unlike a terminal of this app:
+  a profile made for an interactive prompt has no place in a line run with nobody at it. The POSIX shells do run
+  as login shells, with their profile.
+- **A `/` line does not carry it** (`carriesShellLines`). Whether Claude still reads a command out of a turn
+  whose content opens with other blocks was not measured, and a `/compact` sent as text would cost a turn. The
+  line waits for the next prompt.
+- **Claude does not play such a turn back** (measured on 2.1.296 with `--replay-user-messages`: no `user` line
+  at all, as for a local command). The decoder draws the prompt itself, in front of the first thing the turn
+  shows, as it draws a `/` line (point 12 of the protocol notes), and a replay that came anyway would be drawn
+  once and without the blocks.
+- **Every reader takes the prompt as the user's words.** An attach splits the transcript's line into a
+  `local-command` entry per shell line (keyed `<uuid>:shell:<n>`) and the prompt under the line's uuid. The
+  history viewer keeps one entry per line and gets the lines as `_localCmd` blocks, so its fold of
+  `<bash-input>` markup does not swallow the prompt. The session reader's summary, word count and turn start
+  read the prompt. No line the terminal interface writes has this shape, so the parser version did not move.
+- **An attach before the next prompt** draws the waiting lines from the core, since no transcript has them yet.
+- **A line is lost from the model's context** if the session ends before the next prompt, or if `/clear`
+  replaces the conversation first. Both are on purpose: there is no turn left, or it belongs to another
+  conversation.
+- **Only the composer runs one.** `appCommandOp` is asked by `sendTurn` alone, so a `!` line a trigger or a
+  launcher writes into the session reaches the model as text, as it does in Claude's own print mode.
+
 ## Images (#662)
 
 An image pasted into the input or dropped on the conversation goes out with the next turn. It is shown above
@@ -933,7 +983,8 @@ The core learned these as declarations of the `rpc` half in #657, where it used 
 | Identity | asked with `get_state` | read off every line | Claude cannot be asked |
 | History on attach | `get_messages` | the transcript file | Claude cannot be asked |
 | Turn acknowledgement | every command is answered | a turn line is never answered | the protocols differ |
-| Stop | `abort`, plus `abort_bash` for a shell line | an `interrupt` control request | the protocols differ |
+| Stop | `abort`, plus `abort_bash` for a shell line | an `interrupt` control request; a shell line is stopped by the app | the protocols differ |
+| A `!` shell line | Pi's own `bash` command, which books the output into Pi's context | run by the app, carried into the next prompt (#786) | Claude's protocol has no shell command |
 | `/login`, `/model`, `/session`, `/tree` | built by the app in the extension | Claude's own, or not available | Pi's are TUI commands that mean nothing over RPC; Claude's local commands answer over the pipe |
 
 ### Written twice, and the guard against it (#664)

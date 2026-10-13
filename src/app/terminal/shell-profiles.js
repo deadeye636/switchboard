@@ -342,4 +342,62 @@ function ptyShellArgs(shellPath, cmd, extraArgs) {
   return args;
 }
 
-module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin, gitBashWrapperFor };
+// Spawn args for ONE command run to completion with no terminal — a `!` line typed into a session driven
+// over a pipe (#786, `src/app/agent-shell.js`). `shellArgs` cannot serve: its `-i` asks for an interactive
+// shell, which with no terminal behind it complains about job control on every run. A POSIX shell is still a
+// login shell, so the PATH and the profile are the ones a terminal of this app gets; PowerShell runs without
+// its profile (see below).
+//
+// Answers `{ args, verbatim }`. `verbatim` is child_process's `windowsVerbatimArguments`, and only cmd.exe
+// takes it: its line is quoted the way Node quotes `shell: true`, because cmd does not read the `\"` escape
+// Node's argv quoting would put into it. PowerShell gets the command BASE64-encoded for the same reason —
+// Windows PowerShell 5.1 reads `\"` wrongly too, and `-EncodedCommand` leaves nothing to quote.
+function commandArgs(shellPath, cmd, cwd) {
+  const base = path.basename(shellPath).toLowerCase();
+  const command = String(cmd == null ? '' : cmd);
+  if (isWslShell(shellPath)) {
+    return { args: [...(cwd ? ['--cd', cwd] : []), '--', 'bash', '-l', '-c', command], verbatim: false };
+  }
+  if (base.includes('bash') || base.includes('zsh') || base === 'sh' || base === 'fish' || base === 'nu') {
+    return { args: ['-l', '-c', command], verbatim: false };
+  }
+  if (base.includes('powershell') || base.includes('pwsh')) {
+    // Measured on Windows PowerShell 5.1 and pwsh 7 (#786): with its streams redirected, `-EncodedCommand`
+    // writes CLIXML to stderr — a progress record on EVERY 5.1 run, and every error, warning, `Write-Host` and
+    // `throw` — and pwsh colours its errors with escape codes. So progress is off, rendering is plain, every
+    // stream is taken into the pipeline (`*>&1`, a `throw` through `catch`) and written as text by the script
+    // itself: warnings and errors to stderr, the rest to stdout. It exits 1 for any failure too, so the line's
+    // own code is handed on: the last native command's, else 1 when a PowerShell error was raised. That is not
+    // POSIX `-c` (whose code is the LAST command's), and it is the closest PowerShell's two error channels get.
+    // A native command's stderr is not such an error — git writes progress there and succeeds.
+    //
+    // `-NoProfile`, unlike a terminal of this app: a profile written for an interactive prompt (a prompt theme,
+    // a module import that asks) has no business in a line run with nobody at it, and its output would land in
+    // the line's.
+    const script = [
+      "$ProgressPreference = 'SilentlyContinue'",
+      "if ($PSStyle) { $PSStyle.OutputRendering = 'PlainText' }",
+      '$global:__failed = $false',
+      'try {',
+      '& {',
+      command,
+      '} *>&1 | ForEach-Object {',
+      '  if ($_ -is [System.Management.Automation.ErrorRecord]) {',
+      "    if ($_.FullyQualifiedErrorId -like 'NativeCommandError*') { [Console]::Error.WriteLine($_.ToString()) }",
+      "    else { $global:__failed = $true; [Console]::Error.WriteLine((($_ | Out-String) -replace '\\s+$', '')) }",
+      "  } elseif ($_ -is [System.Management.Automation.WarningRecord]) { [Console]::Error.WriteLine('WARNING: ' + $_.Message) }",
+      '  elseif ($_ -is [System.Management.Automation.InformationRecord]) { $_.ToString() }',
+      '  else { $_ }',
+      '} | Out-String -Stream',
+      "} catch { $global:__failed = $true; [Console]::Error.WriteLine((($_ | Out-String) -replace '\\s+$', '')) }",
+      'if ($LASTEXITCODE) { exit $LASTEXITCODE }',
+      'if ($global:__failed) { exit 1 }',
+    ].join('\n');
+    return { args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], verbatim: false };
+  }
+  // cmd off Windows does not exist: any other shell there takes `-c` like the POSIX family.
+  if (process.platform !== 'win32') return { args: ['-c', command], verbatim: false };
+  return { args: ['/d', '/s', '/c', `"${command}"`], verbatim: true };
+}
+
+module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, commandArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin, gitBashWrapperFor };

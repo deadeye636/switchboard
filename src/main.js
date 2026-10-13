@@ -2308,6 +2308,9 @@ agentRpc.init({
   // module stays loadable under `node --test`.
   dataDir: require('./db/connection').DATA_DIR,
   clipboard,
+  // The shell a `!` line runs in when the runtime has none of its own (#786): the project's terminal profile,
+  // the same answer a terminal opened there gets.
+  shellFor: (cwd) => resolveShell(resolveTerminalShellProfileId(cwd)).path,
   log,
 });
 agentRpc.registerIpc(ipcMain);

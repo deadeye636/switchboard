@@ -422,7 +422,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   session answering (#729). A running subagent wears the agent badge on the row and the tab, its start and
   end taken from the pipe rather than from file activity (#762, #769), foreground agents count in the
   background list (#768), and the caret on an `Agent` call follows that subagent's transcript inline, with
-  *Open in tab* on top (#770); the Background list's Open opens that box too, one per conversation (#783). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  *Open in tab* on top (#770); the Background list's Open opens that box too, one per conversation (#783). A `!`
+  line runs in the project's shell as it does in the CLI: the app runs it, since the pipe has no shell command, shows
+  the output, and hands it to the model with the next prompt (#786). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:

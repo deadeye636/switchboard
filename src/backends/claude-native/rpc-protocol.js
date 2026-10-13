@@ -111,6 +111,18 @@
 //      not deliver; `mcp_clear_auth { serverName }` signs out of an http/sse server. None of them pushes a state
 //      change on the stream, so the view asks `mcp_status` again. `tools` in `mcp_status` carries names and the
 //      read-only/destructive hints only, no descriptions.
+//  14. A `!` line (#786). The protocol has no shell command: over the pipe `!ls` is a prompt like any other, and
+//      the model answers it. So a `!` line typed into the view is the app's (`appCommandOp` answers `shell`), the
+//      core runs it in the project's shell (`src/app/agent-shell.js`) and draws it, and the next turn carries it:
+//      `sendCommand` puts the caveat, `<bash-input>` and `<bash-stdout>`+`<bash-stderr>` the terminal interface
+//      writes as lines of their own (measured on 2.1.285) in front of the prompt, as text blocks of its content.
+//      A `/` line does not carry them (`carriesShellLines`) — Claude would no longer read it as a command — so
+//      they wait for the next prompt. Such a turn is NOT played back (measured on 2.1.296 with
+//      `--replay-user-messages`: no `user` line at all), so the decoder draws its prompt itself, the way
+//      it draws a `/` line (point 12), and drops the blocks from a replay should one come. The transcript keeps
+//      the whole line, and an attach turns its blocks into the same `local-command` entries the view drew. A `!!` line is not a shell line here and goes to the
+//      model as typed: in Pi's terminal it means "keep the output out of the context", and this path exists to
+//      put it in — the same reason pi-native refuses it.
 'use strict';
 
 // IMAGE_INPUT is the images a turn may carry (#662), shared with pi-native because both answer to the same
@@ -119,7 +131,7 @@ const crypto = require('crypto');
 const { textOf, argsFromText, oneLineDescription, NOTICES, IMAGE_INPUT } = require('../rpc-shared');
 // Claude's slash-command grammar, from Claude's own reader — one copy of it, beside the transcript format
 // it belongs to (#229, #680).
-const { isUsersPrompt } = require('../claude/session-reader');
+const { isUsersPrompt, shellPreface, shellPrefaceBlocks, shellOutputText } = require('../claude/session-reader');
 // Claude's injected lines as neutral entries — one copy, shared with the history viewer (#705).
 const {
   plainUserText, subagentIdOf, kindOfTool, isTaskNotification, taskNoticeEntry, isPeerMessage, peerReportEntry, displayedLine,
@@ -408,6 +420,9 @@ function createDecoder() {
   // The `/` line drawn here for the running turn, so a replay of it that comes after all (a skill the user
   // typed, behind a notice or a task's card) is not drawn a second time.
   let drawn = null;
+  // The written lines that carried shell lines (point 14). Claude does not play such a turn back either
+  // (measured on 2.1.296), so it is drawn here like a `/` line.
+  const carrying = new Set();
 
   const matches = (sent, played) => sent === played || played.startsWith(`${sent} `) || sent.startsWith(`${played} `);
   const isPrompt = (o) => o.op === 'append' && o.entry && o.entry.prompt;
@@ -444,8 +459,9 @@ function createDecoder() {
       placed = true;
       return ops;
     }
-    if (!due[0].startsWith('/')) return ops;
+    if (!due[0].startsWith('/') && !carrying.has(due[0])) return ops;
     const typed = due.shift();
+    carrying.delete(typed);
     armed = false;
     placed = true;
     drawn = typed;
@@ -629,7 +645,10 @@ function createDecoder() {
       const entry = skillTextEntry(msg, skill.id, skill.output);
       return entry ? [{ op: 'append', entry }] : [];
     }
-    const shown = displayedLine(msg);
+    // A prompt carrying shell lines (point 14) is drawn as the prompt: the view drew each line when it ran.
+    const preface = shellPreface(m.content);
+    if (preface && !preface.rest.length) return [];
+    const shown = displayedLine(preface ? { ...msg, message: { ...m, content: promptContent(preface.rest) } } : msg);
     if (!shown) return [];
     // The user's own line (#709): on the stream it is one played back, `isReplay` (point 3, measured on
     // 2.1.284). A local command's output is played back too (`/compact`'s "Compacted", measured), and the
@@ -890,13 +909,21 @@ function createDecoder() {
   function noteSent(line) {
     if (!line) return;
     if (line.type === 'user' && line.message && line.priority !== PRIORITIES.steer) {
-      const typed = normText(textOf(line.message.content));
+      // What the user typed, without the shell lines the turn carries (point 14): its replay is matched without them.
+      const preface = shellPreface(line.message.content);
+      const typed = normText(textOf(preface ? preface.rest : line.message.content));
       if (typed) {
         // Written to an idle session, the line starts a turn: the next one, or the one after a follow-up still
         // queued in the CLI, which stays ahead of it here too.
         due.push(typed);
+        if (preface) {
+          // A bound, like `due`'s: a text left here by a line that went another way only draws a later identical
+          // line itself, and a replay of that is not drawn twice (`drawn`).
+          if (carrying.size >= DUE_CAP) carrying.clear();
+          carrying.add(typed);
+        }
         if (!inTurn) { armed = true; placed = false; }
-        if (due.length > DUE_CAP) due.shift();
+        if (due.length > DUE_CAP) carrying.delete(due.shift());
       }
     }
     if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = NOTICES.stopped;
@@ -921,11 +948,16 @@ const PRIORITIES = { steer: 'next', follow_up: 'later' };
 // (#688), so the n-th image is the one the text calls `[Image #n]`. It used to be images first, the order
 // Anthropic's documentation recommends; the CLI's own pairing won, because it is what the model sees from
 // the TUI every day. A turn without images stays a plain string, as it always was.
-function sendCommand({ text, mode, images } = {}) {
+//
+// Shell lines the app ran since the last turn (point 14) go first, as the terminal interface's own lines would
+// have come first; the turn is then a content array even without images.
+function sendCommand({ text, mode, images, shellLines } = {}) {
   const body = String(text == null ? '' : text);
   const list = Array.isArray(images) ? images : [];
-  const content = list.length
-    ? [...(body.trim() ? [{ type: 'text', text: body }] : []),
+  const shells = Array.isArray(shellLines) && shellLines.length ? shellPrefaceBlocks(shellLines.map(shellParts)) : [];
+  const content = list.length || shells.length
+    ? [...shells,
+      ...(body.trim() ? [{ type: 'text', text: body }] : []),
       ...list.map(img => ({ type: 'image', source: { type: 'base64', media_type: img.mimeType, data: img.data } }))]
     : body;
   const line = {
@@ -1034,8 +1066,65 @@ function contextFromResponse(response) {
 
 // A command the app answers instead of writing it as a turn (point 13): the op the core handles for it, or
 // `null` for a line that goes to the CLI. Only a bare `/mcp` — with arguments it is the CLI's to answer.
+//
+// And a `!` line (point 14): the app runs it. The rule is the core's own reading of a composer line
+// (`SHELL_LINE` in `src/app/agent-rpc.js`) — the command is what follows the `!`, trimmed, and `!!` is not one —
+// because the core records the line by that reading and runs only a line it recorded.
+const SHELL_LINE = /^\s*!\s*(?!\s*!)(.+)$/s;
 function appCommandOp(text) {
-  return /^\s*\/mcp\s*$/.test(String(text == null ? '' : text)) ? { op: 'servers' } : null;
+  const s = String(text == null ? '' : text);
+  if (/^\s*\/mcp\s*$/.test(s)) return { op: 'servers' };
+  const shell = SHELL_LINE.exec(s);
+  const command = shell ? shell[1].trim() : '';
+  return command ? { op: 'shell', command } : null;
+}
+
+// --- a `!` line (point 14) ---
+
+// How much of each stream goes to the model. Claude's own Bash tool cuts its output at 30 000 characters; a
+// line the user ran is cut the same way, keeping both ends, because the end of a test run is where its verdict
+// is and the start is where the command said what it was doing.
+const SHELL_TEXT_CAP = 30000;
+function clipMiddle(text) {
+  const s = String(text == null ? '' : text);
+  if (s.length <= SHELL_TEXT_CAP) return s;
+  const half = SHELL_TEXT_CAP / 2;
+  return `${s.slice(0, half)}\n[… ${s.length - SHELL_TEXT_CAP} characters cut …]\n${s.slice(-half)}`;
+}
+
+// What a finished line says, as the pieces the terminal interface writes: its output, and its errors with the
+// ending noted after them. The model reads exactly this, and the view shows it joined (`shellOutputText`), so a
+// line reads the same live, after a re-mount, and in the history viewer.
+function shellParts(line) {
+  const l = line || {};
+  const notes = [];
+  if (l.failed) notes.push('The shell could not be started.');
+  else if (l.cancelled) notes.push('[cancelled]');
+  else if (l.exitCode) notes.push(`Exit code ${l.exitCode}`);
+  if (l.truncated) notes.push('[output truncated]');
+  const stderr = [clipMiddle(l.stderr).replace(/\s+$/, ''), ...notes].filter(Boolean).join('\n');
+  return { command: String(l.command == null ? '' : l.command), stdout: clipMiddle(l.stdout), stderr };
+}
+
+// The line's ending for the view (`{ status, output }`), from what `src/app/agent-shell.js` answered.
+function shellLineResult(line) {
+  const l = line || {};
+  const p = shellParts(l);
+  const status = l.cancelled ? 'cancelled' : (l.failed || l.exitCode) ? 'error' : 'done';
+  return { status, output: shellOutputText(p.stdout, p.stderr) };
+}
+
+// What is left of a prompt once its shell lines are taken off, in the shape a prompt without them has: one text
+// block is a plain string, as `sendCommand` writes a turn with nothing else in it.
+function promptContent(rest) {
+  return rest.length === 1 && rest[0] && rest[0].type === 'text' && typeof rest[0].text === 'string' ? rest[0].text : rest;
+}
+
+// A `/` line keeps its shell lines for the next prompt. Whether Claude still reads a command out of a turn whose
+// content opens with other blocks was not measured, and a `/compact` sent to the model as text would cost a whole
+// turn — so the lines wait rather than risk it.
+function carriesShellLines(text) {
+  return !/^\s*\//.test(String(text == null ? '' : text));
 }
 
 // The MCP servers (point 13): the request, and its answer as the rows the view draws — a server's name, where
@@ -1313,7 +1402,14 @@ function conversationEntries(lines) {
     }
     if (!line || (line.type !== 'user' && line.type !== 'assistant')) continue;
     if (line.isSidechain || line.isMeta || !line.message || typeof line.uuid !== 'string') continue;
-    const shown = stampDocuments(displayedLine(line), readCalls);
+    // A prompt carrying shell lines (point 14): each line as the entry the view drew when it ran, under a key of
+    // its own, then the prompt under the line's uuid — the key its live replay was drawn under.
+    const preface = line.type === 'user' ? shellPreface(line.message.content) : null;
+    if (preface) {
+      preface.lines.forEach((l, i) => out.push({ type: 'local-command', uuid: `${line.uuid}:shell:${i}`, _localCmd: { cmd: l.cmd, output: l.output } }));
+      if (!preface.rest.length) continue;
+    }
+    const shown = stampDocuments(displayedLine(preface ? { ...line, message: { ...line.message, content: promptContent(preface.rest) } } : line), readCalls);
     // The user's own line (#709), by the rule Claude's reader keeps for the transcript.
     if (shown) out.push(isUsersPrompt(line) ? { ...shown, prompt: true } : shown);
     // An answered question (#724), as the stream draws it.
@@ -1360,6 +1456,8 @@ module.exports = {
   commandsCommand,
   commandsFromResponse,
   appCommandOp,
+  shellLineResult,
+  carriesShellLines,
   serversCommand,
   serverList,
   serverActionCommand,

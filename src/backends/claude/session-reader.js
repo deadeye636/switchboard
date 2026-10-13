@@ -41,9 +41,69 @@ const { transportFromEntry } = require('./transport-marker');
 //        lines, and none of that shape was found in a real store.
 const PARSER_SCHEMA_VERSION = 13; // v13: user counters ask isUsersPrompt — #706
 
+// A `!` LINE THE APP RAN, CARRIED INTO THE NEXT PROMPT (#786). Claude's terminal interface writes a shell escape
+// as user lines of their own — a caveat (`isMeta`), `<bash-input>`, then `<bash-stdout>` + `<bash-stderr>`
+// (measured on 2.1.285) — and the model reads them with the next turn. Over the stream-json pipe every user line
+// IS a turn, so claude-native runs the line itself and sends those same three pieces as the FIRST text blocks of
+// the next prompt's content, one block each, with the caveat once in front. One user line, then, whose leading
+// blocks are shell markup and whose rest is what the user typed. Nothing else writes that shape: a line the
+// terminal writes holds its markup as a plain string. So no reader of an older transcript changes, and the
+// parser version stays.
+//
+// The grammar lives here, beside the tags this reader already skips, and every reader asks `shellPreface`: the
+// session's own counters and summary (`contentToText`), the live decoder and the attach (claude-native), the
+// history viewer's entries.
+const SHELL_CAVEAT = "The command below was run directly in Claude Code, not sent to you as a request, and its output goes straight to the user. It's recorded here as context for later messages.";
+const SHELL_OPEN = /^\s*<(?:local-command-caveat|bash-input|bash-stdout)>/;
+const SHELL_CLOSE = /<\/(?:local-command-caveat|bash-input|bash-stderr)>\s*$/;
+const isShellBlock = (b) => !!(b && b.type === 'text' && typeof b.text === 'string' && SHELL_OPEN.test(b.text) && SHELL_CLOSE.test(b.text));
+
+// The content blocks for `lines` (`[{ command, stdout, stderr }]`), in the order the terminal interface writes
+// them. What goes into stdout and stderr — a cut, an exit code — is the caller's.
+function shellPrefaceBlocks(lines) {
+  const out = [{ type: 'text', text: `<local-command-caveat>${SHELL_CAVEAT}</local-command-caveat>` }];
+  for (const l of lines || []) {
+    out.push({ type: 'text', text: `<bash-input>${String(l.command == null ? '' : l.command)}</bash-input>` });
+    out.push({ type: 'text', text: `<bash-stdout>${String(l.stdout == null ? '' : l.stdout)}</bash-stdout><bash-stderr>${String(l.stderr == null ? '' : l.stderr)}</bash-stderr>` });
+  }
+  return out;
+}
+
+// What a shell line shows: its output, then its errors — the joining the history viewer has always used for a
+// line the terminal wrote, so a carried line reads the same live, re-read, and in the viewer.
+function shellOutputText(stdout, stderr) {
+  return [String(stdout == null ? '' : stdout).trim(), String(stderr == null ? '' : stderr).trim()].filter(Boolean).join('\n');
+}
+
+// A user line's content split into the carried shell lines and the rest: `{ lines: [{ cmd, output }], rest }`,
+// or null for content that does not open with shell markup — every line the terminal interface writes included,
+// since its content is a string.
+function shellPreface(content) {
+  if (!Array.isArray(content)) return null;
+  let n = 0;
+  while (n < content.length && isShellBlock(content[n])) n++;
+  if (!n) return null;
+  const lines = [];
+  for (const b of content.slice(0, n)) {
+    const input = /<bash-input>([\s\S]*?)<\/bash-input>/.exec(b.text);
+    if (input) lines.push({ cmd: input[1].trim(), stdout: '', stderr: '' });
+    const last = lines[lines.length - 1];
+    if (!last) continue;
+    const out = /<bash-stdout>([\s\S]*?)<\/bash-stdout>/.exec(b.text);
+    const err = /<bash-stderr>([\s\S]*?)<\/bash-stderr>/.exec(b.text);
+    if (out) last.stdout = out[1];
+    if (err) last.stderr = err[1];
+  }
+  return { lines: lines.map(l => ({ cmd: l.cmd, output: shellOutputText(l.stdout, l.stderr) })), rest: content.slice(n) };
+}
+
 function contentToText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
+    // A prompt carrying shell lines (#786) is read as the prompt: its summary, its words and whether it starts a
+    // turn are the user's, not the shell's.
+    const preface = shellPreface(content);
+    if (preface && preface.rest.length) content = preface.rest;
     return content.map(part => {
       if (typeof part === 'string') return part;
       if (typeof part?.text === 'string') return part.text;
@@ -900,4 +960,4 @@ function enumerateSessionFiles(folderPath) {
   return out;
 }
 
-module.exports = { PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand, readModelFromTail };
+module.exports = { shellPreface, shellPrefaceBlocks, shellOutputText, PARSER_SCHEMA_VERSION, readSessionFile, readSessionStartedAt, readSessionFileIncremental, subagentSessionId, resolveJsonlPath, readSubagentMeta, enumerateSessionFiles, extractDailyMetrics, isToolResultOnly, commandOnlyText, typedCommand, localCommandOutput, isUsersPrompt, openedWithCommand, readModelFromTail };

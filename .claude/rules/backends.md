@@ -602,6 +602,14 @@ answers instead of the core learning its format:
   `serverActionCommand(id, name, action, extra)` + `serverActionResult(response)` → `{ ok, error, authUrl }`
   (a pair, both or neither) and refuses an action that builds no request. `tools` is the view's own page and
   sends nothing. A server's config never leaves the backend. pi-native declares none.
+- A `!` shell line, two ways (#643, #786). A runtime with a shell command of its own declares `shellCommand` +
+  `shellResult` (+ `shellAbortCommand`): the decoder raises a `shell` op and the runtime runs the line and books
+  its output (pi-native). One without declares `shellLineResult(line)` instead, and its `appCommandOp` answers
+  `shell` for a composer line: the core runs the line itself (`src/app/agent-shell.js`, in the project's terminal
+  shell), stops it on Stop and on exit, and hands the finished line to the next turn as `sendCommand`'s
+  `shellLines` (`[{ command, stdout, stderr, exitCode, cancelled, truncated, failed }]`). `carriesShellLines(text)`
+  may hold them back for a line that must not carry them. The format the model reads is the backend's;
+  claude-native puts the terminal interface's own markup in front of the prompt (spec 32, "Shell lines").
 
 **The per-spawn hooks that exist, and the order they were added in.** `supportsLiveRebinding` +
 `buildLiveBinding` / `releaseLiveBinding` (the terminal backends' busy/idle binding); `providesPromptTemplates`

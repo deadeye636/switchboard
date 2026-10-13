@@ -31,6 +31,7 @@ const os = require('os');
 const path = require('path');
 const { completePaths } = require('./path-completion');
 const { createRegistry: createDocumentRegistry } = require('./documents');
+const { runShellLine } = require('./agent-shell');
 const { measured } = require('../perf');
 
 let ctx = null;
@@ -54,6 +55,8 @@ const EXPORT_DIR_NAME = 'exports';
  * @param {Electron.Clipboard} [context.clipboard]  arrives through ctx like every other Electron part,
  *   so this module stays loadable under `node --test`
  * @param {object} [context.approvalMemory]  `app/approval-memory.js`: what the user already allowed (#731)
+ * @param {(cwd: string) => string} [context.shellFor]  the shell a terminal of this app opens in that
+ *   directory — where a `!` line runs for a runtime that has no shell command of its own (#786)
  * @param {object} context.log
  */
 function init(context) {
@@ -229,6 +232,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     localOps: new Map(),     // id -> the newest running op not sent yet (coalesced, like the partial)
     localTimer: null,
     composerLines: new Set(), // shell lines the composer sent that the runtime has not raised yet
+    // A runtime with no shell command of its own (#786): the lines this process runs itself, id -> `stop`, and
+    // the finished ones the next turn carries to the model (`carryShellLines`).
+    shellRuns: new Map(),
+    shellCarry: [],
+    env,
     liveSubagents: new Map(), // agentId -> the session id its start went out under, until its end (#769); closed on exit
     navigations: new Set(),  // moves in the branch tree this process asked for and has not heard back on
     queue: { steering: [], followUp: [] },
@@ -357,8 +365,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // A command the backend says the app answers itself (`appCommandOp`, #719): drawn as the user's line and
   // handled as the op the backend named, with nothing written to the runtime — so it is no turn, raises no
   // busy edge and is never held behind one.
+  // A shell line (#786) is not drawn as the user's line: its own entry names the command, as pi-native's does.
   state.answerInApp = (text, op) => {
-    sendOp(state, { op: 'append', entry: { type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: text.trim() }, prompt: true } });
+    if (op.op !== 'shell') {
+      sendOp(state, { op: 'append', entry: { type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: text.trim() }, prompt: true } });
+    }
     handleOp(op);
   };
 
@@ -505,6 +516,60 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     state.composerLines.add(command);
   }
   state.noteComposerLine = noteComposerLine;
+
+  // A SHELL LINE THIS PROCESS RUNS ITSELF (#786), for a runtime whose protocol has no shell command — Claude
+  // Code's stream-json has none, its `!` belongs to the terminal interface. The line runs in the shell a
+  // terminal of this app would open in the session's directory, with the session's environment, and is drawn
+  // through the same `localCommand` ops a runtime's line gets. What the runtime would have booked into its
+  // context is kept instead (`shellCarry`) and goes to the model with the next turn, in the backend's format
+  // (`sendCommand`'s `shellLines`) — so the model sees it when the user next writes, as it does in the CLI.
+  // The backend words the ending (`shellLineResult`), as Pi's `shellResult` does for a runtime's line.
+  const SHELL_CARRY_CAP = 8;
+  function runInApp(id, command) {
+    let shellPath = '';
+    try { shellPath = ctx.shellFor ? ctx.shellFor(state.cwd) : ''; } catch { shellPath = ''; }
+    if (!shellPath) shellPath = process.platform === 'win32' ? (process.env.COMSPEC || 'cmd.exe') : '/bin/sh';
+    const run = runShellLine({
+      command,
+      cwd: state.cwd,
+      shellPath,
+      env: state.env,
+      // Through the coalescing every runtime line's output takes, so a chatty command costs a redraw per
+      // interval, not per write.
+      onOutput: (output) => handleOp({ op: 'localCommand', id, status: 'running', output }),
+    });
+    state.shellRuns.set(id, run);
+    // A line still running when the conversation is replaced (`/clear`) is not the new one's context.
+    const resetsAtStart = state.resets;
+    run.done.then((raw) => {
+      state.shellRuns.delete(id);
+      state.localCommands.delete(id);
+      state.localOps.delete(id);
+      const line = { command, ...raw };
+      const result = rpc.shellLineResult(line);
+      sendOp(state, { op: 'localCommand', id, command, status: result.status, output: result.output });
+      if (state.exited || state.resets !== resetsAtStart) return;
+      state.shellCarry.push(line);
+      if (state.shellCarry.length > SHELL_CARRY_CAP) state.shellCarry.shift();
+    }).catch((err) => {
+      state.shellRuns.delete(id);
+      state.localCommands.delete(id);
+      state.localOps.delete(id);
+      ctx.log.warn(`[agent-rpc] a shell line did not finish: ${err.message}`);
+    });
+  }
+
+  // The finished lines a turn about to be written carries, or null. A line the backend says cannot carry them
+  // (`carriesShellLines` — Claude's `/` command, which its CLI would no longer read as a command) leaves them for
+  // the next one. Taken off only once the write went through (`send`).
+  //
+  // A steer and a turn with no text carry none either: a decoder that draws a carrying turn itself (claude-native,
+  // whose CLI does not play it back) knows a turn by its text, and a steer it does not track at all.
+  function carryFor(text, mode) {
+    if (!state.shellCarry.length || mode === 'steer' || !String(text || '').trim()) return null;
+    if (typeof rpc.carriesShellLines === 'function' && !rpc.carriesShellLines(text)) return null;
+    return state.shellCarry.slice();
+  }
 
   function report(kind, extra) {
     const found = findSession(tag);
@@ -732,8 +797,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // The user asked to run a shell line. The runtime runs it, because its own shell is what books the
         // output into the session's context — the next prompt then carries it to the model. This process
         // only starts it, says so on screen, and remembers that one is running so Stop can reach it.
+        //
+        // A runtime with no shell command of its own (#786) declares `shellLineResult` instead, and the line
+        // runs HERE — see `runInApp` below and `./agent-shell.js`. The composer check and the first op are the
+        // same for both.
         flushPartial();
-        if (typeof rpc.shellCommand !== 'function' || typeof rpc.shellResult !== 'function') return;
+        const inApp = typeof rpc.shellCommand !== 'function' && typeof rpc.shellLineResult === 'function';
+        if (!inApp && (typeof rpc.shellCommand !== 'function' || typeof rpc.shellResult !== 'function')) return;
         const command = String(op.command || '');
         if (!command) return;
         // Only a line this window's composer sent — see `noteComposerLine`. A turn written into the
@@ -752,6 +822,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // Said before the request goes out, so a command that takes a minute has something on screen from
         // the first frame rather than from its last.
         sendOp(state, { op: 'localCommand', id, command, status: 'running', output: '' });
+        if (inApp) { runInApp(id, command); return; }
         request(() => rpc.shellCommand(id, { command }), { id, timeoutMs: 0 }).then((res) => {
           state.localCommands.delete(id);
           // Whatever was still waiting to be drawn for this line is dropped rather than sent: the result
@@ -863,6 +934,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // attach reading the file right now has to know its read may predate this.
         state.recentAppends = [];
         state.resets += 1;
+        // A shell line run in the old conversation is not context for the new one (`/clear`).
+        state.shellCarry = [];
         // The conversation was replaced: the documents it held are the old one's, the new one's come with it.
         state.documents.clear();
         state.documents.noteAll(op.entries);
@@ -941,6 +1014,10 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     // …and neither does a subagent (#769): an edge that said "started" is closed here, because the end the
     // runtime would have stated cannot come any more.
     for (const agentId of [...state.liveSubagents.keys()]) deliverSubagentEdge(agentId, false);
+    // …nor a shell line this process ran for it (#786): nobody could stop it any more, and its output has no turn
+    // left to go to.
+    for (const run of state.shellRuns.values()) run.stop();
+    state.shellCarry = [];
     for (const [, waiting] of state.pending) { clearTimeout(waiting.timer); waiting.resolve({ success: false, error: 'exited' }); }
     state.pending.clear();
     if (state.stderrTail.trim()) ctx.log.info(`[agent-rpc] stderr before exit: ${state.stderrTail.trim().slice(-600)}`);
@@ -976,19 +1053,29 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // would time every turn out as "no answer" while the runtime works on it. There the write IS the send,
   // and — since nothing in such a stream says a turn began — the write is also the moment the session turns
   // busy. A line written while a turn runs (a steer, a follow-up) changes nothing about that.
+  //
+  // A turn carries the shell lines run since the last one (`carryFor`, #786), and they are spent once the line
+  // is written — or, for a runtime that answers, once it took it.
   function send({ text, mode, images }) {
+    const shellLines = carryFor(text, mode);
+    const spend = () => { if (shellLines) state.shellCarry = state.shellCarry.filter(l => !shellLines.includes(l)); };
+    const carried = shellLines ? { shellLines } : {};
     if (rpc.sendAcknowledged === false) {
       const wasBusy = state.busy;
-      if (!write(rpc.sendCommand({ id: crypto.randomUUID(), text, mode, busy: wasBusy, images }))) {
+      if (!write(rpc.sendCommand({ id: crypto.randomUUID(), text, mode, busy: wasBusy, images, ...carried }))) {
         return Promise.resolve({ success: false, error: 'not running' });
       }
+      spend();
       // A turn line written while one runs is a turn the runtime now owes (`turnQueueOf`). A steer is not:
       // it goes into the running turn and starts none of its own.
       if (wasBusy && mode !== 'steer') state.owed += 1;
       if (!wasBusy) handleOp({ op: 'busy', busy: true });
       return Promise.resolve({ success: true });
     }
-    return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy, images }));
+    return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy, images, ...carried })).then((res) => {
+      if (res && res.success !== false) spend();
+      return res;
+    });
   }
 
   // A turn written as keys — the seed prompt, the trigger watcher, a launcher — has nobody waiting on its
@@ -1257,6 +1344,7 @@ async function attachFromTranscript(sessionId, state) {
       if (k && !seen.has(String(k))) { out.push(e); seen.add(String(k)); }
     }
   }
+  out.push(...carriedEntries(state));
   return {
     ok: true,
     seq,
@@ -1274,6 +1362,16 @@ async function attachFromTranscript(sessionId, state) {
     canSwitchMode: canSwitchMode(state),
     notices: state.startNotices,
   };
+}
+
+// The shell lines this process ran that no turn has carried yet (#786). They are in no transcript until the next
+// turn takes them, so an attach in between would lose them from the view; drawn last, as the view drew them.
+function carriedEntries(state) {
+  if (!state.shellCarry.length || typeof state.rpc.shellLineResult !== 'function') return [];
+  return state.shellCarry.map(line => ({
+    type: 'local-command',
+    _localCmd: { cmd: line.command, output: state.rpc.shellLineResult(line).output },
+  }));
 }
 
 // What the view says when the conversation could not be loaded — one sentence per failure, because they want
@@ -1324,9 +1422,11 @@ async function sendTurn(sessionId, payload) {
   const { images } = checked;
   if (!text.trim() && !images.length) return { ok: false, error: 'Nothing to send.' };
   const mode = SEND_MODES.has(payload && payload.mode) ? payload.mode : 'prompt';
-  // A command the app answers itself (#719) goes nowhere near the runtime, busy or not.
+  // A command the app answers itself (#719) goes nowhere near the runtime, busy or not. A shell line among them
+  // (#786) is recorded as the composer's first, like every line sent from here, or the `shell` op refuses it.
   const own = !images.length && typeof state.rpc.appCommandOp === 'function' ? state.rpc.appCommandOp(text) : null;
   if (own && typeof own.op === 'string') {
+    if (own.op === 'shell') state.noteComposerLine(text);
     state.answerInApp(text, own);
     return { ok: true };
   }
@@ -1362,7 +1462,9 @@ async function sendTurn(sessionId, payload) {
 async function abortTurn(sessionId) {
   const state = stateFor(sessionId);
   if (!state) return { ok: false, error: 'This session is not running.' };
-  const stopsLine = state.localCommands.size > 0 && typeof state.rpc.shellAbortCommand === 'function';
+  // A line this process runs itself (#786) is stopped here, not through the runtime.
+  const ownLines = [...state.shellRuns.values()];
+  const stopsLine = state.localCommands.size > 0 && (typeof state.rpc.shellAbortCommand === 'function' || ownLines.length > 0);
   // A Stop pauses the held prompts (#702, owner decision): they stay, and wait for the user. Set BEFORE the
   // abort goes out — a runtime can settle the run before it answers the abort (Pi's does), and that idle edge
   // would otherwise send the first held prompt on the very Stop meant to hold it. Also while the queue is
@@ -1370,7 +1472,8 @@ async function abortTurn(sessionId) {
   const pausedBefore = state.heldPaused;
   if (state.held.length || state.busy) { state.heldPaused = true; state.tellHeld(); }
   const answers = [];
-  if (stopsLine) answers.push(await state.request(state.rpc.shellAbortCommand));
+  if (stopsLine && ownLines.length) { for (const run of ownLines) run.stop(); answers.push({ success: true }); }
+  else if (stopsLine) answers.push(await state.request(state.rpc.shellAbortCommand));
   if (state.busy || !stopsLine) answers.push(await state.request(state.rpc.abortCommand));
   const failed = answers.find(res => !res || res.success === false);
   if (failed && !pausedBefore) { state.heldPaused = false; state.tellHeld(); state.flushHeld(); }

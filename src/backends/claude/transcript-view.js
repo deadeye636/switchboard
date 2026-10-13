@@ -10,7 +10,7 @@
 // reads no Claude markup.
 'use strict';
 
-const { typedCommand, localCommandOutput } = require('./session-reader');
+const { typedCommand, localCommandOutput, shellPreface } = require('./session-reader');
 const { documentElement, isDocumentElement, kindOfPath } = require('../document-ref');
 
 // The text of a user line, when it is plain text: a string, or a single text block. Anything else (tool
@@ -338,6 +338,15 @@ function normalizeTranscriptEntries(lines) {
     // of 225 over one real store) — reads as the conversation view reads it, its terminal codes gone (#714).
     if (line && line.type === 'system' && line.subtype === 'local_command') {
       out.push(localCommandEntry({ ...line, isSidechain: false }) || EMPTY_ENTRY(line));
+      continue;
+    }
+    // A prompt carrying the shell lines the app ran (#786, `shellPreface`): still one entry, the lines drawn as
+    // the blocks the viewer already draws a shell line from, then the prompt. The markup is left behind here,
+    // because the viewer would otherwise fold the whole line — prompt included — into one shell card.
+    const preface = line && line.type === 'user' && line.message ? shellPreface(line.message.content) : null;
+    if (preface) {
+      const shells = preface.lines.map(l => ({ type: 'text', text: `! ${l.cmd}`, _localCmd: { cmd: l.cmd, output: l.output } }));
+      out.push(stampDocuments(displayedLine({ ...line, message: { ...line.message, content: [...shells, ...preface.rest] } }), readCalls));
       continue;
     }
     // One entry out for every line in: the viewer keys its bookmarks on the entry's position, so a line that

@@ -269,6 +269,10 @@ module.exports = {
     serverList: protocol.serverList,
     serverActionCommand: protocol.serverActionCommand,
     serverActionResult: protocol.serverActionResult,
+    // A `!` line is the app's too (#786): the protocol has no shell command, so the core runs it in the project's
+    // shell, this half words its ending, and the next turn that may carry it takes it to the model.
+    shellLineResult: protocol.shellLineResult,
+    carriesShellLines: protocol.carriesShellLines,
     answerCommand: protocol.answerCommand,
     // No `stateCommand`: the CLI names its session on every line and the decoder announces a move as an
     // `identity` op. No `messagesCommand`: the conversation is read from the transcript.
