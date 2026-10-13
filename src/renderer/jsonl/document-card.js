@@ -6,7 +6,8 @@
 // act (the conversation view) — "Open in default app" and "Open in tab". It names no backend and no tool.
 //
 // Reads, at CALL time, from other classic scripts: documentPreviewMode / documentPreviewMaxBytes / documentPdfThumbnailsOn
-// (jsonl/jsonl-viewer.js, which calls renderDocumentCard from renderToolResult), openDocumentViewer
+// (jsonl/jsonl-viewer.js, which calls renderDocumentCard from renderToolResult), claimInlineOpen / isLatestInlineOpen
+// (jsonl/jsonl-viewer.js, guarded), openDocumentViewer
 // (jsonl/document-viewer.js), openFileInPanel (views/file-panel.js), showControlMessage
 // (dialogs/control-dialogs.js, guarded), fileDirUrl (shared/preview-kind.js, guarded). `window.api.openDocument` /
 // `readDocument` / `openInEditor` are the preload's.
@@ -269,8 +270,13 @@ function renderDocumentCard(resultData, ctx) {
     { label: 'Open in tab', run: () => requestDocumentOpen(sessionIdNow(), doc.path, 'tab', false) },
   ] : [];
 
+  // A document and an agent share the one viewer per host (#787): each open claims its turn, so an agent's
+  // transcript still being read gives way to a document opened after it, and the other way round.
+  const claim = (host) => (typeof claimInlineOpen === 'function' ? claimInlineOpen(host) : 0);
+  const stale = (host, seq) => !!seq && typeof isLatestInlineOpen === 'function' && !isLatestInlineOpen(host, seq);
   const openViewer = () => {
     const host = (ctx && ctx.host) || card.closest('#jsonl-viewer') || card.ownerDocument.body;
+    claim(host);
     openDocumentViewer({
       host,
       name,
@@ -290,9 +296,11 @@ function renderDocumentCard(resultData, ctx) {
     // The host is taken now: the view may redraw its entries while the read is out (an attach, a deferred
     // draw), and the card clicked is then no longer in the document — the conversation still is (#766).
     const host = (ctx && ctx.host) || card.closest('#jsonl-viewer') || card.ownerDocument.body;
+    const seq = claim(host);
     let res = null;
     try { res = await window.api.readDocument(sessionIdNow(), doc.path); } catch (err) { res = { ok: false, error: String(err && err.message || err) }; }
     reading = false;
+    if (stale(host, seq)) return;
     if (!res || res.ok !== true) {
       const msg = res && res.error ? res.error : 'The document could not be read.';
       if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot show document', message: msg });

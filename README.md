@@ -114,7 +114,7 @@ chart rather than a row of zeroes.
   own permission questions (with "always allow in this project" where Claude suggests that rule), its
   questions to you and its plans as cards you answer in place, and images you
   paste or drop go out with your message, while any other file is named as `@path`, which Claude reads
-  in. `/mcp` opens the session's MCP servers as the CLI's own `/mcp` does, by mouse or keyboard: their state and tools, and reconnect, enable or disable, sign in or out. A running subagent shows a badge on its row and tab, and its transcript can be followed inline under the call that started it. A setting decides whether Enter during a turn holds the prompt or steers it into the turn. Scrolled back through a long turn, the prompt that started it stays pinned at the top of the
+  in. `/mcp` opens the session's MCP servers as the CLI's own `/mcp` does, by mouse or keyboard: their state and tools, and reconnect, enable or disable, sign in or out. A running subagent shows a badge on its row and tab, and its transcript opens live in an overlay over the conversation, the way a document does. A setting decides whether Enter during a turn holds the prompt or steers it into the turn. Scrolled back through a long turn, the prompt that started it stays pinned at the top of the
   conversation, in both views without a terminal. It starts only
   in a project Claude trusts, and it has no login of its own. Its sessions are ordinary Claude sessions and
   reopen where they were driven.

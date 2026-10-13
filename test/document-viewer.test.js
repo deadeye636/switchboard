@@ -242,3 +242,27 @@ test('a pdf with no bytes opens no viewer', () => {
   const h = pdfSetup();
   assert.equal(h.openText({ kind: 'pdf', bytes: new Uint8Array(0) }), null);
 });
+
+test('#787: an element the caller built is shown in text mode, and onClose runs once whoever closes', () => {
+  const h = setup();
+  const el = h.d.createElement('div');
+  el.textContent = 'transcript';
+  let closed = 0;
+  const v = h.openWith({ count: 0, srcAt: null, content: { kind: 'element', el }, onClose: () => { closed++; } });
+  assert.ok(v, 'opens');
+  assert.equal(el.parentNode.className, 'document-viewer-stage document-viewer-stage-text');
+  assert.ok(el.classList.contains('document-viewer-element'));
+  assert.equal(v.el.querySelector('.document-viewer-pager'), null, 'no pager');
+  h.key(v.el, 'Escape');
+  assert.equal(closed, 1, 'Esc');
+  let replaced = 0;
+  h.openWith({ count: 0, srcAt: null, content: { kind: 'element', el: h.d.createElement('div') }, onClose: () => { replaced++; } });
+  h.open();
+  assert.equal(replaced, 1, 'a newer viewer on the host closes it too');
+  assert.equal(closed, 1);
+});
+
+test('#787: an element content that is not an element opens nothing', () => {
+  const h = setup();
+  assert.equal(h.openWith({ count: 0, srcAt: null, content: { kind: 'element', el: 'x' } }), null);
+});

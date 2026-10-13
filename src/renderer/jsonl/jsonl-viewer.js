@@ -1,24 +1,23 @@
 // --- JSONL Message History Viewer ---
 // Depends on globals: escapeHtml (utils.js), hideAllViewers, placeholder,
-// terminalArea, jsonlViewer, jsonlViewerTitle, jsonlViewerSessionId, jsonlViewerBody (app.js)
+// terminalArea, jsonlViewer, jsonlViewerTitle, jsonlViewerSessionId, jsonlViewerBody (app.js);
+// at call time, guarded: openDocumentViewer (jsonl/document-viewer.js, loaded after this file) for `openAgentOverlay`.
 
 // Current viewer session — set once per showJsonlViewer call, read by Agent renderer
 let currentViewerSessionId = null;
-// Agent calls the reader opened in a conversation (#770), by call id, so a redraw of the call opens it again.
-// Bounded: a reader opens a handful, and losing the oldest costs one more click.
-const inlineAgentsOpen = new Set();
-const INLINE_AGENTS_OPEN_MAX = 50;
-// The tail of each call's open box, by call id, so a redrawn box takes over from the one it replaced.
-const inlineTailByCall = new Map();
-// The newest open asked for in each conversation, by its host element (#784), so an older open still reading
+// The newest agent open asked for in each conversation, by its host element (#784), so an older open still reading
 // its transcript gives way.
 const inlineOpenSeq = new WeakMap();
-// Marks a new request of the reader's in a conversation and answers its number. The conversation view calls it
-// too, when its Open lands on a box already open, so an older open still reading does not fold that box.
+// Marks a new request of the reader's in a conversation and answers its number. A document card claims one too
+// (jsonl/document-card.js), since an agent and a document share the one viewer per host (#787).
 function claimInlineOpen(host) {
   const seq = (inlineOpenSeq.get(host) || 0) + 1;
   inlineOpenSeq.set(host, seq);
   return seq;
+}
+// Whether `seq` is still the newest request in that conversation.
+function isLatestInlineOpen(host, seq) {
+  return inlineOpenSeq.get(host) === seq;
 }
 // Counter for matching identical (description, subagentType) blocks in fanout scenarios
 // Reset on each showJsonlViewer call. Key: "<contextSessionId>|<desc>|<type>"
@@ -69,9 +68,9 @@ window._setSubagentLive = setSubagentLive;
 // scripts isn't global.
 window.__activeViewerWatches = window.__activeViewerWatches || new Set();
 const activeViewerWatches = window.__activeViewerWatches;
-// The tails of agent calls opened inside a conversation (#770). Kept apart from the viewer's own: the conversation
-// is not a viewer, and `hideAllViewers` draining them would freeze a box the reader still sees. Each ends with
-// its agent, a collapse, or a newer box for the same call.
+// The tails of agents opened over a conversation (#770, #787). Kept apart from the viewer's own: the conversation
+// is not a viewer, and `hideAllViewers` draining them would freeze an overlay the reader still sees. Each ends with
+// its agent or with its overlay.
 const inlineViewerWatches = new Set();
 function drainViewerWatches() {
   for (const stop of activeViewerWatches) {
@@ -170,6 +169,79 @@ function attachSubagentLiveTail({ container, indicatorHost, parentSessionId, age
   }).catch(() => stopWatch());
 
   return stopWatch;
+}
+
+// An agent's transcript in the document viewer's overlay over a conversation (#787), the way a PDF or Markdown card
+// opens: the conversation stays where it is. One overlay per host (document-viewer.js), so opening another agent or
+// a document replaces it; the open the reader asked for last wins (#784), so an older one still reading gives way.
+// A running agent is followed while the overlay is open, and closing it stops the tail.
+//
+// resolve(parentSessionId) — answers the subagent ({ agentId, sessionId, description, subagentType }) or null.
+// openInTab(match)         — the overlay's "Open in tab" action; none without it.
+// onFail(match)            — called when there is nothing to show (no subagent, or no transcript yet).
+// Answers the viewer, or null.
+async function openAgentOverlay({ host, parentSessionId, resolve, openInTab, focusFallback, onFail }) {
+  const fail = (m) => { if (typeof onFail === 'function') onFail(m); return null; };
+  if (!host || !parentSessionId || typeof openDocumentViewer !== 'function') return fail(null);
+  const seq = claimInlineOpen(host);
+  let match = null;
+  let result = null;
+  try {
+    match = await resolve(parentSessionId);
+    if (match) result = await window.api.readSubagentJsonl(parentSessionId, match.agentId);
+  } catch { result = null; }
+  if (inlineOpenSeq.get(host) !== seq) return null;
+  if (!match || !result || result.error || !result.entries) return fail(match);
+  if (!host.isConnected) return null;
+
+  const nested = document.createElement('div');
+  nested.className = 'jsonl-subagent-nested jsonl-subagent-overlay';
+  const subSessionId = match.sessionId;
+  const entries = mergeLocalCommandEntries(result.entries);
+  // The stage scrolls the transcript, and follows its end while the reader is there.
+  let scroller = null;
+  // Nested entries render in the SUBAGENT's session context (its own agent blocks resolve against it), so the swap
+  // wraps every render — the live tail's included.
+  function renderNested(list, map, opts) {
+    const atBottom = !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
+    if (opts && opts.reset) nested.replaceChildren();
+    const prev = currentViewerSessionId;
+    currentViewerSessionId = subSessionId;
+    for (const entry of list) {
+      const entryEl = renderJsonlEntry(entry, map);
+      if (entryEl) nested.appendChild(entryEl);
+    }
+    currentViewerSessionId = prev;
+    if (scroller && atBottom) scroller.scrollTop = scroller.scrollHeight;
+  }
+  renderNested(entries, buildToolResultMap(entries));
+
+  let stop = null;
+  const what = [match.subagentType, match.description].filter(Boolean).join(' · ');
+  const viewer = openDocumentViewer({
+    host,
+    name: what ? `Agent · ${what}` : 'Agent',
+    content: { kind: 'element', el: nested },
+    actions: typeof openInTab === 'function' ? [{ label: 'Open in tab', run: () => openInTab(match) }] : [],
+    focusFallback,
+    onClose: () => { if (stop) { stop(); stop = null; } },
+  });
+  if (!viewer) return null;
+  scroller = nested.closest('.document-viewer-stage');
+  if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  // Only a running agent is followed: a finished one has nothing more to say.
+  if (isSubagentLive(liveSubagents, parentSessionId, match.agentId)) {
+    stop = attachSubagentLiveTail({
+      container: nested,
+      indicatorHost: viewer.el.querySelector('.document-viewer-title'),
+      parentSessionId,
+      agentId: match.agentId,
+      entries,
+      renderInto: renderNested,
+      registry: inlineViewerWatches,
+    });
+  }
+  return viewer;
 }
 
 // Register IPC listeners for subagent lifecycle events (called once at module load).
@@ -568,48 +640,62 @@ const toolRenderers = {
       return matches[n] || matches[0] || null;
     }
 
+    // Says that this block opens on a click of its own (below), so `makeToolCollapsible` leaves it alone.
+    el.dataset.ownToggle = '1';
+
+    // In a conversation the call opens its agent over the conversation, the way a document card opens (#787): the
+    // conversation does not move, and a redraw of the call leaves the overlay alone.
+    if (inline) {
+      el.addEventListener('click', () => {
+        // The conversation view's Open (Background list, notice, report) asks for somewhere to land when nothing
+        // can be shown (#784); used once.
+        const fallback = !!el.dataset.fallbackOpen;
+        delete el.dataset.fallbackOpen;
+        const host = ctx.host && typeof ctx.host.querySelectorAll === 'function' ? ctx.host : null;
+        openAgentOverlay({
+          host,
+          parentSessionId: parentOf(),
+          resolve: resolveSubagent,
+          openInTab: typeof ctx.openSubagent === 'function' ? (m) => ctx.openSubagent(m.agentId, block && block.id) : null,
+          focusFallback: ctx.focusFallback,
+          onFail: (m) => {
+            if (fallback && typeof ctx.openSubagent === 'function') {
+              const agentId = m ? m.agentId : (typeof ctx.subagentIdFor === 'function' ? ctx.subagentIdFor(block && block.id) : null);
+              ctx.openSubagent(agentId, block && block.id);
+              return;
+            }
+            // A call whose transcript is not there yet says so, rather than doing nothing.
+            if (!el.isConnected || el.querySelector('.jsonl-agent-pending')) return;
+            const note = document.createElement('span');
+            note.className = 'jsonl-tool-detail jsonl-agent-pending';
+            note.textContent = ' — its transcript is not there yet';
+            el.querySelector('.jsonl-tool-header').appendChild(note);
+            setTimeout(() => note.remove(), 3000);
+          },
+        });
+      });
+      return el;
+    }
+
+    // The history viewer expands the call in place.
     let expanded = false;
     let opening = false;
     let nestedContainer = null;
     let stopWatch = null;
-    // Says that this block opens on a click of its own (below), so `makeToolCollapsible` leaves it alone.
-    el.dataset.ownToggle = '1';
-
-    // The conversation redraws a call when its result arrives; one the reader had open opens again (#770).
-    const openKey = inline && block && block.id ? block.id : null;
-    // A reopen is not a request of the reader's (#784): it takes no turn in "the last open wins", and it gives way
-    // to a box the reader opened while it waited, which forgets this key.
-    if (openKey && inlineAgentsOpen.has(openKey)) {
-      setTimeout(() => {
-        if (!el.isConnected || expanded || !inlineAgentsOpen.has(openKey)) return;
-        el.dataset.reopen = '1';
-        el.click();
-      }, 0);
-    }
 
     el.addEventListener('click', async () => {
       if (expanded && nestedContainer) {
-        if (openKey) inlineAgentsOpen.delete(openKey);
         // Collapse — and stop the tail with it, or the poll outlives what it was feeding.
         if (stopWatch) { stopWatch(); stopWatch = null; }
-        if (openKey) inlineTailByCall.delete(openKey);
         nestedContainer.remove();
         nestedContainer = null;
         expanded = false;
-        delete el.dataset.inlineOpen;
         const caret = el.querySelector('.jsonl-agent-caret');
         if (caret) caret.innerHTML = '&#9658;';
         return;
       }
-      const reopen = !!el.dataset.reopen;
-      delete el.dataset.reopen;
       if (opening) return;
       opening = true;
-      // The open the reader asked for last wins (#784): a newer one in this conversation drops this one when its
-      // read returns. The other calls' boxes are folded and forgotten only once this one opens, so a failed open
-      // leaves the box on screen alone.
-      const host = inline && ctx.host && typeof ctx.host.querySelectorAll === 'function' ? ctx.host : null;
-      const seq = host && !reopen ? claimInlineOpen(host) : 0;
       const parentSessionId = parentOf();
       let match = null;
       let result = null;
@@ -617,33 +703,11 @@ const toolRenderers = {
         match = parentSessionId ? await resolveSubagent(parentSessionId) : null;
         if (match) result = await window.api.readSubagentJsonl(parentSessionId, match.agentId);
       } finally { opening = false; }
-      // The Background list's Open (#784) asks for somewhere to land when the box cannot open; read at the end, so
-      // an Open pressed while this open was already reading counts too, and used once either way.
-      const fallback = !!el.dataset.fallbackOpen;
-      delete el.dataset.fallbackOpen;
-      if (seq && inlineOpenSeq.get(host) !== seq) return;
-      // A reopen gives way to a box the reader opened while it read: that open forgot this key.
-      if (reopen && openKey && !inlineAgentsOpen.has(openKey)) return;
-      if (!match || !result || result.error || !result.entries) {
-        if (fallback && typeof ctx.openSubagent === 'function') {
-          const agentId = match ? match.agentId : (typeof ctx.subagentIdFor === 'function' ? ctx.subagentIdFor(block && block.id) : null);
-          ctx.openSubagent(agentId, block && block.id);
-          return;
-        }
-        // In the conversation a call whose transcript is not there yet says so, rather than doing nothing.
-        if (inline && !el.querySelector('.jsonl-agent-pending')) {
-          const note = document.createElement('span');
-          note.className = 'jsonl-tool-detail jsonl-agent-pending';
-          note.textContent = ' — its transcript is not there yet';
-          el.querySelector('.jsonl-tool-header').appendChild(note);
-          setTimeout(() => note.remove(), 3000);
-        }
-        return;
-      }
+      if (!match || !result || result.error || !result.entries) return;
 
       nestedContainer = document.createElement('div');
-      nestedContainer.className = 'jsonl-subagent-nested' + (inline ? ' jsonl-subagent-inline' : '');
-      // The whole transcript in its own view (#770): the conversation view's opener, else the history viewer's.
+      nestedContainer.className = 'jsonl-subagent-nested';
+      // The whole transcript in its own view (#770).
       const bar = document.createElement('div');
       bar.className = 'jsonl-subagent-inline-bar';
       const openBtn = document.createElement('button');
@@ -654,7 +718,6 @@ const toolRenderers = {
       const agentId = match.agentId;
       openBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (inline && typeof ctx.openSubagent === 'function') { ctx.openSubagent(agentId, block && block.id); return; }
         // The sidebar's own row where there is one, as a click on it opens it — the transcript's resume needs it.
         const row = typeof sessionMap !== 'undefined' && match.sessionId ? sessionMap.get(match.sessionId) : null;
         showSubagentTranscript(row || { ...match, parentSessionId, sessionId: match.sessionId || agentId });
@@ -671,9 +734,6 @@ const toolRenderers = {
       // Nested entries render in the SUBAGENT's session context (its own agent blocks resolve
       // against it), so the swap has to wrap every render — the live tail below included.
       function renderNested(list, map, opts) {
-        // Inline the transcript scrolls in a box of its own (#770), and follows its end while the reader is there.
-        const box = nestedContainer;
-        const atBottom = !inline || box.scrollHeight - box.scrollTop - box.clientHeight < 40;
         // A rewritten transcript is drawn again from the top; the bar above the entries stays.
         if (opts && opts.reset) for (const child of [...nestedContainer.children]) if (child !== bar) child.remove();
         const prev = currentViewerSessionId;
@@ -683,50 +743,22 @@ const toolRenderers = {
           if (entryEl) nestedContainer.appendChild(entryEl);
         }
         currentViewerSessionId = prev;
-        if (inline && atBottom) box.scrollTop = box.scrollHeight;
       }
       renderNested(nestedEntries, nestedResultMap);
 
-      // One box per conversation (#783): only one can be read at a time, so opening this one folds the other,
-      // and the other's tail stops with it. Several side by side is what "Open in tab" is for.
-      if (inline) {
-        const host = ctx.host && typeof ctx.host.querySelectorAll === 'function' ? ctx.host : document;
-        for (const other of host.querySelectorAll('.jsonl-agent-expandable[data-inline-open]')) if (other !== el) other.click();
-        // …and a box a redraw is about to bring back is forgotten too (#784).
-        for (const other of host.querySelectorAll('.jsonl-agent-expandable[data-tool-use-id]')) {
-          if (other !== el) inlineAgentsOpen.delete(other.dataset.toolUseId);
-        }
-      }
       el.after(nestedContainer);
-      if (inline) nestedContainer.scrollTop = nestedContainer.scrollHeight;
       expanded = true;
-      if (inline) el.dataset.inlineOpen = '1';
-      if (openKey) {
-        inlineAgentsOpen.add(openKey);
-        if (inlineAgentsOpen.size > INLINE_AGENTS_OPEN_MAX) inlineAgentsOpen.delete(inlineAgentsOpen.values().next().value);
-      }
       const caret = el.querySelector('.jsonl-agent-caret');
       if (caret) caret.innerHTML = '&#9660;';
 
-      // Inline, only a running agent is followed: a finished one has nothing more to say, and a poll started
-      // for it would outlive the card when the conversation redraws it.
-      if (inline && !isSubagentLive(liveSubagents, parentSessionId, match.agentId)) return;
-      // A newer box for the same call replaces the one a redraw took off the screen, and so does its tail.
-      if (openKey && inlineTailByCall.has(openKey)) inlineTailByCall.get(openKey)();
-      const stop = attachSubagentLiveTail({
+      stopWatch = attachSubagentLiveTail({
         container: nestedContainer,
         indicatorHost: el,
         parentSessionId,
         agentId: match.agentId,
         entries: nestedEntries,
         renderInto: renderNested,
-        ...(inline ? { registry: inlineViewerWatches } : {}),
       });
-      stopWatch = stop;
-      if (openKey) {
-        const release = () => { stop(); if (inlineTailByCall.get(openKey) === release) inlineTailByCall.delete(openKey); };
-        inlineTailByCall.set(openKey, release);
-      }
     });
 
     return el;

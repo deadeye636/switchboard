@@ -468,8 +468,8 @@ function createConversationView(getSession, container) {
     // A document a call read is drawn as a card that can open it (#755): the session it belongs to — a function,
     // because a re-key moves it after the draw — the view the card's viewer covers, and where the caret goes
     // when that viewer closes with nothing left to return to.
-    // An agent call opens its transcript in place (#770): which subagent it started, from what the backend
-    // named for it, and the same opener the Background list uses for "Open in tab".
+    // An agent call opens its transcript in an overlay over the view (#770, #787): which subagent it started, from
+    // what the backend named for it, and the opener the overlay's "Open in tab" uses.
     const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), drawContext);
     if (el) el.dataset.entryIndex = String(index);
     return el;
@@ -1488,17 +1488,36 @@ function createConversationView(getSession, container) {
     setTimeout(() => el.classList.remove('conversation-flash'), 1200);
     notice('info', 'This agent\'s transcript is not listed yet — showing the call that started it instead.');
   }
-  // The Background list, and an agent's notice or report, open an agent in the conversation (#783, #784): the box
-  // its call's card opens on a click (#770), whose "Open in tab" leads on to `openAgent`. A card already open is
-  // only brought into view, since a click would fold it. Without the call on screen, or when its box cannot open,
-  // `openAgent` answers as before.
+  // The Background list, and an agent's notice or report, open an agent over the conversation (#787): the overlay a
+  // click on its call's card opens, the way a document card opens its viewer, so the conversation does not move.
+  // Its "Open in tab" leads on to `openAgent`. A task the backend named its subagent for needs no card on screen;
+  // one it did not goes through its call's card. When nothing can be shown, `openAgent` answers as before.
   function openAgentInline(subagentId, toolUseId) {
     const el = toolUseId ? log.querySelector(`.jsonl-agent-expandable[data-tool-use-id="${CSS.escape(toolUseId)}"]`) : null;
+    if (subagentId && typeof openAgentOverlay === 'function') {
+      closeBackground();
+      // A subagent the scan has not listed yet is named after its call, when the call is on screen.
+      const call = el && el.dataset.agentCall ? el.dataset.agentCall : '';
+      const cut = call.lastIndexOf('|');
+      const description = cut >= 0 ? call.slice(0, cut) : '';
+      const subagentType = cut >= 0 ? call.slice(cut + 1) : '';
+      openAgentOverlay({
+        host: container,
+        parentSessionId: view.session.sessionId,
+        resolve: async (parent) => {
+          const subagents = await window.api.listSubagents(parent);
+          return subagents.find(s => s.agentId === subagentId) || { agentId: subagentId, sessionId: null, description, subagentType };
+        },
+        openInTab: () => openAgent(subagentId, toolUseId),
+        focusFallback: () => input.focus(),
+        onFail: () => openAgent(subagentId, toolUseId),
+      });
+      return;
+    }
     if (!el) { openAgent(subagentId, toolUseId); return; }
     closeBackground();
-    if (!el.dataset.inlineOpen) { el.dataset.fallbackOpen = '1'; el.click(); }
-    else if (typeof claimInlineOpen === 'function') claimInlineOpen(container);
-    el.scrollIntoView({ block: 'start' });
+    el.dataset.fallbackOpen = '1';
+    el.click();
   }
   async function openTask(t) {
     if (t.kind === 'agent') { openAgentInline(t.subagentId, t.toolUseId); return; }
@@ -2546,7 +2565,12 @@ function createConversationView(getSession, container) {
       if (stuck) follow(); else log.scrollTop = readerTop;
       renderJump();
     },
-    dispose: () => { document.removeEventListener('visibilitychange', onWindowVisibility); },
+    dispose: () => {
+      document.removeEventListener('visibilitychange', onWindowVisibility);
+      // A viewer still open over the view goes with it, so an agent's tail stops now rather than at its end (#787).
+      const viewer = container.querySelector(':scope > .document-viewer');
+      if (viewer && viewer._close) viewer._close();
+    },
   };
 }
 

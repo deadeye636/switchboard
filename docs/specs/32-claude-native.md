@@ -753,27 +753,28 @@ calls and one background agent. What the stream carries, all as `system` lines t
   view answers it from the neutral fields the backend already sends, a running task's `subagentId` beside its
   `toolUseId` and an ended task's notice. Where neither has said (a transcript from before #695), the block falls
   back to what it always read: the call's `description` and `subagent_type`, Claude's own fields in the shared
-  Agent renderer, and the call's place among the calls on screen with the same pair. Inline the transcript
-  scrolls in a box of its own and follows its end while the reader is there; a bar on top offers **Open in
-  tab**, the opener the Background list's Open used before #783 (the history viewer opens the sidebar's own row for it).
-  Only an agent that is live at the click is tailed inline — one opened in the second between its start and
-  its exact live edge shows what it has and does not follow. Its tail is kept apart from the viewers' own, so
-  opening a plan or a history transcript beside the conversation does not freeze the box; it ends with the
-  agent, a collapse, or the newer box of the same call. A call the reader opened opens again when the
-  conversation redraws it — its result arrives at the agent's end — keyed by the call id. Clicked in the demo instance with Haiku: the box grew from 4 to 8 entries while the agent ran,
-  stayed open past the end, and Open in tab showed the agent's transcript.
+  Agent renderer, and the call's place among the calls on screen with the same pair. Since #787 the transcript
+  opens in the document viewer's overlay over the conversation (next bullet), not under the call; the history
+  viewer still expands it under the call, with **Open in tab** on top, which opens the sidebar's own row.
+  Only an agent that is live when its transcript has been read is tailed — one opened in the second between its
+  start and its exact live edge shows what it has and does not follow. Its tail is kept apart from the viewers' own, so opening a plan
+  or a history transcript beside the conversation does not freeze it; it ends with the agent or with the overlay.
 
-- **The Background list opens an agent in place, one box at a time** (#783). Its Open (and Enter) scrolls to the
-  agent's call and opens the #770 box there, instead of switching to the transcript view; a box already open is
-  only brought into view. The call is found by its `data-tool-use-id`; without it on screen (a log not drawn that
-  far) Open falls back to the transcript view as before. A conversation holds at most one box: opening one folds
-  the other and stops its tail, by a click from the list or on a card alike, so the cost stays one watch and one
-  transcript in the log. Reading several side by side is what Open in tab is for. Since #784 the *open*
-  buttons on an agent's notice and report open the box the same way; the open the reader asked for LAST wins (a newer open,
-  or an Open on a box already open, drops an older one still reading its transcript; a redraw's reopen takes no
-  turn of its own and gives way when a newer open has forgotten its call, and the other calls' boxes are folded and forgotten only once an open succeeds, so a failed one leaves the
-  box on screen alone); and an Open whose box cannot open yet falls back to the transcript view instead of the card's
-  short note.
+- **An agent opens over the conversation, the way a document card does** (#787, replacing #783's box at the
+  call). #783 had the Background list's Open scroll the conversation to the agent's call and expand the #770 box
+  there, and #784 extended that to the *open* buttons on an agent's notice and report. That pulled the reader to
+  wherever the agent was started, often far up the conversation. Now every way of opening an agent in the
+  conversation view — Open and Enter in the Background list, the notice's and the report's *open*, and a click on
+  the call's card — shows its transcript in the overlay a PDF or Markdown card opens (`openAgentOverlay` in
+  `src/renderer/jsonl/jsonl-viewer.js`, drawn by `src/renderer/jsonl/document-viewer.js` as an `element` content),
+  and the conversation does not move. The viewer's rules come with it: one overlay per conversation root, so a
+  second agent or a document replaces it and its tail stops; keys and focus on the overlay only; Esc, the backdrop
+  or ✕ close it, and closing stops the tail. **Open in tab** sits in the viewer's bar and leads to the transcript
+  view. A task the backend named its subagent for opens without its call on screen; one it did not goes through
+  its call's card. The open the reader asked for LAST wins (#784): an older open still reading its transcript gives
+  way, and a failed open leaves an overlay already on screen alone. When nothing can be shown yet, an Open from the
+  list, a notice or a report falls back to the transcript view; a plain click on the card says "its transcript is
+  not there yet". A redraw of the call no longer reopens anything, because the overlay does not live in the log.
 
 - **A foreground agent is counted in the Background buttons too** (#768). Measured on Claude Code 2.1.293
   (Haiku, one foreground agent per run; `scripts/measure-claude-foreground-agent.js` repeats it): `task_started` with `is_backgrounded: false` and `task_type:

@@ -5671,13 +5671,20 @@ mark.jsonl-search-hit-active {
   margin-bottom: 2px;
 }
 
-/* An agent's transcript inside the conversation (#770): a box of its own, so a long run does not push the
-   conversation away. Its "Open in tab" bar heads the transcript in both viewers. */
-.jsonl-subagent-inline {
-  max-height: 24em;
-  overflow-y: auto;
+/* An agent's transcript over the conversation (#787): the document viewer's stage scrolls it, in a column bounded
+   like a Markdown document, on the conversation's own background. "Open in tab" sits in the viewer's bar. */
+.document-viewer-element.jsonl-subagent-overlay {
+  max-width: 960px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  border-left: none;
+  border-radius: 4px;
+  background: #111118;
 }
 
+/* The history viewer's expanded agent call: its "Open in tab" bar heads the transcript. */
 .jsonl-subagent-inline-bar {
   display: flex;
   justify-content: flex-end;

@@ -150,6 +150,12 @@ backend and no tool: it reads the element and the image blocks that follow.
 body, so it follows its pane through tabs, panes, grid and a detached window. One viewer per host; opening a second
 replaces the first.
 
+Since #787 it has a second caller: an agent's transcript opens in it (`openAgentOverlay` in
+`src/renderer/jsonl/jsonl-viewer.js`, spec 32). That caller passes `content: { kind: 'element', el }`, an element it
+built and keeps appending to while the agent runs; the viewer shows it in text mode (the stage scrolls, zoom scales
+it, no pager) and calls `opts.onClose` once the overlay is gone, however it went (Esc, ✕, the backdrop, an action, or
+a newer viewer on the host), so the caller can stop its tail. A document and an agent share the one viewer per host.
+
 - Pager: buttons, ArrowLeft/ArrowRight, Home/End; hidden for a single page. A counter reads "n / total".
 - Zoom: 25 % to 400 % in 25 % steps, `+`/`-`/`0`, Ctrl+wheel (Cmd on a Mac, the conversation's own test; the wheel stops at the stage so it never nudges
   the app font size); the label button resets to 100 %.

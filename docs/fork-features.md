@@ -421,8 +421,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   subagent's report is drawn as a closed card of its own, opened in place, so it does not read as the main
   session answering (#729). A running subagent wears the agent badge on the row and the tab, its start and
   end taken from the pipe rather than from file activity (#762, #769), foreground agents count in the
-  background list (#768), and the caret on an `Agent` call follows that subagent's transcript inline, with
-  *Open in tab* on top (#770); the Background list's Open opens that box too, one per conversation (#783). A `!`
+  background list (#768), and a click on an `Agent` call opens that subagent's transcript live in an overlay over
+  the conversation, the way a document card opens, with *Open in tab* in its bar (#770, #787); the Background list's
+  Open and an agent's notice and report open the same overlay, one per conversation. A `!`
   line runs in the project's shell as it does in the CLI: the app runs it, since the pipe has no shell command, shows
   the output, and hands it to the model with the next prompt (#786). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login

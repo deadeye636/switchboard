@@ -1,6 +1,6 @@
 // document-viewer.js — the overlay a document card opens over the conversation (#755).
 //
-// `openDocumentViewer({ host, name, count, srcAt, content, actions, focusFallback })` — `content` and `actions` are
+// `openDocumentViewer({ host, name, count, srcAt, content, actions, focusFallback, onClose })` — `content`, `actions` and `onClose` are
 // described below — appends ONE overlay inside `host` (the conversation root,
 // never document.body, so it follows its pane through tabs, panes, grid and a detached window) and shows the
 // page `srcAt(i)` builds. The pages are not held here: `srcAt` builds a data URL for the current page only and
@@ -21,12 +21,18 @@
 // images: the pages are drawn top to bottom by `window.renderPdfInto` (views/pdf-setup.js, loaded through
 // `window.loadPdfBundle` from views/viewer-panel.js), scrolled like a text document, zoomed as a whole.
 //
+// `opts.content = { kind: 'element', el }` (#787) shows an element the caller built and keeps writing into — an agent's
+// transcript (jsonl/jsonl-viewer.js `openAgentOverlay`) — in the same text mode: the stage scrolls it, zoom scales it.
+// `opts.onClose`, when given, runs once the overlay is gone, whoever closed it (Esc, a newer viewer on the host, an
+// action), so the caller can stop what it was feeding the element with.
+//
 // `opts.actions = [{ label, run }]` (#765) puts the card's open actions in the bar; each closes the viewer and then
 // runs. The card passes them only where it shows its own buttons, so the history viewer has none here either.
 //
 // Reads `isMac` (terminal/terminal-manager.js), `htmlWithBase` (shared/preview-kind.js) and `DOMPurify` /
 // `window.marked` (their own tags in index.html) at call time, guarded. `opts.focusFallback`, when given, takes the
-// focus on close if what had it is gone. The card (jsonl/document-card.js) is its only caller.
+// focus on close if what had it is gone. Its callers are the card (jsonl/document-card.js) and an agent's overlay
+// (`openAgentOverlay` in jsonl/jsonl-viewer.js).
 
 const DOCUMENT_ZOOM_MIN = 0.25;
 const DOCUMENT_ZOOM_MAX = 4;
@@ -35,6 +41,10 @@ const DOCUMENT_ZOOM_STEP = 0.25;
 // The rendered text of `content` as one element for the stage: a sanitized Markdown block, a sandboxed frame, or
 // the column a PDF's pages are drawn into once the overlay is in the document (#781).
 function documentTextElement(content) {
+  if (content.kind === 'element') {
+    content.el.classList.add('document-viewer-text', 'document-viewer-element');
+    return content.el;
+  }
   if (content.kind === 'pdf') {
     const col = document.createElement('div');
     col.className = 'document-viewer-text document-viewer-pdf fp-pdf-preview';
@@ -58,7 +68,8 @@ function documentTextElement(content) {
 function openDocumentViewer(opts) {
   const host = opts.host;
   const c = opts.content;
-  const content = c && (typeof c.text === 'string' || (c.kind === 'pdf' && c.bytes && c.bytes.length)) ? c : null;
+  const content = c && (typeof c.text === 'string' || (c.kind === 'pdf' && c.bytes && c.bytes.length)
+    || (c.kind === 'element' && c.el && c.el.nodeType === 1)) ? c : null;
   const count = content ? 1 : Math.max(0, opts.count | 0);
   if (!host || !count) return null;
   // One viewer per host: a second open replaces the first.
@@ -185,6 +196,7 @@ function openDocumentViewer(opts) {
     // `body` means nothing had the focus — the card that did may have been redrawn while its file was read (#766).
     if (returnFocus && returnFocus !== document.body && returnFocus.isConnected && typeof returnFocus.focus === 'function') returnFocus.focus();
     else if (typeof opts.focusFallback === 'function') opts.focusFallback();
+    if (typeof opts.onClose === 'function') { try { opts.onClose(); } catch { /* the overlay is gone either way */ } }
   }
   overlay._close = close;
 
