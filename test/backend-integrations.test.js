@@ -146,6 +146,8 @@ const ALLOWED_BINDINGS = {
   // #229 — it reads `openedWithCommand`, the answer the BACKEND gave and the core stamped onto the row.
   // No backend id, and no transcript grammar either: the derivation never leaves the backend's folder.
   'src/renderer/lib/continuation-title.js': [],
+  // #779 — reads a paste's HTML; no backend, no format of any CLI.
+  'src/renderer/lib/rich-paste.js': [],
   'src/renderer/panels/settings-panel.js': [],
   'src/renderer/panels/settings-tags.js': [],
   'src/renderer/panels/settings-maintenance.js': [],

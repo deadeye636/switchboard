@@ -539,6 +539,11 @@ the input as a thumbnail with a × to take it back, and an image alone is a turn
   on the clipboard beside the text, so attaching the image as well would add an unwanted thumbnail to every
   paste of a few cells. That picture has no place on disk; a file copied in a file manager does, so a paste
   holding a file with a path is taken as files whatever text rides along (#699).
+  **Except when the pictures are in the HTML** (#779): a mail copied from Outlook or a web mail carries its
+  pictures inside `text/html` (as `data:` URIs, or as links to local temp files), not beside it. Such a
+  paste puts the text in the field and attaches each picture where it stood, so its `[Image #n]` label
+  sits in the place the picture had. Skipped: sides declared under 32 px, SVG, remote, `cid:` and network
+  sources, and every picture past the tenth. `src/renderer/lib/rich-paste.js` reads the HTML.
 - **The size is counted on the encoded image**, the base64 text that goes over the pipe, by the view and by
   main alike. Whether the API's 5 MB counts the file or its encoding is not measured, and the stricter
   reading cannot let through an image the API then refuses; a file of about 3.75 MB is therefore the

@@ -841,6 +841,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   web page) is saved to a temp file so the CLI can read it as a path, and text inserts as text. A
   drop never submits, and it focuses the session it landed on, so the next keystroke goes where the
   path went. Those temp images are age- and size-pruned (#308).
+- **A pasted mail keeps its pictures** (#779): a copy whose pictures exist only in its HTML (Outlook and
+  web mail put them in as `data:` URIs, classic Outlook and Word as links to local temp files) pastes as
+  one prompt, each picture in the place it stood. In a terminal the picture becomes a saved temp file's
+  path; in the conversation view it is attached and its `[Image #n]` label stands there. Pictures that
+  declare a side under 32 px (signature logos, tracking pixels), SVG, remote or `cid:` sources and links
+  to a network share are skipped, and one paste takes at most 10. A copy without such pictures (plain text, a
+  single copied image, Excel cells) pastes the way it always did. The reader is
+  `src/renderer/lib/rich-paste.js`.
 - **Terminal renderer robustness** — a VSCode-style **`gpuAcceleration` mode (Auto / On / Off)**:
   Auto tries WebGL and auto-falls back to the DOM renderer for all terminals once the GPU/driver
   drops or corrupts a WebGL context (ports VSCode's suggested-renderer fallback). Every open terminal

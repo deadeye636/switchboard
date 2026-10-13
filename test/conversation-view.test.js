@@ -15,6 +15,7 @@ const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'sessi
 // How a file is named in the text (#699) — the completion's own helper, taken on its own so the list the
 // completion opens stays out of these tests.
 const { composerPathToken } = require('../src/renderer/session/composer-completion.js');
+const richPaste = require('../src/renderer/lib/rich-paste.js');
 
 // `diskPaths` maps a file NAME to the path `getPathForFile` answers for it; a file not in it has none, the
 // way a clipboard bitmap has none.
@@ -71,6 +72,11 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
     function getBackend() { return { id: 'b1', transport: 'rpc', imageInput: __imageInput }; }
   `, ctx);
   ctx.composerPathToken = composerPathToken;
+  // A pasted mail (#779) — the page loads lib/rich-paste.js as a classic script; here its exports are handed
+  // in, with the jsdom window's DOMParser as the global it reads.
+  ctx.richPasteSegments = (html) => richPaste.richPasteSegments(html, { parser: new w.DOMParser() });
+  ctx.richPasteImageBytes = richPaste.richPasteImageBytes;
+  ctx.MAX_RICH_IMAGES = richPaste.MAX_RICH_IMAGES;
   vm.runInContext(SRC, ctx);
   const entry = vm.runInContext("createConversationEntry({ sessionId: 's1', projectPath: '/p' })", ctx);
   // On screen, as `showSession` leaves the view it shows: `.visible` is what the view asks (#723). A test of a
@@ -144,6 +150,29 @@ test('a copy that carries text pastes only the text; an image alone is a turn', 
   h.key({ key: 'Enter' });
   assert.equal(h.calls.send.length, 1, 'a field holding only the placeholder sends because an image is attached');
   assert.equal(h.calls.send[0].text, '[Image #1] ', 'the image stands in the text the way the TUI writes it (#688)');
+});
+
+// #779: a pasted mail — text with pictures carried only in its HTML — lands as one draft, each picture
+// attached in its place, in reading order.
+test('a pasted mail puts its text in the field and attaches each picture where it stood', async () => {
+  const h = setup({ imageInput: { types: ['image/png', 'image/jpeg'], maxBytes: 1024 } });
+  const png = 'data:image/png;base64,' + Buffer.from('png-bytes').toString('base64');
+  const jpg = 'data:image/jpeg;base64,' + Buffer.from('jpg-bytes').toString('base64');
+  const html = `<p>Hello,</p><p><img width=600 height=300 src="${png}"></p><p>and then</p><p><img src="${jpg}"></p><p>Thanks</p>`;
+  const ev = new h.w.Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(ev, 'clipboardData', { value: {
+    items: [],
+    getData: (type) => (type === 'text/html' ? html : 'Hello, and then Thanks'),
+  } });
+  h.input.dispatchEvent(ev);
+  assert.equal(ev.defaultPrevented, true, 'the plain text is not pasted on top');
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 2);
+  assert.equal(h.input.value, 'Hello,\n[Image #1]\nand then\n[Image #2]\nThanks');
+  h.key({ key: 'Enter' });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.calls.send[0].images)), [
+    { mimeType: 'image/png', data: Buffer.from('png-bytes').toString('base64') },
+    { mimeType: 'image/jpeg', data: Buffer.from('jpg-bytes').toString('base64') },
+  ]);
 });
 
 // #690: the terminal's right-click setting reaches the conversation view.

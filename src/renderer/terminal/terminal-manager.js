@@ -7,6 +7,7 @@
 // Depends on: toggleGridView, isSessionNavKey, handleSessionNavKey, focusGridCard,
 // wrapInGridCard, showGridView (grid-view.js)
 // Depends on: shellEscape (utils.js)
+// Depends on: richPasteSegments, richPasteImageBytes (lib/rich-paste.js)
 // Depends on: pasteIntoTerminal, fileUriToPath, terminalCopyText (terminal-context-menu.js)
 // Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
 // Depends on: handleTerminalNewlineKeyEvent (newline-key-routing.js)
@@ -18,6 +19,7 @@
 // space, and an image dragged out of a browser (which carries no file at all) was silently dropped.
 //
 // The order below is by specificity, not by convenience:
+//   0. text with pictures carried only in its HTML — a pasted mail (#779, lib/rich-paste.js)
 //   1. a clipboard bitmap (paste only) — a screenshot has no file behind it, main snapshots it
 //   2. files with a real on-disk path — the common case for both paste and drop
 //   3. an image with no path — dropped/pasted bytes, or an image dragged out of a page (a URL only)
@@ -115,6 +117,27 @@ async function insertFromDataTransfer(dt, terminal, sessionId, { clipboardBitmap
     send(escaped.join(' ') + ' ');
     return true;
   };
+
+  // 0. Text with pictures that live only in its HTML (#779) — a mail, a Word passage. Each picture is
+  //    saved and its path stands where the picture stood; a picture that cannot be read is left out.
+  let html = '';
+  try { html = dt.getData('text/html') || ''; } catch { /* not offered */ }
+  const rich = richPasteSegments(html);
+  if (rich) {
+    const entry = openSessions.get(sessionId);
+    let out = '';
+    for (const seg of rich.segments) {
+      if (seg.type === 'text') { out += seg.text; continue; }
+      const img = await richPasteImageBytes(seg.src, window.api, MAX_TRANSFER_IMAGE_BYTES);
+      let file = null;
+      try { file = img && await window.api.saveImageBuffer(img.bytes, IMAGE_EXT_BY_MIME[img.mime] || 'png'); } catch { /* skip it */ }
+      const escaped = file ? shellEscape(file, entry && entry.pathShell) : '';
+      if (!escaped) continue;
+      out += (out && !/\s$/.test(out) ? ' ' : '') + escaped + ' ';
+    }
+    send(out.replace(/ +(?=\n)/g, ''));
+    return;
+  }
 
   const files = Array.from(dt.files || []);
   const items = Array.from(dt.items || []);

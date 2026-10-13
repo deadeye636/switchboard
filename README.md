@@ -32,7 +32,7 @@ first-class setup.
 pane keeps its own tabs with a right-click menu (close, stop, relaunch, redraw), you drag a tab onto a pane
 edge to split, and the arrangement is still there after a restart. The terminal is live — connect to
 a running session or start a new one without leaving the app. Seven terminal themes, configurable
-font and zoom, clipboard image paste, drag-and-drop that inserts files and images the same way, GPU
+font and zoom, clipboard image paste (a pasted mail brings its pictures along, each where it stood), drag-and-drop that inserts files and images the same way, GPU
 rendering with automatic fallback. A session can also move into a **window of its own** for a second
 monitor, and back again, or across into any other window that is already open — it keeps running
 throughout, and a window can hold as many sessions as you move into it. The other layout is the

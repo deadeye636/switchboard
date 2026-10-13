@@ -26,7 +26,8 @@
 // (shell/shortcuts.js), appShortcuts (shell/session-nav.js), isMac (terminal/terminal-manager.js), the
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
 // read when a view is built), composerPathToken (session/composer-completion.js, #699 — how a pasted or
-// dropped file is named), showBranchTreeDialog (session/branch-tree-dialog.js, #646), showServersDialog
+// dropped file is named), richPasteSegments / richPasteImageBytes / MAX_RICH_IMAGES (lib/rich-paste.js,
+// #779 — a pasted mail with its pictures), showBranchTreeDialog (session/branch-tree-dialog.js, #646), showServersDialog
 // (session/servers-dialog.js, #728),
 // clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
 // (terminal/terminal-context-menu.js, #690), and sessionHealthOptions (app.js, #691 — the handoff threshold
@@ -1129,9 +1130,43 @@ function createConversationView(getSession, container) {
     if (view.suggestion && input.value) setSuggestion(null);
   }
 
+  // Text with pictures carried only in its HTML (#779) — a mail, a Word passage: the text goes in as it
+  // stands, each picture is attached in its place, one after the other so the labels number in reading order.
+  // A picture that cannot be read is left out; one the session refuses is said by attachImages.
+  async function takeRichPaste(rich) {
+    const policy = imagePolicy();
+    // The session's own limit, as file bytes, measured before a picture is decoded on this thread.
+    const cap = policy ? Math.floor(Number(policy.maxBytes) * 3 / 4) : 0;
+    for (const seg of rich.segments) {
+      if (view.exited) return;
+      if (seg.type === 'text') {
+        let start = input.selectionStart;
+        // The space attachImages leaves behind a label, where the text goes on with a new line.
+        if (seg.text.startsWith('\n') && start > 0 && input.value[start - 1] === ' ' && start === input.selectionEnd) start--;
+        input.setRangeText(seg.text, start, input.selectionEnd, 'end');
+        continue;
+      }
+      if (!policy) { await attachImages([new window.File([], 'Pasted image', { type: 'image/png' })]); continue; }
+      const img = await richPasteImageBytes(seg.src, window.api, cap);
+      if (!img) { notice('error', 'A pasted picture was left out: it could not be read, or it is larger than this session takes.'); continue; }
+      const ext = (img.mime.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      await attachImages([new window.File([img.bytes], `Pasted image.${ext}`, { type: img.mime })]);
+    }
+    if (rich.dropped) notice('info', `${rich.dropped} more picture${rich.dropped === 1 ? ' was' : 's were'} left out: one paste takes at most ${MAX_RICH_IMAGES}.`);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
   input.addEventListener('paste', (e) => {
     const data = e.clipboardData;
     if (!data) return;
+    let html = '';
+    try { html = data.getData('text/html') || ''; } catch { /* not offered */ }
+    const rich = richPasteSegments(html);
+    if (rich) {
+      e.preventDefault();
+      takeRichPaste(rich).catch(() => notice('error', 'The pasted text and pictures could not all be inserted.'));
+      return;
+    }
     const files = [...(data.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile()).filter(Boolean);
     if (!files.length) return;
     // A copy that carries text pastes the text and nothing else. Excel and Word put a rendered picture of the

@@ -38,6 +38,7 @@
     "continuation-title.js",
     "project-list-state.js",
     "project-sort.js",
+    "rich-paste.js",
     "session-tags-filter.js",
     "attention-source.js",
     "alert-sound.js",
