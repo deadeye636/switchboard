@@ -125,17 +125,20 @@ backend and no tool: it reads the element and the image blocks that follow.
   consults `fileClickTarget`.
 - **Card click** (also Enter and Space, the card is a button): with page images it opens the viewer. A Markdown or
   HTML card reads its file then (`document-read`, #764) and opens the viewer with it rendered; Ctrl/Cmd-click asks
-  main for `how: 'click'` without inverting, which is what a plain click did before #764. A whole-PDF read asks for
-  `how: 'click'`, Ctrl/Cmd inverting it.
+  main for `how: 'click'` without inverting, which is what a plain click did before #764. A whole-PDF read does the
+  same since #781: the click reads the file and the viewer draws it, Ctrl/Cmd-click asks for `how: 'click'` without
+  inverting.
 - **Markdown and HTML (O3)**: card above a collapsed "Text" result, so the text is still there. The card draws no
   preview: the file is read only when the card is clicked, never ahead of time (the owner's call on #764). The
   viewer's host is taken at the click: the conversation may redraw its entries while the read is out (an attach, a
   draw deferred while the window was hidden), and the card clicked is then detached; the view has drawn a new one in
   its place. Waiting on the old card is what made a click do nothing at all, with no message (#766). Focus that was
   on `body` at the open (nothing left to return to) goes to the composer on close.
-- **Whole-PDF read (O10)**: name and "PDF", no thumbnail; the click opens the file in the file view, which already
-  pages and zooms through pdf.js ([`22-pdf-preview.md`](22-pdf-preview.md)). Rendering the first page in the
-  renderer was left for its own issue.
+- **Whole-PDF read (O10)**: name and "PDF", no thumbnail. This is what every Claude read of a PDF without `pages`
+  looks like: Claude Code hands the model the file as a document block, so the result carries no page images. Until
+  #781 the click opened the file view; it now reads the file (`document-read`) and opens the viewer, which draws the
+  pages with the file view's own pdf.js renderer ([`22-pdf-preview.md`](22-pdf-preview.md)). The thumbnail is still
+  left for its own issue.
 - **Message History (O5)**: no `ctx`. A card appears only when the result holds page images, with the viewer and
   its pager and no open buttons. Markdown, HTML and a whole-PDF read draw as they did before, because a card with
   nothing to open would be a dead control.
@@ -170,11 +173,18 @@ replaces the first.
   keys can scroll again after a Tab. A click beside the Markdown column closes, as a click beside a page does, but
   only when the press started there too: a text selection dragged out of the column keeps the viewer open.
 
-`document-read` answers that text through the same checks as `document-open` (`checkDocument` in
-`src/app/documents.js`), only for the Markdown and HTML kinds, and only up to 2 MB (`READ_MAX_BYTES`): past it the
-user is told to open the file in a tab, whose editor is built for large files. It refuses a path whose spelled and
-resolved kinds differ (a link `a.md` to a picture), and bounds the read itself, not only the `stat` before it,
-because an agent may still be writing the file.
+- **PDF mode (#781)**: `content = { kind: 'pdf', bytes }` is text mode for a PDF whose result has no page images. The
+  pages are drawn top to bottom by `window.renderPdfInto` (`src/renderer/views/pdf-setup.js`), the bundle loaded on
+  first use through `window.loadPdfBundle` (`src/renderer/views/viewer-panel.js`), into a column bounded like the
+  Markdown one. No pager, the stage scrolls, zoom scales the column. A PDF that cannot be parsed, or a bundle that
+  cannot be loaded, is said in the column; a viewer closed while the pages are drawn is not painted into.
+
+`document-read` answers through the same checks as `document-open` (`checkDocument` in `src/app/documents.js`): the
+text of a Markdown or HTML document up to 2 MB (`READ_MAX_BYTES`), and since #781 the bytes of a PDF up to 15 MB
+(`PDF_READ_MAX_BYTES`, the file view's own bound). Past either the user is told to open the file in a tab. An image is
+refused, its picture is in the result. It refuses a path whose spelled and resolved kinds differ (a link `a.md` to a
+picture, `a.pdf` to a page), and bounds the read itself, not only the `stat` before it, because an agent may still be
+writing the file. An empty PDF is said as such, rather than opening a viewer with nothing in it.
 
 Controls reuse existing styling (`.new-session-secondary-btn`); the overlay is modelled on
 `.jsonl-screenshot-fullscreen`. A real mouse-and-keyboard check in tabs, panes and grid was the plan's T10 and is
@@ -194,7 +204,8 @@ Two global settings, in the Sessions category beside "Show tool calls expanded".
 ## Click routing, `fileClickTarget` and O4
 
 The card body follows `fileClickTarget` exactly as `openTerminalFilePath` does for a terminal file link, with
-Ctrl/Cmd inverting it, but the decision is made in main (`how: 'click'`), not by calling that renderer helper. That
+Ctrl/Cmd inverting it — since #764 and #781 only for a page-less IMAGE card, the one kind the viewer does not read;
+Markdown, HTML and PDF ask for the setting's own target on Ctrl/Cmd — but the decision is made in main (`how: 'click'`), not by calling that renderer helper. That
 keeps one reading of the setting next to the checks, and it lets main refuse before anything is opened.
 
 `fileClickTarget: external` means "the configured external editor", which for a PDF would be a code editor. So
@@ -202,9 +213,9 @@ with `external`, a PDF, an image or an HTML file goes to the system's default pr
 configured editor (O4, the owner's decision; the issue said "exactly as the terminal does"). With `internal` the
 answer is `tab` and the renderer calls `openFileInPanel`.
 
-The click only reaches this route for a card with no page images, and for Markdown and HTML only with Ctrl/Cmd held.
-A card with pages, and a Markdown or HTML card on a plain click, opens the viewer and leaves "which target" to the two
-explicit buttons.
+The click only reaches this route for a card with no page images, and for Markdown, HTML and (since #781) a PDF only
+with Ctrl/Cmd held. A card with pages, and a Markdown, HTML or PDF card on a plain click, opens the viewer and leaves
+"which target" to the two explicit buttons.
 
 ## Performance
 
@@ -249,8 +260,8 @@ explicit buttons.
   card still on screen for an evicted path answers "did not read", which is then untrue. Accepted by design in
   #766; the only place the registry falls behind the view. #766's own premise (an empty registry after a restart)
   was wrong: the failure was a card the conversation had redrawn under the click.
-- The two older open-anything IPCs (`open-path`, `open-in-editor`) are untouched and still take any non-sensitive
-  path; this feature only avoids adding a third.
+- The two older open-anything IPCs (`open-path`, `open-in-editor`) still take any non-sensitive local path; this
+  feature only avoids adding a third. Since #780 both refuse a network path no project is on.
 
 ## What this takes away
 
@@ -259,7 +270,8 @@ explicit buttons.
 - A stamped image read is a card, so enlarging it is a click on the card and not on the image. An image from any
   other tool is unchanged.
 - Since #764 a plain click on a Markdown or HTML card no longer opens the file view or the editor; Ctrl/Cmd-click and
-  the two buttons still do.
+  the two buttons still do. Since #781 the same holds for a whole-PDF card, and Ctrl/Cmd no longer INVERTS
+  `fileClickTarget` there: it asks for the setting's own target, as the Markdown and HTML cards do.
 
 ## What was measured
 

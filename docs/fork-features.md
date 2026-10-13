@@ -442,8 +442,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   card with a first-page thumbnail, the name and a page label, instead of every page inline. A click opens a
   viewer over the conversation with a pager, zoom and Esc, built from the pages the result already holds. A
   Markdown or HTML card reads its file on the click and shows it rendered in the same viewer (#764);
-  Ctrl/Cmd-click follows the file-click setting instead. A whole-PDF read follows the file-click setting, with
-  Ctrl/Cmd inverting it. With `external` that setting sends a PDF, an image or an HTML file to the default
+  Ctrl/Cmd-click follows the file-click setting instead. A whole-PDF read (Claude's, which carries no page
+  images) does the same since #781: the click reads the file and the viewer draws its pages with the PDF
+  preview's renderer, Ctrl/Cmd-click follows the file-click setting. With `external` that setting sends a PDF, an image or an HTML file to the default
   program and Markdown to the editor. Two buttons open the file in the default app or in a tab. The backend stamps a neutral
   `document` element into the read result; main keeps the paths a session's backend reported and the open
   button is answered only for those (absolute and local, a document extension, a real path that is not

@@ -149,22 +149,36 @@ test('open buttons go through openDocument; tab finishes only on the answer', as
   assert.equal(h.calls.panel.length, 1);
 });
 
-test('card click: pages open the viewer; a whole pdf follows openDocument, Ctrl/Cmd inverting it', async () => {
+test('card click: pages open the viewer; a whole pdf is read and drawn there, Ctrl/Cmd keeps the old open (#781)', async () => {
   const h = setup({});
   const withPages = h.draw([el(), img()], { ...ACT, host: h.w.document.body });
   withPages.querySelector('.document-card').click();
   assert.ok(h.w.document.querySelector('.document-viewer'));
   assert.equal(h.calls.open.length, 0);
+  assert.equal(h.calls.read.length, 0, 'a card with pages reads nothing');
   h.w.document.querySelector('.document-viewer')._close();
 
-  const pdf = h.draw([el({ pages: 0 })], ACT);
+  // The preview tab's renderer, as views/viewer-panel.js and the pdf bundle put it on window.
+  const drawn = [];
+  h.w.loadPdfBundle = () => Promise.resolve();
+  h.w.renderPdfInto = async (container, bytes) => { drawn.push(bytes.length); container.appendChild(h.w.document.createElement('canvas')); return { ok: true, pages: 1 }; };
+  const pdf = h.draw([el({ pages: 0 })], { ...ACT, host: h.w.document.body });
+  assert.equal(h.calls.read.length, 0, 'nothing is read before the click');
+  h.setRead({ ok: true, kind: 'pdf', bytes: new Uint8Array([37, 80, 68, 70]) });
+  pdf.querySelector('.document-card').click(); await flush(); await flush();
+  assert.deepEqual(h.calls.read[0], ['s1', '/d/report.pdf']);
+  assert.equal(h.calls.open.length, 0);
+  const viewer = h.w.document.querySelector('.document-viewer');
+  assert.ok(viewer && viewer.querySelector('.document-viewer-pdf canvas'), 'the pages are drawn in the viewer');
+  assert.deepEqual(drawn, [4]);
+  assert.equal(viewer.querySelector('.document-viewer-pager'), null, 'the pages scroll, there is no pager');
+  viewer._close();
+
   h.setAnswer({ ok: true, action: 'tab', path: '/d/report.pdf' });
-  pdf.querySelector('.document-card').click(); await flush();
-  assert.deepEqual(h.calls.open[0], ['s1', '/d/report.pdf', 'click', false]);
   pdf.querySelector('.document-card').dispatchEvent(new h.w.MouseEvent('click', { bubbles: true, ctrlKey: true }));
   await flush();
-  assert.equal(h.calls.open[1][3], true);
-  assert.equal(h.calls.read.length, 0);
+  assert.deepEqual(h.calls.open[0], ['s1', '/d/report.pdf', 'click', false]);
+  assert.equal(h.calls.read.length, 1);
 });
 
 test('markdown click reads the file only then and shows it rendered; Ctrl/Cmd keeps the old open (#764)', async () => {

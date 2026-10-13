@@ -12302,3 +12302,6 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .document-viewer-stage-text { display: block; outline: none; }
 .document-viewer-text.markdown-preview { flex: none; overflow: visible; max-width: 960px; margin: 0 auto; min-height: 100%; box-sizing: border-box; border-radius: 4px; }
 .document-viewer-frame { display: block; width: 100%; height: 100%; border: 0; border-radius: 4px; background: #fff; }
+/* A PDF without page images (#781): the preview tab's page column (.fp-pdf-preview), bounded like Markdown. */
+.document-viewer-pdf { max-width: 960px; margin: 0 auto; box-sizing: border-box; }
+.document-viewer-pdf-message { padding: 24px 16px; text-align: center; color: #8b8b9e; font-size: 13px; }

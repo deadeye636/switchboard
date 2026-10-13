@@ -17,6 +17,10 @@
 // document hands the viewer's own keys and Ctrl+wheel back (the only listeners not on the overlay element). The
 // scroller (stage or frame) is part of the Tab cycle.
 //
+// `opts.content = { kind: 'pdf', bytes }` (#781) is the same text mode for a PDF whose result carried no page
+// images: the pages are drawn top to bottom by `window.renderPdfInto` (views/pdf-setup.js, loaded through
+// `window.loadPdfBundle` from views/viewer-panel.js), scrolled like a text document, zoomed as a whole.
+//
 // `opts.actions = [{ label, run }]` (#765) puts the card's open actions in the bar; each closes the viewer and then
 // runs. The card passes them only where it shows its own buttons, so the history viewer has none here either.
 //
@@ -28,8 +32,14 @@ const DOCUMENT_ZOOM_MIN = 0.25;
 const DOCUMENT_ZOOM_MAX = 4;
 const DOCUMENT_ZOOM_STEP = 0.25;
 
-// The rendered text of `content` as one element for the stage: a sanitized Markdown block or a sandboxed frame.
+// The rendered text of `content` as one element for the stage: a sanitized Markdown block, a sandboxed frame, or
+// the column a PDF's pages are drawn into once the overlay is in the document (#781).
 function documentTextElement(content) {
+  if (content.kind === 'pdf') {
+    const col = document.createElement('div');
+    col.className = 'document-viewer-text document-viewer-pdf fp-pdf-preview';
+    return col;
+  }
   if (content.kind === 'html') {
     const frame = document.createElement('iframe');
     frame.className = 'document-viewer-frame';
@@ -47,7 +57,8 @@ function documentTextElement(content) {
 
 function openDocumentViewer(opts) {
   const host = opts.host;
-  const content = opts.content && typeof opts.content.text === 'string' ? opts.content : null;
+  const c = opts.content;
+  const content = c && (typeof c.text === 'string' || (c.kind === 'pdf' && c.bytes && c.bytes.length)) ? c : null;
   const count = content ? 1 : Math.max(0, opts.count | 0);
   if (!host || !count) return null;
   // One viewer per host: a second open replaces the first.
@@ -252,5 +263,21 @@ function openDocumentViewer(opts) {
   applyZoom();
   host.appendChild(overlay);
   (content ? stage : overlay).focus();
+  // A PDF is drawn by the preview tab's renderer (views/pdf-setup.js), after the column has a width. The bundle
+  // is loaded on first use; a viewer closed meanwhile is not painted into.
+  if (content && content.kind === 'pdf') {
+    const say = (text) => { textEl.textContent = text; textEl.classList.add('document-viewer-pdf-message'); };
+    say('Rendering…');
+    const live = () => textEl.isConnected;
+    Promise.resolve(typeof window.loadPdfBundle === 'function' ? window.loadPdfBundle() : Promise.reject(new Error('no PDF viewer')))
+      .then(() => {
+        if (!live()) return null;
+        textEl.textContent = '';
+        textEl.classList.remove('document-viewer-pdf-message');
+        return window.renderPdfInto(textEl, content.bytes, { isCurrent: live });
+      })
+      .then((res) => { if (live() && res && !res.ok && !res.stale) say(res.error || 'That PDF could not be drawn.'); })
+      .catch(() => { if (live()) say('The PDF viewer could not be loaded.'); });
+  }
   return { close, el: overlay };
 }

@@ -190,3 +190,55 @@ test('a second open replaces the first', () => {
   h.open(); h.open();
   assert.equal(h.d.querySelectorAll('.document-viewer').length, 1);
 });
+
+// #781: a PDF whose result carried no page images, drawn by the preview tab's renderer.
+const settle = () => new Promise((r) => setTimeout(r, 0));
+function pdfSetup({ load = () => Promise.resolve(), render } = {}) {
+  const h = setup();
+  const calls = [];
+  h.w.loadPdfBundle = load;
+  h.w.renderPdfInto = render || (async (container, bytes) => {
+    calls.push(bytes.length);
+    container.appendChild(h.d.createElement('canvas'));
+    return { ok: true, pages: 1 };
+  });
+  return { ...h, calls };
+}
+
+test('a pdf is drawn into a column after the overlay is in the document; no pager, the stage scrolls', async () => {
+  const h = pdfSetup();
+  const v = h.openText({ kind: 'pdf', bytes: new Uint8Array([1, 2, 3]) });
+  assert.ok(v.el.querySelector('.document-viewer-pdf'));
+  await settle(); await settle();
+  assert.deepEqual(h.calls, [3]);
+  assert.ok(v.el.querySelector('.document-viewer-pdf canvas'));
+  assert.equal(v.el.querySelector('.document-viewer-pager'), null);
+  assert.equal(h.d.activeElement, v.el.querySelector('.document-viewer-stage'), 'the stage scrolls and has the focus');
+  assert.equal(h.key(v.el.querySelector('.document-viewer-stage'), 'ArrowDown').defaultPrevented, false, 'the arrows scroll');
+});
+
+test('a pdf viewer closed while the bundle loads is never painted into', async () => {
+  let release;
+  const h = pdfSetup({ load: () => new Promise((r) => { release = r; }) });
+  const v = h.openText({ kind: 'pdf', bytes: new Uint8Array([1]) });
+  v.close();
+  release();
+  await settle(); await settle();
+  assert.deepEqual(h.calls, [], 'the renderer is not called for a closed viewer');
+});
+
+test('a pdf that cannot be drawn, or a bundle that cannot load, is said in the column', async () => {
+  const bad = pdfSetup({ render: async () => ({ ok: false, error: 'Invalid PDF structure.' }) });
+  const v1 = bad.openText({ kind: 'pdf', bytes: new Uint8Array([1]) });
+  await settle(); await settle();
+  assert.equal(v1.el.querySelector('.document-viewer-pdf').textContent, 'Invalid PDF structure.');
+  const noBundle = pdfSetup({ load: () => Promise.reject(new Error('404')) });
+  const v2 = noBundle.openText({ kind: 'pdf', bytes: new Uint8Array([1]) });
+  await settle(); await settle();
+  assert.equal(v2.el.querySelector('.document-viewer-pdf').textContent, 'The PDF viewer could not be loaded.');
+});
+
+test('a pdf with no bytes opens no viewer', () => {
+  const h = pdfSetup();
+  assert.equal(h.openText({ kind: 'pdf', bytes: new Uint8Array(0) }), null);
+});

@@ -11,8 +11,9 @@
 // (dialogs/control-dialogs.js, guarded), fileDirUrl (shared/preview-kind.js, guarded). `window.api.openDocument` /
 // `readDocument` / `openInEditor` are the preload's.
 //
-// A card without pages (a whole PDF, Markdown, HTML) follows `fileClickTarget` on a click — except Markdown and
-// HTML, which open the viewer with the file rendered (#764) and keep that open for Ctrl/Cmd-click.
+// A card without pages (a whole PDF, Markdown, HTML) opens the viewer on a click with the file read then and drawn
+// there — Markdown and HTML rendered (#764), a PDF by the preview tab's renderer (#781) — and keeps the
+// `fileClickTarget` open for Ctrl/Cmd-click. Any other kind without pages follows `fileClickTarget` on a click.
 //
 // The page images stay in the result the entry already holds. The card keeps a reference to that result and
 // builds a data URL only for the page it is about to show (the thumbnail when visible, a page in the
@@ -53,6 +54,8 @@ function documentBaseName(p) {
 const DOCUMENT_KIND_LABELS = { pdf: 'PDF', image: 'Image', markdown: 'Markdown', html: 'HTML' };
 // The kinds the viewer shows as rendered text, read on the click (#764). Mirrors TEXT_KINDS in src/app/documents.js.
 const DOCUMENT_TEXT_KINDS = ['markdown', 'html'];
+// …and what else the viewer reads on the click: a PDF whose result carries no page images (#781).
+const DOCUMENT_READ_KINDS = DOCUMENT_TEXT_KINDS.concat(['pdf']);
 
 // A `range` ("1-3", the call's page argument) marks a partial read; else the pages held, else the kind.
 function documentCardSubtitle(kind, pageCount, range) {
@@ -192,8 +195,8 @@ function renderDocumentCard(resultData, ctx) {
       focusFallback: ctx && ctx.focusFallback,
     });
   };
-  // A Markdown or HTML card reads its file on the click, never before, and shows it rendered (#764). Ctrl/Cmd
-  // keeps what a plain click did before: the `fileClickTarget` open, not inverted.
+  // A Markdown, HTML or page-less PDF card reads its file on the click, never before, and shows it drawn (#764,
+  // #781). Ctrl/Cmd keeps what a plain click did before: the `fileClickTarget` open, not inverted.
   let reading = false;
   const openTextViewer = async () => {
     if (reading) return;
@@ -210,10 +213,18 @@ function renderDocumentCard(resultData, ctx) {
       return;
     }
     if (!host.isConnected) return;
+    // A viewer given no bytes opens nothing; say why instead of a click that does nothing.
+    if (res.kind === 'pdf' && !(res.bytes && res.bytes.length)) {
+      if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot show document', message: 'That PDF could not be read.' });
+      return;
+    }
+    const content = res.kind === 'pdf'
+      ? { kind: 'pdf', bytes: res.bytes }
+      : { kind: res.kind, text: res.text, dirUrl: typeof fileDirUrl === 'function' ? fileDirUrl(doc.path) : '' };
     openDocumentViewer({
       host,
       name,
-      content: { kind: res.kind, text: res.text, dirUrl: typeof fileDirUrl === 'function' ? fileDirUrl(doc.path) : '' },
+      content,
       actions: viewerActions,
       focusFallback: ctx && ctx.focusFallback,
     });
@@ -222,7 +233,7 @@ function renderDocumentCard(resultData, ctx) {
     if (pages.length) { openViewer(); return; }
     if (!canAct) return;
     const modified = !!(e && (e.ctrlKey || e.metaKey));
-    if (DOCUMENT_TEXT_KINDS.includes(doc.kind)) {
+    if (DOCUMENT_READ_KINDS.includes(doc.kind)) {
       if (modified) requestDocumentOpen(sessionIdNow(), doc.path, 'click', false);
       else openTextViewer();
       return;

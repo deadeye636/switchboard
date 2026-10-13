@@ -31,7 +31,8 @@
  * (`default` | `tab` | `editor`), and carries the path for the two the renderer finishes.
  *
  * `document-read` (#764) answers the TEXT of a Markdown or HTML document for the card's viewer, through the
- * same checks (`checkDocument`), only when the card is clicked, and only up to `READ_MAX_BYTES`.
+ * same checks (`checkDocument`), only when the card is clicked, and only up to `READ_MAX_BYTES`. Since #781 it
+ * answers the BYTES of a PDF the same way, up to `PDF_READ_MAX_BYTES`.
  */
 
 'use strict';
@@ -54,6 +55,10 @@ const HOWS = ['default', 'tab', 'click'];
 // whose editor is built for large files.
 const TEXT_KINDS = ['markdown', 'html'];
 const READ_MAX_BYTES = 2 * 1024 * 1024;
+// A PDF whose result carries no page images — Claude Code hands the model the whole file as a document block
+// (#781) — is read as BYTES for the viewer, which draws it with the preview tab's renderer. Bound as the tab's
+// own read is (`PREVIEW_DATAURL_MAX` in main.js).
+const PDF_READ_MAX_BYTES = 15 * 1024 * 1024;
 
 /**
  * @param {object} context
@@ -192,9 +197,10 @@ async function openDocument(sessionId, filePath, how, invert) {
 }
 
 /**
- * The text of a Markdown or HTML document, for the card's viewer (#764). Read only when the user clicks the
- * card, through the same checks as the open. Other kinds are refused: their pages are already in the result.
- * @returns {Promise<{ok: true, kind: 'markdown'|'html', text: string}|{ok: false, error: string}>}
+ * The text of a Markdown or HTML document, or the bytes of a PDF (#781), for the card's viewer (#764). Read only
+ * when the user clicks the card, through the same checks as the open. An image is refused: its picture is
+ * already in the result.
+ * @returns {Promise<{ok: true, kind: 'markdown'|'html', text: string}|{ok: true, kind: 'pdf', bytes: Buffer}|{ok: false, error: string}>}
  */
 async function readDocument(sessionId, filePath) {
   if (!ctx) return refuse('Documents are not available yet.');
@@ -203,18 +209,25 @@ async function readDocument(sessionId, filePath) {
   }
   const checked = await checkDocument(sessionId, filePath);
   if (!checked.ok) return checked;
-  // Text on both sides of a link, and the same text: a link `a.md` to `b.png` is not Markdown.
-  if (!TEXT_KINDS.includes(checked.kind) || checked.realKind !== checked.kind) return refuse('That kind of file is not shown here.');
+  // The same kind on both sides of a link: a link `a.md` to `b.png` is not Markdown, `a.pdf` to `b.html` no PDF.
+  const isPdf = checked.kind === 'pdf';
+  if ((!TEXT_KINDS.includes(checked.kind) && !isPdf) || checked.realKind !== checked.kind) return refuse('That kind of file is not shown here.');
+  const max = isPdf ? PDF_READ_MAX_BYTES : READ_MAX_BYTES;
   const tooLarge = refuse('This document is too large to show here. Open it in a tab instead.');
-  if (checked.size > READ_MAX_BYTES) return tooLarge;
+  if (checked.size > max) return tooLarge;
   // Bounded by the read itself, not only by the stat before it: an agent may still be writing the file.
   let handle = null;
   try {
     handle = await fs.promises.open(checked.real, 'r');
     // Sized by the stat, plus one byte that catches a file grown since; never past the bound plus one.
-    const buf = Buffer.alloc(Math.min(checked.size, READ_MAX_BYTES) + 1);
+    const buf = Buffer.alloc(Math.min(checked.size, max) + 1);
     const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-    if (bytesRead > READ_MAX_BYTES) return tooLarge;
+    if (bytesRead > max) return tooLarge;
+    // Bytes cross IPC as a Uint8Array; text as a string.
+    if (isPdf) {
+      if (!bytesRead) return refuse('That PDF is empty.');
+      return { ok: true, kind: 'pdf', bytes: buf.subarray(0, bytesRead) };
+    }
     return { ok: true, kind: checked.kind, text: buf.toString('utf8', 0, bytesRead) };
   } catch (err) {
     return refuse(readableError(err, 'The document could not be read.', ctx.log));
@@ -229,4 +242,4 @@ function registerIpc(ipc) {
   ipc.handle('document-read', (_event, sessionId, filePath) => readDocument(sessionId, filePath));
 }
 
-module.exports = { init, registerIpc, createRegistry, openDocument, readDocument, documentPathsOf, READ_MAX_BYTES };
+module.exports = { init, registerIpc, createRegistry, openDocument, readDocument, documentPathsOf, READ_MAX_BYTES, PDF_READ_MAX_BYTES };

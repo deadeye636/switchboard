@@ -4,7 +4,8 @@ Issue: #465. Built: PDFs are shown in the internal viewer, and no binary file la
 editor by mistake.
 
 See also [`33-document-preview.md`](33-document-preview.md): a PDF an agent reads shows up in the conversation as a
-card, and a whole-PDF card opens the file in this viewer.
+card. A whole-PDF card draws the file in the card's own viewer with this viewer's renderer (`renderPdfInto`,
+#781); its Ctrl/Cmd-click opens the file here when the file-click setting is internal.
 
 ## What was wrong
 
