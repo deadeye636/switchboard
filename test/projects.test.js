@@ -1682,10 +1682,64 @@ test('pruneProjectIfGone forgets a project with nothing left to restore', () => 
     assert.strictEqual(projects.projectHasSessionsOnDisk('D:\\gone'), false);
     assert.strictEqual(projects.pruneProjectIfGone('D:\\gone'), true);
 
-    // The register row IS the project_meta row (#167), so the entry, the hide flag and any tombstone go
-    // with it — one delete, not a settings blob to comb through.
+    // The register row IS the project_meta row (#167), so the entry and the hide flag go with it — one
+    // delete, not a settings blob to comb through. A tombstone is written back (#684, below).
     assert.strictEqual(t.states.has('D:\\gone'), false, 'its per-project row goes');
     assert.strictEqual(t.states.has('D:\\other'), true, 'without taking the neighbours');
+  } finally { t.cleanup(); }
+});
+
+// #684: the Remove dialog runs `removeProject` (tombstone, cache purged) and then the config removal, whose
+// prune decides by the cache and Claude's store alone. With only Codex or Pi transcripts left that read as
+// "nothing left", and the prune took the tombstone with it, so the next scan listed the project again.
+test('#684: a prune after a removal keeps the tombstone, and only the sweep takes it', () => {
+  const t = makeCtx();
+  try {
+    const p = 'D:\\codex-only';
+    projects.ensureProjectAdded(p);
+    projects.ensureProjectAdded('D:\\other');
+    assert.ok(!projects.removeProject(p, { quiet: true }).error);
+    const removedAt = t.ctx.db.getProjectTombstones().get(p);
+    assert.ok(removedAt, 'the removal wrote a tombstone');
+
+    assert.strictEqual(projects.pruneProjectIfGone(p), true, 'the rest of the footprint is still forgotten');
+    assert.ok(t.calls.prunedProjects.includes(p));
+    assert.strictEqual(t.ctx.db.getProjectTombstones().get(p), removedAt, 'the tombstone stands, with its time');
+    const row = t.states.get(p);
+    assert.ok(row && !row.registered && !row.hidden, 'as a bare tombstone: not listed, not hidden');
+    assert.strictEqual(t.states.has('D:\\other'), true);
+  } finally { t.cleanup(); }
+});
+
+test('#684: called with another spelling, the prune keeps the tombstone on the register row', () => {
+  const t = makeCtx();
+  try {
+    const registered = 'D:\\codex-only';
+    projects.ensureProjectAdded(registered);
+    assert.ok(!projects.removeProject(registered, { quiet: true }).error);
+    const removedAt = t.ctx.db.getProjectTombstones().get(registered);
+    assert.strictEqual(projects.pruneProjectIfGone(registered + path.sep), true);
+    assert.strictEqual(t.ctx.db.getProjectTombstones().get(registered), removedAt);
+  } finally { t.cleanup(); }
+});
+
+test('#684: a prune that cannot read the tombstones forgets nothing', () => {
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\gone');
+    t.ctx.db.getProjectTombstones = () => { throw new Error('busy'); };
+    assert.strictEqual(projects.pruneProjectIfGone('D:\\gone'), false);
+    assert.strictEqual(t.calls.prunedProjects.length, 0);
+  } finally { t.cleanup(); }
+});
+
+test('#684: a prune of a project that was never removed leaves no row behind', () => {
+  const t = makeCtx();
+  try {
+    projects.ensureProjectAdded('D:\\gone');
+    assert.strictEqual(projects.pruneProjectIfGone('D:\\gone'), true);
+    assert.strictEqual(t.states.has('D:\\gone'), false);
+    assert.strictEqual(t.ctx.db.getProjectTombstones().has('D:\\gone'), false);
   } finally { t.cleanup(); }
 });
 

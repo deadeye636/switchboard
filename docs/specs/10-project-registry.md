@@ -695,7 +695,11 @@ importing the projects module; `registeredPathFor` is now its path half rather t
   `deleteProjectRefs` is an exact-match `DELETE` and this writer never passes through `setProjectState`,
   which is what that follow-up grepped for. It addresses the register's row **and** the caller's own,
   because what it drops is wider than the register — the tags and the `project:<path>` settings blob are
-  keyed on the string it was called with.
+  keyed on the string it was called with. **It keeps a tombstone (#684).** Its "nothing left" is the cache and
+  Claude's store, and `removeProject` has just purged the cache, so a project whose Codex or Pi transcripts
+  are still on disk reads as gone; dropping its tombstone let the next scan list it again. The prune writes
+  the tombstone back with its time, as a bare removal row, and the sweep in `syncRegistry` stays the one
+  place that decides a tombstone guards nothing: it asks every store and keeps the grace period.
 
 ## A session that was already running is not a new one (#575)
 
@@ -814,8 +818,9 @@ A top-level project may only be offline, so it starts unticked and goes through 
 Remove dialog. Its tombstone is kept while any of its history was kept: the prune that follows a config
 removal decides by the cached rows and by Claude's store alone, and `removeProject` has just purged those
 rows, so a project whose Codex or Pi history was kept would read as gone and lose its tombstone. The cleanup
-therefore asks whether history was kept before the removal, and skips that prune when it was. The Remove
-dialog runs the same steps in the same order and still has that hole.
+therefore asks whether history was kept before the removal, and skips that prune when it was. Since #684
+the prune keeps a tombstone on its own, so that check is now a second guard rather than the only one, and
+the Remove dialog, which runs the same steps in the same order, no longer loses the tombstone either.
 
 A cleaned entry can still come back when something names it: kept history, a store folder that is not
 empty (Claude removes a folder only once nothing is left in it), or a config entry. The summary says so

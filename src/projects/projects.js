@@ -375,7 +375,7 @@ function projectHasSessionsLeft(projectPath) {
 }
 
 /**
- * After a hard delete, forget the project entirely (#55). Only when nothing is left to restore — no
+ * After a hard delete, forget the project entirely (#55), except a tombstone (#684). Only when nothing is left to restore — no
  * sessions on disk and no backend still tracking it in its own config. A plain "hide" keeps all of this,
  * because unhiding has to bring the project back intact.
  *
@@ -392,13 +392,31 @@ function pruneProjectIfGone(projectPath) {
   if (!projectPath) return false;
   if (projectHasSessionsLeft(projectPath) || projectKnownToAnyBackend(projectPath)) return false;
 
-  // The project_meta row goes, and the register row IS that row (#167) — so the entry, the hide flags and
-  // the tombstone go with it. There is nothing left to guard: no sessions anywhere, no config entry.
+  // The project_meta row goes, and the register row IS that row (#167) — so the entry and the hide flags go
+  // with it. The TOMBSTONE does not (#684). "Nothing left" here is the cache and Claude's store, and a removal
+  // has just emptied the cache: a project whose Codex or Pi transcripts are still on disk reads as gone, and
+  // dropping its tombstone let the next scan put it straight back on the list. Whether a tombstone still
+  // guards anything is the sweep's question in `syncRegistry`, which asks every store and keeps a grace
+  // period; this writes it back onto the row so the sweep is the one place that answers it.
   const registeredPath = registeredPathFor(projectPath);
   const targets = registeredPath && registeredPath !== projectPath ? [projectPath, registeredPath] : [projectPath];
+  // Not knowing whether there is a tombstone is no reason to risk one: a prune that cannot read them waits.
+  let removedAt = null;
+  try {
+    const tombstones = ctx.db.getProjectTombstones();
+    removedAt = targets.map(t => tombstones.get(t)).find(Boolean) || null;
+  } catch (err) {
+    ctx.log.warn('[prune] tombstones unreadable, project kept: ' + (err && err.message));
+    return false;
+  }
   for (const target of targets) {
     try { ctx.db.deleteProjectRefs(target); } catch (err) {
       ctx.log.warn('[prune] project refs delete failed: ' + err.message);
+    }
+  }
+  if (removedAt) {
+    try { ctx.db.setProjectState(registeredPath || projectPath, registry.removalState(removedAt)); } catch (err) {
+      ctx.log.warn('[prune] tombstone keep failed: ' + err.message);
     }
   }
   ctx.log.info('[prune] forgot project (no sessions, no config entry): ' + projectPath);
@@ -1654,8 +1672,8 @@ function cleanupOneMissing(entry) {
     // Asked BEFORE `removeProject`, which purges the cached rows: whether any history was kept. The prune that
     // follows a config removal decides by those rows and by Claude's store alone, so after the purge a project
     // whose Codex or Pi history was kept would read as gone — and the prune would take its tombstone with it,
-    // letting the next scan register it straight back. The Remove dialog has the same order and the same hole;
-    // here the prune is simply not run while history was kept.
+    // letting the next scan register it straight back. Since #684 the prune keeps a tombstone itself, for this
+    // path and the Remove dialog alike; not running it while history was kept stays as a second guard.
     let keptHistory = false;
     try { keptHistory = (ctx.db.getCachedByProjectPath(projectPath) || []).length > 0; } catch { keptHistory = true; }
     if (!isWorktree) {
