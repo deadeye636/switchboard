@@ -107,7 +107,9 @@ const configFields = [
   { id: 'permissionMode', label: 'Permission mode', type: 'select',
     choices: ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions', 'dangerously-skip'],
     choiceLabels: {
-      'default': 'Default — ask each time',
+      // No flag is sent, so this is whatever Claude starts in by itself (#776): its settings' `defaultMode`,
+      // else auto mode since Claude Code 2.1.284 where the model allows it, else asking each time.
+      'default': "Default — Claude's own setting",
       'acceptEdits': 'Accept Edits — auto file edits',
       'plan': 'Plan — read-only',
       'auto': 'Auto — auto-approve (preview)',
@@ -115,7 +117,8 @@ const configFields = [
       'bypassPermissions': 'Bypass — skip all prompts',
       'dangerously-skip': 'Dangerous Skip — skip every safety prompt',
     },
-    default: 'default' },
+    default: 'default',
+    description: 'Which tool calls Claude asks about before running them. Default sends nothing: the mode in your Claude settings applies, and without one Claude starts in auto mode (since Claude Code 2.1.284, where the model supports it; older versions ask each time).' },
   { id: 'model', label: 'Model', type: 'text', default: '' },
   { id: 'worktree', label: 'Git worktree', type: 'toggle', default: false },
   // `requires`: this option only means anything while another one is on. Declared, so the generated UI

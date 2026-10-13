@@ -40,7 +40,7 @@ const configFields = [
     choices: PERMISSION_MODES,
     choiceLabels: Object.fromEntries(PERMISSION_MODES.map(c => [c, (claudePermission.choiceLabels || {})[c] || c])),
     default: 'default',
-    description: 'Which tool calls Claude asks about before running them. Default sends nothing, so the mode in your Claude settings applies.' },
+    description: 'Which tool calls Claude asks about before running them. Default sends nothing: the mode in your Claude settings applies, and without one Claude picks its own (auto mode on current versions, where the model supports it).' },
   { id: 'model', label: 'Model', type: 'text', default: '' },
   // The terminal backend's argv options, measured on the pipe (#685, Claude Code 2.1.283, `-p` with
   // stream-json both ways): each one starts and is honoured. `--worktree` moves the session into the worktree

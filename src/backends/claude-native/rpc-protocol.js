@@ -988,13 +988,15 @@ const setModeCommand = (id, mode) => control(id, { subtype: 'set_permission_mode
 // files name, which is blind to `--permission-mode` (asked only when none was sent) and to a mode the model
 // refuses: `auto` from the settings started a Haiku session in `default`. So `auto` is answered as it is and
 // `startModeFor` below decides what it becomes; any other configured mode was the mode the turn ran in. Settings
-// that name no default leave the CLI's own, `default`.
+// that name no default answer null (#776): the CLI's own default is no longer `default` — Claude Code 2.1.284/285
+// start an unconfigured session in auto mode, by provider, telemetry and model — so the first `system/init`
+// names it rather than a guess.
 const configuredModeCommand = (id) => control(id, { subtype: 'get_settings' });
 function configuredModeFromResponse(response) {
   const d = response && response.success !== false && response.data && typeof response.data === 'object' ? response.data : null;
   if (!d || !d.effective || typeof d.effective !== 'object') return null;
   const perms = d.effective.permissions;
-  return perms && typeof perms.defaultMode === 'string' && perms.defaultMode ? perms.defaultMode : 'default';
+  return perms && typeof perms.defaultMode === 'string' && perms.defaultMode ? perms.defaultMode : null;
 }
 
 // What a start mode becomes on the session's model (#753). `auto` is the one mode a model can refuse, and a

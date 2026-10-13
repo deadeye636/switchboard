@@ -833,7 +833,7 @@ one, `get_settings` names the configured default, which holds unless the model r
 **What the line shows at the start since #730.** The launch's mode when `--permission-mode` was sent
 (`launchMode`, the same condition `buildLaunch` applies), and `default` for a `--restricted` launch without
 one, since restricted mode ignores the settings files. Otherwise the settings' `defaultMode` from
-`get_settings`, `default` when they name none. The first `system/init` or `system/status` still has the last
+`get_settings`; when they name none, nothing (#776): an unconfigured Claude starts in auto mode since 2.1.284/2.1.285, depending on provider, telemetry and model, so the line waits for the first `system/init` rather than guess. The first `system/init` or `system/status` still has the last
 word. A `--restricted` launch is drawn without having been measured, taken as `default` because the option's
 description says restricted mode ignores the settings files; the first `system/init` corrects it if it is wrong.
 

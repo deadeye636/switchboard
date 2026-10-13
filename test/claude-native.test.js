@@ -1251,7 +1251,8 @@ test('the mode at the start is the launch\'s, else the settings\' default withou
   assert.equal(protocol.startModeFor('auto', null), null, 'no model yet, no guess');
   assert.equal(protocol.startModeFor('plan', null), 'plan', 'any other mode needs no model');
   assert.equal(protocol.startModeFor(null, ctxOf('claude-opus-5-5')), null);
-  assert.equal(protocol.configuredModeFromResponse(settings(null)), 'default', 'no default in the settings is the CLI\'s own');
+  // #776: Claude's own default is auto mode on current versions and `default` on older ones, so it is not guessed.
+  assert.equal(protocol.configuredModeFromResponse(settings(null)), null, 'no default in the settings waits for the first system/init');
   assert.equal(protocol.configuredModeFromResponse({ success: true, data: {} }), null, 'an answer without settings says nothing');
   assert.equal(protocol.configuredModeFromResponse({ success: false, error: 'refused' }), null);
 });
