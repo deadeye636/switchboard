@@ -56,12 +56,16 @@ function isDir(p) {
   try { return fs.statSync(p).isDirectory(); } catch { return false; }
 }
 
-// The project instruction file Claude reads (#777): CLAUDE.md, or AGENTS.md in a project with none
-// (Claude Code 2.1.277). "Project instructions" in Claude's `/config` can change that choice; where it is
-// stored is not known, so this answers the default. The project's root only, like the CLAUDE.md before it.
+// The project instruction file Claude reads (#777, #785): a non-empty CLAUDE.md, else a non-empty
+// .claude/CLAUDE.md, else AGENTS.md (Claude Code 2.1.277). Measured on 2.1.296: `.claude/CLAUDE.md` keeps
+// AGENTS.md unread, and an empty CLAUDE.md does not. "Project instructions" in Claude's `/config` can change
+// that choice; where it is stored is not known, so this answers the default.
+function hasText(p) {
+  try { const st = fs.statSync(p); return st.isFile() && st.size > 0; } catch { return false; }
+}
 function projectInstructionsFile(projectPath) {
-  const claudeMd = path.join(projectPath, 'CLAUDE.md');
-  return isFile(claudeMd) ? claudeMd : path.join(projectPath, 'AGENTS.md');
+  const candidates = [path.join(projectPath, 'CLAUDE.md'), path.join(projectPath, '.claude', 'CLAUDE.md')];
+  return candidates.find(hasText) || path.join(projectPath, 'AGENTS.md');
 }
 
 function add(out, item) {
@@ -118,7 +122,8 @@ function addPluginSkills(out, home, projectPath) {
 
 function addProjectResources(out, projectPath) {
   if (!projectPath) return;
-  addFile(out, projectPath, path.basename(projectInstructionsFile(projectPath)), 'memory', 'project-context', 'project');
+  const instructions = projectInstructionsFile(projectPath);
+  addFile(out, path.dirname(instructions), path.basename(instructions), 'memory', 'project-context', 'project');
   addFile(out, path.join(projectPath, '.claude'), 'settings.json', 'settings', 'project-settings', 'project');
   addFile(out, path.join(projectPath, '.claude'), 'settings.local.json', 'settings', 'project-settings', 'project');
   addDir(out, projectPath, '.claude', 'settings', 'project-claude-directory', 'project');

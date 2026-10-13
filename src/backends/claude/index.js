@@ -893,7 +893,7 @@ module.exports = {
   planRef: (filePath) => path.basename(filePath || '').replace(/\.md$/i, '') || null,
   // The memory / instruction files Claude exposes for one scope (#227). Global = its home-level files; a
   // project = its store-side .md files (per store folder — legacy encodings mean several, plus the
-  // canonical encoded name so a not-yet-indexed project still resolves) and the project-root CLAUDE.md (AGENTS.md without one, #777) +
+  // canonical encoded name so a not-yet-indexed project still resolves) and the project-root CLAUDE.md (.claude/CLAUDE.md or AGENTS.md without one, #777, #785) +
   // .claude dirs. Each source is display-ready; the neutral Plans/Memory module scans/stats them and never
   // hardcodes ~/.claude itself.
   /**
@@ -1031,8 +1031,10 @@ description:
       out.push({ kind: 'dir', path: fp, displayPath: '~/.claude', source: 'claude-home' });
       out.push({ kind: 'dir', path: path.join(fp, 'memory'), displayPath: '~/.claude', source: 'claude-home' });
     }
-    // CLAUDE.md, else the AGENTS.md Claude reads in its place (#777).
-    out.push({ kind: 'file', path: resources.projectInstructionsFile(projectPath), displayPath: short + '/', source: 'project' });
+    // CLAUDE.md, else .claude/CLAUDE.md, else the AGENTS.md Claude reads in their place (#777, #785).
+    const instructions = resources.projectInstructionsFile(projectPath);
+    const inDotClaude = instructions === path.join(projectPath, '.claude', 'CLAUDE.md');
+    out.push({ kind: 'file', path: instructions, displayPath: short + (inDotClaude ? '/.claude/' : '/'), source: 'project' });
     out.push({ kind: 'dir', path: path.join(projectPath, '.claude'), displayPath: short + '/.claude/', source: 'project' });
     out.push({ kind: 'dir', path: path.join(projectPath, '.claude', 'commands'), displayPath: short + '/.claude/commands/', source: 'project' });
     return out;

@@ -289,7 +289,7 @@ function scanMdFiles(dir) {
 const INSTRUCTION_KIND = 'instructions';
 
 // A file can belong to SEVERAL backends, and the dedupe used to hide that. Codex and Pi both declare
-// `AGENTS.md`; Claude and Pi both declare `CLAUDE.md` (Claude AGENTS.md instead, in a project without one, #777). Listing it twice would be wrong — it is one
+// `AGENTS.md`; Claude and Pi both declare `CLAUDE.md` (Claude .claude/CLAUDE.md or AGENTS.md instead, in a project without one, #777, #785). Listing it twice would be wrong — it is one
 // file — but so is attributing it to whichever backend happened to be asked first. So the second claim
 // is recorded on the row that is already there, and a row carries a LIST of backends (#447 follow-up).
 //
