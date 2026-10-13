@@ -265,3 +265,32 @@ This does not touch the attention inbox or the "Needs You" status. Those live in
 is set only for a session the user is not looking at and is settled by focusing it or dismissing the row
 (`clearNotifications`, `dismissAttentionItem` in `app.js`), never by input. That holds for a terminal session
 too.
+
+## OSC 7501, the Program Status Protocol: measured, not usable under ConPTY (#774)
+
+Claude Code (2.1.295 and later) and Pi (1.1.0) can report working, idle, blocked, done and error through OSC
+7501. Measured on Windows on 2026-10-13 with Claude Code 2.1.296 (Haiku) and Pi 1.1.0, each started in
+node-pty the way the app starts a terminal, with the system ConPTY and the bundled `conpty.dll`
+(`scripts/probe-program-status.js`):
+
+- **Both CLIs report only after the terminal answers their detection query.** At start each sends
+  `OSC 7501 ; ? ST` and nothing else. Claude sends it in one batch with its other capability probes and
+  counts it as unsupported when the reply to the batch's closing query arrives first; without a reply it
+  never reports a state. Pi does the same unless `PI_PROGRAM_STATUS=1` forces it on. The earlier reading in
+  #774 that both emit without a reply had seen the query itself, not a report.
+- **ConPTY drops an OSC sequence written to the child's input.** `OSC 7501 ; ? BEL` and `OSC 7501 ; ? ST`
+  written into the PTY never reach the program; an ordinary key written after them does. So on Windows the
+  app cannot answer the query at all, neither from main's PTY data path nor from xterm's parser, and Claude
+  stays silent. A reply written before the query is dropped the same way.
+- **Pi forced on reports as specified:** `state=idle` at start, `state=working` when a turn begins, and
+  `state=error` with a base64 `msg` when the turn fails (in the measurement an expired login). `app=pi` rides
+  on every report.
+
+Consequences, for whoever picks #774 up again:
+
+- On Windows the only CLI that can report is Pi, and only when the launch sets `PI_PROGRAM_STATUS=1`. A Pi
+  terminal already reports busy and idle exactly through its binding extension, so that adds little.
+- On macOS and Linux the PTY passes input through, so an answer from xterm's parser (an OSC 7501 handler that
+  writes the reply before xterm answers the batch's closing query) would let Claude report. Not built and not
+  measured there.
+- The heuristics above (OSC 0 title, OSC 9;4, OSC 9) and the attention hook stay the sources for a terminal.
