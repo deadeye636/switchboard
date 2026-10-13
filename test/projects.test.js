@@ -1769,6 +1769,52 @@ test('#579: the prune drops the row the register HOLDS, not only the spelling it
   } finally { t.cleanup(); }
 });
 
+// --- the project manager's config-only rows (#595, #601) -------------------------------------------------
+// `getProjectsAdmin` appends the projects only a backend's own config knows and then answers `nestUnder`
+// a second time over every row. Two cases need that second pass; without it the suite stayed green.
+function withConfigBackend(t, known) {
+  // One backend that keeps a per-project config store and nothing else, standing in for the real ones, so
+  // what the test reads is the config this test declared and not a real CLI's file.
+  const fake = {
+    id: 'cfgfake', label: 'Config fake',
+    projectMeta: { knownProjects: () => known, getMany: () => new Map() },
+  };
+  t.ctx.backends = Object.assign(Object.create(backends), { launchable: () => [fake] });
+}
+
+test('#601: a worktree known only to a backend config groups under its cached project', () => {
+  const t = makeCtx();
+  try {
+    const project = path.join(os.tmpdir(), 'sb601-a');
+    const worktree = path.join(project, '.claude', 'worktrees', 'feat');
+    t.setAdminRows([{ projectPath: project, worktreeRoot: null, nestUnder: null, registered: true }]);
+    withConfigBackend(t, [worktree]);
+
+    const res = projects.getProjectsAdmin();
+    assert.ok(res.ok, res.error);
+    const row = res.projects.find(r => r.projectPath === worktree);
+    assert.ok(row && row.configOnly, 'appended as a config-only row');
+    assert.strictEqual(row.nestUnder, project, 'and grouped under its project, not drawn flat');
+  } finally { t.cleanup(); }
+});
+
+test('#601: a cached worktree groups under a project known only to a backend config, spelled its way', () => {
+  const t = makeCtx();
+  try {
+    const project = path.join(os.tmpdir(), 'sb601-b');
+    const worktree = path.join(project, '.claude', 'worktrees', 'x');
+    const asConfigSpellsIt = project + path.sep;
+    // buildProjectsAdmin had no row for the project, so it could name no parent.
+    t.setAdminRows([{ projectPath: worktree, worktreeRoot: project, nestUnder: null, registered: true }]);
+    withConfigBackend(t, [asConfigSpellsIt]);
+
+    const res = projects.getProjectsAdmin();
+    assert.ok(res.ok, res.error);
+    const row = res.projects.find(r => r.projectPath === worktree);
+    assert.strictEqual(row.nestUnder, asConfigSpellsIt, 'the row that is there, matched canonically');
+  } finally { t.cleanup(); }
+});
+
 // --- misc -----------------------------------------------------------------------------------------
 
 test('toggleFavorite reports the state it just set', () => {

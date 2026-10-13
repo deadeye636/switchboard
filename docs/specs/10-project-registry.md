@@ -452,7 +452,8 @@ built; `getProjectsAdmin` then appends the projects that exist only in a backend
 the pairing over the whole set. Two cases force that second pass: a worktree known only to a backend's
 config arrives with nothing filled in, and a config-only PROJECT is a row a cached worktree can now group
 under. A reader who fills it in once, in the builder, gets a flat unglyphed row for the first case and a
-missed grouping for the second. That pass has no test — there is no harness for the config-only branch.
+missed grouping for the second. Both cases are covered since #601 (`test/projects.test.js`, a fake backend whose config
+names the rows): each test fails when the second pass is taken out.
 
 ### The trust column says how far a toggle reaches (#627)
 
