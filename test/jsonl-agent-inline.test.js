@@ -12,7 +12,7 @@ const { JSDOM } = require('jsdom');
 const ROOT = path.join(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 
-function setup({ subagents = [{ agentId: 'a1', sessionId: 'sub-1', description: 'Review', subagentType: 'verifier' }] } = {}) {
+function setup({ subagents = [{ agentId: 'a1', sessionId: 'sub-1', description: 'Review', subagentType: 'verifier' }], delays = {}, unreadable = [] } = {}) {
   const dom = new JSDOM('<!doctype html><body><div id="host"></div></body>');
   const w = dom.window;
   const calls = { read: [], start: [], stop: [] };
@@ -21,6 +21,8 @@ function setup({ subagents = [{ agentId: 'a1', sessionId: 'sub-1', description: 
     listSubagents: async () => subagents,
     readSubagentJsonl: async (parent, agentId) => {
       calls.read.push([parent, agentId]);
+      if (unreadable.includes(agentId)) return { error: 'not there yet' };
+      if (delays[agentId]) await new Promise((r) => setTimeout(r, delays[agentId]));
       return { entries: [{ type: 'user', message: { role: 'user', content: `prompt of ${agentId}` } }] };
     },
     startSubagentWatch: async (parent, agentId) => { calls.start.push([parent, agentId]); return { watchId: nextWatch++ }; },
@@ -146,6 +148,79 @@ test('#783: one box per conversation — opening a second folds the first and st
   const again = h.draw('toolu_1');
   await h.settle();
   assert.ok(!h.box(again));
+});
+
+test('#784: the open asked for last wins, even when an older read returns later', async () => {
+  const h = setup({ subagents: [{ agentId: 'a1', sessionId: 'sub-1', description: 'Review', subagentType: 'verifier' }, { agentId: 'a2', sessionId: 'sub-2', description: 'Fix', subagentType: 'verifier' }], delays: { a1: 60 } });
+  h.ctx.__exact = { toolu_1: 'a1', toolu_2: 'a2' };
+  const first = h.draw('toolu_1');
+  const second = h.draw('toolu_2', { subagent_type: 'verifier', description: 'Fix' });
+  h.card(first).click();
+  h.card(second).click();
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(h.box(second), 'the later request is open');
+  assert.ok(!h.box(first), 'the slower, older one gave way');
+});
+
+test('#784: an open with a fallback lands in the transcript view when the box cannot open', async () => {
+  const h = setup({ subagents: [], unreadable: ['a9'] });
+  h.ctx.__exact = { toolu_1: 'a9' };
+  const el = h.draw('toolu_1');
+  h.card(el).dataset.fallbackOpen = '1';
+  h.card(el).click();
+  await h.settle();
+  assert.ok(!h.box(el));
+  assert.deepEqual(h.opened, [['a9', 'toolu_1']], 'handed to the opener');
+  assert.equal(h.card(el).dataset.fallbackOpen, undefined, 'the request is used once');
+  h.card(el).click();
+  await h.settle();
+  assert.equal(h.opened.length, 1, 'a plain click keeps its note instead');
+});
+
+test('#784: a redraw reopen that returns late gives way to the reader\'s newer open', async () => {
+  const h = setup({ subagents: [{ agentId: 'a1', sessionId: 'sub-1', description: 'Review', subagentType: 'verifier' }, { agentId: 'a2', sessionId: 'sub-2', description: 'Fix', subagentType: 'verifier' }], delays: { a1: 80, a2: 20 } });
+  h.ctx.__exact = { toolu_1: 'a1', toolu_2: 'a2' };
+  const first = h.draw('toolu_1');
+  const second = h.draw('toolu_2', { subagent_type: 'verifier', description: 'Fix' });
+  h.card(first).click();
+  await new Promise((r) => setTimeout(r, 120));
+  // X's entry is redrawn and its reopen reads slowly; the reader opens Y meanwhile, and Y's read returns first.
+  first.remove();
+  const again = h.draw('toolu_1');
+  await new Promise((r) => setTimeout(r, 5));
+  h.card(second).click();
+  await new Promise((r) => setTimeout(r, 150));
+  assert.ok(h.box(second), 'the reader\'s open stays');
+  assert.ok(!h.box(again), 'the late reopen gave way');
+});
+
+test('#784: a failed open leaves the box on screen, and a redraw still brings it back', async () => {
+  const h = setup({ subagents: [{ agentId: 'a1', sessionId: 'sub-1', description: 'Review', subagentType: 'verifier' }, { agentId: 'a2', sessionId: 'sub-2', description: 'Fix', subagentType: 'verifier' }], unreadable: ['a2'] });
+  h.ctx.__exact = { toolu_1: 'a1', toolu_2: 'a2' };
+  const first = h.draw('toolu_1');
+  const second = h.draw('toolu_2', { subagent_type: 'verifier', description: 'Fix' });
+  h.card(first).click();
+  await h.settle();
+  h.card(second).click();
+  await h.settle();
+  assert.ok(h.box(first), 'still open');
+  first.remove();
+  const again = h.draw('toolu_1');
+  await h.settle();
+  await h.settle();
+  assert.ok(h.box(again), 'and remembered');
+});
+
+test('#784: an Open pressed while the card is already reading still gets its fallback', async () => {
+  const h = setup({ subagents: [], unreadable: ['a9'] });
+  h.ctx.__exact = { toolu_1: 'a9' };
+  const el = h.draw('toolu_1');
+  h.card(el).click();
+  h.card(el).dataset.fallbackOpen = '1';
+  h.card(el).click();
+  await h.settle();
+  assert.deepEqual(h.opened, [['a9', 'toolu_1']]);
+  assert.equal(h.card(el).dataset.fallbackOpen, undefined);
 });
 
 test('the history viewer is unchanged: no session of its own, no expansion', async () => {

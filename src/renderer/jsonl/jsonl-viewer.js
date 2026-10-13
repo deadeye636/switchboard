@@ -10,6 +10,16 @@ const inlineAgentsOpen = new Set();
 const INLINE_AGENTS_OPEN_MAX = 50;
 // The tail of each call's open box, by call id, so a redrawn box takes over from the one it replaced.
 const inlineTailByCall = new Map();
+// The newest open asked for in each conversation, by its host element (#784), so an older open still reading
+// its transcript gives way.
+const inlineOpenSeq = new WeakMap();
+// Marks a new request of the reader's in a conversation and answers its number. The conversation view calls it
+// too, when its Open lands on a box already open, so an older open still reading does not fold that box.
+function claimInlineOpen(host) {
+  const seq = (inlineOpenSeq.get(host) || 0) + 1;
+  inlineOpenSeq.set(host, seq);
+  return seq;
+}
 // Counter for matching identical (description, subagentType) blocks in fanout scenarios
 // Reset on each showJsonlViewer call. Key: "<contextSessionId>|<desc>|<type>"
 let agentMatchCounters = {};
@@ -567,8 +577,14 @@ const toolRenderers = {
 
     // The conversation redraws a call when its result arrives; one the reader had open opens again (#770).
     const openKey = inline && block && block.id ? block.id : null;
+    // A reopen is not a request of the reader's (#784): it takes no turn in "the last open wins", and it gives way
+    // to a box the reader opened while it waited, which forgets this key.
     if (openKey && inlineAgentsOpen.has(openKey)) {
-      setTimeout(() => { if (el.isConnected && !expanded) el.click(); }, 0);
+      setTimeout(() => {
+        if (!el.isConnected || expanded || !inlineAgentsOpen.has(openKey)) return;
+        el.dataset.reopen = '1';
+        el.click();
+      }, 0);
     }
 
     el.addEventListener('click', async () => {
@@ -585,8 +601,15 @@ const toolRenderers = {
         if (caret) caret.innerHTML = '&#9658;';
         return;
       }
+      const reopen = !!el.dataset.reopen;
+      delete el.dataset.reopen;
       if (opening) return;
       opening = true;
+      // The open the reader asked for last wins (#784): a newer one in this conversation drops this one when its
+      // read returns. The other calls' boxes are folded and forgotten only once this one opens, so a failed open
+      // leaves the box on screen alone.
+      const host = inline && ctx.host && typeof ctx.host.querySelectorAll === 'function' ? ctx.host : null;
+      const seq = host && !reopen ? claimInlineOpen(host) : 0;
       const parentSessionId = parentOf();
       let match = null;
       let result = null;
@@ -594,7 +617,19 @@ const toolRenderers = {
         match = parentSessionId ? await resolveSubagent(parentSessionId) : null;
         if (match) result = await window.api.readSubagentJsonl(parentSessionId, match.agentId);
       } finally { opening = false; }
+      // The Background list's Open (#784) asks for somewhere to land when the box cannot open; read at the end, so
+      // an Open pressed while this open was already reading counts too, and used once either way.
+      const fallback = !!el.dataset.fallbackOpen;
+      delete el.dataset.fallbackOpen;
+      if (seq && inlineOpenSeq.get(host) !== seq) return;
+      // A reopen gives way to a box the reader opened while it read: that open forgot this key.
+      if (reopen && openKey && !inlineAgentsOpen.has(openKey)) return;
       if (!match || !result || result.error || !result.entries) {
+        if (fallback && typeof ctx.openSubagent === 'function') {
+          const agentId = match ? match.agentId : (typeof ctx.subagentIdFor === 'function' ? ctx.subagentIdFor(block && block.id) : null);
+          ctx.openSubagent(agentId, block && block.id);
+          return;
+        }
         // In the conversation a call whose transcript is not there yet says so, rather than doing nothing.
         if (inline && !el.querySelector('.jsonl-agent-pending')) {
           const note = document.createElement('span');
@@ -657,6 +692,10 @@ const toolRenderers = {
       if (inline) {
         const host = ctx.host && typeof ctx.host.querySelectorAll === 'function' ? ctx.host : document;
         for (const other of host.querySelectorAll('.jsonl-agent-expandable[data-inline-open]')) if (other !== el) other.click();
+        // …and a box a redraw is about to bring back is forgotten too (#784).
+        for (const other of host.querySelectorAll('.jsonl-agent-expandable[data-tool-use-id]')) {
+          if (other !== el) inlineAgentsOpen.delete(other.dataset.toolUseId);
+        }
       }
       el.after(nestedContainer);
       if (inline) nestedContainer.scrollTop = nestedContainer.scrollHeight;

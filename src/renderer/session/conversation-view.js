@@ -1488,14 +1488,16 @@ function createConversationView(getSession, container) {
     setTimeout(() => el.classList.remove('conversation-flash'), 1200);
     notice('info', 'This agent\'s transcript is not listed yet — showing the call that started it instead.');
   }
-  // The Background list opens an agent in the conversation (#783): the box its call's card opens on a click (#770),
-  // whose "Open in tab" leads on to `openAgent`. A card already open is only brought into view, since a click
-  // would fold it. Without the call on screen, `openAgent` answers as before.
+  // The Background list, and an agent's notice or report, open an agent in the conversation (#783, #784): the box
+  // its call's card opens on a click (#770), whose "Open in tab" leads on to `openAgent`. A card already open is
+  // only brought into view, since a click would fold it. Without the call on screen, or when its box cannot open,
+  // `openAgent` answers as before.
   function openAgentInline(subagentId, toolUseId) {
     const el = toolUseId ? log.querySelector(`.jsonl-agent-expandable[data-tool-use-id="${CSS.escape(toolUseId)}"]`) : null;
     if (!el) { openAgent(subagentId, toolUseId); return; }
     closeBackground();
-    if (!el.dataset.inlineOpen) el.click();
+    if (!el.dataset.inlineOpen) { el.dataset.fallbackOpen = '1'; el.click(); }
+    else if (typeof claimInlineOpen === 'function') claimInlineOpen(container);
     el.scrollIntoView({ block: 'start' });
   }
   async function openTask(t) {
@@ -1542,9 +1544,9 @@ function createConversationView(getSession, container) {
   });
   // The Output button on a task's notice in the conversation (#691), drawn by jsonl-viewer.js.
   log.addEventListener('click', (e) => {
-    // …and the Open button on an agent's notice (#695), the same way the Background list opens one.
+    // …and the Open button on an agent's notice (#695) or report, the same way the Background list opens one (#784).
     const openBtn = e.target.closest('.task-notice-open');
-    if (openBtn && openBtn.dataset.subagentId) { openAgent(openBtn.dataset.subagentId, openBtn.dataset.toolUseId || ''); return; }
+    if (openBtn && openBtn.dataset.subagentId) { openAgentInline(openBtn.dataset.subagentId, openBtn.dataset.toolUseId || ''); return; }
     const btn = e.target.closest('.task-notice-output');
     if (!btn || !btn.dataset.taskId) return;
     showNoticeOutput(btn);
