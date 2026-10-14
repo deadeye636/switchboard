@@ -217,6 +217,99 @@ test('rekeySessionState moves every table a session is keyed by (#348)', async (
   } finally { h.destroy(); }
 });
 
+test('rekeySessionState keeps the caret in a native conversation across /clear', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('old');
+    const entry = h.openSessions.get('old');
+    const input = h.document.createElement('textarea');
+    const elsewhere = h.document.createElement('button');
+    h.document.body.appendChild(elsewhere);
+    entry.element.appendChild(input);
+    entry.terminal = null;
+    entry.conversation = { focus: () => input.focus() };
+    h.enable();
+    await h.settle();
+    input.focus();
+    // The real re-key updates panels and pane state through setActiveSession. Model one of those
+    // synchronous updates moving the caret away; the identity-only move must give it back afterwards.
+    h.window.setActiveSession = (id) => { h.window.activeSessionId = id; elsewhere.focus(); };
+    h.window.activeSessionId = 'old';
+
+    assert.equal(h.window.rekeySessionState('old', 'new'), true);
+    await h.settle();
+    assert.equal(h.document.activeElement, input);
+  } finally { h.destroy(); }
+});
+
+test('rekeySessionState gives the caret back to the control that had it, not to the composer', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('old');
+    const entry = h.openSessions.get('old');
+    const composer = h.document.createElement('textarea');
+    const cardField = h.document.createElement('input');
+    const elsewhere = h.document.createElement('button');
+    h.document.body.appendChild(elsewhere);
+    entry.element.appendChild(composer);
+    entry.element.appendChild(cardField);
+    entry.terminal = null;
+    entry.conversation = { focus: () => composer.focus() };
+    h.enable();
+    await h.settle();
+    cardField.focus();
+    h.window.setActiveSession = (id) => { h.window.activeSessionId = id; elsewhere.focus(); };
+    h.window.activeSessionId = 'old';
+
+    assert.equal(h.window.rekeySessionState('old', 'new'), true);
+    await h.settle();
+    assert.equal(h.document.activeElement, cardField);
+  } finally { h.destroy(); }
+});
+
+test('rekeySessionState does not take focus from outside a native conversation', async () => {
+  const h = setupPanesDom();
+  try {
+    h.mount('old');
+    const entry = h.openSessions.get('old');
+    const input = h.document.createElement('textarea');
+    const elsewhere = h.document.createElement('button');
+    h.document.body.appendChild(elsewhere);
+    entry.element.appendChild(input);
+    entry.terminal = null;
+    entry.conversation = { focus: () => input.focus() };
+    h.enable();
+    await h.settle();
+    elsewhere.focus();
+
+    assert.equal(h.window.rekeySessionState('old', 'new'), true);
+    await h.settle();
+    assert.equal(h.document.activeElement, elsewhere);
+  } finally { h.destroy(); }
+});
+
+test('a focus move after rekeySessionState wins even when the pane rebuild detaches that control', async () => {
+  const h = setupPanesDom();
+  try {
+    await twoPanes(h);
+    const old = h.openSessions.get('a');
+    const other = h.openSessions.get('b');
+    const oldInput = h.document.createElement('textarea');
+    const otherInput = h.document.createElement('textarea');
+    old.element.appendChild(oldInput);
+    other.element.appendChild(otherInput);
+    old.terminal = null;
+    old.conversation = { focus: () => oldInput.focus() };
+    oldInput.focus();
+    h.window.activeSessionId = 'a';
+
+    assert.equal(h.window.rekeySessionState('a', 'new'), true);
+    otherInput.focus();
+    await h.settle();
+    assert.notEqual(h.document.activeElement, oldInput, 'the retired conversation did not take focus back');
+  } finally { h.destroy(); }
+});
+
 test('a window that does not render the session says so and changes nothing (#348)', async () => {
   const h = setupPanesDom();
   try {

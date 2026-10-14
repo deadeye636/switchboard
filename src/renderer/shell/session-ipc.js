@@ -163,6 +163,15 @@ window.rekeySessionState = function (oldId, newId) {
   if (typeof rekeySavedOpenSessions === 'function') rekeySavedOpenSessions(oldId, newId);
   const entry = openSessions.get(oldId);
   const pendingEntry = pendingSessions.get(oldId);
+  // A re-key changes the identity of the mounted surface, not what the user is doing in it. In a
+  // pipe-driven conversation `/clear` can move the session while the composer owns the caret; the
+  // active-session and pane/file-panel updates below may move that caret as a side effect. Remember
+  // that THIS view owned it and hand it back after every keyed surface has followed the new id.
+  const refocusConversation = !!(entry && entry.conversation && entry.element
+    && typeof entry.element.contains === 'function' && entry.element.contains(document.activeElement));
+  // The control itself, not just "this view": a card's field, the log or an open document viewer gets the caret
+  // back, not the composer that `conversation.focus()` would pick.
+  const focusedBefore = refocusConversation ? document.activeElement : null;
   // The one record, wherever this window is holding it. It is the same object in all three maps by
   // construction — launchNewSession builds it once and puts that object into `sessionMap`, the pending
   // entry and the terminal entry (app.js) — so moving its id moves it for the sidebar row, the pending
@@ -219,6 +228,34 @@ window.rekeySessionState = function (oldId, newId) {
   }
   sessionMap.delete(oldId);
   if (session) sessionMap.set(newId, session);
+  if (refocusConversation) {
+    const giveBack = () => {
+      if (focusedBefore && focusedBefore.isConnected && entry.element.contains(focusedBefore)) {
+        focusedBefore.focus({ preventScroll: true });
+      } else {
+        entry.conversation.focus();
+      }
+    };
+    // First undo synchronous panel/chrome work performed by this re-key — only if it moved the caret.
+    if (document.activeElement !== focusedBefore) giveBack();
+    let superseded = false;
+    const noteNewFocus = (event) => {
+      if (!entry.element.contains(event.target)) superseded = true;
+    };
+    document.addEventListener('focusin', noteNewFocus, true);
+    // panesView.rekeySession queues its rebuild above. That rebuild parks and re-adopts the container,
+    // which makes Chromium drop a textarea's focus to body. Queue behind it, and only take the caret
+    // back when the re-key left it nowhere (or it is still inside this same conversation). Remember
+    // a later focus explicitly, because the pane rebuild can detach that other control and make body
+    // active too; a caller that deliberately moved on after this function returned still wins.
+    queueMicrotask(() => {
+      document.removeEventListener('focusin', noteNewFocus, true);
+      if (superseded || entry.closed || !entry.element.isConnected) return;
+      const active = document.activeElement;
+      if (active === focusedBefore) return;
+      if (active === document.body || active == null || entry.element.contains(active)) giveBack();
+    });
+  }
   return true;
 };
 
