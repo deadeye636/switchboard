@@ -154,7 +154,7 @@ about when a session is finished),
 `agent-shell.js` (a `!` line run BY THE APP for a runtime-driven session whose protocol has no shell command —
 #786, claude-native; the project's terminal shell as a login shell with no stdin, output kept up to a cap, the
 tree killed on Stop and on the session's exit, no timeout. `agent-rpc.js` starts it and carries the finished line
-into the next turn; the format the model reads is the backend's),
+into the next turn, or sends it as a turn of its own once the session is idle (#788); the format the model reads is the backend's),
 `documents.js` (opening a document an agent read — #755; a backend stamps a neutral `document` element into a `Read` result, `agent-rpc.js` keeps its path in a registry on the session's state, and `document-open` accepts only a registered path: absolute, local — a network path refused before any stat — its real path again network-free, sensitive-free and with a document extension, a regular file. No project containment root, because an agent may read from anywhere; `how` is `default`, `tab` or `click`, the last following `fileClickTarget` with the terminal's Ctrl/Cmd inversion. `document-read` (#764) answers the text of a Markdown or HTML document for the card's viewer through the same `checkDocument`, up to `READ_MAX_BYTES`, and since #781 the bytes of a PDF whose result has no page images, up to `PDF_READ_MAX_BYTES`),
 `resource-sources.js` (which of ANOTHER backend's skills, commands, agents and MCP servers a session takes over — #632, #639, #633,
 "Resources from"; the one answer the spawn path and the settings preview both ask, so they cannot disagree —

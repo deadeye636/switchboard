@@ -608,8 +608,11 @@ answers instead of the core learning its format:
   `shell` for a composer line: the core runs the line itself (`src/app/agent-shell.js`, in the project's terminal
   shell), stops it on Stop and on exit, and hands the finished line to the next turn as `sendCommand`'s
   `shellLines` (`[{ command, stdout, stderr, exitCode, cancelled, truncated, failed }]`). `carriesShellLines(text)`
-  may hold them back for a line that must not carry them. The format the model reads is the backend's;
-  claude-native puts the terminal interface's own markup in front of the prompt (spec 32, "Shell lines").
+  may hold them back for a line that must not carry them. A finished line no prompt took goes out as a turn of its
+  own once the session is idle: `sendCommand` then gets an empty `text` beside `shellLines` (#788). The format the
+  model reads is the backend's; claude-native puts the terminal interface's own markup in front of the prompt
+  (spec 32, "Shell lines"). Either way `backends-list` says `shellLines: true`, and the composer shows its shell
+  mode only there.
 
 **The per-spawn hooks that exist, and the order they were added in.** `supportsLiveRebinding` +
 `buildLiveBinding` / `releaseLiveBinding` (the terminal backends' busy/idle binding); `providesPromptTemplates`

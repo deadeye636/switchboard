@@ -97,6 +97,27 @@ test('should a carrying turn be played back after all, its prompt is drawn once,
   assert.equal(appends[0].entry.message.content, 'explain');
 });
 
+// #788: a finished line with no prompt to ride on goes out as a turn of its own — the blocks and nothing else.
+test('a turn carrying only the lines draws no prompt, and reads back as the lines alone', () => {
+  const written = protocol.sendCommand({ text: '', mode: 'prompt', shellLines: [RAN] });
+  const content = written.message.content;
+  assert.ok(Array.isArray(content));
+  assert.equal(content.length, 3, 'caveat, input, output');
+  assert.deepEqual(shellPreface(content).rest, []);
+
+  const decoder = protocol.createDecoder();
+  decoder.noteSent(written);
+  decoder.decode({ type: 'system', subtype: 'init', session_id: 's1' });
+  const ops = decoder.decode({ type: 'assistant', uuid: 'a1', session_id: 's1', message: { role: 'assistant', content: [{ type: 'text', text: 'clean' }] } });
+  const appends = ops.filter(o => o.op === 'append');
+  assert.deepEqual(appends.map(o => o.entry.uuid), ['a1'], 'the line was drawn when it ran; no prompt is drawn for it');
+  assert.deepEqual(decoder.decode({ type: 'user', uuid: 'u1', isReplay: true, session_id: 's1', message: written.message }), [],
+    'nor for a replay, should one come');
+
+  const entries = protocol.conversationEntries([{ type: 'user', uuid: 'u1', message: written.message }]);
+  assert.deepEqual(entries.map(e => e.type), ['local-command']);
+});
+
 test('an attach draws each carried line, then the prompt under its own key', () => {
   const written = protocol.sendCommand({ text: 'explain', mode: 'prompt', shellLines: [RAN] });
   const entries = protocol.conversationEntries([{ type: 'user', uuid: 'u1', message: written.message }]);
@@ -134,9 +155,30 @@ test('the session reader takes the prompt, not the shell, as what the user wrote
   }
 });
 
-// The whole path, against the stand-in for Claude Code: the line runs in the app, the next prompt carries it, the
-// replay is drawn as the prompt, and an attach afterwards reads the line back out of the transcript.
-test('through a session: run, carry, replay, read back', async (t) => {
+test('a turn carrying only the lines is not counted as something the user wrote', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-claude-shell-'));
+  try {
+    const alone = protocol.sendCommand({ text: '', mode: 'prompt', shellLines: [{ ...RAN, stdout: 'word '.repeat(3000) }] });
+    const asked = protocol.sendCommand({ text: 'explain the status', mode: 'prompt' });
+    const file = path.join(dir, 'sess-shell-alone.jsonl');
+    fs.writeFileSync(file, [
+      { type: 'user', uuid: 'u1', promptSource: 'sdk', timestamp: '2026-10-14T09:00:00.000Z', message: alone.message },
+      { type: 'assistant', uuid: 'a1', timestamp: '2026-10-14T09:00:05.000Z', message: { model: 'claude-haiku-4-5', content: [{ type: 'text', text: 'noted' }] } },
+      { type: 'user', uuid: 'u2', promptSource: 'sdk', timestamp: '2026-10-14T09:01:00.000Z', message: asked.message },
+    ].map(e => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+    const s = readSessionFile(file, 'folder', '/some/project');
+    assert.equal(s.userMessageCount, 1, 'only the typed prompt');
+    assert.equal(s.largestUserPromptWords, 3, 'the shell output is not a prompt\'s words');
+    assert.equal(s.summary, 'explain the status');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The whole path, against the stand-in for Claude Code: the line runs in the app, goes to the model as a turn of
+// its own once it has finished (#788), draws no prompt, and an attach afterwards reads the line back out of the
+// transcript.
+test('through a session: run, carry, read back', async (t) => {
   const root = tempDataDir(t);
   const before = claude._roots();
   claude.setRoots([root]);
@@ -153,12 +195,11 @@ test('through a session: run, carry, replay, read back', async (t) => {
   assert.equal(done.status, 'done');
   assert.match(done.output, /native-shell/);
 
-  await agentRpc.sendTurn('launch-id', { text: 'what did it print?', mode: 'prompt' });
+  // The session was idle: the line went out by itself, and the turn it started ran to its end.
   await until(() => h.signals.some((s) => s.kind === 'idle'));
   const id = h.rekeys.length ? h.rekeys[h.rekeys.length - 1].to : 'launch-id';
-  const prompts = ops().filter((o) => o.op === 'append' && o.entry.prompt);
-  assert.equal(prompts.length, 1);
-  assert.equal(prompts[0].entry.message.content, 'what did it print?', 'drawn as what was typed');
+  assert.equal(ops().filter((o) => o.op === 'append' && o.entry.prompt).length, 0, 'no prompt drawn: the user wrote none');
+  assert.ok(ops().some((o) => o.op === 'append' && o.entry.type === 'assistant'), 'the model answered it');
 
   const snap = await agentRpc.attach(id);
   assert.equal(snap.ok, true);

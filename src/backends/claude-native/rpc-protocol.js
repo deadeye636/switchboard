@@ -116,8 +116,10 @@
 //      core runs it in the project's shell (`src/app/agent-shell.js`) and draws it, and the next turn carries it:
 //      `sendCommand` puts the caveat, `<bash-input>` and `<bash-stdout>`+`<bash-stderr>` the terminal interface
 //      writes as lines of their own (measured on 2.1.285) in front of the prompt, as text blocks of its content.
+//      A line no prompt took goes out alone once the session is idle (#788): `sendCommand` gets an empty text and
+//      writes the blocks only, and the decoder has no prompt to draw for that turn.
 //      A `/` line does not carry them (`carriesShellLines`) — Claude would no longer read it as a command — so
-//      they wait for the next prompt. Such a turn is NOT played back (measured on 2.1.296 with
+//      they wait for the next prompt, or for their own turn once the session is idle (#788). Such a turn is NOT played back (measured on 2.1.296 with
 //      `--replay-user-messages`: no `user` line at all), so the decoder draws its prompt itself, the way
 //      it draws a `/` line (point 12), and drops the blocks from a replay should one come. The transcript keeps
 //      the whole line, and an attach turns its blocks into the same `local-command` entries the view drew. A `!!` line is not a shell line here and goes to the

@@ -3195,6 +3195,30 @@ html body .terminal-container.conversation-container:not(.visible) {
   resize: vertical;
 }
 .conversation-input:focus { outline: none; border-color: rgba(128, 136, 255, 0.6); }
+/* A `!` line in the input (#788): the shell colour of a drawn shell line (`renderLocalCommand`), a fixed-width
+   font, and a tag on the input's top edge saying where the line runs. */
+.conversation-composer.shell-mode .conversation-input,
+.conversation-composer.shell-mode .conversation-input:focus {
+  border-color: rgba(128, 192, 224, 0.75);
+  font-family: 'Cascadia Mono', Consolas, 'SF Mono', Menlo, monospace;
+}
+.conversation-composer-mode {
+  position: absolute;
+  top: 0;
+  left: 26px;
+  transform: translateY(-50%);
+  padding: 0 6px;
+  border: 1px solid rgba(128, 192, 224, 0.5);
+  border-radius: 3px;
+  background: #1a1a2e;
+  color: #80c0e0;
+  font-size: 11px;
+  line-height: 16px;
+  pointer-events: none;
+}
+.conversation-composer-mode[hidden] { display: none; }
+/* The `@` completion stands on the composer's top edge too; in shell mode it stands above the tag. */
+.conversation-composer.shell-mode .composer-completion { bottom: calc(100% + 9px); }
 .conversation-composer-actions { display: flex; flex-direction: column; gap: 6px; }
 .conversation-composer-actions .new-session-secondary-btn:disabled { opacity: 0.5; cursor: default; }
 .conversation-status {

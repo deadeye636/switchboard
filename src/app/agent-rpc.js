@@ -233,7 +233,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     localTimer: null,
     composerLines: new Set(), // shell lines the composer sent that the runtime has not raised yet
     // A runtime with no shell command of its own (#786): the lines this process runs itself, id -> `stop`, and
-    // the finished ones the next turn carries to the model (`carryShellLines`).
+    // the finished ones still to go to the model (`carryFor`, `deliverShellCarry`).
     shellRuns: new Map(),
     shellCarry: [],
     env,
@@ -521,9 +521,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // Code's stream-json has none, its `!` belongs to the terminal interface. The line runs in the shell a
   // terminal of this app would open in the session's directory, with the session's environment, and is drawn
   // through the same `localCommand` ops a runtime's line gets. What the runtime would have booked into its
-  // context is kept instead (`shellCarry`) and goes to the model with the next turn, in the backend's format
-  // (`sendCommand`'s `shellLines`) — so the model sees it when the user next writes, as it does in the CLI.
-  // The backend words the ending (`shellLineResult`), as Pi's `shellResult` does for a runtime's line.
+  // context is kept instead (`shellCarry`) and goes to the model in the backend's format (`sendCommand`'s
+  // `shellLines`): with the next prompt when the user writes first, else as a turn of its own once the line has
+  // finished and the session is idle (`deliverShellCarry`, #788) — so the model learns that the command ran even
+  // when nobody writes after it. The backend words the ending (`shellLineResult`), as Pi's `shellResult` does
+  // for a runtime's line.
   const SHELL_CARRY_CAP = 8;
   function runInApp(id, command) {
     let shellPath = '';
@@ -551,6 +553,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       if (state.exited || state.resets !== resetsAtStart) return;
       state.shellCarry.push(line);
       if (state.shellCarry.length > SHELL_CARRY_CAP) state.shellCarry.shift();
+      deliverShellCarry();
     }).catch((err) => {
       state.shellRuns.delete(id);
       state.localCommands.delete(id);
@@ -570,6 +573,30 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     if (typeof rpc.carriesShellLines === 'function' && !rpc.carriesShellLines(text)) return null;
     return state.shellCarry.slice();
   }
+
+  // A finished line goes to the model on its own when no prompt takes it (#788): written as a turn that carries
+  // nothing but the lines, as soon as the session is idle — at once, or at the idle edge of the turn that ran
+  // meanwhile. It waits on what holds a held prompt back (`flushHeld`): a question open, a held prompt on its
+  // way, a turn still owed, a queue a Stop paused. A held prompt that goes out first carries the lines itself.
+  //
+  // A line the user stopped goes too (owner decision): the model is told it was cancelled and what it had printed
+  // by then, so it never goes on from a state the user already changed.
+  //
+  // It has no in-flight guard of its own, unlike `flushHeld`: only a runtime that answers no turn line runs a line
+  // here today (claude-native), and for such a runtime the write itself turns the session busy, so nothing can be
+  // written between this turn and its start. A runtime that acknowledges its turns and declares `shellLineResult`
+  // would need one.
+  function deliverShellCarry() {
+    if (!state.shellCarry.length) return;
+    if (state.exited || state.busy || state.heldPaused || state.heldInFlight || state.asks.size || state.held.length) return;
+    if (rpc.sendAcknowledged === false && state.owed > 0) return;
+    send({ text: '', mode: 'prompt', carryOnly: true }).then((res) => {
+      if (state.exited || (res && res.success !== false)) return;
+      if (res && (res.error === 'not started' || res.error === 'no answer')) return;
+      ctx.log.info(`[agent-rpc] a shell line's output was not taken (${(res && res.error) || 'refused'}); it waits for the next prompt or idle edge`);
+    });
+  }
+  state.deliverShellCarry = deliverShellCarry;
 
   function report(kind, extra) {
     const found = findSession(tag);
@@ -616,7 +643,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       return;
     }
     if (state.owed > 0) {
-      state.owedTimer = setTimeout(() => { state.owedTimer = null; state.owed = 0; }, OWED_GRACE_MS);
+      state.owedTimer = setTimeout(() => { state.owedTimer = null; state.owed = 0; deliverShellCarry(); }, OWED_GRACE_MS);
       if (typeof state.owedTimer.unref === 'function') state.owedTimer.unref();
     }
   }
@@ -707,7 +734,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         state.heldInFlight = false;
         // A paused queue that has run empty has nothing left to pause.
         if (!op.busy && !state.held.length && state.heldPaused) { state.heldPaused = false; tellHeld(); }
-        if (!op.busy) { followIdentity(); followContext(); flushHeld(); }
+        if (!op.busy) { followIdentity(); followContext(); flushHeld(); deliverShellCarry(); }
         return;
       case 'suggestion':
         // A next prompt the runtime proposes (#693). Kept until a turn starts, so a view mounted meanwhile
@@ -905,6 +932,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         sendOp(state, op);
         if (!state.asks.size) report(state.busy ? 'busy' : 'idle');
         flushHeld();
+        deliverShellCarry();
         return;
       case 'identity':
         // The runtime announced the session it is on now. Nothing is drawn for it: the re-key tells the
@@ -1055,9 +1083,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // busy. A line written while a turn runs (a steer, a follow-up) changes nothing about that.
   //
   // A turn carries the shell lines run since the last one (`carryFor`, #786), and they are spent once the line
-  // is written — or, for a runtime that answers, once it took it.
-  function send({ text, mode, images }) {
-    const shellLines = carryFor(text, mode);
+  // is written — or, for a runtime that answers, once it took it. `carryOnly` is the turn that carries nothing
+  // else (`deliverShellCarry`, #788).
+  function send({ text, mode, images, carryOnly }) {
+    const shellLines = carryOnly ? (state.shellCarry.length ? state.shellCarry.slice() : null) : carryFor(text, mode);
+    if (carryOnly && !shellLines) return Promise.resolve({ success: false, error: 'nothing to carry' });
     const spend = () => { if (shellLines) state.shellCarry = state.shellCarry.filter(l => !shellLines.includes(l)); };
     const carried = shellLines ? { shellLines } : {};
     if (rpc.sendAcknowledged === false) {
@@ -1491,6 +1521,8 @@ function heldAction(sessionId, action, id) {
     const [item] = state.held.splice(i, 1);
     if (!state.held.length) state.heldPaused = false;
     state.tellHeld();
+    // The last held prompt was what kept a finished shell line back (#788).
+    state.deliverShellCarry();
     return { ok: true, text: item.text, images: item.images || [] };
   }
   if (action === 'send') {
@@ -1600,7 +1632,7 @@ function answerAsk(sessionId, requestId, answer) {
   // question asked outside a run (an extension's own command) leaves the session idle once answered.
   if (ok && !state.asks.size) state.report(state.busy ? 'busy' : 'idle');
   // A question answered while idle may have been all that held the queue back (#702).
-  if (ok) state.flushHeld();
+  if (ok) { state.flushHeld(); state.deliverShellCarry(); }
   return ok ? { ok: true } : { ok: false, error: 'The session is not running.' };
 }
 

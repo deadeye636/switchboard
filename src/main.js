@@ -1770,6 +1770,9 @@ ipcMain.handle('backends-list', () => {
       // Which images a turn of such a session may carry (#662): `{ types, maxBytes }`, or null for none. The
       // conversation view offers attaching only where this is set and refuses what it does not allow.
       imageInput: (b.rpc && b.rpc.imageInput) || null,
+      // Whether a `!` line typed into such a session runs in a shell (#643, #786): by the runtime or by the app.
+      // The composer shows its shell mode only where this is set (#788).
+      shellLines: !!(b.rpc && (typeof b.rpc.shellCommand === 'function' || typeof b.rpc.shellLineResult === 'function')),
       modelDiscovery: typeof b.listModels === 'function',
       resourceDiscovery: typeof b.listResources === 'function',
       // Is the binary actually installed? Settings shows the reason instead of letting the user enable

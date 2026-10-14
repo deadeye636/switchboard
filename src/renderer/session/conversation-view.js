@@ -161,6 +161,17 @@ function createConversationView(getSession, container) {
   const sendBtn = makeButton('Send', 'Send (Enter)', () => submit('prompt'));
   const steerBtn = makeButton('Steer', '', () => submit('steer'));
   const stopBtn = makeButton('Stop', 'Stop the running turn (Esc)', () => stop());
+  // A `!` line runs in the project's shell instead of going to the agent as a prompt (#643, #786), and its output
+  // goes to the agent afterwards (#788). While the input holds one, the composer says so, the way the CLI's own
+  // prompt changes for its shell mode (`renderShellMode`).
+  const shellTag = document.createElement('div');
+  shellTag.className = 'conversation-composer-mode';
+  shellTag.textContent = 'Shell command: runs in the project folder, the agent gets its output';
+  shellTag.hidden = true;
+  const SHELL_INPUT = /^\s*!\s*(?!\s*!)\S/;
+  // What the input held at the last draw, so a keystroke inside a line costs one regex and no redraw.
+  let shellShown = false;
+  composer.appendChild(shellTag);
   composer.appendChild(input);
   composer.appendChild(actions);
   // `/` commands, their arguments and `@` paths (#643, session/composer-completion.js). What it offers is the
@@ -855,8 +866,11 @@ function createConversationView(getSession, container) {
     const off = view.exited;
     input.disabled = off;
     sendBtn.disabled = off || sending;
-    sendBtn.textContent = view.busy ? 'Queue' : 'Send';
-    sendBtn.title = view.busy ? `Send when the running turn is done (${keyFor(false)})` : 'Send (Enter)';
+    const shell = renderShellMode();
+    // A shell line is never held behind a turn: it runs at once, busy or not.
+    sendBtn.textContent = shell ? 'Run' : view.busy ? 'Queue' : 'Send';
+    sendBtn.title = shell ? 'Run in the project\'s shell (Enter)'
+      : view.busy ? `Send when the running turn is done (${keyFor(false)})` : 'Send (Enter)';
     steerBtn.title = `Deliver between the running turn's tool calls (${keyFor(true)})`;
     steerBtn.style.display = view.busy && !off ? '' : 'none';
     steerBtn.disabled = sending;
@@ -901,6 +915,7 @@ function createConversationView(getSession, container) {
         input.value = view.suggestion;
         input.setSelectionRange(input.value.length, input.value.length);
         setSuggestion(null);
+        renderComposer();   // the shell mode follows a write that raises no input event (#788)
         return;
       }
       if (e.key === 'Escape' && !somethingRunning()) { e.preventDefault(); setSuggestion(null); return; }
@@ -944,9 +959,28 @@ function createConversationView(getSession, container) {
     input.focus();
     syncAttachmentsToText();
     saidKeptBehindCard();
+    renderComposer();   // the shell mode follows a write that raises no input event (#788)
     if (andSend) submit('prompt');
     return true;
   }
+
+  // --- Shell mode (#788) ---
+  // Whether this session's backend runs a `!` line (`shellLines` in the backend list), and whether the input holds
+  // one: a `!` with a command after it, not `!!` — the reading main runs a composer line by (`SHELL_LINE` in
+  // src/app/agent-rpc.js). Answers whether the composer is in shell mode, and draws it.
+  function shellLinesOffered() {
+    const id = typeof sessionBackendId === 'function' ? sessionBackendId(view.session) : '';
+    const backend = id && typeof getBackend === 'function' ? getBackend(id) : null;
+    return !!(backend && backend.shellLines);
+  }
+  function renderShellMode() {
+    shellShown = SHELL_INPUT.test(input.value);
+    const on = !view.exited && shellShown && shellLinesOffered();
+    composer.classList.toggle('shell-mode', on);
+    shellTag.hidden = !on;
+    return on;
+  }
+  input.addEventListener('input', () => { if (SHELL_INPUT.test(input.value) !== shellShown) renderComposer(); });
 
   // --- Images for the next turn (#662) ---
   // Which images this session's backend takes, from the descriptor the renderer already caches: `{ types,
@@ -985,6 +1019,7 @@ function createConversationView(getSession, container) {
     input.value = before + lead + text + trail + after;
     const caret = (before + lead + text + trail).length;
     input.setSelectionRange(caret, caret);
+    renderComposer();   // the shell mode follows a write that raises no input event (#788)
   }
 
   // Takes a placeholder out of the text along with one space beside it, so removing an image leaves no gap.

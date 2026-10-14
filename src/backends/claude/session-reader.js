@@ -348,6 +348,12 @@ function isUsersPrompt(line) {
   if (line.origin && typeof line.origin === 'object' && line.origin.kind && line.origin.kind !== 'human') return false;
   const content = line.message && line.message.content;
   if (Array.isArray(content) && content.some(c => c && c.type === 'tool_result')) return false;
+  // A turn that carries shell lines and nothing the user typed (#788) — claude-native sends one when a `!` line
+  // finished with no prompt to ride on. Asked before `promptSource`, which Claude stamps on it as on any prompt.
+  if (Array.isArray(content)) {
+    const preface = shellPreface(content);
+    if (preface && !preface.rest.length) return false;
+  }
   if (typeof line.promptSource === 'string') return line.promptSource !== 'system';
   const text = typeof content === 'string' ? content
     : Array.isArray(content) ? content.filter(c => c && c.type === 'text').map(c => c.text).join('\n') : null;

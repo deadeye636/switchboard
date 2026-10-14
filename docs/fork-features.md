@@ -425,7 +425,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the conversation, the way a document card opens, with *Open in tab* in its bar (#770, #787); the Background list's
   Open and an agent's notice and report open the same overlay, one per conversation. A `!`
   line runs in the project's shell as it does in the CLI: the app runs it, since the pipe has no shell command, shows
-  the output, and hands it to the model with the next prompt (#786). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
+  the output, and hands it to the model: with the next prompt, or as a turn of its own once the line has finished and nobody wrote (#786, #788). The input shows when it holds such a line (#788). Print mode skips Claude's trust dialog, so a session starts only in a project Claude trusts, and
   the app asks the trust question at launch when there is no saved answer (#655). The backend has no login
   and handles no token. Its sessions stay Claude's rows; the marker is the `entrypoint` Claude Code writes
   itself, and Claude's own `/resume` picker does not list them. Off by default. Spec:

@@ -524,10 +524,37 @@ prompt as the text blocks the terminal interface writes as user lines of their o
 then a content array. The grammar sits in `src/backends/claude/session-reader.js` (`shellPrefaceBlocks`,
 `shellPreface`), beside the tags that reader already skips.
 
+### When nobody writes next (#788)
+
+Waiting for the next prompt had a gap: if the user ran a command and wrote nothing after it, the model never
+learned that the command ran. In the terminal interface that is fine, because the user is the one who reads the
+output there. In this view the user usually runs a line to show the agent something, so the line has to reach
+the model without a prompt.
+
+When a line finishes and the session is idle, the core writes a turn that carries only the lines
+(`deliverShellCarry`): `sendCommand` gets an empty text, and the content is the caveat plus the line's blocks.
+The model answers it like any other turn. If a turn is running when the line finishes, the line waits for that
+turn's idle edge. If a prompt goes out first, that prompt carries the line as before, and no separate turn
+follows. That covers a prompt the user sends and a held prompt the idle edge flushes.
+
+The turn waits on the same things that hold back a held prompt (`flushHeld`): an open question, a held prompt
+already on its way, a turn still owed, and a queue a Stop paused. It does not wait on the Stop itself, and a
+line the user stopped goes too, worded as `[cancelled]` with whatever it printed by then (owner decision). The
+model should know that a command was started and did not finish, rather than go on from a state the user has
+already changed. A Stop that pauses held prompts (#702) still holds the line, and the first held prompt the
+user sends then carries it. The decoder draws no prompt for this turn because the user typed none. The line was
+drawn when it ran, and an attach reads it back as `local-command` entries alone.
+
+The composer shows that a line is a shell line before it is sent. Once the input starts with `!` (not `!!`)
+in a session whose backend runs shell lines (`shellLines` in the backend list, set for a runtime with
+`shellCommand` or `shellLineResult`), the input gets the shell colour and a fixed-width font, a tag on its edge
+names where the line runs, and Send reads Run.
+
 What follows from carrying the line in the prompt rather than as lines of its own:
 
-- **A steer and a turn without text do not carry it either** (the core's `carryFor`). The decoder knows a
-  carrying turn by its text and does not track a steer, so neither would be drawn.
+- **A steer and an images-only turn do not carry it** (the core's `carryFor`). The decoder knows a carrying
+  prompt by its text and does not track a steer, so neither would be drawn. The turn of its own above is the
+  one textless turn that does carry the line, and it has no prompt to draw.
 - **PowerShell needed a wrapper** (`commandArgs`, measured on 5.1 and 7): with its streams redirected it wrote
   CLIXML to stderr on every 5.1 run (progress, errors, warnings, `Write-Host`, `throw`), coloured pwsh's errors,
   and exited 1 for a native command's 3. The line runs inside a short script that turns progress off, takes
@@ -538,7 +565,7 @@ What follows from carrying the line in the prompt rather than as lines of its ow
   as login shells, with their profile.
 - **A `/` line does not carry it** (`carriesShellLines`). Whether Claude still reads a command out of a turn
   whose content opens with other blocks was not measured, and a `/compact` sent as text would cost a turn. The
-  line waits for the next prompt.
+  line waits for the next prompt, or for its own turn at the command's idle edge (#788).
 - **Claude does not play such a turn back** (measured on 2.1.296 with `--replay-user-messages`: no `user` line
   at all, as for a local command). The decoder draws the prompt itself, in front of the first thing the turn
   shows, as it draws a `/` line (point 12 of the protocol notes), and a replay that came anyway would be drawn
@@ -547,9 +574,12 @@ What follows from carrying the line in the prompt rather than as lines of its ow
   `local-command` entry per shell line (keyed `<uuid>:shell:<n>`) and the prompt under the line's uuid. The
   history viewer keeps one entry per line and gets the lines as `_localCmd` blocks, so its fold of
   `<bash-input>` markup does not swallow the prompt. The session reader's summary, word count and turn start
-  read the prompt. No line the terminal interface writes has this shape, so the parser version did not move.
+  read the prompt. A turn that carries the lines alone (#788) counts as no prompt at all: `isUsersPrompt` answers
+  false for it, so it adds neither to the user message count nor to the largest prompt's words. No line the
+  terminal interface writes has either shape, and no transcript held one before these changes, so the parser
+  version did not move.
 - **An attach before the next prompt** draws the waiting lines from the core, since no transcript has them yet.
-- **A line is lost from the model's context** if the session ends before the next prompt, or if `/clear`
+- **A line is lost from the model's context** if the session ends before it goes out, or if `/clear`
   replaces the conversation first. Both are on purpose: there is no turn left, or it belongs to another
   conversation.
 - **Only the composer runs one.** `appCommandOp` is asked by `sendTurn` alone, so a `!` line a trigger or a
@@ -985,7 +1015,7 @@ The core learned these as declarations of the `rpc` half in #657, where it used 
 | History on attach | `get_messages` | the transcript file | Claude cannot be asked |
 | Turn acknowledgement | every command is answered | a turn line is never answered | the protocols differ |
 | Stop | `abort`, plus `abort_bash` for a shell line | an `interrupt` control request; a shell line is stopped by the app | the protocols differ |
-| A `!` shell line | Pi's own `bash` command, which books the output into Pi's context | run by the app, carried into the next prompt (#786) | Claude's protocol has no shell command |
+| A `!` shell line | Pi's own `bash` command, which books the output into Pi's context | run by the app, carried into the next prompt (#786) or sent as a turn of its own once idle (#788) | Claude's protocol has no shell command |
 | `/login`, `/model`, `/session`, `/tree` | built by the app in the extension | Claude's own, or not available | Pi's are TUI commands that mean nothing over RPC; Claude's local commands answer over the pipe |
 
 ### Written twice, and the guard against it (#664)
