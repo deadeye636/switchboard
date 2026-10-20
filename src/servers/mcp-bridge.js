@@ -109,6 +109,27 @@ const MCP_TOOLS = [
   },
 ];
 
+// ── Tool groups ──────────────────────────────────────────────────────
+//
+// A group is a named set of tools a transport exposes. Claude's WebSocket path exposes exactly one —
+// `ide`, the five tools above — and that is the only group today. The HTTP transport and the agy
+// `diff` group arrive on top of this table in later steps; nothing in a group names a backend.
+const TOOL_GROUPS = {
+  ide: MCP_TOOLS,
+};
+
+// The tools an entry exposes, assembled from the groups its transport was opened with. A `ws` entry
+// carries `['ide']`, so `[...MCP_TOOLS]` is rebuilt in the same order and the serialized `tools/list`
+// reply is byte-for-byte what `{ tools: MCP_TOOLS }` produced before groups existed.
+function toolsFor(entry) {
+  const tools = [];
+  for (const group of entry.groups) {
+    const groupTools = TOOL_GROUPS[group];
+    if (groupTools) tools.push(...groupTools);
+  }
+  return tools;
+}
+
 // ── JSON-RPC Message Handler ─────────────────────────────────────────
 
 function handleMessage(entry, raw, log) {
@@ -142,7 +163,7 @@ function handleMessage(entry, raw, log) {
       });
 
     case 'tools/list':
-      return sendResult(entry, id, { tools: MCP_TOOLS });
+      return sendResult(entry, id, { tools: toolsFor(entry) });
 
     case 'tools/call':
       return handleToolCall(entry, id, params, log);
@@ -153,16 +174,15 @@ function handleMessage(entry, raw, log) {
   }
 }
 
+// `sendResult`/`sendError` build the JSON-RPC frame and hand it to the entry's reply callback — the
+// one seam between the request handling and the transport that carried the request. Everything above
+// and below here is transport-free; only `entry.reply` knows a WebSocket from an HTTP response.
 function sendResult(entry, id, result) {
-  if (entry.ws && entry.ws.readyState === 1) {
-    entry.ws.send(rpcResult(id, result));
-  }
+  entry.reply(rpcResult(id, result));
 }
 
 function sendError(entry, id, code, message) {
-  if (entry.ws && entry.ws.readyState === 1) {
-    entry.ws.send(rpcError(id, code, message));
-  }
+  entry.reply(rpcError(id, code, message));
 }
 
 /**
@@ -446,7 +466,16 @@ async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
     lockFilePath,
     getWindow,
     ws: null,
+    kind: 'ws',
+    groups: ['ide'],
     pendingDiffs: new Map(),
+  };
+  // The reply callback is the only place a kind differs. For a WebSocket entry it writes exactly what
+  // `entry.ws.send` wrote before the seam existed — the same frame, behind the same OPEN-state guard,
+  // reading `entry.ws` live so a reconnection is still answered on the current socket. A later HTTP
+  // entry supplies its own reply; nothing else in this module asks which transport answered.
+  entry.reply = (frame) => {
+    if (entry.ws && entry.ws.readyState === 1) entry.ws.send(frame);
   };
 
   wss.on('connection', (ws, req) => {
