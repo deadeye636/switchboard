@@ -290,6 +290,8 @@ module.exports = {
   // raw path. Leaving it as 'file' let read-session-jsonl hand the binary blob to the JSONL reader and
   // the handoff to a fresh agent.
   transcriptAccess: 'export',
+  // Per-spawn MCP injection (spec 34): declines until its channel is wired (plan 333, T8).
+  providesMcpInjection: false,
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -309,6 +311,7 @@ module.exports = {
     contextFill: { state: 'no', note: 'its generation metadata is a protobuf blob with no readable token counts' },
     resumeModel: { state: 'no', note: 'its store holds only a display name for the model, with no mapping to the launch flag' },
     quota: 'yes',
+    mcpInject: { state: 'no', note: 'not wired yet' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

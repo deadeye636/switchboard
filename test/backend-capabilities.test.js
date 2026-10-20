@@ -21,6 +21,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
+    mcpInject: 'no',
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
@@ -30,6 +31,7 @@ const PINNED = {
   codex: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'yes',   // it reports the window itself with every token_count (#620)
+    mcpInject: 'no',
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
@@ -39,6 +41,7 @@ const PINNED = {
   hermes: {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'no',    // token totals per session only, no last turn (#620)
+    mcpInject: 'no',
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
     // one answer in this table that would read as an oversight without a line saying otherwise. Hermes
@@ -56,6 +59,7 @@ const PINNED = {
   pi: {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
+    mcpInject: 'no',
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
@@ -70,6 +74,7 @@ const PINNED = {
   'pi-native': {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
+    mcpInject: 'no',
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
@@ -83,6 +88,7 @@ const PINNED = {
   'claude-native': {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
+    mcpInject: 'no',
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
@@ -92,6 +98,7 @@ const PINNED = {
   agy: {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
+    mcpInject: 'no',
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no
     // watcher drives agy's store, so there is no live spawn/finish status for them.

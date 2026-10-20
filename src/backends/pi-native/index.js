@@ -204,6 +204,9 @@ module.exports = {
   providesSessionResources: pi.providesSessionResources,
   buildSessionResources: pi.buildSessionResources,
   releaseSessionResources: pi.releaseSessionResources,
+  // Per-spawn MCP injection (spec 34): declines for now, as Pi does — its MCP servers travel in the
+  // resources extension above.
+  providesMcpInjection: false,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.
   resolveLineage: pi.resolveLineage,
   openedWithCommand: pi.openedWithCommand,

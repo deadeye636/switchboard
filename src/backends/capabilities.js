@@ -194,6 +194,13 @@ const CATALOG = [
     declaredBy: 'acceptsSharedResources',
   },
   {
+    id: 'mcpInject',
+    group: 'resources',
+    label: "Give a session the app's MCP server",
+    description: 'Whether Switchboard can hand its own MCP server to a session it starts, so the agent can use the app\'s tools (spec 34).',
+    declaredBy: 'providesMcpInjection',
+  },
+  {
     id: 'plans',
     group: 'resources',
     label: 'Plan documents',

@@ -748,6 +748,9 @@ module.exports = {
   // file registering a SessionEnd:clear hook (which session ENDED, #223) and, on ordinary turn events, a
   // "this terminal IS that session" post (#303) — see live-binding.js for what was measured for each.
   supportsLiveRebinding: true,
+  // Per-spawn MCP injection (spec 34): declines for now — Claude's own MCP channel is not wired to the
+  // app's session server yet.
+  providesMcpInjection: false,
 
   // Does the CLI still owe a turn? (#495) Claude fires `UserPromptSubmit` when a prompt is ENQUEUED, so
   // a `Stop` can arrive after that busy edge and overwrite it while a queued prompt is still waiting to
@@ -1146,6 +1149,7 @@ description:
     // (Sonnet 4.5/4.6, Opus 4.6) a session with no `[1m]` spec anywhere reads as its base window.
     contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
     resumeModel: 'yes',
+    mcpInject: { state: 'no', note: 'declines for now; its MCP channel is not wired to the app\'s session server yet' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

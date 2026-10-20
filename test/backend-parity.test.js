@@ -222,6 +222,28 @@ test('every build*/release* hook pair a descriptor declares has a row in HOOK_PA
   assert.ok(seen >= HOOK_PAIRS.length, `expected each of the ${HOOK_PAIRS.length} known pairs to be found in a descriptor`);
 });
 
+// Spec 34, "The injection capability": the per-spawn MCP hook is a QUARTET — `providesMcpInjection` +
+// `buildMcpInjection` / `releaseMcpInjection` + `acceptsMcpTransports` — and every backend answers it,
+// declining included. A decline is `providesMcpInjection: false` and none of the other three. It is not a
+// row of HOOK_PAIRS above only because that table's derivation test finds each pair in a descriptor's
+// source, and no descriptor implements this one yet (plan 333, T8 adds agy and the row with it).
+test('every backend answers the MCP injection quartet — a decline carries the flag and nothing else', () => {
+  for (const b of READY) {
+    assert.equal(typeof b.providesMcpInjection, 'boolean', `${b.id} must answer providesMcpInjection, declining with false`);
+    if (b.providesMcpInjection === true) {
+      assert.equal(typeof b.buildMcpInjection, 'function', `${b.id} claims MCP injection — it must implement buildMcpInjection`);
+      assert.equal(typeof b.releaseMcpInjection, 'function', `${b.id} claims MCP injection — it must implement releaseMcpInjection`);
+      assert.ok(Array.isArray(b.acceptsMcpTransports) && b.acceptsMcpTransports.length > 0
+        && b.acceptsMcpTransports.every(t => t === 'http' || t === 'stdio'),
+      `${b.id} claims MCP injection — it must declare acceptsMcpTransports as a non-empty list of 'http' / 'stdio'`);
+    } else {
+      for (const fn of ['buildMcpInjection', 'releaseMcpInjection', 'acceptsMcpTransports']) {
+        assert.equal(b[fn], undefined, `${b.id} declines MCP injection — it must not declare ${fn}`);
+      }
+    }
+  }
+});
+
 // The binding must never be able to break a launch: no URL (server not up yet), no directory, no tag — all
 // of them mean "no binding", which is the conservative path the core already handles.
 test('buildLiveBinding declines rather than throwing when it cannot bind', () => {

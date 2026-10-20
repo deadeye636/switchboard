@@ -634,6 +634,15 @@ one `pi-resources-<tag>.ts`. MCP (#633) and hooks (#635) are further sections of
 hook pair would be another file per spawn, another release on exit and another place to forget the quit
 re-check after the await, which the spawn path already carries once.
 
+**Per-spawn MCP injection is a QUARTET (spec 34).** `providesMcpInjection` (the flag) +
+`buildMcpInjection({ dir, tag, cwd, servers, options, log })` → `{ args, env, cleanup } | null` +
+`releaseMcpInjection(cleanup, log)` + `acceptsMcpTransports: ['http' | 'stdio', ...]` (a declaration, so the
+core drops a row the CLI cannot take instead of writing a config it will reject). `src/app/mcp-inject.js`
+composes it and names no backend. Every backend answers the flag, declining included
+(`providesMcpInjection: false` with a comment naming why, and none of the other three), and the `mcpInject`
+capability row says the same; `test/backend-parity.test.js` pins the shape. A template forwards the whole
+quartet in `profileToDescriptor`: the declaration without the hook it promises would be a half.
+
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
 backend's own folder cannot list other backends (reflex 5), so the core fills the choices at the
 `backends-list` projection (`resource-sources.projectFields`) and every form reads the same list. A new

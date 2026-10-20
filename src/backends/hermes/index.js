@@ -315,6 +315,8 @@ module.exports = {
   // even starts looking for the terminal to settle (#148). Our own startup hint counts as output, so
   // "the terminal went quiet" is not a usable readiness signal here on its own.
   seedGraceMs: 20000,
+  // Per-spawn MCP injection (spec 34): declines for now — no per-spawn MCP channel is wired for Hermes yet.
+  providesMcpInjection: false,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -334,6 +336,7 @@ module.exports = {
     contextFill: { state: 'no', note: 'its store keeps token totals per session, not what the last turn sent' },
     resumeModel: { state: 'no', note: 'whether its stored model follows a mid-session switch and whether resume honours --model is unmeasured' },
     quota: { state: 'no', note: 'reports no plan allowance' },
+    mcpInject: { state: 'no', note: 'declines for now; no per-spawn MCP channel is wired for it yet' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',

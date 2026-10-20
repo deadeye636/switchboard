@@ -279,6 +279,8 @@ description:
     return [{ kind: 'file', path: path.join(scope.projectPath, 'AGENTS.md'), displayPath: short + '/', source: 'project' }];
   },
   transcriptAccess: 'file',   // rollout JSONL on disk
+  // Per-spawn MCP injection (spec 34): declines for now — no per-spawn MCP channel is wired for Codex yet.
+  providesMcpInjection: false,
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -298,6 +300,7 @@ description:
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     contextFill: 'yes',
     resumeModel: 'yes',
+    mcpInject: { state: 'no', note: 'declines for now; no per-spawn MCP channel is wired for it yet' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

@@ -243,6 +243,13 @@ function profileToDescriptor(p) {
     providesRuntimeExtension: base ? base.providesRuntimeExtension === true : false,
     ...(base && typeof base.buildRuntimeExtension === 'function' ? { buildRuntimeExtension: base.buildRuntimeExtension } : {}),
     ...(base && typeof base.releaseRuntimeExtension === 'function' ? { releaseRuntimeExtension: base.releaseRuntimeExtension } : {}),
+    // Per-spawn MCP injection (spec 34): a template launches the base's binary, so the base's answer is its
+    // answer. The flag, the pair and the transport declaration travel together — the declaration without
+    // the hook it promises would be a half.
+    providesMcpInjection: base ? base.providesMcpInjection === true : false,
+    ...(base && typeof base.buildMcpInjection === 'function' ? { buildMcpInjection: base.buildMcpInjection } : {}),
+    ...(base && typeof base.releaseMcpInjection === 'function' ? { releaseMcpInjection: base.releaseMcpInjection } : {}),
+    ...(base && Array.isArray(base.acceptsMcpTransports) ? { acceptsMcpTransports: base.acceptsMcpTransports } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);
