@@ -240,6 +240,15 @@ If a later finding shows the project-tree write is unacceptable, Plan A ends aft
 the HTTP transport, both tested against a stand-in client, and the owner decides whether to proceed for agy
 (see "Later phases", item 5).
 
+### Build gaps (as-built)
+
+- **G1 — the start-up sweep of orphaned bundles is wired in T8b, not T8.** agy's `buildMcpInjection` (T8)
+  writes a per-session bundle under `<project>/.agents/plugins/switchboard-<unique>/` and removes it on clean
+  exit (`releaseMcpInjection`). `sweepStaleBundles` removes a bundle whose recorded pid is dead, but T8 shipped
+  it unwired — a force-killed run (e.g. `npm run stop:dev`) would otherwise leak a 0600 token file and its dir
+  into the project tree until the sweep runs. The sweep is wired into start-up through a neutral descriptor
+  hook in **T8b** (it is cross-backend, so it is a hook the core calls, not an agy-specific lifecycle call).
+
 ## Known limits to state in the product text
 
 - The agent has to choose the tool. Switchboard cannot make it.

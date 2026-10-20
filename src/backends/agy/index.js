@@ -20,6 +20,7 @@ const { spawnSync } = require('child_process');
 
 const parser = require('./parser');
 const resources = require('./resources');
+const mcpInject = require('./mcp-inject');
 const { createFileStore, findOnPath } = require('../file-store');
 const { PROBE_STDIO, cliComplaint } = require('../cli-probe');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -290,8 +291,12 @@ module.exports = {
   // raw path. Leaving it as 'file' let read-session-jsonl hand the binary blob to the JSONL reader and
   // the handoff to a fresh agent.
   transcriptAccess: 'export',
-  // Per-spawn MCP injection (spec 34): declines until its channel is wired (plan 333, T8).
-  providesMcpInjection: false,
+  // Per-spawn MCP injection (spec 34): a workspace plugin bundle under the project's `.agents/`, one dir per
+  // session, removed on release. agy reads its servers over HTTP only here. See `./mcp-inject.js`.
+  providesMcpInjection: true,
+  acceptsMcpTransports: ['http'],
+  buildMcpInjection: mcpInject.buildMcpInjection,
+  releaseMcpInjection: mcpInject.releaseMcpInjection,
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -311,7 +316,7 @@ module.exports = {
     contextFill: { state: 'no', note: 'its generation metadata is a protobuf blob with no readable token counts' },
     resumeModel: { state: 'no', note: 'its store holds only a display name for the model, with no mapping to the launch flag' },
     quota: 'yes',
-    mcpInject: { state: 'no', note: 'not wired yet' },
+    mcpInject: { state: 'limited', note: 'writes a per-session plugin bundle into the project\'s .agents folder; the connection is measured, but whether agy offers the tools to the model is not yet confirmed' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

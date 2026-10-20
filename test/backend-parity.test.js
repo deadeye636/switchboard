@@ -179,6 +179,7 @@ const HOOK_PAIRS = [
   { flag: 'providesPromptTemplates', pair: ['buildPromptTemplates', 'releasePromptTemplates'], what: 'prompt templates' },
   { flag: 'providesRuntimeExtension', pair: ['buildRuntimeExtension', 'releaseRuntimeExtension'], what: 'a runtime extension (#568)' },
   { flag: 'providesSessionResources', pair: ['buildSessionResources', 'releaseSessionResources'], what: 'session resources — another CLI\'s skills and commands, and the subagent tool (#632, #634)' },
+  { flag: 'providesMcpInjection', pair: ['buildMcpInjection', 'releaseMcpInjection'], what: 'per-spawn MCP injection (spec 34)' },
 ];
 
 test('a backend that claims a paired capability implements the pair — one that cannot carries neither', () => {
@@ -224,9 +225,8 @@ test('every build*/release* hook pair a descriptor declares has a row in HOOK_PA
 
 // Spec 34, "The injection capability": the per-spawn MCP hook is a QUARTET — `providesMcpInjection` +
 // `buildMcpInjection` / `releaseMcpInjection` + `acceptsMcpTransports` — and every backend answers it,
-// declining included. A decline is `providesMcpInjection: false` and none of the other three. It is not a
-// row of HOOK_PAIRS above only because that table's derivation test finds each pair in a descriptor's
-// source, and no descriptor implements this one yet (plan 333, T8 adds agy and the row with it).
+// declining included. A decline is `providesMcpInjection: false` and none of the other three. The pair is
+// also a row of HOOK_PAIRS above (agy implements it); this test adds the `acceptsMcpTransports` half.
 test('every backend answers the MCP injection quartet — a decline carries the flag and nothing else', () => {
   for (const b of READY) {
     assert.equal(typeof b.providesMcpInjection, 'boolean', `${b.id} must answer providesMcpInjection, declining with false`);

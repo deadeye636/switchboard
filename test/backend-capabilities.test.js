@@ -98,7 +98,7 @@ const PINNED = {
   agy: {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
-    mcpInject: 'no',
+    mcpInject: 'limited', // plugin-bundle channel written; tool surfacing to the model unproven (spec 34)
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no
     // watcher drives agy's store, so there is no live spawn/finish status for them.
