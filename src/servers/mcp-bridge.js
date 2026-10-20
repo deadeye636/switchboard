@@ -25,6 +25,12 @@ function ideDir() {
 // sessionId → ServerEntry
 const servers = new Map();
 
+// The app-wide HTTP listener (src/servers/mcp-http.js) is lazy and lives in its own module to keep this
+// one transport-free. It registers a closer here when it first binds, so `shutdownAll` can take it down
+// with the per-session entries on app quit without this module requiring the HTTP one (no cycle).
+let httpListenerCloser = null;
+function setHttpListenerCloser(fn) { httpListenerCloser = typeof fn === 'function' ? fn : null; }
+
 // May the bridge read the path a client names (#780)? A network path no project is on is an SMB connection
 // to whoever named it, and the path here comes from the model. main.js sets the real answer at boot
 // (`setPathGuard`); until then every network path is refused, so a bridge started first fails closed.
@@ -519,6 +525,50 @@ async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
   return { port, authToken };
 }
 
+// ── HTTP transport seam ──────────────────────────────────────────────
+//
+// The streamable-HTTP listener (src/servers/mcp-http.js) reuses THIS registry and request handling for
+// an `http` entry, modelled on the `ws` one above. It owns the socket, the Bearer token and the reply
+// shape (JSON body vs SSE); everything below here — the registry, `resolvePendingDiff`,
+// `rejectPendingDiffsForWindow`, `rekeyMcpServer`, `shutdownMcpServer` — treats the two kinds alike.
+
+/**
+ * Create and register an `http` entry in the shared registry.
+ *
+ * It carries no socket, lock file or `wss`: the HTTP module supplies `entry.reply`, routing each frame
+ * to the response that carried its request id. `getWindow` and `groups` work exactly as for a `ws` entry,
+ * so `targetWindow`, the pending-diff lifecycle and `toolsFor` need no transport-specific branch.
+ */
+function createHttpEntry({ sessionId, getWindow, groups }) {
+  const entry = {
+    sessionId,
+    kind: 'http',
+    groups: Array.isArray(groups) ? groups : [],
+    getWindow,
+    ws: null,
+    pendingDiffs: new Map(),
+    reply: () => {},
+  };
+  servers.set(sessionId, entry);
+  return entry;
+}
+
+/**
+ * Dispatch one raw JSON-RPC message through the shared handler.
+ *
+ * `async` so a caller can `await` it: `handleMessage` returns the `tools/call` promise, so a rejection
+ * from a tool handler surfaces here instead of becoming an unhandled rejection — the HTTP module's
+ * handler-wrap depends on that to answer an error without taking the listener down.
+ */
+async function dispatchMessage(entry, raw, log) {
+  return handleMessage(entry, raw, log);
+}
+
+/** The tool manifest an entry exposes — used for an HTTP entry's `tools/list` and `server/discover`. */
+function toolsForEntry(entry) {
+  return toolsFor(entry);
+}
+
 /**
  * Shut down the MCP server for a session.
  *
@@ -584,10 +634,18 @@ function shutdownMcpServer(sessionId, log) {
 
 /**
  * Shut down all MCP servers (app quit).
+ *
+ * The per-session entries first — each rejects its open diffs and tells the renderer (#405), for an
+ * `http` entry exactly as for a `ws` one. Then the shared HTTP listener itself, if one was ever bound:
+ * its session entries are already gone from the registry by the loop above, so this only closes the
+ * socket and any open server→client streams.
  */
 function shutdownAll(log) {
   for (const sessionId of servers.keys()) {
     shutdownMcpServer(sessionId, log);
+  }
+  if (httpListenerCloser) {
+    try { httpListenerCloser(log); } catch {}
   }
 }
 
@@ -711,4 +769,9 @@ module.exports = {
   rekeyMcpServer,
   cleanStaleLockFiles,
   setPathGuard,
+  // HTTP transport seam (src/servers/mcp-http.js)
+  createHttpEntry,
+  dispatchMessage,
+  toolsForEntry,
+  setHttpListenerCloser,
 };

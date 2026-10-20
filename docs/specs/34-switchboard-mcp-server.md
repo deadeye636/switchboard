@@ -97,7 +97,16 @@ tool" with a warning and never fails the launch. The registration API (`register
 so moving to another one later does not touch a descriptor or the spawn path.
 
 This is a recommendation the plan builds on, not a decision the owner has made; Open point O1 in the plan keeps
-it open for confirmation. The startup-cost figures are to be **measured** in T6 and written here; none is claimed now.
+it open for confirmation.
+
+**Measured in T6 (Windows 11, loopback, `performance.now()` around `registerSession`, medians of repeated runs).**
+The first bind — the one the first agy spawn pays, once per app instance — is ~330 ms (7 runs, 230–510 ms). A
+later registration, every spawn after that, is ~0.02 ms (50 per run): a `crypto.randomBytes` token and a map
+insert, with no bind and no network await. Read against the per-session WebSocket bridge this replaces, where
+**every** session binds its own server, that per-session bind is ~4 ms (`startMcpServer`, lock-file write
+included) — so the app-wide listener turns a ~4 ms-per-spawn cost into ~0.02 ms after one ~330 ms bind. The
+~330 ms is Node/winsock first-`listen` warmup on this host, not HTTP-specific: the WebSocket bridge's first bind
+shows the same ~250 ms, so the HTTP-specific cost to compare is the later-registration figure, not the first.
 
 ## The injection capability (the part of #789 that lands here)
 
