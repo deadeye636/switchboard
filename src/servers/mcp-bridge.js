@@ -35,6 +35,7 @@ function setHttpListenerCloser(fn) { httpListenerCloser = typeof fn === 'functio
 // to whoever named it, and the path here comes from the model. main.js sets the real answer at boot
 // (`setPathGuard`); until then every network path is refused, so a bridge started first fails closed.
 const { isForeignNetworkPath, FOREIGN_NETWORK_REASON } = require('../app/network-path');
+const { isInside } = require('../app/path-containment');
 let refusePath = (p) => isForeignNetworkPath(p, []) || isForeignNetworkPath(path.resolve(String(p || '')), []);
 function setPathGuard(fn) { if (typeof fn === 'function') refusePath = fn; }
 
@@ -115,13 +116,36 @@ const MCP_TOOLS = [
   },
 ];
 
+// The agent-facing `diff` group (spec 34, "The diff tool for agy"): one tool, its own schema — NOT
+// Claude's four-field shape. The description is the offer (D4): the server writes nothing.
+const DIFF_TOOLS = [
+  {
+    name: 'openDiff',
+    description: 'Show the user a proposed new version of a file as a diff and wait for their decision. '
+      + 'This tool does NOT write the file: Switchboard never changes it. The user may accept the change, '
+      + 'reject it, or edit it before accepting. The answer is ACCEPTED, REJECTED, or ACCEPTED_WITH_EDITS '
+      + 'followed by the final content. If it is accepted, apply the result yourself with your own edit tool.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: { type: 'string', description: 'The file to change; relative paths resolve against the project.' },
+        newContent: { type: 'string', description: 'The complete proposed content of the file.' },
+        tabName: { type: 'string', description: 'Optional title for the review; defaults to the file name.' },
+      },
+      required: ['filePath', 'newContent'],
+    },
+  },
+];
+
 // ── Tool groups ──────────────────────────────────────────────────────
 //
 // A group is a named set of tools a transport exposes. Claude's WebSocket path exposes exactly one —
-// `ide`, the five tools above — and that is the only group today. The HTTP transport and the agy
-// `diff` group arrive on top of this table in later steps; nothing in a group names a backend.
+// `ide`, the five tools above. An http registration may open the agent-facing `diff` group instead.
+// Both name a tool `openDiff`, which is why dispatch (TOOL_HANDLERS, below) is by group, not by name.
+// Nothing in a group names a backend.
 const TOOL_GROUPS = {
   ide: MCP_TOOLS,
+  diff: DIFF_TOOLS,
 };
 
 // The tools an entry exposes, assembled from the groups its transport was opened with. A `ws` entry
@@ -234,6 +258,16 @@ async function handleToolCall(entry, rpcId, params, log) {
   const toolName = params?.name;
   const args = params?.arguments || {};
 
+  // An entry opened with the `diff` group gets that group's handlers; a name no group of the entry
+  // carries falls through to the `ide` switch below (a `ws` entry never has another group).
+  for (const group of entry.groups) {
+    const handler = TOOL_HANDLERS[group] && TOOL_HANDLERS[group][toolName];
+    if (handler) return handler(entry, rpcId, args, log);
+  }
+  if (entry.groups.includes('diff') && !entry.groups.includes('ide')) {
+    return sendError(entry, rpcId, -32602, `Unknown tool: ${toolName}`);
+  }
+
   switch (toolName) {
     case 'openDiff':
       return handleOpenDiff(entry, rpcId, args, log);
@@ -265,41 +299,9 @@ async function handleOpenDiff(entry, rpcId, args, log) {
     log.debug(`[mcp] Could not read ${old_file_path} — treating as new file`);
   }
 
-  const diffId = crypto.randomUUID();
-
-  // Create a promise that resolves when the user acts on the diff — or, if the
-  // renderer never answers (reload/crash), when a timeout fires so the CLI's
-  // tools/call doesn't hang until session end (issue #76).
-  const diffPromise = new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      if (!entry.pendingDiffs.has(diffId)) return;
-      entry.pendingDiffs.delete(diffId);
-      log.warn(`[mcp] session=${entry.sessionId} diff ${diffId} timed out — rejecting`);
-      resolve({ action: 'reject', reason: 'timeout' });
-    }, DIFF_TIMEOUT_MS);
-    if (timer.unref) timer.unref();
-    // `win` is which window this diff's view was SENT to, and it is not the same question as
-    // "which window renders the session": the session can move afterwards, and the view does not
-    // follow it. Only the window actually showing the diff can answer for it, so that is the one
-    // whose death has to reject the call.
-    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName: tab_name, timer, win: null });
+  const result = await awaitDiff(entry, rpcId, log, {
+    oldFilePath: old_file_path, oldContent, newContent: new_file_contents, tabName: tab_name,
   });
-
-  // Send to renderer
-  const diffWindow = targetWindow(entry);
-  if (diffWindow) {
-    const pending = entry.pendingDiffs.get(diffId);
-    if (pending) pending.win = diffWindow;
-    sendWhenReady(diffWindow, 'mcp-open-diff', entry.sessionId, diffId, {
-      oldFilePath: old_file_path,
-      oldContent,
-      newContent: new_file_contents,
-      tabName: tab_name,
-    });
-  }
-
-  // Await user action
-  const result = await diffPromise;
 
   // Send JSON-RPC response back to Claude CLI
   if (result.action === 'accept-edited') {
@@ -322,6 +324,104 @@ async function handleOpenDiff(entry, rpcId, args, log) {
     });
   }
 }
+
+/**
+ * Register a pending diff, send it to the window that renders the session, and wait for the answer
+ * ({ action: 'accept' | 'accept-edited' | 'reject', content }). Shared by both openDiff dialects: they
+ * differ in how a path is read and how the answer is worded, never in this lifecycle.
+ */
+async function awaitDiff(entry, rpcId, log, { oldFilePath, oldContent, newContent, tabName }) {
+  const diffId = crypto.randomUUID();
+  // A registration may set a shorter cap (`entry.diffTimeoutMs`); unset keeps DIFF_TIMEOUT_MS. Whether
+  // agy needs the two-phase variant for its own tool-call timeout (Q4, unmeasured) is deferred to G2.
+  const timeoutMs = entry.diffTimeoutMs > 0 ? entry.diffTimeoutMs : DIFF_TIMEOUT_MS;
+
+  // Create a promise that resolves when the user acts on the diff — or, if the
+  // renderer never answers (reload/crash), when a timeout fires so the CLI's
+  // tools/call doesn't hang until session end (issue #76).
+  const diffPromise = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!entry.pendingDiffs.has(diffId)) return;
+      entry.pendingDiffs.delete(diffId);
+      log.warn(`[mcp] session=${entry.sessionId} diff ${diffId} timed out — rejecting`);
+      resolve({ action: 'reject', reason: 'timeout' });
+    }, timeoutMs);
+    if (timer.unref) timer.unref();
+    // `win` is which window this diff's view was SENT to, and it is not the same question as
+    // "which window renders the session": the session can move afterwards, and the view does not
+    // follow it. Only the window actually showing the diff can answer for it, so that is the one
+    // whose death has to reject the call.
+    entry.pendingDiffs.set(diffId, { resolve, rpcId, tabName, timer, win: null });
+  });
+
+  // Send to renderer
+  const diffWindow = targetWindow(entry);
+  if (diffWindow) {
+    const pending = entry.pendingDiffs.get(diffId);
+    if (pending) pending.win = diffWindow;
+    sendWhenReady(diffWindow, 'mcp-open-diff', entry.sessionId, diffId, {
+      oldFilePath,
+      oldContent,
+      newContent,
+      tabName,
+    });
+  }
+
+  // Await user action
+  return diffPromise;
+}
+
+/**
+ * The agent-facing `openDiff` (group `diff`). Same pending-diff lifecycle as Claude's, with the stricter
+ * path rules of spec 34: the path is the model's, with no IDE protocol vouching for it. The server
+ * writes NOTHING (reflex 11 is about files a CLI reads; the agent applies an accepted result itself).
+ */
+async function handleAgentOpenDiff(entry, rpcId, args, log) {
+  const { filePath, newContent, tabName } = args;
+  if (typeof filePath !== 'string' || !filePath.trim() || typeof newContent !== 'string') {
+    return sendError(entry, rpcId, -32602, 'openDiff needs a filePath and a newContent string');
+  }
+  if (!entry.projectPath) {
+    return sendError(entry, rpcId, -32602, 'This session has no project to resolve the path against');
+  }
+  const resolved = path.resolve(entry.projectPath, filePath);
+  // Lexical network check first: nothing is stat'ed or read on a path that is an SMB connection to a stranger.
+  if (refusePath(filePath) || refusePath(resolved)) {
+    log.info(`[mcp] session=${entry.sessionId} openDiff refused: a network path no project is on`);
+    return sendError(entry, rpcId, -32602, FOREIGN_NETWORK_REASON);
+  }
+  // Real-path containment (reflex 13): a link out of the project is outside it.
+  if (!isInside(resolved, entry.projectPath)) {
+    log.info(`[mcp] session=${entry.sessionId} openDiff refused: a path outside the project`);
+    return sendError(entry, rpcId, -32602, 'The path is outside the session project');
+  }
+
+  let oldContent = '';
+  try {
+    oldContent = fs.readFileSync(resolved, 'utf8');
+  } catch {
+    log.debug('[mcp] openDiff target not readable — treating as new file');
+  }
+
+  const result = await awaitDiff(entry, rpcId, log, {
+    oldFilePath: resolved,
+    oldContent,
+    newContent,
+    tabName: typeof tabName === 'string' && tabName ? tabName : path.basename(resolved),
+  });
+
+  let text;
+  if (result.action === 'accept-edited') text = `ACCEPTED_WITH_EDITS\n${result.content}`;
+  else if (result.action === 'accept') text = 'ACCEPTED';
+  else text = 'REJECTED';
+  sendResult(entry, rpcId, { content: [{ type: 'text', text }] });
+}
+
+// Handlers per group, for groups whose tool names may collide with another group's. `ide` is not listed:
+// its tools keep the switch in handleToolCall, untouched.
+const TOOL_HANDLERS = {
+  diff: { openDiff: handleAgentOpenDiff },
+};
 
 async function handleOpenFile(entry, rpcId, args, log) {
   const { filePath, preview, startText, endText } = args;
@@ -539,10 +639,12 @@ async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
  * to the response that carried its request id. `getWindow` and `groups` work exactly as for a `ws` entry,
  * so `targetWindow`, the pending-diff lifecycle and `toolsFor` need no transport-specific branch.
  */
-function createHttpEntry({ sessionId, getWindow, groups }) {
+function createHttpEntry({ sessionId, getWindow, groups, projectPath, diffTimeoutMs }) {
   const entry = {
     sessionId,
     kind: 'http',
+    projectPath: projectPath || null,
+    diffTimeoutMs: diffTimeoutMs > 0 ? diffTimeoutMs : 0,
     groups: Array.isArray(groups) ? groups : [],
     getWindow,
     ws: null,

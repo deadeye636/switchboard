@@ -319,12 +319,12 @@ function ensureListener(log) {
  *   request with it is 401) and rejects every open diff of that session through the shared bridge, exactly
  *   as a ws session's shutdown does. A bind failure is reported as `unavailable`, never thrown.
  */
-async function registerSession({ sessionId, projectPath, getWindow, groups, log }) {
+async function registerSession({ sessionId, projectPath, getWindow, groups, diffTimeoutMs, log }) {
   const bound = await ensureListener(log);
   if (!bound.ok) return { unavailable: true, reason: bound.reason };
 
   const token = crypto.randomBytes(32).toString('hex');
-  const entry = bridge.createHttpEntry({ sessionId, getWindow, groups });
+  const entry = bridge.createHttpEntry({ sessionId, getWindow, groups, projectPath, diffTimeoutMs });
   entry.pendingHttp = new Map();
   entry.sseChannel = null;
   entry.reply = makeReply(entry);
