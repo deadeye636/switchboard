@@ -45,6 +45,7 @@ const liveOwners = require('../live-owners');
 // surfaces start naming different ones.
 const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
+const { composeMcpInjection } = require('../mcp-inject');
 const { conptyBuildHint } = require('./conpty');
 const { measured } = require('../../perf');
 const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
@@ -501,11 +502,15 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // What the resources hook adds to the session's environment (#633: the MCP server list). Merged into the
   // env LAST and unresolved, because it is data for the backend's own extension, not a `$VAR` template.
   let sessionResourcesEnv = null;
+  // Spec 34: the release of what the MCP injection composer built, and the env it adds. Same lifetime again.
+  let mcpInjectionRelease = null;
+  let mcpInjectionEnv = null;
   // Everything the backend allocated above, released in one place — by the catch below and by the refusals
   // inside the backend branch that return rather than throw.
   const releaseSpawnAllocations = () => {
     try { if (typeof runtimeCleanup === 'function') runtimeCleanup(ctx.log); } catch { /* best effort */ }
     try { if (typeof sessionResourcesCleanup === 'function') sessionResourcesCleanup(ctx.log); } catch { /* best effort */ }
+    try { if (typeof mcpInjectionRelease === 'function') mcpInjectionRelease(ctx.log); } catch { /* best effort */ }
     try { if (typeof promptTemplateCleanup === 'function') promptTemplateCleanup(ctx.log); } catch { /* best effort */ }
     try { if (typeof liveBindingCleanup === 'function') liveBindingCleanup(ctx.log); } catch { /* best effort */ }
   };
@@ -1037,6 +1042,34 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         }
       }
 
+      // Spec 34: the MCP servers this launch is given, through ONE core composer (`../mcp-inject.js`) that
+      // asks the descriptor's `buildMcpInjection`. Not for a session driven over a pipe — its runtime
+      // takes servers its own way, and a flag appended to its argv is not that. Plan A has no source yet
+      // (the own-server source arrives with T9), so the composer answers null and the launch is unchanged.
+      // Best-effort like the blocks around it: null means the session starts without.
+      if (backend.providesMcpInjection === true && !backend.transport) {
+        const injection = await composeMcpInjection({
+          backend, ctx, sources: [], dir: ctx.bindingDir, tag: terminalTag, cwd: projectPath,
+          options: spawnOptionsFor(backend, projectPath, launchOptions),
+        });
+        if (injection) {
+          mcpInjectionRelease = injection.release;
+          if (injection.args.length) launch.args = [...launch.args, ...injection.args];
+          mcpInjectionEnv = injection.env;
+        }
+        // The same re-check as after the resources hook above, for the same reason: the await can straddle a
+        // quit or a second open of this session. Give back what was built and do not use it.
+        if (ctx.getAppQuitting()) {
+          releaseSpawnAllocations();
+          return { ok: false, error: 'The app is quitting.' };
+        }
+        const racedInjection = ctx.activeSessions.get(sessionId);
+        if (racedInjection && !racedInjection.exited) {
+          releaseSpawnAllocations();
+          return openTerminal(sessionId, projectPath, isNew, sessionOptions);
+        }
+      }
+
       // #569: the app's document conventions, offered as commands inside the session itself.
       //
       // The same neutral shape as the block above, for the same reason: the core says WHERE a
@@ -1195,6 +1228,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // land ON TOP of the template — the wrong way round, and silently.
       //
       // `$VAR` refs are resolved here, at spawn, and never written to disk (§5.2).
+      // The MCP injection's env (spec 34) goes in first, so the layers assigned just below — the user's and the
+      // template's — still win over it. Unresolved, like the resources env: it is data, not a `$VAR` template.
+      if (mcpInjectionEnv) Object.assign(ptyEnv, mcpInjectionEnv);
       {
         const { baseEnv, userEnv, templateEnv } = envLayers();
 
@@ -1343,6 +1379,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     _runtimeCleanup: runtimeCleanup,
     // #632/#634: and what a backend wrote so this session has its resources and the subagent tool.
     _sessionResourcesCleanup: sessionResourcesCleanup,
+    // Spec 34: and the release of the MCP servers injected for this spawn.
+    _mcpInjectionRelease: mcpInjectionRelease,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
     // #670: which backend this session was launched with, so a reattach can refuse a request for the other
@@ -1741,6 +1779,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       if (typeof session._sessionResourcesCleanup === 'function') session._sessionResourcesCleanup(ctx.log);
     } catch (err) {
       ctx.log.debug(`[session-resources] cleanup failed for session=${realId}: ${err.message}`);
+    }
+    // Spec 34: and the injected MCP servers, on their own try for the same reason.
+    try {
+      if (typeof session._mcpInjectionRelease === 'function') session._mcpInjectionRelease(ctx.log);
+    } catch (err) {
+      ctx.log.debug(`[mcp-inject] release failed for session=${realId}: ${err.message}`);
     }
     // #568: and the runtime-driven backend's extension, on its own try for the same reason.
     try {
