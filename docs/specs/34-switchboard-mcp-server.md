@@ -1,9 +1,11 @@
 # 34 — Switchboard as an MCP server for a session: one injection seam, one HTTP transport, one diff tool
 
 Issues #333 (agy diff surface), #789 (inject MCP servers into launched sessions), with #507, #330 and #790 as
-later phases. Status: **built; agy end-to-end pending the interactive click test (G2)**. The core and the agy slice are built
-and tested against a stand-in client. Whether a real agy shows the tool to the model and calls `openDiff` is
-**not proven**: see "Tool surfacing probed" and "As built" below.
+later phases. Status: **built and confirmed end to end (G2, agy 1.4.3)**. The core and the agy slice are built,
+tested against a stand-in client, and confirmed in an interactive agy session: the tool surfaces, a proposed
+`openDiff` opens in the file panel, accept/reject/edit answer the agent, and the user's shared
+`~/.gemini/config/mcp_config.json` is byte-unchanged. The one cost is agy's own heavy permission prompting:
+see "As built" and "Known limits".
 Background measurements: #329 (agy does not speak the Gemini companion protocol), #543 (agy's `mcp_config.json`
 is listed as a resource).
 
@@ -234,9 +236,10 @@ which is exactly **G2**.
 **Consequence for the build (owner decision O-BUILD-standin).** T5–T7 are built and tested **against a
 stand-in client**, as this plan always intended — they do not depend on agy surfacing the tool, and the
 HTTP listener also serves #507 and #330. The HTTP transport supports **both** a JSON POST-body reply and an
-SSE reply, since agy accepted both handshakes and which one it ultimately needs is unknown until G2. Whether
-agy ever calls the tool is **unproven until T8–T10 / G2**; if G2 shows it cannot, the agy registration
-(T8/T9) is where that is caught, and the owner decides whether to proceed for agy (see "Later phases", item 5).
+SSE reply, since agy accepted both handshakes. **G2 has since confirmed** (2026-10-20, agy 1.4.3) that a
+real agy calls the tool and the diff round-trip works when `diffTool` is set through the Configure dialog;
+the scripted "not reproduced" was a test-setup gap (the option was never set), not an agy limitation. See
+the "Confirmed by G2" note under "As built".
 
 If a later finding shows the project-tree write is unacceptable, Plan A ends after the injection capability and
 the HTTP transport, both tested against a stand-in client, and the owner decides whether to proceed for agy
@@ -273,12 +276,14 @@ What landed, by module:
   `test/agy-mcp-inject.test.js` and `test/mcp-agy-diff-e2e.test.js`, all against a stand-in client playing
   the CLI.
 
-**Not proven.** A scripted agy launch showed the connection and the handshake but never a `tools/call`,
-and a reference stdio server declared the same way did not surface either. The decisive test is a human
-interactive agy session in Switchboard (G2), which has not run. Until it does, the agy slice is an offer
-whose end of the wire nobody has seen answer. If G2 shows agy cannot take the tool, the injection
-capability and the HTTP transport stay useful for #507 and #330, and the owner decides about agy
-(Later phases, item 5).
+**Confirmed by G2, 2026-10-20, agy 1.4.3.** The scripted launches never produced a `tools/call` because
+`diffTool` was never set — a plain launch sends no default, so the option reached the spawn as `undefined`
+and nothing was injected (not a leak; the "defaults are never sent" rule). Set through the Configure dialog
+it arrives, and an interactive agy session then: registered the session on the HTTP listener, wrote the
+bundle under `<project>/.agents/plugins/switchboard-*`, showed the `switchboard` server with `openDiff` in
+agy's `/mcp`, opened a proposed diff in the file panel, and returned `ACCEPTED` / `REJECTED` /
+`ACCEPTED_WITH_EDITS` to the agent. The shared `~/.gemini/config/mcp_config.json` stayed byte-unchanged
+throughout. So the scripted "not reproduced" was a test-setup gap, not an agy limitation.
 
 **Still open.** Q4 (how long agy waits for a tool call, so whether `openDiff` must become two-phase) and the
 tool-level trust question of Q6 can only be answered against a real agy calling the tool. `openDiff`
@@ -287,7 +292,10 @@ currently blocks until the user answers or the ten-minute cap passes.
 ## Known limits to state in the product text
 
 - The agent has to choose the tool. Switchboard cannot make it.
-- agy's own approval prompt still runs in its terminal. There are two prompts for one change.
+- agy's own approval prompt still runs in its terminal, and in practice agy prompts **heavily** before it
+  will call an MCP tool — measured in G2 as many prompts for one `openDiff`, well beyond the "two prompts for
+  one change" the first draft assumed. The diff round-trip works, but the agent-side approval friction is agy's
+  and Switchboard cannot remove it.
 - Offering a tool costs the model context on every turn, so the option is a per-backend toggle in the launch
   options, applied at spawn, defaulting **off** (D9).
 - A diff proposed for a file the agent then edits differently is not detected. The VCS seam shows what actually

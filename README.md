@@ -146,8 +146,8 @@ chart rather than a row of zeroes.
 - **A diff-review tool for agy** — an opt-in launch option offers the Antigravity CLI an `openDiff` tool over
   MCP. A proposed change opens in the file panel and your accept, reject or edit goes back to the agent;
   Switchboard never writes the file. It is an offer, not a redirect: the agent has to choose the tool and
-  agy's own approval prompt still runs. Built and tested against a stand-in client; a real agy using it
-  is not yet confirmed.
+  agy's own approval prompt still runs — in practice agy prompts a lot before it will call the tool.
+  Confirmed working end to end with a real agy; off by default.
   → [`docs/specs/34-switchboard-mcp-server.md`](docs/specs/34-switchboard-mcp-server.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.

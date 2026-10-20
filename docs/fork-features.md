@@ -462,8 +462,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   `openDiff` tool: it proposes a change, the proposal opens in the file panel, and the answer (accept, reject
   or an edited version) goes back as the tool result. The file is never written by Switchboard. This is an
   offer, not a redirect: the agent has to choose the tool and agy's own approval prompt still runs beside
-  ours. **Built and tested against a stand-in client; whether a real agy shows the tool to the model is not
-  yet confirmed** and waits on an interactive test. Off by default. Spec:
+  ours — in practice agy prompts heavily before it will call the tool. Confirmed end to end in an interactive
+  agy session (the diff opens and accept/reject/edit answer the agent); off by default. Spec:
   [`specs/34-switchboard-mcp-server.md`](specs/34-switchboard-mcp-server.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent

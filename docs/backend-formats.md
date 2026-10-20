@@ -784,12 +784,12 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   headers on every request, opens the endpoint with a POST and then a GET on the same path, probes
   `/.well-known/oauth-protected-resource` unauthenticated, sends a non-standard `server/discover` before
   `initialize`, and requests protocol version `2025-11-25`. It **connects and completes the handshake**
-  (`server/discover`, `initialize`, `tools/list`) with no trust prompt in a scripted launch. **Whether the
-  tool then reaches the model is not confirmed**: in two scripted launches, with a JSON reply and with an
-  SSE reply, and with a reference stdio server declared the same way, the model reported no such tool and no
-  `tools/call` arrived. The launch was not Switchboard's (a scripted `-i` with blind key presses, not the
-  interactive TUI), so a launch-mode cause and an unanswered per-server trust step are both still possible;
-  the interactive session in Switchboard decides it.
+  (`server/discover`, `initialize`, `tools/list`). The scripted launches never produced a `tools/call`
+  because their bundle was discovered but the `diffTool` option was never set, so no server was injected —
+  a test-setup gap, not an agy limit. **Confirmed in an interactive session (G2, agy 1.4.3):** with
+  `diffTool` set through the Configure dialog, agy shows the `switchboard` server and `openDiff` in `/mcp`
+  and calls the tool — **but only after heavy per-tool permission prompting of its own**, which Switchboard
+  cannot suppress.
 - **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
   `supportsFork: false` (offering it would launch an unrelated session).
 - **`agy --help` / the argv** (v1.1.1+): `--model`, `--effort`, `--project` / `--new-project`, `--add-dir`
