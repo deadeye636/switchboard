@@ -200,6 +200,33 @@ implement a proper streamable-HTTP server: deliver each response as an SSE event
 blocking vs. two-phase `openDiff`) is only measurable against that conformant server — defer it to the T10
 end-to-end run / the G2 click test, not a stub.
 
+### Tool surfacing probed, 2026-10-20 — not reproduced in a scripted launch (O-T6c / O-ISO)
+
+Two further probes drove a real agy under a pty against logging servers:
+
+- **Transport flavour does not change the outcome.** A server that answered every request as an SSE event
+  (`event: message`, the streamable-HTTP "server upgrades the POST" shape) completed the same handshake as the
+  earlier JSON-on-POST stub — `server/discover`, `initialize`, a GET on `/mcp`, `tools/list` — and in **both**
+  the model reported no such tool and no `tools/call` was ever sent. So POST-body vs. SSE is not observable at
+  the tool level here; both are viable for the handshake.
+- **A known-good server does not surface either.** A reference `@modelcontextprotocol/server-filesystem`
+  (stdio) declared through the same workspace plugin produced the same result: the model answered NOTOOL and
+  never read the marker file. So the failure is **not** this spec's stub — no MCP tool, stub or reference,
+  reached the model in the launch used.
+
+The launch used was `agy -i "<prompt>" --mode auto` driven over a pty with blind Enter presses — **not** how
+Switchboard spawns agy (a fully interactive TUI). Two causes remain and a scripted probe cannot separate them:
+agy may not expose MCP tools in this mode at all, or a per-server trust/enable step is going unanswered (Q6).
+The decisive test is a human-interactive agy session in Switchboard where a trust prompt can be answered —
+which is exactly **G2**.
+
+**Consequence for the build (owner decision O-BUILD-standin).** T5–T7 are built and tested **against a
+stand-in client**, as this plan always intended — they do not depend on agy surfacing the tool, and the
+HTTP listener also serves #507 and #330. The HTTP transport supports **both** a JSON POST-body reply and an
+SSE reply, since agy accepted both handshakes and which one it ultimately needs is unknown until G2. Whether
+agy ever calls the tool is **unproven until T8–T10 / G2**; if G2 shows it cannot, the agy registration
+(T8/T9) is where that is caught, and the owner decides whether to proceed for agy (see "Later phases", item 5).
+
 If a later finding shows the project-tree write is unacceptable, Plan A ends after the injection capability and
 the HTTP transport, both tested against a stand-in client, and the owner decides whether to proceed for agy
 (see "Later phases", item 5).
