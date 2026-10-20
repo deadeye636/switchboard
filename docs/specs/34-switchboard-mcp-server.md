@@ -182,11 +182,27 @@ Because the load worked, Q2, Q3 and Q6 are answered in the same run:
   the version rather than echo its own. Client capabilities include `elicitation` and `roots`.
 - **Q6 (trust).** The server connected with no blocking trust prompt in the probe.
 
-Still open: **Q4** (tool-call timeout — not exercised, no tool was called), and **Q5** (whether the
-`plugins.json` entry pollutes agy's plugin listing or the app's resources panel). Both are cheap follow-ups on
-the same harness. If a later finding shows the project-tree write is unacceptable, Plan A ends after the
-injection capability and the HTTP transport, both tested against a stand-in client, and the owner decides
-whether to proceed for agy (see "Later phases", item 5).
+**Q5 answered — no pollution.** `agy plugin list` in the probe project returns "No plugins installed." / `[]`:
+a `plugins.json`-declared plugin is not shown there (that listing is `agy plugin import`'s). And this app's
+agy resource lister is global-only by design — the workspace `.agents/` walk is deliberately not implemented
+(`src/backends/agy/resources.js`, the `plugins-directory` note) — so the project `plugins.json` entry does not
+surface in the resources panel either.
+
+**Q4 not measured, and it exposed a transport fact that changes T6.** With a stub returning the tool in
+`server/discover` and `tools/list`, agy completed the handshake (`server/discover`, `initialize`, a GET on
+`/mcp`, `notifications/initialized`, `tools/list`) but the **tool never surfaced to the model** — it answered
+"I do not have access to an MCP tool named …", and no `tools/call` was ever sent. The stub answered the
+`tools/list` POST with a JSON body and closed the GET stream empty. The strong reading is that agy's
+**streamable-HTTP client expects request results on the opened GET SSE stream**, not (only) as the POST
+response body — so Q1's confirmation covers the connection and the handshake, **not** tool exposure. T6 must
+implement a proper streamable-HTTP server: deliver each response as an SSE event on the GET stream, answer
+`server/discover` with the tool manifest, and 404 the OAuth well-known probes. The tool-call timeout (Q4,
+blocking vs. two-phase `openDiff`) is only measurable against that conformant server — defer it to the T10
+end-to-end run / the G2 click test, not a stub.
+
+If a later finding shows the project-tree write is unacceptable, Plan A ends after the injection capability and
+the HTTP transport, both tested against a stand-in client, and the owner decides whether to proceed for agy
+(see "Later phases", item 5).
 
 ## Known limits to state in the product text
 
