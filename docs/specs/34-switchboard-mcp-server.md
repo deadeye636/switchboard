@@ -154,27 +154,39 @@ Settled by T1 on a real agy, recorded in `docs/backend-formats.md`, and this sec
 | Q5 | Does a workspace plugin directory, if it is the channel, merge with the global servers or replace them, and does it show up in agy's plugin listing and in this app's resources panel? | Pollution of the user's project and of the listing built in #547/#611. | T8 |
 | Q6 | Does agy accept an MCP server that is only present in a per-launch file when its trust prompt for servers differs by origin? | A second prompt per session would make the offer unusable. | T8 |
 
-### Q1 measured, 2026-10-20, agy 1.4.2 (partial)
+### Q1 confirmed, 2026-10-20, agy 1.4.3 — a project-tree channel loads end to end
 
-A per-launch channel that avoids the user's shared `~/.gemini/config/mcp_config.json` **exists**, with one
-gap still open:
+Measured with a real pty (switchboard's `node-pty`) running agy interactively in a probe project, against a
+logging HTTP server. A per-launch channel that avoids the user's shared `~/.gemini/config/mcp_config.json`
+**works**:
 
-- `agy mcp add` writes the **global** shared config (no scope or project flag in `agy mcp add --help`), so it
-  cannot meet D2. There is no MCP launch flag in `agy --help` and agy declines a home variable.
-- A **workspace plugin bundle** `.agents/plugins/<name>/{plugin.json, mcp_config.json}` is the channel. The
-  format is valid on 1.4.2: `agy plugin validate` reports `mcpServers: 1` with no findings, and the shipped
-  guide (`~/.gemini/.../agy-customizations/docs/plugins.md`) says a discovered plugin is enabled by default
-  unless its `plugin.json` sets `"disabled": true`. It writes into the **project tree**, not the shared
-  config — so it satisfies D2 but triggers G3 (owner go for a project-tree write).
-- **Open:** a dropped-in bundle did **not** surface its MCP server in a headless `--print` session (the model
-  reported none; the log showed no connection to the dummy port). Whether the cause is print-mode not
-  ingesting workspace plugins, a discovery anchor (customization-root / repository-root) condition, or an
-  explicit `plugins.json` registration being required, is unconfirmed. T1 must retest end-to-end in the
-  interactive mode Switchboard actually spawns.
+- The channel is a **workspace plugin bundle plus an explicit `.agents/plugins.json`**. A bare
+  `.agents/plugins/<name>/{plugin.json, mcp_config.json}` is **not** auto-discovered on 1.4.3 — neither a
+  headless `--print` turn nor an interactive pty session loaded it. Adding `.agents/plugins.json` with
+  `{ "entries": [ { "path": ".agents/plugins" } ] }` (workspace-relative to the repo root, scanned one level
+  deep per the shipped `json_configs.md`) made agy load it. `agy plugin validate` confirms the bundle shape
+  (`mcpServers: 1`). It writes into the **project tree**, not the shared config — D2 is met, G3 applies.
+- `agy mcp add` is the other channel but writes the **global** shared config (no scope flag), so it cannot
+  meet D2. No MCP launch flag in `agy --help`; agy declines a home variable.
 
-If the end-to-end load cannot be made to work without the shared file, Plan A ends after the injection
-capability and the HTTP transport, both tested against a stand-in client, and the owner decides whether to
-proceed for agy at all (see "Later phases", item 5).
+Because the load worked, Q2, Q3 and Q6 are answered in the same run:
+
+- **Q2 (transport).** agy speaks **streamable HTTP** at exactly the configured URL path: `POST` for JSON-RPC,
+  then a `GET` on the same path to open the stream. It also probes `GET /.well-known/oauth-protected-resource`
+  and `.../oauth-protected-resource/<path>` (unauthenticated) — the transport in T6 must answer these (a 404
+  is fine when no OAuth is offered). The opening request is a non-standard `server/discover` before
+  `initialize`.
+- **Q3 (headers, version).** agy sends the configured `headers` (the `Authorization: Bearer <token>`) on
+  **every** `/mcp` request. Its `initialize` sends `clientInfo { name: "antigravity-client" }` and
+  **`protocolVersion` `2025-11-25`** — newer than the bridge's `2025-03-26`, so the transport must negotiate
+  the version rather than echo its own. Client capabilities include `elicitation` and `roots`.
+- **Q6 (trust).** The server connected with no blocking trust prompt in the probe.
+
+Still open: **Q4** (tool-call timeout — not exercised, no tool was called), and **Q5** (whether the
+`plugins.json` entry pollutes agy's plugin listing or the app's resources panel). Both are cheap follow-ups on
+the same harness. If a later finding shows the project-tree write is unacceptable, Plan A ends after the
+injection capability and the HTTP transport, both tested against a stand-in client, and the owner decides
+whether to proceed for agy (see "Later phases", item 5).
 
 ## Known limits to state in the product text
 
