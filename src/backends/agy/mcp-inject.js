@@ -95,6 +95,10 @@ function buildMcpInjection({ tag, cwd, servers, log } = {}) {
 
   const agentsDir = path.join(cwd, '.agents');
   const root = path.join(agentsDir, 'plugins');
+  // Clear dead siblings before writing ours: a crashed or force-killed run (e.g. `npm run stop:dev`) never
+  // reaches releaseMcpInjection, so its bundle — token included — would linger. Sweeping the project we are
+  // about to write into reclaims it exactly where it matters, with no boot cost and no project enumeration.
+  sweepStaleBundles([cwd], lg);
   const name = bundleName(tag);
   const bundle = path.join(root, name);
   try {
@@ -131,10 +135,11 @@ function pidAlive(pid) {
 }
 
 /**
- * Start-up sweep (a crashed run leaves its bundle behind, token included): removes every
+ * Sweep orphaned bundles (a crashed run leaves its bundle behind, token included): removes every
  * `<cwd>/.agents/plugins/switchboard-*` dir whose recorded pid is dead, for each project path given.
  * A live pid's dir, a dir without a readable owner record, and anything not named `switchboard-*` are kept.
- * Returns the removed dir names.
+ * Returns the removed dir names. Called by buildMcpInjection on the project it is about to write into, so an
+ * orphan is reclaimed the next time agy launches there; also exported for a wider sweep should one be wired.
  */
 function sweepStaleBundles(cwds, log) {
   const removed = [];

@@ -139,3 +139,18 @@ test('the sweep removes only a dead process\'s bundle', () => {
   assert.equal(fs.existsSync(stranger), true);
   assert.equal(fs.existsSync(noRecord), true);
 });
+
+test('a build sweeps a dead sibling in the same project (orphan reclaimed on next launch)', () => {
+  const cwd = tmp();
+  const dead = agy.buildMcpInjection({ tag: 'dead', cwd, servers: [ROW] });
+  let deadPid = 2147483000;
+  while (true) { try { process.kill(deadPid, 0); deadPid--; } catch (e) { if (e.code === 'ESRCH') break; deadPid--; } }
+  fs.writeFileSync(path.join(dead.cleanup.bundle, '.switchboard-owner'), JSON.stringify({ pid: deadPid }));
+  assert.equal(bundles(cwd).length, 1);
+
+  const fresh = agy.buildMcpInjection({ tag: 'fresh', cwd, servers: [ROW] });
+  assert.ok(fresh);
+  assert.equal(fs.existsSync(dead.cleanup.bundle), false);   // the new build swept the dead sibling
+  assert.equal(fs.existsSync(fresh.cleanup.bundle), true);
+  assert.equal(bundles(cwd).length, 1);
+});

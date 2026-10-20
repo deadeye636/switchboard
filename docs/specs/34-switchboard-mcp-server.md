@@ -242,12 +242,14 @@ the HTTP transport, both tested against a stand-in client, and the owner decides
 
 ### Build gaps (as-built)
 
-- **G1 — the start-up sweep of orphaned bundles is wired in T8b, not T8.** agy's `buildMcpInjection` (T8)
-  writes a per-session bundle under `<project>/.agents/plugins/switchboard-<unique>/` and removes it on clean
-  exit (`releaseMcpInjection`). `sweepStaleBundles` removes a bundle whose recorded pid is dead, but T8 shipped
-  it unwired — a force-killed run (e.g. `npm run stop:dev`) would otherwise leak a 0600 token file and its dir
-  into the project tree until the sweep runs. The sweep is wired into start-up through a neutral descriptor
-  hook in **T8b** (it is cross-backend, so it is a hook the core calls, not an agy-specific lifecycle call).
+- **G1 — orphaned bundles are reclaimed on the next build in the project, not by a start-up sweep.** agy's
+  `buildMcpInjection` writes a per-session bundle under `<project>/.agents/plugins/switchboard-<unique>/` and
+  removes it on clean exit (`releaseMcpInjection`). A force-killed run (e.g. `npm run stop:dev`) never reaches
+  release, so its bundle — a 0600 token file and its dir — would linger. Rather than a cross-backend start-up
+  hook that would have to enumerate every project (a new contract for a low-impact leak: the token points at
+  a dead loopback listener), `buildMcpInjection` runs `sweepStaleBundles([cwd])` on the project it is about to
+  write into, so a dead sibling is reclaimed the next time agy launches there — where it matters, with no boot
+  cost. `sweepStaleBundles` stays exported for a wider sweep if one is ever wanted.
 
 ## Known limits to state in the product text
 
