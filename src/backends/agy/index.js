@@ -129,6 +129,8 @@ const configFields = [
     description: 'Auto-approve every tool request for this session. Dangerous: commands run without asking.' },
   { id: 'addDirs', label: 'Additional directories', type: 'text', default: '',
     description: 'Comma-separated extra directories to add to the workspace, alongside the project.' },
+  { id: 'diffTool', label: 'Offer the diff tool', type: 'toggle', default: false, appliesAt: 'spawn',
+    description: 'Offers Switchboard\'s diff-review tool to the agent through a per-session MCP server registered in the project\'s .agents folder. It is an offer, not a redirect: the agent has to choose the tool, agy\'s own approval prompt still runs, and Switchboard never edits your files — an accepted change is applied by the agent\'s own tool.' },
 ];
 
 /** A comma-separated text field -> a list. Empty entries are dropped, not passed as empty flags. */

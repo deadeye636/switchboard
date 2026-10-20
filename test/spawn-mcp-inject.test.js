@@ -30,7 +30,9 @@ stub(require.resolve('node-pty'), {
 
 let composer = async () => null;
 const composerCalls = [];
+const realInject = require('../src/app/mcp-inject');
 stub(path.join(__dirname, '..', 'src', 'app', 'mcp-inject.js'), {
+  ...realInject,
   composeMcpInjection: async (arg) => { composerCalls.push(arg); return composer(arg); },
 });
 
@@ -67,6 +69,8 @@ function setup({ backend = fakeBackend(), userEnv = {}, sessions = [], quitting 
     getCachedSession: () => null,
     cleanupSecretRefsForSession: () => {},
     ensureProjectAdded: () => {},
+    registerMcpHttpSession: async (o) => { ctx.registered.push(o); return { url: 'http://127.0.0.1:1/mcp', token: 't', release: () => { ctx.registrationReleased++; } }; },
+    registered: [], registrationReleased: 0,
     startMcpServer: async () => null,
     shutdownMcpServer: () => {},
     startAgentProcess: () => makeFakePty(),
@@ -102,7 +106,7 @@ test('args and env are merged; the user env still wins over the injected env', a
   const r = await spawn.openTerminal('m1', CWD, true, { backendId: 'codex' });
   assert.equal(r.ok, true);
   assert.equal(composerCalls.length, 1);
-  assert.deepEqual(composerCalls[0].sources, []);
+  assert.equal(composerCalls[0].sources.length, 1, 'the own-server source is supplied');
   const launched = ptySpawns.at(-1);
   const cmdline = [launched.cmd, ...launched.args].join(' ');
   assert.ok(cmdline.includes('--mcp') && cmdline.includes('cfg'), 'the injected args reach the launch');
@@ -159,6 +163,21 @@ test('a second open that registered the session during the await releases and re
   assert.equal(r.reattached, true);
   assert.equal(inj.rec.released, 1);
   assert.equal(ptySpawns.length, 0);
+});
+
+test('the own-server source registers only when the backend option is on, with the session id', async () => {
+  reset();
+  const backend = fakeBackend({ acceptsMcpTransports: ['http'] });
+  const ctx = setup({ backend });
+  await spawn.openTerminal('o1', CWD, true, { backendId: 'codex' });
+  assert.deepEqual(await composerCalls[0].sources[0](), []);
+  assert.equal(ctx.registered.length, 0, 'option off: nothing registered');
+  await spawn.openTerminal('o2', CWD, true, { backendId: 'codex', diffTool: true });
+  const rows = await composerCalls[1].sources[0]();
+  assert.equal(ctx.registered.length, 1);
+  assert.equal(ctx.registered[0].sessionId, 'o2');
+  assert.deepEqual(ctx.registered[0].groups, ['diff']);
+  assert.equal(rows[0].transport, 'http');
 });
 
 test('exit releases exactly once', async () => {

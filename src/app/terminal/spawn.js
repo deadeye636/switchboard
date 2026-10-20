@@ -45,7 +45,7 @@ const liveOwners = require('../live-owners');
 // surfaces start naming different ones.
 const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
-const { composeMcpInjection } = require('../mcp-inject');
+const { composeMcpInjection, ownServerSource } = require('../mcp-inject');
 const { conptyBuildHint } = require('./conpty');
 const { measured } = require('../../perf');
 const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
@@ -1044,13 +1044,19 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
       // Spec 34: the MCP servers this launch is given, through ONE core composer (`../mcp-inject.js`) that
       // asks the descriptor's `buildMcpInjection`. Not for a session driven over a pipe — its runtime
-      // takes servers its own way, and a flag appended to its argv is not that. Plan A has no source yet
-      // (the own-server source arrives with T9), so the composer answers null and the launch is unchanged.
+      // takes servers its own way, and a flag appended to its argv is not that. The one source is the app's
+      // own HTTP endpoint, registered only for a launch whose backend option asked for it; its registration
+      // is released by the composer's `release`, which the paths below and the exit handler already call.
       // Best-effort like the blocks around it: null means the session starts without.
       if (backend.providesMcpInjection === true && !backend.transport) {
+        const mcpOptions = spawnOptionsFor(backend, projectPath, launchOptions);
         const injection = await composeMcpInjection({
-          backend, ctx, sources: [], dir: ctx.bindingDir, tag: terminalTag, cwd: projectPath,
-          options: spawnOptionsFor(backend, projectPath, launchOptions),
+          backend, ctx, dir: ctx.bindingDir, tag: terminalTag, cwd: projectPath, options: mcpOptions,
+          sources: [ownServerSource({
+            backend, enabled: mcpOptions.diffTool === true, registerSession: ctx.registerMcpHttpSession, sessionId, projectPath,
+            getWindow: () => (ctx.windowForSession ? ctx.windowForSession(sessionId) : ctx.getMainWindow()),
+            log: ctx.log,
+          })],
         });
         if (injection) {
           mcpInjectionRelease = injection.release;

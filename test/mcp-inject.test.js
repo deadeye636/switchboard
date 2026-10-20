@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { composeMcpInjection } = require('../src/app/mcp-inject');
+const { composeMcpInjection, ownServerSource } = require('../src/app/mcp-inject');
 const { stripComments } = require('./helpers/strip-comments');
 
 function makeLog() {
@@ -81,6 +81,69 @@ test('a throwing release is swallowed with a warning', async () => {
   const out = await composeMcpInjection({ backend, ctx: { log }, sources: [[HTTP]] });
   assert.doesNotThrow(() => out.release());
   assert.ok(log.lines.warn.some((m) => /rel/.test(m)));
+});
+
+function stubRegister(result) {
+  const rec = { calls: [], released: 0 };
+  const fn = async (o) => {
+    rec.calls.push(o);
+    return result || { url: 'http://127.0.0.1:9/mcp', token: 'tok', release: () => { rec.released++; } };
+  };
+  return { rec, fn };
+}
+
+test('own server, option off: no row, registerSession not called, hook not called', async () => {
+  const backend = fakeBackend();
+  const { rec, fn } = stubRegister();
+  const source = ownServerSource({ backend, enabled: false, registerSession: fn, sessionId: 's', projectPath: '/p' });
+  assert.strictEqual(await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source], options: {} }), null);
+  assert.strictEqual(rec.calls.length, 0);
+  assert.strictEqual(backend.calls.build.length, 0);
+});
+
+test('own server, option on: registered once, the row reaches the hook, both teardowns run once', async () => {
+  const backend = fakeBackend();
+  const { rec, fn } = stubRegister();
+  const options = {};
+  const source = ownServerSource({ backend, enabled: true, registerSession: fn, sessionId: 's', projectPath: '/p', getWindow: () => null });
+  const out = await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source], options });
+  assert.strictEqual(rec.calls.length, 1);
+  assert.deepStrictEqual(rec.calls[0].groups, ['diff']);
+  assert.strictEqual(rec.calls[0].sessionId, 's');
+  assert.deepStrictEqual(backend.calls.build[0].servers, [
+    { name: 'switchboard', transport: 'http', url: 'http://127.0.0.1:9/mcp', headers: { Authorization: 'Bearer tok' } },
+  ]);
+  assert.strictEqual(rec.released, 0);
+  out.release();
+  out.release();
+  assert.strictEqual(rec.released, 1);
+  assert.strictEqual(backend.calls.release.length, 1);
+});
+
+test('own server: a backend without http never registers', async () => {
+  const backend = fakeBackend({ acceptsMcpTransports: ['stdio'] });
+  const { rec, fn } = stubRegister();
+  const source = ownServerSource({ backend, enabled: true, registerSession: fn });
+  assert.deepStrictEqual(await source(), []);
+  assert.strictEqual(rec.calls.length, 0);
+});
+
+test('own server: unavailable yields no row and never throws', async () => {
+  const backend = fakeBackend();
+  const { fn } = stubRegister({ unavailable: true, reason: 'bind failed' });
+  const source = ownServerSource({ backend, enabled: true, registerSession: fn, log: makeLog() });
+  assert.strictEqual(await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source] }), null);
+  assert.doesNotThrow(() => source.release());
+});
+
+test('own server: a registration is released when the hook declines or throws', async () => {
+  for (const buildMcpInjection of [() => null, () => { throw new Error('boom'); }]) {
+    const backend = fakeBackend({ buildMcpInjection });
+    const { rec, fn } = stubRegister();
+    const source = ownServerSource({ backend, enabled: true, registerSession: fn });
+    assert.strictEqual(await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source] }), null);
+    assert.strictEqual(rec.released, 1);
+  }
 });
 
 test('the module names no backend id', () => {
