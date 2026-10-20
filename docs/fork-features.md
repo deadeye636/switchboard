@@ -456,6 +456,15 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   a thumbnail (KB)` are in the Sessions category. Pi returns no PDF pages, so its PDF reads stay text; Codex,
   Hermes and agy do not stamp and keep their images inline; the open buttons are refused once the session has
   exited. Spec: [`specs/33-document-preview.md`](specs/33-document-preview.md).
+- **A diff-review tool offered to agy over MCP (#333)** — an opt-in `diffTool` launch option on the
+  Antigravity CLI. With it on, Switchboard registers its own loopback HTTP MCP endpoint for that session and
+  hands agy a per-session plugin bundle under the project's `.agents` folder, so the agent is offered an
+  `openDiff` tool: it proposes a change, the proposal opens in the file panel, and the answer (accept, reject
+  or an edited version) goes back as the tool result. The file is never written by Switchboard. This is an
+  offer, not a redirect: the agent has to choose the tool and agy's own approval prompt still runs beside
+  ours. **Built and tested against a stand-in client; whether a real agy shows the tool to the model is not
+  yet confirmed** and waits on an interactive test. Off by default. Spec:
+  [`specs/34-switchboard-mcp-server.md`](specs/34-switchboard-mcp-server.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says

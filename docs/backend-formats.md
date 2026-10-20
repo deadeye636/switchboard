@@ -773,6 +773,23 @@ retired CLI and are a decoy. agy's own store is elsewhere.
   arbitrary absolute, `~/`- or workspace-relative directories, and declared configurations rank ABOVE
   global discovery in the CLI's own precedence list. A plugin can therefore come from a directory that is
   in neither root.
+- **MCP channel for one launch (#333, spec 34), measured on 1.4.3.** `agy --help` has no MCP flag and agy
+  declines a home variable. `agy mcp add` writes the **global** shared `config/mcp_config.json` with no
+  scope option, so it is not a per-launch channel. The channel that avoids the shared file is a workspace
+  plugin bundle, `.agents/plugins/<name>/` with a `plugin.json` and an `mcp_config.json`, **plus an explicit
+  `.agents/plugins.json`** declaring it (`{ "entries": [ { "path": ".agents/plugins" } ] }`): a bare bundle
+  without the registration was not discovered, in a headless turn or in an interactive session. This writes
+  into the project tree. The server entry is `{ "type": "http", "url": "<url>", "headers": { "Authorization":
+  "Bearer <token>" } }`. `agy plugin list` does not show a `plugins.json`-declared plugin. agy sends the
+  headers on every request, opens the endpoint with a POST and then a GET on the same path, probes
+  `/.well-known/oauth-protected-resource` unauthenticated, sends a non-standard `server/discover` before
+  `initialize`, and requests protocol version `2025-11-25`. It **connects and completes the handshake**
+  (`server/discover`, `initialize`, `tools/list`) with no trust prompt in a scripted launch. **Whether the
+  tool then reaches the model is not confirmed**: in two scripted launches, with a JSON reply and with an
+  SSE reply, and with a reference stdio server declared the same way, the model reported no such tool and no
+  `tools/call` arrived. The launch was not Switchboard's (a scripted `-i` with blind key presses, not the
+  interactive TUI), so a launch-mode cause and an unanswered per-server trust step are both still possible;
+  the interactive session in Switchboard decides it.
 - **Resume** is `agy --conversation <id>`; `--continue`/`-c` reopens the most recent. **Fork** has no flag —
   `supportsFork: false` (offering it would launch an unrelated session).
 - **`agy --help` / the argv** (v1.1.1+): `--model`, `--effort`, `--project` / `--new-project`, `--add-dir`

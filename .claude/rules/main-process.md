@@ -161,6 +161,11 @@ into the next turn, or sends it as a turn of its own once the session is idle (#
 except in how an MCP definition's `${VAR}` expands, against the session's environment at spawn and the app's in the preview.
 It also fills the choices of a `configFields` select that declares `choicesFrom: 'sharedResourceSources'`,
 at the `backends-list` projection, because a backend's own folder cannot name the other backends),
+`mcp-inject.js` (the per-spawn MCP injection — #789, spec 34; turns "sources" into neutral server rows, drops
+the transports a descriptor does not accept, asks its `buildMcpInjection` hook and answers `{ args, env,
+release }` or `null`. Electron-free and db-free, names no backend. The spawn path calls it once, best-effort:
+a failure is a warning and the session starts without the tool. The one source today is Switchboard's own
+HTTP endpoint, registered on `src/servers/mcp-http.js`),
 `session-view.js` (which view a session of an owner/driver pair opens in — #670; the write that is not a
 spawn, taking a stored `session_meta.opener` back, which pushes `projects-changed` because only main can
 re-derive the row's view through `openerFor`. Setting a view is always an open, stored by the spawn),

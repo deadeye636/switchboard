@@ -1,7 +1,9 @@
 # 34 — Switchboard as an MCP server for a session: one injection seam, one HTTP transport, one diff tool
 
 Issues #333 (agy diff surface), #789 (inject MCP servers into launched sessions), with #507, #330 and #790 as
-later phases. Status: **planned** (the plan is local; this file is the lasting record and is updated as steps land).
+later phases. Status: **built; agy end-to-end pending the interactive click test (G2)**. The core and the agy slice are built
+and tested against a stand-in client. Whether a real agy shows the tool to the model and calls `openDiff` is
+**not proven**: see "Tool surfacing probed" and "As built" below.
 Background measurements: #329 (agy does not speak the Gemini companion protocol), #543 (agy's `mcp_config.json`
 is listed as a resource).
 
@@ -156,12 +158,12 @@ Settled by T1 on a real agy, recorded in `docs/backend-formats.md`, and this sec
 
 | | Question | Why it matters | What it blocks |
 |---|---|---|---|
-| Q1 | **Is there a per-launch way to hand agy an MCP config** — a flag, an env variable, a project-scoped file, or only the shared `config/mcp_config.json` and `agy mcp add`? The measured candidates are a workspace plugin bundle carrying its own `mcp_config.json` and a flag in `agy --help` that this repo has not recorded. | D2 needs a channel that is not the shared file. If the only channel is the shared file, D2 cannot be met for agy and the slice stops. | T8, T10 |
-| Q2 | Does agy's client speak **streamable HTTP**, legacy SSE, or both, and what URL path does it expect? #329's measured entry used a path ending in `/mcp/schema`, which may be a server-specific path or a convention. | The transport built in T6. | T6 shape, T8 |
-| Q3 | Does agy send a configured `headers` map on every request, including a Bearer token, and which protocol version does it request? | The auth and `initialize` reply. | T6 |
-| Q4 | **How long will agy wait for a tool call?** A review can take minutes (the bridge allows ten). | A blocking `openDiff` that outlives the client's timeout is an error the user sees. If the timeout is short, the tool becomes two-phase (open returns a handle, a second call collects the answer) or uses a streamed response with keep-alives. | T7 |
-| Q5 | Does a workspace plugin directory, if it is the channel, merge with the global servers or replace them, and does it show up in agy's plugin listing and in this app's resources panel? | Pollution of the user's project and of the listing built in #547/#611. | T8 |
-| Q6 | Does agy accept an MCP server that is only present in a per-launch file when its trust prompt for servers differs by origin? | A second prompt per session would make the offer unusable. | T8 |
+| Q1 | **(answered, see below)** **Is there a per-launch way to hand agy an MCP config** — a flag, an env variable, a project-scoped file, or only the shared `config/mcp_config.json` and `agy mcp add`? The measured candidates are a workspace plugin bundle carrying its own `mcp_config.json` and a flag in `agy --help` that this repo has not recorded. | D2 needs a channel that is not the shared file. If the only channel is the shared file, D2 cannot be met for agy and the slice stops. | T8, T10 |
+| Q2 | **(answered)** Does agy's client speak **streamable HTTP**, legacy SSE, or both, and what URL path does it expect? #329's measured entry used a path ending in `/mcp/schema`, which may be a server-specific path or a convention. | The transport built in T6. | T6 shape, T8 |
+| Q3 | **(answered)** Does agy send a configured `headers` map on every request, including a Bearer token, and which protocol version does it request? | The auth and `initialize` reply. | T6 |
+| Q4 | **(open)** **How long will agy wait for a tool call?** A review can take minutes (the bridge allows ten). | A blocking `openDiff` that outlives the client's timeout is an error the user sees. If the timeout is short, the tool becomes two-phase (open returns a handle, a second call collects the answer) or uses a streamed response with keep-alives. | T7 |
+| Q5 | **(answered)** Does a workspace plugin directory, if it is the channel, merge with the global servers or replace them, and does it show up in agy's plugin listing and in this app's resources panel? | Pollution of the user's project and of the listing built in #547/#611. | T8 |
+| Q6 | **(answered for the handshake; the tool-level trust step is open)** Does agy accept an MCP server that is only present in a per-launch file when its trust prompt for servers differs by origin? | A second prompt per session would make the offer unusable. | T8 |
 
 ### Q1 confirmed, 2026-10-20, agy 1.4.3 — a project-tree channel loads end to end
 
@@ -250,6 +252,37 @@ the HTTP transport, both tested against a stand-in client, and the owner decides
   a dead loopback listener), `buildMcpInjection` runs `sweepStaleBundles([cwd])` on the project it is about to
   write into, so a dead sibling is reclaimed the next time agy launches there — where it matters, with no boot
   cost. `sweepStaleBundles` stays exported for a wider sweep if one is ever wanted.
+
+### As built
+
+What landed, by module:
+
+- `src/app/mcp-inject.js` — the core that composes rows and calls a backend's hook (T2), wired into the spawn
+  path in `src/app/terminal/spawn.js` (T4). The descriptor quartet and the `mcpInject` capability row are
+  described in `.claude/rules/backends.md`; every backend answers it.
+- `src/servers/mcp-bridge.js` — request handling split from the WebSocket write, registry shared by both
+  transports (T5); the group table holds Claude's five tools and the new `diff` group (T7).
+- `src/servers/mcp-http.js` — the app-wide listener and `registerSession` (T6). It replies as a JSON body or
+  as an SSE event, because agy completed the handshake with both. The figures for the first bind and a later
+  registration are in "Granularity", measured in T6; nothing new is measured here.
+- `src/backends/agy/mcp-inject.js` — the workspace plugin bundle and `.agents/plugins.json` entry, with
+  `acceptsMcpTransports: ['http']` (T8); the `diffTool` launch option, off by default (T9). The bundle
+  holds an `{ type: 'http', url, headers }` entry.
+- agy's answer in the capability matrix is **`limited`**: the connection and handshake are measured, the
+  tool reaching the model is not. Test coverage is `test/mcp-http.test.js`, `test/mcp-diff-group.test.js`,
+  `test/agy-mcp-inject.test.js` and `test/mcp-agy-diff-e2e.test.js`, all against a stand-in client playing
+  the CLI.
+
+**Not proven.** A scripted agy launch showed the connection and the handshake but never a `tools/call`,
+and a reference stdio server declared the same way did not surface either. The decisive test is a human
+interactive agy session in Switchboard (G2), which has not run. Until it does, the agy slice is an offer
+whose end of the wire nobody has seen answer. If G2 shows agy cannot take the tool, the injection
+capability and the HTTP transport stay useful for #507 and #330, and the owner decides about agy
+(Later phases, item 5).
+
+**Still open.** Q4 (how long agy waits for a tool call, so whether `openDiff` must become two-phase) and the
+tool-level trust question of Q6 can only be answered against a real agy calling the tool. `openDiff`
+currently blocks until the user answers or the ten-minute cap passes.
 
 ## Known limits to state in the product text
 
