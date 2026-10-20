@@ -154,9 +154,27 @@ Settled by T1 on a real agy, recorded in `docs/backend-formats.md`, and this sec
 | Q5 | Does a workspace plugin directory, if it is the channel, merge with the global servers or replace them, and does it show up in agy's plugin listing and in this app's resources panel? | Pollution of the user's project and of the listing built in #547/#611. | T8 |
 | Q6 | Does agy accept an MCP server that is only present in a per-launch file when its trust prompt for servers differs by origin? | A second prompt per session would make the offer unusable. | T8 |
 
-If Q1 comes back "only the shared file", Plan A ends after the injection capability and the HTTP transport,
-both tested against a stand-in client, and the owner decides whether to proceed for agy at all (see "Later
-phases", item 5).
+### Q1 measured, 2026-10-20, agy 1.4.2 (partial)
+
+A per-launch channel that avoids the user's shared `~/.gemini/config/mcp_config.json` **exists**, with one
+gap still open:
+
+- `agy mcp add` writes the **global** shared config (no scope or project flag in `agy mcp add --help`), so it
+  cannot meet D2. There is no MCP launch flag in `agy --help` and agy declines a home variable.
+- A **workspace plugin bundle** `.agents/plugins/<name>/{plugin.json, mcp_config.json}` is the channel. The
+  format is valid on 1.4.2: `agy plugin validate` reports `mcpServers: 1` with no findings, and the shipped
+  guide (`~/.gemini/.../agy-customizations/docs/plugins.md`) says a discovered plugin is enabled by default
+  unless its `plugin.json` sets `"disabled": true`. It writes into the **project tree**, not the shared
+  config — so it satisfies D2 but triggers G3 (owner go for a project-tree write).
+- **Open:** a dropped-in bundle did **not** surface its MCP server in a headless `--print` session (the model
+  reported none; the log showed no connection to the dummy port). Whether the cause is print-mode not
+  ingesting workspace plugins, a discovery anchor (customization-root / repository-root) condition, or an
+  explicit `plugins.json` registration being required, is unconfirmed. T1 must retest end-to-end in the
+  interactive mode Switchboard actually spawns.
+
+If the end-to-end load cannot be made to work without the shared file, Plan A ends after the injection
+capability and the HTTP transport, both tested against a stand-in client, and the owner decides whether to
+proceed for agy at all (see "Later phases", item 5).
 
 ## Known limits to state in the product text
 
