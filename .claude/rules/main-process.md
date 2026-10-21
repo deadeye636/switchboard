@@ -169,6 +169,10 @@ HTTP endpoint, registered on `src/servers/mcp-http.js`),
 `session-view.js` (which view a session of an owner/driver pair opens in — #670; the write that is not a
 spawn, taking a stored `session_meta.opener` back, which pushes `projects-changed` because only main can
 re-derive the row's view through `openerFor`. Setting a view is always an open, stored by the spawn),
+`discovery-reader.js` (the project-scoped reader behind the session-discovery tools — #507, spec 35; a factory over
+plain dependencies, one per registration, handed to the MCP bridge as `entry.discovery`. It re-derives its
+session and handoff listings on every call and answers only what is in them, so a session of another project and
+one that does not exist give the same sentence. Electron-free, db-free, no IPC, names no backend),
 `path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
 `readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
 measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it

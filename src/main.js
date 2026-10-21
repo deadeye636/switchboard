@@ -2368,6 +2368,8 @@ spawn.init({
   shutdownMcpServer,
   // Spec 34: the app's own HTTP MCP endpoint, for the per-spawn injection's "own server" source.
   registerMcpHttpSession: (opts) => require('./servers/mcp-http').registerSession(opts),
+  // #507: the project-scoped reader behind the discovery tools, one per registration ({ projectPath, callerSessionId }).
+  createDiscoveryReader: (scope) => require('./app/discovery-reader').createDiscoveryReader({ ...scope, getCachedSessions: getAllCached, getSessionMeta: getAllMeta, activeSessions, backends, handoffs, isForeignNetworkFile: (p) => isForeignNetworkFile(p), log }),
   // #223 live re-binding: where a backend may put its per-spawn binding file (userData — never the
   // user's own CLI config), the URL its hook posts to, and the way to forget a dead terminal's claim.
   bindingDir: path.join(app.getPath('userData'), 'clear-bindings'),

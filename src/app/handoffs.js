@@ -596,6 +596,8 @@ module.exports = {
   init,
   registerIpc,
   getHandoffs,
+  // The read/save/delete guard, for the session-discovery reader (#507): it asks it for a packet id.
+  isAllowedHandoffPath,
   saveHandoff,
   readHandoff,
   deleteHandoff,
