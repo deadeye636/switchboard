@@ -26,19 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const claudeConfig = require('./config');
 
-const VAR = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
-
-function expand(value, env, missing) {
-  if (typeof value !== 'string') return value;
-  return value.replace(VAR, (_all, name, fallback) => {
-    const v = env[name];
-    // Shell semantics: `:-` also replaces an EMPTY value; a bare reference to a set-but-empty one is empty.
-    if (fallback !== undefined) return v !== undefined && v !== '' ? v : fallback;
-    if (v !== undefined) return v;
-    missing.add(name);
-    return '';
-  });
-}
+const { expand } = require('../../shared/env-expand');
 
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
