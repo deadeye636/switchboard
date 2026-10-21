@@ -149,6 +149,11 @@ chart rather than a row of zeroes.
   agy's own approval prompt still runs — in practice agy prompts a lot before it will call the tool.
   Confirmed working end to end with a real agy; off by default.
   → [`docs/specs/34-switchboard-mcp-server.md`](docs/specs/34-switchboard-mcp-server.md)
+- **Session discovery tools for agy and Codex** — an opt-in launch option lets the agent list the other
+  sessions of its project, read the last turns of one, and list and read the project's handoffs. Read-only
+  and capped. Text from another session, possibly another vendor's, reaches the calling model, so it is off by
+  default. Only agy and Codex can call the tools so far.
+  → [`docs/specs/35-session-discovery-tools.md`](docs/specs/35-session-discovery-tools.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey

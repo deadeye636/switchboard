@@ -472,6 +472,17 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   answer. An offer, not a redirect: Codex's own approval prompt still runs. Confirmed end to end in an
   interactive Codex session; off by default. Spec:
   [`specs/34-switchboard-mcp-server.md`](specs/34-switchboard-mcp-server.md).
+- **Session discovery tools for agy and Codex (#507, Phase 1)** — an opt-in `discoveryTools` launch option
+  adds a second read-only tool group to the per-session MCP endpoint of the diff tool. The agent is offered
+  four tools: list the other sessions of its project, read the last turns of one, list the project's handoff
+  packets, read one. Every output is capped, a session or handoff is named by id, and a session of another
+  project answers the same as one that does not exist. Switchboard writes nothing and spawns nothing. Sessions
+  of every backend can be read, but only agy and Codex can call the tools; Claude, Pi and Hermes cannot yet. The
+  scope is the caller's own directory, worktrees not included. What an agent reads is text from another session,
+  possibly another vendor's, so the option says so and is off by default. Checked on a real Codex: the spawn
+  gate and the unchanged user config; the tools themselves were exercised through a stand-in client, and a real
+  model choosing one is not yet observed. Spec:
+  [`specs/35-session-discovery-tools.md`](specs/35-session-discovery-tools.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says

@@ -642,7 +642,9 @@ composes it and names no backend. Every backend answers the flag, declining incl
 (`providesMcpInjection: false` with a comment naming why, and none of the other three), and the `mcpInject`
 capability row says the same; `test/backend-parity.test.js` pins the shape. A template forwards the whole
 quartet in `profileToDescriptor`: the declaration without the hook it promises would be a half. agy (a plugin bundle on disk) and Codex
-(launch `-c` overrides, no file, token via an env var) are the two consumers.
+(launch `-c` overrides, no file, token via an env var) are the two consumers. The registration carries tool GROUPS: besides `diff` there is a read-only `discovery`
+group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
+agy and Codex through the `discoveryTools` option (spec 35).
 
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
 backend's own folder cannot list other backends (reflex 5), so the core fills the choices at the

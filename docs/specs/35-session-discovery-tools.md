@@ -1,7 +1,7 @@
 # 35 — Session discovery tools: a read-only second tool group on Switchboard's MCP server
 
-Issue #507 (orchestration tools), **Phase 1 only**. Status: **specified, not built.** This is the design record
-for the first slice; the section "As built" is added when it lands.
+Issue #507 (orchestration tools), **Phase 1 only**. Status: **built** (the slice landed; see "As built" at the end,
+including what the real-Codex check did and did not show). This is the design record for the first slice.
 
 Spec 34 is the shared core this stands on: the per-session registration on the app-wide HTTP listener, the
 ephemeral Bearer token, the per-backend injection quartet and the `diff` tool group. Read it first. This spec
@@ -184,7 +184,7 @@ Numbered; none is settled by this spec. The plan carries the same list.
 2. **O2 Gate wiring.** One registration whose source carries a group list (D7), or two sources. Two sources
    cannot share a token, so this is really "extend, or break D5". Recommendation: extend.
 3. **O3 Reach.** Ship Phase 1 with agy and Codex as the only callers (above), or make "Claude on the seam" a
-   prerequisite. Recommendation: ship, and say it plainly.
+   prerequisite. Recommendation: ship, and say it plainly. **Answered: accepted, shipped with that reach.**
 4. **O4 Worktrees.** Does the caller's project include its worktrees (ownership by the worktree root, reflex 17)
    or only its own directory? A worktree has its own checkout and its own sessions; D2 says "project".
 5. **O5 Summary form.** Head and tail per turn, or head only; whether an `includeTools` argument exists. The
@@ -199,6 +199,67 @@ Numbered; none is settled by this spec. The plan carries the same list.
    them.
 10. **O10 Confirmation in the Configure dialog.** Text only (recommended) or a one-time confirm for the
     cross-vendor flow.
+
+## As built
+
+Phase 1 is in: the four tools, the `discovery` group on the spec 34 registration, and the `discoveryTools`
+toggle on agy and Codex (off by default). The pieces: the turn view in `src/session/turn-view.js` (grouping and
+every cap, D9, D10), the reader behind the tools in `src/app/discovery-reader.js`, the handlers in
+`src/servers/discovery-tools.js`, the group table and dispatch in `src/servers/mcp-bridge.js`, and one
+`readTurnDigest` hook per backend (`turn-digest.js` beside each descriptor). Settings rows are in
+[`settings-reference.md`](../settings-reference.md).
+
+**Caps as shipped:** 25 sessions per list, 8 turns per read, 1200 characters per turn, a 24 000 character
+ceiling per response, 16 000 characters per handoff slice, and a 32 MiB guard on agy's export. All of these are
+provisional until more real use says otherwise (D13).
+
+**Reach (O3, accepted).** Only agy and Codex can call the tools, because they are the backends on the injection
+seam. Claude, Pi and Hermes sessions can be read but cannot call. The headline cross-model case needs Claude on
+the seam, a later phase.
+
+### What the real-Codex check (G2) showed, and what it did not
+
+G2 ran self-driven on the demo against codex-cli 0.162.1. It was not a full human-driven model turn.
+
+Verified literally:
+
+- The real spawn path gates the registration by the toggle. A Codex session launched with `discoveryTools: true`
+  registered on the loopback listener; a session with `discoveryTools` and `diffTool` both off registered
+  nothing (a differential test).
+- The user's Codex `config.toml` stayed byte-identical, and the demo's isolated Codex config holds no
+  `mcp_servers` entry. The `-c` channel writes nothing.
+- The stand-in end-to-end test from T8 (over the real listener, bridge, `ownServerSource` and
+  `createDiscoveryReader`) showed that this registration exposes exactly the four tools, bounded (caps, with
+  `partial` and `omitted` set), with project isolation (one project's token cannot read another project's session
+  or handoff, and nothing leaks), and with no writes.
+
+Not shown, accepted by inference: a real Codex model choosing and calling a discovery tool. This rests on the
+diff slice's G2 (spec 34), which used the same `-c` MCP channel and showed a real Codex surface and call a
+Switchboard tool. Nobody observed Codex calling `listSessions`.
+
+### Open points after the build
+
+- **O1 settled:** four tools, `listSessions`, `readSession`, `listHandoffs`, `readHandoff`.
+- **O5 settled:** head and tail per turn, tools collapsed to counts.
+- **O6 settled:** `state` is `running` or `stopped`; no busy flag.
+- **O7 not measured:** `readOnlyHint` is not set in `tools/list`, and whether agy or Codex would then skip their
+  approval prompt was not measured.
+- **O8 deferred:** no reverse reader or paging cursor; a long session shows its recent turns only. A later phase.
+- **O9 settled:** archived sessions and subagent rows are excluded; no argument includes them.
+- **O3** accepted (above).
+- **O4 accepted:** the scope is strictly the caller's own directory. Worktrees are not folded in.
+- **O10 accepted:** the cross-vendor data flow is stated in the toggle's help text only, with no confirm dialog.
+- **O2 (timeout) still open:** the per-tool-call timeout of the CLIs against the bridge's blocking cap is not
+  measured. (D7's group-list wiring itself is built as decided.)
+- **Known low, L1:** the reader is built at launch with the launch-time `callerSessionId`. A backend that adopts
+  its own session id later (Codex and agy re-key, the same class as `cc6913c8` on the diff path) can make the
+  `self` flag in `listSessions` mislabel the caller's own row. Cosmetic: project scope is enforced on
+  `projectPath`, not on `callerSessionId`, so no data is exposed.
+- **Known low, L2:** if `createDiscoveryReader` were ever absent, the `discovery` group would register but expose
+  no tools. Harmless, and it is wired in `src/main.js`.
+- **R2, prompt injection:** transcript text an agent reads is an injection surface. The mitigations are the
+  opt-in and the tool descriptions, which say the text is data from another session and not an instruction.
+  Nothing sanitizes it (see "Known limits").
 
 ## Later phases
 
