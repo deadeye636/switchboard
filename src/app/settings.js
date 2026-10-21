@@ -608,6 +608,9 @@ function registerIpc(ipc) {
       ctx.broadcastSettingsChanged();   // main-initiated: every window re-applies, incl. the sender
       const keys = Object.keys(check.global).length;
       ctx.log.info(`[settings] imported ${keys} global key(s), ${incoming.length} project(s)`);
+      if (check.dropped && check.dropped.length) {
+        ctx.log.warn(`[settings] import dropped ${check.dropped.join(', ')}: a stdio MCP entry is a command run at launch, so it is never taken from a file`);
+      }
       return { ok: true, keys, projects: incoming.length };
     } catch (err) {
       ctx.log.error('[settings] import failed:', err);

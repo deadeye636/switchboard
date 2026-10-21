@@ -38,6 +38,11 @@ const PROJECT_KEYS = ['projectPath', 'registered', 'hidden'];
 // hand-edited file could put it there, and importing it would lie to the migration runner.
 const NON_PORTABLE_KEYS = ['windowBounds', 'detachedWindows', 'db_version'];
 
+// Dropped on IMPORT only (export is untouched). `externalMcpServers` is a project-blob key holding MCP servers
+// whose stdio entries are commands run at the next launch (#789, spec 36); a file must not configure those
+// behind the user's back, so an imported copy is discarded and the user re-adds them knowingly.
+const IMPORT_DROPPED_KEYS = ['externalMcpServers'];
+
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
@@ -50,6 +55,16 @@ function stripNonPortable(blob) {
     out[key] = value;
   }
   return out;
+}
+
+/** Strip what cannot travel AND what an import must not carry. -> { blob, dropped: string[] } */
+function stripForImport(blob) {
+  const stripped = stripNonPortable(blob);
+  const dropped = [];
+  for (const key of IMPORT_DROPPED_KEYS) {
+    if (key in stripped) { delete stripped[key]; dropped.push(key); }
+  }
+  return { blob: stripped, dropped };
 }
 
 /**
@@ -127,7 +142,8 @@ function validateImportPayload(parsed) {
   if (!isPlainObject(parsed.global)) {
     return { ok: false, error: 'The file contains no global settings.' };
   }
-  return { ok: true, global: stripNonPortable(parsed.global) };
+  const { blob, dropped } = stripForImport(parsed.global);
+  return { ok: true, global: blob, dropped };
 }
 
 /**
@@ -137,7 +153,7 @@ function validateImportPayload(parsed) {
  */
 function mergeImport(currentBlob, incoming) {
   const base = isPlainObject(currentBlob) ? currentBlob : {};
-  return { ...base, ...stripNonPortable(incoming) };
+  return { ...base, ...stripForImport(incoming).blob };
 }
 
 module.exports = {
@@ -147,6 +163,7 @@ module.exports = {
   EXPORT_VERSION,
   APP_MARKER,
   NON_PORTABLE_KEYS,
+  IMPORT_DROPPED_KEYS,
   buildExportPayload,
   validateImportPayload,
   mergeImport,

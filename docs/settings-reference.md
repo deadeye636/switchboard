@@ -459,6 +459,7 @@ screen.
 | `defaultLaunchTarget` | backend or profile id | the stored target while it is launchable, else the first launchable, else `''` |
 | `backendDefaults` | `{[backendId]: {[optionId]: value}}` | `{}` — cascades **per option**, global → project |
 | `backendEnv` | `{[backendId]: {VAR: '$REF'}}` | `{}` — values are `$VAR` references, resolved at spawn |
+| `externalMcpServers` | `[{name, transport: 'stdio'\|'http', enabled?, backends?, command, args?, env?, cwd?}` or `{…, url, headers?}]` — MCP servers a project's launched sessions get (#789, spec 36) | `[]` — **project only**, no cascade; a worktree reads its project's list. `name` is `[A-Za-z0-9_-]+` and not `switchboard`. Read and validated by `src/app/external-mcp.js`; a bad entry is skipped with a reason. **Dropped on settings import** (a stdio entry is a command run at launch; re-add it by hand). Values in `env` and `headers` should be `${VAR}` references, not secrets |
 
 ### A backend's `configFields` default is NOT a value that gets sent
 
