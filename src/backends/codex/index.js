@@ -21,6 +21,7 @@ const parser = require('./parser');
 const trust = require('./trust');
 const resources = require('./resources');
 const resumeModel = require('./resume-model');
+const mcpInject = require('./mcp-inject');
 const { createFileStore, findOnPath } = require('../file-store');
 const { rewriteTranscript, codexLine } = require('../rewrite-cwd');
 const { deleteTranscripts } = require('../delete-sessions');
@@ -105,6 +106,8 @@ const configFields = [
     description: 'Comma-separated extra directories Codex may write to, alongside the project.' },
   { id: 'configOverrides', label: 'Config overrides', type: 'text', default: '',
     description: 'Codex `-c key=value` overrides, comma-separated (e.g. reasoning.effort=high). Dotted paths address nested values.' },
+  { id: 'diffTool', label: 'Offer the diff tool', type: 'toggle', default: false, appliesAt: 'spawn',
+    description: 'Offers Switchboard\'s diff-review tool to the agent through a per-session MCP server passed to Codex with `-c`. It is an offer, not a redirect: the agent has to choose the tool, Codex\' own approval prompt still runs, and Switchboard never edits your files — an accepted change is applied by the agent\'s own tool.' },
 ];
 
 /**
@@ -279,8 +282,12 @@ description:
     return [{ kind: 'file', path: path.join(scope.projectPath, 'AGENTS.md'), displayPath: short + '/', source: 'project' }];
   },
   transcriptAccess: 'file',   // rollout JSONL on disk
-  // Per-spawn MCP injection (spec 34): declines for now — no per-spawn MCP channel is wired for Codex yet.
-  providesMcpInjection: false,
+  // Per-spawn MCP injection (spec 34): `-c mcp_servers.<name>.*` overrides plus an env token, no file
+  // written. Codex reads its servers over HTTP only here. See `./mcp-inject.js`.
+  providesMcpInjection: true,
+  acceptsMcpTransports: ['http'],
+  buildMcpInjection: mcpInject.buildMcpInjection,
+  releaseMcpInjection: mcpInject.releaseMcpInjection,
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -300,7 +307,7 @@ description:
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     contextFill: 'yes',
     resumeModel: 'yes',
-    mcpInject: { state: 'no', note: 'declines for now; no per-spawn MCP channel is wired for it yet' },
+    mcpInject: { state: 'limited', note: 'passes a per-session server with -c overrides and an env token; the connection is built, but whether Codex offers the tools to the model is not yet confirmed' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

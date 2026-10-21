@@ -189,7 +189,7 @@ test('descriptor: codex is Axis-B, ready, monogram Cx, with its own configFields
   // so that dropping one is a decision, not an accident — the Settings page is generated from it.
   const ids = codex.configFields.map(f => f.id);
   assert.deepStrictEqual(ids.sort(), [
-    'addDirs', 'approvalMode', 'configOverrides', 'localProvider', 'model', 'oss', 'profile',
+    'addDirs', 'approvalMode', 'configOverrides', 'diffTool', 'localProvider', 'model', 'oss', 'profile',
     'sandbox', 'search',
   ]);
 });
