@@ -45,7 +45,7 @@ const liveOwners = require('../live-owners');
 // surfaces start naming different ones.
 const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
-const { composeMcpInjection, ownServerSource } = require('../mcp-inject');
+const { composeMcpInjection, ownServerSource, externalServersSource } = require('../mcp-inject');
 const { conptyBuildHint } = require('./conpty');
 const { measured } = require('../../perf');
 const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
@@ -1067,6 +1067,9 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             // resolve a window that no longer exists — the diff is sent nowhere, silently (#330).
             getWindow: (sid) => (ctx.windowForSession ? ctx.windowForSession(sid || sessionId) : ctx.getMainWindow()),
             log: ctx.log,
+          }), externalServersSource({
+            // The project's own list (spec 36), expanded against the session's resolved env; not gated by the toggles.
+            backend, getSetting: ctx.getSetting, projectPath, getEnv: quietSessionEnv, log: ctx.log,
           })],
         });
         if (injection) {

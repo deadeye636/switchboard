@@ -1,0 +1,88 @@
+'use strict';
+// The external-servers source (spec 36, T3): the project's validated list as neutral rows, `${VAR}` expanded
+// against the session env, a missing variable skipping the entry, disabled / other-backend / invalid entries out.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { externalServersSource, composeMcpInjection } = require('../src/app/mcp-inject');
+
+const OWNER = '/proj/app';
+const make = (list, over = {}) => {
+  const logs = [];
+  const source = externalServersSource({
+    backend: { id: 'codex' },
+    getSetting: (k) => (k === 'project:' + OWNER ? { externalMcpServers: list } : {}),
+    projectPath: OWNER,
+    getEnv: () => ({ TOKEN: 'abc', HOME_DIR: '/home/u' }),
+    log: { info: (m) => logs.push(m) },
+    ...over,
+  });
+  return { source, logs };
+};
+
+test('an absent or empty list yields no rows', () => {
+  assert.deepEqual(make(undefined).source(), []);
+  assert.deepEqual(make([]).source(), []);
+  assert.deepEqual(externalServersSource({}) (), []);
+});
+
+test('stdio and http entries become neutral rows; cwd only when present', () => {
+  const { source } = make([
+    { name: 'a', transport: 'stdio', command: 'npx', args: ['-y', 'srv'], env: { K: 'v' }, cwd: '/w' },
+    { name: 'b', transport: 'stdio', command: 'srv' },
+    { name: 'h', transport: 'http', url: 'https://example.invalid/mcp', headers: { X: 'y' } },
+  ]);
+  assert.deepEqual(source(), [
+    { name: 'a', transport: 'stdio', command: 'npx', args: ['-y', 'srv'], env: { K: 'v' }, cwd: '/w' },
+    { name: 'b', transport: 'stdio', command: 'srv', args: [], env: {} },
+    { name: 'h', transport: 'http', url: 'https://example.invalid/mcp', headers: { X: 'y' } },
+  ]);
+  assert.equal('cwd' in source()[1], false);
+});
+
+test('${VAR} expands in command, args, env, cwd, url and headers; a default applies', () => {
+  const { source } = make([
+    { name: 'a', transport: 'stdio', command: '${HOME_DIR}/bin', args: ['--t=${TOKEN}'], env: { T: '${TOKEN}', D: '${NOPE:-dflt}' }, cwd: '${HOME_DIR}' },
+    { name: 'h', transport: 'http', url: 'https://x.invalid/${TOKEN}', headers: { Authorization: 'Bearer ${TOKEN}' } },
+  ]);
+  const [a, h] = source();
+  assert.deepEqual(a, { name: 'a', transport: 'stdio', command: '/home/u/bin', args: ['--t=abc'], env: { T: 'abc', D: 'dflt' }, cwd: '/home/u' });
+  assert.deepEqual(h, { name: 'h', transport: 'http', url: 'https://x.invalid/abc', headers: { Authorization: 'Bearer abc' } });
+});
+
+test('an entry with a missing variable is skipped and logged by name, never by value', () => {
+  const { source, logs } = make([
+    { name: 'bad', transport: 'stdio', command: 'srv', env: { K: '${MISSING_ONE}' } },
+    { name: 'ok', transport: 'stdio', command: 'srv' },
+  ]);
+  assert.deepEqual(source().map((r) => r.name), ['ok']);
+  assert.equal(logs.length, 1);
+  assert.ok(logs[0].includes('bad') && logs[0].includes('MISSING_ONE'));
+});
+
+test('a disabled entry, another backend\'s entry and an invalid entry are left out', () => {
+  const { source } = make([
+    { name: 'off', transport: 'stdio', command: 'srv', enabled: false },
+    { name: 'other', transport: 'stdio', command: 'srv', backends: ['claude'] },
+    { name: 'mine', transport: 'stdio', command: 'srv', backends: ['codex'] },
+    { name: 'broken', transport: 'stdio' },
+    { name: 'switchboard', transport: 'http', url: 'https://x.invalid' },
+  ]);
+  assert.deepEqual(source().map((r) => r.name), ['mine']);
+});
+
+test('through the composer: the stdio row is dropped when the backend takes http only', async () => {
+  const { source } = make([
+    { name: 'a', transport: 'stdio', command: 'srv' },
+    { name: 'h', transport: 'http', url: 'https://x.invalid' },
+  ]);
+  let seen;
+  const logs = [];
+  const backend = {
+    id: 'fake', providesMcpInjection: true, acceptsMcpTransports: ['http'],
+    buildMcpInjection: async ({ servers }) => { seen = servers; return { args: ['--x'] }; },
+  };
+  const out = await composeMcpInjection({ backend, ctx: { log: { info: (m) => logs.push(m) } }, sources: [source] });
+  assert.deepEqual(seen.map((s) => s.name), ['h']);
+  assert.deepEqual(out.args, ['--x']);
+  assert.ok(logs.some((m) => m.includes('"a"')));
+});

@@ -109,7 +109,7 @@ test('args and env are merged; the user env still wins over the injected env', a
   const r = await spawn.openTerminal('m1', CWD, true, { backendId: 'codex' });
   assert.equal(r.ok, true);
   assert.equal(composerCalls.length, 1);
-  assert.equal(composerCalls[0].sources.length, 1, 'the own-server source is supplied');
+  assert.equal(composerCalls[0].sources.length, 2, 'the own-server and the external-servers sources are supplied');
   const launched = ptySpawns.at(-1);
   const cmdline = [launched.cmd, ...launched.args].join(' ');
   assert.ok(cmdline.includes('--mcp') && cmdline.includes('cfg'), 'the injected args reach the launch');
@@ -230,6 +230,23 @@ test('the own-server getWindow resolves the id the bridge passes, not the launch
   ctx.windowForSessionCalls.length = 0;
   getWindow();
   assert.deepEqual(ctx.windowForSessionCalls, ['launch-id'], 'falls back to the launch id when none is passed');
+});
+
+test('the external source reads the project list, with the toggles off, and yields [] when it is empty', async () => {
+  reset();
+  const backend = fakeBackend({ acceptsMcpTransports: ['http', 'stdio'] });
+  const ctx = setup({ backend });
+  const blob = { externalMcpServers: [{ name: 'docs', transport: 'http', url: 'https://example.invalid/mcp' }] };
+  const base = ctx.getSetting;
+  ctx.getSetting = (k) => (k === 'project:' + CWD ? blob : base(k));
+  await spawn.openTerminal('x1', CWD, true, { backendId: 'codex' });
+  const rows = await composerCalls[0].sources[1]();
+  assert.deepEqual(rows, [{ name: 'docs', transport: 'http', url: 'https://example.invalid/mcp', headers: {} }]);
+  assert.equal(ctx.registered.length, 0, 'no own-server registration: the toggles gate only that source');
+
+  blob.externalMcpServers = [];
+  await spawn.openTerminal('x2', CWD, true, { backendId: 'codex' });
+  assert.deepEqual(await composerCalls[1].sources[1](), []);
 });
 
 test('exit releases exactly once', async () => {

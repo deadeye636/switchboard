@@ -7,10 +7,13 @@
 // A source is a function `(ctx) => row[] | Promise<row[]>`, or an array of rows. Plan A has one source,
 // "own server"; it is supplied by the caller. A source that throws costs only its own rows.
 //
-// Row: { name, transport: 'http' | 'stdio', url, headers, command, args, env }.
+// Row: { name, transport: 'http' | 'stdio', url, headers, command, args, env, cwd? } (`cwd` optional, stdio only).
 //
 // The answer is `null` whenever this launch gets nothing: no capability, no row left, a hook that
 // declines, or a hook that throws. Never an error.
+
+const { readExternalMcpServers } = require('./external-mcp');
+const { expand } = require('../shared/env-expand');
 
 const noop = () => {};
 
@@ -68,6 +71,44 @@ function ownServerSource({ backend, groups, discovery, registerSession, sessionI
   return source;
 }
 
+// The "external servers" source (spec 36, #789): the project's own `externalMcpServers` list as neutral rows.
+// Independent of the own-server group toggles. `getSetting` and `getEnv` arrive as arguments (no db, no fs, no
+// spawn here); `getEnv()` is the session's resolved environment, which `${VAR}` expands against. An entry that
+// the validator drops, that is disabled, that names other backends, or that references a variable the session
+// does not have is left out — a half-resolved command is never injected. The log names the variable, never a value.
+function externalServersSource({ backend, getSetting, projectPath, getEnv, log } = {}) {
+  const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
+  return () => {
+    if (typeof getSetting !== 'function') return [];
+    const { servers } = readExternalMcpServers(getSetting, projectPath);
+    if (!servers.length) return [];
+    const env = (typeof getEnv === 'function' ? getEnv() : null) || {};
+    const rows = [];
+    for (const s of servers) {
+      if (s.enabled === false) continue;
+      if (Array.isArray(s.backends) && backend) {
+        if (!s.backends.includes(backend.id) && !(backend.baseId && s.backends.includes(backend.baseId))) continue;
+      }
+      const missing = new Set();
+      const ex = (v) => expand(v, env, missing);
+      const exMap = (m) => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => [k, ex(v)]));
+      let row;
+      if (s.transport === 'stdio') {
+        row = { name: s.name, transport: 'stdio', command: ex(s.command), args: (s.args || []).map(ex), env: exMap(s.env) };
+        if (s.cwd !== undefined) row.cwd = ex(s.cwd);
+      } else {
+        row = { name: s.name, transport: 'http', url: ex(s.url), headers: exMap(s.headers) };
+      }
+      if (missing.size) {
+        lg.info(`[mcp-inject] skipped external server "${s.name}": unset variable ${[...missing].join(', ')}`);
+        continue;
+      }
+      rows.push(row);
+    }
+    return rows;
+  };
+}
+
 // `backend` is the descriptor. `ctx` is the app context (only `ctx.log` is read here).
 async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, options } = {}) {
   const log = { debug: noop, info: noop, warn: noop, ...((ctx && ctx.log) || {}) };
@@ -121,4 +162,4 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
   }
 }
 
-module.exports = { composeMcpInjection, ownServerSource };
+module.exports = { composeMcpInjection, ownServerSource, externalServersSource };
