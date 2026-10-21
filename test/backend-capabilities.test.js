@@ -22,6 +22,7 @@ const PINNED = {
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
     mcpInject: 'no',
+    turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
     queuedTurn: 'yes', quota: 'yes',
@@ -32,6 +33,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'yes',   // it reports the window itself with every token_count (#620)
     mcpInject: 'yes',     // -c overrides + env token; a real Codex surfaces and calls the tools (spec 34)
+    turnDigest: 'no',    // #507: declines until its reader lands (T3)
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
@@ -42,6 +44,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'no',    // token totals per session only, no last turn (#620)
     mcpInject: 'no',
+    turnDigest: 'no',    // #507: declines until its reader lands (T4)
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
     // one answer in this table that would read as an oversight without a line saying otherwise. Hermes
@@ -60,6 +63,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
     mcpInject: 'no',
+    turnDigest: 'no',    // #507: declines until its reader lands (T3)
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
@@ -75,6 +79,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
     mcpInject: 'no',
+    turnDigest: 'no',    // #507: Pi's answer, which declines until its reader lands (T3)
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
@@ -89,6 +94,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
     mcpInject: 'no',
+    turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'no',
@@ -99,6 +105,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
     mcpInject: 'limited', // plugin-bundle channel written; tool surfacing to the model unproven (spec 34)
+    turnDigest: 'no',    // #507: declines until its reader lands (T4)
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no
     // watcher drives agy's store, so there is no live spawn/finish status for them.

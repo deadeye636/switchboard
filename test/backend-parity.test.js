@@ -447,6 +447,30 @@ test('a resumeLaunchOptions hook makes no synchronous fs call', () => {
   assert.ok(seen.size > 0);
 });
 
+// #507: the recent turns of a session as NEUTRAL messages (`{ messages, partial }`), grammar only — the core groups
+// and caps them. Every backend answers; a backend whose reader has not landed declines with null. It never throws
+// on a row that names nothing, and it reads through the async tail reader like `resumeLaunchOptions`.
+test('every backend declares readTurnDigest — neutral messages or an honest null', async () => {
+  for (const b of READY) {
+    assert.equal(typeof b.readTurnDigest, 'function',
+      `${b.id} must declare readTurnDigest (return null if it cannot read its transcript into neutral messages)`);
+    for (const row of [null, {}]) {
+      assert.equal(await b.readTurnDigest(row, {}), null, `${b.id}.readTurnDigest(${JSON.stringify(row)}) must be null, not a throw`);
+    }
+  }
+});
+
+test('a readTurnDigest hook makes no synchronous fs call', () => {
+  const seen = new Set();
+  for (const b of backends.list().filter(x => typeof x.readTurnDigest === 'function')) {
+    if (seen.has(b.readTurnDigest)) continue;
+    seen.add(b.readTurnDigest);
+    assert.deepEqual(syncFsCallsIn(b.readTurnDigest), [],
+      `${b.id}.readTurnDigest reads synchronously — use readFileTailAsync from src/backends/file-store.js`);
+  }
+  assert.ok(seen.size > 0);
+});
+
 test('the sync-fs hook guard catches the shapes it exists for, and not prose or the async reader', () => {
   const caught = [
     (row) => fs.readFileSync(row.filePath, 'utf8'),

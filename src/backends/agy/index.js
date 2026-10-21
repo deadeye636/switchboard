@@ -262,6 +262,8 @@ module.exports = {
   // The launch option a resume should carry (#754): the store holds only a display string for the model,
   // and the launch flag takes another spelling with no mapping. Declines on purpose.
   resumeLaunchOptions: () => null,
+  // The recent turns as neutral messages (#507): declines here, the reader lands in T4 of the plan.
+  readTurnDigest: () => null,
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
@@ -316,6 +318,7 @@ module.exports = {
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     contextFill: { state: 'no', note: 'its generation metadata is a protobuf blob with no readable token counts' },
+    turnDigest: { state: 'no', note: 'declines for now; its reader lands in T4 of the #507 plan' },
     resumeModel: { state: 'no', note: 'its store holds only a display name for the model, with no mapping to the launch flag' },
     quota: 'yes',
     mcpInject: { state: 'limited', note: 'writes a per-session plugin bundle into the project\'s .agents folder; the connection is measured, but whether agy offers the tools to the model is not yet confirmed' },

@@ -246,6 +246,8 @@ function profileToDescriptor(p) {
     // Per-spawn MCP injection (spec 34): a template launches the base's binary, so the base's answer is its
     // answer. The flag, the pair and the transport declaration travel together — the declaration without
     // the hook it promises would be a half.
+    // The recent turns as neutral messages (#507): the transcript is the base's, so its reader is the template's.
+    ...(base && typeof base.readTurnDigest === 'function' ? { readTurnDigest: base.readTurnDigest } : {}),
     providesMcpInjection: base ? base.providesMcpInjection === true : false,
     ...(base && typeof base.buildMcpInjection === 'function' ? { buildMcpInjection: base.buildMcpInjection } : {}),
     ...(base && typeof base.releaseMcpInjection === 'function' ? { releaseMcpInjection: base.releaseMcpInjection } : {}),

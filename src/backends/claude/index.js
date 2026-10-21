@@ -683,6 +683,9 @@ module.exports = {
   // layered additions of the launch, as for `contextWindow`. The `options` patch is applied as a UNIT (dropped
   // whole when the user's per-launch override sets any of its keys); a `null` value clears that key.
   resumeLaunchOptions,
+  // The conversation as neutral messages (#507): `{ messages: [{ role, text, at?, tools? }], partial } | null`.
+  // Grammar only — the core groups turns and applies every cap. One bounded async tail read, no sync fs.
+  readTurnDigest: (row, opts) => (row ? require('./turn-digest').readTurnDigest(transcriptFileOf(row), opts) : null),
   projectTrust,
   projectMeta,
   rewriteProjectPath,
@@ -1149,6 +1152,7 @@ description:
     // (Sonnet 4.5/4.6, Opus 4.6) a session with no `[1m]` spec anywhere reads as its base window.
     contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
     resumeModel: 'yes',
+    turnDigest: 'yes',
     mcpInject: { state: 'no', note: 'declines for now; its MCP channel is not wired to the app\'s session server yet' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it

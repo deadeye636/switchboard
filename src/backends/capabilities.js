@@ -93,6 +93,15 @@ const CATALOG = [
     declaredBy: 'resumeLaunchOptions',
   },
   {
+    // #507: the conversation as neutral messages, for the session discovery tools. A backend that can read its
+    // own transcript grammar answers `yes`; the others decline until their reader lands.
+    id: 'turnDigest',
+    group: 'sessions',
+    label: 'Read a session\'s recent turns',
+    description: 'Give a bounded view of the latest turns of a session, so another session can see what it was doing.',
+    declaredBy: 'readTurnDigest',
+  },
+  {
     id: 'modelList',
     group: 'models',
     label: 'Pick a model from a list',

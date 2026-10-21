@@ -249,6 +249,8 @@ module.exports = {
   // `turn_context.model` of the rollout tail is handed back as `-m` — see ./resume-model.js, which also checks it
   // against the model catalog in the Codex home (`ctx.env.CODEX_HOME`, else `codexHome()`).
   resumeLaunchOptions: (row, ctx) => resumeModel.resumeLaunchOptions(row, ctx, codexHome),
+  // The recent turns as neutral messages (#507): declines here, the reader lands in T3 of the plan.
+  readTurnDigest: () => null,
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Codex keeps no plans store (#227).
@@ -307,6 +309,7 @@ description:
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     contextFill: 'yes',
     resumeModel: 'yes',
+    turnDigest: { state: 'no', note: 'declines for now; its reader lands in T3 of the #507 plan' },
     mcpInject: { state: 'yes', note: 'passes a per-session server with -c overrides and an env token; a real Codex lists the server and calls its tools' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',

@@ -295,6 +295,7 @@ module.exports = {
   normalizeTranscriptEntries: claude.normalizeTranscriptEntries,
   contextWindow: claude.contextWindow,
   resumeLaunchOptions: claude.resumeLaunchOptions,
+  readTurnDigest: claude.readTurnDigest,
   transcriptPathFor: claude.transcriptPathFor,
   plansDir: claude.plansDir,
   memorySources: claude.memorySources,

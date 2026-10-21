@@ -212,6 +212,7 @@ module.exports = {
   openedWithCommand: pi.openedWithCommand,
   contextWindow: pi.contextWindow,
   resumeLaunchOptions: pi.resumeLaunchOptions,
+  readTurnDigest: pi.readTurnDigest,
   transcriptPathFor: pi.transcriptPathFor,
   plansDir: pi.plansDir,
   memorySources: pi.memorySources,

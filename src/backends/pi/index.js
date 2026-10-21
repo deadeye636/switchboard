@@ -554,6 +554,8 @@ module.exports = {
   // (asked once, on one session's resume only). The last model + provider of the transcript tail, by file order
   // across `model_change` and assistant entries — see ./resume-model.js.
   resumeLaunchOptions: (row, ctx) => resumeModel.resumeLaunchOptions(row, ctx),
+  // The recent turns as neutral messages (#507): declines here, the reader lands in T3 of the plan.
+  readTurnDigest: () => null,
   // A file backend's transcript IS the file on the row (#211) — nothing to reconstruct.
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Does this session still owe a turn (#530)? The answer is pushed by the per-spawn binding extension and
@@ -598,6 +600,7 @@ module.exports = {
     queuedTurn: { state: 'limited', note: 'its extension reports whether a prompt waits, but not how many' },
     contextFill: { state: 'limited', note: "only for a model its own catalog lists with a context window" },
     resumeModel: 'yes',
+    turnDigest: { state: 'no', note: 'declines for now; its reader lands in T3 of the #507 plan' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; its MCP servers travel in the resources extension instead' },
     resourceDiscovery: 'yes',
