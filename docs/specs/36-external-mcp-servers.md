@@ -1,6 +1,6 @@
 # 36 — External MCP servers into a launched session: a project's chosen servers ride the spec 34 injection seam
 
-Issue #789, **injection slice (A) only**. Status: **designed, not built** (plan: `docs/plans/789-external-mcp-injection/`,
+Issue #789, **injection slice (A) only**. Status: **built; injection confirmed on a real spawn, a model calling an external tool not yet observed** (see "As built"; plan: `docs/plans/789-external-mcp-injection/`,
 local). This is the inbound counterpart to [spec 34](34-switchboard-mcp-server.md) and
 [spec 35](35-session-discovery-tools.md): there Switchboard is the server and the CLI calls it; here the user
 names servers that exist elsewhere (an `uvx <server>` stdio launch, an HTTP endpoint) and Switchboard puts them in
@@ -79,8 +79,9 @@ says so and the export/import handling is an open point (O7). The name is valida
 | Hermes | **no, accepted gap** | n/a | no per-launch channel | n/a | none (gap) |
 
 Facts that bound this table (measured on current CLIs by the backend-format review; the plan's G-gates re-check what a
-stand-in cannot): the Codex quoting of an inline array or table through ConPTY is **unmeasured** (spec 34 confirmed only
-`-c key="value"`), and a clash between a project entry and a same-named entry in the user's own config is unmeasured on all three
+stand-in cannot): the Codex quoting of an inline array through ConPTY is **measured** on a real spawn (spec 34 had confirmed only
+`-c key="value"`); the inline-table form (`env_http_headers` / `http_headers`) did not appear in that spawn, whose http
+entry used only a Bearer header, so it is still unexercised; and a clash between a project entry and a same-named entry in the user's own config is unmeasured on all three
 (Codex merges `mcp_servers.<n>` tables key by key, so a stdio entry over a user's http entry of one name could yield a hybrid;
 O9).
 
@@ -121,4 +122,87 @@ transport or `cwd` the backend cannot take, a name collision) is logged at `info
 
 ## As built
 
-Nothing yet. This section is filled in the last plan step (T12).
+Slice A is built: the setting, its validator, the source, four backend emitters and a JSON editor. On a real spawn
+each CLI received the injection in its own mechanism; a model calling an external server's tool is **not yet
+observed** (see "Verification state").
+
+### What shipped
+
+- **The setting.** `externalMcpServers` on the project blob, checked by `src/shared/external-mcp-validate.js`. The
+  settings import **drops** it (D-S1): a settings file from someone else never brings a command to run.
+- **The source.** `src/app/external-mcp.js` turns the list into neutral rows. It expands `${VAR}` against the session
+  environment, skips an entry whose variable is unset (the log names the variable, never a value), honours `enabled`
+  and the per-entry `backends` filter, and carries `cwd`.
+- **Emitters.**
+  - Codex: `-c mcp_servers.<n>.*` for command, args and `cwd`; env values travel in the child environment and are
+    named by `env_vars`, http headers by `env_http_headers`.
+  - agy: the 0600 per-session bundle, `{command,args,env,cwd}`; the `type` key it wrote for http is dropped.
+  - Claude (terminal): a 0600 `--mcp-config` file, `type` always set, `cwd` declined with a log line,
+    `--strict-mcp-config` never passed.
+  - Pi: the resources-extension section (`SWITCHBOARD_PI_MCP_SERVERS`), stdio only; http entries and `cwd` are
+    dropped. pi-native takes the same route.
+- **The editor.** A JSON text area in the project settings, category "MCP servers" (`src/renderer/panels/settings-external-mcp.js`).
+  A bad entry blocks Save with a sentence naming the field; a good list persists. Checked by hand in the running app.
+- **No secret value on argv (D-S2).** Codex through environment variables, agy and Claude through their 0600 files, Pi
+  through an environment variable it deletes after reading. `test/mcp-external-e2e.test.js` pins this across Codex,
+  agy and Claude; a deliberate leak was confirmed to fail it.
+
+### Reach
+
+External servers reach Codex, agy, Claude (terminal) and Pi, plus pi-native through the resources path. **Hermes is
+declined** (D-S4): no per-launch channel exists. **claude-native** and the rest of the native drivers are **deferred**
+(T10, O2).
+
+### Verification state
+
+Verified by tests:
+
+- The unit tests for the validator, the source and each emitter (`test/external-mcp.test.js`,
+  `test/mcp-inject-external.test.js`) and the cross-backend e2e above. The full suite is green.
+- The editor, in the running app.
+
+Confirmed on a real spawn (demo instance, 2026-10-21, a project carrying a stdio entry with a secret
+`env` value and an http entry with a Bearer header):
+
+- **G2, Codex.** A launched Codex session carries the injection in its real argv:
+  `-c "mcp_servers.files.args=[\"-y\",\"@sample/srv\"]"`, `-c "mcp_servers.files.env_vars=[\"API_KEY\"]"`,
+  `-c "mcp_servers.web.bearer_token_env_var=\"WEB_MCP_TOKEN\""`. So the inline-array form **survives ConPTY**
+  (the quoting that spec 34 left unmeasured), and no secret value is on argv — only the variable names are.
+- **G3, Claude.** A launched Claude session carries `--mcp-config <file>`; the file holds
+  `{mcpServers:{files:{type:'stdio',…,env:{API_KEY:…}},web:{type:'http',…,headers:{Authorization:…}}}}` —
+  `type` on every entry, the secret values in the file, none on argv. (The 0600 mode applies on POSIX; on
+  Windows the file sits under the user profile with its ACL — no POSIX mode to show.)
+- **G4, agy.** A launched agy session writes the bundle `mcp_config.json` with the stdio and http entries
+  and **no `type` key**; the secret values are in the bundle file, none on argv.
+
+Each CLI received the config in its OWN native mechanism (Codex `-c`, Claude `--mcp-config`, agy's plugin
+bundle), which is how each CLI is told about MCP servers — so it is consumed at launch.
+
+**Still by inference, not observed:** a real model actually choosing and calling an external server's tool.
+That needs a real installed MCP server and a model turn; it is accepted from the diff slice's confirmed
+behaviour (spec 34) and is not claimed here. **G5** (the owner's confirmation of the product text) is open.
+
+### Open points, resolved
+
+| Point | State |
+|---|---|
+| O1 Pi channel | Shipped: the existing resources-extension section, stdio only. Never two clients over one entry. |
+| O2 native drivers | **Deferred** (T10). claude-native and the native quartet wait for it; pi-native rides the Pi route. |
+| O3 editing surface | Shipped: one JSON text area in the project settings. The tabbed UI is slice B. |
+| O4 prune (A2) | **Deferred**, a separate slice. Slice A never prunes. |
+| O5 reachability detection | **Deferred**; a skipped entry is logged, nothing more. |
+| O6 `backends` filter | Shipped as data compared by the source. |
+| O7 secrets in export | Shipped as D-S1: the list is dropped on settings import. The setting holds references, not values. |
+| O8 OAuth http | Not covered; static headers and bearer tokens only. |
+| O9 name clash with a user's own same-named entry | Unmeasured. Codex merges `mcp_servers.<n>` tables, so a hybrid is possible. A documented limit. |
+| O10 same variable, two values (Codex) | The later entry is skipped with a log line. |
+
+### Known low-severity gaps (editor)
+
+- L1: typing the literal `null` stores `null` rather than `[]`. Benign, it reads as empty.
+- L2: a stored value that is not an array shows a blank text area.
+- L3: the status-line colours are inline hex, not theme variables.
+
+### Follow-ups
+
+T10 (native drivers), A2 (pruning a backend's defaults), reachability detection, and the tabbed management screen (slice B).

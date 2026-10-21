@@ -154,6 +154,10 @@ chart rather than a row of zeroes.
   and capped. Text from another session, possibly another vendor's, reaches the calling model, so it is off by
   default. Only agy and Codex can call the tools so far.
   → [`docs/specs/35-session-discovery-tools.md`](docs/specs/35-session-discovery-tools.md)
+- **External MCP servers per project** — list MCP servers (a stdio launch or an HTTP endpoint) in a project's
+  settings as JSON, and its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi;
+  Hermes not yet. JSON editor only, no management screen. Injection confirmed on a real launch; a model calling one of the tools not yet observed.
+  → [`docs/specs/36-external-mcp-servers.md`](docs/specs/36-external-mcp-servers.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey

@@ -483,6 +483,14 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   gate and the unchanged user config; the tools themselves were exercised through a stand-in client, and a real
   model choosing one is not yet observed. Spec:
   [`specs/35-session-discovery-tools.md`](specs/35-session-discovery-tools.md).
+- **External MCP servers per project (#789, slice A)** — a project can list MCP servers that exist elsewhere
+  (a stdio launch, an HTTP endpoint), and each session started in it gets them for that launch only. Nothing is
+  written to the CLI's own config. It reaches Codex, agy, Claude (terminal) and Pi; Hermes has no per-launch
+  channel yet, and the native drivers are not done. The list lives in the app's settings, is edited as JSON in
+  the project settings, and is dropped on settings import, since a stdio entry is a command that runs. Entries
+  hold `${VAR}` references, and no secret value reaches a command line. There is no tabbed management screen
+  in this slice. The injection is confirmed on a real spawn for Codex, agy and Claude; a model calling an external server's tool is not yet observed. Spec:
+  [`specs/36-external-mcp-servers.md`](specs/36-external-mcp-servers.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says
