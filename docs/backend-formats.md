@@ -533,6 +533,12 @@ measured, so the hook answers `null`. Measure both before reading it.
   `bashExecution` roles and every other entry type are not conversation text. The entries form a tree
   (`id` / `parentId`); the reader runs a tail window through `normalizeTranscriptEntries`, which keeps the
   active branch inside the window. The reader is `pi/turn-digest.js`.
+- **MCP client (#789, measured 2026-10-21, Pi 1.1.0):** Pi now ships a built-in MCP client (stdio and
+  streamable-http; `pi mcp --help`), reading `~/.pi` globally and `<project>/.pi/mcp.json` for trusted
+  projects. The pre-1.1.0 versions had none, which is why `pi/mcp-section.js` builds one as a per-spawn
+  extension; Switchboard keeps using that section (stdio, over `SWITCHBOARD_PI_MCP_SERVERS`) as its channel
+  on every Pi version. A server configured both ways would surface its tools twice — the per-project
+  external-server wiring (#789) therefore does not also write Pi's own `mcp.json`.
 - **A FORKED session's header carries one more key: `parentSession`** — the full PATH of the parent
   transcript (#193). Only a fork has it, which is how four surveys of real sessions concluded Pi records no
   parent at all: none of the sessions read happened to be one. The parent's session id is the filename

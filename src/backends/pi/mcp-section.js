@@ -1,9 +1,12 @@
 // backends/pi/mcp-section.js — another CLI's MCP servers inside a Pi session (#633), as one section of the
 // per-spawn resources extension (`./resources-extension.js`).
 //
-// Pi has no MCP client (0.84.4 and 0.85.1: no dependency, no flag, and its README says to build an extension),
-// so this section is one: it starts each stdio server as a child process, speaks JSON-RPC to it over its
-// standard streams (`initialize`, `tools/list`, `tools/call`) and registers every tool it offers as a Pi tool.
+// Pi 0.84.4 and 0.85.1 had no MCP client (no dependency, no flag, and the README said to build an extension),
+// which is why this section is one: it starts each stdio server as a child process, speaks JSON-RPC to it over
+// its standard streams (`initialize`, `tools/list`, `tools/call`) and registers every tool it offers as a Pi
+// tool. Pi 1.1.0 added a built-in MCP client (stdio and streamable-http), but this section still works on every
+// version and stays the channel Switchboard uses; the risk of a tool showing up twice when the user also
+// configures Pi's own client over the same server is the Pi step's concern, not this one (spec 36, #789).
 // Measured in step 0 of #633 (docs/plans, local): an MCP tool's `inputSchema` passes through as Pi's
 // `parameters` unchanged, and a tool registered in `session_start` reaches a prompt sent after it.
 //
