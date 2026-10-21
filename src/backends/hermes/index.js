@@ -271,8 +271,8 @@ module.exports = {
   // The launch option a resume should carry (#754): `sessions.model` is readable, but whether it follows a
   // mid-session switch and whether `-r <id> --model` is honoured were not measured. Declines on purpose.
   resumeLaunchOptions: () => null,
-  // The recent turns as neutral messages (#507): declines here, the reader lands in T4 of the plan.
-  readTurnDigest: () => null,
+  // The recent turns as neutral messages (#507), through the same reader the viewer uses.
+  readTurnDigest: (row, opts) => (row ? require('./turn-digest').readTurnDigest(row.sessionId || null, opts) : null),
   // Hermes sessions are rows in state.db, not files — there is no transcript path (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   // Hermes keeps no plans store (#227).
@@ -336,7 +336,7 @@ module.exports = {
     liveRebinding: 'no',
     queuedTurn: { state: 'no', note: 'it records no prompt queue, and fires no turn-boundary hooks' },
     contextFill: { state: 'no', note: 'its store keeps token totals per session, not what the last turn sent' },
-    turnDigest: { state: 'no', note: 'declines for now; its reader lands in T4 of the #507 plan' },
+    turnDigest: 'yes',
     resumeModel: { state: 'no', note: 'whether its stored model follows a mid-session switch and whether resume honours --model is unmeasured' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; no per-spawn MCP channel is wired for it yet' },

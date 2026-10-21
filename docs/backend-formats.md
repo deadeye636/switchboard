@@ -512,6 +512,9 @@ The only backend whose history is **not** in files — the reason the discovery 
 - The TUI takes ≈ 12 s to paint (a heavy Python import) — a fresh tab looks dead until then, so the
   descriptor prints a hint.
 
+### Conversation digest (#507)
+Measured 2026-10-21 over the local store: `readTurnDigest` reuses `reader.readMessages`, which takes the newest rows by `LIMIT` (the `user` and `assistant` rows with content). A 14-message session read in about 7 ms. The hook asks for one row more than wanted, capped at 500 (`MAX_READ_MESSAGES` in `hermes/turn-digest.js`, provisional until G2), so the work never depends on the store's size. Tool-call rows have no content and are dropped, so `tools` stays empty.
+
 ### The last model of a session, for a resume (#754)
 Declined. `sessions.model` (one value) and `session_model_usage` (per model, with `task` and `last_seen`) are
 readable, but whether the value follows a mid-session switch and whether `-r <id> --model` is honoured were not
@@ -884,6 +887,9 @@ with their own OAuth client, so that legacy source may return 403. A denial is r
 unavailable; it never means that a personal account is unmetered or that AGY sessions cannot run. Both the
 loopback service and the remote endpoint are internal interfaces and can change without notice — the honest
 cost of agy exposing no stable quota command or local quota file for machine consumers.
+
+### Conversation digest (#507)
+Measured 2026-10-21 over the local conversations: `readTurnDigest` reuses `parser.readMessages` (user and model steps, types 14 and 15; tool and lifecycle steps are skipped, so no tool names and no times). That walk is synchronous and always covers every step: 8.5 MB took 49 ms, 13.4 MB 70 ms, 17.2 MB 123 ms and 19.1 MB (the largest local file) 248 ms. The hook therefore declines above 32 MiB (`MAX_EXPORT_BYTES` in `agy/turn-digest.js`, provisional until G2), and the capability reads `limited`.
 
 ### The last model of a session, for a resume (#754)
 Declined. The store holds only a display string found by a text hunt in the `gen_metadata` protobuf

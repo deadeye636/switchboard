@@ -44,7 +44,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'no',    // token totals per session only, no last turn (#620)
     mcpInject: 'no',
-    turnDigest: 'no',    // #507: declines until its reader lands (T4)
+    turnDigest: 'yes',   // #507: the viewer's SQL reader, bounded by a row limit
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
     // one answer in this table that would read as an oversight without a line saying otherwise. Hermes
@@ -105,7 +105,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
     mcpInject: 'limited', // plugin-bundle channel written; tool surfacing to the model unproven (spec 34)
-    turnDigest: 'no',    // #507: declines until its reader lands (T4)
+    turnDigest: 'limited', // #507: whole-database walk, so it declines above a size guard
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no
     // watcher drives agy's store, so there is no live spawn/finish status for them.
