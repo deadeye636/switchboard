@@ -438,4 +438,6 @@ module.exports = {
   createParseState,
   applyLine,
   buildRow,
+  messageText,
+  looksLikeInjectedContext,
 };

@@ -178,6 +178,12 @@ Measured on Claude Code 2.1.292.
 
 - **Date-bucketed** → discovery recurses, and the live watcher must survive midnight (a new `DD` folder
   appears).
+- **Conversation digest (#507, measured 2026-10-21 over local rollouts):** the messages are the
+  `response_item` lines whose `payload.type` is `message`, with `role` `developer` | `user` | `assistant`
+  (content blocks `input_text` / `output_text`); tool calls are separate `function_call` /
+  `custom_tool_call` items (`payload.name`) between them. Everything else (`reasoning`, `*_output`,
+  `event_msg`, `turn_context`, `world_state`, `token_usage_record`) is skipped. The developer role and the
+  injected user context are not the user's words. The reader is `codex/turn-digest.js`.
 - Identity + cwd come from the `session_meta` entry (`payload.id`, `payload.cwd`) — never from the
   filename or the folder.
 - Model: the **last** `turn_context` wins.
@@ -519,6 +525,11 @@ measured, so the hook answers `null`. Measure both before reading it.
 
 - First line is the **header**: `{type:'session', version, id, timestamp, cwd}` — identity and cwd come
   from here, never from the folder name.
+- **Conversation digest (#507, measured 2026-10-21 over local sessions):** `message` entries with
+  `message.role` `user` | `assistant` (blocks `text`, `thinking`, `toolCall`); `toolResult` and
+  `bashExecution` roles and every other entry type are not conversation text. The entries form a tree
+  (`id` / `parentId`); the reader runs a tail window through `normalizeTranscriptEntries`, which keeps the
+  active branch inside the window. The reader is `pi/turn-digest.js`.
 - **A FORKED session's header carries one more key: `parentSession`** — the full PATH of the parent
   transcript (#193). Only a fork has it, which is how four surveys of real sessions concluded Pi records no
   parent at all: none of the sessions read happened to be one. The parent's session id is the filename

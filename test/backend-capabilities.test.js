@@ -33,7 +33,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'yes',   // it reports the window itself with every token_count (#620)
     mcpInject: 'yes',     // -c overrides + env token; a real Codex surfaces and calls the tools (spec 34)
-    turnDigest: 'no',    // #507: declines until its reader lands (T3)
+    turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'no', quota: 'limited',
@@ -63,7 +63,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
     mcpInject: 'no',
-    turnDigest: 'no',    // #507: declines until its reader lands (T3)
+    turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
     // limited, not yes (#530): its extension reports THAT a prompt waits, never how many, and a session
@@ -79,7 +79,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
     mcpInject: 'no',
-    turnDigest: 'no',    // #507: Pi's answer, which declines until its reader lands (T3)
+    turnDigest: 'yes',   // #507: Pi's answer, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
     queuedTurn: 'limited', quota: 'no',
