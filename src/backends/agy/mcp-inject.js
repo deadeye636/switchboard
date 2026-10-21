@@ -40,9 +40,20 @@ function bundleName(tag) {
 function neutralToConfig(servers) {
   const mcpServers = {};
   for (const row of servers || []) {
-    if (!row || row.transport !== 'http' || !row.url || !row.name) continue;
-    const entry = { type: 'http', url: row.url };
-    if (row.headers && typeof row.headers === 'object' && Object.keys(row.headers).length) entry.headers = { ...row.headers };
+    if (!row || !row.name) continue;
+    // agy reads the transport off the fields (`command` is stdio, `url` is http); a `type` key is
+    // "unknown field" to `agy plugin validate` (a failure under --strict), so none is written.
+    const has = o => o && typeof o === 'object' && Object.keys(o).length;
+    let entry;
+    if (row.transport === 'http' && row.url) {
+      entry = { url: row.url };
+      if (has(row.headers)) entry.headers = { ...row.headers };
+    } else if (row.transport === 'stdio' && row.command) {
+      entry = { command: row.command };
+      if (Array.isArray(row.args) && row.args.length) entry.args = [...row.args];
+      if (has(row.env)) entry.env = { ...row.env };   // the bundle file is 0600: the secret-safe channel
+      if (row.cwd) entry.cwd = row.cwd;
+    } else continue;
     mcpServers[row.name] = entry;
   }
   return Object.keys(mcpServers).length ? { mcpServers } : null;

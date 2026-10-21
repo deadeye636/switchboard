@@ -300,7 +300,7 @@ module.exports = {
   // Per-spawn MCP injection (spec 34): a workspace plugin bundle under the project's `.agents/`, one dir per
   // session, removed on release. agy reads its servers over HTTP only here. See `./mcp-inject.js`.
   providesMcpInjection: true,
-  acceptsMcpTransports: ['http'],
+  acceptsMcpTransports: ['http', 'stdio'],
   buildMcpInjection: mcpInject.buildMcpInjection,
   releaseMcpInjection: mcpInject.releaseMcpInjection,
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see

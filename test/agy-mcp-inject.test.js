@@ -19,7 +19,7 @@ function bundles(cwd) { return fs.readdirSync(pluginsRoot(cwd)).filter(n => n.st
 
 test('agy declares the hook quartet', () => {
   assert.equal(agy.providesMcpInjection, true);
-  assert.deepEqual(agy.acceptsMcpTransports, ['http']);
+  assert.deepEqual(agy.acceptsMcpTransports, ['http', 'stdio']);
   assert.equal(typeof agy.buildMcpInjection, 'function');
   assert.equal(typeof agy.releaseMcpInjection, 'function');
 });
@@ -72,13 +72,32 @@ test('writes the bundle under cwd, token only in the file, never in argv or env;
   const bundle = path.join(pluginsRoot(cwd), name);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(bundle, 'plugin.json'), 'utf8')), { name, version: '0.0.1' });
   const conf = JSON.parse(fs.readFileSync(path.join(bundle, 'mcp_config.json'), 'utf8'));
-  assert.deepEqual(conf, { mcpServers: { switchboard: { type: 'http', url: ROW.url, headers: { Authorization: `Bearer ${TOKEN}` } } } });
+  assert.deepEqual(conf, { mcpServers: { switchboard: { url: ROW.url, headers: { Authorization: `Bearer ${TOKEN}` } } } });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(cwd, '.agents', 'plugins.json'), 'utf8')), { entries: [{ path: '.agents/plugins' }] });
 
   // (c) owner-only where the platform has modes
   if (process.platform !== 'win32') {
     assert.equal(fs.statSync(path.join(bundle, 'mcp_config.json')).mode & 0o077, 0);
   }
+});
+
+test('external stdio and http rows land in the bundle without a type key; the env rides the 0600 file', () => {
+  const cwd = tmp();
+  const stdio = { name: 'ext-stdio', transport: 'stdio', command: 'node', args: ['srv.js', '--x'], env: { API_KEY: 'sekret-1' }, cwd: '/work/dir' };
+  const http = { name: 'ext-http', transport: 'http', url: 'http://127.0.0.1:9/mcp', headers: { 'X-Key': 'k' } };
+  const bare = { name: 'ext-bare', transport: 'stdio', command: 'tool' };
+  const out = agy.buildMcpInjection({ tag: 'ext', cwd, servers: [ROW, stdio, http, bare] });
+  assert.ok(out);
+  assert.deepEqual(out.args, []);
+  assert.deepEqual(out.env, {});
+  const file = path.join(out.cleanup.bundle, 'mcp_config.json');
+  const conf = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(conf.mcpServers['ext-stdio'], { command: 'node', args: ['srv.js', '--x'], env: { API_KEY: 'sekret-1' }, cwd: '/work/dir' });
+  assert.deepEqual(conf.mcpServers['ext-http'], { url: http.url, headers: { 'X-Key': 'k' } });
+  assert.deepEqual(conf.mcpServers['ext-bare'], { command: 'tool' });
+  assert.deepEqual(conf.mcpServers.switchboard, { url: ROW.url, headers: { Authorization: `Bearer ${TOKEN}` } });
+  for (const e of Object.values(conf.mcpServers)) assert.equal('type' in e, false);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o077, 0);
 });
 
 test('two sessions in one project get distinct bundles under one plugins.json; release removes only its own', () => {
