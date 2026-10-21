@@ -1050,10 +1050,18 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // Best-effort like the blocks around it: null means the session starts without.
       if (backend.providesMcpInjection === true && !backend.transport) {
         const mcpOptions = spawnOptionsFor(backend, projectPath, launchOptions);
+        // The tool groups this launch's toggles turn on (spec 35, D7); none on means no registration. The
+        // discovery reader is built here, from the caller's own session and project, and handed over.
+        const mcpGroups = [];
+        if (mcpOptions.diffTool === true) mcpGroups.push('diff');
+        if (mcpOptions.discoveryTools === true) mcpGroups.push('discovery');
+        const discovery = mcpGroups.includes('discovery') && typeof ctx.createDiscoveryReader === 'function'
+          ? ctx.createDiscoveryReader({ projectPath, callerSessionId: sessionId })
+          : null;
         const injection = await composeMcpInjection({
           backend, ctx, dir: ctx.bindingDir, tag: terminalTag, cwd: projectPath, options: mcpOptions,
           sources: [ownServerSource({
-            backend, enabled: mcpOptions.diffTool === true, registerSession: ctx.registerMcpHttpSession, sessionId, projectPath,
+            backend, groups: mcpGroups, discovery, registerSession: ctx.registerMcpHttpSession, sessionId, projectPath,
             // Honour the id the bridge passes (`entry.getWindow(entry.sessionId)`): a backend that adopts
             // its own session id re-keys the registration, and a closure over the launch-time id would then
             // resolve a window that no longer exists — the diff is sent nowhere, silently (#330).

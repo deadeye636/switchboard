@@ -108,6 +108,8 @@ const configFields = [
     description: 'Codex `-c key=value` overrides, comma-separated (e.g. reasoning.effort=high). Dotted paths address nested values.' },
   { id: 'diffTool', label: 'Offer the diff tool', type: 'toggle', default: false, appliesAt: 'spawn',
     description: 'Offers Switchboard\'s diff-review tool to the agent through a per-session MCP server passed to Codex with `-c`. It is an offer, not a redirect: the agent has to choose the tool, Codex\' own approval prompt still runs, and Switchboard never edits your files — an accepted change is applied by the agent\'s own tool.' },
+  { id: 'discoveryTools', label: 'Offer the session discovery tools', type: 'toggle', default: false, appliesAt: 'spawn',
+    description: 'Offers read-only discovery tools (list this project\'s sessions, read the last turns of one, list and read its handoff packets) to the agent through the same per-session MCP server as the diff tool. What an agent reads there may come from sessions of ANY backend in the same project, so a conversation of one vendor can reach another vendor\'s model. It is an offer: the agent has to choose the tool, Codex\' own approval prompt still runs, and nothing is written.' },
 ];
 
 /**

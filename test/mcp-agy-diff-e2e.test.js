@@ -97,7 +97,7 @@ async function spawnSession(sessionId, win) {
     ctx: { log },
     cwd: projectDir,
     sources: [ownServerSource({
-      backend: standInBackend, enabled: true, registerSession: mcpHttp.registerSession,
+      backend: standInBackend, groups: ['diff'], registerSession: mcpHttp.registerSession,
       sessionId, projectPath: projectDir, getWindow: () => win, log,
     })],
   });

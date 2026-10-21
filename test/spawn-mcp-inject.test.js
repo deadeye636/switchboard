@@ -70,7 +70,8 @@ function setup({ backend = fakeBackend(), userEnv = {}, sessions = [], quitting 
     cleanupSecretRefsForSession: () => {},
     ensureProjectAdded: () => {},
     registerMcpHttpSession: async (o) => { ctx.registered.push(o); return { url: 'http://127.0.0.1:1/mcp', token: 't', release: () => { ctx.registrationReleased++; } }; },
-    registered: [], registrationReleased: 0,
+    createDiscoveryReader: (scope) => { const r = { scope, isReader: true }; ctx.readers.push(r); return r; },
+    registered: [], registrationReleased: 0, readers: [],
     windowForSessionCalls: [], windowsById: new Map(),
     windowForSession: (id) => { ctx.windowForSessionCalls.push(id); return ctx.windowsById.get(id) || null; },
     startMcpServer: async () => null,
@@ -180,6 +181,35 @@ test('the own-server source registers only when the backend option is on, with t
   assert.equal(ctx.registered[0].sessionId, 'o2');
   assert.deepEqual(ctx.registered[0].groups, ['diff']);
   assert.equal(rows[0].transport, 'http');
+});
+
+test('the groups follow the toggles: diff, discovery, both, neither', async () => {
+  reset();
+  const backend = fakeBackend({ acceptsMcpTransports: ['http'] });
+  const ctx = setup({ backend });
+  const run = async (id, opts) => {
+    ctx.registered.length = 0; ctx.readers.length = 0;
+    await spawn.openTerminal(id, CWD, true, { backendId: 'codex', ...opts });
+    await composerCalls.at(-1).sources[0]();
+    return ctx.registered[0];
+  };
+  const diff = await run('g1', { diffTool: true });
+  assert.deepEqual(diff.groups, ['diff']);
+  assert.equal('discovery' in diff, false, 'diff only: no reader handed over');
+  assert.equal(ctx.readers.length, 0);
+
+  const disc = await run('g2', { discoveryTools: true });
+  assert.deepEqual(disc.groups, ['discovery']);
+  assert.equal(disc.discovery, ctx.readers[0], 'the registration carries what the factory returned');
+  assert.deepEqual(ctx.readers[0].scope, { projectPath: CWD, callerSessionId: 'g2' });
+
+  const both = await run('g3', { diffTool: true, discoveryTools: true });
+  assert.deepEqual(both.groups, ['diff', 'discovery']);
+  assert.equal(both.discovery, ctx.readers[0]);
+
+  const none = await run('g4', {});
+  assert.equal(none, undefined, 'neither toggle: nothing registered');
+  assert.equal(ctx.readers.length, 0);
 });
 
 test('the own-server getWindow resolves the id the bridge passes, not the launch id (#330 re-key)', async () => {

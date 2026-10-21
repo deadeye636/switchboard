@@ -40,13 +40,19 @@ async function collectRows(sources, ctx, log) {
 // which keeps this file free of electron and db. The returned function carries a `release` that the
 // composer runs together with the backend's cleanup, so the registration (token, open diffs) goes away
 // with the launch — also when the composer ends up building nothing.
-function ownServerSource({ backend, enabled, registerSession, sessionId, projectPath, getWindow, log } = {}) {
+// `groups` is the list of tool groups the caller computed from the launch's toggles (spec 35, D7); an empty
+// list registers nothing. `discovery` is the project-scoped reader the caller built for the `discovery`
+// group; it is handed to the registration only when that group is on.
+function ownServerSource({ backend, groups, discovery, registerSession, sessionId, projectPath, getWindow, log } = {}) {
+  const groupList = Array.isArray(groups) ? groups.filter((g) => typeof g === 'string' && g) : [];
   const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
   let registration = null;
   const source = async () => {
     const accepts = backend && Array.isArray(backend.acceptsMcpTransports) ? backend.acceptsMcpTransports : [];
-    if (!accepts.includes('http') || enabled !== true || typeof registerSession !== 'function') return [];
-    const got = await registerSession({ sessionId, projectPath, getWindow, groups: ['diff'], log });
+    if (!accepts.includes('http') || !groupList.length || typeof registerSession !== 'function') return [];
+    const reg = { sessionId, projectPath, getWindow, groups: groupList, log };
+    if (groupList.includes('discovery')) reg.discovery = discovery;
+    const got = await registerSession(reg);
     if (!got || got.unavailable || !got.url || !got.token) {
       lg.info(`[mcp-inject] own server unavailable: ${(got && got.reason) || 'no answer'}`);
       return [];

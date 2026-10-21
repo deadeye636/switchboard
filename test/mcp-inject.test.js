@@ -95,7 +95,7 @@ function stubRegister(result) {
 test('own server, option off: no row, registerSession not called, hook not called', async () => {
   const backend = fakeBackend();
   const { rec, fn } = stubRegister();
-  const source = ownServerSource({ backend, enabled: false, registerSession: fn, sessionId: 's', projectPath: '/p' });
+  const source = ownServerSource({ backend, groups: [], registerSession: fn, sessionId: 's', projectPath: '/p' });
   assert.strictEqual(await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source], options: {} }), null);
   assert.strictEqual(rec.calls.length, 0);
   assert.strictEqual(backend.calls.build.length, 0);
@@ -105,7 +105,7 @@ test('own server, option on: registered once, the row reaches the hook, both tea
   const backend = fakeBackend();
   const { rec, fn } = stubRegister();
   const options = {};
-  const source = ownServerSource({ backend, enabled: true, registerSession: fn, sessionId: 's', projectPath: '/p', getWindow: () => null });
+  const source = ownServerSource({ backend, groups: ['diff'], registerSession: fn, sessionId: 's', projectPath: '/p', getWindow: () => null });
   const out = await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source], options });
   assert.strictEqual(rec.calls.length, 1);
   assert.deepStrictEqual(rec.calls[0].groups, ['diff']);
@@ -123,7 +123,7 @@ test('own server, option on: registered once, the row reaches the hook, both tea
 test('own server: a backend without http never registers', async () => {
   const backend = fakeBackend({ acceptsMcpTransports: ['stdio'] });
   const { rec, fn } = stubRegister();
-  const source = ownServerSource({ backend, enabled: true, registerSession: fn });
+  const source = ownServerSource({ backend, groups: ['diff'], registerSession: fn });
   assert.deepStrictEqual(await source(), []);
   assert.strictEqual(rec.calls.length, 0);
 });
@@ -131,7 +131,7 @@ test('own server: a backend without http never registers', async () => {
 test('own server: unavailable yields no row and never throws', async () => {
   const backend = fakeBackend();
   const { fn } = stubRegister({ unavailable: true, reason: 'bind failed' });
-  const source = ownServerSource({ backend, enabled: true, registerSession: fn, log: makeLog() });
+  const source = ownServerSource({ backend, groups: ['diff'], registerSession: fn, log: makeLog() });
   assert.strictEqual(await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source] }), null);
   assert.doesNotThrow(() => source.release());
 });
@@ -140,7 +140,7 @@ test('own server: a registration is released when the hook declines or throws', 
   for (const buildMcpInjection of [() => null, () => { throw new Error('boom'); }]) {
     const backend = fakeBackend({ buildMcpInjection });
     const { rec, fn } = stubRegister();
-    const source = ownServerSource({ backend, enabled: true, registerSession: fn });
+    const source = ownServerSource({ backend, groups: ['diff'], registerSession: fn });
     assert.strictEqual(await composeMcpInjection({ backend, ctx: { log: makeLog() }, sources: [source] }), null);
     assert.strictEqual(rec.released, 1);
   }
