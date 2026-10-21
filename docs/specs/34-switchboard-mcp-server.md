@@ -1,7 +1,7 @@
 # 34 — Switchboard as an MCP server for a session: one injection seam, one HTTP transport, one diff tool
 
-Issues #333 (agy diff surface), #789 (inject MCP servers into launched sessions), with #507, #330 and #790 as
-later phases. Status: **built and confirmed end to end (G2, agy 1.4.3)**. The core and the agy slice are built,
+Issues #333 (agy diff surface), #789 (inject MCP servers into launched sessions), with #507, #330 (Codex, see
+"Codex (#330): launch overrides and an env-var token") and #790 as later phases. Status: **built and confirmed end to end (G2, agy 1.4.3)**. The core and the agy slice are built,
 tested against a stand-in client, and confirmed in an interactive agy session: the tool surfaces, a proposed
 `openDiff` opens in the file panel, accept/reject/edit answer the agent, and the user's shared
 `~/.gemini/config/mcp_config.json` is byte-unchanged. The one cost is agy's own heavy permission prompting:
@@ -298,6 +298,65 @@ touch the user's shared config — the one thing the diff channel is built to av
 server name, since ours carries a per-session tag. So the friction stays agy's own and is recorded as a limit
 in the product text above. #791 is closed on this basis.
 
+## Codex (#330): launch overrides and an env-var token
+
+Status: **specified, not built.** Same feature family as the agy slice, so it lives in this spec. The value
+question (a change seen before it lands, against the VCS seam of spec 15) is settled by the agy slice having
+shipped; it is not reopened here.
+
+**What changes for the user.** A second per-backend toggle, `diffTool`, on Codex, default **off** (D9), offering
+only `openDiff`. Same bridge, same HTTP listener, same file-panel review, same accept / reject / edit answer.
+The limits under "Known limits" apply to Codex unchanged: an offer, not a redirect, and Codex's own approval
+prompt keeps running in its terminal.
+
+**The channel: `-c` overrides, no file.** Measured against codex-cli 0.162.1 (backend-format-expert run): Codex
+resolves a streamable-HTTP MCP server purely from launch `-c key=value` overrides, so nothing is written to disk
+— not to `$CODEX_HOME/config.toml`, not to a project `.codex/config.toml`, not to an ephemeral file. The keys,
+under the table `mcp_servers.<name>`, with `<name>` the neutral row's name (`switchboard`):
+
+| Key | Value | Why |
+|---|---|---|
+| `mcp_servers.switchboard.url` | the listener URL, as a TOML string | the endpoint (`http://127.0.0.1:<port>/mcp`) |
+| `mcp_servers.switchboard.bearer_token_env_var` | `"SWITCHBOARD_MCP_TOKEN"` | names the env var Codex reads the Bearer token from |
+
+`startup_timeout_sec`, `tool_timeout_sec` and `enabled` exist and are not set by the first slice (see O2 below
+on the timeout). A `-c` value is one argv token (spawn mode `argv`, no shell), and the TOML string quotes are
+part of the token. Inline tables such as `http_headers={…}` are reachable the same way and are **not used**.
+
+**Why no file (D2 still holds).** D2 asked for a channel that is not the user's shared config and that leaves
+nothing behind after a crash. A launch override is that channel at its limit: it lives and dies with the
+process. Consequences, all of which are deletions against the agy slice: no real release work, no cleanup
+object, no stale-bundle sweep (agy's G1), no owner-record file, no safe-write question (reflex 11 never comes
+up). Codex' home variable (`cliHomeEnv`) is not involved, so the isolation rule is met without it — the earlier
+framing that Codex needs a per-session home or a project config file is superseded.
+
+**Token decision (settled): an env var, not a literal header.** The composer hands every backend the same
+neutral row `{ name: 'switchboard', transport: 'http', url, headers: { Authorization: 'Bearer <token>' } }`.
+Codex' `buildMcpInjection` reads the Bearer token out of that header and answers
+`{ args: [-c url…, -c bearer_token_env_var…], env: { SWITCHBOARD_MCP_TOKEN: <token> }, cleanup: null }`. The seam
+already passes `built.args` and `built.env` through (`src/app/mcp-inject.js`) and the spawn path merges the env
+below the user's and a template's variables (`src/app/terminal/spawn.js`). The reason for the env var: argv is
+visible in the process list to every local user, an environment is not. A row without a Bearer header gets a
+URL-only entry, and a row whose header is any other shape is skipped with a log line — the hook never writes a
+secret into argv.
+
+**Capability.** `acceptsMcpTransports: ['http']`, `providesMcpInjection: true`, `buildMcpInjection`, and a
+`releaseMcpInjection` that does nothing. The no-op is there because the parity guard requires the whole quartet
+of a backend that claims the capability (`test/backend-parity.test.js`) and a half-declared quartet is what the
+guard exists to refuse; the hook answers `cleanup: null`, so the composer never calls it with anything to remove.
+The source's own `release`, which drops the token registration and rejects open diffs, still runs through the
+composer. The
+`mcpInject` capability row moves from `no` to the same answer agy gives; which of `limited` or `yes` is O1. A
+template on Codex inherits the quartet through `profileToDescriptor`, which already forwards whatever the base
+declares.
+
+**Settled by the findings above, not open:** the channel (`-c`, no file), the token delivery (env var), the
+transport (`http` only), the absence of any cleanup work, the toggle (per-backend `diffTool`, default off), and that
+the bridge, the listener and the `diff` group are untouched.
+
+**Open (see the plan):** O1 the capability state, O2 the tool-call timeout, O3 the `-c` argv token through
+node-pty on Windows, O4 a clash with a user's own `switchboard` server entry. None blocks the first steps.
+
 ## Known limits to state in the product text
 
 - The agent has to choose the tool. Switchboard cannot make it.
@@ -321,9 +380,9 @@ Numbered so they can be referred to. Each is its own plan with its own go.
    a policy gate for unattended permission prompts) are that plan's content. Its "universal stdio bridge" is
    to be reconsidered against the HTTP listener built here, and against the existing WebSocket bridge, before any
    executable is added.
-2. **#330, Codex.** A second descriptor declaring the capability: Codex has a home variable and a
-   project-scoped config file, so the isolation question has an answer there. Transport is the same HTTP
-   listener; only the config writer (TOML) differs.
+2. **#330, Codex.** Specified in "Codex (#330): launch overrides and an env-var token" above; not built yet.
+   It needs no config writer after all: Codex takes the whole registration as `-c` launch overrides, so the
+   first reading here (a TOML config writer) is superseded.
 3. **#789, the per-project management screen.** The per-project source in the core module, prune and override of
    a backend's default servers, the settings surface (tabs, cards, toggles per the design note on the issue, two
    levels: installed globally and enabled per project). The hook it needs lands in this plan; the screen is a
