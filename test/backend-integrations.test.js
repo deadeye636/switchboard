@@ -153,6 +153,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/settings-maintenance.js': [],
   'src/renderer/panels/settings-shortcuts.js': [],
   'src/renderer/panels/settings-project-tags.js': [],
+  'src/renderer/panels/settings-external-mcp.js': [],
   'src/renderer/panels/settings-global-html.js': [],
   'src/renderer/shell/session-restore.js': [],
   'src/renderer/shell/detach-window.js': [],

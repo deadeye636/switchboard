@@ -160,6 +160,8 @@
     "settings-maintenance.js",
     "settings-shortcuts.js",
     "settings-project-tags.js",
+    "external-mcp-validate.js",
+    "settings-external-mcp.js",
     "settings-global-html.js",
     "settings-panel.js",
     "settings-window.js"

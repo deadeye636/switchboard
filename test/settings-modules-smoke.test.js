@@ -275,3 +275,54 @@ test('settings-tags: create returns its three functions and initTagDefsSection b
     `);
   } finally { destroy(); }
 });
+
+// #789: the project's MCP servers editor. Loaded the way settings.html loads it (utils.js for escapeHtml, the
+// shared validator, then the module), so a free identifier in it throws here and not in front of a user.
+test('settings-external-mcp: the text area renders the stored list, round-trips it and names a rejected entry', () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const body = window.document.getElementById('body');
+    const stored = [{ name: 'docs', transport: 'http', url: 'https://example.invalid/mcp' }];
+    body.innerHTML = mod.sectionHtml(stored);
+
+    const ta = body.querySelector('textarea.settings-input#sv-external-mcp');
+    assert.ok(ta, 'the editor is a styled settings textarea');
+    assert.deepStrictEqual(JSON.parse(ta.value), stored);
+    mod.bind(body, new window.AbortController().signal);
+
+    // A good list round-trips.
+    let res = mod.read(body);
+    assert.strictEqual(res.problem, '');
+    assert.strictEqual(res.list[0].name, 'docs');
+
+    // Blank means an empty list.
+    ta.value = '  ';
+    res = mod.read(body);
+    assert.strictEqual(res.problem, '');
+    assert.deepStrictEqual(Array.from(res.list), []);
+
+    // A bad entry is refused with a sentence naming the entry and the field.
+    ta.value = JSON.stringify([{ name: 'bad name', transport: 'stdio', command: 'x' }, stored[0]]);
+    res = mod.read(body);
+    assert.match(res.problem, /Entry 1 \("bad name"\): name "bad name" may only use/);
+
+    // Invalid JSON is reported, not dropped.
+    ta.value = '[{';
+    res = mod.read(body);
+    assert.match(res.problem, /not valid JSON/);
+    assert.match(body.querySelector('#sv-external-mcp-status').textContent, /not valid JSON/);
+
+    // A literal secret warns and does not block.
+    ta.value = JSON.stringify([{ name: 'a', transport: 'stdio', command: 'x', env: { API_KEY: 'sk-abcdef123456' } }]);
+    res = mod.read(body);
+    assert.strictEqual(res.problem, '');
+    assert.match(body.querySelector('#sv-external-mcp-status').textContent, /literal secret/);
+  } finally { dom.window.close(); }
+});

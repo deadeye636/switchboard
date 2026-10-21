@@ -641,6 +641,7 @@
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">Extensions</div>
           <button class="settings-nav-item" data-cat="launchers">Terminal tools</button>
+          <button class="settings-nav-item" data-cat="mcp">MCP servers <span class="settings-nav-count"></span></button>
           <div class="settings-nav-sep" id="sv-nav-backends-sep" hidden></div>
           <div class="settings-nav-head" id="sv-nav-backends-head" hidden>Backends</div>
           <div id="sv-nav-backends"></div>
@@ -856,6 +857,7 @@
         <div class="settings-cat-head"><h2>Terminal tools</h2><p>This project's own launchers, on top of the global ones.</p></div>
         <div id="sv-launchers-root"></div>
         </section>
+${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETTING_KEY])}
 
         <!-- Per-backend launch defaults (T-2.6) + that backend's resources (#490). One SECTION per
              backend, appended by backends-panel.js once main has answered which backends there are —
@@ -865,6 +867,7 @@
         </div>
       </div>`;
       wireTwoPane();
+      window.settingsExternalMcp.bind(settingsViewerBody, listenerSignal);
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
@@ -1163,6 +1166,14 @@
       let settings = {};
 
       if (isProject) {
+        // The MCP servers list (#789) is checked BEFORE anything is written: an entry the launch would drop
+        // silently is refused here, with the reason on screen, and the whole save waits for the fix.
+        const mcp = window.settingsExternalMcp.read(settingsViewerBody);
+        if (mcp.problem) {
+          settingsViewerBody.querySelector('.settings-nav-item[data-cat="mcp"]')?.click();
+          return false;
+        }
+        if (mcp.list !== undefined) settings[window.settingsExternalMcp.SETTING_KEY] = mcp.list;
         // Only save fields where "use global" is unchecked
         settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
           if (!cb.checked) {
@@ -1628,7 +1639,7 @@
 
     // Save button
     svBtn('#sv-save-btn').addEventListener('click', async () => {
-      await persistSettings();
+      if (await persistSettings() === false) return;
       flashSaved(svBtn('#sv-save-btn'));
       setTimeout(() => closeSettingsViewer(), 600);
     });
@@ -1641,7 +1652,7 @@
     // still be holding the pre-Apply state. Rebuilding is what makes Apply idempotent
     // and leaves Cancel discarding only what was edited since.
     svBtn('#sv-apply-btn').addEventListener('click', async () => {
-      await persistSettings();
+      if (await persistSettings() === false) return;
       flashSaved(svBtn('#sv-apply-btn'));
       // Come back to the category the user was on, not to the top of the nav.
       const activeCat = settingsViewerBody.querySelector('.settings-nav-item.active')?.dataset.cat || null;
