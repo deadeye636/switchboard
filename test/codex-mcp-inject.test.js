@@ -80,8 +80,60 @@ test('a name that is not a bare TOML key declines', () => {
   }
 });
 
-test('a stdio-only list declines (only http is accepted here)', () => {
-  assert.equal(buildMcpInjection({ cwd: CWD, servers: [{ ...ROW, transport: 'stdio' }] }), null);
+test('a stdio row without a command declines', () => {
+  assert.equal(buildMcpInjection({ cwd: CWD, servers: [{ name: 'x', transport: 'stdio', args: [], env: {} }] }), null);
+});
+
+const STDIO = { name: 'ext', transport: 'stdio', command: 'npx', args: ['-y', 'srv'], env: { API_KEY: 'sek-ret-1' }, cwd: '/w' };
+
+test('a stdio row emits command/args/cwd and env_vars; the value rides the env, not argv', () => {
+  const out = buildMcpInjection({ cwd: CWD, servers: [STDIO] });
+  assert.deepEqual(out.args, [
+    '-c', 'mcp_servers.ext.command="npx"',
+    '-c', 'mcp_servers.ext.args=["-y","srv"]',
+    '-c', 'mcp_servers.ext.cwd="/w"',
+    '-c', 'mcp_servers.ext.env_vars=["API_KEY"]',
+  ]);
+  assert.deepEqual(out.env, { API_KEY: 'sek-ret-1' });
+  assert.ok(!JSON.stringify(out.args).includes('sek-ret-1'));
+});
+
+test('a stdio row without cwd, args or env emits the command only', () => {
+  const out = buildMcpInjection({ cwd: CWD, servers: [{ name: 'a', transport: 'stdio', command: 'x', args: [], env: {} }] });
+  assert.deepEqual(out.args, ['-c', 'mcp_servers.a.command="x"']);
+  assert.equal(out.env, null);
+});
+
+test('two servers sharing an env key with different values: the later is skipped and logged without the value', () => {
+  const lines = [];
+  const second = { ...STDIO, name: 'ext2', env: { API_KEY: 'other-value' } };
+  const out = buildMcpInjection({ cwd: CWD, servers: [STDIO, second], log: { info: m => lines.push(m) } });
+  assert.ok(out.args.every(a => !a.includes('mcp_servers.ext2.')));
+  assert.deepEqual(out.env, { API_KEY: 'sek-ret-1' });
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].includes('ext2') && lines[0].includes('API_KEY'));
+  assert.ok(!lines[0].includes('other-value') && !lines[0].includes('sek-ret-1'));
+  // same key, same value is fine
+  const same = buildMcpInjection({ cwd: CWD, servers: [STDIO, { ...STDIO, name: 'ext3' }] });
+  assert.ok(same.args.includes('mcp_servers.ext3.command="npx"'));
+});
+
+test('an invalid env key skips the stdio row', () => {
+  assert.equal(buildMcpInjection({ cwd: CWD, servers: [{ ...STDIO, env: { 'A=B': 'v' } }] }), null);
+});
+
+test('an external http row with a non-bearer header forwards it through env_http_headers', () => {
+  const out = buildMcpInjection({ cwd: CWD, servers: [{ name: 'web', transport: 'http', url: 'http://h/mcp', headers: { 'X-Api-Key': 'hdr-secret' } }] });
+  assert.deepEqual(out.args, [
+    '-c', 'mcp_servers.web.url="http://h/mcp"',
+    '-c', 'mcp_servers.web.env_http_headers={"X-Api-Key"="WEB_MCP_HDR_X_API_KEY"}',
+  ]);
+  assert.deepEqual(out.env, { WEB_MCP_HDR_X_API_KEY: 'hdr-secret' });
+  assert.ok(!JSON.stringify(out.args).includes('hdr-secret'));
+});
+
+test('codex accepts both http and stdio transports', () => {
+  assert.deepEqual(require('../src/backends/codex').acceptsMcpTransports, ['http', 'stdio']);
 });
 
 test('releaseMcpInjection is a no-op that never throws', () => {

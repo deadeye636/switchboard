@@ -289,7 +289,7 @@ description:
   // Per-spawn MCP injection (spec 34): `-c mcp_servers.<name>.*` overrides plus an env token, no file
   // written. Codex reads its servers over HTTP only here. See `./mcp-inject.js`.
   providesMcpInjection: true,
-  acceptsMcpTransports: ['http'],
+  acceptsMcpTransports: ['http', 'stdio'],
   buildMcpInjection: mcpInject.buildMcpInjection,
   releaseMcpInjection: mcpInject.releaseMcpInjection,
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
