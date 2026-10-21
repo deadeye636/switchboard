@@ -71,6 +71,8 @@ function setup({ backend = fakeBackend(), userEnv = {}, sessions = [], quitting 
     ensureProjectAdded: () => {},
     registerMcpHttpSession: async (o) => { ctx.registered.push(o); return { url: 'http://127.0.0.1:1/mcp', token: 't', release: () => { ctx.registrationReleased++; } }; },
     registered: [], registrationReleased: 0,
+    windowForSessionCalls: [], windowsById: new Map(),
+    windowForSession: (id) => { ctx.windowForSessionCalls.push(id); return ctx.windowsById.get(id) || null; },
     startMcpServer: async () => null,
     shutdownMcpServer: () => {},
     startAgentProcess: () => makeFakePty(),
@@ -178,6 +180,26 @@ test('the own-server source registers only when the backend option is on, with t
   assert.equal(ctx.registered[0].sessionId, 'o2');
   assert.deepEqual(ctx.registered[0].groups, ['diff']);
   assert.equal(rows[0].transport, 'http');
+});
+
+test('the own-server getWindow resolves the id the bridge passes, not the launch id (#330 re-key)', async () => {
+  reset();
+  const backend = fakeBackend({ acceptsMcpTransports: ['http'] });
+  const ctx = setup({ backend });
+  await spawn.openTerminal('launch-id', CWD, true, { backendId: 'codex', diffTool: true });
+  await composerCalls[0].sources[0]();              // run the source so it registers and hands over getWindow
+  const getWindow = ctx.registered[0].getWindow;
+  assert.equal(typeof getWindow, 'function');
+  // A backend that adopts its own session id re-keys the registration; the bridge then calls
+  // getWindow(entry.sessionId) with the NEW id. A closure over the launch id would miss the window.
+  const rekeyedWindow = { isDestroyed: () => false, webContents: { send() {} } };
+  ctx.windowsById.set('rekeyed-id', rekeyedWindow);
+  assert.equal(getWindow('rekeyed-id'), rekeyedWindow, 'resolves the window under the passed (re-keyed) id');
+  assert.ok(ctx.windowForSessionCalls.includes('rekeyed-id'), 'windowForSession was asked for the re-keyed id');
+  // No id (defensive) still falls back to the launch id.
+  ctx.windowForSessionCalls.length = 0;
+  getWindow();
+  assert.deepEqual(ctx.windowForSessionCalls, ['launch-id'], 'falls back to the launch id when none is passed');
 });
 
 test('exit releases exactly once', async () => {

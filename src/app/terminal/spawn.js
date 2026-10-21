@@ -1054,7 +1054,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           backend, ctx, dir: ctx.bindingDir, tag: terminalTag, cwd: projectPath, options: mcpOptions,
           sources: [ownServerSource({
             backend, enabled: mcpOptions.diffTool === true, registerSession: ctx.registerMcpHttpSession, sessionId, projectPath,
-            getWindow: () => (ctx.windowForSession ? ctx.windowForSession(sessionId) : ctx.getMainWindow()),
+            // Honour the id the bridge passes (`entry.getWindow(entry.sessionId)`): a backend that adopts
+            // its own session id re-keys the registration, and a closure over the launch-time id would then
+            // resolve a window that no longer exists — the diff is sent nowhere, silently (#330).
+            getWindow: (sid) => (ctx.windowForSession ? ctx.windowForSession(sid || sessionId) : ctx.getMainWindow()),
             log: ctx.log,
           })],
         });
