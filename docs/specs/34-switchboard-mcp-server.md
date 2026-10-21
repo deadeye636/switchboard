@@ -165,7 +165,7 @@ Settled by T1 on a real agy, recorded in `docs/backend-formats.md`, and this sec
 | Q3 | **(answered)** Does agy send a configured `headers` map on every request, including a Bearer token, and which protocol version does it request? | The auth and `initialize` reply. | T6 |
 | Q4 | **(open)** **How long will agy wait for a tool call?** A review can take minutes (the bridge allows ten). | A blocking `openDiff` that outlives the client's timeout is an error the user sees. If the timeout is short, the tool becomes two-phase (open returns a handle, a second call collects the answer) or uses a streamed response with keep-alives. | T7 |
 | Q5 | **(answered)** Does a workspace plugin directory, if it is the channel, merge with the global servers or replace them, and does it show up in agy's plugin listing and in this app's resources panel? | Pollution of the user's project and of the listing built in #547/#611. | T8 |
-| Q6 | **(answered for the handshake; the tool-level trust step is open)** Does agy accept an MCP server that is only present in a per-launch file when its trust prompt for servers differs by origin? | A second prompt per session would make the offer unusable. | T8 |
+| Q6 | **(answered)** Does agy accept an MCP server that is only present in a per-launch file when its trust prompt for servers differs by origin? The handshake has no origin-specific prompt; the tool-level approval friction that remains is an accepted limit — see #791 below. | A second prompt per session would make the offer unusable. | T8 |
 
 ### Q1 confirmed, 2026-10-20, agy 1.4.3 — a project-tree channel loads end to end
 
@@ -285,9 +285,18 @@ agy's `/mcp`, opened a proposed diff in the file panel, and returned `ACCEPTED` 
 `ACCEPTED_WITH_EDITS` to the agent. The shared `~/.gemini/config/mcp_config.json` stayed byte-unchanged
 throughout. So the scripted "not reproduced" was a test-setup gap, not an agy limitation.
 
-**Still open.** Q4 (how long agy waits for a tool call, so whether `openDiff` must become two-phase) and the
-tool-level trust question of Q6 can only be answered against a real agy calling the tool. `openDiff`
-currently blocks until the user answers or the ten-minute cap passes.
+**Still open.** Q4 (how long agy waits for a tool call, so whether `openDiff` must become two-phase) can only
+be answered against a real agy calling the tool. `openDiff` currently blocks until the user answers or the
+ten-minute cap passes.
+
+**#791, agy's approval friction — accepted limit, 2026-10-21.** G2 measured agy prompting many times before
+it would call `openDiff`. The investigation found no per-plugin or per-project trust that Switchboard could
+set to reduce it. agy's only pre-approval for MCP tools is `permissions.allow` with `mcp(server/tool)` in the
+user-global `~/.gemini/antigravity-cli/settings.json`; an `alwaysAllow`/`autoApprove` field in the plugin
+bundle or `mcp_config.json` is undocumented and is reported as ignored. Writing to the global settings would
+touch the user's shared config — the one thing the diff channel is built to avoid — and would need a fixed
+server name, since ours carries a per-session tag. So the friction stays agy's own and is recorded as a limit
+in the product text above. #791 is closed on this basis.
 
 ## Known limits to state in the product text
 
@@ -295,7 +304,8 @@ currently blocks until the user answers or the ten-minute cap passes.
 - agy's own approval prompt still runs in its terminal, and in practice agy prompts **heavily** before it
   will call an MCP tool — measured in G2 as many prompts for one `openDiff`, well beyond the "two prompts for
   one change" the first draft assumed. The diff round-trip works, but the agent-side approval friction is agy's
-  and Switchboard cannot remove it.
+  and Switchboard cannot remove it without writing to the user's shared config (#791, resolved as an accepted
+  limit — see below).
 - Offering a tool costs the model context on every turn, so the option is a per-backend toggle in the launch
   options, applied at spawn, defaulting **off** (D9).
 - A diff proposed for a file the agent then edits differently is not detected. The VCS seam shows what actually
