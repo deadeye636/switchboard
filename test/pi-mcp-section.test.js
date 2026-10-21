@@ -78,6 +78,46 @@ test('Pi gets the extension and the env for its source\'s MCP servers; without a
   assert.deepEqual(refused.dropped.map((d) => [d.kind, d.name, d.reason]), [['mcp-server', 'a', 'extension-not-written']]);
 });
 
+test('#789: a project\'s external servers reach the section: stdio only, expanded, filtered, secret off argv', (t) => {
+  const { externalServersSource } = require('../src/app/mcp-inject');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-789-pi-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const SECRET = 'pi-ext-secret-77c1';
+  const logged = [];
+  const log = { info: (m) => logged.push(m), debug() {}, warn() {}, error() {} };
+  const seeded = [
+    { name: 'ok', transport: 'stdio', command: 'sample-server', args: ['--flag'], env: { K: '${SAMPLE_KEY}' } },
+    { name: 'web', transport: 'http', url: 'https://mcp.example.test/v1', headers: {} },
+    { name: 'unset', transport: 'stdio', command: 'x', env: { K: '${SAMPLE_MISSING}' } },
+    { name: 'other', transport: 'stdio', command: 'o', backends: ['codex'] },
+    { name: 'off', transport: 'stdio', command: 'o', enabled: false },
+    { name: 'with-cwd', transport: 'stdio', command: 'o', cwd: '/sample/work' },
+    { name: 'a', transport: 'stdio', command: 'dup-external' },
+  ];
+  const getSetting = (key) => (key.startsWith('project:') ? { externalMcpServers: seeded } : undefined);
+  const backend = { id: 'pi' };
+  const externalServers = externalServersSource({ backend, getSetting, projectPath: dir, getEnv: () => ({ SAMPLE_KEY: SECRET }), log });
+  const resolved = { ok: true, skills: [], commands: [], agents: [], dropped: [], mcpServers: [{ name: 'a', scope: 'global', path: '<home>/cfg', command: 'node', args: [], env: {} }] };
+  const built = sessionResources.buildSessionResources({ dir, tag: 'tag789', options: { resourcesFrom: 'src' }, resolveSource: () => resolved, externalServers, log });
+  const list = JSON.parse(built.env[mcp.ENV_KEY]);
+  assert.deepEqual(list.map((s) => s.name), ['a', 'ok'], 'shared first, then the external stdio server; the rest left out');
+  assert.equal(list[0].command, 'node', 'a name the source holds wins');
+  assert.deepEqual(list[1], { name: 'ok', command: 'sample-server', args: ['--flag'], env: { K: SECRET } }, 'expanded value rides the env var');
+  assert.ok(logged.some((m) => /"web".*only stdio/.test(m)), 'http row dropped with a log');
+  assert.ok(logged.some((m) => /"with-cwd".*working directory/.test(m)));
+  assert.ok(logged.some((m) => /"a" skipped/.test(m)));
+  assert.ok(logged.some((m) => /SAMPLE_MISSING/.test(m)));
+  assert.ok(!logged.some((m) => m.includes(SECRET)), 'no value in a log line');
+  assert.ok(!built.args.some((a) => String(a).includes(SECRET)), 'no secret on argv');
+  assert.doesNotMatch(fs.readFileSync(built.args[1], 'utf8'), new RegExp(SECRET), 'none in the generated file');
+  assert.deepEqual(built.mcpServers.map((s) => s.name), ['a', 'ok'], 'the logged answer carries names only');
+  // With no "Resources from" source at all, the external servers alone still write the section.
+  const alone = sessionResources.buildSessionResources({ dir, tag: 'tag789b', options: {}, externalServers, log });
+  assert.deepEqual(JSON.parse(alone.env[mcp.ENV_KEY]).map((s) => s.name), ['ok', 'a']);
+  // An empty external set changes nothing.
+  assert.equal(sessionResources.buildSessionResources({ dir, tag: 'tag789c', options: {}, externalServers: () => [], log }), null);
+});
+
 // ── The section, run against a real stdio server ─────────────────────────────────────────────────────
 //
 // Modelled on what Pi does, read in its 0.84.4 dist: the module is evaluated once per process (again on

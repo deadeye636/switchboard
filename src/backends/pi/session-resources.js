@@ -38,18 +38,41 @@ const HOOKS_OPTION_ID = 'sourceHooks';
  * has the resolver's shape: a promise when it returns one (the spawn path), the value itself when it does
  * not — which lets `scripts/managed-flags.js` derive the flags synchronously, as it does every other flag.
  */
-function buildSessionResources({ dir, tag, options, resolveSource, log } = {}) {
+function buildSessionResources({ dir, tag, options, resolveSource, externalServers, log } = {}) {
   const opts = options || {};
   const sourceId = typeof opts[SOURCE_OPTION_ID] === 'string' ? opts[SOURCE_OPTION_ID].trim() : '';
   // Strictly `true`: the tool defaults OFF, and "nobody said anything" has to mean no.
   const subagent = opts[subagentTool.OPTION_ID] === true ? { agentsDir: subagentTool.agentsDirFrom(opts) } : null;
   const resolved = sourceId && typeof resolveSource === 'function' ? resolveSource(sourceId) : null;
-  const finish = (value) => assemble({ dir, tag, sourceId, resolved: value, subagent, log });
+  const external = externalMcpRows(externalServers, log);
+  const finish = (value) => assemble({ dir, tag, sourceId, resolved: value, subagent, external, log });
   if (resolved && typeof resolved.then === 'function') return resolved.then(finish);
   return finish(resolved);
 }
 
-function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
+// The project's external MCP servers (#789, spec 36) as rows for the MCP section. `externalServers` is the
+// core's neutral source (rows already validated, `${VAR}`-expanded, filtered by enabled/backends). Pi takes
+// them through this section only — stdio, no `cwd` (the section starts a server in the session's directory) —
+// and never through its own mcp.json, so one entry never has two clients. A row it cannot take is said, by
+// name, never by value.
+function externalMcpRows(externalServers, log) {
+  let rows = [];
+  try { rows = typeof externalServers === 'function' ? externalServers() : []; } catch { rows = []; }
+  const taken = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || typeof r.name !== 'string') continue;
+    if (r.transport !== 'stdio') {
+      if (log) log.info(`[session-resources] external MCP server "${r.name}" not given to Pi: only stdio servers are supported`);
+    } else if (r.cwd !== undefined) {
+      if (log) log.info(`[session-resources] external MCP server "${r.name}" not given to Pi: a working directory is not supported`);
+    } else {
+      taken.push({ name: r.name, scope: 'project', origin: 'external', path: null, command: r.command, args: r.args, env: r.env });
+    }
+  }
+  return taken;
+}
+
+function assemble({ dir, tag, sourceId, resolved, subagent, external = [], log }) {
   let skills = [];
   let commands = [];
   let agents = [];
@@ -66,6 +89,15 @@ function assemble({ dir, tag, sourceId, resolved, subagent, log }) {
       mcpServers = resolved.mcpServers || [];
       hooks = resolved.hooks || [];
       dropped = [...(resolved.dropped || [])];
+    }
+  }
+  // The external servers join the list the section reads; a name the source already holds wins (first wins).
+  if (external.length) {
+    const seen = new Set(mcpServers.map((m) => m.name));
+    for (const m of external) {
+      if (seen.has(m.name)) { if (log) log.info(`[session-resources] external MCP server "${m.name}" skipped: the name is already taken`); continue; }
+      seen.add(m.name);
+      mcpServers = [...mcpServers, m];
     }
   }
   // A source's agents run through the subagent tool (#639), and the core only hands them over while that tool

@@ -1008,6 +1008,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
             // The env a source expands its definitions against (`${VAR}` in an MCP server): the session's own,
             // resolved — an unresolved `$OPENAI_API_KEY` reference would otherwise stand in for the key.
             resolveSource: (sourceId) => resourceSources.resolve({ target: backend, sourceId, projectPath: projectPath || null, options, env: quietSessionEnv() }),
+            // The project's external MCP servers (spec 36) as neutral rows; the backend takes what its channel can.
+            externalServers: externalServersSource({ backend, getSetting: ctx.getSetting, projectPath, getEnv: quietSessionEnv, log: ctx.log }),
             log: ctx.log,
           });
           if (built && Array.isArray(built.args) && built.args.length) {
