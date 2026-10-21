@@ -12,6 +12,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { noteWork } = require('../perf');
+const { DISCOVERY_TOOLS, run: runDiscoveryTool } = require('./discovery-tools');
 
 // Where Claude looks for IDE lock files. Follows the isolated home (#241): SWITCHBOARD_STORE_CLAUDE
 // names the projects dir, the home is its parent. Resolved per call — the bridge is required at load,
@@ -146,6 +147,7 @@ const DIFF_TOOLS = [
 const TOOL_GROUPS = {
   ide: MCP_TOOLS,
   diff: DIFF_TOOLS,
+  discovery: DISCOVERY_TOOLS,
 };
 
 // The tools an entry exposes, assembled from the groups its transport was opened with. A `ws` entry
@@ -154,6 +156,8 @@ const TOOL_GROUPS = {
 function toolsFor(entry) {
   const tools = [];
   for (const group of entry.groups) {
+    // The `discovery` group is offered only when the registration carries its reader.
+    if (group === 'discovery' && !entry.discovery) continue;
     const groupTools = TOOL_GROUPS[group];
     if (groupTools) tools.push(...groupTools);
   }
@@ -261,10 +265,11 @@ async function handleToolCall(entry, rpcId, params, log) {
   // An entry opened with the `diff` group gets that group's handlers; a name no group of the entry
   // carries falls through to the `ide` switch below (a `ws` entry never has another group).
   for (const group of entry.groups) {
+    if (group === 'discovery' && !entry.discovery) continue;
     const handler = TOOL_HANDLERS[group] && TOOL_HANDLERS[group][toolName];
     if (handler) return handler(entry, rpcId, args, log);
   }
-  if (entry.groups.includes('diff') && !entry.groups.includes('ide')) {
+  if (!entry.groups.includes('ide')) {
     return sendError(entry, rpcId, -32602, `Unknown tool: ${toolName}`);
   }
 
@@ -419,8 +424,16 @@ async function handleAgentOpenDiff(entry, rpcId, args, log) {
 
 // Handlers per group, for groups whose tool names may collide with another group's. `ide` is not listed:
 // its tools keep the switch in handleToolCall, untouched.
+// The discovery handlers are thin: the pure `run` (discovery-tools.js) decides the result, this only sends it.
+function discoveryHandler(toolName) {
+  return async (entry, rpcId, args, log) => {
+    sendResult(entry, rpcId, await runDiscoveryTool(toolName, args, { reader: entry.discovery, log }));
+  };
+}
+
 const TOOL_HANDLERS = {
   diff: { openDiff: handleAgentOpenDiff },
+  discovery: Object.fromEntries(DISCOVERY_TOOLS.map((t) => [t.name, discoveryHandler(t.name)])),
 };
 
 async function handleOpenFile(entry, rpcId, args, log) {
@@ -639,10 +652,11 @@ async function startMcpServer(sessionId, workspaceFolders, getWindow, log) {
  * to the response that carried its request id. `getWindow` and `groups` work exactly as for a `ws` entry,
  * so `targetWindow`, the pending-diff lifecycle and `toolsFor` need no transport-specific branch.
  */
-function createHttpEntry({ sessionId, getWindow, groups, projectPath, diffTimeoutMs }) {
+function createHttpEntry({ sessionId, getWindow, groups, projectPath, diffTimeoutMs, discovery }) {
   const entry = {
     sessionId,
     kind: 'http',
+    discovery: discovery || null,
     projectPath: projectPath || null,
     diffTimeoutMs: diffTimeoutMs > 0 ? diffTimeoutMs : 0,
     groups: Array.isArray(groups) ? groups : [],
