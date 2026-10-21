@@ -307,7 +307,7 @@ description:
     quota: { state: 'limited', note: 'read from the last rollout, so only as fresh as the last turn' },
     contextFill: 'yes',
     resumeModel: 'yes',
-    mcpInject: { state: 'limited', note: 'passes a per-session server with -c overrides and an env token; the connection is built, but whether Codex offers the tools to the model is not yet confirmed' },
+    mcpInject: { state: 'yes', note: 'passes a per-session server with -c overrides and an env token; a real Codex lists the server and calls its tools' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

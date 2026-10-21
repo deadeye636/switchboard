@@ -641,7 +641,8 @@ core drops a row the CLI cannot take instead of writing a config it will reject)
 composes it and names no backend. Every backend answers the flag, declining included
 (`providesMcpInjection: false` with a comment naming why, and none of the other three), and the `mcpInject`
 capability row says the same; `test/backend-parity.test.js` pins the shape. A template forwards the whole
-quartet in `profileToDescriptor`: the declaration without the hook it promises would be a half.
+quartet in `profileToDescriptor`: the declaration without the hook it promises would be a half. agy (a plugin bundle on disk) and Codex
+(launch `-c` overrides, no file, token via an env var) are the two consumers.
 
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
 backend's own folder cannot list other backends (reflex 5), so the core fills the choices at the

@@ -300,7 +300,7 @@ in the product text above. #791 is closed on this basis.
 
 ## Codex (#330): launch overrides and an env-var token
 
-Status: **specified, not built.** Same feature family as the agy slice, so it lives in this spec. The value
+Status: **built** and confirmed end to end (see "As built (Codex)" below). Same feature family as the agy slice, so it lives in this spec. The value
 question (a change seen before it lands, against the VCS seam of spec 15) is settled by the agy slice having
 shipped; it is not reopened here.
 
@@ -346,7 +346,7 @@ of a backend that claims the capability (`test/backend-parity.test.js`) and a ha
 guard exists to refuse; the hook answers `cleanup: null`, so the composer never calls it with anything to remove.
 The source's own `release`, which drops the token registration and rejects open diffs, still runs through the
 composer. The
-`mcpInject` capability row moves from `no` to the same answer agy gives; which of `limited` or `yes` is O1. A
+`mcpInject` capability row moves from `no` to `yes` (O1, settled by G2 below). A
 template on Codex inherits the quartet through `profileToDescriptor`, which already forwards whatever the base
 declares.
 
@@ -354,8 +354,28 @@ declares.
 transport (`http` only), the absence of any cleanup work, the toggle (per-backend `diffTool`, default off), and that
 the bridge, the listener and the `diff` group are untouched.
 
-**Open (see the plan):** O1 the capability state, O2 the tool-call timeout, O3 the `-c` argv token through
-node-pty on Windows, O4 a clash with a user's own `switchboard` server entry. None blocks the first steps.
+**As built (Codex).** The hook is `src/backends/codex/mcp-inject.js`, declared on the descriptor as the same
+quartet agy has, and the `mcpInject` row answers **`yes`**. Confirmed by G2 on codex-cli 0.162.1 with model
+gpt-6.1-sol, in an interactive session with `diffTool` on:
+
+- Codex listed the `switchboard` server and called `openDiff`; the diff opened in the file panel on its own,
+  and accept, reject and edit each answered the agent. (O1: tool surfacing is proven, so `yes`, not `limited`.)
+- The spawn's argv carried exactly the two `-c` overrides from the table above and no token; the token was in
+  the environment only.
+- **O3 is confirmed:** the `-c key="value"` quoting survives ConPTY on Windows.
+- No file was written. The user's `~/.codex/config.toml` was byte-unchanged, and the isolated
+  `$CODEX_HOME/config.toml` of the demo held only Codex' own state (tui, trust, sandbox), no
+  `mcp_servers.switchboard`.
+
+A routing bug surfaced in that run and was fixed in `cc6913c8`. A backend that adopts its own session id
+(Codex, Pi, agy) re-keys the MCP registration after launch. The own-server `getWindow` in
+`src/app/terminal/spawn.js` closed over the launch-time id and ignored the id the bridge passes, so after the
+re-key a diff went to a stale window and was never shown. It now honours the bridge's id. The fix is general:
+it covers the diff and `openFile` routing of every adopting backend, not only Codex.
+
+**Open (see the plan):** O2 the tool-call timeout, O4 a clash with a user's own `switchboard` server entry.
+G2 did not measure O2: Codex' default `tool_timeout_sec` applies (the first slice sets none), and `openDiff`
+blocks until the user answers or the bridge's ten-minute cap passes. O1 and O3 are settled above.
 
 ## Known limits to state in the product text
 

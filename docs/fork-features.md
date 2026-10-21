@@ -465,6 +465,13 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   ours — in practice agy prompts heavily before it will call the tool. Confirmed end to end in an interactive
   agy session (the diff opens and accept/reject/edit answer the agent); off by default. Spec:
   [`specs/34-switchboard-mcp-server.md`](specs/34-switchboard-mcp-server.md).
+- **The same diff-review tool offered to Codex (#330)** — an opt-in `diffTool` launch option on Codex, riding
+  the seam of the agy slice. Nothing is written to disk: Switchboard passes the loopback endpoint as launch
+  `-c mcp_servers.switchboard.*` overrides and hands the token over in an environment variable, so it never
+  appears in the process list. Same `openDiff` tool, same file-panel review, same accept / reject / edit
+  answer. An offer, not a redirect: Codex's own approval prompt still runs. Confirmed end to end in an
+  interactive Codex session; off by default. Spec:
+  [`specs/34-switchboard-mcp-server.md`](specs/34-switchboard-mcp-server.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says

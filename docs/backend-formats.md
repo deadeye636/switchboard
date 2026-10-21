@@ -341,6 +341,12 @@ Measured on Codex CLI 0.160.1, in a Codex home of its own, without Switchboard.
   code 1 and `account/read failed during TUI bootstrap: … workspace routing discovery failed (code -32603)`, and
   its log said `failed to refresh available models: Connection failed`. The next resume worked. A resume that
   dies on its own after half a minute is this, not a held thread.
+- **MCP channel for one launch (#330, spec 34), measured on codex-cli 0.162.1.** Codex resolves a
+  streamable-HTTP server purely from launch `-c` overrides, so nothing is written to disk:
+  `-c mcp_servers.switchboard.url="<url>"` and `-c mcp_servers.switchboard.bearer_token_env_var="SWITCHBOARD_MCP_TOKEN"`,
+  with the token itself in the child's environment, never in argv. The `-c key="value"` quoting survives
+  ConPTY on Windows. `$CODEX_HOME/config.toml` stayed byte-unchanged. Confirmed in an interactive session
+  (model gpt-6.1-sol): Codex lists the `switchboard` server and calls `openDiff`.
 
 ## Hermes — SQLite
 
