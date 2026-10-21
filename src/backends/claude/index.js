@@ -23,6 +23,7 @@ const transcriptView = require('./transcript-view');
 const liveBinding = require('./live-binding');
 const resources = require('./resources');
 const mcpServers = require('./mcp-servers');
+const mcpInject = require('./mcp-inject');
 const hooksConfig = require('./hooks-config');
 
 // This CLI's tool names onto the neutral words (`../tool-vocabulary.js`). Named here because TWO
@@ -751,9 +752,12 @@ module.exports = {
   // file registering a SessionEnd:clear hook (which session ENDED, #223) and, on ordinary turn events, a
   // "this terminal IS that session" post (#303) — see live-binding.js for what was measured for each.
   supportsLiveRebinding: true,
-  // Per-spawn MCP injection (spec 34): declines for now — Claude's own MCP channel is not wired to the
-  // app's session server yet.
-  providesMcpInjection: false,
+  // Per-spawn MCP injection (spec 34, plan 789): a 0600 `--mcp-config` file per spawn, removed on release.
+  // The app's own bridge stays on `--ide`; this carries a project's external servers. See `./mcp-inject.js`.
+  providesMcpInjection: true,
+  acceptsMcpTransports: ['stdio', 'http'],
+  buildMcpInjection: mcpInject.buildMcpInjection,
+  releaseMcpInjection: mcpInject.releaseMcpInjection,
 
   // Does the CLI still owe a turn? (#495) Claude fires `UserPromptSubmit` when a prompt is ENQUEUED, so
   // a `Stop` can arrive after that busy edge and overwrite it while a queued prompt is still waiting to
@@ -1153,7 +1157,7 @@ description:
     contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
     resumeModel: 'yes',
     turnDigest: 'yes',
-    mcpInject: { state: 'no', note: 'declines for now; its MCP channel is not wired to the app\'s session server yet' },
+    mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file; the app\'s own session server still travels over --ide, and a live Claude listing them is not yet checked' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.
