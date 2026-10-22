@@ -188,10 +188,13 @@ inferred from the argv/file checks above. The project-trust dialog and the tool 
 human at the TUI; the harness refuses to let an agent skip or pre-authorise either (`--dangerously-skip-permissions`,
 a pre-seeded trust/allow, or an auto-submitted tool prompt all denied as "unsafe agent").
 
-**Still unexercised:** the Codex inline-table header form (`env_http_headers` / `http_headers`). The G2 spawn
-above used an http entry with a Bearer header only, so the inline-table quoting through ConPTY is not yet
-measured. **G5 confirmed** (owner, 2026-10-22): the editor's product text — the secrets sentence and the
-OAuth "not supported" note — stands as shipped; the Hermes and `cwd` limits stay in this spec, not in the UI.
+**Codex inline-table header form, now confirmed** (demo instance, 2026-10-22): a project with an http entry
+carrying a non-Authorization header (`X-Sample-Key: ${VAR}`) launched a real Codex session whose OS-level
+child argv holds `-c "mcp_servers.web.env_http_headers={\"X-Sample-Key\"=\"WEB_MCP_HDR_X_SAMPLE_KEY\"}"` —
+so the inline-table quoting survives ConPTY (the earlier G2 spawn had used a Bearer header only), and only
+the env-var name is on argv, never the secret value. **G5 confirmed** (owner, 2026-10-22): the editor's
+product text — the secrets sentence and the OAuth "not supported" note — stands as shipped; the Hermes and
+`cwd` limits stay in this spec, not in the UI.
 
 ### Open points, resolved
 
