@@ -398,6 +398,12 @@ Method, reproducible: the claude-native stream harness (`claude -p --input-forma
 --permission-prompt-tool stdio --model haiku`), run once with and once without `--strict-mcp-config`, comparing
 `init.mcp_servers`.
 
+Gates G2/G4 (T9): confirmed deterministically against the real `buildLaunch` + `composeMcpPrune` for both `claude`
+and `claude-native`. With the project's `externalMcpPrune` on, the composed launch argv carries `--strict-mcp-config`
+(appended after the model); with it off, `composeMcpPrune` returns `null` and the argv is byte-for-byte the base
+launch, no flag. Gates G3/G5 (the live `init.mcp_servers` effect and the `--ide` bridge) still need a real session and
+are not yet measured.
+
 ### Open points, resolved
 
 | Point | State |
