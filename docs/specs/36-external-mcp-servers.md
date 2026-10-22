@@ -188,7 +188,8 @@ a pre-seeded trust/allow, or an auto-submitted tool prompt all denied as "unsafe
 
 **Still unexercised:** the Codex inline-table header form (`env_http_headers` / `http_headers`). The G2 spawn
 above used an http entry with a Bearer header only, so the inline-table quoting through ConPTY is not yet
-measured. **G5** (the owner's confirmation of the product text) is open.
+measured. **G5 confirmed** (owner, 2026-10-22): the editor's product text — the secrets sentence and the
+OAuth "not supported" note — stands as shipped; the Hermes and `cwd` limits stay in this spec, not in the UI.
 
 ### Open points, resolved
 
