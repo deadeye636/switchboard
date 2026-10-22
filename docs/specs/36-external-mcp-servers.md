@@ -1,6 +1,6 @@
 # 36 — External MCP servers into a launched session: a project's chosen servers ride the spec 34 injection seam
 
-Issue #789, **injection slice (A) only**. Status: **built; injection confirmed on a real spawn, a model calling an external tool not yet observed** (see "As built"; plan: `docs/plans/789-external-mcp-injection/`,
+Issue #789, **injection slice (A) only**. Status: **built; confirmed end to end — a Claude/Haiku model turn chose, called and got the result of an injected external tool** (see "As built"; plan: `docs/plans/789-external-mcp-injection/`,
 local). This is the inbound counterpart to [spec 34](34-switchboard-mcp-server.md) and
 [spec 35](35-session-discovery-tools.md): there Switchboard is the server and the CLI calls it; here the user
 names servers that exist elsewhere (an `uvx <server>` stdio launch, an HTTP endpoint) and Switchboard puts them in
@@ -178,9 +178,17 @@ Confirmed on a real spawn (demo instance, 2026-10-21, a project carrying a stdio
 Each CLI received the config in its OWN native mechanism (Codex `-c`, Claude `--mcp-config`, agy's plugin
 bundle), which is how each CLI is told about MCP servers — so it is consumed at launch.
 
-**Still by inference, not observed:** a real model actually choosing and calling an external server's tool.
-That needs a real installed MCP server and a model turn; it is accepted from the diff slice's confirmed
-behaviour (spec 34) and is not claimed here. **G5** (the owner's confirmation of the product text) is open.
+**Confirmed by a real model turn** (demo instance, 2026-10-22): a Claude session on `claude-haiku`, in a
+project carrying one local stdio server, chose and called that server's tool and received its result. The
+session transcript holds `tool_use` for `mcp__local__ping` and the matching `tool_result` with the server's
+token — so the injection reaches a model that actually uses an external tool, end to end, no longer only
+inferred from the argv/file checks above. The project-trust dialog and the tool approval were answered by a
+human at the TUI; the harness refuses to let an agent skip or pre-authorise either (`--dangerously-skip-permissions`,
+a pre-seeded trust/allow, or an auto-submitted tool prompt all denied as "unsafe agent").
+
+**Still unexercised:** the Codex inline-table header form (`env_http_headers` / `http_headers`). The G2 spawn
+above used an http entry with a Bearer header only, so the inline-table quoting through ConPTY is not yet
+measured. **G5** (the owner's confirmation of the product text) is open.
 
 ### Open points, resolved
 
