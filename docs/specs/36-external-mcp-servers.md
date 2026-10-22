@@ -214,4 +214,71 @@ OAuth "not supported" note — stands as shipped; the Hermes and `cwd` limits st
 
 ### Follow-ups
 
-T10 (native drivers), A2 (pruning a backend's defaults), reachability detection, and the tabbed management screen (slice B).
+T10 (native drivers), A2 (pruning a backend's defaults), reachability detection, and the management surface
+(slice B, below; plan `docs/plans/789-slice-b-mcp-cards/`, local).
+
+## Slice B: cards and a form over the same list
+
+Status: **planned, not built** (a proposal under CLAUDE.md reflex 16; the decisions below are the owner's, the open
+points are numbered in the plan). Slice B changes only how the list is edited. It touches no injection code, no
+validator rule and no backend.
+
+### What changes for the user
+
+In the project settings, category "MCP servers", the JSON text area is no longer the first thing a user meets. The
+category shows **one card per configured server**: its name, its transport (stdio or http), an on/off switch, and the
+`backends` filter as chips (no chips means every backend). An **Add server** control opens a form ("Connect to a
+custom MCP"); a card has an **Edit** and a **Remove** control that use the same form. Below the cards a closed
+disclosure, **Edit as JSON**, holds today's text area: the advanced view, and the place to repair a stored value the
+cards cannot show.
+
+Nothing is written when a switch flips or a form closes. The settings window is a snapshot that applies its own Save
+(`.claude/rules/renderer.md`, #146): the list is stored on Save, a refused entry blocks Save with the same sentence as
+today, and a change takes effect on the next session started. Cancel discards.
+
+### Decided
+
+| | Decision | Why |
+|---|---|---|
+| D-B1 | **One data model, two views (W1).** Cards and the JSON text area read and write the same `externalMcpServers` value; there is no second setting and no second copy of the list. | Owner. Two stores would drift, and the validator, the reader and the settings-reference row stay as they are. |
+| D-B2 | **The JSON view stays** as a disclosure: fields the form does not cover (`backends` edits beyond chips, future keys) and repair of a broken stored value. | Owner. A form can only show a list that parses; the text is the one view that can always be fixed. |
+| D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
+| D-B4 | **Per project only (H1).** No global or personal list. | Owner. |
+| D-B5 | **Pruning a backend's defaults (A2) and reachability detection are not in slice B.** | Owner; unchanged from D-A4 and D-A6. |
+| D-B6 | **Native-driver injection (claude-native, pi-native) stays deferred (T10, O2).** The cards show the per-project set that the terminal backends already inject; the limit is stated here and not filled by this slice. | Owner. |
+| D-B7 | **One validator.** Every card operation and the form's result go through `validateExternalMcpServers` (`src/shared/external-mcp-validate.js`), the check the text area and the launch use. The form adds no rule of its own. | A second set of rules would accept what the launch then drops. |
+
+### The card and form model
+
+An entry is `{ name, transport, command?, args?, env?, cwd?, url?, headers?, enabled?, backends? }`. The form maps
+the reference's fields onto it:
+
+| Form field | Entry field | Note |
+|---|---|---|
+| Name | `name` | Required by the entry; the reference form has no such field. |
+| Type: STDIO / Streamable HTTP | `transport`: `stdio` / `http` | Switching type drops the other side's fields, as the validator forbids both. |
+| Command | `command` | stdio. |
+| Arguments | `args` | stdio; one argument per line, never shell-split. |
+| Environment variables | `env` (stdio) / `headers` (http) | name and value rows; a value may be a `${VAR}` reference. |
+| Environment variable passthrough | `env` | A row `NAME` stored as `NAME: "${NAME}"`. No new field; the form shows an `env` row whose value is exactly its own `${NAME}` in this list. |
+| Working directory | `cwd` | stdio. |
+| URL | `url` | http. |
+| Backends | `backends` | Chips; none selected stores no `backends` key. |
+| On / off | `enabled` | A card switch only. |
+
+**The text is the store; the cards are a projection.** The text area keeps its id and stays the value
+`read()` checks, so Save, the refusal and the stored shape are what slice A shipped. A card operation parses the text,
+changes one **raw** entry (never the validator's normalised copy, which adds defaults), writes the list back as the
+same pretty JSON and redraws. A text edit redraws the cards when the text area loses focus. A list that is not valid
+JSON, or not an array, shows no cards: the category says so, opens the JSON view and disables Add. An entry the
+validator rejects still gets a card, with the reason on it, so it can be edited or removed.
+
+The product text keeps the slice A sentences (secrets as `${VAR}` references, OAuth not supported). The Hermes and
+`cwd` limits stay in this spec and not in the UI (the G5 decision), and the UI names no backend: the chips come from
+the backend list main already serves, never from a table in the renderer (reflex 5).
+
+### Out, explicitly
+
+Tabs and the marketplace, install and uninstall (#790); skills; a global list; pruning (A2); reachability (a card
+shows no "connected" light); native-driver injection (T10). Slice B also closes the editor's low gaps L1 to L3 where
+the redraw touches them.
