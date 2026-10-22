@@ -326,3 +326,83 @@ test('settings-external-mcp: the text area renders the stored list, round-trips 
     assert.match(body.querySelector('#sv-external-mcp-status').textContent, /literal secret/);
   } finally { dom.window.close(); }
 });
+
+// #789 slice B: the cards are a projection of the text area. Same load order as above.
+test('settings-external-mcp: cards follow the text, a card operation edits the raw entry, a bad text shows no cards', () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const body = window.document.getElementById('body');
+    const stored = [
+      { name: 'docs', transport: 'http', url: 'https://example.invalid/mcp', custom: { keep: 1 } },
+      { name: 'tool', transport: 'stdio', command: 'x', enabled: true },
+    ];
+    body.innerHTML = mod.sectionHtml(stored);
+    mod.bind(body, new window.AbortController().signal);
+    const ta = body.querySelector('#sv-external-mcp');
+    const cards = () => Array.from(body.querySelectorAll('#sv-external-mcp-cards .sv-mcp-card'));
+    const json = body.querySelector('details.settings-adv#sv-external-mcp-json');
+
+    assert.strictEqual(cards().length, 2, 'one card per stored entry');
+    assert.ok(json && !json.open, 'the JSON disclosure is closed by default');
+    assert.ok(json.contains(ta), 'the text area lives in the disclosure');
+    assert.strictEqual(body.querySelector('#sv-external-mcp-add').disabled, true);
+
+    // Every control is a styled one; nothing carries an inline colour.
+    const region = body.querySelector('#sv-external-mcp-cards');
+    for (const b of region.querySelectorAll('button')) assert.ok(b.className.includes('settings-action-btn'), 'a styled button');
+    assert.strictEqual(region.querySelectorAll('[style]').length, 0, 'no inline style in the cards');
+    assert.ok(region.querySelector('label.settings-toggle'), 'the switch reuses .settings-toggle');
+
+    // The switch changes only `enabled` and leaves an unknown key in place.
+    const sw = cards()[0].querySelector('.settings-toggle input');
+    assert.strictEqual(sw.checked, true);
+    sw.checked = false;
+    sw.dispatchEvent(new window.Event('change'));
+    let now = JSON.parse(ta.value);
+    assert.deepStrictEqual(now[0], { ...stored[0], enabled: false });
+    assert.deepStrictEqual(now[1], stored[1]);
+    assert.strictEqual(cards()[0].querySelector('.settings-toggle input').checked, false, 'redrawn from the text');
+
+    // Remove drops exactly that entry.
+    cards()[0].querySelector('button.danger').click();
+    now = JSON.parse(ta.value);
+    assert.deepStrictEqual(now.map(e => e.name), ['tool']);
+    assert.strictEqual(cards().length, 1);
+    cards()[0].querySelector('button.danger').click();
+    assert.strictEqual(ta.value, '', 'an emptied list is blank text');
+    assert.strictEqual(cards().length, 0);
+
+    // A text edit redraws on blur; a rejected entry keeps a card with its reason and no switch.
+    ta.value = JSON.stringify([{ name: 'bad name', transport: 'stdio', command: 'x' }, stored[1]]);
+    ta.dispatchEvent(new window.Event('blur'));
+    assert.strictEqual(cards().length, 2);
+    assert.strictEqual(cards()[0].querySelector('.settings-toggle'), null, 'no switch on a rejected entry');
+    assert.match(cards()[0].textContent, /may only use/);
+    assert.ok(cards()[0].querySelector('button.danger'), 'a rejected entry can still be removed');
+    assert.ok(cards()[1].querySelector('.settings-toggle'));
+
+    // Invalid JSON: no cards, a sentence, the disclosure opens, read() still refuses.
+    json.open = false;
+    ta.value = '[{';
+    ta.dispatchEvent(new window.Event('blur'));
+    assert.strictEqual(cards().length, 0);
+    assert.match(region.textContent, /not valid JSON/);
+    assert.strictEqual(json.open, true);
+    assert.strictEqual(body.querySelector('#sv-external-mcp-add').disabled, true);
+    assert.match(mod.read(body).problem, /not valid JSON/);
+
+    // A stored value that is not a list is shown as it is, with the same state (no blank area).
+    body.innerHTML = mod.sectionHtml({ name: 'x' });
+    mod.bind(body, new window.AbortController().signal);
+    assert.deepStrictEqual(JSON.parse(body.querySelector('#sv-external-mcp').value), { name: 'x' });
+    assert.strictEqual(body.querySelectorAll('.sv-mcp-card').length, 0);
+    assert.match(body.querySelector('#sv-external-mcp-cards').textContent, /not a list/);
+  } finally { dom.window.close(); }
+});
