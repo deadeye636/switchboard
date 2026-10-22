@@ -1,6 +1,8 @@
 # 36 — External MCP servers into a launched session: a project's chosen servers ride the spec 34 injection seam
 
-Issue #789, **injection slice (A) only**. Status: **built; confirmed end to end — a Claude/Haiku model turn chose, called and got the result of an injected external tool** (see "As built"; plan: `docs/plans/789-external-mcp-injection/`,
+Issue #789, **slice A (injection) and slice B (the cards editor), both built**. Status: **confirmed end to end — a
+Claude/Haiku model turn chose, called and got the result of an injected external tool, and the cards-and-form editor
+ships** (see "As built" and "Slice B"; plans: `docs/plans/789-external-mcp-injection/` and `docs/plans/789-slice-b-mcp-cards/`,
 local). This is the inbound counterpart to [spec 34](34-switchboard-mcp-server.md) and
 [spec 35](35-session-discovery-tools.md): there Switchboard is the server and the CLI calls it; here the user
 names servers that exist elsewhere (an `uvx <server>` stdio launch, an HTTP endpoint) and Switchboard puts them in
@@ -208,9 +210,12 @@ OAuth "not supported" note — stands as shipped; the Hermes and `cwd` limits st
 
 ### Known low-severity gaps (editor)
 
-- L1: typing the literal `null` stores `null` rather than `[]`. Benign, it reads as empty.
-- L2: a stored value that is not an array shows a blank text area.
-- L3: the status-line colours are inline hex, not theme variables.
+Closed by slice B; kept as the record of what they were.
+
+- L1: typing the literal `null` stored `null` rather than `[]`. The cards now show a "cannot show cards" state and open
+  the JSON view; `check()` is unchanged, so a stored `null` still saves as an empty list.
+- L2: a stored value that is not an array showed a blank text area. Now the same "cannot show cards" state.
+- L3: the status-line colours were inline hex. Now theme classes (`.sv-mcp-problem` / `.sv-mcp-warning`).
 
 ### Follow-ups
 
@@ -219,9 +224,8 @@ T10 (native drivers), A2 (pruning a backend's defaults), reachability detection,
 
 ## Slice B: cards and a form over the same list
 
-Status: **planned, not built** (a proposal under CLAUDE.md reflex 16; the decisions below are the owner's, the open
-points are numbered in the plan). Slice B changes only how the list is edited. It touches no injection code, no
-validator rule and no backend.
+Status: **built** (the decisions below are the owner's; the product text was owner-confirmed, G4, 2026-10-22). Slice B
+changes only how the list is edited. It touches no injection code, no validator rule and no backend.
 
 ### What changes for the user
 
@@ -280,5 +284,17 @@ the backend list main already serves, never from a table in the renderer (reflex
 ### Out, explicitly
 
 Tabs and the marketplace, install and uninstall (#790); skills; a global list; pruning (A2); reachability (a card
-shows no "connected" light); native-driver injection (T10). Slice B also closes the editor's low gaps L1 to L3 where
-the redraw touches them.
+shows no "connected" light); native-driver injection (T10). Slice B closed the editor's low gaps L1 to L3.
+
+### As built (slice B)
+
+Shipped across `src/renderer/panels/settings-external-mcp.js` (the cards, the on/off switch, Remove, the inline
+Add/Edit form and the closed "Edit as JSON" disclosure), `src/shared/external-mcp-form.js` (the form↔entry mapping
+`entryToForm`/`formToEntry`), the nav count via `data-count-own` in `src/renderer/panels/settings-panel.js`, and the
+`.sv-mcp-*` classes in `src/renderer/style.css`. The text area stays the store: a card or form operation parses the raw
+list, changes one entry, writes pretty JSON back and redraws; nothing persists until the settings window's own Save,
+which still refuses an invalid list with its reason. The backends chips come from `window.api.backends.list()` (enabled,
+non-profile); an unknown stored id is kept and shown as such. The form checks the whole resulting list through
+`validateExternalMcpServers` and refuses inline. Verified by `test/external-mcp-form.test.js` and the slice-B cases in
+`test/settings-modules-smoke.test.js`, the full suite green, and a live click test on the demo (cards, type-switch,
+inline reject, backend round-trip, nav count). Steps T1–T6, `docs/plans/789-slice-b-mcp-cards/` (local).
