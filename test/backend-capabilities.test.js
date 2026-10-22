@@ -22,7 +22,7 @@ const PINNED = {
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
     mcpInject: 'limited', // --mcp-config file for external servers; a live Claude listing them is unchecked (plan 789)
-    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
+    mcpPrune: 'yes',  // spec 36: --strict-mcp-config via buildMcpPrune (plan 789 T4)
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
@@ -99,7 +99,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
     mcpInject: 'limited', // external servers via --mcp-config, measured on the pipe; no own server (plan 789 T10)
-    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
+    mcpPrune: 'yes',  // spec 36: same --strict-mcp-config hook as terminal Claude (plan 789 T4)
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',

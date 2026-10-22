@@ -63,10 +63,18 @@ test('the hook is handed the injected names, env, cwd and options', () => {
   assert.deepEqual(seen.options, { o: 1 });
 });
 
-test('every real backend declines for now: enabled prune changes nothing', () => {
+test('real backends: only the wired ones prune when enabled, the rest decline', () => {
+  // Claude and claude-native wire the hook in #789 T4 (--strict-mcp-config); every other backend still
+  // declines until its own step. Keep this in step with the capability matrix in backend-capabilities.test.js.
+  const PRUNERS = new Set(['claude', 'claude-native']);
   for (const b of backends.list()) {
     if (b.status !== 'ready') continue;
-    assert.equal(composeMcpPrune({ backend: b, enabled: true, log: quietLog() }), null, `${b.id} must not prune yet`);
+    const out = composeMcpPrune({ backend: b, enabled: true, log: quietLog() });
+    if (PRUNERS.has(b.id)) {
+      assert.ok(out && Array.isArray(out.args) && out.args.length, `${b.id} must prune when enabled`);
+    } else {
+      assert.equal(out, null, `${b.id} must not prune yet`);
+    }
   }
 });
 

@@ -4,7 +4,8 @@
 // Claude takes a JSON FILE: `{ "mcpServers": { "<name>": { "type": "stdio", command, args, env } } }` or
 // `{ "type": "http", url, headers }`. `type` is REQUIRED (a `url` without it is rejected). The file, never
 // inline JSON, is passed: env and header values (a Bearer token) live in this 0600 file and never on argv.
-// `--strict-mcp-config` is deliberately NOT passed — it would drop the user's own MCP servers. `--ide` (the
+// `--strict-mcp-config` is deliberately NOT passed here — it would drop the user's own MCP servers. The one
+// place it may be passed is the prune hook (./mcp-prune.js), and only when the project opts in. `--ide` (the
 // app's own bridge) is an independent flag and keeps working beside this one.
 //
 // Claude has no per-server `cwd`: a row that carries one is declined and logged, not wrapped in a shell.
