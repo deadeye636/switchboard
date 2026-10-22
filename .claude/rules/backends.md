@@ -642,7 +642,9 @@ composes it and names no backend. Every backend answers the flag, declining incl
 (`providesMcpInjection: false` with a comment naming why, and none of the other three), and the `mcpInject`
 capability row says the same; `test/backend-parity.test.js` pins the shape. A template forwards the whole
 quartet in `profileToDescriptor`: the declaration without the hook it promises would be a half. agy (a plugin bundle on disk) and Codex
-(launch `-c` overrides, no file, token via an env var) are the two consumers. The registration carries tool GROUPS: besides `diff` there is a read-only `discovery`
+(launch `-c` overrides, no file, token via an env var) are the consumers, and since #789 T10 so is the piped `claude-native`,
+which reuses terminal Claude's `--mcp-config` file — the gate `providesMcpInjection === true` no longer excludes a transport
+backend, and its injected tools are gated by its own `--permission-prompt-tool stdio` approval path. The registration carries tool GROUPS: besides `diff` there is a read-only `discovery`
 group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
 agy and Codex through the `discoveryTools` option (spec 35).
 

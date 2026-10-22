@@ -75,7 +75,7 @@ says so and the export/import handling is an open point (O7). The name is valida
 | Codex | yes (adds `'stdio'`; http already) | stdio, http | `-c mcp_servers.<n>.command/args/cwd`; env as `env_vars=["NAME"]` with the value in the returned `env`; http bearer as today; other http headers as `env_http_headers` | yes | `-c mcp_servers.<n>.enabled=false` |
 | agy | yes (adds `'stdio'`) | stdio, http | the per-session plugin bundle of spec 34; `{command,args,env,cwd}` for stdio. The `type:'http'` key it writes today is **dropped** | yes | none clean per launch (gap) |
 | Claude (terminal) | yes (flag flips) | stdio, http | `--mcp-config <file>`, a 0600 JSON `{"mcpServers":{…}}` under the binding dir, deleted on release | **no**: a row that needs one is declined with a log line | `--strict-mcp-config` (drops the user's own servers: only ever an explicit per-project choice), `ENABLE_CLAUDEAI_MCP_SERVERS=false` |
-| claude-native | open (O2) | as Claude | the same file; blocked today by the spawn gate | no | as Claude |
+| claude-native | **yes** (T10) | as Claude | the same `--mcp-config` file and flag as terminal Claude; the spawn gate now admits a transport backend declaring the quartet | no | as Claude |
 | Pi (terminal) | open (O1) | stdio | the existing resources-extension MCP section, or `.pi/mcp.json` | n/a | `--exclude-tools`, `--no-mcp` |
 | pi-native | open (O1, O2) | as Pi | as Pi | n/a | as Pi |
 | Hermes | **no, accepted gap** | n/a | no per-launch channel | n/a | none (gap) |
@@ -152,8 +152,9 @@ observed** (see "Verification state").
 ### Reach
 
 External servers reach Codex, agy, Claude (terminal) and Pi, plus pi-native through the resources path. **Hermes is
-declined** (D-S4): no per-launch channel exists. **claude-native** and the rest of the native drivers are **deferred**
-(T10, O2).
+declined** (D-S4): no per-launch channel exists. **claude-native** injects too (T10): the spawn gate admits a
+transport backend that declares the quartet, and it reuses terminal Claude's `--mcp-config` file. **pi-native** stays
+**deferred** (O2).
 
 ### Verification state
 
@@ -201,7 +202,7 @@ product text — the secrets sentence and the OAuth "not supported" note — sta
 | Point | State |
 |---|---|
 | O1 Pi channel | Shipped: the existing resources-extension section, stdio only. Never two clients over one entry. |
-| O2 native drivers | **Deferred** (T10). claude-native and the native quartet wait for it; pi-native rides the Pi route. |
+| O2 native drivers | **claude-native: shipped** (T10), measured on a real piped spawn (see "As built, T10"). pi-native rides the Pi route and stays deferred. |
 | O3 editing surface | Shipped: one JSON text area in the project settings. The tabbed UI is slice B. |
 | O4 prune (A2) | **Deferred**, a separate slice. Slice A never prunes. |
 | O5 reachability detection | **Deferred**; a skipped entry is logged, nothing more. |
@@ -252,7 +253,7 @@ today, and a change takes effect on the next session started. Cancel discards.
 | D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
 | D-B4 | **Per project only (H1).** No global or personal list. | Owner. |
 | D-B5 | **Pruning a backend's defaults (A2) and reachability detection are not in slice B.** | Owner; unchanged from D-A4 and D-A6. |
-| D-B6 | **Native-driver injection (claude-native, pi-native) stays deferred (T10, O2).** The cards show the per-project set that the terminal backends already inject; the limit is stated here and not filled by this slice. | Owner. |
+| D-B6 | **Native-driver injection: claude-native shipped (T10); pi-native deferred (O2).** The cards show the per-project set; claude-native now injects it over the pipe, pi-native does not yet. | Owner. |
 | D-B7 | **One validator.** Every card operation and the form's result go through `validateExternalMcpServers` (`src/shared/external-mcp-validate.js`), the check the text area and the launch use. The form adds no rule of its own. | A second set of rules would accept what the launch then drops. |
 
 ### The card and form model
@@ -301,3 +302,19 @@ non-profile); an unknown stored id is kept and shown as such. The form checks th
 `validateExternalMcpServers` and refuses inline. Verified by `test/external-mcp-form.test.js` and the slice-B cases in
 `test/settings-modules-smoke.test.js`, the full suite green, and a live click test on the demo (cards, type-switch,
 inline reject, backend round-trip, nav count). Steps T1–T6, `docs/plans/789-slice-b-mcp-cards/` (local).
+
+### As built (T10, claude-native)
+
+The piped `claude-native` driver now injects a project's external MCP servers. The spawn gate
+(`src/app/terminal/spawn.js`) dropped its `!backend.transport` clause, so a transport backend that declares the
+injection quartet takes it; `claude-native` declares the quartet reusing terminal Claude's implementation (the 0600
+`--mcp-config` file). The own server offers it nothing (no diff or discovery tools), so only the project's external
+servers inject. `pi-native` still declares `providesMcpInjection: false` and is unaffected (O2).
+
+Confirmed by a real measurement (2026-10-22): a piped Claude started with `claude-native`'s exact launch flags and a
+`--mcp-config` holding a local stdio server had the server in its `system/init` as `local:connected` and the tool
+`mcp__local__ping` beside the user's own servers; the CLI sent a `can_use_tool` request over the pipe
+(`--permission-prompt-tool stdio` gates the injected tool, the approval-card path `claude-native` already uses), and
+after allow the tool ran and returned its token. And through the app: a launched `claude-native` session carries
+`--mcp-config <0600 file>` in its real `mode=rpc` argv, the file holding the project's stdio server. `pi-native` stays
+deferred. Step T10, `docs/plans/789-external-mcp-injection/` (local).
