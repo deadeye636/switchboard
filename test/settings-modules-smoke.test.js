@@ -518,6 +518,47 @@ test('settings-external-mcp: the inline form adds and edits through the one vali
   } finally { dom.window.close(); }
 });
 
+// #789 slice A2: the prune switch, its Save value and the per-backend capability lines.
+test('settings-external-mcp: the prune switch reflects the stored flag, is read at Save and lists the served capability answers', async () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    window.api = { backends: { list: async () => ({ backends: [
+      { id: 'a', label: 'Alpha CLI', enabled: true, capabilities: { mcpPrune: { state: 'yes', note: null } } },
+      { id: 'b', label: 'Beta CLI', enabled: true, capabilities: { mcpPrune: { state: 'no', note: 'declines for now' } } },
+      { id: 'c', label: 'Gamma CLI', enabled: true },
+      { id: 'p', label: 'A profile', enabled: true, isProfile: true, capabilities: { mcpPrune: { state: 'yes', note: null } } },
+    ] }) } };
+    const mod = window.settingsExternalMcp;
+    assert.strictEqual(mod.PRUNE_KEY, 'externalMcpPrune');
+    const body = window.document.getElementById('body');
+    const sw = () => body.querySelector('input#sv-external-mcp-prune');
+
+    body.innerHTML = mod.sectionHtml([], true);
+    assert.strictEqual(sw().checked, true);
+    assert.ok(sw().closest('label.settings-toggle'), 'the switch reuses the settings toggle style');
+    body.innerHTML = mod.sectionHtml([], false);
+    assert.strictEqual(sw().checked, false);
+    body.innerHTML = mod.sectionHtml([]);
+    assert.strictEqual(sw().checked, false, 'unset is off');
+    assert.strictEqual(mod.read(body).prune, false);
+    sw().checked = true;
+    assert.strictEqual(mod.read(body).prune, true);
+
+    mod.bind(body, new window.AbortController().signal);
+    await new Promise(r => setTimeout(r, 0));
+    const list = body.querySelector('#sv-external-mcp-prune-list').textContent;
+    assert.match(list, /Alpha CLI: applied/);
+    assert.match(list, /Beta CLI: not applied \(declines for now\)/);
+    assert.doesNotMatch(list, /Gamma|profile/);
+  } finally { dom.window.close(); }
+});
+
 // #789 slice B: the backends chips, over the real files and a fake `window.api.backends.list`.
 test('settings-external-mcp: backends chips come from the served list, keep an unknown id and survive a failed call', async () => {
   const load = (listImpl) => {

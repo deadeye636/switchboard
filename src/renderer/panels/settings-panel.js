@@ -857,7 +857,7 @@
         <div class="settings-cat-head"><h2>Terminal tools</h2><p>This project's own launchers, on top of the global ones.</p></div>
         <div id="sv-launchers-root"></div>
         </section>
-${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETTING_KEY])}
+${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETTING_KEY], current[window.settingsExternalMcp.PRUNE_KEY])}
 
         <!-- Per-backend launch defaults (T-2.6) + that backend's resources (#490). One SECTION per
              backend, appended by backends-panel.js once main has answered which backends there are —
@@ -1174,6 +1174,7 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
           return false;
         }
         if (mcp.list !== undefined) settings[window.settingsExternalMcp.SETTING_KEY] = mcp.list;
+        settings[window.settingsExternalMcp.PRUNE_KEY] = mcp.prune === true;
         // Only save fields where "use global" is unchecked
         settingsViewerBody.querySelectorAll('.use-global-cb').forEach(cb => {
           if (!cb.checked) {

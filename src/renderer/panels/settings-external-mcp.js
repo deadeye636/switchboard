@@ -22,6 +22,9 @@
   'use strict';
 
   const SETTING_KEY = 'externalMcpServers';
+  const PRUNE_KEY = 'externalMcpPrune';
+  const PRUNE_ID = 'sv-external-mcp-prune';
+  const PRUNE_LIST_ID = 'sv-external-mcp-prune-list';
   const TEXT_ID = 'sv-external-mcp';
   const STATUS_ID = 'sv-external-mcp-status';
   const CARDS_ID = 'sv-external-mcp-cards';
@@ -35,6 +38,8 @@
   let choices = null;
   // Redraws the chips of the open form once the list resolves (null while no form is open).
   let formChipsRefresh = null;
+  // What each served backend answers for the `mcpPrune` capability, [{ label, state, note }], or null while unresolved.
+  let pruneRows = null;
 
   // Unset and [] are blank; anything else is shown as it is, so a stored null or object is visible and fixable.
   const toText = (list) => (list === undefined || (Array.isArray(list) && !list.length) ? '' : JSON.stringify(list, null, 2));
@@ -372,7 +377,7 @@
   }
 
   /** The section markup. `list` is the stored value (anything; shown as it is, so a bad stored value can be fixed). */
-  function sectionHtml(list) {
+  function sectionHtml(list, prune) {
     const chev = '<svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>';
     return `
         <section class="settings-cat" data-cat="mcp">
@@ -383,6 +388,18 @@
           <div class="sv-mcp-add"><button type="button" class="settings-action-btn" id="${ADD_ID}" disabled>Add server</button></div>
           <div id="${FORM_ID}"></div>
           <div class="settings-hint" style="padding-left:0;">The switch turns a server off for this project without deleting it. Add or edit a server with the form; the JSON view below holds the same list, and a change in either shows in the other. Leave Backends empty to give a server to every backend, or pick the ones that should get it. A server marked as not used at launch blocks Save until you fix or remove it. Changes are stored when you press Save.</div>
+        </div>
+        <div class="settings-section">
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <span class="settings-label">Start sessions with only this project's MCP servers</span>
+              <div class="settings-description">Hides every MCP server the CLI would load itself, so only the servers added above remain. Takes effect on the next session you start. Nothing in the CLI's own settings or config is changed.</div>
+            </div>
+            <div class="settings-field-control">
+              <label class="settings-toggle"><input type="checkbox" id="${PRUNE_ID}" ${prune === true ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+            </div>
+          </div>
+          <div id="${PRUNE_LIST_ID}" class="settings-hint" style="padding-left:0;"></div>
         </div>
         <details class="settings-adv" id="${JSON_ID}">
           <summary>${chev}Edit as JSON</summary>
@@ -403,15 +420,34 @@
         </section>`;
   }
 
+  /** Draw what each backend does with the switch, from the served capability answers. Nothing while unresolved. */
+  function renderPruneList(body) {
+    const host = body.querySelector('#' + PRUNE_LIST_ID);
+    if (!host) return;
+    host.textContent = '';
+    if (!pruneRows) return;
+    for (const r of pruneRows) {
+      const text = r.state === 'yes' ? 'applied' : r.state === 'limited' ? 'partly applied' : 'not applied';
+      host.appendChild(node('div', '', `${r.label}: ${text}${r.note ? ' (' + r.note + ')' : ''}`));
+    }
+  }
+
   /** Ask main which backends exist; the cards and an open form redraw when it answers. A failed call changes nothing. */
   async function loadChoices(body, signal) {
     try {
       const res = await window.api.backends.list();
       if (signal.aborted) return;
-      choices = ((res && res.backends) || [])
-        .filter(b => b && b.enabled && !b.isProfile && typeof b.id === 'string')
-        .map(b => ({ id: b.id, label: String(b.label || b.id) }));
+      const served = ((res && res.backends) || [])
+        .filter(b => b && b.enabled && !b.isProfile && typeof b.id === 'string');
+      choices = served.map(b => ({ id: b.id, label: String(b.label || b.id) }));
+      pruneRows = served.map(b => {
+        const a = b.capabilities && b.capabilities.mcpPrune;
+        return a && typeof a.state === 'string'
+          ? { label: String(b.label || b.id), state: a.state, note: typeof a.note === 'string' ? a.note : '' }
+          : null;
+      }).filter(Boolean);
     } catch { return; }
+    renderPruneList(body);
     renderCards(body, signal);
     if (formChipsRefresh) formChipsRefresh();
   }
@@ -433,16 +469,18 @@
   }
 
   /**
-   * What Save writes. -> { list, problem } — `problem` is a sentence (or '') and, when set, the caller refuses
+   * What Save writes. -> { list, problem, prune } — `problem` is a sentence (or '') and, when set, the caller refuses
    * the save and `list` is not to be written.
    */
   function read(body) {
     const ta = body.querySelector('#' + TEXT_ID);
-    if (!ta) return { list: undefined, problem: '' };
+    const sw = body.querySelector('#' + PRUNE_ID);
+    const prune = !!(sw && sw.checked);
+    if (!ta) return { list: undefined, problem: '', prune };
     const res = check(ta.value);
     showStatus(body, res);
-    return { list: res.list, problem: res.problems.length ? res.problems.join('\n') : '' };
+    return { list: res.list, problem: res.problems.length ? res.problems.join('\n') : '', prune };
   }
 
-  window.settingsExternalMcp = { SETTING_KEY, sectionHtml, bind, read, check };
+  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check };
 })();
