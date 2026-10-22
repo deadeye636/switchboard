@@ -12,6 +12,12 @@
 // through the ordinary settings write and REFUSES the save when `problem` is set — an entry that would be
 // dropped silently at launch is told to the user now. A literal-secret warning never blocks. Nothing persists
 // before Save (the settings window is a snapshot). Loaded in settings.html only. It names no backend.
+//
+// Backends chips: an entry's `backends` filter shows as chips on its card (none = every backend, said in words) and is
+// edited as toggle chips in the form (none selected = no `backends` key). The choosable backends are every enabled
+// backend `window.api.backends.list()` serves (id, label), fetched once in `bind`; cards draw first and redraw when
+// the list resolves, and a failed call leaves the stored ids visible as raw chips. The id -> label mapping comes only
+// from that list; a stored id the list does not know is shown as "unknown" and kept on every write.
 (function () {
   'use strict';
 
@@ -24,6 +30,11 @@
   const FORM_ID = 'sv-external-mcp-form';
 
   const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+  // The backends the app serves, [{ id, label }], or null while unresolved / after a failed call.
+  let choices = null;
+  // Redraws the chips of the open form once the list resolves (null while no form is open).
+  let formChipsRefresh = null;
 
   // Unset and [] are blank; anything else is shown as it is, so a stored null or object is visible and fixable.
   const toText = (list) => (list === undefined || (Array.isArray(list) && !list.length) ? '' : JSON.stringify(list, null, 2));
@@ -99,6 +110,17 @@
     head.appendChild(node('span', 'settings-label', typeof obj.name === 'string' && obj.name ? obj.name : '(no name)'));
     head.appendChild(node('span', 'sv-mcp-card-transport', obj.transport === 'http' || obj.transport === 'stdio' ? obj.transport : 'transport?'));
     info.appendChild(head);
+    const ids = Array.isArray(obj.backends) ? obj.backends.filter(b => typeof b === 'string') : [];
+    if (!ids.length) info.appendChild(node('div', 'settings-hint sv-mcp-card-backends', 'All backends'));
+    else {
+      const chips = node('div', 'sv-mcp-chips');
+      for (const id of ids) {
+        const known = choices && choices.find(c => c.id === id);
+        chips.appendChild(known ? node('span', 'sv-mcp-chip', known.label)
+          : node('span', 'sv-mcp-chip' + (choices ? ' sv-mcp-chip-unknown' : ''), choices ? id + ' (unknown)' : id));
+      }
+      info.appendChild(chips);
+    }
     if (reason) info.appendChild(node('div', 'sv-mcp-problem', 'Not used at launch: ' + reason));
     for (const w of warnings) info.appendChild(node('div', 'sv-mcp-warning', w));
     card.appendChild(info);
@@ -167,6 +189,36 @@
   function closeForm(body) {
     const host = body.querySelector('#' + FORM_ID);
     if (host) host.textContent = '';
+    formChipsRefresh = null;
+  }
+
+  /** Toggle chips for the backends filter -> { el, read(), refresh() }. Stored ids the list lacks stay selectable chips. */
+  function backendChips(initial, signal) {
+    const el = node('div', 'sv-mcp-chips');
+    const stored = Array.from(new Set(initial));
+    const selected = new Set(stored);
+    const items = () => {
+      const known = choices || [];
+      const knownIds = new Set(known.map(c => c.id));
+      return known.map(c => ({ id: c.id, label: c.label, unknown: false }))
+        .concat(stored.filter(id => !knownIds.has(id)).map(id => ({ id, label: choices ? id + ' (unknown)' : id, unknown: !!choices })));
+    };
+    const draw = () => {
+      el.textContent = '';
+      for (const it of items()) {
+        const b = node('button', 'settings-action-btn sv-mcp-chip' + (it.unknown ? ' sv-mcp-chip-unknown' : '') + (selected.has(it.id) ? ' active' : ''), it.label);
+        b.type = 'button';
+        b.setAttribute('aria-pressed', selected.has(it.id) ? 'true' : 'false');
+        b.addEventListener('click', () => {
+          if (selected.has(it.id)) selected.delete(it.id); else selected.add(it.id);
+          draw();
+        }, { signal });
+        el.appendChild(b);
+      }
+    };
+    draw();
+    // Served order first, then the stored ids the list does not know, in their stored order.
+    return { el, read: () => items().map(it => it.id).filter(id => selected.has(id)), refresh: draw };
   }
 
   function field(label, control, hint) {
@@ -257,6 +309,9 @@
     httpGroup.appendChild(field('Headers', headers.el, 'Keep secrets out: write a ${VAR} reference as the value.'));
     formEl.appendChild(stdio);
     formEl.appendChild(httpGroup);
+    const chips = backendChips(seed.backends, signal);
+    formEl.appendChild(field('Backends', chips.el, 'None selected means every backend.'));
+    formChipsRefresh = chips.refresh;
     const syncType = () => {
       stdio.hidden = type.value !== 'stdio';
       httpGroup.hidden = type.value !== 'http';
@@ -280,14 +335,18 @@
         cwd: cwd.value,
         url: url.value,
         headerRows: headers.read(),
+        backends: chips.read(),
       });
       const next = now.list.slice();
       if (index === null) next.push(entry);
       else if (index < next.length) next[index] = entry;
       else { msg.textContent = 'That server is no longer in the list.'; return; }
       // The one validator over the whole resulting list: refuse when this write newly rejects any entry.
-      const before = new Set(window.validateExternalMcpServers(now.list).rejected.map(r => r.index));
-      const fresh = window.validateExternalMcpServers(next).rejected.filter(r => !before.has(r.index));
+      // An entry is the same rejection by name and reason, not by index: an already-rejected entry keeps its index
+      // when it is edited into a duplicate of a valid one, and that must still count as new.
+      const rejectionKey = (r) => `${r.name === undefined ? '' : r.name}\u0000${r.reason}`;
+      const before = new Set(window.validateExternalMcpServers(now.list).rejected.map(rejectionKey));
+      const fresh = window.validateExternalMcpServers(next).rejected.filter(r => !before.has(rejectionKey(r)));
       if (fresh.length) {
         msg.textContent = fresh.map(r => (r.name ? `"${r.name}": ` : '') + r.reason).join('\n');
         return;
@@ -337,6 +396,19 @@
         </section>`;
   }
 
+  /** Ask main which backends exist; the cards and an open form redraw when it answers. A failed call changes nothing. */
+  async function loadChoices(body, signal) {
+    try {
+      const res = await window.api.backends.list();
+      if (signal.aborted) return;
+      choices = ((res && res.backends) || [])
+        .filter(b => b && b.enabled && typeof b.id === 'string')
+        .map(b => ({ id: b.id, label: String(b.label || b.id) }));
+    } catch { return; }
+    renderCards(body, signal);
+    if (formChipsRefresh) formChipsRefresh();
+  }
+
   /** Check and redraw the cards on blur, so the message is there before Save. */
   function bind(body, signal) {
     const ta = body.querySelector('#' + TEXT_ID);
@@ -348,7 +420,9 @@
     ta.addEventListener('blur', () => { closeForm(body); run(); }, { signal });
     const add = body.querySelector('#' + ADD_ID);
     if (add) add.addEventListener('click', () => openForm(body, signal, null), { signal });
+    choices = null;
     run();
+    loadChoices(body, signal);
   }
 
   /**

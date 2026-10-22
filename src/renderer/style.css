@@ -12369,3 +12369,8 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .sv-mcp-row { display: flex; gap: 6px; align-items: center; align-self: stretch; }
 .sv-mcp-form-msg { white-space: pre-wrap; }
 .sv-mcp-form-actions { display: flex; gap: 10px; }
+/* Backends chips (#789 slice B): read-only on a card, toggle buttons (.settings-action-btn) in the form. */
+.sv-mcp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sv-mcp-chip { font-size: 12px; line-height: 1.6; padding: 1px 8px; border-radius: 10px; border: 1px solid #4a4a5a; white-space: nowrap; }
+.sv-mcp-chip.active { border-color: #61afef; color: #61afef; }
+.sv-mcp-chip-unknown { border-style: dashed; color: var(--status-attention, #f0a050); }

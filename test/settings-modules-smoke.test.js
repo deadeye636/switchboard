@@ -517,3 +517,121 @@ test('settings-external-mcp: the inline form adds and edits through the one vali
     assert.strictEqual(host.children.length, 0);
   } finally { dom.window.close(); }
 });
+
+// #789 slice B: the backends chips, over the real files and a fake `window.api.backends.list`.
+test('settings-external-mcp: backends chips come from the served list, keep an unknown id and survive a failed call', async () => {
+  const load = (listImpl) => {
+    const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+      { url: 'http://localhost/', runScripts: 'outside-only' });
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    if (listImpl) dom.window.api = { backends: { list: listImpl } };
+    return dom;
+  };
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const served = async () => ({ backends: [
+    { id: 'alpha', label: 'Alpha CLI', enabled: true },
+    { id: 'beta', label: 'Beta CLI', enabled: true },
+    { id: 'gamma', label: 'Gamma CLI', enabled: true },
+    { id: 'off', label: 'Switched off', enabled: false },
+  ] });
+
+  // Served list: the card drawn before the answer shows the raw ids, then the served labels.
+  let dom = load(served);
+  try {
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const body = window.document.getElementById('body');
+    const stored = [
+      { name: 'one', transport: 'stdio', command: 'x', backends: ['beta', 'zeta'] },
+      { name: 'two', transport: 'stdio', command: 'x' },
+    ];
+    body.innerHTML = mod.sectionHtml(stored);
+    mod.bind(body, new window.AbortController().signal);
+    const cards = () => Array.from(body.querySelectorAll('.sv-mcp-card'));
+    const chipText = (card) => Array.from(card.querySelectorAll('.sv-mcp-chip')).map(c => c.textContent);
+    assert.deepStrictEqual(chipText(cards()[0]), ['beta', 'zeta'], 'raw ids before the list resolves');
+    await tick();
+    assert.deepStrictEqual(chipText(cards()[0]), ['Beta CLI', 'zeta (unknown)']);
+    assert.ok(cards()[0].querySelector('.sv-mcp-chip-unknown'));
+    assert.deepStrictEqual(chipText(cards()[1]), [], 'no backends key: no chip');
+    assert.match(cards()[1].textContent, /All backends/);
+
+    // The form offers every enabled served backend plus the stored unknown id.
+    const ta = body.querySelector('#sv-external-mcp');
+    const host = body.querySelector('#sv-external-mcp-form');
+    const formChips = () => Array.from(host.querySelectorAll('.sv-mcp-chips button'));
+    const pressed = () => formChips().filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent);
+    cards()[0].querySelector('button').click();
+    assert.deepStrictEqual(formChips().map(b => b.textContent), ['Alpha CLI', 'Beta CLI', 'Gamma CLI', 'zeta (unknown)']);
+    assert.deepStrictEqual(pressed(), ['Beta CLI', 'zeta (unknown)']);
+    const save = () => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Save changes').click();
+    save();
+    assert.deepStrictEqual(JSON.parse(ta.value)[0].backends, ['beta', 'zeta'], 'an unknown id round-trips');
+
+    // Selecting more stores them in served order, unknown ids after.
+    cards()[0].querySelector('button').click();
+    formChips()[2].click(); // Gamma
+    formChips()[0].click(); // Alpha
+    save();
+    assert.deepStrictEqual(JSON.parse(ta.value)[0].backends, ['alpha', 'beta', 'gamma', 'zeta']);
+
+    // Deselecting everything stores no key.
+    cards()[0].querySelector('button').click();
+    formChips().filter(b => b.getAttribute('aria-pressed') === 'true').forEach(b => b.click());
+    save();
+    assert.ok(!('backends' in JSON.parse(ta.value)[0]));
+  } finally { dom.window.close(); }
+
+  // A rejected list call: no throw, stored ids stay visible as raw chips, the form still works.
+  dom = load(async () => { throw new Error('boom'); });
+  try {
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const body = window.document.getElementById('body');
+    body.innerHTML = mod.sectionHtml([{ name: 'one', transport: 'stdio', command: 'x', backends: ['zeta'] }]);
+    mod.bind(body, new window.AbortController().signal);
+    await tick();
+    assert.deepStrictEqual(Array.from(body.querySelectorAll('.sv-mcp-card .sv-mcp-chip')).map(c => c.textContent), ['zeta']);
+    body.querySelector('.sv-mcp-card button').click();
+    const host = body.querySelector('#sv-external-mcp-form');
+    assert.deepStrictEqual(Array.from(host.querySelectorAll('.sv-mcp-chips button')).map(b => b.textContent), ['zeta']);
+    Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Save changes').click();
+    assert.deepStrictEqual(JSON.parse(body.querySelector('#sv-external-mcp').value)[0].backends, ['zeta']);
+  } finally { dom.window.close(); }
+});
+
+// #789 slice B: editing an already-rejected entry into a duplicate name is refused inline (rejections are compared
+// by entry identity, not by index).
+test('settings-external-mcp: editing an already-rejected entry into a duplicate name is refused inline', () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const body = window.document.getElementById('body');
+    body.innerHTML = mod.sectionHtml([
+      { name: 'broken', transport: 'stdio' },
+      { name: 'docs', transport: 'stdio', command: 'x' },
+    ]);
+    mod.bind(body, new window.AbortController().signal);
+    const ta = body.querySelector('#sv-external-mcp');
+    const host = body.querySelector('#sv-external-mcp-form');
+    const snapshot = ta.value;
+    body.querySelectorAll('.sv-mcp-card')[0].querySelector('button').click();
+    const input = (label) => Array.from(host.querySelectorAll('.sv-mcp-form-field'))
+      .find(f => f.querySelector('.settings-label').textContent === label).querySelector('input');
+    input('Name').value = 'docs';
+    input('Command').value = 'y';
+    Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Save changes').click();
+    assert.ok(host.querySelector('.sv-mcp-form'), 'the form stays open');
+    assert.match(host.querySelector('.sv-mcp-form-msg').textContent, /duplicate|already/i);
+    assert.strictEqual(ta.value, snapshot, 'the JSON is unchanged');
+  } finally { dom.window.close(); }
+});
