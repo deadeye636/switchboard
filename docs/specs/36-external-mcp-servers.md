@@ -77,7 +77,7 @@ says so and the export/import handling is an open point (O7). The name is valida
 | Claude (terminal) | yes (flag flips) | stdio, http | `--mcp-config <file>`, a 0600 JSON `{"mcpServers":{…}}` under the binding dir, deleted on release | **no**: a row that needs one is declined with a log line | `--strict-mcp-config` (drops the user's own servers: only ever an explicit per-project choice), `ENABLE_CLAUDEAI_MCP_SERVERS=false` |
 | claude-native | **yes** (T10) | as Claude | the same `--mcp-config` file and flag as terminal Claude; the spawn gate now admits a transport backend declaring the quartet | no | as Claude |
 | Pi (terminal) | open (O1) | stdio | the existing resources-extension MCP section, or `.pi/mcp.json` | n/a | `--exclude-tools`, `--no-mcp` |
-| pi-native | open (O1, O2) | as Pi | as Pi | n/a | as Pi |
+| pi-native | **yes** (O1) | stdio | as Pi — the session-resources MCP section it inherits; measured | n/a | as Pi |
 | Hermes | **no, accepted gap** | n/a | no per-launch channel | n/a | none (gap) |
 
 Facts that bound this table (measured on current CLIs by the backend-format review; the plan's G-gates re-check what a
@@ -153,8 +153,9 @@ observed** (see "Verification state").
 
 External servers reach Codex, agy, Claude (terminal) and Pi, plus pi-native through the resources path. **Hermes is
 declined** (D-S4): no per-launch channel exists. **claude-native** injects too (T10): the spawn gate admits a
-transport backend that declares the quartet, and it reuses terminal Claude's `--mcp-config` file. **pi-native** stays
-**deferred** (O2).
+transport backend that declares the quartet, and it reuses terminal Claude's `--mcp-config` file. **pi-native** injects
+too — through the session-resources MCP section it inherits from terminal Pi (T9), stdio only, measured 2026-10-22 (the
+external server starts as a child of the piped Pi).
 
 ### Verification state
 
@@ -202,7 +203,7 @@ product text — the secrets sentence and the OAuth "not supported" note — sta
 | Point | State |
 |---|---|
 | O1 Pi channel | Shipped: the existing resources-extension section, stdio only. Never two clients over one entry. |
-| O2 native drivers | **claude-native: shipped** (T10), measured on a real piped spawn (see "As built, T10"). pi-native rides the Pi route and stays deferred. |
+| O2 native drivers | **Both shipped** (T10). claude-native over its own `--mcp-config` (measured on a real piped spawn); pi-native through the session-resources MCP section it inherits from terminal Pi, stdio only (measured — the external server starts as a child of the piped Pi). |
 | O3 editing surface | Shipped: one JSON text area in the project settings. The tabbed UI is slice B. |
 | O4 prune (A2) | **Deferred**, a separate slice. Slice A never prunes. |
 | O5 reachability detection | **Deferred**; a skipped entry is logged, nothing more. |
@@ -253,7 +254,7 @@ today, and a change takes effect on the next session started. Cancel discards.
 | D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
 | D-B4 | **Per project only (H1).** No global or personal list. | Owner. |
 | D-B5 | **Pruning a backend's defaults (A2) and reachability detection are not in slice B.** | Owner; unchanged from D-A4 and D-A6. |
-| D-B6 | **Native-driver injection: claude-native shipped (T10); pi-native deferred (O2).** The cards show the per-project set; claude-native now injects it over the pipe, pi-native does not yet. | Owner. |
+| D-B6 | **Native-driver injection: both shipped (T10).** claude-native over `--mcp-config`; pi-native through the session-resources MCP section it inherits from terminal Pi (stdio only). The cards show the per-project set both now inject over the pipe. | Owner. |
 | D-B7 | **One validator.** Every card operation and the form's result go through `validateExternalMcpServers` (`src/shared/external-mcp-validate.js`), the check the text area and the launch use. The form adds no rule of its own. | A second set of rules would accept what the launch then drops. |
 
 ### The card and form model
@@ -309,12 +310,19 @@ The piped `claude-native` driver now injects a project's external MCP servers. T
 (`src/app/terminal/spawn.js`) dropped its `!backend.transport` clause, so a transport backend that declares the
 injection quartet takes it; `claude-native` declares the quartet reusing terminal Claude's implementation (the 0600
 `--mcp-config` file). The own server offers it nothing (no diff or discovery tools), so only the project's external
-servers inject. `pi-native` still declares `providesMcpInjection: false` and is unaffected (O2).
+servers inject. `pi-native` keeps `providesMcpInjection: false` — it never used the quartet — and injects external
+stdio servers through the session-resources MCP section it inherits from terminal Pi instead (see below).
 
 Confirmed by a real measurement (2026-10-22): a piped Claude started with `claude-native`'s exact launch flags and a
 `--mcp-config` holding a local stdio server had the server in its `system/init` as `local:connected` and the tool
 `mcp__local__ping` beside the user's own servers; the CLI sent a `can_use_tool` request over the pipe
 (`--permission-prompt-tool stdio` gates the injected tool, the approval-card path `claude-native` already uses), and
 after allow the tool ran and returned its token. And through the app: a launched `claude-native` session carries
-`--mcp-config <0600 file>` in its real `mode=rpc` argv, the file holding the project's stdio server. `pi-native` stays
-deferred. Step T10, `docs/plans/789-external-mcp-injection/` (local).
+`--mcp-config <0600 file>` in its real `mode=rpc` argv, the file holding the project's stdio server.
+
+**pi-native** needed no code: it forwards terminal Pi's `buildSessionResources`, and the session-resources spawn block
+has no transport gate, so the project's external stdio servers reach its `--extension pi-resources-<tag>.ts` (the MCP
+section) and the `SWITCHBOARD_PI_MCP_SERVERS` env the same way terminal Pi's do (T9). Measured 2026-10-22: a launched
+pi-native session carries that extension, and the external `local` stdio server runs as a child of the piped Pi process
+(its tools surface as `mcp__local__ping`). stdio only; http and `cwd` are dropped by name (O1). Step T10,
+`docs/plans/789-external-mcp-injection/` (local).
