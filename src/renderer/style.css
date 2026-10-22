@@ -12359,3 +12359,13 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .sv-mcp-add { margin-bottom: 8px; }
 .sv-mcp-problem { font-size: 12px; color: #e08a8a; }
 .sv-mcp-warning { font-size: 12px; color: var(--status-attention, #f0a050); }
+/* The inline Add / Edit form (#789 slice B). Inputs, select and buttons are the settings ones. */
+.sv-mcp-form { display: flex; flex-direction: column; gap: 10px; padding: 12px 18px; margin-bottom: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); }
+.sv-mcp-form-group { display: flex; flex-direction: column; gap: 10px; }
+.sv-mcp-form-group[hidden] { display: none; }
+.sv-mcp-form-field { display: flex; flex-direction: column; gap: 4px; }
+.sv-mcp-rows, .sv-mcp-rows-list { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.sv-mcp-rows-list { align-self: stretch; }
+.sv-mcp-row { display: flex; gap: 6px; align-items: center; align-self: stretch; }
+.sv-mcp-form-msg { white-space: pre-wrap; }
+.sv-mcp-form-actions { display: flex; gap: 10px; }

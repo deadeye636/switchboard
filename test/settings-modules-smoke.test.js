@@ -333,7 +333,7 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -352,7 +352,7 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     assert.strictEqual(cards().length, 2, 'one card per stored entry');
     assert.ok(json && !json.open, 'the JSON disclosure is closed by default');
     assert.ok(json.contains(ta), 'the text area lives in the disclosure');
-    assert.strictEqual(body.querySelector('#sv-external-mcp-add').disabled, true);
+    assert.strictEqual(body.querySelector('#sv-external-mcp-add').disabled, false, 'Add is reachable on a valid list');
 
     // Every control is a styled one; nothing carries an inline colour.
     const region = body.querySelector('#sv-external-mcp-cards');
@@ -404,5 +404,116 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     assert.deepStrictEqual(JSON.parse(body.querySelector('#sv-external-mcp').value), { name: 'x' });
     assert.strictEqual(body.querySelectorAll('.sv-mcp-card').length, 0);
     assert.match(body.querySelector('#sv-external-mcp-cards').textContent, /not a list/);
+  } finally { dom.window.close(); }
+});
+
+// #789 slice B: the inline Add / Edit form, over the real files.
+test('settings-external-mcp: the inline form adds and edits through the one validator and Cancel stores nothing', () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const doc = window.document;
+    const mod = window.settingsExternalMcp;
+    const body = doc.getElementById('body');
+    const stored = [{ name: 'docs', transport: 'http', url: 'https://example.invalid/mcp', custom: { keep: 1 } }];
+    body.innerHTML = mod.sectionHtml(stored);
+    mod.bind(body, new window.AbortController().signal);
+    const ta = body.querySelector('#sv-external-mcp');
+    const host = body.querySelector('#sv-external-mcp-form');
+    const addBtn = body.querySelector('#sv-external-mcp-add');
+    const btn = (label) => Array.from(host.querySelectorAll('button')).find(b => b.textContent === label);
+    const fieldOf = (label) => Array.from(host.querySelectorAll('.sv-mcp-form-field'))
+      .find(f => f.querySelector('.settings-label').textContent === label);
+    const addRow = (label) => Array.from(fieldOf(label).querySelectorAll('button')).find(b => b.textContent === 'Add row').click();
+    const set = (el, v) => { el.value = v; };
+    const fire = (el, ev) => el.dispatchEvent(new window.Event(ev));
+    const before = ta.value;
+
+    // Cancel stores nothing.
+    addBtn.click();
+    assert.ok(host.querySelector('.sv-mcp-form'), 'Add opens the form');
+    set(fieldOf('Name').querySelector('input'), 'x');
+    btn('Cancel').click();
+    assert.strictEqual(host.children.length, 0);
+    assert.strictEqual(ta.value, before);
+
+    // The type switch hides the other side's fields.
+    addBtn.click();
+    const type = fieldOf('Type').querySelector('select');
+    const groups = host.querySelectorAll('.sv-mcp-form-group');
+    assert.strictEqual(groups[0].hidden, false);
+    assert.strictEqual(groups[1].hidden, true);
+    set(type, 'http'); fire(type, 'change');
+    assert.strictEqual(groups[0].hidden, true);
+    assert.strictEqual(groups[1].hidden, false);
+    set(type, 'stdio'); fire(type, 'change');
+
+    // Add a stdio server with every stdio field: appended, built by formToEntry.
+    set(fieldOf('Name').querySelector('input'), 'tool');
+    set(fieldOf('Command').querySelector('input'), 'npx');
+    set(fieldOf('Arguments').querySelector('textarea'), '-y\n\npkg with space\n');
+    addRow('Environment variables');
+    const envInputs = fieldOf('Environment variables').querySelectorAll('.sv-mcp-row input');
+    set(envInputs[0], 'MODE'); set(envInputs[1], 'fast');
+    addRow('Environment variable passthrough');
+    set(fieldOf('Environment variable passthrough').querySelector('.sv-mcp-row input'), 'API_KEY');
+    set(fieldOf('Working directory').querySelector('input'), '~/work');
+    btn('Add').click();
+    let now = JSON.parse(ta.value);
+    assert.strictEqual(host.children.length, 0, 'the form closes on success');
+    assert.deepStrictEqual(now[0], stored[0], 'the other entry is untouched');
+    assert.deepStrictEqual(now[1], {
+      name: 'tool', transport: 'stdio', command: 'npx', args: ['-y', 'pkg with space'],
+      env: { MODE: 'fast', API_KEY: '${API_KEY}' }, cwd: '~/work',
+    });
+    assert.strictEqual(body.querySelectorAll('.sv-mcp-card').length, 2);
+
+    // Add an http server: url and headers only.
+    addBtn.click();
+    set(fieldOf('Type').querySelector('select'), 'http'); fire(fieldOf('Type').querySelector('select'), 'change');
+    set(fieldOf('Name').querySelector('input'), 'web');
+    set(fieldOf('URL').querySelector('input'), 'https://example.invalid/x');
+    addRow('Headers');
+    const hi = fieldOf('Headers').querySelectorAll('.sv-mcp-row input');
+    set(hi[0], 'Authorization'); set(hi[1], 'Bearer ${TOKEN}');
+    btn('Add').click();
+    now = JSON.parse(ta.value);
+    assert.deepStrictEqual(now[2], { name: 'web', transport: 'http', url: 'https://example.invalid/x', headers: { Authorization: 'Bearer ${TOKEN}' } });
+
+    // A duplicate name and the reserved name are refused with the validator's wording; the form stays, nothing stored.
+    const snapshot = ta.value;
+    addBtn.click();
+    set(fieldOf('Name').querySelector('input'), 'docs');
+    set(fieldOf('Command').querySelector('input'), 'x');
+    btn('Add').click();
+    assert.ok(host.querySelector('.sv-mcp-form'), 'the form stays open');
+    assert.match(host.querySelector('.sv-mcp-form-msg').textContent, /duplicate|already/i);
+    assert.strictEqual(ta.value, snapshot);
+    set(fieldOf('Name').querySelector('input'), 'switchboard');
+    btn('Add').click();
+    assert.ok(host.querySelector('.sv-mcp-form-msg').textContent.length > 0);
+    assert.strictEqual(ta.value, snapshot);
+    btn('Cancel').click();
+
+    // Edit one field in place; the other entries and the unknown key stay.
+    body.querySelectorAll('.sv-mcp-card')[0].querySelector('button').click();
+    assert.strictEqual(fieldOf('URL').querySelector('input').value, 'https://example.invalid/mcp');
+    set(fieldOf('URL').querySelector('input'), 'https://example.invalid/new');
+    btn('Save changes').click();
+    now = JSON.parse(ta.value);
+    assert.deepStrictEqual(now[0], { ...stored[0], url: 'https://example.invalid/new' });
+    assert.deepStrictEqual(now.map(e => e.name), ['docs', 'tool', 'web']);
+
+    // The form is not reachable while the text is not a list.
+    ta.value = '[{';
+    fire(ta, 'blur');
+    assert.strictEqual(addBtn.disabled, true);
+    addBtn.click();
+    assert.strictEqual(host.children.length, 0);
   } finally { dom.window.close(); }
 });

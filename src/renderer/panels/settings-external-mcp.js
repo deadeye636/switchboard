@@ -3,8 +3,10 @@
 // The TEXT AREA is the store and the cards are a projection of it (slice B): a card operation (switch, remove)
 // parses the text, changes the one RAW entry (never the validator's normalised copy), writes the list back as pretty
 // JSON and redraws; a text edit redraws the cards on blur. The list is checked by the same validator the injection
-// uses (shared/external-mcp-validate.js, loaded before this file); the cards add no rule of their own. The Add/Edit
-// form (shared/external-mcp-form.js) is not wired here yet, so those controls are drawn disabled.
+// uses (shared/external-mcp-validate.js, loaded before this file); the cards and the form add no rule of their own.
+// Add / Edit open one inline form (#sv-external-mcp-form) over shared/external-mcp-form.js (entryToForm / formToEntry,
+// loaded before this file and read at call time): confirm splices the built entry into the parsed raw list, runs the
+// WHOLE list through the validator and writes the text only when no entry is newly rejected.
 //
 // The panel owns the save: `read()` is called by persistSettings, which stores `list` on the project blob
 // through the ordinary settings write and REFUSES the save when `problem` is set — an entry that would be
@@ -19,6 +21,7 @@
   const CARDS_ID = 'sv-external-mcp-cards';
   const JSON_ID = 'sv-external-mcp-json';
   const ADD_ID = 'sv-external-mcp-add';
+  const FORM_ID = 'sv-external-mcp-form';
 
   const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -88,7 +91,7 @@
   }
 
   /** One card. `index` is the entry's place in the stored list; `reason`/`warnings` come from the one validator. */
-  function buildCard(raw, index, reason, warnings, onToggle, onRemove, signal) {
+  function buildCard(raw, index, reason, warnings, onToggle, onRemove, onEdit, signal) {
     const obj = isPlainObject(raw) ? raw : {};
     const card = node('div', 'sv-mcp-card' + (reason ? ' sv-mcp-card-rejected' : ''));
     const info = node('div', 'sv-mcp-card-info');
@@ -112,7 +115,7 @@
       sw.appendChild(node('span', 'settings-toggle-slider'));
       actions.appendChild(sw);
     }
-    actions.appendChild(cardButton('Edit', null, signal, { disabled: true }));
+    actions.appendChild(cardButton('Edit', () => onEdit(index), signal));
     actions.appendChild(cardButton('Remove', () => onRemove(index), signal, { danger: true }));
     card.appendChild(actions);
     return card;
@@ -126,8 +129,9 @@
     const addBtn = body.querySelector('#' + ADD_ID);
     const parsed = parseList(ta.value);
     region.textContent = '';
-    if (addBtn) addBtn.disabled = true; // the form Add opens is wired in the next step; never reachable on a bad list
+    if (addBtn) addBtn.disabled = !!parsed.error; // the form is never reachable while the text is not a list
     if (parsed.error) {
+      closeForm(body);
       region.appendChild(node('div', 'sv-mcp-problem', 'Cards are unavailable. ' + parsed.error + ' Fix it in the JSON below.'));
       const details = body.querySelector('#' + JSON_ID);
       if (details) details.open = true;
@@ -145,6 +149,7 @@
     const edit = (change) => {
       const now = parseList(ta.value);
       if (now.error) { renderCards(body, signal); return; }
+      closeForm(body); // an open form holds an index a card operation may move
       change(now.list);
       ta.value = toText(now.list);
       showStatus(body, check(ta.value));
@@ -154,8 +159,150 @@
       region.appendChild(buildCard(raw, i, reasons.get(i) || '', warns.get(i) || [],
         (idx, on) => edit(list => { if (isPlainObject(list[idx])) list[idx].enabled = on; }),
         (idx) => edit(list => { list.splice(idx, 1); }),
+        (idx) => openForm(body, signal, idx),
         signal));
     });
+  }
+
+  function closeForm(body) {
+    const host = body.querySelector('#' + FORM_ID);
+    if (host) host.textContent = '';
+  }
+
+  function field(label, control, hint) {
+    const f = node('div', 'sv-mcp-form-field');
+    f.appendChild(node('span', 'settings-label', label));
+    f.appendChild(control);
+    if (hint) f.appendChild(node('div', 'settings-hint', hint));
+    return f;
+  }
+
+  function textInput(value, placeholder) {
+    const i = document.createElement('input');
+    i.type = 'text';
+    i.className = 'settings-input';
+    i.spellcheck = false;
+    i.value = value || '';
+    if (placeholder) i.placeholder = placeholder;
+    return i;
+  }
+
+  /** Rows of a name input (and a value input when `withValue`), Remove per row, an Add row control -> { el, read() }. */
+  function rowList(rows, withValue, signal, placeholders) {
+    const el = node('div', 'sv-mcp-rows');
+    const list = node('div', 'sv-mcp-rows-list');
+    const inputs = [];
+    const addRow = (row) => {
+      const line = node('div', 'sv-mcp-row');
+      const name = textInput(row.name, placeholders[0]);
+      const value = withValue ? textInput(row.value, placeholders[1]) : null;
+      const entry = { name, value };
+      inputs.push(entry);
+      line.appendChild(name);
+      if (value) line.appendChild(value);
+      line.appendChild(cardButton('Remove', () => { line.remove(); inputs.splice(inputs.indexOf(entry), 1); }, signal, { danger: true }));
+      list.appendChild(line);
+    };
+    rows.forEach(addRow);
+    el.appendChild(list);
+    el.appendChild(cardButton('Add row', () => addRow({ name: '', value: '' }), signal));
+    return { el, read: () => inputs.map(r => ({ name: r.name.value, value: r.value ? r.value.value : '' })) };
+  }
+
+  /** Open the inline form. `index` null = Add; a number = Edit that entry, seeded through entryToForm. */
+  function openForm(body, signal, index) {
+    const host = body.querySelector('#' + FORM_ID);
+    const ta = body.querySelector('#' + TEXT_ID);
+    if (!host || !ta) return;
+    const parsed = parseList(ta.value);
+    if (parsed.error || (index !== null && index >= parsed.list.length)) return;
+    const seed = window.entryToForm(index === null ? {} : parsed.list[index]);
+    host.textContent = '';
+    const formEl = node('div', 'sv-mcp-form');
+    formEl.appendChild(node('div', 'settings-section-title', index === null ? 'Add server' : 'Edit server'));
+
+    const name = textInput(seed.name, 'docs');
+    const type = document.createElement('select');
+    type.className = 'settings-select';
+    [['stdio', 'STDIO'], ['http', 'Streamable HTTP']].forEach(([v, t]) => {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = t;
+      type.appendChild(o);
+    });
+    type.value = seed.transport;
+    formEl.appendChild(field('Name', name));
+    formEl.appendChild(field('Type', type));
+
+    const stdio = node('div', 'sv-mcp-form-group');
+    const command = textInput(seed.command, 'npx');
+    const args = document.createElement('textarea');
+    args.className = 'settings-input';
+    args.spellcheck = false;
+    args.rows = 3;
+    args.value = seed.args;
+    const env = rowList(seed.envRows, true, signal, ['NAME', 'value']);
+    const pass = rowList(seed.passthrough.map(n => ({ name: n })), false, signal, ['NAME']);
+    const cwd = textInput(seed.cwd);
+    stdio.appendChild(field('Command', command));
+    stdio.appendChild(field('Arguments', args, 'One argument per line. An argument with a space stays one line.'));
+    stdio.appendChild(field('Environment variables', env.el, 'Keep secrets out: write a ${VAR} reference as the value.'));
+    stdio.appendChild(field('Environment variable passthrough', pass.el, 'Names taken from the environment Switchboard runs in.'));
+    stdio.appendChild(field('Working directory', cwd));
+
+    const httpGroup = node('div', 'sv-mcp-form-group');
+    const url = textInput(seed.url, 'https://example.com/mcp');
+    const headers = rowList(seed.headerRows, true, signal, ['Header', 'value']);
+    httpGroup.appendChild(field('URL', url));
+    httpGroup.appendChild(field('Headers', headers.el, 'Keep secrets out: write a ${VAR} reference as the value.'));
+    formEl.appendChild(stdio);
+    formEl.appendChild(httpGroup);
+    const syncType = () => {
+      stdio.hidden = type.value !== 'stdio';
+      httpGroup.hidden = type.value !== 'http';
+    };
+    type.addEventListener('change', syncType, { signal });
+    syncType();
+
+    const msg = node('div', 'sv-mcp-problem sv-mcp-form-msg');
+    const confirm = () => {
+      msg.textContent = '';
+      const now = parseList(ta.value);
+      if (now.error) { msg.textContent = now.error; return; }
+      const entry = window.formToEntry({
+        ...seed,
+        name: name.value,
+        transport: type.value,
+        command: command.value,
+        args: args.value,
+        envRows: env.read(),
+        passthrough: pass.read().map(r => r.name),
+        cwd: cwd.value,
+        url: url.value,
+        headerRows: headers.read(),
+      });
+      const next = now.list.slice();
+      if (index === null) next.push(entry);
+      else if (index < next.length) next[index] = entry;
+      else { msg.textContent = 'That server is no longer in the list.'; return; }
+      // The one validator over the whole resulting list: refuse when this write newly rejects any entry.
+      const before = new Set(window.validateExternalMcpServers(now.list).rejected.map(r => r.index));
+      const fresh = window.validateExternalMcpServers(next).rejected.filter(r => !before.has(r.index));
+      if (fresh.length) {
+        msg.textContent = fresh.map(r => (r.name ? `"${r.name}": ` : '') + r.reason).join('\n');
+        return;
+      }
+      ta.value = toText(next);
+      closeForm(body);
+      showStatus(body, check(ta.value));
+      renderCards(body, signal);
+    };
+    const actions = node('div', 'sv-mcp-form-actions');
+    actions.appendChild(cardButton(index === null ? 'Add' : 'Save changes', confirm, signal));
+    actions.appendChild(cardButton('Cancel', () => closeForm(body), signal));
+    formEl.appendChild(msg);
+    formEl.appendChild(actions);
+    host.appendChild(formEl);
   }
 
   /** The section markup. `list` is the stored value (anything; shown as it is, so a bad stored value can be fixed). */
@@ -168,6 +315,7 @@
           <div class="settings-section-title">MCP servers</div>
           <div id="${CARDS_ID}" class="sv-mcp-cards"></div>
           <div class="sv-mcp-add"><button type="button" class="settings-action-btn" id="${ADD_ID}" disabled>Add server</button></div>
+          <div id="${FORM_ID}"></div>
           <div class="settings-hint" style="padding-left:0;">The switch turns a server off for this project without deleting it. Changes are stored when you press Save.</div>
         </div>
         <details class="settings-adv" id="${JSON_ID}">
@@ -197,7 +345,9 @@
       showStatus(body, check(ta.value));
       renderCards(body, signal);
     };
-    ta.addEventListener('blur', run, { signal });
+    ta.addEventListener('blur', () => { closeForm(body); run(); }, { signal });
+    const add = body.querySelector('#' + ADD_ID);
+    if (add) add.addEventListener('click', () => openForm(body, signal, null), { signal });
     run();
   }
 
