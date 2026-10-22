@@ -207,7 +207,7 @@ const capabilities = {
   queuedTurn: { state: 'no', note: 'the stream says when a queued line starts, not how many are waiting' },
   quota: { state: 'no', note: 'shown for the terminal Claude backend, whose account this is' },
   resourcesFrom: 'no',
-  mcpInject: { state: 'no', note: 'declines for now; asked through the terminal Claude backend\'s channel, which is not wired yet' },
+  mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file, measured on the pipe (listed, and gated by the approval card); the app\'s own session server is not offered here' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
@@ -287,8 +287,13 @@ module.exports = {
   supportsFork: true,      // `--resume=<id> --fork-session --session-id=<new>` works in print mode (measured)
   supportsSubagents: false,
   supportsLiveRebinding: false,
-  // Per-spawn MCP injection (spec 34): declines for now — the pipe-driven launch has no MCP channel wired yet.
-  providesMcpInjection: false,
+  // Per-spawn MCP injection (spec 34): the terminal backend's own mechanism, forwarded rather than copied — a
+  // 0600 `--mcp-config <file>`, which the piped CLI honours (measured: the server connects, its tools are listed
+  // beside the user's own, and a call is gated by the same `--permission-prompt-tool stdio` approval card).
+  providesMcpInjection: true,
+  acceptsMcpTransports: claude.acceptsMcpTransports,
+  buildMcpInjection: claude.buildMcpInjection,
+  releaseMcpInjection: claude.releaseMcpInjection,
   // Everything below answers a question about Claude's STORE and FORMAT, which this backend shares.
   resolveLineage: claude.resolveLineage,
   openedWithCommand: claude.openedWithCommand,

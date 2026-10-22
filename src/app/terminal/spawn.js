@@ -1045,12 +1045,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       }
 
       // Spec 34: the MCP servers this launch is given, through ONE core composer (`../mcp-inject.js`) that
-      // asks the descriptor's `buildMcpInjection`. Not for a session driven over a pipe — its runtime
-      // takes servers its own way, and a flag appended to its argv is not that. The one source is the app's
-      // own HTTP endpoint, registered only for a launch whose backend option asked for it; its registration
-      // is released by the composer's `release`, which the paths below and the exit handler already call.
+      // asks the descriptor's `buildMcpInjection`. A session driven over a pipe takes part when its backend
+      // declares the quartet: the injected args join `launch.args`, which the argv spawn path consumes the same
+      // way. The sources are the app's own HTTP endpoint, registered only for a launch whose backend option asked
+      // for it, and the project's external servers; the own-server registration is released by the composer's
+      // `release`, which the paths below and the exit handler already call.
       // Best-effort like the blocks around it: null means the session starts without.
-      if (backend.providesMcpInjection === true && !backend.transport) {
+      if (backend.providesMcpInjection === true) {
         const mcpOptions = spawnOptionsFor(backend, projectPath, launchOptions);
         // The tool groups this launch's toggles turn on (spec 35, D7); none on means no registration. The
         // discovery reader is built here, from the caller's own session and project, and handed over.

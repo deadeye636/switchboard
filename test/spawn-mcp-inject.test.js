@@ -76,7 +76,8 @@ function setup({ backend = fakeBackend(), userEnv = {}, sessions = [], quitting 
     windowForSession: (id) => { ctx.windowForSessionCalls.push(id); return ctx.windowsById.get(id) || null; },
     startMcpServer: async () => null,
     shutdownMcpServer: () => {},
-    startAgentProcess: () => makeFakePty(),
+    agentSpawns: [],
+    startAgentProcess: (o) => { ctx.agentSpawns.push(o); return makeFakePty(); },
     log: { info() {}, warn() {}, error() {}, silly() {}, debug() {} },
   };
   spawn.init(ctx);
@@ -90,16 +91,37 @@ const injection = () => {
 };
 const reset = () => { ptySpawns.length = 0; composerCalls.length = 0; composer = async () => null; };
 
-test('a backend driven over a pipe never calls the composer', async () => {
+const pipedBackend = (over = {}) => fakeBackend({
+  transport: 'stdio', rpc: {},
+  buildLaunch: () => ({ command: 'agent-bin', args: ['--base'], env: {}, spawnMode: 'argv' }),
+  ...over,
+});
+
+test('a backend driven over a pipe that declines the capability never calls the composer', async () => {
   reset();
-  const backend = fakeBackend({
-    transport: 'stdio', rpc: {},
-    buildLaunch: () => ({ command: 'agent-bin', args: [], env: {}, spawnMode: 'argv' }),
-  });
-  setup({ backend });
+  setup({ backend: pipedBackend({ providesMcpInjection: false }) });
   const r = await spawn.openTerminal('p1', CWD, true, { backendId: 'codex' });
   assert.equal(r.ok, true);
   assert.equal(composerCalls.length, 0);
+});
+
+test('a piped backend that declares the capability asks the composer and gets the args on its argv (plan 789 T10)', async () => {
+  reset();
+  composer = async () => injection().value;
+  const ctx = setup({ backend: pipedBackend() });
+  const r = await spawn.openTerminal('p2', CWD, true, { backendId: 'codex' });
+  assert.equal(r.ok, true);
+  assert.equal(composerCalls.length, 1);
+  assert.deepEqual(ctx.agentSpawns.at(-1).args, ['--base', '--mcp', 'cfg']);
+});
+
+test('a piped backend with nothing to inject keeps its argv unchanged', async () => {
+  reset();
+  const ctx = setup({ backend: pipedBackend() });
+  const r = await spawn.openTerminal('p3', CWD, true, { backendId: 'codex' });
+  assert.equal(r.ok, true);
+  assert.equal(composerCalls.length, 1);
+  assert.deepEqual(ctx.agentSpawns.at(-1).args, ['--base']);
 });
 
 test('args and env are merged; the user env still wins over the injected env', async () => {

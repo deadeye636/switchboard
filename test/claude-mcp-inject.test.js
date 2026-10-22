@@ -16,14 +16,37 @@ const HTTP = { name: 'remote', transport: 'http', url: 'http://127.0.0.1:4711/mc
 function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'claude-mcp-')); }
 function logger() { const warns = []; return { warns, warn: m => warns.push(m) }; }
 
-test('claude declares the quartet; claude-native does not', () => {
+test('claude declares the quartet; claude-native forwards the same one (plan 789 T10)', () => {
   assert.equal(claude.providesMcpInjection, true);
   assert.deepEqual(claude.acceptsMcpTransports, ['stdio', 'http']);
   assert.equal(typeof claude.buildMcpInjection, 'function');
   assert.equal(typeof claude.releaseMcpInjection, 'function');
-  assert.notEqual(claudeNative.providesMcpInjection, true);
-  assert.equal(claudeNative.buildMcpInjection, undefined);
-  assert.equal(claudeNative.capabilities.mcpInject.state, 'no');
+  assert.equal(claudeNative.providesMcpInjection, true);
+  assert.deepEqual(claudeNative.acceptsMcpTransports, claude.acceptsMcpTransports);
+  assert.equal(claudeNative.buildMcpInjection, claude.buildMcpInjection, 'one implementation, not a fork');
+  assert.equal(claudeNative.releaseMcpInjection, claude.releaseMcpInjection);
+  assert.equal(claudeNative.capabilities.mcpInject.state, 'limited');
+});
+
+test('claude-native: --mcp-config only when the project has entries; the own server offers it nothing', async () => {
+  const { composeMcpInjection, externalServersSource, ownServerSource } = require('../src/app/mcp-inject');
+  const dir = tmp();
+  const log = { info() {}, debug() {}, warn() {} };
+  const run = (servers, groups = []) => composeMcpInjection({
+    backend: claudeNative, ctx: { log }, dir, tag: 'cn', cwd: dir,
+    sources: [
+      ownServerSource({ backend: claudeNative, groups, registerSession: async () => { throw new Error('must not register'); }, log }),
+      externalServersSource({ backend: claudeNative, getSetting: () => ({ externalMcpServers: servers }), projectPath: dir, getEnv: () => ({}), log }),
+    ],
+  });
+  assert.equal(await run([]), null, 'no entries: no injection, so the launch argv is unchanged');
+  assert.deepEqual(fs.readdirSync(dir), []);
+  const inj = await run([{ name: 'docs', transport: 'stdio', command: 'node', args: ['s.js'] }]);
+  assert.equal(inj.args[0], '--mcp-config');
+  assert.equal(path.dirname(inj.args[1]), dir);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(inj.args[1], 'utf8')).mcpServers), ['docs']);
+  inj.release();
+  assert.equal(fs.existsSync(inj.args[1]), false);
 });
 
 test('a stdio row writes type/command/args/env to a 0600 file; the value is not in argv', () => {
