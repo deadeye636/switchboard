@@ -15,7 +15,7 @@
 //
 // Backends chips: an entry's `backends` filter shows as chips on its card (none = every backend, said in words) and is
 // edited as toggle chips in the form (none selected = no `backends` key). The choosable backends are every enabled
-// backend `window.api.backends.list()` serves (id, label), fetched once in `bind`; cards draw first and redraw when
+// non-profile backend `window.api.backends.list()` serves (id, label), fetched once in `bind`; cards draw first and redraw when
 // the list resolves, and a failed call leaves the stored ids visible as raw chips. The id -> label mapping comes only
 // from that list; a stored id the list does not know is shown as "unknown" and kept on every write.
 (function () {
@@ -151,6 +151,13 @@
     const addBtn = body.querySelector('#' + ADD_ID);
     const parsed = parseList(ta.value);
     region.textContent = '';
+    // The nav count is the number of servers drawn (the entry is data-count-own, so the generic field walk skips it).
+    const badge = body.querySelector('.settings-nav-item[data-cat="mcp"] .settings-nav-count');
+    if (badge) {
+      const n = parsed.error ? 0 : parsed.list.length;
+      badge.textContent = n ? String(n) : '';
+      badge.hidden = !n;
+    }
     if (addBtn) addBtn.disabled = !!parsed.error; // the form is never reachable while the text is not a list
     if (parsed.error) {
       closeForm(body);
@@ -375,7 +382,7 @@
           <div id="${CARDS_ID}" class="sv-mcp-cards"></div>
           <div class="sv-mcp-add"><button type="button" class="settings-action-btn" id="${ADD_ID}" disabled>Add server</button></div>
           <div id="${FORM_ID}"></div>
-          <div class="settings-hint" style="padding-left:0;">The switch turns a server off for this project without deleting it. Changes are stored when you press Save.</div>
+          <div class="settings-hint" style="padding-left:0;">The switch turns a server off for this project without deleting it. Add or edit a server with the form; the JSON view below holds the same list, and a change in either shows in the other. Leave Backends empty to give a server to every backend, or pick the ones that should get it. A server marked as not used at launch blocks Save until you fix or remove it. Changes are stored when you press Save.</div>
         </div>
         <details class="settings-adv" id="${JSON_ID}">
           <summary>${chev}Edit as JSON</summary>
@@ -402,7 +409,7 @@
       const res = await window.api.backends.list();
       if (signal.aborted) return;
       choices = ((res && res.backends) || [])
-        .filter(b => b && b.enabled && typeof b.id === 'string')
+        .filter(b => b && b.enabled && !b.isProfile && typeof b.id === 'string')
         .map(b => ({ id: b.id, label: String(b.label || b.id) }));
     } catch { return; }
     renderCards(body, signal);

@@ -641,7 +641,7 @@
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">Extensions</div>
           <button class="settings-nav-item" data-cat="launchers">Terminal tools</button>
-          <button class="settings-nav-item" data-cat="mcp">MCP servers <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="mcp" data-count-own="1">MCP servers <span class="settings-nav-count"></span></button>
           <div class="settings-nav-sep" id="sv-nav-backends-sep" hidden></div>
           <div class="settings-nav-head" id="sv-nav-backends-head" hidden>Backends</div>
           <div id="sv-nav-backends"></div>

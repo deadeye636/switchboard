@@ -536,6 +536,7 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     { id: 'beta', label: 'Beta CLI', enabled: true },
     { id: 'gamma', label: 'Gamma CLI', enabled: true },
     { id: 'off', label: 'Switched off', enabled: false },
+    { id: 'prof', label: 'A profile', enabled: true, isProfile: true },
   ] });
 
   // Served list: the card drawn before the answer shows the raw ids, then the served labels.
@@ -600,6 +601,35 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     assert.deepStrictEqual(Array.from(host.querySelectorAll('.sv-mcp-chips button')).map(b => b.textContent), ['zeta']);
     Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Save changes').click();
     assert.deepStrictEqual(JSON.parse(body.querySelector('#sv-external-mcp').value)[0].backends, ['zeta']);
+  } finally { dom.window.close(); }
+});
+
+// #789 slice B: the nav count beside "MCP servers" is the number of servers, kept in step with add and remove.
+test('settings-external-mcp: the nav count is the number of servers', () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><button class="settings-nav-item" data-cat="mcp" data-count-own="1">MCP servers <span class="settings-nav-count"></span></button><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const body = window.document.body;
+    const host = window.document.getElementById('body');
+    const badge = body.querySelector('.settings-nav-count');
+    host.innerHTML = mod.sectionHtml([
+      { name: 'one', transport: 'stdio', command: 'x' },
+      { name: 'two', transport: 'stdio', command: 'x' },
+    ]);
+    mod.bind(body, new window.AbortController().signal);
+    assert.strictEqual(badge.textContent, '2');
+    assert.strictEqual(badge.hidden, false);
+    host.querySelectorAll('.sv-mcp-card')[0].querySelectorAll('button')[1].click(); // Remove
+    assert.strictEqual(badge.textContent, '1');
+    host.querySelector('.sv-mcp-card').querySelectorAll('button')[1].click();
+    assert.strictEqual(badge.textContent, '');
+    assert.strictEqual(badge.hidden, true);
   } finally { dom.window.close(); }
 });
 
