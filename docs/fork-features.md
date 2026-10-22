@@ -490,7 +490,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   server with an on/off switch and an add/edit form, with an *Edit as JSON* view for the raw list; it is dropped on
   settings import, since a stdio entry is a command that runs. Entries hold `${VAR}` references, and no secret value
   reaches a command line. There is no tabbed marketplace, and install/uninstall is #790. The injection is confirmed
-  on a real spawn for Codex, agy and Claude, and a Claude/Haiku turn chose and called an external server's tool. Spec:
+  on a real spawn for Codex, agy and Claude, and a Claude/Haiku turn chose and called an external server's tool.
+  Slice A2 adds a per-project *prune* switch (off by default, dropped on settings import): Claude and claude-native
+  then start with `--strict-mcp-config`, so only the servers Switchboard injected are present and the user's own,
+  a project `.mcp.json`, plugin servers and claude.ai connectors are hidden. Every other backend declines. Spec:
   [`specs/36-external-mcp-servers.md`](specs/36-external-mcp-servers.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent

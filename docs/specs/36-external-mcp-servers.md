@@ -68,17 +68,17 @@ says so and the export/import handling is an open point (O7). The name is valida
 
 ## Per-backend table
 
-"Supports" is for the injection slice. "Prune" is the launch-only mechanism the follow-up slice would use.
+"Supports" is for the injection slice. "Prune" is the answer of slice A2 (see "Slice A2: prune").
 
-| Backend | Supports | Transports | Mechanism | `cwd` | Prune (follow-up) |
+| Backend | Supports | Transports | Mechanism | `cwd` | Prune (A2) |
 |---|---|---|---|---|---|
-| Codex | yes (adds `'stdio'`; http already) | stdio, http | `-c mcp_servers.<n>.command/args/cwd`; env as `env_vars=["NAME"]` with the value in the returned `env`; http bearer as today; other http headers as `env_http_headers` | yes | `-c mcp_servers.<n>.enabled=false` |
-| agy | yes (adds `'stdio'`) | stdio, http | the per-session plugin bundle of spec 34; `{command,args,env,cwd}` for stdio. The `type:'http'` key it writes today is **dropped** | yes | none clean per launch (gap) |
-| Claude (terminal) | yes (flag flips) | stdio, http | `--mcp-config <file>`, a 0600 JSON `{"mcpServers":{…}}` under the binding dir, deleted on release | **no**: a row that needs one is declined with a log line | `--strict-mcp-config` (drops the user's own servers: only ever an explicit per-project choice), `ENABLE_CLAUDEAI_MCP_SERVERS=false` |
-| claude-native | **yes** (T10) | as Claude | the same `--mcp-config` file and flag as terminal Claude; the spawn gate now admits a transport backend declaring the quartet | no | as Claude |
-| Pi (terminal) | open (O1) | stdio | the existing resources-extension MCP section, or `.pi/mcp.json` | n/a | `--exclude-tools`, `--no-mcp` |
-| pi-native | **yes** (O1) | stdio | as Pi — the session-resources MCP section it inherits; measured | n/a | as Pi |
-| Hermes | **no, accepted gap** | n/a | no per-launch channel | n/a | none (gap) |
+| Codex | yes (adds `'stdio'`; http already) | stdio, http | `-c mcp_servers.<n>.command/args/cwd`; env as `env_vars=["NAME"]` with the value in the returned `env`; http bearer as today; other http headers as `env_http_headers` | yes | declines |
+| agy | yes (adds `'stdio'`) | stdio, http | the per-session plugin bundle of spec 34; `{command,args,env,cwd}` for stdio. The `type:'http'` key it writes today is **dropped** | yes | declines |
+| Claude (terminal) | yes (flag flips) | stdio, http | `--mcp-config <file>`, a 0600 JSON `{"mcpServers":{…}}` under the binding dir, deleted on release | **no**: a row that needs one is declined with a log line | **yes**, `--strict-mcp-config` (drops the user's own servers: only ever an explicit per-project choice) |
+| claude-native | **yes** (T10) | as Claude | the same `--mcp-config` file and flag as terminal Claude; the spawn gate now admits a transport backend declaring the quartet | no | **yes**, as Claude |
+| Pi (terminal) | open (O1) | stdio | the existing resources-extension MCP section, or `.pi/mcp.json` | n/a | declines |
+| pi-native | **yes** (O1) | stdio | as Pi — the session-resources MCP section it inherits; measured | n/a | declines |
+| Hermes | **no, accepted gap** | n/a | no per-launch channel | n/a | declines |
 
 Facts that bound this table (measured on current CLIs by the backend-format review; the plan's G-gates re-check what a
 stand-in cannot): the Codex quoting of an inline array through ConPTY is **measured** on a real spawn (spec 34 had confirmed only
@@ -104,6 +104,7 @@ server; a wrong prune silently takes a working tool away), in mechanism (five di
 backends with none) and in surface (the user must see what is pruned, which is a screen). `--strict-mcp-config` is the
 sharpest case: it drops every server not in the file, including the user's own. So slice A **never prunes**, and the
 Claude emitter must not pass `--strict-mcp-config`. The mechanisms are listed in the table so slice A2 starts from them.
+Slice A2 is built for Claude and claude-native only: see "Slice A2: prune" at the end of this file.
 
 ## Detection (D-A6): deferred, argued
 
@@ -205,7 +206,7 @@ product text — the secrets sentence and the OAuth "not supported" note — sta
 | O1 Pi channel | Shipped: the existing resources-extension section, stdio only. Never two clients over one entry. |
 | O2 native drivers | **Both shipped** (T10). claude-native over its own `--mcp-config` (measured on a real piped spawn); pi-native through the session-resources MCP section it inherits from terminal Pi, stdio only (measured — the external server starts as a child of the piped Pi). |
 | O3 editing surface | Shipped: one JSON text area in the project settings. The tabbed UI is slice B. |
-| O4 prune (A2) | **Deferred**, a separate slice. Slice A never prunes. |
+| O4 prune (A2) | **Built as slice A2** for Claude and claude-native; slice A itself never prunes. See "Slice A2: prune". |
 | O5 reachability detection | **Deferred**; a skipped entry is logged, nothing more. |
 | O6 `backends` filter | Shipped as data compared by the source. |
 | O7 secrets in export | Shipped as D-S1: the list is dropped on settings import. The setting holds references, not values. |
@@ -224,7 +225,7 @@ Closed by slice B; kept as the record of what they were.
 
 ### Follow-ups
 
-T10 (native drivers), A2 (pruning a backend's defaults), reachability detection, and the management surface
+T10 (native drivers), reachability detection, and the management surface
 (slice B, below; plan `docs/plans/789-slice-b-mcp-cards/`, local).
 
 ## Slice B: cards and a form over the same list
@@ -326,3 +327,89 @@ section) and the `SWITCHBOARD_PI_MCP_SERVERS` env the same way terminal Pi's do 
 pi-native session carries that extension, and the external `local` stdio server runs as a child of the piped Pi process
 (its tools surface as `mcp__local__ping`). stdio only; http and `cwd` are dropped by name (O1). Step T10,
 `docs/plans/789-external-mcp-injection/` (local).
+
+## Slice A2: prune
+
+Status: **built, Claude and claude-native only** (owner decision B). Prune is the opposite of injection: injection
+adds servers to a launch, prune hides the CLI's own. It rides the same spawn seam but is a separate capability with
+its own hook, because a backend can inject and not prune. Reflex 16 applies: this is a new user-visible control, so
+the scope below is the owner's. Plan: `docs/plans/789-slice-a2-prune/` (local).
+
+### What changes for the user
+
+In the project settings, category "MCP servers", below the cards, one switch: **Start sessions with only this
+project's MCP servers**. Off by default. When on, every Claude or claude-native session launched in this project
+(new, resume, fork) starts with only the MCP servers Switchboard injected (`--mcp-config`). The user's own servers, a
+project `.mcp.json`, plugin servers and claude.ai connectors are all hidden. Nothing is written to the CLI's own
+configuration; the next session started after Save is affected, running sessions are not. The control lists, per
+backend, what it does and shows a declining backend as "not applied".
+
+### Decided
+
+| | Decision | Why |
+|---|---|---|
+| D-P1 | **One coarse, explicit, per-project switch.** One meaning: this project's sessions start with only the servers Switchboard injected. | Owner. A per-server prune needs a server listing and uniform per-server support the CLIs lack. |
+| D-P2 | **Default is no prune, byte for byte.** Prune runs only when the project's blob holds exactly `true`. Absent, `false`, a string or a number all mean an unchanged launch. | Blast-radius rule: a wrong prune silently removes a working tool. |
+| D-P3 | **Scope B: only Claude and claude-native prune.** Codex, Pi, pi-native, agy and Hermes decline (capability `mcpPrune` = no). | Owner. See "Per-backend answer" for why each declines. |
+| D-P4 | **The wording says what is dropped.** For Claude: every MCP server not given by Switchboard, including the user's own, a project `.mcp.json`, plugin servers and claude.ai connectors. The text comes from the capability note, not the renderer. | `--strict-mcp-config` is the sharpest case; a user must not discover it by a missing tool. |
+| D-P5 | **The mechanism belongs in the backend's descriptor, not the core.** The core reads the setting, asks the hook and joins its args and env; it names no backend (reflex 5). | `.claude/rules/backends.md`: a capability is a declared hook, a decline is the honest default. |
+| D-P6 | **A prune that cannot apply is a logged no-op, never a failed launch.** | Fail toward today's behaviour (D-P2). |
+
+### Per-backend answer
+
+| Backend | Prune | Mechanism / reason |
+|---|---|---|
+| Claude (terminal) | **yes** | `--strict-mcp-config` beside the injected `--mcp-config`. A launch flag: no file, no release half. |
+| claude-native | **yes** | the same hook and flag, piped. |
+| Codex | **declines** | not yet; `-c mcp_servers.<n>.enabled=false` would need a reader for the user's `config.toml`. May stay a decline. |
+| Pi (terminal) | **declines** | not yet; may stay a decline. `--no-mcp` and `--exclude-tools` exist, but Pi's injected servers ride the same MCP channel (the resources extension), so "drop its own, keep ours" is not separable. |
+| pi-native | **declines** | as Pi. |
+| agy | **declines** | no per-launch channel. |
+| Hermes | **declines** | no per-launch channel (D-S4). |
+
+### Surface
+
+Reuses slice B's styling and the settings screen's rules (`renderer.md`): the switch sits in the existing "MCP
+servers" category, is stored by the window's own Save (the window is a snapshot, #146), and takes effect on the next
+session. The per-backend lines come from the `backends-list` payload's capability answers (state and note), so the
+renderer holds no backend name and no mechanism text.
+
+### As built (A2)
+
+- **The setting.** `externalMcpPrune`, a boolean on the project blob `project:<settingsOwnerPath>` (reflex 17), beside
+  `externalMcpServers`. Not a `SETTING_DEFAULTS` key, no cascade, a worktree reads its project's. Read by
+  `readExternalMcpPrune` in `src/app/external-mcp.js`, strict `=== true`. Dropped on settings import
+  (`src/app/settings-transfer.js`): a settings file from someone else must not silently take tools from a project.
+- **The hook.** Descriptor flag `providesMcpPrune` and `buildMcpPrune(...)` returning `{ args, env } | null`. No release
+  hook: nothing is written to disk.
+- **The core seam.** `src/app/mcp-prune.js` composes the backends' answers. `src/app/terminal/spawn.js` calls it after
+  the injection block and **outside** the `providesMcpInjection` gate, so a project with zero external servers can
+  still ask for a prune. The injected server names are passed in.
+- **The capability row.** `mcpPrune` in `src/backends/capabilities.js` (`declaredBy: 'providesMcpPrune'`) carries the
+  per-backend note the switch renders.
+- **The switch.** `src/renderer/panels/settings-external-mcp.js`, off by default, lists per backend what prune does.
+
+Measured (T1): with `--strict-mcp-config`, a Claude/claude-native `system/init` `mcp_servers` shows **only** the
+injected servers; the user's own servers and connectors (about two dozen on the measuring machine) are all gone. That
+is the blast radius D-P4 warns about. Pi/pi-native: the flags exist, but injected servers share the channel, hence the
+decline. Codex was dropped from scope before measuring.
+
+Method, reproducible: the claude-native stream harness (`claude -p --input-format stream-json ... --mcp-config <file>
+--permission-prompt-tool stdio --model haiku`), run once with and once without `--strict-mcp-config`, comparing
+`init.mcp_servers`.
+
+### Open points, resolved
+
+| Point | State |
+|---|---|
+| O-P1 `ENABLE_CLAUDEAI_MCP_SERVERS=false` as a finer toggle | Not built; a later, finer control. |
+| O-P2 setting shape | Shipped as the boolean. |
+| O-P3 per-server prune | Not built; a later slice. |
+| O-P4 Codex config reader | Moot: Codex declines in B. |
+| O-P5 one boolean across backends | Moot in B: only Claude-family backends act on it. |
+| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | **Still open** (gate G5, plan step T9): not yet measured. |
+
+### Out, explicitly
+
+Per-server prune; a connectors-only toggle; pruning Codex, Pi, pi-native, agy or Hermes; a server listing or
+reachability detection; a global prune; anything written to a CLI's user configuration.

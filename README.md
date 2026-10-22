@@ -157,7 +157,8 @@ chart rather than a row of zeroes.
 - **External MCP servers per project** — list MCP servers (a stdio launch or an HTTP endpoint) in a project's
   settings, as a card per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view holds
   the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes not
-  yet. Confirmed end to end: a Claude/Haiku turn chose and called an external tool.
+  yet. Confirmed end to end: a Claude/Haiku turn chose and called an external tool. A project can also start its
+  Claude sessions with only the servers Switchboard injects (off by default; Claude only).
   → [`docs/specs/36-external-mcp-servers.md`](docs/specs/36-external-mcp-servers.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
