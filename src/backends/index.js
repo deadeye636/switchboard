@@ -252,6 +252,9 @@ function profileToDescriptor(p) {
     ...(base && typeof base.buildMcpInjection === 'function' ? { buildMcpInjection: base.buildMcpInjection } : {}),
     ...(base && typeof base.releaseMcpInjection === 'function' ? { releaseMcpInjection: base.releaseMcpInjection } : {}),
     ...(base && Array.isArray(base.acceptsMcpTransports) ? { acceptsMcpTransports: base.acceptsMcpTransports } : {}),
+    // Per-spawn MCP prune (spec 36): the same binary prunes the same way, so the flag and the hook travel together.
+    providesMcpPrune: base ? base.providesMcpPrune === true : false,
+    ...(base && typeof base.buildMcpPrune === 'function' ? { buildMcpPrune: base.buildMcpPrune } : {}),
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);

@@ -244,6 +244,20 @@ test('every backend answers the MCP injection quartet — a decline carries the 
   }
 });
 
+// Spec 36, "Prune": the per-spawn MCP prune is a FLAG + ONE HOOK, with no release half (a prune is launch arguments
+// and environment, never a file), so it is not a row of HOOK_PAIRS. Every backend answers the flag, declining
+// included; a declining backend carries no hook.
+test('every backend answers the MCP prune flag — a decline carries the flag and no hook', () => {
+  for (const b of READY) {
+    assert.equal(typeof b.providesMcpPrune, 'boolean', `${b.id} must answer providesMcpPrune, declining with false`);
+    if (b.providesMcpPrune === true) {
+      assert.equal(typeof b.buildMcpPrune, 'function', `${b.id} claims MCP prune — it must implement buildMcpPrune`);
+    } else {
+      assert.equal(b.buildMcpPrune, undefined, `${b.id} declines MCP prune — it must not declare buildMcpPrune`);
+    }
+  }
+});
+
 // The binding must never be able to break a launch: no URL (server not up yet), no directory, no tag — all
 // of them mean "no binding", which is the conservative path the core already handles.
 test('buildLiveBinding declines rather than throwing when it cannot bind', () => {

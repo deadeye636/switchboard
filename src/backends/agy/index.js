@@ -303,6 +303,8 @@ module.exports = {
   acceptsMcpTransports: ['http', 'stdio'],
   buildMcpInjection: mcpInject.buildMcpInjection,
   releaseMcpInjection: mcpInject.releaseMcpInjection,
+  // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
+  providesMcpPrune: false,
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -324,6 +326,7 @@ module.exports = {
     resumeModel: { state: 'no', note: 'its store holds only a display name for the model, with no mapping to the launch flag' },
     quota: 'yes',
     mcpInject: { state: 'limited', note: 'writes a per-session plugin bundle into the project\'s .agents folder; the connection is measured, but whether agy offers the tools to the model is not yet confirmed' },
+    mcpPrune: { state: 'no', note: 'declines; agy has no per-launch channel to hide the servers it loads itself' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

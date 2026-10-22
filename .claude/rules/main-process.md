@@ -166,6 +166,7 @@ the transports a descriptor does not accept, asks its `buildMcpInjection` hook a
 release }` or `null`. Electron-free and db-free, names no backend. The spawn path calls it once, best-effort:
 a failure is a warning and the session starts without the tool. The one source today is Switchboard's own
 HTTP endpoint, registered on `src/servers/mcp-http.js`),
+`mcp-prune.js` (the per-spawn MCP prune — #789, spec 36; asks a descriptor's `buildMcpPrune` when the project set `externalMcpPrune` and the backend declares `providesMcpPrune`, answers `{ args, env }` or `null`. No release half. Electron-free, db-free, names no backend; the spawn block runs after the injection and outside its gate),
 `external-mcp.js` (the per-project `externalMcpServers` list — #789, spec 36; a pure validator plus a reader that takes
 `getSetting`, so it is Electron-free and db-free. The key is dropped on settings import),
 `session-view.js` (which view a session of an owner/driver pair opens in — #670; the write that is not a

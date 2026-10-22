@@ -208,6 +208,7 @@ const capabilities = {
   quota: { state: 'no', note: 'shown for the terminal Claude backend, whose account this is' },
   resourcesFrom: 'no',
   mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file, measured on the pipe (listed, and gated by the approval card); the app\'s own session server is not offered here' },
+  mcpPrune: { state: 'no', note: 'not yet; a later step wires a strict MCP config for it' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
@@ -294,6 +295,8 @@ module.exports = {
   acceptsMcpTransports: claude.acceptsMcpTransports,
   buildMcpInjection: claude.buildMcpInjection,
   releaseMcpInjection: claude.releaseMcpInjection,
+  // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
+  providesMcpPrune: false,
   // Everything below answers a question about Claude's STORE and FORMAT, which this backend shares.
   resolveLineage: claude.resolveLineage,
   openedWithCommand: claude.openedWithCommand,

@@ -22,6 +22,7 @@ const PINNED = {
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
     mcpInject: 'limited', // --mcp-config file for external servers; a live Claude listing them is unchecked (plan 789)
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
@@ -33,6 +34,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'yes',   // it reports the window itself with every token_count (#620)
     mcpInject: 'yes',     // -c overrides + env token; a real Codex surfaces and calls the tools (spec 34)
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -44,6 +46,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'no', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'no',    // token totals per session only, no last turn (#620)
     mcpInject: 'no',
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'yes',   // #507: the viewer's SQL reader, bounded by a row limit
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
@@ -63,6 +66,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',   // only for a model its own catalog lists with a window (#620)
     mcpInject: 'no',
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
@@ -79,6 +83,7 @@ const PINNED = {
     fork: 'limited', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'limited',
     contextFill: 'limited',
     mcpInject: 'no',
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'yes',   // #507: Pi's answer, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -94,6 +99,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
     mcpInject: 'limited', // external servers via --mcp-config, measured on the pipe; no own server (plan 789 T10)
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -105,6 +111,7 @@ const PINNED = {
     fork: 'no', deleteSessions: 'yes', moveProject: 'no', transcriptHandoff: 'yes', lineage: 'no',
     contextFill: 'no',    // protobuf generation metadata, no readable token counts (#620)
     mcpInject: 'limited', // plugin-bundle channel written; tool surfacing to the model unproven (spec 34)
+    mcpPrune: 'no',   // spec 36: every backend declines until its own step (T4+)
     turnDigest: 'limited', // #507: whole-database walk, so it declines above a size guard
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no

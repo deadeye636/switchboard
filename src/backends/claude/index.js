@@ -758,6 +758,8 @@ module.exports = {
   acceptsMcpTransports: ['stdio', 'http'],
   buildMcpInjection: mcpInject.buildMcpInjection,
   releaseMcpInjection: mcpInject.releaseMcpInjection,
+  // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
+  providesMcpPrune: false,
 
   // Does the CLI still owe a turn? (#495) Claude fires `UserPromptSubmit` when a prompt is ENQUEUED, so
   // a `Stop` can arrive after that busy edge and overwrite it while a queued prompt is still waiting to
@@ -1158,6 +1160,7 @@ description:
     resumeModel: 'yes',
     turnDigest: 'yes',
     mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file; the app\'s own session server still travels over --ide, and a live Claude listing them is not yet checked' },
+    mcpPrune: { state: 'no', note: 'not yet; a later step wires a strict MCP config for it' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

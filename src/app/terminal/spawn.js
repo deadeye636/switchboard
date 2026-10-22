@@ -46,6 +46,8 @@ const liveOwners = require('../live-owners');
 const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
 const { composeMcpInjection, ownServerSource, externalServersSource } = require('../mcp-inject');
+const { composeMcpPrune } = require('../mcp-prune');
+const { readExternalMcpPrune } = require('../external-mcp');
 const { conptyBuildHint } = require('./conpty');
 const { measured } = require('../../perf');
 const { resolveResumeOptions, previewResumeOptions, withoutResumeMark } = require('./resume-options');
@@ -505,6 +507,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   // Spec 34: the release of what the MCP injection composer built, and the env it adds. Same lifetime again.
   let mcpInjectionRelease = null;
   let mcpInjectionEnv = null;
+  // Spec 36: the env a prune adds (launch args only otherwise; a prune has no release half).
+  let mcpPruneEnv = null;
   // Everything the backend allocated above, released in one place — by the catch below and by the refusals
   // inside the backend branch that return rather than throw.
   const releaseSpawnAllocations = () => {
@@ -1051,6 +1055,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // for it, and the project's external servers; the own-server registration is released by the composer's
       // `release`, which the paths below and the exit handler already call.
       // Best-effort like the blocks around it: null means the session starts without.
+      let mcpInjectedNames = [];
       if (backend.providesMcpInjection === true) {
         const mcpOptions = spawnOptionsFor(backend, projectPath, launchOptions);
         // The tool groups this launch's toggles turn on (spec 35, D7); none on means no registration. The
@@ -1079,6 +1084,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           mcpInjectionRelease = injection.release;
           if (injection.args.length) launch.args = [...launch.args, ...injection.args];
           mcpInjectionEnv = injection.env;
+          mcpInjectedNames = Array.isArray(injection.names) ? injection.names : [];
         }
         // The same re-check as after the resources hook above, for the same reason: the await can straddle a
         // quit or a second open of this session. Give back what was built and do not use it.
@@ -1091,6 +1097,23 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           releaseSpawnAllocations();
           return openTerminal(sessionId, projectPath, isNew, sessionOptions);
         }
+      }
+
+      // Spec 36: a project that asked for it sees ONLY the servers Switchboard gives it. After the injection (a file
+      // it wrote already exists) and outside its gate: a backend with no servers to inject can still prune. The
+      // composer asks the descriptor; a backend that declines costs one log line. A prune is launch args and env
+      // only, so there is nothing to release. Best-effort: any failure starts the session without it.
+      try {
+        const prune = composeMcpPrune({
+          backend, enabled: readExternalMcpPrune(ctx.getSetting, projectPath), injectedNames: mcpInjectedNames,
+          env: quietSessionEnv(), cwd: projectPath, options: spawnOptionsFor(backend, projectPath, launchOptions), log: ctx.log,
+        });
+        if (prune) {
+          if (prune.args.length) launch.args = [...launch.args, ...prune.args];
+          mcpPruneEnv = prune.env;
+        }
+      } catch (err) {
+        ctx.log.warn(`[mcp-prune] could not set up: ${err && err.message}`);
       }
 
       // #569: the app's document conventions, offered as commands inside the session itself.
@@ -1254,6 +1277,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // The MCP injection's env (spec 34) goes in first, so the layers assigned just below — the user's and the
       // template's — still win over it. Unresolved, like the resources env: it is data, not a `$VAR` template.
       if (mcpInjectionEnv) Object.assign(ptyEnv, mcpInjectionEnv);
+      if (mcpPruneEnv) Object.assign(ptyEnv, mcpPruneEnv);
       {
         const { baseEnv, userEnv, templateEnv } = envLayers();
 

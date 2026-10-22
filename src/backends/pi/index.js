@@ -523,6 +523,8 @@ module.exports = {
   // Per-spawn MCP injection (spec 34): declines for now — Pi's MCP servers already travel as a section of the
   // resources extension above (#633), not through this hook.
   providesMcpInjection: false,
+  // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
+  providesMcpPrune: false,
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //
@@ -603,6 +605,7 @@ module.exports = {
     turnDigest: 'yes',
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; its MCP servers travel in the resources extension instead' },
+    mcpPrune: { state: 'no', note: 'not yet; the built-in MCP client of Pi has no measured per-launch switch wired' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

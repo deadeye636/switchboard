@@ -648,6 +648,8 @@ backend, and its injected tools are gated by its own `--permission-prompt-tool s
 group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
 agy and Codex through the `discoveryTools` option (spec 35).
 
+**A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
+
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
 backend's own folder cannot list other backends (reflex 5), so the core fills the choices at the
 `backends-list` projection (`resource-sources.projectFields`) and every form reads the same list. A new

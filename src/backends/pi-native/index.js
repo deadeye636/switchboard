@@ -207,6 +207,8 @@ module.exports = {
   // Per-spawn MCP injection (spec 34): declines for now, as Pi does — its MCP servers travel in the
   // resources extension above.
   providesMcpInjection: false,
+  // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
+  providesMcpPrune: false,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.
   resolveLineage: pi.resolveLineage,
   openedWithCommand: pi.openedWithCommand,

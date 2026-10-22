@@ -210,6 +210,13 @@ const CATALOG = [
     declaredBy: 'providesMcpInjection',
   },
   {
+    id: 'mcpPrune',
+    group: 'resources',
+    label: 'Show a session only the servers the app gives it',
+    description: 'Whether a project can ask that a session of this CLI sees only the MCP servers Switchboard hands it, leaving out the ones the CLI would otherwise load itself (spec 36).',
+    declaredBy: 'providesMcpPrune',
+  },
+  {
     id: 'plans',
     group: 'resources',
     label: 'Plan documents',

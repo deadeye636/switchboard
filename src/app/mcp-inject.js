@@ -153,6 +153,7 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
     return {
       args: Array.isArray(built.args) ? built.args : [],
       env: built.env && typeof built.env === 'object' ? built.env : null,
+      names: servers.map((s) => s.name),
       release,
     };
   } catch (err) {

@@ -319,6 +319,8 @@ module.exports = {
   seedGraceMs: 20000,
   // Per-spawn MCP injection (spec 34): declines for now — no per-spawn MCP channel is wired for Hermes yet.
   providesMcpInjection: false,
+  // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
+  providesMcpPrune: false,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {
@@ -340,6 +342,7 @@ module.exports = {
     resumeModel: { state: 'no', note: 'whether its stored model follows a mid-session switch and whether resume honours --model is unmeasured' },
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; no per-spawn MCP channel is wired for it yet' },
+    mcpPrune: { state: 'no', note: 'declines; Hermes has no per-launch channel to hide the servers it loads itself' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',
