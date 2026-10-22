@@ -24,4 +24,18 @@ function readExternalMcpServers(getSetting, projectPath) {
   return validateExternalMcpServers(blob && typeof blob === 'object' && !Array.isArray(blob) ? blob[SETTING_KEY] : undefined);
 }
 
-module.exports = { SETTING_KEY, validateExternalMcpServers, readExternalMcpServers };
+const PRUNE_KEY = 'externalMcpPrune';
+
+/**
+ * Read the project's prune switch (#789 slice A2): true only for exactly `true`, so an absent key, `'true'`, `1`
+ * or `null` leave the launch as it is today. Same owner and blob as the list; it does not cascade and is dropped
+ * on settings import.
+ */
+function readExternalMcpPrune(getSetting, projectPath) {
+  const owner = projectPath ? settingsOwnerPath(projectPath) : '';
+  if (!owner) return false;
+  const blob = getSetting('project:' + owner);
+  return !!blob && typeof blob === 'object' && !Array.isArray(blob) && blob[PRUNE_KEY] === true;
+}
+
+module.exports = { SETTING_KEY, PRUNE_KEY, validateExternalMcpServers, readExternalMcpServers, readExternalMcpPrune };

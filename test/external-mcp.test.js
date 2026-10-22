@@ -1,7 +1,7 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { validateExternalMcpServers, readExternalMcpServers } = require('../src/app/external-mcp');
+const { validateExternalMcpServers, readExternalMcpServers, readExternalMcpPrune } = require('../src/app/external-mcp');
 const { validateImportPayload, mergeImport, buildExportPayload } = require('../src/app/settings-transfer');
 
 const stdio = { name: 'files', transport: 'stdio', command: 'node', args: ['srv.js'], env: { TOKEN: '${GH_TOKEN}' } };
@@ -88,4 +88,29 @@ test('settings import drops externalMcpServers, export keeps it', () => {
   const merged = mergeImport({ existing: 1 }, blob);
   assert.strictEqual('externalMcpServers' in merged, false);
   assert.strictEqual(merged.theme, 'dark');
+});
+
+test('the prune switch reads true only for exactly true, through the settings owner', () => {
+  const sep = require('node:path').sep;
+  const project = sep + ['proj', 'app'].join(sep);
+  const wt = project + sep + '.claude' + sep + 'worktrees' + sep + 'feature';
+  const at = value => key => (key === 'project:' + project ? { externalMcpPrune: value } : null);
+  for (const v of [undefined, false, 'true', 1, null, [], {}]) {
+    assert.strictEqual(readExternalMcpPrune(at(v), project), false);
+  }
+  assert.strictEqual(readExternalMcpPrune(at(true), project), true);
+  assert.strictEqual(readExternalMcpPrune(at(true), wt), true);
+  assert.strictEqual(readExternalMcpPrune(at(true), ''), false);
+  assert.strictEqual(readExternalMcpPrune(() => [true], project), false);
+  assert.strictEqual(readExternalMcpPrune(() => null, project), false);
+});
+
+test('settings import drops externalMcpPrune, export keeps it', () => {
+  const blob = { theme: 'dark', externalMcpPrune: true };
+  const exported = buildExportPayload(blob, 'now', []);
+  assert.strictEqual(exported.global.externalMcpPrune, true);
+  const check = validateImportPayload(exported);
+  assert.strictEqual('externalMcpPrune' in check.global, false);
+  assert.deepStrictEqual(check.dropped, ['externalMcpPrune']);
+  assert.strictEqual('externalMcpPrune' in mergeImport({}, blob), false);
 });
