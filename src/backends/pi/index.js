@@ -525,6 +525,9 @@ module.exports = {
   providesMcpInjection: false,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // External MCP servers (spec 36): through the resources extension's MCP section, stdio only, no `cwd`
+  // (`./session-resources.js`); there is no quartet, so this is the only place the channel is declared.
+  externalMcpTakes: { transports: ['stdio'], cwd: false },
   // Lineage (#193): a FORKED Pi session records its origin in the header as `parentSession` — the full
   // path of the parent transcript. A hard link, like Claude's `forkedFrom` and Hermes' parent column.
   //

@@ -39,6 +39,14 @@ test('stdio and http entries become neutral rows; cwd only when present', () => 
   assert.equal('cwd' in source()[1], false);
 });
 
+test('a cwd that expands to nothing is no cwd', () => {
+  const { source } = make([{ name: 'a', transport: 'stdio', command: 'srv', cwd: '${EMPTY_DIR}' }],
+    { getEnv: () => ({ EMPTY_DIR: '' }) });
+  const rows = source();
+  assert.equal(rows.length, 1);
+  assert.equal('cwd' in rows[0], false);
+});
+
 test('${VAR} expands in command, args, env, cwd, url and headers; a default applies', () => {
   const { source } = make([
     { name: 'a', transport: 'stdio', command: '${HOME_DIR}/bin', args: ['--t=${TOKEN}'], env: { T: '${TOKEN}', D: '${NOPE:-dflt}' }, cwd: '${HOME_DIR}' },

@@ -294,6 +294,8 @@ description:
   releaseMcpInjection: mcpInject.releaseMcpInjection,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // External MCP servers (spec 36): stdio (with `cwd`) and http, as `-c` overrides.
+  externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {

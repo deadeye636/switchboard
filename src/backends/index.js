@@ -255,6 +255,8 @@ function profileToDescriptor(p) {
     // Per-spawn MCP prune (spec 36): the same binary prunes the same way, so the flag and the hook travel together.
     providesMcpPrune: base ? base.providesMcpPrune === true : false,
     ...(base && typeof base.buildMcpPrune === 'function' ? { buildMcpPrune: base.buildMcpPrune } : {}),
+    // What external MCP servers the same binary takes (spec 36); `null` is "no channel".
+    externalMcpTakes: base && base.externalMcpTakes ? base.externalMcpTakes : null,
     buildLaunch(ctx) {
       if (!usable) throw new Error(`Template '${p.name}' runs on '${baseId}', which is not available.`);
       const launch = base.buildLaunch(ctx);

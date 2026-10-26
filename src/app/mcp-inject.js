@@ -90,7 +90,11 @@ function externalServersSource({ backend, getSetting, projectPath, getEnv, log }
       let row;
       if (s.transport === 'stdio') {
         row = { name: s.name, transport: 'stdio', command: ex(s.command), args: (s.args || []).map(ex), env: exMap(s.env) };
-        if (s.cwd !== undefined) row.cwd = ex(s.cwd);
+        // A `cwd` that expands to nothing is no `cwd`: every emitter then reads the row the same way.
+        if (s.cwd !== undefined) {
+          const cwd = ex(s.cwd);
+          if (cwd !== '') row.cwd = cwd;
+        }
       } else {
         row = { name: s.name, transport: 'http', url: ex(s.url), headers: exMap(s.headers) };
       }

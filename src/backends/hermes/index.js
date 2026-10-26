@@ -321,6 +321,8 @@ module.exports = {
   providesMcpInjection: false,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // External MCP servers (spec 36): no channel for them at all.
+  externalMcpTakes: null,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
   // `src/backends/capabilities.js` for why, and for the catalog these ids come from.
   capabilities: {

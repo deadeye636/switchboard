@@ -650,6 +650,8 @@ agy and Codex through the `discoveryTools` option (spec 35).
 
 **A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
 
+**What a backend takes of a project's external servers is `externalMcpTakes` (spec 36, slice D):** `{ transports, cwd } | null`, answered by every backend (`null` = no channel; `cwd: false` = an entry with a `cwd` is not given at all, declined rather than stripped) and forwarded by a template; it also covers Pi and pi-native, which take servers through the resources extension without the quartet, and `test/external-mcp-takes.test.js` pins each answer against the real emitter.
+
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
 backend's own folder cannot list other backends (reflex 5), so the core fills the choices at the
 `backends-list` projection (`resource-sources.projectFields`) and every form reads the same list. A new

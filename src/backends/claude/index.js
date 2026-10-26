@@ -762,6 +762,9 @@ module.exports = {
   // Per-spawn MCP prune (spec 36): `--strict-mcp-config`, see `./mcp-prune.js`.
   providesMcpPrune: true,
   buildMcpPrune: mcpPrune.buildMcpPrune,
+  // What a project's external MCP servers get through this backend (spec 36): stdio and http, and an entry
+  // with a `cwd` is declined (Claude has no per-server cwd). Pinned against the emitter by test/external-mcp-takes.test.js.
+  externalMcpTakes: { transports: ['stdio', 'http'], cwd: false },
 
   // Does the CLI still owe a turn? (#495) Claude fires `UserPromptSubmit` when a prompt is ENQUEUED, so
   // a `Stop` can arrive after that busy edge and overwrite it while a queued prompt is still waiting to

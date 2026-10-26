@@ -258,6 +258,30 @@ test('every backend answers the MCP prune flag — a decline carries the flag an
   }
 });
 
+// Spec 36, slice D: `externalMcpTakes` says what a project's external MCP servers get through a backend. Every
+// backend answers it — `null` for no channel (carries no transports), else `{ transports, cwd }`. A backend with
+// the injection quartet takes exactly the transports it accepts; Pi takes servers through the resources extension
+// without the quartet, which is why this is a declaration of its own. test/external-mcp-takes.test.js pins it
+// against the emitters.
+test('every backend answers externalMcpTakes — null or { transports, cwd }, in step with acceptsMcpTransports', () => {
+  for (const b of READY) {
+    assert.ok('externalMcpTakes' in b, `${b.id} must answer externalMcpTakes, declining with null`);
+    const t = b.externalMcpTakes;
+    if (t === null) {
+      assert.notEqual(b.providesMcpInjection, true, `${b.id} injects MCP servers, so externalMcpTakes cannot be null`);
+      continue;
+    }
+    assert.ok(t && typeof t === 'object' && !Array.isArray(t), `${b.id}: externalMcpTakes is null or an object`);
+    assert.ok(Array.isArray(t.transports) && t.transports.length > 0
+      && t.transports.every(x => x === 'http' || x === 'stdio'), `${b.id}: transports is a non-empty list of 'http' / 'stdio'`);
+    assert.equal(typeof t.cwd, 'boolean', `${b.id}: cwd is a boolean`);
+    if (b.providesMcpInjection === true) {
+      assert.deepEqual([...t.transports].sort(), [...b.acceptsMcpTransports].sort(),
+        `${b.id}: externalMcpTakes.transports must equal acceptsMcpTransports`);
+    }
+  }
+});
+
 // The binding must never be able to break a launch: no URL (server not up yet), no directory, no tag — all
 // of them mean "no binding", which is the conservative path the core already handles.
 test('buildLiveBinding declines rather than throwing when it cannot bind', () => {

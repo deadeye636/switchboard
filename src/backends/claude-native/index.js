@@ -298,6 +298,8 @@ module.exports = {
   // Per-spawn MCP prune (spec 36): the same `--strict-mcp-config` hook terminal Claude uses.
   providesMcpPrune: true,
   buildMcpPrune: claude.buildMcpPrune,
+  // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
+  externalMcpTakes: claude.externalMcpTakes,
   // Everything below answers a question about Claude's STORE and FORMAT, which this backend shares.
   resolveLineage: claude.resolveLineage,
   openedWithCommand: claude.openedWithCommand,
