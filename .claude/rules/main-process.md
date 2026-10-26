@@ -196,6 +196,10 @@ writer, `open-path` and `open-in-editor` (an OSC 8 link's target is not the text
 network path until then. It fails closed where two names reach one place (`\\nas` and `\\nas.corp`, an IP
 and a name). `documents.js` refuses network paths on its own and does not use it;
 `test/network-path.test.js` checks the wiring by source),
+`path-resolve.js` (where a command lives on PATH, without blocking the main process — #789 slice D, spec 36; one
+async `readdir` per PATH directory shared by every name asked for, `missing` only with evidence and `unknown` with a
+reason otherwise, a network or relative PATH entry never touched. It exists because `src/app/` may not import
+`findOnPath` from `src/backends/file-store.js`; #790 (uv, uvx, pipx) is the second caller),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
