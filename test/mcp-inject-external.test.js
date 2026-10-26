@@ -3,7 +3,7 @@
 // against the session env, a missing variable skipping the entry, disabled / other-backend / invalid entries out.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { externalServersSource, composeMcpInjection } = require('../src/app/mcp-inject');
+const { externalServersSource, composeMcpInjection, externalServersFor, entryAppliesTo } = require('../src/app/mcp-inject');
 
 const OWNER = '/proj/app';
 const make = (list, over = {}) => {
@@ -68,6 +68,33 @@ test('a disabled entry, another backend\'s entry and an invalid entry are left o
     { name: 'switchboard', transport: 'http', url: 'https://x.invalid' },
   ]);
   assert.deepEqual(source().map((r) => r.name), ['mine']);
+});
+
+test('entryAppliesTo says why an entry does not apply, and honours baseId', () => {
+  const codex = { id: 'codex' };
+  assert.deepEqual(entryAppliesTo({ name: 'a' }, codex), { applies: true, reason: null });
+  assert.deepEqual(entryAppliesTo({ name: 'a', enabled: false, backends: ['codex'] }, codex), { applies: false, reason: 'disabled' });
+  assert.deepEqual(entryAppliesTo({ name: 'a', backends: ['claude'] }, codex), { applies: false, reason: 'backend-filter' });
+  assert.deepEqual(entryAppliesTo({ name: 'a', backends: ['codex'] }, codex), { applies: true, reason: null });
+  assert.deepEqual(entryAppliesTo({ name: 'a', backends: [] }, codex), { applies: false, reason: 'backend-filter' });
+  assert.deepEqual(entryAppliesTo({ name: 'a', backends: ['claude'] }, undefined), { applies: true, reason: null });
+  assert.deepEqual(entryAppliesTo({ name: 'a', backends: ['claude'] }, { id: 'claude-native', baseId: 'claude' }), { applies: true, reason: null });
+  assert.deepEqual(entryAppliesTo({ name: 'a', backends: ['pi'] }, { id: 'claude-native', baseId: 'claude' }), { applies: false, reason: 'backend-filter' });
+});
+
+test('externalServersFor keeps the enabled entries meant for the backend, baseId included', () => {
+  const list = [
+    { name: 'off', transport: 'stdio', command: 'srv', enabled: false },
+    { name: 'other', transport: 'stdio', command: 'srv', backends: ['pi'] },
+    { name: 'base', transport: 'stdio', command: 'srv', backends: ['claude'] },
+    { name: 'all', transport: 'stdio', command: 'srv' },
+  ];
+  const getSetting = (k) => (k === 'project:' + OWNER ? { externalMcpServers: list } : {});
+  const names = (backend) => externalServersFor({ backend, getSetting, projectPath: OWNER }).map((s) => s.name);
+  assert.deepEqual(names({ id: 'claude-native', baseId: 'claude' }), ['base', 'all']);
+  assert.deepEqual(names({ id: 'codex' }), ['all']);
+  assert.deepEqual(names(undefined), ['other', 'base', 'all']);
+  assert.deepEqual(externalServersFor({ backend: { id: 'codex' } }), []);
 });
 
 test('through the composer: the stdio row is dropped when the backend takes http only', async () => {

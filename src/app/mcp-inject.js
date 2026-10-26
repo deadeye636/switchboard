@@ -109,11 +109,16 @@ function externalServersSource({ backend, getSetting, projectPath, getEnv, log }
 function externalServersFor({ backend, getSetting, projectPath } = {}) {
   if (typeof getSetting !== 'function') return [];
   const { servers } = readExternalMcpServers(getSetting, projectPath);
-  return servers.filter((s) => {
-    if (s.enabled === false) return false;
-    if (!Array.isArray(s.backends) || !backend) return true;
-    return s.backends.includes(backend.id) || !!(backend.baseId && s.backends.includes(backend.baseId));
-  });
+  return servers.filter((s) => entryAppliesTo(s, backend).applies);
+}
+
+// Whether one entry is meant for this backend, and if not, why. The one rule the injection, the prune count and
+// the settings check share.
+function entryAppliesTo(entry, backend) {
+  if (entry.enabled === false) return { applies: false, reason: 'disabled' };
+  if (!Array.isArray(entry.backends) || !backend) return { applies: true, reason: null };
+  const hit = entry.backends.includes(backend.id) || !!(backend.baseId && entry.backends.includes(backend.baseId));
+  return hit ? { applies: true, reason: null } : { applies: false, reason: 'backend-filter' };
 }
 
 // `backend` is the descriptor. `ctx` is the app context (only `ctx.log` is read here).
@@ -170,4 +175,4 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
   }
 }
 
-module.exports = { composeMcpInjection, ownServerSource, externalServersSource, externalServersFor };
+module.exports = { composeMcpInjection, ownServerSource, externalServersSource, externalServersFor, entryAppliesTo };

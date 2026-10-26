@@ -3,7 +3,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { expand } = require('../src/shared/env-expand');
+const { expand, references } = require('../src/shared/env-expand');
 
 test('${VAR} takes the value from the environment', () => {
   const missing = new Set();
@@ -61,4 +61,32 @@ test('a non-string is returned as it came', () => {
   assert.equal(expand(undefined, {}, missing), undefined);
   assert.equal(expand(5, {}, missing), 5);
   assert.equal(expand(null, {}, missing), null);
+});
+
+test('references finds what expand reports as missing, over a table', () => {
+  const env = { SET: 'v', EMPTY: '' };
+  const table = [
+    ['${SET}', [{ name: 'SET', hasDefault: false }]],
+    ['${NOPE}', [{ name: 'NOPE', hasDefault: false }]],
+    ['${NOPE:-d}', [{ name: 'NOPE', hasDefault: true }]],
+    ['${NOPE:-}', [{ name: 'NOPE', hasDefault: true }]],
+    ['plain $HOME text ${}', []],
+    ['a${A}b${B:-x}c${EMPTY}', [{ name: 'A', hasDefault: false }, { name: 'B', hasDefault: true }, { name: 'EMPTY', hasDefault: false }]],
+    ['${NOPE:-${B}}', [{ name: 'NOPE', hasDefault: true }]],
+    ['${{A}}', []],
+  ];
+  for (const [value, want] of table) {
+    assert.deepEqual(references(value), want, value);
+    const missing = new Set();
+    expand(value, env, missing);
+    const unset = references(value).filter((r) => !r.hasDefault && env[r.name] === undefined).map((r) => r.name);
+    assert.deepEqual([...missing].sort(), [...new Set(unset)].sort(), value);
+  }
+});
+
+test('references of a non-string is empty', () => {
+  assert.deepEqual(references(undefined), []);
+  assert.deepEqual(references(5), []);
+  assert.deepEqual(references(null), []);
+  assert.deepEqual(references(['${X}']), []);
 });

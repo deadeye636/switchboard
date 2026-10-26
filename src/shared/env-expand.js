@@ -25,6 +25,15 @@ function expand(value, env, missing) {
   });
 }
 
+/**
+ * Every `${VAR}` / `${VAR:-default}` in a string, as `{ name, hasDefault }`, in order. Same pattern as `expand`,
+ * so the two cannot disagree about what a reference is. A non-string has none.
+ */
+function references(value) {
+  if (typeof value !== 'string') return [];
+  return [...value.matchAll(VAR)].map((m) => ({ name: m[1], hasDefault: m[2] !== undefined }));
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { expand };
+  module.exports = { expand, references };
 }
