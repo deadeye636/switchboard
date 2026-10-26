@@ -13,6 +13,11 @@
 // dropped silently at launch is told to the user now. A literal-secret warning never blocks. Nothing persists
 // before Save (the settings window is a snapshot). Loaded in settings.html only. It names no backend.
 //
+// Facts line (slice D, D-D10): each card shows what `window.api.checkExternalMcp` said about its command, variables and
+// backends. The check runs after the backends load, after a card operation or form confirm, on the text area's blur and
+// on "Check again"; a sequence number drops a stale reply, a failed one keeps the last facts, and nothing here feeds
+// `read()` or `check()`, so the facts never block Save. Reason codes map to sentences in REASON_SENTENCES (no backend name).
+//
 // Backends chips: an entry's `backends` filter shows as chips on its card (none = every backend, said in words) and is
 // edited as toggle chips in the form (none selected = no `backends` key). The choosable backends are every enabled
 // non-profile backend `window.api.backends.list()` serves (id, label), fetched once in `bind`; cards draw first and redraw when
@@ -31,6 +36,8 @@
   const JSON_ID = 'sv-external-mcp-json';
   const ADD_ID = 'sv-external-mcp-add';
   const FORM_ID = 'sv-external-mcp-form';
+  const CHECK_ID = 'sv-external-mcp-check';
+  const CHECK_NOTE_ID = 'sv-external-mcp-check-note';
 
   const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -40,6 +47,140 @@
   let formChipsRefresh = null;
   // What each served backend answers for the `mcpPrune` capability, [{ label, state, note }], or null while unresolved.
   let pruneRows = null;
+
+  // The static check (D-D10): what main last said about each entry, keyed by the entry's own JSON so a reply never
+  // lands on a card whose entry has since changed. `checkSeq` drops a stale reply; `checkFailed` keeps the last facts.
+  let factsByKey = new Map();
+  let checkSeq = 0;
+  let checkFailed = false;
+  let checkProjectPath = null;
+
+  // Reason code -> sentence. The codes are main's closed sets (REASONS in src/app/external-mcp-check.js); a code this
+  // file does not know gets the neutral sentence. Data only: no backend is named here, labels come from the reply.
+  const NEUTRAL_REASON = 'the reason is not known to this version';
+  const REASON_SENTENCES = {
+    command: {
+      'network': 'a folder on PATH is on a network share and was left alone',
+      'unreadable': 'a folder on PATH could not be read',
+      'timeout': 'looking through PATH took too long',
+      'relative-path-entry': 'PATH has a relative folder, which is not searched',
+      'no-cwd': 'the command is a relative path and the project folder is not known',
+      'empty-name': 'the command is empty',
+      'unset-variable': 'the command uses a variable that is not set',
+      'path-overridden': 'a backend variable or the server itself sets its own PATH, which was not searched',
+    },
+    takes: {
+      'entry-disabled': 'the server is switched off',
+      'backend-filter': "the server's backend list leaves it out",
+      'unset-variable': 'a variable it needs is not set',
+      'transport': 'it does not take this kind of server',
+      'cwd': 'it cannot set a working directory',
+      'no-channel': 'it has no way to receive external servers',
+    },
+  };
+
+  /** The sentence for a reason code of one kind ('command' | 'takes'); unknown codes get a neutral one. */
+  function reasonSentence(kind, code) {
+    const table = REASON_SENTENCES[kind];
+    return table && typeof code === 'string' && Object.prototype.hasOwnProperty.call(table, code) ? table[code] : NEUTRAL_REASON;
+  }
+
+  const SAVED_VARIABLES = 'Checked against the saved global variables.';
+
+  /** One result of the check -> [{ kind: 'command' | 'variables' | 'backends', text, tone: 'info' | 'warn' }]. */
+  function factLines(r) {
+    const out = [];
+    if (!r || r.rejected) return out;
+    const takes = Array.isArray(r.takes) ? r.takes.filter(t => t && typeof t.id === 'string') : [];
+    const labelOf = (id) => { const t = takes.find(x => x.id === id); return String(t && t.label ? t.label : id); };
+
+    const c = r.command || {};
+    if (c.state === 'found') {
+      const ext = typeof c.ext === 'string' && c.ext ? ' (' + c.ext + ')' : '';
+      if (c.executable === false) out.push({ kind: 'command', text: 'Command: found' + ext + ', but the file is not marked as executable.', tone: 'info' });
+      else out.push({ kind: 'command', text: 'Command: found' + ext + '.', tone: 'info' });
+    } else if (c.state === 'missing') {
+      out.push({ kind: 'command', text: 'Command: would not start (not found).', tone: 'warn' });
+    } else if (c.state === 'unknown') {
+      out.push({ kind: 'command', text: 'Command: not checked, ' + reasonSentence('command', c.reason) + '.', tone: 'info' });
+    }
+
+    const vars = Array.isArray(r.variables) ? r.variables.filter(v => v && typeof v.name === 'string') : [];
+    if (vars.length) {
+      const setNames = []; const unset = []; const unresolved = []; const defaulted = [];
+      const add = (list, s) => { if (!list.includes(s)) list.push(s); };
+      for (const v of vars) {
+        if (v.state === 'unset') add(unset, v.name);
+        else if (v.state === 'declared-unresolved') add(unresolved, v.name);
+        else if (v.state === 'default') add(defaulted, v.name);
+        else if (v.state === 'backend-env') {
+          const ids = Array.isArray(v.backendIds) ? v.backendIds : [];
+          add(setNames, ids.length ? `${v.name} (for ${ids.map(labelOf).join(', ')})` : v.name);
+        } else add(setNames, v.name);
+      }
+      const parts = [];
+      if (setNames.length) parts.push('set ' + setNames.join(', '));
+      if (defaulted.length) parts.push(defaulted.map(n => n + ' (default used)').join(', '));
+      if (unset.length) parts.push('unset ' + unset.join(', '));
+      if (unresolved.length) parts.push('without a usable value ' + unresolved.join(', '));
+      const note = (unresolved.length || r.envGap) ? ' ' + SAVED_VARIABLES : '';
+      out.push({ kind: 'variables', text: 'Variables: ' + parts.join('; ') + '.' + note, tone: unset.length || unresolved.length ? 'warn' : 'info' });
+    }
+
+    if (takes.length) {
+      const yes = takes.filter(t => t.takes === true).map(t => String(t.label || t.id));
+      const no = takes.filter(t => t.takes !== true).map(t => `${t.label || t.id} (${reasonSentence('takes', t.reason)})`);
+      const parts = [];
+      if (yes.length) parts.push('taken by ' + yes.join(', '));
+      if (no.length) parts.push('not taken by ' + no.join(', '));
+      out.push({ kind: 'backends', text: 'Backends: ' + parts.join('; ') + '.', tone: 'info' });
+    }
+    return out;
+  }
+
+  /** The facts block for one raw entry, or null while there is nothing to say. -> { el, title } */
+  function factsNode(raw) {
+    const r = factsByKey.get(JSON.stringify(raw));
+    const lines = factLines(r);
+    if (!lines.length) return null;
+    const el = node('div', 'sv-mcp-card-facts');
+    for (const l of lines) el.appendChild(node('div', l.tone === 'warn' ? 'sv-mcp-warning' : 'settings-hint', l.text));
+    const resolved = r.command && r.command.state === 'found' && typeof r.command.resolved === 'string' ? r.command.resolved : '';
+    return { el, title: resolved };
+  }
+
+  /** Ask main for the facts of the listed entries. Last request wins; a failed one keeps what is shown and says so once. */
+  async function runCheck(body, signal) {
+    if (signal.aborted || !window.api || typeof window.api.checkExternalMcp !== 'function') return;
+    const ta = body.querySelector('#' + TEXT_ID);
+    if (!ta) return;
+    const parsed = parseList(ta.value);
+    if (parsed.error) return;
+    const list = parsed.list;
+    const seq = ++checkSeq;
+    let res = null;
+    try { res = await window.api.checkExternalMcp(checkProjectPath, list); } catch { res = null; }
+    // The window may have closed while main answered; a panel no longer in a live document draws nothing.
+    if (signal.aborted || seq !== checkSeq || !body.isConnected || !(body.ownerDocument && body.ownerDocument.defaultView)) return;
+    if (res && res.ok === true && Array.isArray(res.results)) {
+      const next = new Map();
+      for (const r of res.results) {
+        if (r && !r.rejected && Number.isInteger(r.index) && r.index >= 0 && r.index < list.length) next.set(JSON.stringify(list[r.index]), r);
+      }
+      factsByKey = next;
+      checkFailed = false;
+    } else {
+      checkFailed = true;
+    }
+    const note = body.querySelector('#' + CHECK_NOTE_ID);
+    if (note) {
+      note.textContent = !checkFailed ? ''
+        : factsByKey.size ? 'The check could not run. The facts shown are from the last check.' : 'The check could not run.';
+    }
+    // The facts are stored; while the user types in the JSON the cards are not redrawn under them (the blur draws).
+    if (ta.ownerDocument.activeElement === ta) return;
+    renderCards(body, signal);
+  }
 
   // Unset and [] are blank; anything else is shown as it is, so a stored null or object is visible and fixable.
   const toText = (list) => (list === undefined || (Array.isArray(list) && !list.length) ? '' : JSON.stringify(list, null, 2));
@@ -126,6 +267,13 @@
       }
       info.appendChild(chips);
     }
+    if (!reason) {
+      const facts = factsNode(raw);
+      if (facts) {
+        info.appendChild(facts.el);
+        if (facts.title) card.title = facts.title;
+      }
+    }
     if (reason) info.appendChild(node('div', 'sv-mcp-problem', 'Not used at launch: ' + reason));
     for (const w of warnings) info.appendChild(node('div', 'sv-mcp-warning', w));
     card.appendChild(info);
@@ -164,6 +312,8 @@
       badge.hidden = !n;
     }
     if (addBtn) addBtn.disabled = !!parsed.error; // the form is never reachable while the text is not a list
+    const againBtn = body.querySelector('#' + CHECK_ID);
+    if (againBtn) againBtn.disabled = !!parsed.error; // nothing to check while the text is not a list
     if (parsed.error) {
       closeForm(body);
       region.appendChild(node('div', 'sv-mcp-problem', 'Cards are unavailable. ' + parsed.error + ' Fix it in the JSON below.'));
@@ -188,6 +338,7 @@
       ta.value = toText(now.list);
       showStatus(body, check(ta.value));
       renderCards(body, signal);
+      runCheck(body, signal);
     };
     parsed.list.forEach((raw, i) => {
       region.appendChild(buildCard(raw, i, reasons.get(i) || '', warns.get(i) || [],
@@ -367,6 +518,7 @@
       closeForm(body);
       showStatus(body, check(ta.value));
       renderCards(body, signal);
+      runCheck(body, signal);
     };
     const actions = node('div', 'sv-mcp-form-actions');
     actions.appendChild(cardButton(index === null ? 'Add' : 'Save changes', confirm, signal));
@@ -385,7 +537,7 @@
         <div class="settings-section">
           <div class="settings-section-title">MCP servers</div>
           <div id="${CARDS_ID}" class="sv-mcp-cards"></div>
-          <div class="sv-mcp-add"><button type="button" class="settings-action-btn" id="${ADD_ID}" disabled>Add server</button></div>
+          <div class="sv-mcp-add"><button type="button" class="settings-action-btn" id="${ADD_ID}" disabled>Add server</button> <button type="button" class="settings-action-btn" id="${CHECK_ID}">Check again</button> <span id="${CHECK_NOTE_ID}" class="settings-hint" style="padding-left:8px;"></span></div>
           <div id="${FORM_ID}"></div>
           <div class="settings-hint" style="padding-left:0;">The switch turns a server off for this project without deleting it. Add or edit a server with the form; the JSON view below holds the same list, and a change in either shows in the other. Leave Backends empty to give a server to every backend, or pick the ones that should get it. A server marked as not used at launch blocks Save until you fix or remove it. Changes are stored when you press Save.</div>
         </div>
@@ -452,20 +604,30 @@
     if (formChipsRefresh) formChipsRefresh();
   }
 
-  /** Check and redraw the cards on blur, so the message is there before Save. */
-  function bind(body, signal) {
+  /**
+   * Wire the section. Check and redraw the cards on blur, so the message is there before Save. The static check
+   * (facts line) runs after the backends load, after a card operation or form confirm, on blur and on "Check again"
+   * (disabled while the text is not a list); its reply is not drawn while the JSON text area has focus.
+   */
+  function bind(body, signal, projectPath) {
     const ta = body.querySelector('#' + TEXT_ID);
     if (!ta) return;
+    checkProjectPath = typeof projectPath === 'string' && projectPath ? projectPath : null;
+    factsByKey = new Map();
+    checkFailed = false;
+    checkSeq++; // a reply for an earlier panel is stale
     const run = () => {
       showStatus(body, check(ta.value));
       renderCards(body, signal);
     };
-    ta.addEventListener('blur', () => { closeForm(body); run(); }, { signal });
+    ta.addEventListener('blur', () => { closeForm(body); run(); runCheck(body, signal); }, { signal });
     const add = body.querySelector('#' + ADD_ID);
     if (add) add.addEventListener('click', () => openForm(body, signal, null), { signal });
+    const again = body.querySelector('#' + CHECK_ID);
+    if (again) again.addEventListener('click', () => runCheck(body, signal), { signal });
     choices = null;
     run();
-    loadChoices(body, signal);
+    loadChoices(body, signal).then(() => runCheck(body, signal));
   }
 
   /**
@@ -482,5 +644,5 @@
     return { list: res.list, problem: res.problems.length ? res.problems.join('\n') : '', prune };
   }
 
-  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check };
+  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines };
 })();

@@ -867,7 +867,7 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
         </div>
       </div>`;
       wireTwoPane();
-      window.settingsExternalMcp.bind(settingsViewerBody, listenerSignal);
+      window.settingsExternalMcp.bind(settingsViewerBody, listenerSignal, projectPath);
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');

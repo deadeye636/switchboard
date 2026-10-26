@@ -706,3 +706,195 @@ test('settings-external-mcp: editing an already-rejected entry into a duplicate 
     assert.strictEqual(ta.value, snapshot, 'the JSON is unchanged');
   } finally { dom.window.close(); }
 });
+
+// #789 slice D: the facts line on each card, from a stubbed `window.api.checkExternalMcp`.
+test('settings-external-mcp: the facts line renders, a stale reply is dropped, a failure keeps the last facts, Check again reruns', async () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    const calls = [];
+    let reply = null; // set per step: (entries) -> Promise of a reply
+    const good = (list) => ({ ok: true, results: list.map((e, index) => ({
+      index, name: e.name, enabled: true, transport: 'stdio',
+      command: { state: 'found', resolved: '/opt/tools/example-tool', ext: '.cmd' },
+      variables: [
+        { name: 'TOKEN_A', field: 'env', hasDefault: false, state: 'unset' },
+        { name: 'HOME_B', field: 'args', hasDefault: false, state: 'backend-env', backendIds: ['id1'] },
+      ],
+      takes: [
+        { id: 'id1', label: 'Label One', takes: true, reason: null },
+        { id: 'id2', label: 'Label Two', takes: false, reason: 'transport' },
+      ],
+      envGap: true,
+    })) });
+    const missing = { ok: true, results: [{ index: 0, name: 'one', enabled: true, transport: 'stdio',
+      command: { state: 'missing' }, variables: [], takes: [], envGap: false }] };
+    window.api = {
+      backends: { list: async () => ({ backends: [] }) },
+      checkExternalMcp: (projectPath, entries) => { calls.push({ projectPath, entries }); return reply(entries); },
+    };
+    const body = window.document.getElementById('body');
+    const stored = [{ name: 'one', transport: 'stdio', command: 'example-tool', args: ['${HOME_B}'], env: { K: '${TOKEN_A}' } }];
+    body.innerHTML = mod.sectionHtml(stored);
+    const before = JSON.stringify(mod.read(body));
+    reply = async (l) => good(l);
+    mod.bind(body, new window.AbortController().signal, 'example.invalid/project');
+    await tick(); await tick();
+    assert.ok(calls.length >= 1);
+    assert.strictEqual(calls[calls.length - 1].projectPath, 'example.invalid/project');
+    const again = () => body.querySelector('#sv-external-mcp-check');
+    const facts = () => body.querySelector('.sv-mcp-card-facts');
+    const text = () => facts().textContent;
+    assert.match(text(), /Command: found \(\.cmd\)\./);
+    assert.match(text(), /unset TOKEN_A/);
+    assert.match(text(), /HOME_B \(for Label One\)/);
+    assert.match(text(), /Checked against the saved global variables\./);
+    assert.match(text(), /taken by Label One; not taken by Label Two \(it does not take this kind of server\)/);
+    assert.strictEqual(body.querySelector('.sv-mcp-card').title, '/opt/tools/example-tool');
+    assert.strictEqual(JSON.stringify(mod.read(body)), before, 'read() is unchanged by the facts');
+
+    // Check again reruns the check.
+    const n = calls.length;
+    again().click();
+    await tick();
+    assert.strictEqual(calls.length, n + 1);
+
+    // A stale reply (an older request answering after a newer one) is dropped.
+    let releaseOld;
+    reply = () => new Promise(r => { releaseOld = () => r(missing); });
+    again().click(); // old, held open
+    reply = async (l) => good(l);
+    again().click(); // newer, answers at once
+    await tick();
+    releaseOld();
+    await tick();
+    assert.match(text(), /Command: found/, 'the stale reply did not overwrite the newer one');
+
+    // A failed reply keeps the last facts and says one neutral line.
+    reply = async () => ({ ok: false, reason: 'The check could not run.' });
+    again().click();
+    await tick();
+    assert.match(text(), /Command: found/);
+    assert.match(body.querySelector('#sv-external-mcp-check-note').textContent, /could not run/);
+    reply = async () => { throw new Error('boom'); };
+    again().click();
+    await tick();
+    assert.match(text(), /Command: found/, 'a thrown call keeps the facts too');
+    reply = async (l) => good(l);
+    again().click();
+    await tick();
+    assert.strictEqual(body.querySelector('#sv-external-mcp-check-note').textContent, '');
+
+    // A missing command reads as "would not start".
+    reply = async () => missing;
+    again().click();
+    await tick();
+    assert.match(text(), /would not start/);
+    assert.ok(facts().querySelector('.sv-mcp-warning'));
+    assert.ok(again().classList.contains('settings-action-btn'));
+
+    // After teardown nothing redraws.
+    const ac = new window.AbortController();
+    body.innerHTML = mod.sectionHtml(stored);
+    reply = async (l) => good(l);
+    mod.bind(body, ac.signal);
+    ac.abort();
+    await tick(); await tick();
+    assert.strictEqual(body.querySelector('.sv-mcp-card-facts'), null);
+  } finally { dom.window.close(); }
+});
+
+// #789 slice D: every reason code main can send has a sentence; an unknown one gets a neutral sentence.
+test('settings-external-mcp: every reason code has a sentence and an unknown code a neutral one', () => {
+  const { REASONS } = require('../src/app/external-mcp-check');
+  const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const mod = dom.window.settingsExternalMcp;
+    const neutral = mod.reasonSentence('takes', 'no-such-code');
+    assert.ok(neutral);
+    assert.strictEqual(mod.reasonSentence('command', 'no-such-code'), neutral);
+    assert.strictEqual(mod.reasonSentence('command', undefined), neutral);
+    for (const code of REASONS.command) {
+      const s = mod.reasonSentence('command', code);
+      assert.ok(s && s !== neutral, `command reason ${code} has its own sentence`);
+    }
+    for (const code of REASONS.takes) {
+      const s = mod.reasonSentence('takes', code);
+      assert.ok(s && s !== neutral, `takes reason ${code} has its own sentence`);
+    }
+    for (const state of REASONS.commandStates) {
+      const lines = mod.factLines({ command: { state }, variables: [], takes: [] });
+      assert.strictEqual(lines.length, state === 'not-applicable' ? 0 : 1, state);
+    }
+    for (const state of REASONS.variableStates) {
+      const lines = mod.factLines({ command: { state: 'not-applicable' }, variables: [{ name: 'VAR_X', field: 'env', hasDefault: false, state }], takes: [] });
+      assert.match(lines[0].text, /VAR_X/, state);
+    }
+  } finally { dom.window.close(); }
+});
+
+// #789 slice D: default wording, the typing guard, Check again disabled on invalid JSON, the no-facts-yet failure line.
+test('settings-external-mcp: facts wording for a default, no redraw while typing, Check again follows the JSON, a first failure has its own line', async () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+
+    // A default is never worded as "set".
+    const lines = mod.factLines({ command: { state: 'not-applicable' }, takes: [], variables: [
+      { name: 'VAR_D', field: 'env', hasDefault: true, state: 'default' }] });
+    assert.match(lines[0].text, /VAR_D \(default used\)/);
+    assert.doesNotMatch(lines[0].text, /set VAR_D/);
+
+    let reply = async () => ({ ok: false, reason: 'x' });
+    const okFor = (list) => ({ ok: true, results: list.map((e, index) => ({ index, name: e.name, enabled: true, transport: 'stdio',
+      command: { state: 'found' }, variables: [{ name: 'VAR_D', field: 'env', hasDefault: true, state: 'default' }], takes: [], envGap: false })) });
+    window.api = { backends: { list: async () => ({ backends: [] }) }, checkExternalMcp: (p, l) => reply(l) };
+    const body = window.document.getElementById('body');
+    const stored = [{ name: 'one', transport: 'stdio', command: 'example-tool', env: { K: '${VAR_D:-d}' } }];
+    body.innerHTML = mod.sectionHtml(stored);
+    mod.bind(body, new window.AbortController().signal);
+    await tick(); await tick();
+    const note = () => body.querySelector('#sv-external-mcp-check-note').textContent;
+    const again = () => body.querySelector('#sv-external-mcp-check');
+    const ta = body.querySelector('#sv-external-mcp');
+    assert.strictEqual(note(), 'The check could not run.', 'no facts yet: no "last check" claim');
+    assert.strictEqual(body.querySelector('.sv-mcp-card-facts'), null);
+
+    // While the text area has focus the reply is stored but not drawn; the blur draws it.
+    reply = async (l) => okFor(l);
+    ta.focus();
+    assert.strictEqual(window.document.activeElement, ta);
+    again().click();
+    await tick();
+    assert.strictEqual(body.querySelector('.sv-mcp-card-facts'), null, 'not redrawn under the typing');
+    ta.blur();
+    await tick(); await tick();
+    assert.match(body.querySelector('.sv-mcp-card-facts').textContent, /VAR_D \(default used\)/);
+
+    // Check again is disabled while the JSON is not a list and enabled again once it is.
+    ta.value = '[{';
+    ta.dispatchEvent(new window.Event('blur'));
+    assert.strictEqual(again().disabled, true);
+    ta.value = JSON.stringify(stored);
+    ta.dispatchEvent(new window.Event('blur'));
+    assert.strictEqual(again().disabled, false);
+  } finally { dom.window.close(); }
+});
