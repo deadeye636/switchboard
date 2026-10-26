@@ -549,8 +549,9 @@ fact, the variable facts and the per-backend verdicts. #790 adds no PATH walk an
   `composeMcpInjection` (Claude, claude-native, Codex, agy) and Pi's session-resources path, and compares every
   backend's verdict with what the launch kept or dropped.
 
-**Measured (T6, dev machine, Windows, 93 PATH directories, 10 names):** cold 243 ms and 661 ms on two runs, from the
-cache about 7 ms; the walk is asynchronous and starts no process.
+**Measured (T6, dev machine, Windows, 93 PATH directories, 10 names, `scripts/measure-path-resolve.js`):** cold
+13-27 ms with the machine otherwise idle, 243-661 ms while the test suite and other agents ran; from the cache 3-8 ms.
+The walk is asynchronous and starts no process.
 
 **Card against a real launch (G8, demo instance, 2026-10-26):** one project with six entries, launched on Claude
 (Haiku) and Codex. No model turn was sent.
