@@ -158,7 +158,8 @@ chart rather than a row of zeroes.
   settings, as a card per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view holds
   the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes not
   yet. Confirmed end to end: a Claude/Haiku turn chose and called an external tool. A project can also start its
-  Claude sessions with only the servers Switchboard injects (off by default; Claude only).
+  Claude sessions with only the servers Switchboard injects (off by default; Claude only). Each card says, without
+  starting anything, whether the command is found, which `${VAR}` references are unset, and which backends take it.
   → [`docs/specs/36-external-mcp-servers.md`](docs/specs/36-external-mcp-servers.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.

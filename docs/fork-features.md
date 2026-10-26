@@ -493,7 +493,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   on a real spawn for Codex, agy and Claude, and a Claude/Haiku turn chose and called an external server's tool.
   Slice A2 adds a per-project *prune* switch (off by default, dropped on settings import): Claude and claude-native
   then start with `--strict-mcp-config`, so only the servers Switchboard injected are present and the user's own,
-  a project `.mcp.json`, plugin servers and claude.ai connectors are hidden. Every other backend declines. Spec:
+  a project `.mcp.json`, plugin servers and claude.ai connectors are hidden. Every other backend declines. Slice D
+  adds a facts line to every card, drawn without starting anything: whether the command is on PATH (an absence is
+  claimed only with evidence), which `${VAR}` references are unset, and which backends take the entry and why not;
+  #790 is meant to reuse the same check. Spec:
   [`specs/36-external-mcp-servers.md`](specs/36-external-mcp-servers.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
