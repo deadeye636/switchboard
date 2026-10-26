@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('api', {
     previewSharedResources: (request) => ipcRenderer.invoke('resource-sources-preview', request),
     transcriptPath: (sessionId) => ipcRenderer.invoke('handoff-transcript-path', sessionId),
   },
+  // #789 slice D: what a launch could make of a project's external MCP entries (unsaved), as facts — no values.
+  checkExternalMcp: (projectPath, entries) => ipcRenderer.invoke('external-mcp-check', { projectPath, entries }),
   sessionBackends: {
     getAll: () => ipcRenderer.invoke('session-backends-get-all'),
   },

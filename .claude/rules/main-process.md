@@ -200,6 +200,7 @@ and a name). `documents.js` refuses network paths on its own and does not use it
 async `readdir` per PATH directory shared by every name asked for, `missing` only with evidence and `unknown` with a
 reason otherwise, a network or relative PATH entry never touched. It exists because `src/app/` may not import
 `findOnPath` from `src/backends/file-store.js`; #790 (uv, uvx, pipx) is the second caller),
+`external-mcp-check.js` (the static check of a project's external MCP server entries — #789 slice D, spec 36; entries in, neutral facts out: does the command resolve (`path-resolve.js`), is every `${VAR}` set, which enabled backends take the entry and why not. It reuses the launch's own rules (`references`/`expand`, `entryAppliesTo`, the descriptor's `externalMcpTakes`, the unset-variable skip of `externalServersSource`) and `test/external-mcp-check-agreement.test.js` runs the real launch path against it. No value ever leaves it, only names, states and reason codes; IPC `external-mcp-check`; #790 reuses `checkEntries`),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
@@ -543,6 +544,7 @@ line there, in the same commit.
 | Which of another backend's skills, commands, agents and MCP servers a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |
 | Which view (terminal or GUI) a session opens in, when that is not a spawn | `src/app/session-view.js` |
 | Opening a document an agent read — only a path its session's backend reported | `src/app/documents.js` |
+| The static check of a project's external MCP server entries (command, variables, which backends take it) | `src/app/external-mcp-check.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

@@ -2217,6 +2217,10 @@ backendResources.registerIpc(ipcMain);
 // top, beside the registry, because that handler reads it.
 resourceSources.init({ backends });
 resourceSources.registerIpc(ipcMain);
+// #789 slice D: the static check of a project's external MCP server entries (command, variables, per-backend verdicts).
+const externalMcpCheck = require('./app/external-mcp-check');
+externalMcpCheck.init({ backends, getSetting, isForeignNetworkFile, log });
+externalMcpCheck.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 
 // Set once quit begins so a still-pending debounced flush (or a late worker
