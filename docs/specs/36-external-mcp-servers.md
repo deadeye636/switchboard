@@ -353,7 +353,7 @@ backend, what it does and shows a declining backend as "not applied".
 | D-P3 | **Scope B: only Claude and claude-native prune.** Codex, Pi, pi-native, agy and Hermes decline (capability `mcpPrune` = no). | Owner. See "Per-backend answer" for why each declines. |
 | D-P4 | **The wording says what is dropped.** For Claude: every MCP server not given by Switchboard, including the user's own, a project `.mcp.json`, plugin servers and claude.ai connectors. The text comes from the capability note, not the renderer. | `--strict-mcp-config` is the sharpest case; a user must not discover it by a missing tool. |
 | D-P5 | **The mechanism belongs in the backend's descriptor, not the core.** The core reads the setting, asks the hook and joins its args and env; it names no backend (reflex 5). | `.claude/rules/backends.md`: a capability is a declared hook, a decline is the honest default. |
-| D-P6 | **A prune that cannot apply is a logged no-op, never a failed launch.** | Fail toward today's behaviour (D-P2). |
+| D-P6 | **A prune that cannot apply is a logged no-op, never a failed launch.** That includes a project whose servers for this backend all failed to reach the launch (an injection that threw or built nothing): the prune is skipped with a warning, because applying it would start the session with no MCP server at all. A launch that got some of its servers is pruned. | Fail toward today's behaviour (D-P2). |
 
 ### Per-backend answer
 
@@ -361,8 +361,8 @@ backend, what it does and shows a declining backend as "not applied".
 |---|---|---|
 | Claude (terminal) | **yes** | `--strict-mcp-config` beside the injected `--mcp-config`. A launch flag: no file, no release half. |
 | claude-native | **yes** | the same hook and flag, piped. |
-| Codex | **declines** | not yet; `-c mcp_servers.<n>.enabled=false` would need a reader for the user's `config.toml`. May stay a decline. |
-| Pi (terminal) | **declines** | not yet; may stay a decline. `--no-mcp` and `--exclude-tools` exist, but Pi's injected servers ride the same MCP channel (the resources extension), so "drop its own, keep ours" is not separable. |
+| Codex | **declines** | Codex hides a server only by name (`-c mcp_servers.<n>.enabled=false`), which would need a reader for the user's `config.toml`. Out of scope B. |
+| Pi (terminal) | **declines** | `--no-mcp` and `--exclude-tools` exist, but Pi's injected servers ride the same MCP channel (the resources extension), so "drop its own, keep ours" is not separable. |
 | pi-native | **declines** | as Pi. |
 | agy | **declines** | no per-launch channel. |
 | Hermes | **declines** | no per-launch channel (D-S4). |
@@ -384,7 +384,10 @@ renderer holds no backend name and no mechanism text.
   hook: nothing is written to disk.
 - **The core seam.** `src/app/mcp-prune.js` composes the backends' answers. `src/app/terminal/spawn.js` calls it after
   the injection block and **outside** the `providesMcpInjection` gate, so a project with zero external servers can
-  still ask for a prune. The injected server names are passed in.
+  still ask for a prune. The flag is read first, so a launch without it pays nothing. The injected server names are
+  passed in, and so is how many of the project's enabled servers were meant for this backend
+  (`externalServersFor` in `src/app/mcp-inject.js`, counted apart from the injection): servers wanted and none
+  injected skips the prune (D-P6).
 - **The capability row.** `mcpPrune` in `src/backends/capabilities.js` (`declaredBy: 'providesMcpPrune'`) carries the
   per-backend note the switch renders.
 - **The switch.** `src/renderer/panels/settings-external-mcp.js`, off by default, lists per backend what prune does.
@@ -392,7 +395,8 @@ renderer holds no backend name and no mechanism text.
 Measured (T1): with `--strict-mcp-config`, a Claude/claude-native `system/init` `mcp_servers` shows **only** the
 injected servers; the user's own servers and connectors (about two dozen on the measuring machine) are all gone. That
 is the blast radius D-P4 warns about. Pi/pi-native: the flags exist, but injected servers share the channel, hence the
-decline. Codex was dropped from scope before measuring.
+decline. Codex was dropped from scope before measuring. The T1 notes record no CLI version and, for Pi, no command;
+the Claude behaviour was measured again live in T9 on 2.1.310 and is recorded in `docs/backend-formats.md`.
 
 Method, reproducible: the claude-native stream harness (`claude -p --input-format stream-json ... --mcp-config <file>
 --permission-prompt-tool stdio --model haiku`), run once with and once without `--strict-mcp-config`, comparing
@@ -401,7 +405,8 @@ Method, reproducible: the claude-native stream harness (`claude -p --input-forma
 Gates G2/G4 (T9): confirmed deterministically against the real `buildLaunch` + `composeMcpPrune` for both `claude`
 and `claude-native`. With the project's `externalMcpPrune` on, the composed launch argv carries `--strict-mcp-config`
 (appended after the model); with it off, `composeMcpPrune` returns `null` and the argv is byte-for-byte the base
-launch, no flag.
+launch, no flag. `test/mcp-prune.test.js` pins the off half for every terminal backend that declares the hook, with the
+key absent and with it `false`.
 
 Gates G2/G3/G5, live (T9, demo instance, terminal Claude, CLI 2.1.310 on Haiku, 2026-10-26). Two projects carried the
 same injected stdio server (`injected`, one `ping` tool); the demo home's `.claude.json` carried one user-scope server
@@ -427,7 +432,9 @@ it has no `--ide` bridge to check.
 | O-P2 setting shape | Shipped as the boolean. |
 | O-P3 per-server prune | Not built; a later slice. |
 | O-P4 Codex config reader | Moot: Codex declines in B. |
-| O-P5 one boolean across backends | Moot in B: only Claude-family backends act on it. |
+| O-P5 one boolean across backends | Accepted (owner). In B only the Claude family acts on it, so a mixed project prunes its Claude sessions alone. |
+| O-P6 settings import | Dropped on import, as designed: a settings file from someone else must not take tools from a project. |
+| O-P7 Pi mechanism | Declines: the flags exist, but Pi's injected servers share the channel its own use (T1). |
 | `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | Answered (gate G5, T9): the `--ide` bridge keeps working under prune; see "As built (A2)". For Claude that bridge IS the app's own server: the `diffTool`/`discoveryTools` toggles that would put a `switchboard` row into `--mcp-config` belong to Codex and agy only, so no Claude-family launch carries one for the prune to keep or drop. |
 
 ### Out, explicitly

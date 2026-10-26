@@ -170,6 +170,16 @@ Measured on Claude Code 2.1.292.
   first turn without the long-context beta, so `WINDOWS[...].oneM: null` stays the guard. Not measured: whether a real
   `[1m]` session writes the bare id, because the measuring account has no long-context beta.
 
+### Only the servers it was given: `--strict-mcp-config` (#789)
+Measured on Claude Code 2.1.310, in a terminal session and in print mode (spec 36, "As built (A2)").
+
+- **What stays.** Only the servers named in the `--mcp-config` file(s) of the same launch. In a terminal session
+  `/mcp` lists those and nothing else; in print mode the `system/init` line's `mcp_servers` does the same.
+- **What goes.** User-scope servers from `.claude.json`, a project's `.mcp.json`, plugin servers and the claude.ai
+  connectors. The flag changes no file; a session started without it loads them all again.
+- **What it does not touch.** The `--ide` connection is not an MCP config entry: under the flag the CLI still
+  connects to the IDE lock file, `/ide` names it, and an edit still opens its diff there.
+
 ## Codex — file, JSONL (date-bucketed)
 
 ```

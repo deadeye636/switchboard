@@ -126,8 +126,8 @@ A descriptor declares it, in the shape the other per-spawn features use (flag, b
 - A capability row (`mcpInject`) in the catalog that every backend answers, declining included, and forwarding
   in `profileToDescriptor` so a template on agy inherits it (`test/template-descriptor-shape.test.js`).
 - A core module in `src/app/` composes the rows for one spawn from **sources**. Plan A has one source, "own
-  server" (Switchboard's endpoint when the backend's option is on). #789 later adds the per-project source and the
-  prune/override of a backend's defaults without touching a descriptor.
+  server" (Switchboard's endpoint when the backend's option is on). #789 later adds the per-project source without
+  touching a descriptor; its prune of a backend's defaults became a descriptor hook of its own (spec 36).
 - The spawn path calls it once, next to the other per-spawn builders, as best-effort: a failure is a warning and
   the session starts without the tool. It does not apply to a backend driven over a pipe.
 
@@ -406,8 +406,9 @@ Numbered so they can be referred to. Each is its own plan with its own go.
    first reading here (a TOML config writer) is superseded.
 3. **#789, the per-project management screen.** The per-project source in the core module, prune and override of
    a backend's default servers, the settings surface (tabs, cards, toggles per the design note on the issue, two
-   levels: installed globally and enabled per project). The hook it needs lands in this plan; the screen is a
-   new user flow and starts with a proposal with pros, cons and alternatives (reflex 16).
+   levels: installed globally and enabled per project). The injection hook it needs lands in this plan; the prune
+   needed a hook of its own (`buildMcpPrune`, spec 36). The screen is a new user flow and starts with a proposal
+   with pros, cons and alternatives (reflex 16).
 4. **Claude on the seam.** Offer Claude external servers (and, if wanted, Switchboard's own endpoint through
    the standard transport next to `--ide`) through the same capability, by a launch flag instead of a config
    write. Needs its own measurement; D7 keeps it out of Plan A.
