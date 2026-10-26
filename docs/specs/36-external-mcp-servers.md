@@ -32,7 +32,7 @@ In slice A there is no management screen. The list is a project setting (see O3 
 | D-A3 | A server reaches a CLI through the per-launch channel each backend already has or measured: Codex `-c` overrides, an agy plugin bundle, a Claude `--mcp-config` file, Pi's resources extension. Never the user's global file. | Owner; spec 34 D2. |
 | D-A4 | Pruning a backend's default servers is a **separate follow-up slice** (A2), not a step here. See "Prune". | Planner recommendation (open point O4 confirms). |
 | D-A5 | Reference, never bundle. Switchboard ships no server; an entry names a command or URL the user installed. | Owner (licensing). |
-| D-A6 | Detection is **not** in slice A beyond what the launch can say for free (a skipped entry is logged). A reachability report needs a surface, and the surface is slice B / #790. | Planner recommendation (O5 confirms). |
+| D-A6 | Detection is **not** in slice A beyond what the launch can say for free (a skipped entry is logged). A reachability report needs a surface, and the surface is slice B / #790. **Superseded by "Slice D: static check" (D-D1 to D-D14): the surface exists since slice B, and the owner scoped detection to a static check.** | Planner recommendation (O5 confirms). |
 | D-S1 | **The list lives in the app's settings, never in a file of the repository.** | A stdio entry is a command run at launch. Claude's checked-in `.mcp.json` needs a per-user approval for exactly this reason (`src/backends/claude/mcp-servers.js`, header). Anybody who writes the repository would otherwise run a command on every teammate's machine. |
 | D-S2 | **No secret value on any argv.** Codex: values travel in the child's environment and are named on argv (`env_vars`, `env_http_headers`, `bearer_token_env_var`). Claude: a 0600 file, never inline JSON. agy: the 0600 bundle file. | Argv is visible to every local user; an environment and a 0600 file are not. A security requirement, not a nicety (spec 34, Codex token decision). |
 | D-S3 | The composer is **unchanged in behaviour**. It already filters rows by `acceptsMcpTransports` and asks `buildMcpInjection` (`src/app/mcp-inject.js`, lines 87-95). The work is one new source plus per-backend emit. | Reflex 5; spec 34 D3. |
@@ -106,9 +106,9 @@ sharpest case: it drops every server not in the file, including the user's own. 
 Claude emitter must not pass `--strict-mcp-config`. The mechanisms are listed in the table so slice A2 starts from them.
 Slice A2 is built for Claude and claude-native only: see "Slice A2: prune" at the end of this file.
 
-## Detection (D-A6): deferred, argued
+## Detection (D-A6): deferred, argued (superseded by "Slice D: static check", at the end of this file)
 
-A reachability report ("command found on PATH", "URL answers") has no place to be shown without the slice B surface.
+Kept as the record of why slice A did not do it. A reachability report ("command found on PATH", "URL answers") has no place to be shown without the slice B surface.
 App code may not import a backend folder's PATH helper (the import direction in `.claude/rules/backends.md`), and
 a probe must close stdin and never assert absence from a failure (the same file, "A probe goes through
 `src/backends/cli-probe.js`"). What slice A does give for free: an entry the launch had to skip (missing variable,
@@ -207,7 +207,7 @@ product text — the secrets sentence and the OAuth "not supported" note — sta
 | O2 native drivers | **Both shipped** (T10). claude-native over its own `--mcp-config` (measured on a real piped spawn); pi-native through the session-resources MCP section it inherits from terminal Pi, stdio only (measured — the external server starts as a child of the piped Pi). |
 | O3 editing surface | Shipped: one JSON text area in the project settings. The tabbed UI is slice B. |
 | O4 prune (A2) | **Built as slice A2** for Claude and claude-native; slice A itself never prunes. See "Slice A2: prune". |
-| O5 reachability detection | **Deferred**; a skipped entry is logged, nothing more. |
+| O5 reachability detection | **Deferred in slice A** (a skipped entry is logged, nothing more); **superseded by "Slice D: static check"**, which decides it. |
 | O6 `backends` filter | Shipped as data compared by the source. |
 | O7 secrets in export | Shipped as D-S1: the list is dropped on settings import. The setting holds references, not values. |
 | O8 OAuth http | Not covered; static headers and bearer tokens only. |
@@ -441,3 +441,74 @@ it has no `--ide` bridge to check.
 
 Per-server prune; a connectors-only toggle; pruning Codex, Pi, pi-native, agy or Hermes; a server listing or
 reachability detection; a global prune; anything written to a CLI's user configuration.
+
+## Slice D: static check of a server entry (reachability detection)
+
+Status: **designed, nothing built** (owner scope E1 to E4, issue #789 comment of 2026-10-26; plan
+`docs/plans/789-detection/`, local). Reflex 16 applies: it adds information to a surface that exists, not a new flow.
+File names below are not backticked because they do not exist yet; the as-built section names them.
+
+### What changes for the user
+
+In the project settings, category "MCP servers", each card gets a facts line, drawn when the editor opens and again
+after a card changes. It says, **without starting anything**:
+
+- **Command** (stdio): found (and where), not found, or not checked (a network path, an unreadable PATH directory, a
+  command that holds an unset variable). Not found reads "would not start", never "skipped": the launch does not skip
+  it, the CLI fails to start the server.
+- **Variables**: every `${VAR}` in command, args, env, cwd, url and headers, with whether it is set. An unset one reads
+  "launch skips this server", which is what `externalServersSource` does today and only logs.
+- **Backends**: which enabled backends take this entry and, for each that does not, why (transport not taken, working
+  directory not taken, no per-launch channel), plus the entry's own `enabled` and `backends` filter.
+
+The card never says "works" or "connected": it says what a launch could use. Nothing is written, no process is
+started, no request is sent, and no variable value, argument or header leaves main.
+
+### Decided
+
+| | Decision | Why |
+|---|---|---|
+| D-D1 | **Static check only.** No child process, no network request, no MCP `initialize`. Not an on-demand handshake and not status read back from live sessions (only claude-native reports one). | Owner (E1). A handshake runs the user's code and sends headers over the network: a separate decision. |
+| D-D2 | **Three facts plus the launch's own skip reasons.** Command resolves; every `${VAR}` set; which backends take the entry. The skip reasons are the ones the launch already has: entry off, `backends` filter, unset variable, transport not taken, `cwd` not taken. | Owner (E1). The card and the launch log must tell the same story. |
+| D-D3 | **Two neutral layers, neither tied to the card.** A generic PATH resolver (`resolveCommand`, no MCP knowledge) and an entry check (`checkEntries`: entries in, neutral facts out, plus the IPC). #790 reuses both: the resolver for `uv`, `uvx`, `pipx`, the entry check for "server present". | Owner (E4). #790's "detect first" must not grow a second detection. |
+| D-D4 | **The resolver is the app's own.** src/app may not import the backends folder's `findOnPath` (the import direction in `.claude/rules/backends.md`), so the few lines are repeated, as the app's `closeProbeStdin` repeats the backends one (spec 9, decision 11). Same semantics: PATHEXT on Windows, first directory then first extension, a listing instead of a stat per name; asynchronous and bounded instead. | Owner (E2). |
+| D-D5 | **Absence is the claim that needs the evidence** (`.claude/rules/backends.md`, #546). "Not found" only when every PATH directory was listed or does not exist (`ENOENT`, `ENOTDIR`) and none was skipped. A permission error, an I/O error, the time budget, a skipped network directory, a relative PATH entry: the answer is "not checked" with the reason. A name in a directory listing counts as found unless it is a directory (Windows app-execution aliases list but do not stat cleanly). | Same file; one unlucky read must not tell a user their tool is missing. |
+| D-D6 | **A network path is never touched.** Lexical, before any stat (`network-path`, #780): a command path on a share no project is on is "not checked"; PATH directories on such a share are skipped, which makes a miss "not checked". The predicate is main's `isForeignNetworkFile`, handed in at init so the module stays electron-free and db-free. | Touching one is an SMB connection to a host somebody else named. |
+| D-D7 | **Environment for `${VAR}` (E3): the app's environment plus the global backend variables.** The app side is `process.env` copied the way spawn's `quietSessionEnv` copies it (so key case is as at launch); the backend side is each backend's `backendEnv.<id>` in the global blob. A variable is `app`, `backend-env` (for the named backends only), `declared, resolved at launch` (a backend variable whose value is a reference or secret that only spawn resolves), `default` (`${VAR:-x}`) or `unset`. **Not considered:** project and template variables, backend base variables, secret materialisation. When the answer rests on that gap the card says "checked against the saved global variables". | Owner (E3), as the resources preview reads them. A claim of certainty here would be wrong in both directions. |
+| D-D8 | **One rule for what a reference is.** `references(value)` is added beside `expand` in src/shared/env-expand.js and uses the same pattern; a test pins `references` against `expand`'s `missing` set. | Two scanners for `${VAR}` is how the card and the launch drift. |
+| D-D9 | **One rule for what a launch skips.** The enabled and `backends` filter of `externalServersFor` becomes a function the check calls; the transport and `cwd` answer is a descriptor declaration `externalMcpTakes` (O-D1), pinned against the real emitters by a test. | Reflex 5, `.claude/rules/backends.md`: a capability is declared, not inferred in the core. |
+| D-D10 | **Input is the editor's current list, unsaved.** The renderer sends the raw entries from the text area; main runs `validateExternalMcpServers`, caps count and string length, and gives a rejected entry no facts. The settings window is a snapshot (#146): the entries are the window's, the environment and the global variables are read live in main at the time of the check. Reruns: after the backend choices load on open, after a card operation, a form confirm or the text area losing focus, and on "Check again" (O-D4). A reply for an older request is dropped by sequence number. | The cards project the text (D-B1); a check of the saved list would lag what the user sees. |
+| D-D11 | **The reply carries names, states and booleans, never values.** Variable names and where they were found; the resolved command path (the user's own machine, in the card's tooltip, O-D7); per-backend verdicts as `{ id, label, takes, reason code }`. No env, header or argument value, no error text: a thrown error is logged and the reply is a fixed sentence (`.claude/rules/main-process.md`, readable-error). | D-S2 extended to the status line. A test with sentinel secrets pins it. |
+| D-D12 | **Per-backend verdicts are computed in main, from the registry.** The renderer maps reason codes to sentences and names no backend (reflex 5); labels come with the reply. `backends-list` is unchanged (O-D2). | One answer for acceptance, filter and `cwd`; a second one in the renderer is the #229 trap. |
+| D-D13 | **Bounded cost.** One IPC per refresh for the whole list. One listing per PATH directory per refresh, shared by every entry, kept for a few seconds so a burst of edits does not re-walk. `fs.promises` only, a small fixed number of directories in flight, a total time budget after which the rest is "not checked: timed out". `stat` only for a candidate. The PATH walk measured 45-95 ms per backend on the main thread when it was synchronous (#722, #750); this one never blocks it. | The check runs on every card change. |
+| D-D14 | **No new setting, no new environment variable.** `docs/settings-reference.md` is unchanged. | The check has no switch; it reads and shows. |
+
+### Reuse by #790
+
+`resolveCommand(name, { env, cwd })` answers `{ state: 'found' | 'missing' | 'unknown', resolved?, ext?, reason? }` for
+a bare name or a path; a batch form shares one listing. `checkEntries(entries, context)` answers, per entry, the command
+fact, the variable facts and the per-backend verdicts. #790 adds no PATH walk and no `${VAR}` reader of its own.
+
+### Open points, decided
+
+| | Open point | Decision |
+|---|---|---|
+| O-D1 | The owner named `acceptsMcpTransports` and `providesMcpInjection` as the source of "which backends accept the transport". Pi and pi-native declare `providesMcpInjection: false` and take stdio through the session-resources extension (T9, T10); read literally they would show "not accepted" beside a server they do run. | **Decided (owner, 2026-10-26), as recommended:** A new descriptor declaration `externalMcpTakes` (`{ transports, cwd }` or `null`), answered by every backend, with a test that the quartet backends agree with `acceptsMcpTransports` and that each answer matches what its emitter really drops. The plan builds on this. |
+| O-D2 | The owner said the facts travel "through backends-list". With the verdict computed in main (D-D12) the payload need not change. | **Decided (owner, 2026-10-26), as recommended:** Leave `backends-list` alone. |
+| O-D3 | Should the check also stat a stdio entry's `cwd`? A missing directory fails the server's start. The launch does not check it, and it is outside the three facts. | **Decided (owner, 2026-10-26), as recommended:** No. |
+| O-D4 | A "Check again" control, so a user who installs `uvx` with the editor open does not have to edit a card to learn it. | **Decided (owner, 2026-10-26), as recommended:** Yes, one existing-style button; the check is cheap. |
+| O-D5 | On Windows a command found only as `.cmd` or `.bat` (an npm shim): show the extension, or warn that some CLIs cannot start a shim without a shell? Not measured per CLI. | **Decided (owner, 2026-10-26), as recommended:** Show "found (.cmd)" with no warning; measure per CLI before any claim. |
+| O-D6 | Cross-entry facts: a name clash with the user's own entry (O9) and two entries needing one variable with different values on Codex (O10). | **Decided (owner, 2026-10-26), as recommended:** Out of this slice; stay documented limits. |
+| O-D7 | The resolved command path in the card tooltip. | **Decided (owner, 2026-10-26), as recommended:** Yes: it shows which of two installs wins, and it is the user's own machine. |
+
+### Known limits (planned)
+
+- A found command is not a working server: no `initialize`, no tool list, no version check.
+- An http entry gets variable and backend facts only. Its URL is not resolved or requested.
+- Project and template variables, and secrets that only spawn resolves, are outside the environment of D-D7.
+- A relative PATH entry (`.`) and a mount point that looks local but is a network drive cannot be judged lexically; the first is "not checked", the second is read.
+- `${VAR}` in an arg is checked as a reference only, never as a file.
+
+### As built
+
+Not built yet. Plan steps T1 to T8, `docs/plans/789-detection/` (local).
