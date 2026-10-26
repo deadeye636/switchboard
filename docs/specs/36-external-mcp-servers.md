@@ -401,8 +401,23 @@ Method, reproducible: the claude-native stream harness (`claude -p --input-forma
 Gates G2/G4 (T9): confirmed deterministically against the real `buildLaunch` + `composeMcpPrune` for both `claude`
 and `claude-native`. With the project's `externalMcpPrune` on, the composed launch argv carries `--strict-mcp-config`
 (appended after the model); with it off, `composeMcpPrune` returns `null` and the argv is byte-for-byte the base
-launch, no flag. Gates G3/G5 (the live `init.mcp_servers` effect and the `--ide` bridge) still need a real session and
-are not yet measured.
+launch, no flag.
+
+Gates G2/G3/G5, live (T9, demo instance, terminal Claude, CLI 2.1.310 on Haiku, 2026-10-26). Two projects carried the
+same injected stdio server (`injected`, one `ping` tool); the demo home's `.claude.json` carried one user-scope server
+(`own-user`), and the account brought its claude.ai connectors. One project had `externalMcpPrune` on, the other off.
+
+- **G2.** The OS-level child argv of the pruned session ends `--mcp-config <file> --strict-mcp-config --ide`; the
+  control's ends `--mcp-config <file> --ide`. The flag reaches the CLI only where the project asked for it.
+- **G3.** `/mcp` in the pruned session lists one server, `injected`. In the control it lists seven: `own-user`, the
+  claude.ai connectors, and `injected`. A model turn in the pruned session called `injected`'s tool and received its
+  token, so the injected server survives the prune end to end.
+- **G5.** The `--ide` bridge is not an MCP config entry, so `--strict-mcp-config` leaves it alone: the app log shows
+  `CLI connected` and `CLI initialized` for the pruned session, `/ide` names Switchboard as the connected IDE, and an
+  edit in manual mode opened its diff in the app ("Opened changes in Switchboard"); accepting it wrote the file.
+
+`claude-native` takes the same flag through the same hook. Its live effect is the T1 stream-harness measurement above;
+it has no `--ide` bridge to check.
 
 ### Open points, resolved
 
@@ -413,7 +428,7 @@ are not yet measured.
 | O-P3 per-server prune | Not built; a later slice. |
 | O-P4 Codex config reader | Moot: Codex declines in B. |
 | O-P5 one boolean across backends | Moot in B: only Claude-family backends act on it. |
-| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | **Still open** (gate G5, plan step T9): not yet measured. |
+| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | Answered (gate G5, T9): both keep working under prune; see "As built (A2)". |
 
 ### Out, explicitly
 
