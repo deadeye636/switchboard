@@ -428,7 +428,7 @@ it has no `--ide` bridge to check.
 | O-P3 per-server prune | Not built; a later slice. |
 | O-P4 Codex config reader | Moot: Codex declines in B. |
 | O-P5 one boolean across backends | Moot in B: only Claude-family backends act on it. |
-| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | Answered (gate G5, T9): both keep working under prune; see "As built (A2)". |
+| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | Answered (gate G5, T9): the `--ide` bridge keeps working under prune; see "As built (A2)". For Claude that bridge IS the app's own server: the `diffTool`/`discoveryTools` toggles that would put a `switchboard` row into `--mcp-config` belong to Codex and agy only, so no Claude-family launch carries one for the prune to keep or drop. |
 
 ### Out, explicitly
 
