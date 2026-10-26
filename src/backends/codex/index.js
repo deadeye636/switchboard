@@ -315,7 +315,7 @@ description:
     resumeModel: 'yes',
     turnDigest: 'yes',
     mcpInject: { state: 'yes', note: 'passes a per-session server with -c overrides and an env token; a real Codex lists the server and calls its tools' },
-    mcpPrune: { state: 'no', note: 'not yet; Codex pruning is not wired and may stay a decline' },
+    mcpPrune: { state: 'no', note: 'declines; Codex hides a server only by its name, and Switchboard does not read Codex\'s config to learn them' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

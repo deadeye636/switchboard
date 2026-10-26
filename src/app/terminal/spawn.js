@@ -45,7 +45,7 @@ const liveOwners = require('../live-owners');
 // surfaces start naming different ones.
 const conventionDirs = require('../convention-dirs');
 const resourceSources = require('../resource-sources');
-const { composeMcpInjection, ownServerSource, externalServersSource } = require('../mcp-inject');
+const { composeMcpInjection, ownServerSource, externalServersSource, externalServersFor } = require('../mcp-inject');
 const { composeMcpPrune } = require('../mcp-prune');
 const { readExternalMcpPrune } = require('../external-mcp');
 const { conptyBuildHint } = require('./conpty');
@@ -1100,17 +1100,22 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       }
 
       // Spec 36: a project that asked for it sees ONLY the servers Switchboard gives it. After the injection (a file
-      // it wrote already exists) and outside its gate: a backend with no servers to inject can still prune. The
+      // it wrote already exists) and outside its gate: a project with no servers for the backend can still prune. The
       // composer asks the descriptor; a backend that declines costs one log line. A prune is launch args and env
-      // only, so there is nothing to release. Best-effort: any failure starts the session without it.
+      // only, so there is nothing to release. Best-effort: any failure starts the session without it. The flag is
+      // read first, so a launch without the switch resolves no env and no options for it. `wantedServers` is counted
+      // here rather than by the injection, so an injection that failed before reading the list still counts as one.
       try {
-        const prune = composeMcpPrune({
-          backend, enabled: readExternalMcpPrune(ctx.getSetting, projectPath), injectedNames: mcpInjectedNames,
-          env: quietSessionEnv(), cwd: projectPath, options: spawnOptionsFor(backend, projectPath, launchOptions), log: ctx.log,
-        });
-        if (prune) {
-          if (prune.args.length) launch.args = [...launch.args, ...prune.args];
-          mcpPruneEnv = prune.env;
+        if (readExternalMcpPrune(ctx.getSetting, projectPath)) {
+          const wantedServers = externalServersFor({ backend, getSetting: ctx.getSetting, projectPath }).length;
+          const prune = composeMcpPrune({
+            backend, enabled: true, injectedNames: mcpInjectedNames, wantedServers,
+            env: quietSessionEnv(), cwd: projectPath, options: spawnOptionsFor(backend, projectPath, launchOptions), log: ctx.log,
+          });
+          if (prune) {
+            if (prune.args.length) launch.args = [...launch.args, ...prune.args];
+            mcpPruneEnv = prune.env;
+          }
         }
       } catch (err) {
         ctx.log.warn(`[mcp-prune] could not set up: ${err && err.message}`);

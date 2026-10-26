@@ -605,7 +605,7 @@ module.exports = {
     turnDigest: 'yes',
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; its MCP servers travel in the resources extension instead' },
-    mcpPrune: { state: 'no', note: 'not yet; the built-in MCP client of Pi has no measured per-launch switch wired' },
+    mcpPrune: { state: 'no', note: 'declines; Pi\'s own MCP servers and the ones Switchboard gives it share one channel, so one cannot be hidden without the other' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

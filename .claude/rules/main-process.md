@@ -164,9 +164,10 @@ at the `backends-list` projection, because a backend's own folder cannot name th
 `mcp-inject.js` (the per-spawn MCP injection — #789, spec 34; turns "sources" into neutral server rows, drops
 the transports a descriptor does not accept, asks its `buildMcpInjection` hook and answers `{ args, env,
 release }` or `null`. Electron-free and db-free, names no backend. The spawn path calls it once, best-effort:
-a failure is a warning and the session starts without the tool. The one source today is Switchboard's own
-HTTP endpoint, registered on `src/servers/mcp-http.js`),
-`mcp-prune.js` (the per-spawn MCP prune — #789, spec 36; asks a descriptor's `buildMcpPrune` when the project set `externalMcpPrune` and the backend declares `providesMcpPrune`, answers `{ args, env }` or `null`. No release half. Electron-free, db-free, names no backend; the spawn block runs after the injection and outside its gate),
+a failure is a warning and the session starts without the tool. Two sources: Switchboard's own HTTP endpoint,
+registered on `src/servers/mcp-http.js`, and the project's `externalMcpServers` list (spec 36). `externalServersFor`
+answers that list's enabled entries for one backend; the source injects from it and the prune counts it),
+`mcp-prune.js` (the per-spawn MCP prune — #789, spec 36; asks a descriptor's `buildMcpPrune` when the project set `externalMcpPrune` and the backend declares `providesMcpPrune`, answers `{ args, env }` or `null`. No release half. Electron-free, db-free, names no backend; the spawn block runs after the injection and outside its gate. It is skipped with a warning when the project has servers for the backend and none of them reached the launch, D-P6),
 `external-mcp.js` (the per-project `externalMcpServers` list — #789, spec 36; a pure validator plus a reader that takes
 `getSetting`, so it is Electron-free and db-free. The key is dropped on settings import),
 `session-view.js` (which view a session of an owner/driver pair opens in — #670; the write that is not a

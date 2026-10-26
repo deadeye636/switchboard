@@ -79,16 +79,11 @@ function ownServerSource({ backend, groups, discovery, registerSession, sessionI
 function externalServersSource({ backend, getSetting, projectPath, getEnv, log } = {}) {
   const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
   return () => {
-    if (typeof getSetting !== 'function') return [];
-    const { servers } = readExternalMcpServers(getSetting, projectPath);
+    const servers = externalServersFor({ backend, getSetting, projectPath });
     if (!servers.length) return [];
     const env = (typeof getEnv === 'function' ? getEnv() : null) || {};
     const rows = [];
     for (const s of servers) {
-      if (s.enabled === false) continue;
-      if (Array.isArray(s.backends) && backend) {
-        if (!s.backends.includes(backend.id) && !(backend.baseId && s.backends.includes(backend.baseId))) continue;
-      }
       const missing = new Set();
       const ex = (v) => expand(v, env, missing);
       const exMap = (m) => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => [k, ex(v)]));
@@ -107,6 +102,18 @@ function externalServersSource({ backend, getSetting, projectPath, getEnv, log }
     }
     return rows;
   };
+}
+
+// The project's enabled entries meant for this backend, before any `${VAR}` is expanded. The source above injects
+// from it; the prune counts it to tell "the project has no servers" from "its servers did not reach the launch".
+function externalServersFor({ backend, getSetting, projectPath } = {}) {
+  if (typeof getSetting !== 'function') return [];
+  const { servers } = readExternalMcpServers(getSetting, projectPath);
+  return servers.filter((s) => {
+    if (s.enabled === false) return false;
+    if (!Array.isArray(s.backends) || !backend) return true;
+    return s.backends.includes(backend.id) || !!(backend.baseId && s.backends.includes(backend.baseId));
+  });
 }
 
 // `backend` is the descriptor. `ctx` is the app context (only `ctx.log` is read here).
@@ -163,4 +170,4 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
   }
 }
 
-module.exports = { composeMcpInjection, ownServerSource, externalServersSource };
+module.exports = { composeMcpInjection, ownServerSource, externalServersSource, externalServersFor };
