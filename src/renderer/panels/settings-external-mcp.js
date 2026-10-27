@@ -68,6 +68,7 @@
       'empty-name': 'the command is empty',
       'unset-variable': 'the command uses a variable that is not set',
       'path-overridden': 'a backend variable or the server itself sets its own PATH, which was not searched',
+      'backend-env-varies': 'the command or working directory depends on backend variables',
     },
     takes: {
       'entry-disabled': 'the server is switched off',
@@ -107,12 +108,13 @@
 
     const vars = Array.isArray(r.variables) ? r.variables.filter(v => v && typeof v.name === 'string') : [];
     if (vars.length) {
-      const setNames = []; const unset = []; const unresolved = []; const defaulted = [];
+      const setNames = []; const unset = []; const unresolved = []; const defaulted = []; const mixed = [];
       const add = (list, s) => { if (!list.includes(s)) list.push(s); };
       for (const v of vars) {
         if (v.state === 'unset') add(unset, v.name);
         else if (v.state === 'declared-unresolved') add(unresolved, v.name);
         else if (v.state === 'default') add(defaulted, v.name);
+        else if (v.state === 'mixed') add(mixed, v.name);
         else if (v.state === 'backend-env') {
           const ids = Array.isArray(v.backendIds) ? v.backendIds : [];
           add(setNames, ids.length ? `${v.name} (for ${ids.map(labelOf).join(', ')})` : v.name);
@@ -121,6 +123,7 @@
       const parts = [];
       if (setNames.length) parts.push('set ' + setNames.join(', '));
       if (defaulted.length) parts.push(defaulted.map(n => n + ' (default used)').join(', '));
+      if (mixed.length) parts.push(mixed.map(n => n + ' (varies by backend)').join(', '));
       if (unset.length) parts.push('unset ' + unset.join(', '));
       if (unresolved.length) parts.push('without a usable value ' + unresolved.join(', '));
       const note = (unresolved.length || r.envGap) ? ' ' + SAVED_VARIABLES : '';

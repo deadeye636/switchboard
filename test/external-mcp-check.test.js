@@ -355,10 +355,23 @@ test('F3: Windows names use the value passed to the child when spellings collide
 test('Windows backend empty override remains visible when another backend inherits the app', async () => {
   const ctx = baseContext({ platform: 'win32', env: { Path: 'app' }, backendEnv: { alpha: { PATH: '' } }, backends: BACKENDS.slice(0, 2) });
   const [result] = await checkEntries([http({ headers: { X: '${PATH:-fallback}' } })], ctx);
-  assert.equal(result.variables[0].state, 'default');
+  assert.equal(result.variables[0].state, 'mixed');
   assert.equal(result.variables[0].backendIds, undefined);
-  assert.equal(result.envGap, false);
+  assert.equal(result.envGap, true);
   assert.deepEqual(takesOf(result).alpha, [true, null]);
+});
+
+test('commands and working directories that vary by backend are not reported as a single path', async () => {
+  const context = baseContext({ platform: 'win32', env: { Dir: 'C:/app' }, backendEnv: { alpha: { DIR: '' } }, backends: BACKENDS.slice(0, 2) });
+  const out = await checkEntries([
+    stdio({ command: '${DIR}/tool' }),
+    stdio({ name: 'cwd', command: './tool', cwd: '${DIR}', backends: ['alpha', 'beta'] }),
+    stdio({ name: 'filtered', command: '${DIR}/tool', backends: ['beta'] }),
+  ], context);
+  assert.deepEqual(out[0].command, { state: 'unknown', reason: 'backend-env-varies' });
+  assert.deepEqual(out[1].command, { state: 'unknown', reason: 'backend-env-varies' });
+  assert.notEqual(out[2].command.reason, 'backend-env-varies');
+  assert.equal(out[2].variables[0].state, 'app');
 });
 
 test('Windows empty backend override falls back instead of claiming a backend value', async () => {

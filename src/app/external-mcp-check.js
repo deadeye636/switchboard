@@ -35,10 +35,10 @@ const MAX_ITEMS = 256;
 // The closed set of codes a reply can carry. The card maps each to a sentence (T5).
 const REASONS = Object.freeze({
   // command.state 'unknown' carries one of these (the resolver's, plus the caller's `unset-variable`)
-  command: Object.freeze(['network', 'unreadable', 'timeout', 'relative-path-entry', 'no-cwd', 'empty-name', 'unset-variable', 'path-overridden']),
+  command: Object.freeze(['network', 'unreadable', 'timeout', 'relative-path-entry', 'no-cwd', 'empty-name', 'unset-variable', 'path-overridden', 'backend-env-varies']),
   commandStates: Object.freeze(['found', 'missing', 'unknown', 'not-applicable']),
   takes: Object.freeze(['entry-disabled', 'backend-filter', 'unset-variable', 'transport', 'cwd', 'no-channel']),
-  variableStates: Object.freeze(['app', 'backend-env', 'declared-unresolved', 'default', 'unset']),
+  variableStates: Object.freeze(['app', 'backend-env', 'declared-unresolved', 'default', 'unset', 'mixed']),
   variableFields: Object.freeze(['command', 'args', 'env', 'cwd', 'url', 'headers']),
 });
 
@@ -127,7 +127,7 @@ function missingIn(entry, env, win) {
   return missing;
 }
 
-function variablesOf(entry, appEnv, layers, win) {
+function variablesOf(entry, appEnv, layers, activeLayers, win) {
   const seen = new Set();
   const out = [];
   for (const [field, text] of expandedFields(entry)) {
@@ -140,7 +140,13 @@ function variablesOf(entry, appEnv, layers, win) {
       const platform = win ? 'win32' : 'linux';
       const appValue = lookup(appEnv, name, platform);
       const overrides = layers.filter((l) => lookup(l.env, name, platform) !== appValue);
-      if (hasValue(appEnv, name, hasDefault, win) && !overrides.length) state = 'app';
+      const effective = (env) => {
+        const value = lookup(env, name, platform);
+        return hasDefault && (value === undefined || value === '') ? null : value;
+      };
+      const outcomes = new Set(activeLayers.map((l) => effective(l.env)));
+      if (outcomes.size > 1) state = 'mixed';
+      else if (hasValue(appEnv, name, hasDefault, win) && !overrides.length) state = 'app';
       else {
         const ids = overrides.length && appValue !== undefined
           ? overrides.filter((l) => hasValue(l.env, name, hasDefault, win)).map((l) => l.id)
@@ -243,6 +249,24 @@ async function checkEntries(entries, context = {}) {
   const plans = servers.map((entry) => {
     const plan = { entry, command: { state: 'not-applicable' }, name: null, group: null };
     if (entry.transport !== 'stdio') return plan;
+    const platform = win ? 'win32' : 'linux';
+    const candidates = checked.filter(({ backend, env }) => {
+      const caps = backend.externalMcpTakes;
+      if (!entryAppliesTo(entry, backend).applies || !caps || !Array.isArray(caps.transports) || !caps.transports.includes('stdio')) return false;
+      if (missingIn(entry, env, win).size) return false;
+      const cwd = entry.cwd === undefined ? '' : expand(entry.cwd, env, new Set(), platform);
+      return cwd === '' || caps.cwd === true;
+    });
+    const variants = new Set(candidates.map(({ env }) => JSON.stringify([
+      expand(entry.command, env, new Set(), platform),
+      entry.cwd === undefined ? '' : expand(entry.cwd, env, new Set(), platform),
+    ])));
+    if (variants.size > 1 || (variants.size === 1 && candidates.length &&
+      [...variants][0] !== JSON.stringify([expand(entry.command, commandEnv, new Set(), platform),
+        entry.cwd === undefined ? '' : expand(entry.cwd, commandEnv, new Set(), platform)]))) {
+      plan.command = { state: 'unknown', reason: 'backend-env-varies' };
+      return plan;
+    }
     const missing = new Set();
     const command = expand(entry.command, commandEnv, missing, win ? 'win32' : 'linux');
     if (missing.size) { plan.command = { state: 'unknown', reason: 'unset-variable' }; return plan; }
@@ -289,7 +313,9 @@ async function checkEntries(entries, context = {}) {
       if (typeof a.executable === 'boolean') command.executable = a.executable;
       plan.command = command;
     }
-    const variables = variablesOf(entry, appEnv, checked.map((c) => ({ id: c.id, env: c.env, layer: c.layer })), win);
+    const relevant = checked.filter((c) => entryAppliesTo(entry, c.backend).applies && c.backend.externalMcpTakes
+      && Array.isArray(c.backend.externalMcpTakes.transports) && c.backend.externalMcpTakes.transports.includes(entry.transport));
+    const variables = variablesOf(entry, appEnv, relevant, relevant.filter((c) => takes.some((t) => t.id === c.id && t.takes)), win);
     byIndex.set(indices[k], {
       index: indices[k],
       name: entry.name,
