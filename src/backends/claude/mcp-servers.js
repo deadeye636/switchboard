@@ -82,25 +82,29 @@ function projectBlocks(projects, projectPath) {
   return keys.map((k) => (k && isObject(projects[k]) ? projects[k] : null)).filter(Boolean);
 }
 
-function toRow(name, def, { origin, scope, file, env, approved }) {
+function toRow(name, def, { origin, scope, file, env, foldCase, approved }) {
   const transport = typeof def.type === 'string' && def.type ? def.type : (def.url ? 'http' : 'stdio');
   const row = { name, origin, scope, path: file, transport };
   if (approved !== undefined) row.approved = approved;
   if (transport !== 'stdio') return row;
   const missing = new Set();
-  row.command = expand(typeof def.command === 'string' ? def.command : '', env, missing);
-  row.args = Array.isArray(def.args) ? def.args.map((a) => expand(String(a), env, missing)) : [];
+  const ex = (v) => expand(v, env, missing, { foldCase });
+  row.command = ex(typeof def.command === 'string' ? def.command : '');
+  row.args = Array.isArray(def.args) ? def.args.map((a) => ex(String(a))) : [];
   row.env = {};
   if (isObject(def.env)) {
-    for (const [k, v] of Object.entries(def.env)) row.env[k] = expand(String(v), env, missing);
+    for (const [k, v] of Object.entries(def.env)) row.env[k] = ex(String(v));
   }
   if (missing.size) row.missingEnv = [...missing].sort();
   return row;
 }
 
 function createListSharedMcpServers({ claudeHome, configPath = claudeConfig.claudeConfigPath }) {
-  return function listSharedMcpServers({ projectPath = null, env = process.env } = {}) {
+  // `platform` (#794): on win32 a `${VAR}` name is looked up case-insensitively, as Claude reads it through
+  // `process.env`; the caller usually hands a plain copy, which has lost that.
+  return function listSharedMcpServers({ projectPath = null, env = process.env, platform = process.platform } = {}) {
     const vars = env || {};
+    const foldCase = platform === 'win32';
     const file = configPath();
     const cfg = claudeConfig.readClaudeConfig(file);
     const rows = [];
@@ -108,7 +112,7 @@ function createListSharedMcpServers({ claudeHome, configPath = claudeConfig.clau
       if (!isObject(servers)) return;
       for (const [name, def] of Object.entries(servers)) {
         if (!isObject(def)) continue;
-        rows.push(toRow(name, def, { ...meta, env: vars }));
+        rows.push(toRow(name, def, { ...meta, env: vars, foldCase }));
       }
     };
     const projects = projectPath && cfg && isObject(cfg.projects) ? cfg.projects : null;
@@ -121,7 +125,7 @@ function createListSharedMcpServers({ claudeHome, configPath = claudeConfig.clau
         const approved = projectApprovals({ entries: projects ? projectBlocks(projects, projectPath) : [], home: claudeHome(), projectPath });
         for (const [name, def] of Object.entries(blob.mcpServers)) {
           if (!isObject(def)) continue;
-          rows.push(toRow(name, def, { origin: 'project', scope: 'project', file: mcpFile, env: vars, approved: approved(name) }));
+          rows.push(toRow(name, def, { origin: 'project', scope: 'project', file: mcpFile, env: vars, foldCase, approved: approved(name) }));
         }
       }
     }

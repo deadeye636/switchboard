@@ -84,7 +84,7 @@ test('command: a directory that cannot be read makes a miss unknown, a hit stays
 });
 
 test('every reason the resolver can give is in the closed set', () => {
-  for (const r of ['network', 'unreadable', 'timeout', 'relative-path-entry', 'no-cwd', 'empty-name']) {
+  for (const r of ['network', 'unreadable', 'timeout', 'relative-path-entry', 'unexpanded-path-entry', 'no-cwd', 'empty-name']) {
     assert.ok(REASONS.command.includes(r), r);
   }
 });
@@ -322,18 +322,27 @@ test('F2: a PATH set by a backend variable or the entry makes a miss unknown, a 
   assert.ok(REASONS.command.includes('path-overridden'));
 });
 
-test('F3: keys that differ only in case stay two keys, as in the launch spread', async () => {
-  const ctx = baseContext({
-    platform: 'win32',
+test('F3: keys that differ only in case stay two keys in the launch spread; on win32 a lookup folds (#794)', async () => {
+  const ctx = (platform) => baseContext({
+    platform,
     env: { Path: 'C:/none', Mixed: 'app' },
     backendEnv: { alpha: { MIXED: 'be' } },
     backends: [DESC('alpha', { transports: ['stdio'], cwd: false })],
   });
-  const [res] = await checkEntries([stdio({ args: ['${Mixed}', '${MIXED}'] })], ctx);
-  const by = Object.fromEntries(res.variables.map((v) => [v.name, v.state]));
-  assert.equal(by.Mixed, 'app');
-  assert.equal(by.MIXED, 'backend-env');
-  assert.deepEqual(takesOf(res), { alpha: [true, null] });
+  const states = async (platform) => {
+    const [res] = await checkEntries([stdio({ args: ['${Mixed}', '${MIXED}'] })], ctx(platform));
+    return { by: Object.fromEntries(res.variables.map((v) => [v.name, v.state])), takes: takesOf(res) };
+  };
+  // POSIX: names are exact, so `${MIXED}` exists only in alpha's layer.
+  const posix = await states('linux');
+  assert.equal(posix.by.Mixed, 'app');
+  assert.equal(posix.by.MIXED, 'backend-env');
+  assert.deepEqual(posix.takes, { alpha: [true, null] });
+  // win32: `${MIXED}` finds the app's `Mixed` too, so every launch has a value (alpha's own key still wins for alpha).
+  const win = await states('win32');
+  assert.equal(win.by.Mixed, 'app');
+  assert.equal(win.by.MIXED, 'app');
+  assert.deepEqual(win.takes, { alpha: [true, null] });
 });
 
 test('F4: a relative cwd resolves against the project before the command is looked up', async () => {
@@ -377,4 +386,16 @@ test('F2 precision: only a PATH that reaches a launch overrides', async () => {
   gone.promises.stat = async () => { throw errno('ENOENT'); };
   const asPath = await checkEntries([stdio({ command: '/opt/gone/tool', env: { PATH: '/elsewhere' } })], baseContext({ fs: gone }));
   assert.equal(asPath[0].command.state, 'missing');
+});
+
+// #794: the check folds a name the way the launch does on win32, so the card and the launch keep agreeing.
+test('win32: ${PATH} against an environment that spells it Path reads as set, and every backend takes it', async () => {
+  const drive = 'C:' + String.fromCharCode(92) + 'bin';
+  const entry = stdio({ command: 'tool', env: { PATH: '${PATH};x' } });
+  const ctx = (platform) => baseContext({ platform, env: { Path: drive }, fs: fakeFs({ [drive]: ['tool.exe'] }) });
+  const [onWin] = await checkEntries([entry], ctx('win32'));
+  assert.deepEqual(onWin.variables.map((v) => [v.name, v.state]), [['PATH', 'app']]);
+  assert.ok(onWin.takes.every((t) => t.reason !== 'unset-variable'), JSON.stringify(onWin.takes));
+  const [onLinux] = await checkEntries([entry], ctx('linux'));
+  assert.deepEqual(onLinux.variables.map((v) => [v.name, v.state]), [['PATH', 'unset']]);
 });

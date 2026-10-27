@@ -90,3 +90,20 @@ test('references of a non-string is empty', () => {
   assert.deepEqual(references(null), []);
   assert.deepEqual(references(['${X}']), []);
 });
+
+// #794: on Windows a variable name is case-insensitive; a plain copy of the environment is not.
+test('foldCase looks a name up case-insensitively, the exact spelling first; without it the lookup is exact', () => {
+  const { lookupVar } = require('../src/shared/env-expand');
+  const env = { Path: 'C:/bin', HOME: 'h', home: 'lower' };
+  const missing = new Set();
+  assert.equal(expand('${PATH}', env, missing, { foldCase: true }), 'C:/bin');
+  assert.equal(missing.size, 0);
+  assert.equal(expand('${home}', env, new Set(), { foldCase: true }), 'lower', 'an exact key wins over a folded one');
+  assert.equal(expand('${PATH:-x}', env, new Set(), { foldCase: true }), 'C:/bin');
+  const exact = new Set();
+  assert.equal(expand('${PATH}', env, exact), '');
+  assert.deepEqual([...exact], ['PATH'], 'no fold without the option');
+  assert.equal(lookupVar(env, 'path', true), 'C:/bin');
+  assert.equal(lookupVar(env, 'path', false), undefined);
+  assert.equal(lookupVar(env, 'NOPE', true), undefined);
+});

@@ -197,7 +197,8 @@ What the click test (G2, on the demo instance) showed:
 
 - The PATH check and the project list run on the category's first show, not when the window opens.
 - Rows read "found" or "not checked: <reason>". The demo's PATH has a relative folder, so `pipx`, which is not
-  installed there, read as not checked rather than missing.
+  installed there, read as not checked rather than missing. (Before #793; that entry is an unexpanded `%USERPROFILE%`
+  folder, and the row now names it as such.)
 - One live registry search for "jcodemunch" returned one Unverified card with both install lines.
 - The settings search kept the matching rows.
 - Add to project showed the warning. Cancel opened nothing. Confirm opened the project on MCP servers with the form

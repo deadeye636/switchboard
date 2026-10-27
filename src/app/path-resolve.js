@@ -171,9 +171,14 @@ async function readDirectory(dir, cache, ctx) {
   return r.absent ? { names: new Set() } : { names: r.names };
 }
 
+// A Windows PATH entry that still holds a `%NAME%` (#793): nothing expands it when a process searches PATH, so it is
+// a relative folder with that literal name. Measured: a Node spawn (libuv) ran a program from `<cwd>/%ZZPROBE%/bin`.
+// It is skipped like any relative entry; the reason names it, so the user can fix their PATH.
+const UNEXPANDED = /%[^%]+%/;
+
 /** The PATH directories, read once; plus whether any entry was skipped and why. */
 async function listPath(ctx) {
-  const skipped = { network: false, relative: false };
+  const skipped = { network: false, relative: false, unexpanded: false };
   const dirs = [];
   const seen = new Set();
   const entries = splitList(ctx.rawPath, ctx.win ? ';' : ':', ctx.win);
@@ -187,7 +192,11 @@ async function listPath(ctx) {
     const key = ctx.win ? entry.toLowerCase() : entry;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (!isAbsoluteStrict(entry, ctx)) { skipped.relative = true; continue; }
+    if (!isAbsoluteStrict(entry, ctx)) {
+      if (ctx.win && UNEXPANDED.test(entry)) skipped.unexpanded = true;
+      else skipped.relative = true;
+      continue;
+    }
     if (ctx.isForeign(entry)) { skipped.network = true; continue; }
     dirs.push(entry);
   }
@@ -209,6 +218,7 @@ function missOrUnknown(failures, skipped) {
   if (failures.timeout) return unknown('timeout');
   if (failures.unreadable) return unknown('unreadable');
   if (skipped.network) return unknown('network');
+  if (skipped.unexpanded) return unknown('unexpanded-path-entry');
   if (skipped.relative) return unknown('relative-path-entry');
   return { state: 'missing' };
 }
@@ -255,7 +265,7 @@ async function resolveAsPath(name, ctx) {
     if (!ctx.win && typeof s.st.mode === 'number') answer.executable = (s.st.mode & 0o111) !== 0;
     return answer;
   }
-  return missOrUnknown(failures, { network: false, relative: false });
+  return missOrUnknown(failures, { network: false, relative: false, unexpanded: false });
 }
 
 /**
@@ -264,6 +274,7 @@ async function resolveAsPath(name, ctx) {
  * opts: { env, cwd, isForeignNetworkPath(p), fs, now, budgetMs, concurrency, cacheMs, platform }
  * answer: { state: 'found' | 'missing' | 'unknown', resolved?, ext?, executable?, reason? }
  * reason (unknown only): 'empty-name' | 'no-cwd' | 'network' | 'unreadable' | 'timeout' | 'relative-path-entry'
+ *   | 'unexpanded-path-entry'
  */
 async function resolveCommands(names, opts = {}) {
   const ctx = makeCtx(opts);

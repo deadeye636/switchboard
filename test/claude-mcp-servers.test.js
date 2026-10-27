@@ -145,3 +145,14 @@ test('a missing or broken config file lists nothing and does not throw', (t) => 
   fs.writeFileSync(f.configFile, '{ not json');
   assert.deepEqual(f.list({ projectPath: f.project, env: {} }), { ok: true, servers: [] });
 });
+
+// #794: Claude reads `${VAR}` through process.env, which is case-insensitive on Windows; the lister folds the same way.
+test('on win32 a ${VAR} in a server finds a key that differs only in case', (t) => {
+  const f = fixture({ top: { u: { command: 'srv', args: ['${PATH}'] } } });
+  t.after(f.cleanup);
+  const onWin = f.list({ projectPath: f.project, env: { Path: '/bin' }, platform: 'win32' });
+  assert.deepEqual(onWin.servers[0].args, ['/bin']);
+  assert.equal(onWin.servers[0].missingEnv, undefined);
+  const onLinux = f.list({ projectPath: f.project, env: { Path: '/bin' }, platform: 'linux' });
+  assert.deepEqual(onLinux.servers[0].missingEnv, ['PATH']);
+});

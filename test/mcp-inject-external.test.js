@@ -153,3 +153,14 @@ test('through the composer: a row whose address expanded to nothing is dropped a
   };
   assert.equal(await composeMcpInjection({ backend, ctx: { log: { info() {}, warn() {} } }, sources: [source] }), null);
 });
+
+// #794: an entry that writes `${PATH}` against an environment that spells it `Path` (a normal Windows start).
+test('on win32 a ${VAR} finds a key that differs only in case; elsewhere the entry is skipped as before', () => {
+  const list = [{ name: 'p', transport: 'stdio', command: 'srv', env: { PATH: '${PATH};/extra' } }];
+  const env = () => ({ Path: '/bin' });
+  const onWin = make(list, { getEnv: env, platform: 'win32' });
+  assert.deepEqual(onWin.source().map((r) => r.env), [{ PATH: '/bin;/extra' }]);
+  const onLinux = make(list, { getEnv: env, platform: 'linux' });
+  assert.deepEqual(onLinux.source(), []);
+  assert.ok(onLinux.logs.some((m) => /unset variable PATH/.test(m)));
+});

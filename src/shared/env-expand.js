@@ -10,13 +10,28 @@
 const VAR = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
 
 /**
+ * The value of `name` in `env`, exact spelling first. With `foldCase` a key that differs only in case answers when the
+ * exact one is absent: on Windows a variable name is case-insensitive (#794), so `${PATH}` finds `Path`, as it would
+ * through `process.env` and in the child process. A plain copy of the environment loses that, hence the fold here.
+ */
+function lookupVar(env, name, foldCase) {
+  if (env[name] !== undefined) return env[name];
+  if (!foldCase) return undefined;
+  const upper = name.toUpperCase();
+  const key = Object.keys(env).find((k) => k.toUpperCase() === upper);
+  return key === undefined ? undefined : env[key];
+}
+
+/**
  * Expand `${VAR}` and `${VAR:-default}` in a string against `env`. A non-string is returned as it came.
  * A variable with no value and no default expands to '' and its name is added to `missing`.
+ * opts: { foldCase } — look names up case-insensitively (pass `true` on win32), see `lookupVar`.
  */
-function expand(value, env, missing) {
+function expand(value, env, missing, opts) {
   if (typeof value !== 'string') return value;
+  const foldCase = !!(opts && opts.foldCase);
   return value.replace(VAR, (_all, name, fallback) => {
-    const v = env[name];
+    const v = lookupVar(env, name, foldCase);
     // Shell semantics: `:-` also replaces an EMPTY value; a bare reference to a set-but-empty one is empty.
     if (fallback !== undefined) return v !== undefined && v !== '' ? v : fallback;
     if (v !== undefined) return v;
@@ -35,5 +50,5 @@ function references(value) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { expand, references };
+  module.exports = { expand, references, lookupVar };
 }
