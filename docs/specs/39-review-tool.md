@@ -321,7 +321,10 @@ declarations, the target list comes from the registry), and no new stored settin
 
 ## Open
 
-Numbered, stable. The plan carries the same list; an answered point says so. Nothing below is settled by this spec.
+Numbered, stable. The plan carries the same list; an answered point says so.
+
+**Answered (owner, 2026-10-27): every point below as recommended.** O2 and O11 still depend on their measurement (T4's
+scan timing, M3) for which branch applies; O15 takes the CLI's own default (no `model` sent).
 
 1. **O1 The parent/child link.** New `session_meta.spawnedBy` + `spawnKind` (recommended), reuse `lineageParentId` with a
    new kind (renders the caller as the review's ancestor, wrong), reuse `parentSessionId` (hides the row, wrong), or a
