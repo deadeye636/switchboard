@@ -868,7 +868,10 @@ test('the permission mode is sent only when chosen, and the skip flag is not off
   const field = d.configFields.find(f => f.id === 'permissionMode');
   assert.ok(!field.choices.includes('dangerously-skip'));
   assert.equal(field.default, 'default');
-  assert.ok(!d.configFields.some(f => f.appliesAt === 'spawn'), 'nothing here is applied at a terminal spawn site');
+  // The one spawn-applied field is the discovery offer (spec 37): the MCP injection block reads it, and that block
+  // runs for a piped spawn too. Nothing terminal-only (`mcpEmulation`, `afkTimeoutSec`) is applied here.
+  assert.deepEqual(d.configFields.filter(f => f.appliesAt === 'spawn').map(f => f.id), ['discoveryTools'],
+    'only the MCP-injection option is applied at the spawn site');
 });
 
 test('prompt suggestions are on unless switched off, and a suggestion becomes the app\'s op (#693)', () => {

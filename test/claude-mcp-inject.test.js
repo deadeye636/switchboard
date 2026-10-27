@@ -28,7 +28,25 @@ test('claude declares the quartet; claude-native forwards the same one (plan 789
   assert.equal(claudeNative.capabilities.mcpInject.state, 'limited');
 });
 
-test('claude-native: --mcp-config only when the project has entries; the own server offers it nothing', async () => {
+test('the discovery offer is one spawn-applied toggle, off by default, Claude\'s own field on claude-native (spec 37)', () => {
+  const field = claude.configFields.find(f => f.id === 'discoveryTools');
+  assert.ok(field, 'claude declares discoveryTools');
+  assert.equal(field.type, 'toggle');
+  assert.equal(field.default, false, 'offering tools costs context every turn: off unless chosen');
+  assert.equal(field.appliesAt, 'spawn');
+  assert.doesNotMatch(field.description, /--ide|bridge/, 'claude-native shares the text and has no bridge');
+  assert.equal(claudeNative.configFields.find(f => f.id === 'discoveryTools'), field, 'one declaration, by reference');
+  for (const d of [claude, claudeNative]) {
+    assert.ok(!d.configFields.some(f => f.id === 'diffTool'), `${d.id}: diffs stay on --ide`);
+    assert.equal(d.capabilities.mcpInject.state, 'limited', `${d.id}: no live call checked yet`);
+  }
+  const argv = (d, options) => d.buildLaunch({ sessionId: 's', options }).args;
+  for (const d of [claude, claudeNative]) {
+    assert.deepEqual(argv(d, { discoveryTools: true }), argv(d, {}), `${d.id}: the toggle never reaches buildLaunch's argv`);
+  }
+});
+
+test('claude-native: --mcp-config only when the project has entries; with no group the own server offers it nothing', async () => {
   const { composeMcpInjection, externalServersSource, ownServerSource } = require('../src/app/mcp-inject');
   const dir = tmp();
   const log = { info() {}, debug() {}, warn() {} };

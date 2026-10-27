@@ -98,7 +98,7 @@ const PINNED = {
   'claude-native': {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
-    mcpInject: 'limited', // external servers via --mcp-config, measured on the pipe; no own server (plan 789 T10)
+    mcpInject: 'limited', // external servers via --mcp-config, measured on the pipe; the own discovery group with discoveryTools on, not yet checked live (spec 37)
     mcpPrune: 'yes',  // spec 36: same --strict-mcp-config hook as terminal Claude (plan 789 T4)
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',

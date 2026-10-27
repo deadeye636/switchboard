@@ -82,6 +82,14 @@ test('a Codex template offers CODEX\'s options — not Claude\'s', () => {
   });
 });
 
+test('a Claude template offers the discovery toggle and no diff toggle, like its base (spec 37)', () => {
+  withProfiles([{ id: 'ds', name: 'DeepSeek', backendId: 'claude', env: {} }], () => {
+    const ids = backends.get('ds').configFields.map(f => f.id);
+    assert.ok(ids.includes('discoveryTools'), 'the same binary takes the same --mcp-config row');
+    assert.ok(!ids.includes('diffTool'), 'diffs stay on --ide');
+  });
+});
+
 test('a Claude template still runs the claude binary, with its env bundle on top', () => {
   withProfiles([{ id: 'ds', name: 'DeepSeek', backendId: 'claude', env: { ANTHROPIC_BASE_URL: 'https://x' } }], () => {
     const t = backends.get('ds');

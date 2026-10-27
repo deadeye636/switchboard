@@ -55,6 +55,8 @@ const configFields = [
   { id: 'restricted', label: 'Restricted mode', type: 'toggle', default: false,
     description: 'Removes the tools that run commands or code, and WebFetch. Also ignores your settings files, and refuses the Bypass permission mode: that combination fails to start.' },
   ...['autocompact'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
+  // Spec 37: the piped CLI takes the same `--mcp-config` row, so the discovery offer is Claude's own field.
+  ...['discoveryTools'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
   // Claude's suggested next prompt, greyed out in the input and taken with Tab (#693). `--prompt-suggestions` is
   // part of this backend's launch, like `--verbose` (the CLI keeps them off in print mode without it — measured,
   // spec 32), and this option is the way OUT: an opt-out whose default, off, sends nothing — the configFields
@@ -207,7 +209,7 @@ const capabilities = {
   queuedTurn: { state: 'no', note: 'the stream says when a queued line starts, not how many are waiting' },
   quota: { state: 'no', note: 'shown for the terminal Claude backend, whose account this is' },
   resourcesFrom: 'no',
-  mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file, measured on the pipe (listed, and gated by the approval card); the app\'s own session server is not offered here' },
+  mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file, measured on the pipe (listed, and gated by the approval card); the app\'s own discovery group rides the same file when discoveryTools is on, not yet checked live' },
   mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
