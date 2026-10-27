@@ -38,6 +38,14 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
     every folder name is in its on-disk case. A `subst` or mapped drive keeps its own letter rather than what
     it stands for — also over a repository's subfolder, where the drive's root is the key — and a UNC path
     stays one.
+  - **The folder-case half no longer holds on 2.1.311** (#796, measured 2026-10-27 on Windows, isolated demo
+    home). Started in `<drive>:\temp\…\trust-git` (a fresh `git init`) and in `<drive>:\temp\…\trust-plain` (no repository),
+    where the disk spells the folder `Temp`, the CLI wrote `<drive>:/temp/…/trust-git` and `<drive>:/temp/…/trust-plain`:
+    every folder name **as the cwd spelled it**, not in its on-disk case. `git rev-parse --show-toplevel` in the
+    same folder answers `…/Temp/…`, so the CLI does not take the key from git either. Junctions, `subst` drives
+    and UNC paths were not measured again. Switchboard still derives the 2.1.272 key (`cliProjectKey` in
+    `src/backends/claude/config.js`), so for a project spelled in another case than the disk it reads and
+    writes a key this CLI does not use.
 
   How it is **looked up**: exactly, case included, and the file often holds several spellings of one
   directory. Outside a repository a trusted **ancestor** trusts the directory, and an entry of its own with
