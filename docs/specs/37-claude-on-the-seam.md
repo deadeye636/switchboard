@@ -119,7 +119,29 @@ Numbered, stable. The plan carries the same list; an answered point says so.
    **Answered (owner): not set.** In Claude's default auto mode the call ran with no prompt (M1), so the hint would
    buy nothing there.
 2. **O2 Tool-call timeout** (spec 35 O2). Claude's per-call timeout against the bridge's blocking cap. Not blocking 2a
-   (the four tools answer quickly); it matters for 2b.
+   (the four tools answer quickly); it matters for 2b. **Facts read 2026-10-27** (installed claude 2.1.311, codex-cli
+   0.162.1, agy 1.4.8, pi 1.1.0; no model turn run, so no timeout was triggered):
+   - **Claude** (terminal and claude-native, one binary): a call has a wall-clock limit of about 28 hours and an idle
+     limit of 5 min for an HTTP server (30 min for stdio). Progress notifications reset the idle timer only; the binary
+     says "progress notifications do not extend" the wall-clock limit. Per server `"timeout": <ms>` (documented for
+     `.mcp.json`; for `--mcp-config` unverified), env `MCP_TOOL_TIMEOUT` and `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`. A
+     main-conversation call still running after 2 min becomes a background task (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`);
+     whether that applies to claude-native's pipe is unverified. Source: code.claude.com/docs/en/mcp and strings in the
+     installed binary.
+   - **Codex:** tool 300 s and connect 30 s in the source at `rust-v0.162.1` (`codex-rs/codex-mcp/src/rmcp_client.rs`),
+     while its docs say 60 s and 10 s. Per server `tool_timeout_sec` / `startup_timeout_sec`, at launch
+     `-c mcp_servers.<name>.tool_timeout_sec=<n>` (key names present in the binary; the `-c` form not run). Progress
+     is only logged.
+   - **agy:** the tool-call default is not known. The binary bounds each call ("timed out after …") and knows a
+     per-server `timeoutSeconds`; its meaning is inferred from the name. Unmeasured.
+   - **Pi** through Switchboard's own section (`src/backends/pi/mcp-section.js`): no limit on `tools/call`; only the
+     user's abort ends one.
+   - **Switchboard today** writes no timeout field into any injected entry (`src/backends/claude/mcp-inject.js`,
+     `codex/mcp-inject.js`, `agy/mcp-inject.js`), so the `switchboard` row runs on each CLI's default. The bridge's own
+     cap is the diff tool's (`DIFF_TIMEOUT_MS`, 10 min, `src/servers/mcp-bridge.js`).
+
+   So a call that blocks for minutes is not safe on every backend without a per-launch timeout, and on agy not known at
+   all; progress notifications are no way around that. **Still open:** the decision is part of 2b's proposal.
 3. **O3 Approval allow-listing.** `--allowedTools` for `mcp__switchboard__*`, so a read-only call needs no prompt.
    **Answered (owner): no.** The terminal asks nothing in auto mode, and the conversation view's card already offers
    "Always allow every mcp__switchboard__listSessions call in this project" (M3).
