@@ -397,6 +397,11 @@ noticing.
   a resources disclosure only when `dataset.loaded === '1'` — one already read has nothing left to pay, one
   nobody has opened stays closed and is not searched. Any future "open everything" over the settings DOM has
   to answer this same question.
+- **The global MCP servers category is `data-cat="mcp-addons"`** (#790, spec 38); `mcp` is the project scope's own.
+  Its PATH check and project list run on the category's first `settings-cat-shown`, so `bindAddons` is bound before
+  `wireTwoPane()`. Its "Add to project" hands a catalog id through the URL as `addon`; settings-window.js turns it
+  into `window.__SETTINGS_SEED__`, and the project branch takes and clears it once, so Apply's rebuild (no reload)
+  does not reopen the form.
 - **An action that takes the screen's SUBJECT away closes the screen (#565).** Hide Project and Remove
   Project are the two; `closeAfterProjectAction` flashes the pressed button and calls
   `closeSettingsViewer`. Neither staying nor going "back to the project list" is on the table: every field

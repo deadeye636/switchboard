@@ -7,7 +7,8 @@ ships** (see "As built" and "Slice B"; plans: `docs/plans/789-external-mcp-injec
 [spec 35](35-session-discovery-tools.md): there Switchboard is the server and the CLI calls it; here the user
 names servers that exist elsewhere (an `uvx <server>` stdio launch, an HTTP endpoint) and Switchboard puts them in
 front of one launched CLI. The tabbed management screen of the issue's design note (tabs, cards, toggles, the
-"custom MCP" form) is **slice B**, a separate proposal (CLAUDE.md reflex 16). Install and uninstall of a server is #790.
+"custom MCP" form) is **slice B**, a separate proposal (CLAUDE.md reflex 16). Install and uninstall of a server is #790
+([spec 38](38-mcp-addon-catalog.md)): a global catalog that shows the commands and hands an entry to these cards.
 
 Why a new spec and not an extension of 34: spec 34 is the record of the shared core and the agy/Codex diff tool,
 and its "Later phases" item 3 already earmarked this work. The second consumer (35) got its own file; this is the
@@ -252,7 +253,7 @@ today, and a change takes effect on the next session started. Cancel discards.
 |---|---|---|
 | D-B1 | **One data model, two views (W1).** Cards and the JSON text area read and write the same `externalMcpServers` value; there is no second setting and no second copy of the list. | Owner. Two stores would drift, and the validator, the reader and the settings-reference row stay as they are. |
 | D-B2 | **The JSON view stays** as a disclosure: fields the form does not cover (`backends` edits beyond chips, future keys) and repair of a broken stored value. | Owner. A form can only show a list that parses; the text is the one view that can always be fixed. |
-| D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
+| D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790, built as [spec 38](38-mcp-addon-catalog.md)), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
 | D-B4 | **Per project only (H1).** No global or personal list. | Owner. |
 | D-B5 | **Pruning a backend's defaults (A2) and reachability detection are not in slice B.** | Owner; unchanged from D-A4 and D-A6. |
 | D-B6 | **Native-driver injection: both shipped (T10).** claude-native over `--mcp-config`; pi-native through the session-resources MCP section it inherits from terminal Pi (stdio only). The cards show the per-project set both now inject over the pipe. | Owner. |
@@ -289,7 +290,7 @@ the backend list main already serves, never from a table in the renderer (reflex
 
 ### Out, explicitly
 
-Tabs and the marketplace, install and uninstall (#790); skills; a global list; pruning (A2); reachability (a card
+Tabs and the marketplace, install and uninstall (#790, built as [spec 38](38-mcp-addon-catalog.md)); skills; a global list; pruning (A2); reachability (a card
 shows no "connected" light); native-driver injection (T10). Slice B closed the editor's low gaps L1 to L3.
 
 ### As built (slice B)
@@ -474,7 +475,7 @@ started, no request is sent, and no variable value, argument or header leaves ma
 |---|---|---|
 | D-D1 | **Static check only.** No child process, no network request, no MCP `initialize`. Not an on-demand handshake and not status read back from live sessions (only claude-native reports one). | Owner (E1). A handshake runs the user's code and sends headers over the network: a separate decision. |
 | D-D2 | **Three facts plus the launch's own skip reasons.** Command resolves; every `${VAR}` set; which backends take the entry. The skip reasons are the ones the launch already has: entry off, `backends` filter, unset variable, transport not taken, `cwd` not taken. | Owner (E1). The card and the launch log must tell the same story. |
-| D-D3 | **Two neutral layers, neither tied to the card.** A generic PATH resolver (`resolveCommand`, no MCP knowledge) and an entry check (`checkEntries`: entries in, neutral facts out, plus the IPC). #790 reuses both: the resolver for `uv`, `uvx`, `pipx`, the entry check for "server present". | Owner (E4). #790's "detect first" must not grow a second detection. |
+| D-D3 | **Two neutral layers, neither tied to the card.** A generic PATH resolver (`resolveCommand`, no MCP knowledge) and an entry check (`checkEntries`: entries in, neutral facts out, plus the IPC). #790 reuses both: the resolver for `uv`, `uvx`, `pipx`, the entry check for "server present". As built (spec 38), #790 goes through `checkEntries` only, for `uv`, `pipx` and the servers, and does not probe `uvx`. | Owner (E4). #790's "detect first" must not grow a second detection. |
 | D-D4 | **The resolver is the app's own.** src/app may not import the backends folder's `findOnPath` (the import direction in `.claude/rules/backends.md`), so the few lines are repeated, as the app's `closeProbeStdin` repeats the backends one (spec 9, decision 11). Same semantics: PATHEXT on Windows, first directory then first extension, a listing instead of a stat per name; asynchronous and bounded instead. | Owner (E2). |
 | D-D5 | **Absence is the claim that needs the evidence** (`.claude/rules/backends.md`, #546). "Not found" only when every PATH directory was listed or does not exist (`ENOENT`, `ENOTDIR`) and none was skipped. A permission error, an I/O error, the time budget, a skipped network directory, a relative PATH entry: the answer is "not checked" with the reason. A name in a directory listing counts as found unless it is a directory (Windows app-execution aliases list but do not stat cleanly) or its `stat` answers `ENOENT` (a dangling link, a file gone since the listing). Off Windows a copy without an execute bit is passed over for a later executable one, as `execvp` does, and reported only when there is no other. A PATH set by the entry's own `env` or by the backend variables of a backend that takes the entry is not the PATH that was searched, so a miss then reads "not checked" (`path-overridden`). | Same file; one unlucky read must not tell a user their tool is missing. |
 | D-D6 | **A network path is never touched.** Lexical, before any stat (`network-path`, #780): a command path on a share no project is on is "not checked"; PATH directories on such a share are skipped, which makes a miss "not checked". The predicate is main's `isForeignNetworkFile`, handed in at init so the module stays electron-free and db-free. | Touching one is an SMB connection to a host somebody else named. |
@@ -489,9 +490,14 @@ started, no request is sent, and no variable value, argument or header leaves ma
 
 ### Reuse by #790
 
+What slice D offered #790 (the planning view; the As built note below is what #790 used):
 `resolveCommand(name, { env, cwd })` answers `{ state: 'found' | 'missing' | 'unknown', resolved?, ext?, reason? }` for
 a bare name or a path; a batch form shares one listing. `checkEntries(entries, context)` answers, per entry, the command
 fact, the variable facts and the per-backend verdicts. #790 adds no PATH walk and no `${VAR}` reader of its own.
+
+As built (spec 38): #790 calls the existing `checkExternalMcp` IPC with no project, over throwaway stdio entries for
+the runtimes and the catalog servers (`probeEntries`), and reads only the command fact back (`readProbe`). It does
+not call `resolveCommand` directly. The Add form it opens in a project is this slice B form, seeded from the catalog.
 
 ### Open points, decided
 

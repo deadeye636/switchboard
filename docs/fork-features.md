@@ -490,15 +490,25 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   channel yet, and the native drivers are not done. The list lives in the app's settings, edited as a card per
   server with an on/off switch and an add/edit form, with an *Edit as JSON* view for the raw list; it is dropped on
   settings import, since a stdio entry is a command that runs. Entries hold `${VAR}` references, and no secret value
-  reaches a command line. There is no tabbed marketplace, and install/uninstall is #790. The injection is confirmed
+  reaches a command line. There is no tabbed marketplace; installing a server is the MCP server catalog below. The injection is confirmed
   on a real spawn for Codex, agy and Claude, and a Claude/Haiku turn chose and called an external server's tool.
   Slice A2 adds a per-project *prune* switch (off by default, dropped on settings import): Claude and claude-native
   then start with `--strict-mcp-config`, so only the servers Switchboard injected are present and the user's own,
   a project `.mcp.json`, plugin servers and claude.ai connectors are hidden. Every other backend declines. Slice D
   adds a facts line to every card, drawn without starting anything: whether the command is on PATH (an absence is
   claimed only with evidence), which `${VAR}` references are unset, and which backends take the entry and why not;
-  #790 is meant to reuse the same check. Spec:
+  the MCP server catalog reuses the same check. Spec:
   [`specs/36-external-mcp-servers.md`](specs/36-external-mcp-servers.md).
+- **MCP server catalog (#790)** — a global settings category, *MCP servers*, lists a short catalog kept in the
+  repository: jcodemunch, jdocmunch and jdatamunch, each with its upstream source, its licence as upstream states it
+  (the three in the catalog today are dual-use: free for non-commercial use, paid for commercial use), and the `uv` and `pipx` install
+  and uninstall commands. Each command has a Copy button, and Switchboard never runs one. Whether `uv`, `pipx` and
+  each server are on PATH is read through the same static check the project cards use, without starting anything,
+  when the category is first shown and on *Check again*. *Add to project* opens a chosen project's settings on its
+  MCP servers with the Add form filled in from the catalog; nothing is stored until Save there. Below the catalog, a
+  search of the official MCP Registry runs only on Search or Enter. Results are marked *Unverified*, shown as text,
+  and get an install command only when main can build one from a valid PyPI name. Spec:
+  [`specs/38-mcp-addon-catalog.md`](specs/38-mcp-addon-catalog.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says
