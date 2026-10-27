@@ -14,6 +14,9 @@ const path = require('node:path');
 const backends = require('../src/backends');
 const { composeMcpInjection } = require('../src/app/mcp-inject');
 
+// A plain array, deliberately NOT `externalServersSource`: a source marked `external` has its rows filtered by the
+// declaration in the composer (spec 37, O8), and this test would then compare the declaration with itself instead
+// of with what each real emitter does.
 const ROWS = [
   { name: 'withcwd', transport: 'stdio', command: 'node', args: ['server.js'], env: {}, cwd: 'sub' },
   { name: 'remote', transport: 'http', url: 'https://example.invalid/mcp', headers: {} },

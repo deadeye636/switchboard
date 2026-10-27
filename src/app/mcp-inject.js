@@ -151,9 +151,17 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
     const accepts = Array.isArray(backend.acceptsMcpTransports) ? backend.acceptsMcpTransports : [];
     const servers = [];
     const externalRows = new Set();
+    // What the backend declares it takes of a project's entries (`externalMcpTakes`, spec 36 slice D) is applied
+    // here too, before the emitter: a row it would decline must not count in `externalNames` (spec 37, O8).
+    const takes = backend.externalMcpTakes;
     for (const row of await collectRows(sources, ctx, log, externalRows)) {
-      if (accepts.includes(row.transport)) servers.push(row);
-      else log.info(`[mcp-inject] dropped server "${row.name}": transport ${row.transport} is not accepted by ${backend.id || 'this backend'}`);
+      if (!accepts.includes(row.transport)) {
+        log.info(`[mcp-inject] dropped server "${row.name}": transport ${row.transport} is not accepted by ${backend.id || 'this backend'}`);
+      } else if (externalRows.has(row) && row.transport === 'stdio' && row.cwd && !(takes && takes.cwd === true)) {
+        log.warn(`[mcp-inject] declined "${row.name}": ${backend.id || 'this backend'} takes no per-server cwd`);
+      } else if (!(row.transport === 'http' ? row.url : row.command)) {
+        log.warn(`[mcp-inject] dropped server "${row.name}": its ${row.transport === 'http' ? 'url' : 'command'} is empty`);
+      } else servers.push(row);
     }
     if (!servers.length) { releaseSources(); return null; }
 

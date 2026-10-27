@@ -163,8 +163,10 @@ It also fills the choices of a `configFields` select that declares `choicesFrom:
 at the `backends-list` projection, because a backend's own folder cannot name the other backends),
 `mcp-inject.js` (the per-spawn MCP injection — #789, spec 34; turns "sources" into neutral server rows, drops
 the transports a descriptor does not accept, asks its `buildMcpInjection` hook and answers `{ args, env,
-names, externalNames, release }` or `null` (`externalNames`: the names from a source marked `external`, which the
-prune's D-P6 guard counts — spec 37, O5). Electron-free and db-free, names no backend. The spawn path calls it once, best-effort:
+names, externalNames, release }` or `null`. Before the emitter it also applies the descriptor's `externalMcpTakes` to
+rows from a source marked `external` (a stdio row with a `cwd` the backend does not take is declined) and drops any
+row whose url or command is empty, so `externalNames` holds only the project rows handed to the emitter — the
+count the prune's D-P6 guard uses (spec 37, O5 and O8). Electron-free and db-free, names no backend. The spawn path calls it once, best-effort:
 a failure is a warning and the session starts without the tool. Two sources: Switchboard's own HTTP endpoint,
 registered on `src/servers/mcp-http.js`, and the project's `externalMcpServers` list (spec 36). `externalServersFor`
 answers that list's enabled entries for one backend; the source injects from it and the prune counts it),

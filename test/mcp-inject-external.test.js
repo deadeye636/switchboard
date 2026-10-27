@@ -121,3 +121,35 @@ test('through the composer: the stdio row is dropped when the backend takes http
   assert.deepEqual(out.args, ['--x']);
   assert.ok(logs.some((m) => m.includes('"a"')));
 });
+
+test('through the composer: externalNames counts only project rows the backend takes (spec 37, O5/O8)', async () => {
+  const { source } = make([
+    { name: 'withcwd', transport: 'stdio', command: 'srv', cwd: 'sub' },
+    { name: 'h', transport: 'http', url: 'https://x.invalid' },
+  ]);
+  const own = () => [{ name: 'switchboard', transport: 'http', url: 'http://127.0.0.1:1/mcp', headers: {} }];
+  let seen;
+  const warns = [];
+  const mk = (cwd) => ({
+    id: 'fake', providesMcpInjection: true, acceptsMcpTransports: ['stdio', 'http'],
+    externalMcpTakes: { transports: ['stdio', 'http'], cwd },
+    buildMcpInjection: async ({ servers }) => { seen = servers.map((s) => s.name); return { args: ['--x'] }; },
+  });
+  const ctx = { log: { info() {}, warn: (m) => warns.push(m) } };
+  const out = await composeMcpInjection({ backend: mk(false), ctx, sources: [own, source] });
+  assert.deepEqual(seen, ['switchboard', 'h'], 'a row with cwd never reaches an emitter that has no per-server cwd');
+  assert.deepEqual(out.names, ['switchboard', 'h']);
+  assert.deepEqual(out.externalNames, ['h'], 'the own row is not external; the declined row is not counted');
+  assert.ok(warns.some((m) => /declined "withcwd": .*cwd/.test(m)));
+  const taken = await composeMcpInjection({ backend: mk(true), ctx, sources: [own, source] });
+  assert.deepEqual(taken.externalNames, ['withcwd', 'h'], 'a backend that takes a cwd gets the row');
+});
+
+test('through the composer: a row whose address expanded to nothing is dropped and not counted', async () => {
+  const { source } = make([{ name: 'blank', transport: 'stdio', command: '${EMPTY:-}' }]);
+  const backend = {
+    id: 'fake', providesMcpInjection: true, acceptsMcpTransports: ['stdio'],
+    buildMcpInjection: async () => { throw new Error('must not be asked'); },
+  };
+  assert.equal(await composeMcpInjection({ backend, ctx: { log: { info() {}, warn() {} } }, sources: [source] }), null);
+});
