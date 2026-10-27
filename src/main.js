@@ -2526,6 +2526,7 @@ const lifecycleCtx = {
   shutdownAllMcp,
   destroyTray: () => notifications.destroyTray(),
   stopPresencePoll: () => presence.stopSystemIdlePoll(),
+  stopVcsPoll: () => vcsPoll.stop(),
   stopProjectsWatcher,
   stopBackendWatchers,
   flushSessionBackends: () => sessionBackends.flushNow(),

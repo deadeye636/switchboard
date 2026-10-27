@@ -316,7 +316,9 @@ a connection that is gone. It has been hit twice in one afternoon at two differe
 day: the streamed cold-scan apply outlived the worker it belonged to (#567), and a full scan chained
 behind a gated one spawned a fresh Worker as a microtask after the database had closed (#589). Both were
 closed the same way — a flag the cancel path sets SYNCHRONOUSLY, checked by the continuation before it
-does anything.
+does anything. A third seam was a timer: the VCS heartbeat in `src/app/vcs.js` had a `stop()` nothing called,
+so a tick read the settings after `closeDb()` (#797). `before-quit` stops it now, and the same `stop()` sets the
+flag that a `git status` still in flight finds when it returns.
 
 So when you add an async seam anywhere near the index, the scan or a PTY: ask what happens if `will-quit`
 runs between the two halves. "It cannot, because the worker is terminated first" is exactly the answer

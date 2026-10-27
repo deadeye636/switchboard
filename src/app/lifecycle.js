@@ -282,6 +282,9 @@ function registerQuitHandlers(ctx) {
     // The presence poll (#673) — unref'd, so it never holds the quit, but nothing should ask the OS on
     // behalf of an app that is going.
     try { ctx.stopPresencePoll?.(); } catch { /* best effort */ }
+    // The VCS heartbeat (#797) reads the settings on every tick. Unref'd as well, but a tick that fired after
+    // `will-quit` closed the database threw "The database connection is not open" — the #76 class.
+    try { ctx.stopVcsPoll?.(); } catch { /* best effort */ }
 
     // Close filesystem watchers
     ctx.stopProjectsWatcher();

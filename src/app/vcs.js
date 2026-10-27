@@ -316,8 +316,12 @@ function runStatusReal(provider, cwd, opts) {
 let ctx = null;
 let scheduler = null;
 let heartbeat = null;
+// Set by stop() at `before-quit`, synchronously (#797). A `git status` already in flight, or a late renderer message,
+// can still reach readConfig after `will-quit` closed the database; from here on it answers "off" without reading.
+let stopped = false;
 
 function readConfig() {
+  if (stopped) return { enabled: false, pollMs: DEFAULT_POLL_SECONDS * 1000, countUntracked: false };
   const g = (ctx && ctx.getSetting && ctx.getSetting('global')) || {};
   const enabled = g.vcsChipEnabled !== false;             // default on
   let pollSeconds = Number(g.vcsPollSeconds);
@@ -408,6 +412,7 @@ function destroyAllVcsWindows() {
 
 function init(context) {
   ctx = context;
+  stopped = false;
   scheduler = createScheduler({
     detect: (cwd) => vcs.detect(cwd),
     runStatus: runStatusReal,
@@ -423,6 +428,7 @@ function init(context) {
 }
 
 function stop() {
+  stopped = true;
   if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
 }
 
