@@ -95,8 +95,8 @@ oracle, as in spec 35 D11).
 
 The answer text is the **last assistant text of the turn**, capped at 32 768 bytes of UTF-8 cut on a character boundary,
 with a marker naming how many characters were left out and `truncated: true`. Head and tail are kept as in spec 35's cap
-(the conclusion of a review is at the end); the plan reuses the cutter in `src/session/turn-view.js` if it is exported
-(Unverified, T2).
+(the conclusion of a review is at the end); the cutter in `src/session/turn-view.js` (`cutText`) exists but is not exported and counts
+code points, not bytes (verified in T1, item 5; see O21).
 
 ### The runner: how the core does it
 
@@ -176,6 +176,50 @@ another caller's review: `reviewResult` looks the id up in **this runner's** map
 lazily from `activeSessions` by `_terminalTag`, as `agent-rpc.js` does in `findSession` (line 111), because a Claude
 `/clear` re-keys the id (spec 37 O6).
 
+#### Verified in T1 (2026-10-27, read in the code; no run)
+
+1. **The `append` entry.** claude-native: one `append` per CLI `assistant` line, `{ type: 'assistant', uuid, timestamp,
+   message }` with `message.content` an array of blocks (`src/backends/claude-native/rpc-protocol.js:308-315`, `:603`).
+   One turn produces several such entries, and one that carries only `tool_use` blocks has no text, so the runner keeps the
+   **last non-empty** text, not the last entry. pi-native: one `append` per finished `message_end`, `{ type: 'message',
+   message: { role, content } }` with text blocks `{ type: 'text', text }`; a tool result is also drawn under role `user`, so
+   `assistantTextOf` must test `message.role === 'assistant'` (`src/backends/pi/transcript-view.js:106-119`, `:158-167`,
+   `src/backends/pi-native/rpc-protocol.js:156-160`). A streamed turn is a `partial` op first, never an `append`, so the
+   observer's `onEntry` sees finished entries only. One `assistantTextOf` per backend is enough. Still unverified, needs a
+   live run (M3): whether a claude-native subagent line reaches `append` as an `assistant` entry of its own.
+2. **A main-started row.** `src/app/live-sessions.js:60-88` lists every non-exited session in `activeSessions` and the
+   renderer invents a pending row from it (`syntheticSessionRow`, `src/renderer/app.js:1198-1208`), but only inside
+   `loadProjects` (`app.js:1365-1411`). `spawn.js` sends no `projects-changed` (no match), so the row appears at the next
+   push, which for a Pi review is the first assistant reply. The snapshot carries neither `spawnedBy` nor a kind, so the
+   synthetic row could not be nested. Timing of the real push: still unverified, needs a live run (M5).
+3. **Attention.** The raising happens in the renderer, from two sends to the main window made in the `deliver` closure of
+   `deliverBindSignal` (`src/app/hooks.js:341-371`): `cli-busy-state` (`:346`) and, for `needs-attention`, `attention-signal`
+   (`:348`); the timeline send is `:359`. `agent-rpc.js` reaches it only through `ctx.deliverBindSignal`
+   (`src/app/agent-rpc.js:603-617`). A refused ask never calls `report('waiting')`, so only busy and idle remain. The gate
+   belongs in that closure, keyed on the session found by id or `realSessionId` in `ctx.activeSessions`
+   (the lookup `hooks.js:201` uses). Whether the renderer chimes on a bare `cli-busy-state` idle edge: still unverified,
+   needs a live run (M5).
+4. **Main-side options cascade.** There is one, as a backstop: `spawnOptionsFor` (`src/app/terminal/spawn.js:279-291`)
+   merges global, project and session options, and `openTerminal` calls it for the injection, the runtime extension and the
+   launch (`spawn.js:1007`, `:1061`, `:1338`, `:1363`). It does not read a template's own options. Consequence for O15: a
+   stored `model` in the user's backend defaults **does** reach a review unless `sessionOptions` overrides it, so "no model
+   sent" is not free. Whether an empty `model` in `sessionOptions` clears it in each `buildLaunch`: still unverified, needs
+   a live run (M1/M4 launch).
+5. **A cutter.** `cutText(text, cap)` exists in `src/session/turn-view.js:31-38` (head two thirds, tail one third, marker
+   "[... N characters omitted ...]" outside the cap) but is **not exported** (`:105` exports `buildTurnView`, `DEFAULTS`,
+   `MAXIMA`). It counts **code points**, not UTF-8 bytes.
+6. **Re-key sites.** Two copies, not one. `applyRekey` (`src/session/session-transitions.js:380-412`) moves the map key,
+   the MCP server (`:385`), the backend overlay (`:387`), `copyOpener` (`:389`), the detach registration (`:392`) and the
+   timeline (`:398`). Identity adoption has its own inline copy (`src/watch/adopt.js:198-223`: `copyOpener` `:205`,
+   timeline `:215`). `copyOpener` is wired into both through `src/main.js:182`, `:2185` and `:2258`. Any new per-session
+   row follows both, or a Pi/Codex/agy re-key drops it.
+7. **Quit-guard.** `runningSessions` (`src/app/quit-guard.js:14-20`) counts every non-exited entry of `activeSessions`, so a
+   running review is counted as a session and not named; a stopped review has `exited` set and is not counted.
+8. **No view.** `openTerminal` needs only the main window (`spawn.js:295`). `sendOp` skips a destroyed window
+   (`src/app/agent-rpc.js:161-167`) and the renderer drops an `agent-event` for a session with no mounted entry
+   (`src/renderer/session/conversation-view.js:2651-2652`; it still sets the activity clock for the id, harmless).
+   Console cleanliness under a real review: needs a live run (M5, `drive-app.js console`).
+
 ### Targets and the read-only profile
 
 Which backends can be reviewed, and how each is made read-only, is a **descriptor declaration**. One optional hook,
@@ -252,13 +296,16 @@ claude-native writes on the first turn (fast); pi-native writes a Pi session fil
 (`pi-native/index.js:120-122`), so a Pi review that dies early would leave no row at all. Proposal (O2): main sends the
 main window one push (`review-session-started`, a `webContents.send` with a preload `on…` binding, **not** an IPC handler)
 carrying `{ sessionId, projectPath, backendId, spawnedBy }`, and the renderer injects the same pending row it injects
-for its own launches. Unverified: whether `get-active-sessions` (`src/app/live-sessions.js`) already makes a live main-started
-row visible; T4 measures it before adding the push.
+for its own launches. Verified in T1 (item 2): `src/app/live-sessions.js` makes a live main-started session known to the
+renderer, but only when the renderer reloads its projects, and nothing triggers that at spawn; the snapshot carries no
+parent link. So the push stays (O2), and it can be the existing `projects-changed` plus a snapshot that carries
+`spawnedBy`/`spawnKind`, with no new preload binding. How late the scan alone is: needs a live run (M5).
 
 **No attention.** A review session goes busy then idle on its own. Left alone, its idle edge reaches the attention path
 (`deliverBindSignal`) as "an agent finished" for a session the user did not start. The session carries a `_review` flag set
 at spawn and the attention path (notifications, inbox, chime, badge) drops its signal; the timeline still records it.
-Unverified where the single choke point is (`src/app/hooks.js:284` `deliverBindSignal` is the entry; T5 reads it).
+Verified in T1 (item 3): the choke point is the `deliver` closure inside `deliverBindSignal` (`src/app/hooks.js:341-371`),
+which makes the two sends the renderer raises attention from; the timeline send stays.
 
 ### Cost and privacy
 
@@ -323,8 +370,9 @@ declarations, the target list comes from the registry), and no new stored settin
 
 Numbered, stable. The plan carries the same list; an answered point says so.
 
-**Answered (owner, 2026-10-27): every point below as recommended.** O2 and O11 still depend on their measurement (T4's
-scan timing, M3) for which branch applies; O15 takes the CLI's own default (no `model` sent).
+**Answered (owner, 2026-10-27): every point below as recommended (O1 to O20).** O2 and O11 still depend on their
+measurement (the scan timing in M5, and M3) for which branch applies; O15 takes the CLI's own default (no `model` sent).
+O21 was added by T1 and is not answered.
 
 1. **O1 The parent/child link.** New `session_meta.spawnedBy` + `spawnKind` (recommended), reuse `lineageParentId` with a
    new kind (renders the caller as the review's ancestor, wrong), reuse `parentSessionId` (hides the row, wrong), or a
@@ -365,8 +413,9 @@ scan timing, M3) for which branch applies; O15 takes the CLI's own default (no `
     the first turn. Alternative: send the prompt as written (a model that does not know it is read-only will try to write and be
     refused, wasting turns).
 15. **O15 Model.** Decided as the target's default (R4). Open sub-point: "default" is the CLI's own default (recommended: the
-    review sends no `model` option) or the user's configured default for that backend, which needs a main-side cascade the
-    renderer does today. T3 reads whether a main-side resolver exists.
+    review sends no `model` option) or the user's configured default for that backend. T1 found a main-side backstop
+    (`spawnOptionsFor`, `spawn.js:279-291`) that applies the stored global and project `model` unless the session options
+    override it, so the CLI's own default needs an explicit empty `model`; see Verified in T1, item 4.
 16. **O16 Untrusted project at the target.** pi-native refuses to start in a project it does not trust. Recommendation: `startReview`
     answers the refusal sentence ("trust this project for Pi in Switchboard first"); no dialog from a tool call.
 17. **O17 A confirm dialog when the toggle is turned on.** Recommendation: text only, as spec 35 O10.
@@ -376,6 +425,10 @@ scan timing, M3) for which branch applies; O15 takes the CLI's own default (no `
     timeline keeps the record. Without it the user gets "agent finished" for work they did not start.
 20. **O20 The preamble and the toggle text are English**, and the tool's returned `note` and error sentences are fixed English
     (reflex 7). No open question; listed so a translation request has an ID.
+21. **O21 What "about 32 KB" counts.** R5 says about 32 KB; the only cutter in the tree (`cutText`, `turn-view.js:31-38`)
+    counts code points. Recommendation: export `cutText` and cap at 32 768 code points (never splits a character, one
+    cutter instead of two; the UTF-8 size is at most four times that for exotic text, typically close to 32 KB). Alternative:
+    a byte-bounded cutter in the runner, which spec text above literally says.
 
 ## Measurements (acceptance gates, after the build)
 
