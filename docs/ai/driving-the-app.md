@@ -370,6 +370,12 @@ that the page is `visible` and draws at 60 fps. Two more measured details:
 - **Only an ordinary window covers it.** A form without a taskbar entry (a tool window) laid over it
   left the page `visible` for 24 seconds. To cover the window in a test, use a window with a taskbar
   entry.
+- **A conversation view in a covered window draws nothing new** (#795). `drawable()` in
+  `src/renderer/session/conversation-view.js` holds every entry back while `document.hidden` is true and
+  draws them all when the window is shown again. The approval card and the activity line are drawn anyway, so
+  a driven run can show a card with nothing above it. That is the deferral at work, not lost entries. Count
+  ops with `window.api.onAgentEvent`, not DOM entries, or bring the window to the front by hand first:
+  CDP's `Page.bringToFront` does not un-hide the Electron window.
 
 The tools for this, Windows only for the first two: `scripts/cover-window.ps1` covers this checkout's
 window for a given time, `scripts/renderer-priority.ps1` prints the priorities,

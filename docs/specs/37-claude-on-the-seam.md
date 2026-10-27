@@ -176,7 +176,7 @@ are also in [`backend-formats.md`](../backend-formats.md).
 | M4 prune | Passed. The argv carried `--mcp-config … --strict-mcp-config --ide`, and `switchboard` stayed connected. The demo has no servers of its own; that the prune drops a user's servers was measured in spec 36 (A2). |
 | M5 name clash | Passed. With a user-scope entry also named `switchboard`, `/mcp` showed one `switchboard`, the injected row, connected; Claude names no shadowed entry. |
 
-Two findings outside this slice came up on the way and are tracked as issues of their own: the claude-native
-conversation view lost its entries after an approval (#795), and a project trusted in the terminal was refused by
-claude-native while the demo's `.claude.json` held two trust keys for it that differ only in one folder's case
-(#796).
+Two findings outside this slice came up on the way. A claude-native view that seemed to lose its entries around an
+approval turned out to be the deliberate draw deferral of a covered window, not a defect (#795, closed; see
+`docs/ai/driving-the-app.md`). A project trusted in the terminal was refused by claude-native while the demo's
+`.claude.json` held two trust keys for it that differ only in one folder's case (#796, open).
