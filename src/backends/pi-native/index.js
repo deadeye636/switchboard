@@ -91,6 +91,7 @@ const capabilities = {
   liveRebinding: { state: 'no', note: 'follows its session through the RPC state instead of a binding' },
   queuedTurn: { state: 'limited', note: 'the RPC reports the waiting prompts; the turn-hold reads the terminal backend’s record' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
+  review: { state: 'yes', note: 'a review runs here with the approval gate on; every ask is refused' },
 };
 
 module.exports = {
@@ -211,6 +212,9 @@ module.exports = {
   providesMcpInjection: false,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // The read-only profile a review session starts with (spec 39): the approval gate, so every command, file change
+  // and MCP tool is asked for first, and the review runner refuses every ask.
+  reviewProfile: () => ({ options: { approvalGate: true } }),
   // External MCP servers (spec 36): Pi's resources-extension section, so Pi's answer.
   externalMcpTakes: pi.externalMcpTakes,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.

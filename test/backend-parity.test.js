@@ -258,6 +258,27 @@ test('every backend answers the MCP prune flag — a decline carries the flag an
   }
 });
 
+// Spec 39 (#507 slice 2b): every backend answers `reviewProfile` — `null` to decline, else `{ options }` — and a
+// backend that answers a profile has the pipe and the answer reader a review needs.
+function reviewHookProblem(b) {
+  if (typeof b.reviewProfile !== 'function') return `${b.id} must answer reviewProfile, declining with () => null`;
+  const profile = b.reviewProfile();
+  if (profile === null) return null;
+  if (!profile || typeof profile.options !== 'object' || !profile.options) return `${b.id}: reviewProfile must answer null or { options }`;
+  if (!b.transport || !b.rpc || typeof b.rpc.assistantTextOf !== 'function') {
+    return `${b.id} offers a review profile without a pipe and rpc.assistantTextOf`;
+  }
+  return null;
+}
+
+test('every backend answers the review profile hook — a decline is () => null', () => {
+  for (const b of READY) assert.equal(reviewHookProblem(b), null);
+  // The guard has teeth: a descriptor without the hook, or with a profile and no pipe, fails it.
+  assert.match(reviewHookProblem({ id: 'stub' }), /must answer reviewProfile/);
+  assert.match(reviewHookProblem({ id: 'stub', reviewProfile: () => ({ options: {} }) }), /without a pipe/);
+  assert.match(reviewHookProblem({ id: 'stub', reviewProfile: () => 'yes' }), /null or \{ options \}/);
+});
+
 // Spec 36, slice D: `externalMcpTakes` says what a project's external MCP servers get through a backend. Every
 // backend answers it — `null` for no channel (carries no transports), else `{ transports, cwd }`. A backend with
 // the injection quartet takes exactly the transports it accepts; Pi takes servers through the resources extension

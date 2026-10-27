@@ -211,6 +211,7 @@ const capabilities = {
   resourcesFrom: 'no',
   mcpInject: { state: 'yes', note: 'passes a project\'s external servers in a per-session --mcp-config file, and the app\'s own discovery group there when discoveryTools is on; measured on the pipe: listed, and a call arrives as an approval card (spec 37 M3)' },
   mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
+  review: { state: 'yes', note: 'a review runs here in plan mode; every ask is refused' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
@@ -301,6 +302,9 @@ module.exports = {
   releaseMcpInjection: claude.releaseMcpInjection,
   // Per-spawn MCP prune (spec 36): the same `--strict-mcp-config` hook terminal Claude uses.
   providesMcpPrune: true,
+  // The read-only profile a review session starts with (spec 39): Claude's plan mode, in which a write is asked
+  // for first, and the review runner refuses every ask.
+  reviewProfile: () => ({ options: { permissionMode: 'plan' } }),
   buildMcpPrune: claude.buildMcpPrune,
   // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
   externalMcpTakes: claude.externalMcpTakes,

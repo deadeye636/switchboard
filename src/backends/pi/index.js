@@ -525,6 +525,8 @@ module.exports = {
   providesMcpInjection: false,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // Not a review target (spec 39): a review runs on a pipe, and Pi's pipe driver is pi-native.
+  reviewProfile: () => null,
   // External MCP servers (spec 36): through the resources extension's MCP section, stdio only, no `cwd`
   // (`./session-resources.js`); there is no quartet, so this is the only place the channel is declared.
   externalMcpTakes: { transports: ['stdio'], cwd: false },
@@ -609,6 +611,7 @@ module.exports = {
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; its MCP servers travel in the resources extension instead' },
     mcpPrune: { state: 'no', note: 'declines; Pi\'s own MCP servers and the ones Switchboard gives it share one channel, so one cannot be hidden without the other' },
+    review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is pi-native' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

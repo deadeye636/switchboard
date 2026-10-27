@@ -656,6 +656,13 @@ declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a togg
 
 **A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
 
+**A review target is ONE hook, `reviewProfile()` (spec 39):** `{ options } | null`, answered by every backend (`null` to
+decline, with a comment naming why). The options are the read-only profile a review session starts with, in the backend's
+own option keys (claude-native `permissionMode: 'plan'`, pi-native `approvalGate: true`). `src/backends/review-targets.js`
+(`reviewTargets`) is the one place that decides what is offered: a profile, a `transport`, an `rpc.assistantTextOf`, not a
+template, launchable. The `review` capability row says the same; `test/backend-parity.test.js` and
+`test/review-profile.test.js` pin both. A template does not inherit it (`NOT_INHERITED`).
+
 **What a backend takes of a project's external servers is `externalMcpTakes` (spec 36, slice D):** `{ transports, cwd } | null`, answered by every backend (`null` = no channel; `cwd: false` = an entry with a `cwd` is not given at all, declined rather than stripped) and forwarded by a template; it also covers Pi and pi-native, which take servers through the resources extension without the quartet, and `test/external-mcp-takes.test.js` pins each answer against the real emitter.
 
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A

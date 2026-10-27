@@ -50,6 +50,7 @@ const NOT_INHERITED = {
   listSharedMcpServers: '#633 — the MCP half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
   resumeLaunchOptions: '#754 — a template\'s transcript model may be a name its env bundle maps from an alias, and handing it back as the launch model could override that mapping; a template resumes on its configured default',
   listSharedHooks: '#635 — the hook half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
+  reviewProfile: 'spec 39 — a review starts the built-in pipe driver with its own read-only profile; src/backends/review-targets.js skips isProfile, so a template answering it would be a second target over one binary',
 
   // Store internals and root setters. Not descriptor hooks the core dispatches on — main.js sets the
   // roots on the base descriptor, and a template writes into that same store.

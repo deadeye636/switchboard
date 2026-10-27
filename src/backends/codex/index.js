@@ -294,6 +294,8 @@ description:
   releaseMcpInjection: mcpInject.releaseMcpInjection,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // Not a review target (spec 39): a review runs on a pipe, and Codex has no pipe driver here.
+  reviewProfile: () => null,
   // External MCP servers (spec 36): stdio (with `cwd`) and http, as `-c` overrides.
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
@@ -318,6 +320,7 @@ description:
     turnDigest: 'yes',
     mcpInject: { state: 'yes', note: 'passes a per-session server with -c overrides and an env token; a real Codex lists the server and calls its tools' },
     mcpPrune: { state: 'no', note: 'declines; Codex hides a server only by its name, and Switchboard does not read Codex\'s config to learn them' },
+    review: { state: 'no', note: 'a review runs on a pipe, and Codex has no pipe driver here' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

@@ -305,6 +305,8 @@ module.exports = {
   releaseMcpInjection: mcpInject.releaseMcpInjection,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // Not a review target (spec 39): a review runs on a pipe, and agy has no pipe driver here.
+  reviewProfile: () => null,
   // External MCP servers (spec 36): stdio (with `cwd`) and http, written into the plugin bundle's mcp_config.json.
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
@@ -329,6 +331,7 @@ module.exports = {
     quota: 'yes',
     mcpInject: { state: 'limited', note: 'writes a per-session plugin bundle into the project\'s .agents folder; the connection is measured, but whether agy offers the tools to the model is not yet confirmed' },
     mcpPrune: { state: 'no', note: 'declines; agy has no per-launch channel to hide the servers it loads itself' },
+    review: { state: 'no', note: 'a review runs on a pipe, and agy has no pipe driver here' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',
