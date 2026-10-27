@@ -92,8 +92,12 @@ test('cliProjectKey: forward slashes, no trailing slash, the drive letter as spe
 
 test('the drive letter goes back as spelled only on the same drive, and a root keeps its slash (#627)', () => {
   const { _keyFromRealPath: keyOf } = require('../src/backends/claude/config');
-  assert.equal(keyOf(winPath('Q', 'Work', 'Case-Dir'), winPath('q', 'work', 'case-dir')), keyPath('q', 'Work', 'Case-Dir'),
-    'measured: same drive, spelled letter');
+  assert.equal(keyOf(winPath('Q', 'Work', 'Case-Dir'), winPath('q', 'work', 'case-dir')), keyPath('q', 'work', 'case-dir'),
+    'measured: same drive, spelled letter, and since 2.1.311 the folder names as spelled too (#796)');
+  assert.equal(keyOf(winPath('Q', 'Work'), winPath('q', 'work', 'case-dir')), keyPath('q', 'work'),
+    'a repository root above the cwd takes the cwd\'s spelling of its folders (inferred, not measured)');
+  assert.equal(keyOf(winPath('Q', 'Te'), winPath('q', 'temp')), keyPath('q', 'Te'),
+    'only at a folder boundary: `Te` is not a prefix of the folder `temp`');
   assert.equal(keyOf(winPath('R', 'Work', 'real'), winPath('Q', 'link')), keyPath('R', 'Work', 'real'),
     'a junction to another drive keeps the resolved drive');
   assert.equal(keyOf(winPath('Q', 'real', 'x'), winPath('S', 'x')), keyPath('Q', 'real', 'x'), 'a subst drive resolves to its underlying one');
@@ -112,13 +116,15 @@ test('a subst or mapped drive keeps its own letter, as the CLI keys it (#627)', 
     'a junction out of a substitute drive is keyed where it leads');
 });
 
-test('cliProjectKey on Windows keys a repository subdirectory by the root, in its on-disk case (#627)', { skip: process.platform !== 'win32' }, () => {
+test('cliProjectKey on Windows keys a repository subdirectory by the root, in the case the cwd spelled it (#627, #796)', { skip: process.platform !== 'win32' }, () => {
   const base = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-repo-key-')));
   try {
     const repo = path.join(base, 'Repo-A');
     fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
     fs.mkdirSync(path.join(repo, 'Sub-Dir'));
-    assert.equal(cliProjectKey(path.join(repo, 'Sub-Dir').toUpperCase()), repo.replace(/\\/g, '/').slice(0, 1).toUpperCase() + repo.replace(/\\/g, '/').slice(1));
+    assert.equal(cliProjectKey(path.join(repo, 'Sub-Dir').toUpperCase()), repo.replace(/\\/g, '/').toUpperCase(),
+      'the root, spelled like the start of the cwd (Claude Code 2.1.311)');
+    assert.equal(cliProjectKey(path.join(repo, 'Sub-Dir')), repo.replace(/\\/g, '/'), 'an on-disk spelling stays on-disk');
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
   }
@@ -224,7 +230,7 @@ test('inside a git repository trust is keyed by the root, and a worktree by its 
   }
 });
 
-test('cliProjectKey on Windows: on-disk case and a junction resolved, the spelled drive letter kept (#627)', { skip: process.platform !== 'win32' }, () => {
+test('cliProjectKey on Windows: folder case as spelled, a junction resolved, the spelled drive letter kept (#627, #796)', { skip: process.platform !== 'win32' }, () => {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-key-')));
   try {
     const real = path.join(root, 'Case-Dir');
@@ -234,9 +240,10 @@ test('cliProjectKey on Windows: on-disk case and a junction resolved, the spelle
     const expected = real.replace(/\\/g, '/');
     const lowerDrive = (s) => s[0].toLowerCase() + s.slice(1);
 
-    assert.equal(cliProjectKey(real.toUpperCase()), expected.slice(0, 1).toUpperCase() + expected.slice(1),
-      'every folder name in its on-disk case');
-    assert.equal(cliProjectKey(lowerDrive(real.toLowerCase())), lowerDrive(expected), 'the drive letter stays as spelled');
+    assert.equal(cliProjectKey(real.toUpperCase()), expected.toUpperCase(),
+      'every folder name as the cwd spelled it (Claude Code 2.1.311; 2.1.272 wrote the on-disk case)');
+    assert.equal(cliProjectKey(lowerDrive(real.toLowerCase())), expected.toLowerCase(), 'the drive letter stays as spelled');
+    assert.equal(cliProjectKey(real), expected, 'the on-disk spelling keys itself');
     assert.equal(cliProjectKey(link), expected, 'a junction is keyed by its target');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

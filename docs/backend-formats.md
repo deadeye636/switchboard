@@ -34,18 +34,25 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
     repository's directory. A submodule keys itself;
   - **outside one, the directory itself**;
   - in both cases the **real path** with the **drive letter as the cwd spelled it** and forward slashes: a
-    junction is resolved, whether it leads into a repository on another drive or to a plain folder there, and
-    every folder name is in its on-disk case. A `subst` or mapped drive keeps its own letter rather than what
-    it stands for — also over a repository's subfolder, where the drive's root is the key — and a UNC path
-    stays one.
+    junction is resolved, whether it leads into a repository on another drive or to a plain folder there. On
+    2.1.272 every folder name was in its on-disk case; **on 2.1.311 it is as the cwd spelled it** (next point).
+    A `subst` or mapped drive keeps its own letter rather than what it stands for — also over a repository's
+    subfolder, where the drive's root is the key — and a UNC path stays one.
   - **The folder-case half no longer holds on 2.1.311** (#796, measured 2026-10-27 on Windows, isolated demo
     home). Started in `<drive>:\temp\…\trust-git` (a fresh `git init`) and in `<drive>:\temp\…\trust-plain` (no repository),
     where the disk spells the folder `Temp`, the CLI wrote `<drive>:/temp/…/trust-git` and `<drive>:/temp/…/trust-plain`:
     every folder name **as the cwd spelled it**, not in its on-disk case. `git rev-parse --show-toplevel` in the
     same folder answers `…/Temp/…`, so the CLI does not take the key from git either. Junctions, `subst` drives
-    and UNC paths were not measured again. Switchboard still derives the 2.1.272 key (`cliProjectKey` in
-    `src/backends/claude/config.js`), so for a project spelled in another case than the disk it reads and
-    writes a key this CLI does not use.
+    and UNC paths were not measured again, and neither was a start in a repository's SUBDIRECTORY or a worktree
+    nested inside its main repository. Switchboard follows the newer CLI (`spelledFolderCase` in
+    `src/backends/claude/config.js`): where the real path names the same folders as the spelled cwd, the key
+    takes the spelled case; a repository root ABOVE the cwd takes the cwd's spelling of its folders too, which is
+    inferred, not measured; a junction that leads elsewhere keeps the real path.
+
+    What following the newer CLI takes away: a project registered in another case than the disk and trusted under
+    the on-disk key (by an older CLI, or by Switchboard before #796) now reads as untrusted until trust is granted
+    again, and a CLI that still writes the on-disk case meets the mirror image of #796. Existing duplicate entries
+    are not cleaned up, and a trusted ancestor is now looked for under the spelled case (unmeasured on 2.1.311).
 
   How it is **looked up**: exactly, case included, and the file often holds several spellings of one
   directory. Outside a repository a trusted **ancestor** trusts the directory, and an entry of its own with

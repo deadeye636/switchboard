@@ -208,7 +208,8 @@ has no default is left out and named; a variable set to an empty value expands t
 The local scope is looked up under the project path as spelled, forward slashes and exact case, and under
 nothing else. That is measured: `claude mcp add` filed the server under the directory as the shell spelled
 it, and `claude mcp list` run from the same directory in its on-disk case did not find it. Trust is filed
-differently (#627), which is why this lookup has its own function.
+differently — under a repository's root and through a junction to its target (#627; the folder case follows the
+cwd's spelling there too since 2.1.311, #796) — which is why this lookup has its own function.
 
 **What the core leaves out, with a reason each:** a transport other than stdio, a project server in an
 untrusted project or without the approval, a missing variable, a definition with no command, a name a

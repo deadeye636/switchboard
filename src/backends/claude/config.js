@@ -76,9 +76,10 @@ function readClaudeConfig(configPath = claudeConfigPath()) {
  *     session wrote the root, a worktree's session found the MAIN repository's root already trusted, and a
  *     worktree of a bare repository wrote the bare repository's directory. A submodule keys itself;
  *   - outside one it is the directory itself;
- *   - either way the path is real — a junction resolved, every folder name in its on-disk case — with the
- *     drive letter as it was spelled and forward slashes. A lower-case drive letter wrote a lower-case key,
- *     and a later session spelled with an upper-case one got the trust dialog again;
+ *   - either way the path is real — a junction resolved — with the drive letter as it was spelled and forward
+ *     slashes. A lower-case drive letter wrote a lower-case key, and a later session spelled with an upper-case
+ *     one got the trust dialog again. On 2.1.272 every folder name was in its on-disk case; on 2.1.311 it is in
+ *     the case the cwd spelled it (#796, `spelledFolderCase`), and this follows the newer CLI;
  *   - a `subst` or mapped drive is NOT resolved to what it stands for: the key keeps that drive letter. A
  *     UNC path stays a UNC path, and a junction to another drive is keyed on that other drive.
  * `fs.realpathSync.native` resolves drives the CLI keeps, so its answer is re-expressed under the spelled
@@ -207,7 +208,24 @@ function keyFromRealPath(real, spelled, driveRoot = null) {
     key = spelledDrive[1] + key.slice(1);
   }
   if (key.length > 1) key = key.replace(/\/+$/, '');
+  key = spelledFolderCase(key, spelled);
   return /^[a-zA-Z]:$/.test(key) ? key + '/' : key;   // a drive root keeps its slash: `C:` alone means "the current folder on C:"
+}
+
+// The folder names in the case the cwd SPELLED them, where the key names the same folders (#796). Measured on Claude
+// Code 2.1.311 on Windows: a session started in a directory spelled `temp` while the disk says `Temp` wrote `temp`,
+// started at a repository's root and in a plain folder — 2.1.272 had written the on-disk case (#627). So when the
+// key is the spelled path differing only in case, the spelled text wins. A repository root ABOVE the cwd gets the
+// cwd's spelling of its folders too; that is inferred, a start in a subdirectory was not measured. A key that names
+// other folders (a junction resolved to its target, a worktree's main repository elsewhere) stays the real path.
+function spelledFolderCase(key, spelled) {
+  const s = String(spelled || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!s || /\/$/.test(key)) return key;
+  const k = key.toLowerCase();
+  const l = s.toLowerCase();
+  if (l === k) return s;
+  if (l.startsWith(k + '/')) return s.slice(0, key.length);
+  return key;
 }
 
 // The keys a directory's trust is inherited from, nearest first, up to and including the drive root (with its
