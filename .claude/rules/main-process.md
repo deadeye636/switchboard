@@ -180,6 +180,12 @@ re-derive the row's view through `openerFor`. Setting a view is always an open, 
 plain dependencies, one per registration, handed to the MCP bridge as `entry.discovery`. It re-derives its
 session and handoff listings on every call and answers only what is in them, so a session of another project and
 one that does not exist give the same sentence. Electron-free, db-free, no IPC, names no backend),
+`review-runner.js` (one agent asks another backend for a read-only second opinion — #507 slice 2b, spec 39; a factory
+per registration like the discovery reader. It opens the review session through `openTerminal` with the target's
+read-only profile as session options, follows it with `agentRpc.observe` (no view), sends one turn, keeps the last
+assistant text, refuses every ask, and stops the session through `terminal/stop-session.js`. The caller polls
+`result(id)`; 10 minutes, 32 768 code points, one review per caller and three in the app. Every effect arrives through
+`ctx`; it imports no backend folder and names no backend),
 `path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
 `readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
 measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it
@@ -202,8 +208,10 @@ and a name). `documents.js` refuses network paths on its own and does not use it
 `path-resolve.js` (where a command lives on PATH, without blocking the main process — #789 slice D, spec 36; one
 async `readdir` per PATH directory shared by every name asked for, `missing` only with evidence and `unknown` with a
 reason otherwise, a network or relative PATH entry never touched. It exists because `src/app/` may not import
-`findOnPath` from `src/backends/file-store.js`; #790 (uv, uvx, pipx) is the second caller),
+`findOnPath` from `src/backends/file-store.js`; #790 reaches it through `external-mcp-check.js` for `uv`, `pipx` and the
+catalog's servers, not as a second direct caller),
 `external-mcp-check.js` (the static check of a project's external MCP server entries — #789 slice D, spec 36; entries in, neutral facts out: does the command resolve (`path-resolve.js`), is every `${VAR}` set, which enabled backends take the entry and why not. It reuses the launch's own rules (`references`/`expand`, `entryAppliesTo`, the descriptor's `externalMcpTakes`, the unset-variable skip of `externalServersSource`) and `test/external-mcp-check-agreement.test.js` runs the real launch path against it. No value ever leaves it, only names, states and reason codes; IPC `external-mcp-check`; #790 reuses `checkEntries`),
+`mcp-registry.js` (the search in the official MCP Registry behind the global "MCP servers" category — #790, spec 38; one `GET` to one fixed `https` host, only when the user presses Search, with a timeout, a streamed body-size cap and redirects refused. The term is the only variable part and is never logged. The reply is validated field by field against spec 38's "Registry facts", stripped of control characters and capped; a command is built by main only for a `pypi` package whose identifier passes the PyPI name rule and the catalog's token rule (`commandLine` in `src/shared/mcp-addon-catalog.js`), never taken from the registry. IPC `mcp-registry-search`),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),
@@ -530,6 +538,7 @@ line there, in the same commit.
 | The Claude Code hook server | `src/app/hooks.js` |
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
+| Stopping a running session on purpose (the user's Stop, the review runner) | `src/app/terminal/stop-session.js` (the `stop-session` handler stays in `main.js` and calls it) |
 | The Plans and Agent Files tabs, and the memory files | `src/app/plans-memory.js` |
 | Handoff packets — listing, saving, deleting | `src/app/handoffs.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
@@ -550,6 +559,7 @@ line there, in the same commit.
 | Which view (terminal or GUI) a session opens in, when that is not a spawn | `src/app/session-view.js` |
 | Opening a document an agent read — only a path its session's backend reported | `src/app/documents.js` |
 | The static check of a project's external MCP server entries (command, variables, which backends take it) | `src/app/external-mcp-check.js` |
+| The search in the official MCP Registry (one outbound GET, on the user's click) | `src/app/mcp-registry.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |
 
 A module exports `init(ctx)` + `registerIpc(ipc)`; `main.js` requires it and calls both;

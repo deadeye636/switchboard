@@ -3,30 +3,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { expand, references, mergeEnv } = require('../src/shared/env-expand');
-
-test('environment layers override folded names only on Windows', () => {
-  const layers = [{ Path: 'app', OTHER: 'x' }, { PATH: 'backend' }, { path: '' }, { PaTh: 'template' }];
-  assert.deepEqual(mergeEnv('win32', ...layers), { OTHER: 'x', PaTh: 'template' });
-  assert.deepEqual(mergeEnv('linux', ...layers), { Path: 'app', OTHER: 'x', PATH: 'backend', path: '', PaTh: 'template' });
-  assert.equal(expand('${PATH:-fallback}', mergeEnv('win32', ...layers.slice(0, 3)), new Set(), 'win32'), 'fallback');
-  const special = JSON.parse('{"__proto__":"value"}');
-  assert.equal(Object.hasOwn(mergeEnv('linux', special), '__proto__'), true);
-  assert.deepEqual(mergeEnv('win32', { '\u00df': 'first' }, { SS: 'second' }), { '\u00df': 'first', SS: 'second' });
-  assert.deepEqual(mergeEnv('win32', { '\u017f': 'first' }, { S: 'second' }), { '\u017f': 'first', S: 'second' });
-  assert.equal(expand('${S}', { '\u017f': 'first' }, new Set(), 'win32'), '');
-});
-
-test('Windows expansion folds names and uses the spelling passed to child processes', () => {
-  const missing = new Set();
-  const env = { Path: 'mixed', PATH: 'upper', Empty: '' };
-  assert.equal(expand('${path}/${PATH}/${Path}', env, missing, 'win32'), 'mixed/mixed/mixed');
-  assert.equal(expand('${EMPTY:-fallback}', env, missing, 'win32'), 'fallback');
-  assert.equal(expand('${empty}', env, missing, 'win32'), '');
-  assert.equal(missing.size, 0);
-  assert.equal(expand('${path}', env, missing, 'linux'), '');
-  assert.deepEqual([...missing], ['path']);
-});
+const { expand, references } = require('../src/shared/env-expand');
 
 test('${VAR} takes the value from the environment', () => {
   const missing = new Set();
@@ -112,4 +89,21 @@ test('references of a non-string is empty', () => {
   assert.deepEqual(references(5), []);
   assert.deepEqual(references(null), []);
   assert.deepEqual(references(['${X}']), []);
+});
+
+// #794: on Windows a variable name is case-insensitive; a plain copy of the environment is not.
+test('foldCase looks a name up case-insensitively, the exact spelling first; without it the lookup is exact', () => {
+  const { lookupVar } = require('../src/shared/env-expand');
+  const env = { Path: 'C:/bin', HOME: 'h', home: 'lower' };
+  const missing = new Set();
+  assert.equal(expand('${PATH}', env, missing, { foldCase: true }), 'C:/bin');
+  assert.equal(missing.size, 0);
+  assert.equal(expand('${home}', env, new Set(), { foldCase: true }), 'lower', 'an exact key wins over a folded one');
+  assert.equal(expand('${PATH:-x}', env, new Set(), { foldCase: true }), 'C:/bin');
+  const exact = new Set();
+  assert.equal(expand('${PATH}', env, exact), '');
+  assert.deepEqual([...exact], ['PATH'], 'no fold without the option');
+  assert.equal(lookupVar(env, 'path', true), 'C:/bin');
+  assert.equal(lookupVar(env, 'path', false), undefined);
+  assert.equal(lookupVar(env, 'NOPE', true), undefined);
 });

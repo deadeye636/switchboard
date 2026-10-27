@@ -81,7 +81,8 @@ function ownServerSource({ backend, groups, discovery, registerSession, sessionI
 // spawn here); `getEnv()` is the session's resolved environment, which `${VAR}` expands against. An entry that
 // the validator drops, that is disabled, that names other backends, or that references a variable the session
 // does not have is left out — a half-resolved command is never injected. The log names the variable, never a value.
-function externalServersSource({ backend, getSetting, projectPath, getEnv, log } = {}) {
+// On win32 a name is looked up case-insensitively (`${PATH}` finds `Path`, #794), the exact spelling first.
+function externalServersSource({ backend, getSetting, projectPath, getEnv, log, platform = process.platform } = {}) {
   const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
   const source = () => {
     const servers = externalServersFor({ backend, getSetting, projectPath });
@@ -90,7 +91,7 @@ function externalServersSource({ backend, getSetting, projectPath, getEnv, log }
     const rows = [];
     for (const s of servers) {
       const missing = new Set();
-      const ex = (v) => expand(v, env, missing);
+      const ex = (v) => expand(v, env, missing, { foldCase: platform === 'win32' });
       const exMap = (m) => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => [k, ex(v)]));
       let row;
       if (s.transport === 'stdio') {

@@ -23,6 +23,12 @@
 // non-profile backend `window.api.backends.list()` serves (id, label), fetched once in `bind`; cards draw first and redraw when
 // the list resolves, and a failed call leaves the stored ids visible as raw chips. The id -> label mapping comes only
 // from that list; a stored id the list does not know is shown as "unknown" and kept on every write.
+//
+// The GLOBAL scope's "MCP servers" category (#790, spec 38) lives here too (`bindAddons`), because it reuses this file's
+// `reasonSentence`, `node` and `cardButton`. It reads the catalog module (shared/mcp-addon-catalog.js, loaded before this
+// file: MCP_ADDON_CATALOG, commandLine, probeEntries, readProbe) at call time. Every catalog and registry string is set
+// with textContent. The PATH check reuses `checkExternalMcp` with no project; the registry search is
+// `window.api.searchMcpRegistry`, only on Search or Enter. It stores nothing and runs nothing.
 (function () {
   'use strict';
 
@@ -63,7 +69,8 @@
       'network': 'a folder on PATH is on a network share and was left alone',
       'unreadable': 'a folder on PATH could not be read',
       'timeout': 'looking through PATH took too long',
-      'relative-path-entry': 'PATH has a relative folder, which is not searched',
+      'relative-path-entry': 'PATH has a relative folder, which this check does not search',
+      'unexpanded-path-entry': 'PATH has a folder with an unexpanded %VARIABLE%, which this check does not search; fix it in the Windows PATH environment variable',
       'no-cwd': 'the command is a relative path and the project folder is not known',
       'empty-name': 'the command is empty',
       'unset-variable': 'the command uses a variable that is not set',
@@ -108,13 +115,12 @@
 
     const vars = Array.isArray(r.variables) ? r.variables.filter(v => v && typeof v.name === 'string') : [];
     if (vars.length) {
-      const setNames = []; const unset = []; const unresolved = []; const defaulted = []; const mixed = [];
+      const setNames = []; const unset = []; const unresolved = []; const defaulted = [];
       const add = (list, s) => { if (!list.includes(s)) list.push(s); };
       for (const v of vars) {
         if (v.state === 'unset') add(unset, v.name);
         else if (v.state === 'declared-unresolved') add(unresolved, v.name);
         else if (v.state === 'default') add(defaulted, v.name);
-        else if (v.state === 'mixed') add(mixed, v.name);
         else if (v.state === 'backend-env') {
           const ids = Array.isArray(v.backendIds) ? v.backendIds : [];
           add(setNames, ids.length ? `${v.name} (for ${ids.map(labelOf).join(', ')})` : v.name);
@@ -123,7 +129,6 @@
       const parts = [];
       if (setNames.length) parts.push('set ' + setNames.join(', '));
       if (defaulted.length) parts.push(defaulted.map(n => n + ' (default used)').join(', '));
-      if (mixed.length) parts.push(mixed.map(n => n + ' (varies by backend)').join(', '));
       if (unset.length) parts.push('unset ' + unset.join(', '));
       if (unresolved.length) parts.push('without a usable value ' + unresolved.join(', '));
       const note = (unresolved.length || r.envGap) ? ' ' + SAVED_VARIABLES : '';
@@ -427,14 +432,17 @@
     return { el, read: () => inputs.map(r => ({ name: r.name.value, value: r.value ? r.value.value : '' })) };
   }
 
-  /** Open the inline form. `index` null = Add; a number = Edit that entry, seeded through entryToForm. */
-  function openForm(body, signal, index) {
+  /**
+   * Open the inline form. `index` null = Add; a number = Edit that entry, seeded through entryToForm. An Add may carry
+   * `seedEntry` (a raw entry, #790's catalog hand-off): the form starts from it, and nothing is written until Add.
+   */
+  function openForm(body, signal, index, seedEntry) {
     const host = body.querySelector('#' + FORM_ID);
     const ta = body.querySelector('#' + TEXT_ID);
-    if (!host || !ta) return;
+    if (!host || !ta) return false;
     const parsed = parseList(ta.value);
-    if (parsed.error || (index !== null && index >= parsed.list.length)) return;
-    const seed = window.entryToForm(index === null ? {} : parsed.list[index]);
+    if (parsed.error || (index !== null && index >= parsed.list.length)) return false;
+    const seed = window.entryToForm(index === null ? (seedEntry || {}) : parsed.list[index]);
     host.textContent = '';
     const formEl = node('div', 'sv-mcp-form');
     formEl.appendChild(node('div', 'settings-section-title', index === null ? 'Add server' : 'Edit server'));
@@ -529,6 +537,19 @@
     formEl.appendChild(msg);
     formEl.appendChild(actions);
     host.appendChild(formEl);
+    return true;
+  }
+
+  /**
+   * #790: open the Add form prefilled from a catalog entry (the seed a global "Add to project" sent). Only an id the
+   * catalog knows opens anything; the entry comes from the catalog itself, never from the seed. -> opened or not.
+   */
+  function openSeeded(body, signal, id) {
+    const item = typeof window.findCatalogItem === 'function' ? window.findCatalogItem(id) : null;
+    if (!item || !openForm(body, signal, null, window.entryFromCatalog(item))) return false;
+    const host = body.querySelector('#' + FORM_ID);
+    if (host && typeof host.scrollIntoView === 'function') host.scrollIntoView({ block: 'nearest' });
+    return true;
   }
 
   /** The section markup. `list` is the stored value (anything; shown as it is, so a bad stored value can be fixed). */
@@ -647,5 +668,294 @@
     return { list: res.list, problem: res.problems.length ? res.problems.join('\n') : '', prune };
   }
 
-  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines };
+  // ---- The global "MCP servers" category (#790, spec 38): the reviewed catalog, whether it is on PATH, the commands.
+
+  const ADDONS_HOST_ID = 'sv-mcp-addons';
+  const COPY_FLASH_MS = 1200;
+  const COPY_FAILED = 'Could not copy. Select the text and copy it by hand.';
+  const CHECK_FAILED = 'The check could not run.';
+  const SEARCH_FAILED = 'The registry could not be searched.';
+
+  // The check and the search of the CURRENT panel build: a reply for an older build or an older request is dropped.
+  let addonCheckSeq = 0;
+  let addonSearchSeq = 0;
+
+  /** Put `text` on the clipboard; the button says Copied, a failure is said on `msg`. */
+  async function copyText(button, text, msg) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      if (msg) msg.textContent = COPY_FAILED;
+      return;
+    }
+    if (msg) msg.textContent = '';
+    const original = button.dataset.label || button.textContent;
+    clearTimeout(Number(button.dataset.flashTimer) || 0);
+    button.dataset.label = original;
+    button.textContent = 'Copied';
+    button.dataset.flashTimer = String(setTimeout(() => {
+      button.textContent = original;
+      delete button.dataset.flashTimer;
+      delete button.dataset.label;
+    }, COPY_FLASH_MS));
+  }
+
+  /** A line of text to copy: the text in a box, a Copy button beside it. */
+  function copyLine(label, text, msg, signal) {
+    const line = node('div', 'sv-addon-command');
+    if (label) line.appendChild(node('span', 'sv-mcp-card-transport', label));
+    line.appendChild(node('code', '', text));
+    const b = cardButton('Copy', () => copyText(b, text, msg), signal);
+    b.setAttribute('aria-label', `Copy ${label ? label + ': ' : ''}${text}`);
+    line.appendChild(b);
+    return line;
+  }
+
+  /** The words for one probe answer; `null` = not checked yet. "Missing" is said as what it means. */
+  function stateWords(answer) {
+    if (!answer) return { text: 'not checked yet', unknown: true };
+    if (answer.state === 'found') return { text: 'found', unknown: false };
+    if (answer.state === 'missing') return { text: 'not found on PATH', unknown: false };
+    return { text: 'not checked: ' + reasonSentence('command', answer.reason), unknown: true };
+  }
+
+  /** One catalog row, wrapped in `.settings-field` so the settings search sees it. -> { el, setStates(states) } */
+  function addonRow(item, msg, signal) {
+    const row = node('div', 'settings-field settings-field-wide sv-addon');
+    row.dataset.addon = item.id;
+    const info = node('div', 'settings-field-info');
+    info.appendChild(node('span', 'settings-label', item.name));
+    info.appendChild(node('div', 'settings-description', item.summary));
+    info.appendChild(node('div', 'settings-description', 'Licence: ' + item.licence));
+    row.appendChild(info);
+    const control = node('div', 'settings-field-control');
+    control.appendChild(copyLine('Source', item.source, msg, signal));
+    const chips = node('div', 'sv-mcp-chips');
+    control.appendChild(chips);
+    for (const r of item.runtimes) {
+      control.appendChild(copyLine(`Install with ${r.runtime}`, window.commandLine(r.install), msg, signal));
+      control.appendChild(copyLine(`Uninstall with ${r.runtime}`, window.commandLine(r.uninstall), msg, signal));
+    }
+    // Add to project: a project picker and the button (filled by bindAddons once the project list is read).
+    const handoff = node('div', 'sv-mcp-row');
+    const picker = document.createElement('select');
+    picker.className = 'settings-select';
+    picker.setAttribute('aria-label', `Project to add ${item.name} to`);
+    const addTo = cardButton('Add to project', () => onAddToProject(item, picker, msg), signal);
+    handoff.appendChild(picker);
+    handoff.appendChild(addTo);
+    control.appendChild(handoff);
+    row.appendChild(control);
+    const commands = item.runtimes.map(r => r.install[0]).concat(item.stdio.command);
+    const setStates = (states) => {
+      chips.textContent = '';
+      for (const cmd of commands) {
+        const w = stateWords(states && states[cmd]);
+        chips.appendChild(node('span', 'sv-mcp-chip' + (w.unknown ? ' sv-mcp-chip-unknown' : ''), `${cmd}: ${w.text}`));
+      }
+    };
+    setStates(null);
+    return { el: row, setStates, picker, addTo };
+  }
+
+  /** One option per project, text set as text. `projects` null = still loading; a string = why there are none. */
+  function fillPicker(picker, button, projects) {
+    picker.textContent = '';
+    const first = document.createElement('option');
+    first.value = '';
+    first.textContent = projects === null ? 'Projects load when this category is shown'
+      : typeof projects === 'string' ? projects : 'Choose a project…';
+    picker.appendChild(first);
+    for (const p of Array.isArray(projects) ? projects : []) {
+      const o = document.createElement('option');
+      o.value = p.path;
+      o.textContent = p.label;
+      o.title = p.path;
+      picker.appendChild(o);
+    }
+    const ready = Array.isArray(projects) && projects.length > 0;
+    picker.disabled = !ready;
+    button.disabled = !ready;
+  }
+
+  // The projects a server can be handed to: on the project list (registered, not hidden), on disk, and not a worktree
+  // (a worktree's settings are its project's). A project only a backend's config knows, or one removed, is not offered.
+  function pickableProjects(res) {
+    const rows = res && res.ok === true && Array.isArray(res.projects) ? res.projects : null;
+    if (!rows) return null;
+    return rows
+      .filter(r => r && typeof r.projectPath === 'string' && r.projectPath && r.registered && !r.hidden && !r.missing && !r.worktreeRoot)
+      .map(r => ({
+        path: r.projectPath,
+        label: typeof r.displayName === 'string' && r.displayName.trim() ? r.displayName.trim()
+          : r.projectPath.split(/[\\/]/).filter(Boolean).pop() || r.projectPath,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  /**
+   * Hand a catalog entry to a project (spec 38, D6, D11): warn that this window is replaced (O3), then ask main to open
+   * the project's settings with the catalog id as the seed. Nothing is stored here or there until the user saves.
+   */
+  async function onAddToProject(item, picker, msg) {
+    const path = picker.value;
+    if (!path) { msg.textContent = 'Choose a project first.'; return; }
+    const option = picker.selectedOptions && picker.selectedOptions[0];
+    const ok = typeof showControlDialog === 'function' ? await showControlDialog({
+      title: 'Open the project\'s settings',
+      message: `This window switches to the project's settings, with the Add form filled in for ${item.name}. `
+        + 'Changes here that you have not saved are lost. Nothing is added until you press Add and then Save there.',
+      confirmLabel: 'Open project settings',
+      tone: 'warning',
+      details: { Server: item.name, Project: option ? option.textContent : path },
+    }) : true;
+    if (!ok || !window.api || typeof window.api.openSettingsWindow !== 'function') return;
+    msg.textContent = '';
+    window.api.openSettingsWindow('project', path, { addon: item.id });
+  }
+
+  /** One registry result, every string set as text. Marked Unverified; Copy at most. */
+  function registryResult(r, msg, signal) {
+    const card = node('div', 'sv-mcp-card');
+    const info = node('div', 'sv-mcp-card-info');
+    const head = node('div', 'sv-mcp-card-head');
+    head.appendChild(node('span', 'settings-label', r.title ? `${r.title} (${r.name})` : r.name));
+    head.appendChild(node('span', 'sv-mcp-chip sv-mcp-chip-unknown', 'Unverified'));
+    info.appendChild(head);
+    if (r.description) info.appendChild(node('div', 'settings-description', r.description));
+    if (r.source) info.appendChild(copyLine('Source', r.source, msg, signal));
+    for (const p of Array.isArray(r.packages) ? r.packages : []) {
+      if (!p || typeof p.registry !== 'string' || typeof p.identifier !== 'string') continue;
+      info.appendChild(node('div', 'settings-description', `${p.registry}: ${p.identifier}`));
+      for (const c of Array.isArray(p.commands) ? p.commands : []) {
+        info.appendChild(copyLine(`Install with ${c.runtime}`, c.install, msg, signal));
+      }
+    }
+    card.appendChild(info);
+    return card;
+  }
+
+  /**
+   * Fill the global category's host. The catalog rows draw at once (the search must see them); the PATH check runs on
+   * the category's first `settings-cat-shown` of this build, and again on Check again; the registry is asked only on
+   * Search or Enter. Nothing here is stored (spec 38, D8). Loaded with the catalog module before this file.
+   */
+  function bindAddons(body, signal) {
+    const host = body.querySelector('#' + ADDONS_HOST_ID);
+    if (!host || !Array.isArray(window.MCP_ADDON_CATALOG)) return;
+    host.textContent = '';
+    // A reply still out for an earlier build is stale from here on.
+    addonCheckSeq++;
+    addonSearchSeq++;
+
+    const catalog = node('div', 'settings-section');
+    catalog.appendChild(node('div', 'settings-section-title', 'Catalog'));
+    const msg = node('div', 'settings-hint sv-mcp-form-msg');
+    msg.setAttribute('aria-live', 'polite');
+    const rows = window.MCP_ADDON_CATALOG.map(item => addonRow(item, msg, signal));
+    for (const r of rows) catalog.appendChild(r.el);
+    // The category's own hint comes first: a settings search hides the first hint outside a field, and the line
+    // beside Check again must stay with its button.
+    catalog.appendChild(node('div', 'settings-hint',
+      'Found means the program is on PATH; nothing was started. Copy a command and run it in your own terminal: '
+      + 'Switchboard installs and removes nothing. uvx can run a server without installing it; that form is not checked here. '
+      + 'Add to project opens that project\'s settings with the server filled in; installing is per machine, using it is per project.'));
+    const actions = node('div', 'sv-mcp-add');
+    const again = cardButton('Check again', () => runAddonsCheck(), signal);
+    actions.appendChild(again);
+    actions.appendChild(node('span', 'settings-hint', 'Checked against the PATH this app started with.'));
+    catalog.appendChild(actions);
+    catalog.appendChild(msg);
+    host.appendChild(catalog);
+
+    let states = null;
+    async function runAddonsCheck() {
+      if (signal.aborted || !window.api || typeof window.api.checkExternalMcp !== 'function') return;
+      const probes = window.probeEntries();
+      const mine = ++addonCheckSeq;
+      let res = null;
+      try { res = await window.api.checkExternalMcp(null, probes); } catch { res = null; }
+      if (signal.aborted || mine !== addonCheckSeq || !host.isConnected) return;
+      if (res && res.ok === true && Array.isArray(res.results)) {
+        states = window.readProbe(res.results, probes);
+        msg.textContent = '';
+      } else {
+        msg.textContent = states ? CHECK_FAILED + ' The states shown are from the last check.' : CHECK_FAILED;
+      }
+      for (const r of rows) r.setStates(states);
+    }
+    for (const r of rows) fillPicker(r.picker, r.addTo, null);
+    async function loadProjects() {
+      if (!window.api || typeof window.api.getProjectsAdmin !== 'function') return;
+      let res = null;
+      try { res = await window.api.getProjectsAdmin(); } catch { res = null; }
+      if (signal.aborted || !host.isConnected) return;
+      const projects = pickableProjects(res);
+      const pickerChoices = projects === null ? 'The project list could not be read.'
+        : projects.length ? projects : 'No project to add to yet.';
+      for (const r of rows) fillPicker(r.picker, r.addTo, pickerChoices);
+    }
+
+    // The first sight of this panel build asks PATH and reads the project list once; a later show does not.
+    let shown = false;
+    const section = host.closest('.settings-cat');
+    if (section) {
+      section.addEventListener('settings-cat-shown', () => {
+        if (shown) return;
+        shown = true;
+        runAddonsCheck();
+        loadProjects();
+      }, { signal });
+    }
+
+    const registry = node('div', 'settings-section');
+    const field = node('div', 'settings-field settings-field-wide sv-addon-search');
+    const rInfo = node('div', 'settings-field-info');
+    rInfo.appendChild(node('span', 'settings-label', 'Search the MCP registry'));
+    rInfo.appendChild(node('div', 'settings-description',
+      'Results come from the official MCP Registry and are not reviewed. They are text to read and copy: nothing is '
+      + 'installed, run or added to a project from here.'));
+    field.appendChild(rInfo);
+    const rControl = node('div', 'settings-field-control');
+    const bar = node('div', 'sv-mcp-row');
+    const input = node('input', 'settings-input');
+    input.type = 'text';
+    input.placeholder = 'Server name';
+    input.setAttribute('aria-label', 'Search the MCP registry');
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    const searchBtn = cardButton('Search', () => search(), signal);
+    bar.appendChild(input);
+    bar.appendChild(searchBtn);
+    rControl.appendChild(bar);
+    rControl.appendChild(node('div', 'settings-hint', 'Press Search to send this text to the registry.'));
+    const rMsg = node('div', 'settings-hint sv-mcp-form-msg');
+    rControl.appendChild(rMsg);
+    const results = node('div', 'sv-mcp-cards');
+    results.setAttribute('aria-live', 'polite');
+    rControl.appendChild(results);
+    field.appendChild(rControl);
+    registry.appendChild(field);
+    host.appendChild(registry);
+
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); search(); } }, { signal });
+
+    async function search() {
+      if (signal.aborted || !window.api || typeof window.api.searchMcpRegistry !== 'function') return;
+      const mine = ++addonSearchSeq;
+      rMsg.textContent = 'Searching…';
+      let res = null;
+      try { res = await window.api.searchMcpRegistry(input.value); } catch { res = null; }
+      if (signal.aborted || mine !== addonSearchSeq || !host.isConnected) return;
+      results.textContent = '';
+      if (!res || res.ok !== true || !Array.isArray(res.results)) {
+        rMsg.textContent = res && typeof res.reason === 'string' ? res.reason : SEARCH_FAILED;
+        return;
+      }
+      rMsg.textContent = res.results.length ? '' : 'No servers found.';
+      for (const r of res.results) if (r && typeof r.name === 'string') results.appendChild(registryResult(r, rMsg, signal));
+    }
+  }
+
+  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, bindAddons, openSeeded };
 })();

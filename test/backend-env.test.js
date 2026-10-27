@@ -147,7 +147,7 @@ test('the spawn merges backend env BETWEEN the backend and the template', () => 
   const userLayers = SPAWN.slice(helperAt, SPAWN.indexOf('\n}', helperAt));
   assert.match(userLayers, /const allEnv = \(ctx\.getSetting\('global'\) \|\| \{\}\)\.backendEnv \|\| \{\};/);
   // The template's own keys are lifted back out of launch.env first...
-  assert.match(layers, /templateKeys\.has\(process\.platform === 'win32' \? foldEnvName\(key\) : key\)\) delete baseEnv\[key\];/,
+  assert.match(layers, /for \(const key of Object\.keys\(templateEnv\)\) delete baseEnv\[key\];/,
     'or the user\'s backend variables would land on top of the template');
   assert.match(userLayers, /userEnv: allEnv\[baseId\] \|\| \{\}/);
 
@@ -155,13 +155,14 @@ test('the spawn merges backend env BETWEEN the backend and the template', () => 
   // resources hook gets (`quietSessionEnv`), which reads the same layers first.
   const at = SPAWN.lastIndexOf('const { baseEnv, userEnv, templateEnv } = envLayers();');
   assert.notEqual(at, -1, 'the PTY env must be built from those layers');
-  assert.ok(SPAWN.indexOf('ptyEnv = mergeEnv(process.platform, ptyEnv, ctx.resolveSpawnEnv(', at) > at, 'and that use is the PTY env');
+  assert.ok(SPAWN.indexOf('Object.assign(ptyEnv, ctx.resolveSpawnEnv({', at) > at, 'and that use is the PTY env');
   const block = SPAWN.slice(at, SPAWN.indexOf('\n      }', at));
   // ...then the backend defaults are resolved quietly, because Codex/Pi may authenticate from their
   // own login stores and missing built-in API-key refs are not enough to warn the user.
   assert.match(block, /const resolvedBaseEnv = ctx\.resolveSpawnEnv\(baseEnv, backend\.label \|\| backend\.id, sessionId, \{\s*noticeMissing: false,/s,
     'backend-owned default auth refs should not raise a session notice when absent');
   // ...and then the template is re-applied last, so it still wins.
-  assert.match(block, /mergeEnv\(process\.platform, resolvedBaseEnv, userEnv, templateEnv\)/,
-    'backend -> user\'s backend env -> template');
+  const order = block.indexOf('...resolvedBaseEnv') < block.indexOf('...userEnv')
+    && block.indexOf('...userEnv') < block.indexOf('...templateEnv');
+  assert.equal(order, true, 'backend -> user\'s backend env -> template');
 });

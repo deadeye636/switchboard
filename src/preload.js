@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   // #789 slice D: what a launch could make of a project's external MCP entries (unsaved), as facts — no values.
   checkExternalMcp: (projectPath, entries) => ipcRenderer.invoke('external-mcp-check', { projectPath, entries }),
+  // #790: search the official MCP Registry — the term is sent there; results are unreviewed text.
+  searchMcpRegistry: (term) => ipcRenderer.invoke('mcp-registry-search', term),
   sessionBackends: {
     getAll: () => ipcRenderer.invoke('session-backends-get-all'),
   },
@@ -101,8 +103,9 @@ contextBridge.exposeInMainWorld('api', {
   setLogLevel: (level) => ipcRenderer.invoke('set-log-level', level),
   // Settings pop-out window (Phase 2)
   // Settings always open in a window of their own (#365). `scope` is 'global' or 'project'; a project
-  // scope carries the path whose settings to show.
-  openSettingsWindow: (scope, projectPath) => ipcRenderer.send('open-settings-window', scope, projectPath),
+  // scope carries the path whose settings to show. `seed` (#790) is `{ addon: <catalog id> }`: the project's
+  // MCP servers Add form opens prefilled from that catalog entry; main drops an id the catalog does not know.
+  openSettingsWindow: (scope, projectPath, seed) => ipcRenderer.send('open-settings-window', scope, projectPath, seed),
   // Closing the window kills every running session. Main cancels the close, asks here — in the app's own
   // dialog, not a Windows system box — and closes again if the answer is yes.
   onConfirmClose: (cb) => ipcRenderer.on('confirm-close', (_e, warning) => cb(warning)),

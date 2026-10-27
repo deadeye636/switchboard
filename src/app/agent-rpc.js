@@ -154,6 +154,33 @@ function stateFor(sessionId) {
   return s && s.pty && s.pty._agent && !s.exited ? s.pty._agent : null;
 }
 
+/**
+ * A core caller that follows one session without a view (#507 slice 2b, spec 39): the review runner. `observer` is
+ * `{ onBusy(busy), onEntry(entry, text), onAsk(request) -> answer | null, onExit() }`, every member optional. `text` is
+ * the backend's `rpc.assistantTextOf(entry)`: the text of an assistant entry, `null` for anything else. `onAsk` is asked
+ * BEFORE the approval memory and the card: an answer is written to the runtime and nothing is drawn or reported (an
+ * answer that cannot be written falls through to the card). A session without an observer runs exactly as before.
+ * The members are called synchronously in the middle of an op: `onBusy` before the rest of that edge's bookkeeping
+ * (the report, the held queue). An observer that calls back into this module defers that work (`setImmediate`).
+ * -> true when the session was found.
+ */
+function observe(sessionId, observer) {
+  const state = stateFor(sessionId);
+  if (!state) return false;
+  state.observer = observer && typeof observer === 'object' ? observer : null;
+  return true;
+}
+
+// One member of a session's observer. A throw is the observer's problem and never breaks the stream it watches.
+function notifyObserver(state, member, ...args) {
+  const fn = state.observer && state.observer[member];
+  if (typeof fn !== 'function') return undefined;
+  try { return fn(...args); } catch (err) {
+    if (ctx && ctx.log) ctx.log.warn(`[agent-rpc] observer ${member} failed: ${err.message}`);
+    return undefined;
+  }
+}
+
 // Every op carries a sequence number. A view that mounts mid-turn asks for the conversation so far, and the
 // runtime's answer is a snapshot taken at one moment while ops keep flowing — the ones already in the
 // snapshot must not be applied a second time, and the ones after it must not be lost under the reset. The
@@ -278,6 +305,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     appliedOptions: appliedOptions || options || {},
     backendId: backendId || null, // whose approvals are remembered (#731)
     identitySettled: false,  // has the runtime named its session once — see `adoptIdentity`
+    observer: null,          // a core caller following this session without a view — see `observe` (spec 39)
   };
   // The tests shorten these; the app never passes them.
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
@@ -714,6 +742,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         flushPartial();
         if (state.busy === op.busy) return;
         state.busy = op.busy;
+        if (state.observer) notifyObserver(state, 'onBusy', op.busy);
         if (op.busy) state.suggestion = null;
         // What the start said is about the start: once a turn runs, a later attach would draw it under turns it
         // no longer belongs to (#754 verifier F4).
@@ -770,6 +799,17 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         sendOp(state, op);
         return;
       case 'ask':
+        // A core observer answers first (spec 39: a review refuses every ask): written to the runtime, never drawn,
+        // never remembered, never reported as waiting.
+        if (state.observer && op.request) {
+          const answer = notifyObserver(state, 'onAsk', op.request);
+          if (answer != null) {
+            flushPartial();
+            if (write(rpc.answerCommand(op.request.id, answer, op.request))) return;
+            // Not written: the question is still open, so it goes on to the card like any other.
+            ctx.log.warn('[agent-rpc] an observer answer could not be written');
+          }
+        }
         if (autoAnswer(op.request)) return;
         state.asks.set(op.request.id, op.request);
         flushPartial();
@@ -953,6 +993,13 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
           if (state.recentAppends.length > RECENT_APPENDS_CAP) state.recentAppends.shift();
         }
         sendOp(state, key ? { ...op, key: String(key) } : op);
+        if (state.observer) {
+          let text = null;
+          try { text = typeof rpc.assistantTextOf === 'function' ? rpc.assistantTextOf(op.entry) : null; } catch (err) {
+            ctx.log.warn(`[agent-rpc] the backend could not read an entry's text: ${err.message}`);
+          }
+          notifyObserver(state, 'onEntry', op.entry, typeof text === 'string' ? text : null);
+        }
         // A finished entry inside a turn is where the context has grown (#697).
         if (state.busy) followContextSoon();
         return;
@@ -1051,6 +1098,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     if (state.stderrTail.trim()) ctx.log.info(`[agent-rpc] stderr before exit: ${state.stderrTail.trim().slice(-600)}`);
     const exitCode = code == null ? (signal ? 1 : 0) : code;
     for (const h of exitHandlers) { try { h({ exitCode }); } catch (err) { ctx.log.warn(`[agent-rpc] exit handler failed: ${err.message}`); } }
+    if (state.observer) notifyObserver(state, 'onExit', { exitCode });
   });
 
   // Text followed by a carriage return is a turn; ESC or Ctrl+C on their own stop the running one. See the
@@ -1846,6 +1894,8 @@ function registerIpc(ipc) {
 
 module.exports = {
   init, registerIpc, start,
+  // A core caller following a session without a view (the review runner, spec 39).
+  observe,
   // The turn-hold's question about a session this module drives (main.js wires it in front of the descriptor).
   turnQueueOf,
   // The registry `app/documents.js` asks (#755).

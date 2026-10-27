@@ -7,7 +7,8 @@ ships** (see "As built" and "Slice B"; plans: `docs/plans/789-external-mcp-injec
 [spec 35](35-session-discovery-tools.md): there Switchboard is the server and the CLI calls it; here the user
 names servers that exist elsewhere (an `uvx <server>` stdio launch, an HTTP endpoint) and Switchboard puts them in
 front of one launched CLI. The tabbed management screen of the issue's design note (tabs, cards, toggles, the
-"custom MCP" form) is **slice B**, a separate proposal (CLAUDE.md reflex 16). Install and uninstall of a server is #790.
+"custom MCP" form) is **slice B**, a separate proposal (CLAUDE.md reflex 16). Install and uninstall of a server is #790
+([spec 38](38-mcp-addon-catalog.md)): a global catalog that shows the commands and hands an entry to these cards.
 
 Why a new spec and not an extension of 34: spec 34 is the record of the shared core and the agy/Codex diff tool,
 and its "Later phases" item 3 already earmarked this work. The second consumer (35) got its own file; this is the
@@ -252,7 +253,7 @@ today, and a change takes effect on the next session started. Cancel discards.
 |---|---|---|
 | D-B1 | **One data model, two views (W1).** Cards and the JSON text area read and write the same `externalMcpServers` value; there is no second setting and no second copy of the list. | Owner. Two stores would drift, and the validator, the reader and the settings-reference row stay as they are. |
 | D-B2 | **The JSON view stays** as a disclosure: fields the form does not cover (`backends` edits beyond chips, future keys) and repair of a broken stored value. | Owner. A form can only show a list that parses; the text is the one view that can always be fixed. |
-| D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
+| D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790, built as [spec 38](38-mcp-addon-catalog.md)), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
 | D-B4 | **Per project only (H1).** No global or personal list. | Owner. |
 | D-B5 | **Pruning a backend's defaults (A2) and reachability detection are not in slice B.** | Owner; unchanged from D-A4 and D-A6. |
 | D-B6 | **Native-driver injection: both shipped (T10).** claude-native over `--mcp-config`; pi-native through the session-resources MCP section it inherits from terminal Pi (stdio only). The cards show the per-project set both now inject over the pipe. | Owner. |
@@ -289,7 +290,7 @@ the backend list main already serves, never from a table in the renderer (reflex
 
 ### Out, explicitly
 
-Tabs and the marketplace, install and uninstall (#790); skills; a global list; pruning (A2); reachability (a card
+Tabs and the marketplace, install and uninstall (#790, built as [spec 38](38-mcp-addon-catalog.md)); skills; a global list; pruning (A2); reachability (a card
 shows no "connected" light); native-driver injection (T10). Slice B closed the editor's low gaps L1 to L3.
 
 ### As built (slice B)
@@ -474,11 +475,11 @@ started, no request is sent, and no variable value, argument or header leaves ma
 |---|---|---|
 | D-D1 | **Static check only.** No child process, no network request, no MCP `initialize`. Not an on-demand handshake and not status read back from live sessions (only claude-native reports one). | Owner (E1). A handshake runs the user's code and sends headers over the network: a separate decision. |
 | D-D2 | **Three facts plus the launch's own skip reasons.** Command resolves; every `${VAR}` set; which backends take the entry. The skip reasons are the ones the launch already has: entry off, `backends` filter, unset variable, transport not taken, `cwd` not taken. | Owner (E1). The card and the launch log must tell the same story. |
-| D-D3 | **Two neutral layers, neither tied to the card.** A generic PATH resolver (`resolveCommand`, no MCP knowledge) and an entry check (`checkEntries`: entries in, neutral facts out, plus the IPC). #790 reuses both: the resolver for `uv`, `uvx`, `pipx`, the entry check for "server present". | Owner (E4). #790's "detect first" must not grow a second detection. |
+| D-D3 | **Two neutral layers, neither tied to the card.** A generic PATH resolver (`resolveCommand`, no MCP knowledge) and an entry check (`checkEntries`: entries in, neutral facts out, plus the IPC). #790 reuses both: the resolver for `uv`, `uvx`, `pipx`, the entry check for "server present". As built (spec 38), #790 goes through `checkEntries` only, for `uv`, `pipx` and the servers, and does not probe `uvx`. | Owner (E4). #790's "detect first" must not grow a second detection. |
 | D-D4 | **The resolver is the app's own.** src/app may not import the backends folder's `findOnPath` (the import direction in `.claude/rules/backends.md`), so the few lines are repeated, as the app's `closeProbeStdin` repeats the backends one (spec 9, decision 11). Same semantics: PATHEXT on Windows, first directory then first extension, a listing instead of a stat per name; asynchronous and bounded instead. | Owner (E2). |
 | D-D5 | **Absence is the claim that needs the evidence** (`.claude/rules/backends.md`, #546). "Not found" only when every PATH directory was listed or does not exist (`ENOENT`, `ENOTDIR`) and none was skipped. A permission error, an I/O error, the time budget, a skipped network directory, a relative PATH entry: the answer is "not checked" with the reason. A name in a directory listing counts as found unless it is a directory (Windows app-execution aliases list but do not stat cleanly) or its `stat` answers `ENOENT` (a dangling link, a file gone since the listing). Off Windows a copy without an execute bit is passed over for a later executable one, as `execvp` does, and reported only when there is no other. A PATH set by the entry's own `env` or by the backend variables of a backend that takes the entry is not the PATH that was searched, so a miss then reads "not checked" (`path-overridden`). | Same file; one unlucky read must not tell a user their tool is missing. |
 | D-D6 | **A network path is never touched.** Lexical, before any stat (`network-path`, #780): a command path on a share no project is on is "not checked"; PATH directories on such a share are skipped, which makes a miss "not checked". The predicate is main's `isForeignNetworkFile`, handed in at init so the module stays electron-free and db-free. | Touching one is an SMB connection to a host somebody else named. |
-| D-D7 | **Environment for `${VAR}` (E3): the app's environment plus the global backend variables.** The app side is `process.env` copied the way spawn's `quietSessionEnv` copies it (so key case is as at launch); the backend side is each backend's `backendEnv.<id>` in the global blob. A variable is `app`, `backend-env` (for the named backends only), `default` (`${VAR:-x}`, checked before the next one), `declared-unresolved` (a backend variable whose value is a `$VAR` reference the app's environment cannot fill, so the launch drops it; the card says "without a usable value") or `unset`. The app and backend layers merge as spawn merges them, `{ ...app, ...backend }`, and a name is looked up exactly as `expand` looks it up. **Not considered:** project and template variables, backend base variables, secret materialisation. When the answer rests on that gap the card says "checked against the saved global variables". | Owner (E3), as the resources preview reads them. A claim of certainty here would be wrong in both directions. |
+| D-D7 | **Environment for `${VAR}` (E3): the app's environment plus the global backend variables.** The app side is `process.env` copied the way spawn's `quietSessionEnv` copies it (so key case is as at launch); the backend side is each backend's `backendEnv.<id>` in the global blob. A variable is `app`, `backend-env` (for the named backends only), `default` (`${VAR:-x}`, checked before the next one), `declared-unresolved` (a backend variable whose value is a `$VAR` reference the app's environment cannot fill, so the launch drops it; the card says "without a usable value") or `unset`. The app and backend layers merge as spawn merges them, `{ ...app, ...backend }`, and a name is looked up exactly as `expand` looks it up: the exact spelling, and on win32 then case-insensitively (#794, below). **Not considered:** project and template variables, backend base variables, secret materialisation. When the answer rests on that gap the card says "checked against the saved global variables". | Owner (E3), as the resources preview reads them. A claim of certainty here would be wrong in both directions. |
 | D-D8 | **One rule for what a reference is.** `references(value)` is added beside `expand` in src/shared/env-expand.js and uses the same pattern; a test pins `references` against `expand`'s `missing` set. | Two scanners for `${VAR}` is how the card and the launch drift. |
 | D-D9 | **One rule for what a launch skips.** The enabled and `backends` filter of `externalServersFor` becomes a function the check calls; the transport and `cwd` answer is a descriptor declaration `externalMcpTakes` (O-D1), pinned against the real emitters by a test. | Reflex 5, `.claude/rules/backends.md`: a capability is declared, not inferred in the core. |
 | D-D10 | **Input is the editor's current list, unsaved.** The renderer sends the raw entries from the text area; main runs `validateExternalMcpServers`, caps count and string length, and gives a rejected entry no facts. The settings window is a snapshot (#146): the entries are the window's, the environment and the global variables are read live in main at the time of the check. Reruns: after the backend choices load on open, after a card operation, a form confirm or the text area losing focus, and on "Check again" (O-D4). A reply for an older request is dropped by sequence number. | The cards project the text (D-B1); a check of the saved list would lag what the user sees. |
@@ -489,9 +490,14 @@ started, no request is sent, and no variable value, argument or header leaves ma
 
 ### Reuse by #790
 
+What slice D offered #790 (the planning view; the As built note below is what #790 used):
 `resolveCommand(name, { env, cwd })` answers `{ state: 'found' | 'missing' | 'unknown', resolved?, ext?, reason? }` for
 a bare name or a path; a batch form shares one listing. `checkEntries(entries, context)` answers, per entry, the command
 fact, the variable facts and the per-backend verdicts. #790 adds no PATH walk and no `${VAR}` reader of its own.
+
+As built (spec 38): #790 calls the existing `checkExternalMcp` IPC with no project, over throwaway stdio entries for
+the runtimes and the catalog servers (`probeEntries`), and reads only the command fact back (`readProbe`). It does
+not call `resolveCommand` directly. The Add form it opens in a project is this slice B form, seeded from the catalog.
 
 ### Open points, decided
 
@@ -512,11 +518,28 @@ fact, the variable facts and the per-backend verdicts. #790 adds no PATH walk an
 - Project and template variables, and secrets that only spawn resolves, are outside the environment of D-D7.
 - A relative PATH entry and a mapped drive letter that points at a share cannot be judged lexically: the first makes
   every miss "not checked", the second is read like a local drive. **Measured on the dev machine:** its PATH carries an
-  unexpanded `%USERPROFILE%\…` entry, which is relative, so every miss there reads "not checked, PATH has a relative
-  folder" and "would not start" never appears. That is D-D5 working as decided. A follow-up could resolve a relative
-  entry against the server's working directory, which is what libuv (`search_path`) and `execvp` do, but Codex starts
-  servers through Rust's `Command`, which no longer searches the working directory; so it would need a per-backend
-  declaration of the lookup rule. A cheaper option is a reason of its own that names an unexpanded `%VAR%` folder.
+  unexpanded `%USERPROFILE%\…` entry, which is relative, so every miss there read "not checked" and "would not start"
+  never appeared. That is D-D5 working as decided.
+- **#793, decided (owner, 2026-10-27): the cause is named, the evidence rule stays.** A Windows entry that still holds a
+  `%NAME%` gives its own reason, `unexpanded-path-entry` ("PATH has a folder with an unexpanded %VARIABLE%, which this
+  check does not search; fix it in the Windows PATH environment variable"); any other relative entry keeps `relative-path-entry`. The owner
+  chose to count such an entry as no evidence either way, if a launch never searched it. **Measured, it is searched:**
+  nothing expands `%NAME%` when a process searches PATH, and a Node spawn (libuv `search_path`) ran a program from
+  `<cwd>\%ZZPROBE%\bin` when that literal folder existed, and failed elsewhere (`scripts/measure-path-unexpanded.js`). So a miss there is still not evidence,
+  and the state stays "not checked". Resolving relative entries against the server's working directory stays a
+  follow-up that would need a per-backend declaration: libuv and `execvp` search it, while Codex starts servers through
+  Rust's `Command`, which no longer does. The sentence for `relative-path-entry` now says "which this check does not
+  search", since the launch does search it.
+- **#794, decided (owner, 2026-10-27): on win32 a `${VAR}` name is case-insensitive.** Measured: started from
+  PowerShell the environment spells it `Path` (only Git Bash writes `PATH`), so an entry writing `${PATH}` read as
+  unset and was skipped at launch. `lookupVar` in `src/shared/env-expand.js` takes the exact spelling first and a key
+  that differs only in case after it, when `expand` is called with `foldCase` (win32). The launch source
+  (`externalServersSource`), this check and Claude's lister for "Resources from" (`src/backends/claude/mcp-servers.js`)
+  all pass it, so the card and the launch agree, and a name with one spelling resolves as it does through `process.env`.
+  With two spellings in the merged environment the exact one wins here, while Node hands the child the first one in its
+  sorted order; that case is left as it is. What it
+  changes: an entry that was skipped for such a name is now injected. The launch spread is unchanged: keys that
+  differ only in case stay two keys, and a backend's own exact key wins over a folded app key.
 - `${VAR}` in an arg is checked as a reference only, never as a file.
 - An entry over the check's size caps is rejected before the duplicate-name pass; if a later entry shares its name, the
   check accepts the later one while the launch keeps the first. It needs an entry longer than the caps allow.
@@ -531,7 +554,7 @@ fact, the variable facts and the per-backend verdicts. #790 adds no PATH walk an
   emitter.
 - **`src/app/path-resolve.js`**: `resolveCommand`, `resolveCommands`, `forgetListing` (D-D4, D-D5, D-D6, D-D13).
   Defaults: budget 2000 ms, 8 directories in flight, listing cache 5 s. Reason codes `network`, `unreadable`, `timeout`,
-  `relative-path-entry`, `no-cwd`, `empty-name`.
+  `relative-path-entry`, `unexpanded-path-entry` (a Windows entry still holding a `%NAME%`, #793), `no-cwd`, `empty-name`.
 - **`externalMcpTakes`** on every descriptor, forwarded by `profileToDescriptor`; `test/external-mcp-takes.test.js` pins
   it against the emitters. `cwd: false` means an entry with a `cwd` is not given at all.
 - **`src/app/external-mcp-check.js`**: `checkEntries` and the IPC `external-mcp-check`, bound as

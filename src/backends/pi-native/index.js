@@ -91,6 +91,7 @@ const capabilities = {
   liveRebinding: { state: 'no', note: 'follows its session through the RPC state instead of a binding' },
   queuedTurn: { state: 'limited', note: 'the RPC reports the waiting prompts; the turn-hold reads the terminal backend’s record' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
+  review: { state: 'yes', note: 'a review runs here with the approval gate on; every ask is refused' },
 };
 
 module.exports = {
@@ -121,6 +122,8 @@ module.exports = {
     // session has an assistant reply, and flushes nothing on exit that it held before one — a wait would
     // save nothing, so it is stopped at once as before.
     responseOf: protocol.responseOf,
+    // The text of an assistant entry, for a core observer such as the review runner (spec 39).
+    assistantTextOf: protocol.assistantTextOf,
     sendCommand: protocol.sendCommand,
     // A turn may carry images (#656), in Pi's `images` field; the limits are the shared ones in
     // `../rpc-shared.js`, since Pi hands the image to whichever provider the session uses.
@@ -209,6 +212,9 @@ module.exports = {
   providesMcpInjection: false,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // The read-only profile a review session starts with (spec 39): the approval gate, so every command, file change
+  // and MCP tool is asked for first, and the review runner refuses every ask.
+  reviewProfile: () => ({ options: { approvalGate: true } }),
   // External MCP servers (spec 36): Pi's resources-extension section, so Pi's answer.
   externalMcpTakes: pi.externalMcpTakes,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.

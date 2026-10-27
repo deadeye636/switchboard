@@ -416,7 +416,7 @@ Numbered so they can be referred to. Each is its own plan with its own go.
 5. **agy without a per-launch channel.** Only if T1 answers Q1 negatively: a request to the agy project, or an
    owner decision to accept a shared-file registration with its caveats. Not a Plan A step.
 6. **#790, the addon manager.** Flow (b): show the exact install command and a copy button, detect first
-   (runtime present, server present). Depends on item 3. Flow (c), running the package manager, is a separate
-   decision.
+   (runtime present, server present). Depends on item 3. **Built**, see [spec 38](38-mcp-addon-catalog.md). Flow (c),
+   running the package manager, is a separate decision.
 7. **A pre-write gate for backends that only support a pipe.** The structured runtimes (`claude-native`,
    `pi-native`) have their own approval cards; whether they would want an MCP diff tool is not asked here.

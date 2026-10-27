@@ -61,22 +61,6 @@ const baseContext = (over = {}) => ({
 
 const takesOf = (res) => Object.fromEntries(res.takes.map((t) => [t.id, [t.takes, t.reason]]));
 
-test('Windows references use folded names in the check and the external source', async () => {
-  const { externalServersSource } = require('../src/app/mcp-inject');
-  const entry = http({ headers: { X: '${PATH}', Y: '${EMPTY:-fallback}' } });
-  const env = { Path: 'mixed', Empty: '' };
-  const [result] = await checkEntries([entry], baseContext({ env, platform: 'win32' }));
-  assert.equal(result.variables.find((v) => v.name === 'PATH').state, 'app');
-  assert.equal(result.variables.find((v) => v.name === 'EMPTY').state, 'default');
-  assert.deepEqual(takesOf(result).alpha, [true, null]);
-  if (process.platform === 'win32') {
-    const source = externalServersSource({ backend: BACKENDS[0], projectPath: '/proj', getSetting: () => ({ externalMcpServers: [entry] }), getEnv: () => env });
-    assert.deepEqual(source()[0].headers, { X: 'mixed', Y: 'fallback' });
-  }
-  const [posix] = await checkEntries([http({ headers: { X: '${PATH}' } })], baseContext({ env: { Path: 'mixed' }, platform: 'linux' }));
-  assert.deepEqual(takesOf(posix).alpha, [false, 'unset-variable']);
-});
-
 test('command: found, missing, unknown and not-applicable', async () => {
   const ctx = baseContext();
   const out = await checkEntries([
@@ -100,7 +84,7 @@ test('command: a directory that cannot be read makes a miss unknown, a hit stays
 });
 
 test('every reason the resolver can give is in the closed set', () => {
-  for (const r of ['network', 'unreadable', 'timeout', 'relative-path-entry', 'no-cwd', 'empty-name']) {
+  for (const r of ['network', 'unreadable', 'timeout', 'relative-path-entry', 'unexpanded-path-entry', 'no-cwd', 'empty-name']) {
     assert.ok(REASONS.command.includes(r), r);
   }
 });
@@ -338,62 +322,62 @@ test('F2: a PATH set by a backend variable or the entry makes a miss unknown, a 
   assert.ok(REASONS.command.includes('path-overridden'));
 });
 
-test('F3: Windows names use the value passed to the child when spellings collide', async () => {
-  const ctx = baseContext({
-    platform: 'win32',
+test('F3: keys that differ only in case stay two keys in the launch spread; on win32 a lookup folds (#794)', async () => {
+  const ctx = (platform) => baseContext({
+    platform,
     env: { Path: 'C:/none', Mixed: 'app' },
     backendEnv: { alpha: { MIXED: 'be' } },
     backends: [DESC('alpha', { transports: ['stdio'], cwd: false })],
   });
-  const [res] = await checkEntries([stdio({ args: ['${Mixed}', '${MIXED}'] })], ctx);
-  const by = Object.fromEntries(res.variables.map((v) => [v.name, v.state]));
-  assert.equal(by.Mixed, 'backend-env');
-  assert.equal(by.MIXED, 'backend-env');
-  assert.deepEqual(takesOf(res), { alpha: [true, null] });
+  const states = async (platform) => {
+    const [res] = await checkEntries([stdio({ args: ['${Mixed}', '${MIXED}'] })], ctx(platform));
+    return { by: Object.fromEntries(res.variables.map((v) => [v.name, v.state])), takes: takesOf(res) };
+  };
+  // POSIX: names are exact, so `${MIXED}` exists only in alpha's layer.
+  const posix = await states('linux');
+  assert.equal(posix.by.Mixed, 'app');
+  assert.equal(posix.by.MIXED, 'backend-env');
+  assert.deepEqual(posix.takes, { alpha: [true, null] });
+  // win32: `${MIXED}` finds the app's `Mixed` too, so every launch has a value (alpha's own key still wins for alpha).
+  const win = await states('win32');
+  assert.equal(win.by.Mixed, 'app');
+  assert.equal(win.by.MIXED, 'app');
+  assert.deepEqual(win.takes, { alpha: [true, null] });
 });
 
-test('Windows backend empty override remains visible when another backend inherits the app', async () => {
-  const ctx = baseContext({ platform: 'win32', env: { Path: 'app' }, backendEnv: { alpha: { PATH: '' } }, backends: BACKENDS.slice(0, 2) });
-  const [result] = await checkEntries([http({ headers: { X: '${PATH:-fallback}' } })], ctx);
-  assert.equal(result.variables[0].state, 'mixed');
-  assert.equal(result.variables[0].backendIds, undefined);
-  assert.equal(result.envGap, true);
-  assert.deepEqual(takesOf(result).alpha, [true, null]);
-});
-
-test('commands and working directories that vary by backend are not reported as a single path', async () => {
-  const context = baseContext({ platform: 'win32', env: { Dir: 'C:/app' }, backendEnv: { alpha: { DIR: '' } }, backends: BACKENDS.slice(0, 2) });
+test('command and cwd checks use the environments of backends that can take the entry', async () => {
+  const context = baseContext({ env: { DIR: '/app', PATH: '/bin1' }, backendEnv: { alpha: { DIR: '/backend' } },
+    backends: [DESC('alpha', { transports: ['stdio'], cwd: true }), DESC('beta', { transports: ['stdio'], cwd: true })] });
   const out = await checkEntries([
     stdio({ command: '${DIR}/tool' }),
-    stdio({ name: 'cwd', command: './tool', cwd: '${DIR}', backends: ['alpha', 'beta'] }),
+    stdio({ name: 'cwd', command: './tool', cwd: '${DIR}' }),
     stdio({ name: 'filtered', command: '${DIR}/tool', backends: ['beta'] }),
   ], context);
   assert.deepEqual(out[0].command, { state: 'unknown', reason: 'backend-env-varies' });
   assert.deepEqual(out[1].command, { state: 'unknown', reason: 'backend-env-varies' });
-  assert.notEqual(out[2].command.reason, 'backend-env-varies');
-  assert.equal(out[2].variables[0].state, 'app');
+  assert.equal(out[2].command.resolved, '/app/tool');
+  const [only] = await checkEntries([stdio({ command: '${DIR}/tool', backends: ['alpha'] })], context);
+  assert.equal(only.command.resolved, '/backend/tool');
 });
 
-test('Windows empty backend override falls back instead of claiming a backend value', async () => {
-  const context = baseContext({ platform: 'win32', env: { Dir: 'C:/app' }, backendEnv: { alpha: { DIR: '' } }, backends: [BACKENDS[0]] });
-  const [result] = await checkEntries([http({ headers: { X: '${DIR:-fallback}' } })], context);
-  assert.equal(result.variables[0].state, 'default');
-  assert.deepEqual(takesOf(result).alpha, [true, null]);
+test('backends that cannot take an entry do not change the command check', async () => {
+  const context = baseContext({ env: { DIR: '/app' }, backendEnv: { alpha: { DIR: '/other' } },
+    backends: [DESC('alpha', { transports: ['http'], cwd: false }), DESC('beta', { transports: ['stdio'], cwd: true })] });
+  const [result] = await checkEntries([stdio({ command: '${DIR}/tool' })], context);
+  assert.equal(result.command.resolved, '/app/tool');
+  const [fallback] = await checkEntries([stdio({ command: '${DIR}/tool', backends: ['none'] })], context);
+  assert.equal(fallback.command.resolved, '/app/tool');
 });
 
-test('Windows folds a backend bundle before dropping unresolved references', async () => {
-  const entry = http({ headers: { X: '${THING}' } });
-  const context = baseContext({ platform: 'win32', env: {}, backends: [BACKENDS[0]] });
-  context.backendEnv = { alpha: { Thing: 'literal', THING: '$ABSENT' } };
-  let [result] = await checkEntries([entry], context);
-  assert.equal(result.variables[0].state, 'declared-unresolved');
-  assert.deepEqual(takesOf(result).alpha, [false, 'unset-variable']);
-  context.backendEnv = { alpha: { THING: '$ABSENT', Thing: 'literal' } };
-  [result] = await checkEntries([entry], context);
-  assert.equal(result.variables[0].state, 'backend-env');
-  assert.deepEqual(takesOf(result).alpha, [true, null]);
+test('Windows command checks preserve exact spelling before case folding', async () => {
+  const context = baseContext({ platform: 'win32', env: { Dir: 'C:/app' }, backendEnv: { alpha: { DIR: 'C:/backend' } },
+    backends: [DESC('alpha', { transports: ['stdio'], cwd: true }), DESC('beta', { transports: ['stdio'], cwd: true })] });
+  const out = await checkEntries([stdio({ command: '${Dir}/tool' }), stdio({ name: 'upper', command: '${DIR}/tool' })], context);
+  assert.equal(out[0].command.state, 'found');
+  assert.deepEqual(out[1].command, { state: 'unknown', reason: 'backend-env-varies' });
+  const [folded] = await checkEntries([stdio({ command: '${dir}/tool' })], context);
+  assert.equal(folded.command.state, 'found');
 });
-
 
 test('F4: a relative cwd resolves against the project before the command is looked up', async () => {
   const f = fakeFs({});
@@ -436,4 +420,16 @@ test('F2 precision: only a PATH that reaches a launch overrides', async () => {
   gone.promises.stat = async () => { throw errno('ENOENT'); };
   const asPath = await checkEntries([stdio({ command: '/opt/gone/tool', env: { PATH: '/elsewhere' } })], baseContext({ fs: gone }));
   assert.equal(asPath[0].command.state, 'missing');
+});
+
+// #794: the check folds a name the way the launch does on win32, so the card and the launch keep agreeing.
+test('win32: ${PATH} against an environment that spells it Path reads as set, and every backend takes it', async () => {
+  const drive = 'C:' + String.fromCharCode(92) + 'bin';
+  const entry = stdio({ command: 'tool', env: { PATH: '${PATH};x' } });
+  const ctx = (platform) => baseContext({ platform, env: { Path: drive }, fs: fakeFs({ [drive]: ['tool.exe'] }) });
+  const [onWin] = await checkEntries([entry], ctx('win32'));
+  assert.deepEqual(onWin.variables.map((v) => [v.name, v.state]), [['PATH', 'app']]);
+  assert.ok(onWin.takes.every((t) => t.reason !== 'unset-variable'), JSON.stringify(onWin.takes));
+  const [onLinux] = await checkEntries([entry], ctx('linux'));
+  assert.deepEqual(onLinux.variables.map((v) => [v.name, v.state]), [['PATH', 'unset']]);
 });

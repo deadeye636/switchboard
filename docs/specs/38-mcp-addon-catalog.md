@@ -1,13 +1,13 @@
 # 38 — MCP addon catalog: find an external MCP server, see whether it is installed, copy the command
 
-Issue #790. Status: **planned** (nothing is built; the plan is `docs/plans/790-mcp-addons/`, local). This is the
+Issue #790. Status: **built** (see "As built"; the plan was `docs/plans/790-mcp-addons/`, local). This is the
 install-side companion to [spec 36](36-external-mcp-servers.md): there a project names the servers it wants and
 Switchboard puts them in front of a launched CLI; here the user finds one, learns whether it is on this machine, and
 gets the exact command to install or remove it. Switchboard runs none of it. Spec 34 recorded the scope decision (D5,
 "Later phases" item 6); this file is the design behind it.
 
 Reflex 16 applies: a new settings category, an outbound request and a hand-off between two settings scopes are new
-user flows. The decisions below are the owner's unless a row says otherwise; what is not decided is under "Open".
+user flows. The decisions below are the owner's unless a row says otherwise; the points under "Open" are all answered.
 
 ## What changes for the user
 
@@ -37,7 +37,7 @@ here and are never run.
 | D6 | **The list lives in the global app settings; installing is per machine.** "Add to project" hands off to that project's existing external-MCP cards; enabling stays per project. | Owner (E33 b). One place for the machine, one place for the project (D-A2). |
 | D7 | **Switchboard distributes nothing.** The catalog names upstream sources; an install pulls from the source the user pasted into their own terminal. Each row shows the licence as upstream states it, including a non-open one. | Owner (spec 36, D-A5; the issue). |
 | D8 | **No stored state in v1.** No new setting, no new `SWITCHBOARD_*` variable, so `docs/settings-reference.md` is unchanged. Detection runs when the category is first shown and on **Check again**. | Planner, from E31 to E33: nothing in them needs to persist. Revisit if a stored choice is added. |
-| D9 | **A catalog command is data, and one string for every shell.** The catalog stores a command as an argument list. A token may hold letters, digits and `. _ - @ : + = /` only, so the joined string means the same in PowerShell, cmd and POSIX shells. A test rejects any entry that breaks the rule. | Planner. Command text that quotes differently per shell is the worst failure mode of this feature: a user pastes it. |
+| D9 | **A catalog command is data, and one string for every shell.** The catalog stores a command as an argument list. A token may hold letters, digits and `. _ - @ : + = /` only, and may not start with `@` (PowerShell reads `@name` as an argument as splatting), so the joined string means the same in PowerShell, cmd and POSIX shells. A test rejects any entry that breaks the rule. | Planner; the leading `@` from the T2 verifier (O10, owner 2026-10-27). Command text that quotes differently per shell is the worst failure mode of this feature: a user pastes it. |
 | D10 | **A registry result carries a command only when main can build it from a validated field.** Main never forwards a command string taken from the registry as it came. A package whose registry or identifier main cannot build safely shows its identifier and source as text and no command. | Planner, from D4. The same rule as D9, for text nobody reviewed. |
 | D11 | **Hand-off carries a catalog id, never text.** The seed that opens the project's Add form is the id of a catalog entry; the project window looks the entry up itself. A registry result has no hand-off (D4). | Planner. An id cannot smuggle a command into a form through a URL. |
 
@@ -61,6 +61,10 @@ reply's `command` facts are read; the variable and backend facts are not used. T
 (`found`, `missing`, `unknown`) and a reason code, which the renderer maps with the existing `reasonSentence`
 (exported from `src/renderer/panels/settings-external-mcp.js`). The check runs when the category is first shown, not
 when the window opens, and again on **Check again**. Open point O5 records why the existing IPC is used.
+`probeEntries` and `readProbe` in `src/shared/mcp-addon-catalog.js` build the throwaway entries (one per distinct
+executable) and read the reply back per command. A probe the reply says nothing usable about (rejected, absent, another
+name, a state outside `found`/`missing`/`unknown`) reads as `unknown` with reason `no-answer`, which `reasonSentence`
+words neutrally, never as `missing`.
 
 Two honest limits, both shown in the UI text:
 
@@ -79,14 +83,15 @@ is dropped by a sequence number; an error is a fixed sentence through `src/app/r
 `aria-live` region.
 
 The reply main returns holds names, short descriptions, the source URL as text, and per package the registry name, the
-identifier and, where D10 allows, a command. Strings are length-capped and stripped of control characters in main, and
+identifier and, where D10 allows, the install commands for `uv` and `pipx` (the catalog's two runtimes; no uninstall
+command, since nothing is detected for a registry result). Strings are length-capped and stripped of control characters in main, and
 set as text in the renderer. The registry is the official MCP Registry (O1); what its entries carry is under
 "Registry facts" below.
 
 ## Hand-off to a project
 
 The **Add to project** control is a project picker plus a button. It opens the project's settings
-(`window.api.openSettingsWindow('project', path)`) with a seed naming the catalog id. The settings window is one
+(`window.api.openSettingsWindow('project', path, { addon: id })`) with a seed naming the catalog id. The settings window is one
 window: the call navigates it from the global scope to the project scope, as the project gear does today. The seed has
 to survive that reload, and `settingsQuery` (`src/app/windows.js`) compares queries by their JSON, so it travels as a
 query key (O2). The project window selects the *MCP servers* category and opens the Add form seeded from the catalog
@@ -98,7 +103,8 @@ window the user is leaving (O3).
 ## Open
 
 **Answered (owner, 2026-10-27): every point below as recommended, and D8 to D11 above are confirmed.** The
-table keeps the reasoning; O1's facts are still to be read by the first plan step.
+table keeps the reasoning. O1's open facts were read in plan step T1 and are under "Registry facts"; O10 was added
+during the build (see "As built").
 
 | | Open point | Recommendation |
 |---|---|---|
@@ -119,9 +125,16 @@ name and both commands were checked against the upstream project, and what was c
 
 | Entry | Verified on | Checked against |
 |---|---|---|
-| jcodemunch | *not yet* | |
-| jdocmunch | *not yet* | |
-| jdatamunch | *not yet* | |
+| jcodemunch | 2026-10-27 | Package page `pypi.org/project/jcodemunch-mcp` (installs with `uv tool install` and `pipx install`); upstream `pyproject.toml` (`name`, `license = "LicenseRef-jCodeMunch-Dual-Use-1"`, `[project.scripts]` names `jcodemunch-mcp`); upstream `LICENSE` ("jCodeMunch-MCP — Dual-Use License", version 1.2: non-commercial use free, commercial use needs a paid license). |
+| jdocmunch | 2026-10-27 | Package page `pypi.org/project/jdocmunch-mcp` (`uv tool install`, `pipx install`); upstream `pyproject.toml` (`license = "LicenseRef-jDocMunch-Dual-Use"`, `[project.scripts]` names `jdocmunch-mcp`); upstream `LICENSE` ("jDocMunch-MCP — Dual-Use License", same terms). |
+| jdatamunch | 2026-10-27 | Package page `pypi.org/project/jdatamunch-mcp` (`uv tool install`, `pipx install`); upstream `pyproject.toml` (`license = "LicenseRef-jDataMunch-Dual-Use"`, `[project.scripts]` names `jdatamunch-mcp`); upstream `LICENSE` ("jDataMunch-MCP — Dual-Use License", same terms). |
+
+None of the three upstream READMEs names an uninstall command. The uninstall lines come from the runtimes themselves:
+`uv tool uninstall <NAME>` (`uv tool uninstall --help`, the argument is the tool name) and `pipx uninstall ENVIRONMENT`
+(the pipx CLI reference, `pipx.pypa.io/stable/reference/cli.html`; the environment is named after the package). The
+optional extras jdatamunch documents (`jdatamunch-mcp[excel,parquet]`) are not catalogued: the brackets break D9, and
+the base package is what every README installs first. The data is `src/shared/mcp-addon-catalog.js`; the rules are
+checked by `test/mcp-addon-catalog.test.js`.
 
 ## Registry facts
 
@@ -149,6 +162,61 @@ Read on 2026-10-27 (plan step T1) against the live service, unauthenticated.
   preview, so the plan treats its shape as able to change: the reply is validated field by field and anything
   unexpected is dropped, never passed through.
 
+## As built
+
+Built on 2026-10-27, as planned, with the open points O1 to O10 answered as recommended.
+
+| Part | Where |
+|---|---|
+| The catalog, the D9 token rule, the probe entries and reading their answer | `src/shared/mcp-addon-catalog.js` (`MCP_ADDON_CATALOG`, `commandLine`, `findCatalogItem`, `entryFromCatalog`, `probeEntries`, `readProbe`, `catalogProblems`); `test/mcp-addon-catalog.test.js` |
+| The registry search | `src/app/mcp-registry.js`, IPC `mcp-registry-search`, `window.api.searchMcpRegistry(term)`; `test/mcp-registry.test.js` |
+| The global category and Add to project | `bindAddons` and `openSeeded` in `src/renderer/panels/settings-external-mcp.js`; the host in `src/renderer/panels/settings-global-html.js` (`data-cat="mcp-addons"`); `test/settings-mcp-addons.test.js` |
+| The seed | `settingsQuery`/`shownQueryKey` in `src/app/windows.js`, `window.__SETTINGS_SEED__` in `src/renderer/panels/settings-window.js`, taken once in `src/renderer/panels/settings-panel.js`; `test/settings-window-scope.test.js`, `test/settings-mcp-addon-handoff.test.js` |
+
+What differs from the plan, and why:
+
+- **O10, added during the build.** D9 also refuses a token that starts with `@`, since PowerShell reads `@name` as an
+  argument as splatting. The registry identifiers go through the same rule.
+- **Two install commands per registry package.** A `pypi` package with a valid name gets the `uv` and the `pipx`
+  install line, the catalog's two runtimes, rather than one command. There is no uninstall line, because nothing is
+  detected for a registry result.
+- **Registry text** is cleaned by Unicode class. Control and format characters (zero-width, bidi, the tag characters)
+  are removed, tabs, line breaks and line separators become a space, and a cut never splits a surrogate pair. A reply
+  that is not JSON gets a fixed message, so an error page that echoes the term cannot put it in the debug log.
+- **O7.** The sentence about `uvx` is in the category's hint, once, not in every row.
+- **The picker** offers projects on the project list that exist on disk. Hidden ones, ones known only to a backend's
+  config, removed ones and worktrees are left out; a worktree's settings are its project's anyway. The list is read
+  once per panel build, when the category is first shown.
+- **The seed and the open window.** The window's "already showing this" key leaves the seed out. A seeded open always
+  loads, and a plain open of the same project afterwards only raises the window, so it keeps the form the seed
+  opened. A renderer reload re-reads the URL and opens the form again; nothing is written until Add and Save.
+- **No `addonsHtml`.** The category's host is static markup and `bindAddons` builds every row with the DOM, so no
+  catalog or registry text passes through `innerHTML`.
+
+What the click test (G2, on the demo instance) showed:
+
+- The PATH check and the project list run on the category's first show, not when the window opens.
+- Rows read "found" or "not checked: <reason>". The demo's PATH has a relative folder, so `pipx`, which is not
+  installed there, read as not checked rather than missing. (Before #793; that entry is an unexpanded `%USERPROFILE%`
+  folder, and the row now names it as such.)
+- One live registry search for "jcodemunch" returned one Unverified card with both install lines.
+- The settings search kept the matching rows.
+- Add to project showed the warning. Cancel opened nothing. Confirm opened the project on MCP servers with the form
+  filled in, and a plain open of the same project kept that form.
+- Add drew the card. The window's Cancel stored nothing, Save stored the entry, and reopening showed the card with
+  the facts line saying which backends take it.
+
+Not done in the click test:
+
+- A session launch carrying the server through `--mcp-config`. The entry the form writes is an ordinary spec 36
+  entry, and that injection path is confirmed there.
+- Copy against the real clipboard and a character-for-character paste. The unit tests stub the clipboard.
+- The registry cases beyond one search: typing without a request, a search with the network down, a second search
+  while the first is out, a long or odd name. The unit tests with a fake `fetch` and a fake IPC cover them; the app
+  did not.
+- An unsaved edit in the global window followed by a seeded open. The warning dialog says the edits are lost, and a
+  seeded open reloads the window, so they are.
+
 ## Known limits
 
 - The catalog is three entries long and grows by pull request; it is not a store (the issue: not a general plugin or
@@ -156,4 +224,6 @@ Read on 2026-10-27 (plan step T1) against the live service, unauthenticated.
 - A found executable is not a working server, and an installed server on a PATH the app has not seen reads as missing.
 - Registry results are unreviewed. The label says so; nothing here makes one safer than it is.
 - No uninstall check: after the user runs the uninstall command, **Check again** is how the row learns of it.
+- The registry request uses Node's `fetch` in the main process, not Electron's `net` module, so a system proxy setting
+  is presumably not applied. Not measured.
 - Flow (c), running the command after a confirmation, is not designed here.

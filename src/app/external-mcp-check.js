@@ -20,7 +20,7 @@
 // `log`) or through the `context` of `checkEntries`, so `node --test` loads it.
 
 const nodePath = require('node:path');
-const { expand, references, lookup, mergeEnv, foldEnvName } = require('../shared/env-expand');
+const { expand, references, lookupVar } = require('../shared/env-expand');
 const { validateExternalMcpServers } = require('../shared/external-mcp-validate');
 const { entryAppliesTo } = require('./mcp-inject');
 const { resolveCommands } = require('./path-resolve');
@@ -35,10 +35,10 @@ const MAX_ITEMS = 256;
 // The closed set of codes a reply can carry. The card maps each to a sentence (T5).
 const REASONS = Object.freeze({
   // command.state 'unknown' carries one of these (the resolver's, plus the caller's `unset-variable`)
-  command: Object.freeze(['network', 'unreadable', 'timeout', 'relative-path-entry', 'no-cwd', 'empty-name', 'unset-variable', 'path-overridden', 'backend-env-varies']),
+  command: Object.freeze(['network', 'unreadable', 'timeout', 'relative-path-entry', 'unexpanded-path-entry', 'no-cwd', 'empty-name', 'unset-variable', 'path-overridden', 'backend-env-varies']),
   commandStates: Object.freeze(['found', 'missing', 'unknown', 'not-applicable']),
   takes: Object.freeze(['entry-disabled', 'backend-filter', 'unset-variable', 'transport', 'cwd', 'no-channel']),
-  variableStates: Object.freeze(['app', 'backend-env', 'declared-unresolved', 'default', 'unset', 'mixed']),
+  variableStates: Object.freeze(['app', 'backend-env', 'declared-unresolved', 'default', 'unset']),
   variableFields: Object.freeze(['command', 'args', 'env', 'cwd', 'url', 'headers']),
 });
 
@@ -64,13 +64,6 @@ function copyEnv(env) {
   return out;
 }
 
-function lookupFolded(env, name, win) {
-  if (!win) return env[name];
-  if (env[name] !== undefined) return env[name];
-  const k = Object.keys(env).find((x) => foldEnvName(x) === foldEnvName(name));
-  return k === undefined ? undefined : env[k];
-}
-
 /**
  * One backend's own layer of the global `backendEnv`, resolved the way `resolveEnvRefs` resolves it: a whole-value
  * `$VAR` / `${VAR}` takes the app's value when that is a non-empty string and is DROPPED otherwise; a literal
@@ -80,9 +73,9 @@ function backendLayer(bundle, appEnv, win) {
   const values = {};
   const unresolved = new Set();
   if (!bundle || typeof bundle !== 'object') return { values, unresolved };
-  for (const [key, raw] of Object.entries(mergeEnv(win ? 'win32' : 'linux', bundle))) {
+  for (const [key, raw] of Object.entries(bundle)) {
     if (isEnvRef(raw)) {
-      const got = lookupFolded(appEnv, refVarName(raw), win);
+      const got = lookupVar(appEnv, refVarName(raw), win);
       if (typeof got === 'string' && got !== '') values[key] = got;
       else unresolved.add(key);
     } else {
@@ -94,15 +87,17 @@ function backendLayer(bundle, appEnv, win) {
 
 /**
  * The environment `${VAR}` expands against for one backend: the app's, then the backend's layer. Lookup is by
- * the platform's name rules, as `expand` does it at launch.
+ * the exact name first and, on win32, case-insensitively after it, as `expand` does it at launch (#794).
  */
-function layeredEnv(appEnv, layer, win) {
-  return mergeEnv(win ? 'win32' : 'linux', appEnv, layer.values);
+function layeredEnv(appEnv, layer) {
+  // Exactly spawn's `{ ...process.env, ...layer }`: keys that differ only in case stay two keys, and `expand`
+  // takes the exact spelling before a folded one.
+  return { ...appEnv, ...layer.values };
 }
 
 const hasValue = (env, name, hasDefault, win) => {
-  const value = lookup(env, name, win ? 'win32' : 'linux');
-  return value !== undefined && (!hasDefault || value !== '');
+  const v = lookupVar(env, name, win);
+  return v !== undefined && (!hasDefault || v !== '');
 };
 
 // The fields of an entry that are expanded at launch, as [field, string] pairs. Env KEYS and header names are not.
@@ -123,11 +118,11 @@ function expandedFields(entry) {
 // Every name with no default that `env` lacks, over all expanded fields — the launch's own `expand` pass.
 function missingIn(entry, env, win) {
   const missing = new Set();
-  for (const [, text] of expandedFields(entry)) expand(text, env, missing, win ? 'win32' : 'linux');
+  for (const [, text] of expandedFields(entry)) expand(text, env, missing, { foldCase: win });
   return missing;
 }
 
-function variablesOf(entry, appEnv, layers, activeLayers, win) {
+function variablesOf(entry, appEnv, layers, win) {
   const seen = new Set();
   const out = [];
   for (const [field, text] of expandedFields(entry)) {
@@ -137,24 +132,13 @@ function variablesOf(entry, appEnv, layers, activeLayers, win) {
       seen.add(key);
       let state;
       let backendIds;
-      const platform = win ? 'win32' : 'linux';
-      const appValue = lookup(appEnv, name, platform);
-      const overrides = layers.filter((l) => lookup(l.env, name, platform) !== appValue);
-      const effective = (env) => {
-        const value = lookup(env, name, platform);
-        return hasDefault && (value === undefined || value === '') ? null : value;
-      };
-      const outcomes = new Set(activeLayers.map((l) => effective(l.env)));
-      if (outcomes.size > 1) state = 'mixed';
-      else if (hasValue(appEnv, name, hasDefault, win) && !overrides.length) state = 'app';
+      if (hasValue(appEnv, name, hasDefault, win)) state = 'app';
       else {
-        const ids = overrides.length && appValue !== undefined
-          ? overrides.filter((l) => hasValue(l.env, name, hasDefault, win)).map((l) => l.id)
-          : layers.filter((l) => hasValue(l.env, name, hasDefault, win)).map((l) => l.id);
+        const ids = layers.filter((l) => hasValue(l.env, name, hasDefault, win)).map((l) => l.id);
         if (ids.length) { state = 'backend-env'; backendIds = ids; }
         // A default is what the launch uses when nothing else sets the variable, so it outranks a dropped reference.
         else if (hasDefault) state = 'default';
-        else state = layers.some((l) => [...l.layer.unresolved].some((key) => win ? foldEnvName(key) === foldEnvName(name) : key === name)) ? 'declared-unresolved' : 'unset';
+        else state = layers.some((l) => l.layer.unresolved.has(name)) ? 'declared-unresolved' : 'unset';
       }
       const row = { name, field, hasDefault, state };
       if (backendIds) row.backendIds = backendIds;
@@ -209,7 +193,7 @@ function withinLimits(raw) {
 async function checkEntries(entries, context = {}) {
   const list = Array.isArray(entries) ? entries : [];
   const win = isWin(context);
-  const appEnv = mergeEnv(win ? 'win32' : 'linux', copyEnv(context.env));
+  const appEnv = copyEnv(context.env);
   const backendEnv = context.backendEnv && typeof context.backendEnv === 'object' ? context.backendEnv : {};
   const projectPath = typeof context.projectPath === 'string' && context.projectPath && context.projectPath.length <= MAX_STRING
     ? context.projectPath : null;
@@ -227,15 +211,13 @@ async function checkEntries(entries, context = {}) {
 
   const checked = (Array.isArray(context.backends) ? context.backends : []).map((backend) => {
     const layer = backendLayer(backendEnv[backend.id], appEnv, win);
-    return { id: backend.id, label: String(backend.label || backend.id), backend, layer, env: layeredEnv(appEnv, layer, win) };
+    return { id: backend.id, label: String(backend.label || backend.id), backend, layer, env: layeredEnv(appEnv, layer) };
   });
 
   // The command fact is one answer per entry: the app's environment, then (for a variable it lacks) the first
   // backend that carries it.
   const commandEnv = { ...appEnv };
-  for (const c of checked) for (const [k, v] of Object.entries(c.env)) {
-    if (lookup(commandEnv, k, win ? 'win32' : 'linux') === undefined) commandEnv[k] = v;
-  }
+  for (const c of checked) for (const [k, v] of Object.entries(c.env)) if (commandEnv[k] === undefined) commandEnv[k] = v;
 
   const pathMod = win ? nodePath.win32 : nodePath.posix;
   const isPathKey = (k) => (win ? k.toUpperCase() === 'PATH' : k === 'PATH');
@@ -249,28 +231,21 @@ async function checkEntries(entries, context = {}) {
   const plans = servers.map((entry) => {
     const plan = { entry, command: { state: 'not-applicable' }, name: null, group: null };
     if (entry.transport !== 'stdio') return plan;
-    const platform = win ? 'win32' : 'linux';
-    const candidates = checked.filter(({ backend, env }) => {
-      const caps = backend.externalMcpTakes;
-      if (!entryAppliesTo(entry, backend).applies || !caps || !Array.isArray(caps.transports) || !caps.transports.includes('stdio')) return false;
-      if (missingIn(entry, env, win).size) return false;
-      const cwd = entry.cwd === undefined ? '' : expand(entry.cwd, env, new Set(), platform);
-      return cwd === '' || caps.cwd === true;
-    });
+    const expandedCwd = (env) => (entry.cwd !== undefined ? expand(entry.cwd, env, new Set(), { foldCase: win }) : '');
+    const takes = takesRows(entry, checked, expandedCwd, win);
+    const candidates = checked.filter((c) => takes.some((t) => t.id === c.id && t.takes));
     const variants = new Set(candidates.map(({ env }) => JSON.stringify([
-      expand(entry.command, env, new Set(), platform),
-      entry.cwd === undefined ? '' : expand(entry.cwd, env, new Set(), platform),
+      expand(entry.command, env, new Set(), { foldCase: win }), expandedCwd(env),
     ])));
-    if (variants.size > 1 || (variants.size === 1 && candidates.length &&
-      [...variants][0] !== JSON.stringify([expand(entry.command, commandEnv, new Set(), platform),
-        entry.cwd === undefined ? '' : expand(entry.cwd, commandEnv, new Set(), platform)]))) {
+    if (variants.size > 1) {
       plan.command = { state: 'unknown', reason: 'backend-env-varies' };
       return plan;
     }
+    const effectiveEnv = candidates.length ? candidates[0].env : commandEnv;
     const missing = new Set();
-    const command = expand(entry.command, commandEnv, missing, win ? 'win32' : 'linux');
+    const command = expand(entry.command, effectiveEnv, missing, { foldCase: win });
     if (missing.size) { plan.command = { state: 'unknown', reason: 'unset-variable' }; return plan; }
-    let cwd = entry.cwd !== undefined ? expand(entry.cwd, commandEnv, missing, win ? 'win32' : 'linux') : '';
+    let cwd = entry.cwd !== undefined ? expand(entry.cwd, effectiveEnv, missing, { foldCase: win }) : '';
     if (missing.size) cwd = '';
     plan.name = command;
     // A bare name walks PATH (the launch's directory is irrelevant); a path is relative to the entry's own cwd.
@@ -299,7 +274,7 @@ async function checkEntries(entries, context = {}) {
   const byIndex = new Map();
   plans.forEach((plan, k) => {
     const { entry } = plan;
-    const expandedCwd = (env) => (entry.cwd !== undefined ? expand(entry.cwd, env, new Set(), win ? 'win32' : 'linux') : '');
+    const expandedCwd = (env) => (entry.cwd !== undefined ? expand(entry.cwd, env, new Set(), { foldCase: win }) : '');
     const takes = takesRows(entry, checked, expandedCwd, win);
     if (plan.name !== null) {
       const a = answers.get(plan.group === null ? '\0' : plan.group).get(plan.name);
@@ -313,9 +288,7 @@ async function checkEntries(entries, context = {}) {
       if (typeof a.executable === 'boolean') command.executable = a.executable;
       plan.command = command;
     }
-    const relevant = checked.filter((c) => entryAppliesTo(entry, c.backend).applies && c.backend.externalMcpTakes
-      && Array.isArray(c.backend.externalMcpTakes.transports) && c.backend.externalMcpTakes.transports.includes(entry.transport));
-    const variables = variablesOf(entry, appEnv, relevant, relevant.filter((c) => takes.some((t) => t.id === c.id && t.takes)), win);
+    const variables = variablesOf(entry, appEnv, checked.map((c) => ({ id: c.id, env: c.env, layer: c.layer })), win);
     byIndex.set(indices[k], {
       index: indices[k],
       name: entry.name,

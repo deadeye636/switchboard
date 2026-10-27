@@ -868,6 +868,12 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
       </div>`;
       wireTwoPane();
       window.settingsExternalMcp.bind(settingsViewerBody, listenerSignal, projectPath);
+      // #790: opened from the global catalog's "Add to project" — show MCP servers with the Add form prefilled. The
+      // seed is one-shot (settings-window.js sets it from the URL): taken and cleared here, so Apply's rebuild, which
+      // calls this function again without a reload, does not open the form a second time.
+      const addonSeed = window.__SETTINGS_SEED__;
+      window.__SETTINGS_SEED__ = null;
+      if (addonSeed && window.settingsExternalMcp.openSeeded(settingsViewerBody, listenerSignal, addonSeed.addon)) restoreCat('mcp');
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
@@ -931,6 +937,11 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
       // window would be a button that appears to do nothing.
       const tourBtn = settingsViewerBody.querySelector('#sv-show-welcome-tour');
       if (tourBtn) tourBtn.addEventListener('click', () => window.api.showWelcomeTour?.());
+
+      // #790: the MCP servers catalog. Bound before the nav wiring, so its rows exist and its `settings-cat-shown`
+      // listener is in place before anything can show the category (the PATH check waits for that first show).
+      // Its nav entry has no count badge.
+      if (window.settingsExternalMcp) window.settingsExternalMcp.bindAddons(settingsViewerBody, listenerSignal);
 
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.

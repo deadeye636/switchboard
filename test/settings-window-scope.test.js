@@ -12,7 +12,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { settingsQuery } = require('../src/app/windows');
+const { settingsQuery, shownQueryKey } = require('../src/app/windows');
 
 const PROJECT = 'D:\\repo';
 const WORKTREE = PROJECT + '\\.claude\\worktrees\\wt1';
@@ -54,4 +54,36 @@ test('two worktrees of one project produce different queries', () => {
   const plain = JSON.stringify(settingsQuery('project', PROJECT));
   assert.notEqual(a, b);
   assert.notEqual(a, plain, 'and neither is the same as opening the project directly');
+});
+
+// #790 (spec 38, D11): a catalog id opens the project's MCP servers Add form. Only an id the catalog knows rides in
+// the query, only for a project, and it makes the open a different thing from an unseeded one.
+test('a catalog seed joins a project query only when the catalog knows the id', () => {
+  assert.deepEqual(settingsQuery('project', PROJECT, { addon: 'jcodemunch' }),
+    { scope: 'project', path: PROJECT, addon: 'jcodemunch' });
+  for (const seed of [{ addon: 'not-in-catalog' }, { addon: 'JCODEMUNCH' }, { addon: '' }, { addon: 42 },
+    { addon: { id: 'jcodemunch' } }, 'jcodemunch', null, undefined, ['jcodemunch']]) {
+    assert.deepEqual(settingsQuery('project', PROJECT, seed), { scope: 'project', path: PROJECT }, JSON.stringify(seed));
+  }
+  assert.deepEqual(settingsQuery('global', null, { addon: 'jcodemunch' }), { scope: 'global' },
+    'the global scope never carries a seed');
+  assert.notEqual(JSON.stringify(settingsQuery('project', PROJECT, { addon: 'jdocmunch' })),
+    JSON.stringify(settingsQuery('project', PROJECT)), 'a seeded open is not the window already showing that project');
+});
+
+test('a seed for a worktree opens its project', () => {
+  assert.deepEqual(settingsQuery('project', WORKTREE, { addon: 'jdatamunch' }),
+    { scope: 'project', path: PROJECT, worktree: 'wt1', addon: 'jdatamunch' });
+});
+
+test('the window\'s "already showing this" key leaves the one-shot seed out', () => {
+  // A seeded open loads (its query differs from the key of what is shown); a later plain open of the same project
+  // then matches that key and only raises the window, instead of reloading it over the form the seed opened.
+  const seeded = settingsQuery('project', PROJECT, { addon: 'jcodemunch' });
+  const plain = settingsQuery('project', PROJECT);
+  assert.equal(shownQueryKey(seeded), shownQueryKey(plain));
+  assert.equal(shownQueryKey(plain), JSON.stringify(plain));
+  assert.notEqual(shownQueryKey(plain), JSON.stringify(seeded), 'a seeded open is never "the same thing"');
+  assert.notEqual(shownQueryKey(settingsQuery('project', WORKTREE, { addon: 'jcodemunch' })), shownQueryKey(plain),
+    'the worktree label still tells two opens apart');
 });

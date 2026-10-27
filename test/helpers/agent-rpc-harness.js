@@ -36,6 +36,7 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
   const rekeys = [];
   const clipped = [];
   const logged = [];
+  const warned = [];
   const tag = `tag-${++harnesses}`;
   const window = { isDestroyed: () => false, webContents: { send: (ch, id, op) => sent.push({ ch, id, op }) } };
   agentRpc.init({
@@ -63,14 +64,14 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
     // Electron's own parts arrive through ctx, which is what keeps this module loadable here at all.
     dataDir,
     clipboard: { writeText: (text) => clipped.push(text) },
-    log: { info: (line) => logged.push(line), warn() {}, debug() {} },
+    log: { info: (line) => logged.push(line), warn: (line) => warned.push(line), debug() {} },
     approvalMemory,
   });
   const proc = agentRpc.start({
     tag, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId,
   });
   activeSessions.set('launch-id', { pty: proc, _terminalTag: tag, exited: false });
-  return { activeSessions, sent, signals, rekeys, clipped, logged, proc, tag };
+  return { activeSessions, sent, signals, rekeys, clipped, logged, warned, proc, tag };
 }
 
 // Kill the child AND wait for it to be gone, so a file's tests do not pile up processes. Waiting is NOT what

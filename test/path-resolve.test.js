@@ -299,3 +299,26 @@ test('source: no synchronous fs call in the module', () => {
   assert.doesNotMatch(src, /Sync\s*\(/);
   assert.doesNotMatch(src, /child_process|require\(['"]electron['"]\)|db\/db/);
 });
+
+// #793: a Windows PATH entry that still holds a `%NAME%` is a relative folder with that literal name (nothing expands
+// it when a process searches PATH; measured with a Node spawn). It is skipped, and a miss says why.
+test('win32: an unexpanded %VAR% entry is named as the reason, not as a plain relative folder', async () => {
+  const f = makeFs({ 'C:\\tools': ['x.exe'] });
+  const env = { Path: '%USERPROFILE%\\AppData\\Local\\Microsoft\\WindowsApps;C:\\tools' };
+  assert.deepEqual(await resolveCommand('nothing', win({ fs: f.fs, env })), { state: 'unknown', reason: 'unexpanded-path-entry' });
+  assert.ok(!f.calls.readdir.some((d) => d.includes('%')), 'the literal folder is not read');
+  assert.equal((await resolveCommand('x', win({ fs: f.fs, env }))).state, 'found', 'a hit elsewhere still counts');
+
+  // Both kinds on one PATH: the unexpanded one is named, because it is the one the user can fix.
+  const both = makeFs({ 'C:\\tools': [] });
+  const mixed = { Path: 'bin;%LOCALAPPDATA%\\apps;C:\\tools' };
+  assert.deepEqual(await resolveCommand('nothing', win({ fs: both.fs, env: mixed })), { state: 'unknown', reason: 'unexpanded-path-entry' });
+
+  // On POSIX a `%` is an ordinary character: the entry is just relative.
+  const p = makeFs({ '/opt/a': [] });
+  assert.deepEqual(await resolveCommand('nothing', posix({ fs: p.fs, env: { PATH: '%X%/bin:/opt/a' } })), { state: 'unknown', reason: 'relative-path-entry' });
+
+  // A lone percent sign is no variable.
+  const lone = makeFs({ 'C:\\tools': [] });
+  assert.deepEqual(await resolveCommand('nothing', win({ fs: lone.fs, env: { Path: '50%off;C:\\tools' } })), { state: 'unknown', reason: 'relative-path-entry' });
+});

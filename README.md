@@ -162,6 +162,12 @@ chart rather than a row of zeroes.
   Claude sessions with only the servers Switchboard injects (off by default; Claude only). Each card says, without
   starting anything, whether the command is found, which `${VAR}` references are unset, and which backends take it.
   → [`docs/specs/36-external-mcp-servers.md`](docs/specs/36-external-mcp-servers.md)
+- **MCP server catalog** — global settings list a few reviewed MCP servers (jcodemunch, jdocmunch, jdatamunch) with
+  their source and licence, say whether `uv`, `pipx` and the server are on PATH, and show the install and uninstall
+  commands with a Copy button. Switchboard never runs them. *Add to project* opens a project's MCP servers with the
+  server filled in. A search of the official MCP Registry runs only when you press Search; its results are marked
+  Unverified and are text to copy.
+  → [`docs/specs/38-mcp-addon-catalog.md`](docs/specs/38-mcp-addon-catalog.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey

@@ -217,6 +217,13 @@ const CATALOG = [
     declaredBy: 'providesMcpPrune',
   },
   {
+    id: 'review',
+    group: 'resources',
+    label: 'Run a review for another session',
+    description: 'Whether a session in another CLI can ask this one for a read-only second opinion: one turn, started by Switchboard, every ask refused (spec 39).',
+    declaredBy: 'reviewProfile',
+  },
+  {
     id: 'plans',
     group: 'resources',
     label: 'Plan documents',

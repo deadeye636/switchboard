@@ -321,6 +321,8 @@ module.exports = {
   providesMcpInjection: false,
   // Per-spawn MCP prune (spec 36): declines for now; no `buildMcpPrune` until a step wires one.
   providesMcpPrune: false,
+  // Not a review target (spec 39): a review runs on a pipe, and Hermes has no pipe driver here.
+  reviewProfile: () => null,
   // External MCP servers (spec 36): no channel for them at all.
   externalMcpTakes: null,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
@@ -345,6 +347,7 @@ module.exports = {
     quota: { state: 'no', note: 'reports no plan allowance' },
     mcpInject: { state: 'no', note: 'declines for now; no per-spawn MCP channel is wired for it yet' },
     mcpPrune: { state: 'no', note: 'declines; Hermes has no per-launch channel to hide the servers it loads itself' },
+    review: { state: 'no', note: 'a review runs on a pipe, and Hermes has no pipe driver here' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',

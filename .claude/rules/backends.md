@@ -586,6 +586,10 @@ answers instead of the core learning its format:
   its images inline. Spec 33 has the rest.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
+- `assistantTextOf(entry)` — optional (spec 39). The text of a finished assistant entry in the backend's own shape,
+  `null` for anything else (a user line, a tool result, an assistant line holding only tool calls). The core hands it to
+  a session's observer (`agentRpc.observe`, the review runner's way of following a session without a view); one turn
+  yields several assistant entries and the observer keeps the last text. Both runtime-driven backends declare it.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own
   format, for an answer that means something only against what was asked. Claude ends a turn it was told to
   stop with the same `error_during_execution` result a failed turn gets (measured), so claude-native's
@@ -651,6 +655,13 @@ declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a togg
 `configFields` — a stored value it never offers opens nothing (spec 37, O9).
 
 **A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
+
+**A review target is ONE hook, `reviewProfile()` (spec 39):** `{ options } | null`, answered by every backend (`null` to
+decline, with a comment naming why). The options are the read-only profile a review session starts with, in the backend's
+own option keys (claude-native `permissionMode: 'plan'`, pi-native `approvalGate: true`). `src/backends/review-targets.js`
+(`reviewTargets`) is the one place that decides what is offered: a profile, a `transport`, an `rpc.assistantTextOf`, not a
+template, launchable. The `review` capability row says the same; `test/backend-parity.test.js` and
+`test/review-profile.test.js` pin both. A template does not inherit it (`NOT_INHERITED`).
 
 **What a backend takes of a project's external servers is `externalMcpTakes` (spec 36, slice D):** `{ transports, cwd } | null`, answered by every backend (`null` = no channel; `cwd: false` = an entry with a `cwd` is not given at all, declined rather than stripped) and forwarded by a template; it also covers Pi and pi-native, which take servers through the resources extension without the quartet, and `test/external-mcp-takes.test.js` pins each answer against the real emitter.
 

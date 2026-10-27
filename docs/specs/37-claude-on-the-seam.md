@@ -119,7 +119,29 @@ Numbered, stable. The plan carries the same list; an answered point says so.
    **Answered (owner): not set.** In Claude's default auto mode the call ran with no prompt (M1), so the hint would
    buy nothing there.
 2. **O2 Tool-call timeout** (spec 35 O2). Claude's per-call timeout against the bridge's blocking cap. Not blocking 2a
-   (the four tools answer quickly); it matters for 2b.
+   (the four tools answer quickly); it matters for 2b. **Facts read 2026-10-27** (installed claude 2.1.311, codex-cli
+   0.162.1, agy 1.4.8, pi 1.1.0; no model turn run, so no timeout was triggered):
+   - **Claude** (terminal and claude-native, one binary): a call has a wall-clock limit of about 28 hours and an idle
+     limit of 5 min for an HTTP server (30 min for stdio). Progress notifications reset the idle timer only; the binary
+     says "progress notifications do not extend" the wall-clock limit. Per server `"timeout": <ms>` (documented for
+     `.mcp.json`; for `--mcp-config` unverified), env `MCP_TOOL_TIMEOUT` and `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`. A
+     main-conversation call still running after 2 min becomes a background task (`CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS`);
+     whether that applies to claude-native's pipe is unverified. Source: code.claude.com/docs/en/mcp and strings in the
+     installed binary.
+   - **Codex:** tool 300 s and connect 30 s in the source at `rust-v0.162.1` (`codex-rs/codex-mcp/src/rmcp_client.rs`),
+     while its docs say 60 s and 10 s. Per server `tool_timeout_sec` / `startup_timeout_sec`, at launch
+     `-c mcp_servers.<name>.tool_timeout_sec=<n>` (key names present in the binary; the `-c` form not run). Progress
+     is only logged.
+   - **agy:** the tool-call default is not known. The binary bounds each call ("timed out after …") and knows a
+     per-server `timeoutSeconds`; its meaning is inferred from the name. Unmeasured.
+   - **Pi** through Switchboard's own section (`src/backends/pi/mcp-section.js`): no limit on `tools/call`; only the
+     user's abort ends one.
+   - **Switchboard today** writes no timeout field into any injected entry (`src/backends/claude/mcp-inject.js`,
+     `codex/mcp-inject.js`, `agy/mcp-inject.js`), so the `switchboard` row runs on each CLI's default. The bridge's own
+     cap is the diff tool's (`DIFF_TIMEOUT_MS`, 10 min, `src/servers/mcp-bridge.js`).
+
+   So a call that blocks for minutes is not safe on every backend without a per-launch timeout, and on agy not known at
+   all; progress notifications are no way around that. **Still open:** the decision is part of 2b's proposal.
 3. **O3 Approval allow-listing.** `--allowedTools` for `mcp__switchboard__*`, so a read-only call needs no prompt.
    **Answered (owner): no.** The terminal asks nothing in auto mode, and the conversation view's card already offers
    "Always allow every mcp__switchboard__listSessions call in this project" (M3).
@@ -143,6 +165,17 @@ Not designed here. Each is its own plan with its own go.
 
 - **Slice 2b, `runReview`.** A narrow read-only spawn tool: one turn on a pipe-driven backend, read-only, shared
   cwd, asynchronous with polling, depth at most one. Needs its own proposal (CLAUDE.md reflex 16).
+  **Proposal decided (owner, 2026-10-27), design to follow in its own spec:**
+  - **Contract: handle and poll** (`startReview` answers an id, `reviewResult(id)` answers running or the text), not
+    one blocking call. Reason: O2 above; it holds whatever each CLI's timeout is, agy's included.
+  - **Runner: a real pipe-driven Switchboard session** through `src/app/agent-rpc.js` (claude-native, pi-native as
+    targets first), not a headless one-shot CLI and not a request the user starts by hand.
+  - **Visible as a sidebar row**, recognisable as the caller's child; no tab of its own.
+  - **Model: the target backend's default.**
+  - **Guardrails:** an opt-in toggle of its own (`reviewTools`, off by default); the review session gets no review
+    tool (depth 1); one running review per caller; at most 10 minutes, then stopped; the answer capped at about
+    32 KB; read-only (claude-native in plan mode, pi-native through its approval gate refusing writes; the plan
+    settles each backend's way).
 - **Pi on the seam.** Its own slice. First step is measurement M7: `pi mcp --help`, is there a per-launch config
   path, and does an http server take a header? Pi's own MCP section (`src/backends/pi/mcp-section.js`) is stdio
   only today.

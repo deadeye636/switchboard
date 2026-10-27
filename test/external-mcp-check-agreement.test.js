@@ -19,7 +19,8 @@ const { forgetListing } = require('../src/app/path-resolve');
 const OWNER = '/proj/app';
 const IDS = ['claude', 'claude-native', 'codex', 'agy', 'pi', 'pi-native', 'hermes'];
 
-const APP_ENV = { SET_VAR: 'a-value', EMPTY_VAR: '' };
+// `Folded_Var` is spelled differently from the `${FOLDED_VAR}` an entry writes: unset on POSIX, set on win32 (#794).
+const APP_ENV = { SET_VAR: 'a-value', EMPTY_VAR: '', Folded_Var: 'f-value' };
 // A whole-value `$VAR` is a reference that spawn resolves against the app (`resolveEnvRefs`) and drops when the
 // app lacks it; the launch side below does exactly that with the real function.
 const BACKEND_ENV = {
@@ -42,6 +43,7 @@ const FIXTURE = [
   { name: 'refok', transport: 'stdio', command: 'node', args: ['${REF_OK}'] },
   { name: 'refgone', transport: 'stdio', command: 'node', args: ['${REF_GONE}'] },
   { name: 'unsetcwd', transport: 'stdio', command: 'node', cwd: '${UNSET_VAR}/x' },
+  { name: 'foldvar', transport: 'stdio', command: 'node', args: ['${FOLDED_VAR}'] },
 ];
 
 const tmp = (prefix) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -78,11 +80,11 @@ function keptNames(backend, got, cwd) {
 }
 
 // -> { injected: Set<name>, why: Map<name, reason>, lines }
-async function launch(id) {
+async function launch(id, platform = 'linux') {
   const backend = backends.get(id);
   const { lines, log } = captureLog();
   const getSetting = (k) => (k === 'project:' + OWNER ? { externalMcpServers: FIXTURE } : {});
-  const source = externalServersSource({ backend, getSetting, projectPath: OWNER, getEnv: () => envFor(id), log });
+  const source = externalServersSource({ backend, getSetting, projectPath: OWNER, getEnv: () => envFor(id), log, platform });
   const dir = tmp('sb-agree-dir-');
   const cwd = tmp('sb-agree-cwd-');
   let injected = [];
@@ -118,19 +120,19 @@ async function launch(id) {
 }
 
 // Every mismatch between the launch and the check, as readable strings (empty = they agree).
-async function mismatches(overrides = {}) {
+async function mismatches(overrides = {}, platform = 'linux') {
   forgetListing();
   const descriptors = IDS.map((id) => {
     const real = backends.get(id);
     return { ...real, enabled: true, status: 'ready', ...(overrides[id] || {}) };
   });
   const results = await checkEntries(FIXTURE, {
-    projectPath: OWNER, env: { ...APP_ENV, PATH: '' }, backendEnv: BACKEND_ENV, backends: descriptors, platform: 'linux',
+    projectPath: OWNER, env: { ...APP_ENV, PATH: '' }, backendEnv: BACKEND_ENV, backends: descriptors, platform,
     fs: { promises: { readdir: async () => [], stat: async () => ({ isDirectory: () => false }) } },
   });
   const out = [];
   for (const id of IDS) {
-    const run = await launch(id);
+    const run = await launch(id, platform);
     FIXTURE.forEach((entry, i) => {
       const row = results[i].takes.find((t) => t.id === id);
       const taken = run.injected.has(entry.name);
@@ -148,6 +150,12 @@ async function mismatches(overrides = {}) {
 
 test('G2: the check and the real launch agree for every backend and every fixture entry', async () => {
   assert.deepEqual(await mismatches(), []);
+});
+
+test('#794: on win32 the check and the launch agree too, and a ${VAR} spelled differently is taken', async () => {
+  assert.deepEqual(await mismatches({}, 'win32'), []);
+  assert.equal((await launch('codex', 'win32')).injected.has('foldvar'), true);
+  assert.equal((await launch('codex', 'linux')).injected.has('foldvar'), false);
 });
 
 test('G2: the launch log lines carry no value', async () => {

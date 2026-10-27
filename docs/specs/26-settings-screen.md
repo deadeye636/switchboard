@@ -32,8 +32,9 @@ those two edits and nothing else.
 
 **The counts are counted** (#471). `settings-panel.js` fills each badge from its section's
 `.settings-field` elements after the markup is in. A category another module fills in later — Backends,
-Tags, Custom launchers — counts nothing and shows nothing, which is honest: the panel cannot count what it
-has not been given yet.
+Tags, Custom launchers, MCP servers — counts nothing and shows nothing, which is honest: the panel cannot count what it
+has not been given yet. MCP servers (#790, [spec 38](38-mcp-addon-catalog.md)) has no badge at all: its rows are
+`.settings-field`s so the search finds them, but they are catalog entries, not settings.
 
 The rule that comes with it, and the reason the grouping is worth writing down: **a field goes where its
 subject is.** Terminal is what a terminal does, not what happens to be reachable from one.

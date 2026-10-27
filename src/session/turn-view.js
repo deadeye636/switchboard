@@ -102,4 +102,5 @@ function buildTurnView(messages, opts = {}) {
   return view;
 }
 
-module.exports = { buildTurnView, DEFAULTS, MAXIMA };
+// `cutText` is also the review runner's cap on an answer (spec 39, O21).
+module.exports = { buildTurnView, cutText, DEFAULTS, MAXIMA };

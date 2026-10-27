@@ -30,7 +30,6 @@ const pty = require('node-pty');
 const { resolveShell, isWindows, isWslShell, windowsToWslPath, ptyShellArgs, quoteArgvForShell } = require('./shell-profiles');
 const { settingsOwnerPath } = require('../../shared/worktree-path');
 const { normalizeLauncher } = require('../../shared/custom-launchers');
-const { mergeEnv, foldEnvName } = require('../../shared/env-expand');
 const { classifyAttentionSignal } = require('../../shared/attention-source');
 const { appendToOutputBuffer, MAX_BUFFER_SIZE } = require('./output-buffer');
 const { decideOsc94 } = require('./osc-busy');
@@ -994,17 +993,14 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       const envLayers = () => {
         const { userEnv, templateEnv } = userEnvLayers();
         const baseEnv = { ...(launch.env || {}) };
-        const templateKeys = new Set(Object.keys(templateEnv).map((key) => process.platform === 'win32' ? foldEnvName(key) : key));
-        for (const key of Object.keys(baseEnv)) {
-          if (templateKeys.has(process.platform === 'win32' ? foldEnvName(key) : key)) delete baseEnv[key];
-        }
+        for (const key of Object.keys(templateEnv)) delete baseEnv[key];
         return { baseEnv, userEnv, templateEnv };
       };
       // The same env, resolved and without a word: its missing references are said once, by the spawn below.
       const quietSessionEnv = () => {
         const { baseEnv, userEnv, templateEnv } = envLayers();
         const quiet = (env) => ctx.resolveSpawnEnv(env, backend.label || backend.id, sessionId, { noticeMissing: false });
-        return mergeEnv(process.platform, process.env, quiet(mergeEnv(process.platform, quiet(baseEnv), userEnv, templateEnv)));
+        return { ...process.env, ...quiet({ ...quiet(baseEnv), ...userEnv, ...templateEnv }) };
       };
       if (backend.providesSessionResources === true && typeof backend.buildSessionResources === 'function') {
         try {
@@ -1236,14 +1232,17 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // Core terminal env comes from the backend layer (single source of truth): iTerm identity so
       // Claude emits OSC 9, plus the MCP IDE-bridge port when one was started. Byte-identical to the
       // former inline block; shared with every backend spawn (T-1.2).
-      let ptyEnv = mergeEnv(process.platform, ctx.cleanPtyEnv, ctx.backends.backendCoreEnv({ mcpPort: mcpServer ? mcpServer.port : undefined }),
+      const ptyEnv = {
+        ...ctx.cleanPtyEnv,
+        ...ctx.backends.backendCoreEnv({ mcpPort: mcpServer ? mcpServer.port : undefined }),
         // ISOLATED STORES (#241): a SWITCHBOARD_STORE_* override moves where Switchboard LOOKS, never
         // where the CLI WRITES — so a demo/sandbox session used to land in the user's real store and stay
         // invisible to the instance that launched it. The backend declares its own home variable
         // (CLAUDE_CONFIG_DIR, CODEX_HOME, …) and returns null when it isn't isolated, or has no such
         // variable at all (agy). Placed here, before the user's and the template's env, so an explicit
         // variable of theirs still wins.
-        (typeof backend.cliHomeEnv === 'function' ? (backend.cliHomeEnv() || {}) : {}));
+        ...(typeof backend.cliHomeEnv === 'function' ? (backend.cliHomeEnv() || {}) : {}),
+      };
 
       // Per-session AskUserQuestion timeout (#51): cascade session > project >
       // global, empty = inherit, `0` = off at that scope. Only inject when a POSITIVE value was chosen:
@@ -1287,8 +1286,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // `$VAR` refs are resolved here, at spawn, and never written to disk (§5.2).
       // The MCP injection's env (spec 34) goes in first, so the layers assigned just below — the user's and the
       // template's — still win over it. Unresolved, like the resources env: it is data, not a `$VAR` template.
-      if (mcpInjectionEnv) ptyEnv = mergeEnv(process.platform, ptyEnv, mcpInjectionEnv);
-      if (mcpPruneEnv) ptyEnv = mergeEnv(process.platform, ptyEnv, mcpPruneEnv);
+      if (mcpInjectionEnv) Object.assign(ptyEnv, mcpInjectionEnv);
+      if (mcpPruneEnv) Object.assign(ptyEnv, mcpPruneEnv);
       {
         const { baseEnv, userEnv, templateEnv } = envLayers();
 
@@ -1301,10 +1300,13 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
 
         // The template's name, not the backend's: three templates can reference three different keys,
         // and "OPENAI_API_KEY is not set" without saying WHOSE is a riddle (#169).
-        ptyEnv = mergeEnv(process.platform, ptyEnv, ctx.resolveSpawnEnv(
-          mergeEnv(process.platform, resolvedBaseEnv, userEnv, templateEnv), backend.label || backend.id, sessionId));
+        Object.assign(ptyEnv, ctx.resolveSpawnEnv({
+          ...resolvedBaseEnv,
+          ...userEnv,
+          ...templateEnv,
+        }, backend.label || backend.id, sessionId));
       }
-      if (sessionResourcesEnv) ptyEnv = mergeEnv(process.platform, ptyEnv, sessionResourcesEnv);
+      if (sessionResourcesEnv) Object.assign(ptyEnv, sessionResourcesEnv);
       const effectiveProfileId = sessionOptions?.profileId != null ? sessionOptions.profileId : (recorded?.profileId || null);
       ctx.sessionBackends.record(sessionId, backend.id, effectiveProfileId);
 
@@ -1896,7 +1898,7 @@ function envLayersOf(backend) {
 function resumeHookEnv(backend, layers, sessionId) {
   try {
     const { userEnv, templateEnv } = layers;
-    return ctx.resolveSpawnEnv(mergeEnv(process.platform, userEnv, templateEnv), backend.label || backend.id, sessionId, { noticeMissing: false });
+    return ctx.resolveSpawnEnv({ ...userEnv, ...templateEnv }, backend.label || backend.id, sessionId, { noticeMissing: false });
   } catch { return {}; }
 }
 
@@ -1951,4 +1953,7 @@ module.exports = {
   // #585: the silence notice's text and its deadline. Exported for the same reason the two above are —
   // the timer that uses them sits behind `pty.spawn`, which no test can reach.
   silentTerminalNotice, SILENT_TERMINAL_NOTICE_MS,
+  // Spec 39: the review runner's read-only profile is a session option, and its test pins that it wins over a
+  // stored default through this merge.
+  spawnOptionsFor,
 };
