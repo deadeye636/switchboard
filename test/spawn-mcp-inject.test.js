@@ -38,9 +38,16 @@ stub(path.join(__dirname, '..', 'src', 'app', 'mcp-inject.js'), {
 
 const spawn = require('../src/app/terminal/spawn');
 
+// The two group toggles count only where a backend declares them (spec 37, O9), so the fake declares both.
+const GROUP_FIELDS = [
+  { id: 'diffTool', type: 'toggle', default: false, appliesAt: 'spawn' },
+  { id: 'discoveryTools', type: 'toggle', default: false, appliesAt: 'spawn' },
+];
+
 function fakeBackend(over = {}) {
   return {
     id: 'codex', label: 'Codex', axis: 'B', status: 'ready',
+    configFields: GROUP_FIELDS,
     providesMcpInjection: true,
     buildLaunch: () => ({ command: 'codex', args: ['--base'], env: {} }),
     ...over,
@@ -232,6 +239,18 @@ test('the groups follow the toggles: diff, discovery, both, neither', async () =
   const none = await run('g4', {});
   assert.equal(none, undefined, 'neither toggle: nothing registered');
   assert.equal(ctx.readers.length, 0);
+});
+
+test('a toggle the backend does not declare opens no group, whatever is stored (spec 37, O9)', async () => {
+  reset();
+  const backend = fakeBackend({ acceptsMcpTransports: ['http'], configFields: [GROUP_FIELDS[1]] });
+  const ctx = setup({ backend });
+  await spawn.openTerminal('u1', CWD, true, { backendId: 'codex', diffTool: true });
+  assert.deepEqual(await composerCalls.at(-1).sources[0](), [], 'diffTool is not declared: nothing registers');
+  assert.equal(ctx.registered.length, 0);
+  await spawn.openTerminal('u2', CWD, true, { backendId: 'codex', diffTool: true, discoveryTools: true });
+  await composerCalls.at(-1).sources[0]();
+  assert.deepEqual(ctx.registered[0].groups, ['discovery'], 'only the declared one');
 });
 
 test('the own-server getWindow resolves the id the bridge passes, not the launch id (#330 re-key)', async () => {

@@ -236,6 +236,7 @@ test('setting on: the own server alone does not satisfy D-P6 when the project\'s
     // An http-only backend: the project's stdio server is dropped, the own http row is injected.
     project: { externalMcpPrune: true, externalMcpServers: [SERVER] },
     backend: fakeBackend({
+      configFields: [{ id: 'discoveryTools', type: 'toggle', default: false, appliesAt: 'spawn' }],
       providesMcpInjection: true, acceptsMcpTransports: ['http'],
       buildMcpInjection: ({ servers }) => { seen = servers.map((s) => s.name); return { args: ['--inj'], env: null, cleanup: null }; },
       providesMcpPrune: true, buildMcpPrune: () => ({ args: ['--prune'], env: null }),

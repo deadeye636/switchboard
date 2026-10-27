@@ -146,11 +146,15 @@ const listTools = async (client) => (await rpc(client, { jsonrpc: '2.0', id: nex
 const textOf = (r) => r.json.result.content[0].text;
 const dataOf = (r) => JSON.parse(textOf(r));
 
-/** Mirrors the two lines of spawn.js that turn the toggles into the group list. */
-function groupsFor(options) {
+/**
+ * Mirrors the lines of spawn.js that turn the toggles the backend declares into the group list (spec 37, O9). A
+ * copy: the real block is exercised by `test/spawn-claude-discovery.test.js` and `test/spawn-mcp-inject.test.js`.
+ */
+function groupsFor(options, backend) {
+  const declares = (id) => backend.configFields.some((f) => f.id === id);
   const groups = [];
-  if (options.diffTool === true) groups.push('diff');
-  if (options.discoveryTools === true) groups.push('discovery');
+  if (options.diffTool === true && declares('diffTool')) groups.push('diff');
+  if (options.discoveryTools === true && declares('discoveryTools')) groups.push('discovery');
   return groups;
 }
 
@@ -210,7 +214,7 @@ const SHAPES = {
 /** Spawn path with the real descriptor: compose the injection for the toggles; null when nothing registers. */
 async function spawn(shape, { sessionId, projectPath, options, reader }) {
   const { backend, clientOf } = SHAPES[shape];
-  const groups = groupsFor(options);
+  const groups = groupsFor(options, backend);
   const injection = await composeMcpInjection({
     backend, ctx: { log }, dir: bindingDir, cwd: projectPath, tag: sessionId, options,
     sources: [ownServerSource({

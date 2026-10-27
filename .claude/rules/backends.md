@@ -646,7 +646,9 @@ quartet in `profileToDescriptor`: the declaration without the hook it promises w
 which reuses terminal Claude's `--mcp-config` file — the gate `providesMcpInjection === true` no longer excludes a transport
 backend, and its injected tools are gated by its own `--permission-prompt-tool stdio` approval path. The registration carries tool GROUPS: besides `diff` there is a read-only `discovery`
 group (list a project's sessions and handoffs across backends, read a bounded transcript view), offered on
-agy and Codex through the `discoveryTools` option (spec 35).
+agy, Codex, Claude and claude-native through the `discoveryTools` option (spec 35, spec 37). The Claude family
+declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a toggle the backend DECLARES in its
+`configFields` — a stored value it never offers opens nothing (spec 37, O9).
 
 **A prune is a flag and ONE hook, not a quartet (spec 36).** `providesMcpPrune` + `buildMcpPrune({ injectedNames, options, env, cwd, log })` → `{ args, env } | null`, composed by `src/app/mcp-prune.js`. There is no release half (launch arguments and environment only), so it is not a `HOOK_PAIRS` row; `test/backend-parity.test.js` pins the flag-and-hook shape separately. Every backend answers the flag, declining included, and the `mcpPrune` capability row says the same; a template forwards both in `profileToDescriptor`.
 

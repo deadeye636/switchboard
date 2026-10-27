@@ -1061,9 +1061,12 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         const mcpOptions = spawnOptionsFor(backend, projectPath, launchOptions);
         // The tool groups this launch's toggles turn on (spec 35, D7); none on means no registration. The
         // discovery reader is built here, from the caller's own session and project, and handed over.
+        // A toggle counts only where the backend declares it: a stored value it never offers (an imported blob, a
+        // template on a base that lacks it) must not open a group, e.g. `diff` beside Claude's `--ide` (spec 37, O9).
+        const declares = (id) => Array.isArray(backend.configFields) && backend.configFields.some((f) => f && f.id === id);
         const mcpGroups = [];
-        if (mcpOptions.diffTool === true) mcpGroups.push('diff');
-        if (mcpOptions.discoveryTools === true) mcpGroups.push('discovery');
+        if (mcpOptions.diffTool === true && declares('diffTool')) mcpGroups.push('diff');
+        if (mcpOptions.discoveryTools === true && declares('discoveryTools')) mcpGroups.push('discovery');
         const discovery = mcpGroups.includes('discovery') && typeof ctx.createDiscoveryReader === 'function'
           ? ctx.createDiscoveryReader({ projectPath, callerSessionId: sessionId })
           : null;

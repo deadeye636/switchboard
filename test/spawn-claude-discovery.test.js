@@ -8,7 +8,7 @@
 //   - toggle on: one registration with the `discovery` group, and `--mcp-config <file>` on the argv;
 //   - toggle off or absent: argv and env byte-identical to a launch with no injection at all (the differential);
 //   - project prune on: `--strict-mcp-config` once, and the hook keeps `switchboard`;
-//   - a stored `diffTool` that the Claude family never declares still registers the diff group (open point O9).
+//   - a stored `diffTool` that the Claude family never declares opens no group (O9, step T8).
 const test = require('node:test');
 const { after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -145,14 +145,17 @@ for (const [shape, make] of Object.entries(SHAPES)) {
     assert.ok(configFileIn(argv), 'the file with the switchboard row is still passed');
   });
 
-  test(`[${shape}] a stored diffTool the family never declares still registers the diff group (O9, pinned)`, async () => {
+  test(`[${shape}] a stored diffTool the family never declares opens no diff group (O9)`, async () => {
     // `spawnOptionsFor` layers stored options without asking which fields the descriptor declares. No control
-    // sets `diffTool` for Claude, so this needs a hand-edited or imported settings blob. Pinned as it behaves today;
-    // on terminal Claude the group then sits beside the `--ide` bridge, which carries diffs as well.
+    // sets `diffTool` for Claude, but an imported or hand-edited blob can; the spawn block counts a group toggle
+    // only where the backend declares it, so no `diff` group sits beside the `--ide` bridge.
     const backend = make();
     const key = backend.baseId || backend.id;
-    const { ctx } = await launch(backend, {}, { global: { backendDefaults: { [key]: { diffTool: true } } } });
-    assert.equal(ctx.registered.length, 1);
-    assert.deepEqual(ctx.registered[0].groups, ['diff']);
+    const stored = { global: { backendDefaults: { [key]: { diffTool: true } } } };
+    const { ctx, argv } = await launch(backend, {}, stored);
+    assert.equal(ctx.registered.length, 0, 'nothing registers');
+    assert.equal(configFileIn(argv), null);
+    const both = await launch(backend, { discoveryTools: true }, stored);
+    assert.deepEqual(both.ctx.registered[0].groups, ['discovery'], 'the declared toggle still works beside it');
   });
 }
