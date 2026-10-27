@@ -80,7 +80,8 @@ is dropped by a sequence number; an error is a fixed sentence through `src/app/r
 
 The reply main returns holds names, short descriptions, the source URL as text, and per package the registry name, the
 identifier and, where D10 allows, a command. Strings are length-capped and stripped of control characters in main, and
-set as text in the renderer. Which registry, and what its entries carry, is open: see O1 and the first plan step.
+set as text in the renderer. The registry is the official MCP Registry (O1); what its entries carry is under
+"Registry facts" below.
 
 ## Hand-off to a project
 
@@ -124,8 +125,29 @@ name and both commands were checked against the upstream project, and what was c
 
 ## Registry facts
 
-Filled in by plan step T1: the endpoint and parameters used, the schema URL, what a package entry carries, any usage
-terms or rate limit, and the date it was read.
+Read on 2026-10-27 (plan step T1) against the live service, unauthenticated.
+
+- **Endpoint.** `GET https://registry.modelcontextprotocol.io/v0.1/servers` answers JSON with no login. `v0` answered
+  the same body. Parameters used: `search` (a substring of the name), `version=latest` and `limit`; the reply is
+  `{ servers: [...], metadata: { count, nextCursor? } }`, and a further page is asked with the cursor.
+- **One server, many rows.** Without `version=latest` a search answers every published version of a server as its own
+  row (a search for jcodemunch returned three versions of one server, each `isLatest: false`). The search therefore
+  always sends `version=latest`. A row is `{ server, _meta }`, and `_meta["io.modelcontextprotocol.registry/official"]`
+  carries `status`, `isLatest` and dates.
+- **Schema.** Each `server` names its schema: `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`.
+  A server has `name` (reverse-DNS, e.g. `io.github.<owner>/<repo>`), `title`, `description`, `version`, `repository`
+  (`url`, `source`), and `packages` and/or `remotes`.
+- **A package** requires `registryType` (`npm`, `pypi`, `oci`, `nuget`, `mcpb`), `identifier` (a package name, or a URL
+  for a direct download) and `transport`; optional are `version`, `runtimeHint` (examples in the schema: `npx`, `uvx`,
+  `docker`, `dnx`), `runtimeArguments`, `packageArguments`, `environmentVariables`, `registryBaseUrl`, `fileSha256`.
+- **The runtime hint is optional and was absent** on the three catalog servers: each is
+  `{ registryType: "pypi", identifier: "<name>-mcp", transport: { type: "stdio" } }`. So a command cannot come from the
+  hint. Under D10 main builds one only from `registryType: "pypi"` plus an identifier that passes the PyPI name rule
+  (`uv tool install <identifier>` / `pipx install <identifier>`); every other package type, and a server with only
+  `remotes`, shows its identifier and source as text and no command.
+- **Not found:** published usage terms or a rate limit for unauthenticated clients. The service calls itself a
+  preview, so the plan treats its shape as able to change: the reply is validated field by field and anything
+  unexpected is dropped, never passed through.
 
 ## Known limits
 
