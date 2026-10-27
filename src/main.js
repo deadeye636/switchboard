@@ -2221,6 +2221,10 @@ resourceSources.registerIpc(ipcMain);
 const externalMcpCheck = require('./app/external-mcp-check');
 externalMcpCheck.init({ backends, getSetting, isForeignNetworkFile, log });
 externalMcpCheck.registerIpc(ipcMain);
+// #790: the MCP Registry search behind the global "MCP servers" category — one GET, only on the user's click.
+const mcpRegistry = require('./app/mcp-registry');
+mcpRegistry.init({ log });
+mcpRegistry.registerIpc(ipcMain);
 const { detectSessionTransitions } = sessionTransitions;
 
 // Set once quit begins so a still-pending debounced flush (or a late worker

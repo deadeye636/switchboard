@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   // #789 slice D: what a launch could make of a project's external MCP entries (unsaved), as facts — no values.
   checkExternalMcp: (projectPath, entries) => ipcRenderer.invoke('external-mcp-check', { projectPath, entries }),
+  // #790: search the official MCP Registry — the term is sent there; results are unreviewed text.
+  searchMcpRegistry: (term) => ipcRenderer.invoke('mcp-registry-search', term),
   sessionBackends: {
     getAll: () => ipcRenderer.invoke('session-backends-get-all'),
   },

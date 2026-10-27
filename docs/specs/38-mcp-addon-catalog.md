@@ -79,7 +79,8 @@ is dropped by a sequence number; an error is a fixed sentence through `src/app/r
 `aria-live` region.
 
 The reply main returns holds names, short descriptions, the source URL as text, and per package the registry name, the
-identifier and, where D10 allows, a command. Strings are length-capped and stripped of control characters in main, and
+identifier and, where D10 allows, the install commands for `uv` and `pipx` (the catalog's two runtimes; no uninstall
+command, since nothing is detected for a registry result). Strings are length-capped and stripped of control characters in main, and
 set as text in the renderer. The registry is the official MCP Registry (O1); what its entries carry is under
 "Registry facts" below.
 
