@@ -63,12 +63,17 @@
     },
   ]);
 
+  /** What is wrong with an argument list under D9, worded, or null when every token is safe. */
+  function commandProblem(argv) {
+    if (!Array.isArray(argv) || argv.length === 0) return 'a command needs at least one token';
+    const bad = argv.find(token => typeof token !== 'string' || !SAFE_TOKEN.test(token));
+    return bad === undefined ? null : `unsafe command token: ${JSON.stringify(bad)}`;
+  }
+
   /** An argument list -> the one line a user pastes. Throws on a token outside the safe set (D9). */
   function commandLine(argv) {
-    if (!Array.isArray(argv) || argv.length === 0) throw new Error('a command needs at least one token');
-    for (const token of argv) {
-      if (typeof token !== 'string' || !SAFE_TOKEN.test(token)) throw new Error(`unsafe command token: ${JSON.stringify(token)}`);
-    }
+    const problem = commandProblem(argv);
+    if (problem) throw new Error(problem);
     return argv.join(' ');
   }
 
@@ -103,8 +108,9 @@
     const problems = [];
     const seen = new Set();
     const tokensOk = (argv, what) => {
-      try { commandLine(argv); } catch (err) { problems.push(`${what}: ${err.message}`); return false; }
-      return true;
+      const problem = commandProblem(argv);
+      if (problem) problems.push(`${what}: ${problem}`);
+      return !problem;
     };
     for (const [i, item] of (Array.isArray(catalog) ? catalog : []).entries()) {
       const at = `entry ${i} (${item && item.id})`;
