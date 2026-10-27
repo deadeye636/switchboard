@@ -2,11 +2,12 @@
 //
 // WHY THIS EXISTS:
 //   Every piece is tested alone (the reader, the tool group, the composer, the descriptors' injection hooks).
-//   This file walks the whole chain once: the REAL Codex and agy descriptors, the composer and the "own
+//   This file walks the whole chain once: the REAL Codex, agy, Claude and claude-native descriptors (the last two
+//   since spec 37, through the `--mcp-config` file), the composer and the "own
 //   server" source, the real HTTP listener and bridge, and the real project-scoped reader
 //   (`createDiscoveryReader`) over fake cache/meta/backend dependencies that hold TWO projects. A plain Node
 //   `http` client plays the CLI by PARSING what the injection produced: the Codex `-c` overrides plus the
-//   env token, or the agy plugin bundle's `mcp_config.json`. Whether a real CLI sends this traffic is G2's
+//   env token, the agy plugin bundle's `mcp_config.json`, or the Claude `--mcp-config` file. Whether a real CLI sends this traffic is G2's
 //   question, not this file's.
 //
 //   The toggle itself is read in `src/app/terminal/spawn.js` (node-pty at load, so it cannot be required
@@ -34,6 +35,8 @@ const { composeMcpInjection, ownServerSource } = require('../src/app/mcp-inject'
 const { createDiscoveryReader, NO_SUCH_SESSION, NO_SUCH_HANDOFF } = require('../src/app/discovery-reader');
 const codex = require('../src/backends/codex');
 const agy = require('../src/backends/agy');
+const claude = require('../src/backends/claude');
+const claudeNative = require('../src/backends/claude-native');
 
 const log = { info() {}, debug() {}, warn() {}, error() {} };
 const TOOLS = ['listSessions', 'readSession', 'listHandoffs', 'readHandoff'];
@@ -96,7 +99,7 @@ function treeOf(dir) {
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const full = path.join(d, e.name);
-      out.push(path.relative(tmpHome, full));
+      out.push(path.relative(dir, full));
       if (e.isDirectory()) walk(full);
     }
   };
@@ -108,7 +111,7 @@ function treeOf(dir) {
 function contentsOf(dir) {
   const out = {};
   for (const rel of treeOf(dir)) {
-    const full = path.join(tmpHome, rel);
+    const full = path.join(dir, rel);
     if (fs.statSync(full).isFile()) out[rel] = fs.readFileSync(full, 'utf8');
   }
   return out;
@@ -175,9 +178,33 @@ function agyClient(projectPath, tag) {
   return { url: entry.url, token: entry.headers.Authorization.replace(/^Bearer /, '') };
 }
 
+/**
+ * The Claude CLI's side (spec 37): the url and header out of the `--mcp-config` file the launch names. The file
+ * holds the token; argv holds only the path, and the env carries nothing.
+ */
+function claudeClient(injection) {
+  assert.equal(injection.args.length, 2);
+  assert.equal(injection.args[0], '--mcp-config');
+  assert.deepEqual(injection.env, {});
+  const file = injection.args[1];
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'owner-only');
+  const conf = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(conf.mcpServers), ['switchboard']);
+  const entry = conf.mcpServers.switchboard;
+  assert.equal(entry.type, 'http', 'without a type Claude would read the row as stdio');
+  const token = entry.headers.Authorization.replace(/^Bearer /, '');
+  assert.ok(token && !injection.args.join(' ').includes(token), 'the token is never on argv');
+  return { url: entry.url, token };
+}
+
+// The per-spawn directory a `--mcp-config` file goes to; outside `tmpHome`, whose contents the no-write checks compare.
+const bindingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-mcp-discovery-bind-'));
+
 const SHAPES = {
   codex: { backend: codex, clientOf: (injection) => codexClient(injection) },
   agy: { backend: agy, clientOf: (injection, projectPath, tag) => agyClient(projectPath, tag) },
+  claude: { backend: claude, clientOf: (injection) => claudeClient(injection) },
+  'claude-native': { backend: claudeNative, clientOf: (injection) => claudeClient(injection) },
 };
 
 /** Spawn path with the real descriptor: compose the injection for the toggles; null when nothing registers. */
@@ -185,7 +212,7 @@ async function spawn(shape, { sessionId, projectPath, options, reader }) {
   const { backend, clientOf } = SHAPES[shape];
   const groups = groupsFor(options);
   const injection = await composeMcpInjection({
-    backend, ctx: { log }, cwd: projectPath, tag: sessionId, options,
+    backend, ctx: { log }, dir: bindingDir, cwd: projectPath, tag: sessionId, options,
     sources: [ownServerSource({
       backend, groups, discovery: groups.includes('discovery') ? reader : null,
       registerSession: mcpHttp.registerSession, sessionId, projectPath, getWindow: () => null, log,
@@ -195,7 +222,10 @@ async function spawn(shape, { sessionId, projectPath, options, reader }) {
   return { injection, groups, client: clientOf(injection, projectPath, sessionId) };
 }
 
-after(() => { mcpHttp.shutdownListener(); });
+after(() => {
+  mcpHttp.shutdownListener();
+  fs.rmSync(bindingDir, { recursive: true, force: true });
+});
 
 for (const shape of Object.keys(SHAPES)) {
   const backend = SHAPES[shape].backend;
@@ -220,8 +250,19 @@ for (const shape of Object.keys(SHAPES)) {
     }
   });
 
-  test(`[${shape}] both toggles: both tool sets; only diff: openDiff only; neither: nothing registers`, async () => {
+  // The Claude family declares no `diffTool` (spec 37, E2a: diffs stay on `--ide`), so only the "neither" half applies.
+  const offersDiff = backend.configFields.some((f) => f.id === 'diffTool');
+
+  test(`[${shape}] ${offersDiff ? 'both toggles: both tool sets; only diff: openDiff only; neither' : 'no diff toggle; discovery off'}: nothing registers`, async () => {
     const reader = readerFor(projectA, `${shape}-combo`);
+    if (!offersDiff) {
+      const before = [contentsOf(tmpHome), contentsOf(bindingDir)];
+      const none = await spawn(shape, { sessionId: `${shape}-none`, projectPath: projectA, options: {}, reader });
+      assert.deepEqual(none.groups, []);
+      assert.equal(none.injection, null, 'toggle absent: no row, no token, no --mcp-config');
+      assert.deepEqual([contentsOf(tmpHome), contentsOf(bindingDir)], before, 'nothing was written');
+      return;
+    }
     const both = await spawn(shape, { sessionId: `${shape}-both`, projectPath: projectA, options: { diffTool: true, discoveryTools: true }, reader });
     try {
       assert.deepEqual((await listTools(both.client)).sort(), ['openDiff', ...TOOLS].sort());
@@ -322,13 +363,14 @@ for (const shape of Object.keys(SHAPES)) {
     const s = await spawn(shape, { sessionId: `${shape}-rekey-old`, projectPath: projectA, options: { discoveryTools: true }, reader });
     try {
       // The injection itself (the agy bundle) is already on disk; the calls must add nothing to it.
-      const before = contentsOf(tmpHome);
+      // The binding directory too: a Claude launch's `--mcp-config` file lives there.
+      const before = [contentsOf(tmpHome), contentsOf(bindingDir)];
       await call(s.client, 'listSessions');
       await call(s.client, 'readSession', { sessionId: 'a-1' });
       const id = dataOf(await call(s.client, 'listHandoffs')).handoffs[0].id;
       await call(s.client, 'readHandoff', { id });
       await call(s.client, 'readHandoff', { id: '../x.md' });
-      assert.deepEqual(contentsOf(tmpHome), before, 'no file or directory created, none rewritten');
+      assert.deepEqual([contentsOf(tmpHome), contentsOf(bindingDir)], before, 'no file or directory created, none rewritten');
 
       bridge.rekeyMcpServer(`${shape}-rekey-old`, `${shape}-rekey-new`);
       const after = dataOf(await call(s.client, 'listSessions'));
@@ -339,5 +381,6 @@ for (const shape of Object.keys(SHAPES)) {
     }
     const gone = await call(s.client, 'listSessions');
     assert.equal(gone.status, 401, 'release invalidates the token');
+    if (s.injection.args[0] === '--mcp-config') assert.equal(fs.existsSync(s.injection.args[1]), false, 'release removes the config file');
   });
 }
