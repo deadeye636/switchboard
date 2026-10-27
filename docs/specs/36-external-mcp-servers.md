@@ -353,7 +353,7 @@ backend, what it does and shows a declining backend as "not applied".
 | D-P3 | **Scope B: only Claude and claude-native prune.** Codex, Pi, pi-native, agy and Hermes decline (capability `mcpPrune` = no). | Owner. See "Per-backend answer" for why each declines. |
 | D-P4 | **The wording says what is dropped.** For Claude: every MCP server not given by Switchboard, including the user's own, a project `.mcp.json`, plugin servers and claude.ai connectors. The text comes from the capability note, not the renderer. | `--strict-mcp-config` is the sharpest case; a user must not discover it by a missing tool. |
 | D-P5 | **The mechanism belongs in the backend's descriptor, not the core.** The core reads the setting, asks the hook and joins its args and env; it names no backend (reflex 5). | `.claude/rules/backends.md`: a capability is a declared hook, a decline is the honest default. |
-| D-P6 | **A prune that cannot apply is a logged no-op, never a failed launch.** That includes a project whose servers for this backend all failed to reach the launch (an injection that threw or built nothing): the prune is skipped with a warning, because applying it would start the session with no MCP server at all. A launch that got some of its servers is pruned. | Fail toward today's behaviour (D-P2). |
+| D-P6 | **A prune that cannot apply is a logged no-op, never a failed launch.** That includes a project whose servers for this backend all failed to reach the launch (an injection that threw or built nothing): the prune is skipped with a warning, because applying it would start the session with no MCP server at all, or with Switchboard's own server alone (spec 37, O5: only the project's servers are counted). A launch that got some of its servers is pruned. | Fail toward today's behaviour (D-P2). |
 
 ### Per-backend answer
 
@@ -387,7 +387,8 @@ renderer holds no backend name and no mechanism text.
   still ask for a prune. The flag is read first, so a launch without it pays nothing. The injected server names are
   passed in, and so is how many of the project's enabled servers were meant for this backend
   (`externalServersFor` in `src/app/mcp-inject.js`, counted apart from the injection): servers wanted and none
-  injected skips the prune (D-P6).
+  injected skips the prune (D-P6). Since spec 37 (O5) the guard counts only the injected names that came from the
+  project's own list (`externalNames`), so Switchboard's own `switchboard` row cannot stand in for them.
 - **The capability row.** `mcpPrune` in `src/backends/capabilities.js` (`declaredBy: 'providesMcpPrune'`) carries the
   per-backend note the switch renders.
 - **The switch.** `src/renderer/panels/settings-external-mcp.js`, off by default, lists per backend what prune does.

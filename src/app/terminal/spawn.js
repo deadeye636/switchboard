@@ -1056,6 +1056,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
       // `release`, which the paths below and the exit handler already call.
       // Best-effort like the blocks around it: null means the session starts without.
       let mcpInjectedNames = [];
+      let mcpExternalInjectedNames = [];
       if (backend.providesMcpInjection === true) {
         const mcpOptions = spawnOptionsFor(backend, projectPath, launchOptions);
         // The tool groups this launch's toggles turn on (spec 35, D7); none on means no registration. The
@@ -1085,6 +1086,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
           if (injection.args.length) launch.args = [...launch.args, ...injection.args];
           mcpInjectionEnv = injection.env;
           mcpInjectedNames = Array.isArray(injection.names) ? injection.names : [];
+          mcpExternalInjectedNames = Array.isArray(injection.externalNames) ? injection.externalNames : [];
         }
         // The same re-check as after the resources hook above, for the same reason: the await can straddle a
         // quit or a second open of this session. Give back what was built and do not use it.
@@ -1109,7 +1111,7 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         if (readExternalMcpPrune(ctx.getSetting, projectPath)) {
           const wantedServers = externalServersFor({ backend, getSetting: ctx.getSetting, projectPath }).length;
           const prune = composeMcpPrune({
-            backend, enabled: true, injectedNames: mcpInjectedNames, wantedServers,
+            backend, enabled: true, injectedNames: mcpInjectedNames, externalInjectedNames: mcpExternalInjectedNames, wantedServers,
             env: quietSessionEnv(), cwd: projectPath, options: spawnOptionsFor(backend, projectPath, launchOptions), log: ctx.log,
           });
           if (prune) {

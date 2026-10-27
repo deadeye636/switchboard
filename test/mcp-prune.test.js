@@ -74,6 +74,20 @@ test('servers meant for the launch that none reached it: no prune, one warning (
     'a project with no servers still prunes');
 });
 
+test('the D-P6 guard counts the external names, so the own server cannot stand in for them (spec 37, O5)', () => {
+  let seen;
+  const backend = { id: 'x', providesMcpPrune: true, buildMcpPrune: (a) => { seen = a.injectedNames; return { args: ['--p'], env: null }; } };
+  const log = quietLog();
+  assert.equal(composeMcpPrune({ backend, enabled: true, wantedServers: 1, injectedNames: ['switchboard'], externalInjectedNames: [], log }), null,
+    'only the own row reached the launch: no prune');
+  assert.equal(log.lines.warn.length, 1);
+  assert.deepEqual(composeMcpPrune({ backend, enabled: true, wantedServers: 1, injectedNames: ['switchboard', 'a'], externalInjectedNames: ['a'] }),
+    { args: ['--p'], env: null }, 'one of the project\'s servers reached it: pruned');
+  assert.deepEqual(seen, ['switchboard', 'a'], 'the hook still gets every injected name, so the own row survives the prune');
+  assert.deepEqual(composeMcpPrune({ backend, enabled: true, wantedServers: 0, injectedNames: ['switchboard'], externalInjectedNames: [] }),
+    { args: ['--p'], env: null }, 'a project with no servers still prunes');
+});
+
 test('a template forwards the flag and the hook, and prunes like its base', () => {
   const { profileToDescriptor } = require('../src/backends');
   const template = profileToDescriptor({ id: 't-prune', name: 'T', backendId: 'claude' });
@@ -213,6 +227,26 @@ test('setting on: project servers that did not reach the launch leave it unprune
   assert.equal(r.ok, true);
   assert.ok(launchArgs().includes('--base'));
   assert.ok(!launchArgs().includes('--prune'));
+});
+
+test('setting on: the own server alone does not satisfy D-P6 when the project\'s servers did not reach the launch (spec 37, O5)', async () => {
+  ptySpawns.length = 0;
+  let seen = null;
+  const ctx = setup({
+    // An http-only backend: the project's stdio server is dropped, the own http row is injected.
+    project: { externalMcpPrune: true, externalMcpServers: [SERVER] },
+    backend: fakeBackend({
+      providesMcpInjection: true, acceptsMcpTransports: ['http'],
+      buildMcpInjection: ({ servers }) => { seen = servers.map((s) => s.name); return { args: ['--inj'], env: null, cleanup: null }; },
+      providesMcpPrune: true, buildMcpPrune: () => ({ args: ['--prune'], env: null }),
+    }),
+  });
+  ctx.registerMcpHttpSession = async () => ({ url: 'http://127.0.0.1:1/mcp', token: 't', release() {} });
+  const r = await spawn.openTerminal('s7', CWD, true, { backendId: 'codex', discoveryTools: true });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen, ['switchboard'], 'the own row was injected');
+  assert.ok(launchArgs().includes('--inj'));
+  assert.ok(!launchArgs().includes('--prune'), 'and the launch is not pruned down to it');
 });
 
 test('real backends: with the key absent or false, no launch carries its prune args or env (G4)', async () => {

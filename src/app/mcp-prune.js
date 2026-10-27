@@ -16,8 +16,10 @@ const noop = () => {};
 
 // `backend` is the descriptor. `enabled` is the project's `externalMcpPrune` flag (only `true` counts).
 // `injectedNames` are the server names the injection gave this launch (a hook may keep them). `wantedServers` is
-// how many of the project's enabled servers were meant for this backend.
-function composeMcpPrune({ backend, enabled, injectedNames, wantedServers, env, cwd, options, log: logIn } = {}) {
+// how many of the project's enabled servers were meant for this backend. `externalInjectedNames` are the injected
+// names that came from the project's own list: the guard below counts those, so Switchboard's own server cannot
+// stand in for the project's (spec 37, O5). A caller that does not pass it gets the guard over `injectedNames`.
+function composeMcpPrune({ backend, enabled, injectedNames, externalInjectedNames, wantedServers, env, cwd, options, log: logIn } = {}) {
   const log = { debug: noop, info: noop, warn: noop, ...(logIn || {}) };
   if (enabled !== true || !backend) return null;
   if (backend.providesMcpPrune !== true || typeof backend.buildMcpPrune !== 'function') {
@@ -25,7 +27,8 @@ function composeMcpPrune({ backend, enabled, injectedNames, wantedServers, env, 
     return null;
   }
   const names = Array.isArray(injectedNames) ? injectedNames : [];
-  if (Number(wantedServers) > 0 && !names.length) {
+  const counted = Array.isArray(externalInjectedNames) ? externalInjectedNames : names;
+  if (Number(wantedServers) > 0 && !counted.length) {
     log.warn(`[mcp-prune] none of the project's ${wantedServers} MCP server(s) reached this launch; starting it without the prune`);
     return null;
   }

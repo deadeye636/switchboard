@@ -22,13 +22,18 @@ function isRow(row) {
     && (row.transport === 'http' || row.transport === 'stdio');
 }
 
-async function collectRows(sources, ctx, log) {
+// `externalRows` collects the rows of a source marked `external` (the project's own list), so the answer can say
+// which names came from there without comparing names: the prune's D-P6 guard counts only those (spec 37, O5).
+async function collectRows(sources, ctx, log, externalRows) {
   const rows = [];
   for (const source of Array.isArray(sources) ? sources : []) {
     try {
       const got = typeof source === 'function' ? await source(ctx) : source;
       for (const row of Array.isArray(got) ? got : []) {
-        if (isRow(row)) rows.push(row);
+        if (isRow(row)) {
+          rows.push(row);
+          if (source && source.external === true) externalRows.add(row);
+        }
         else log.debug('[mcp-inject] ignored a malformed server row');
       }
     } catch (err) {
@@ -78,7 +83,7 @@ function ownServerSource({ backend, groups, discovery, registerSession, sessionI
 // does not have is left out — a half-resolved command is never injected. The log names the variable, never a value.
 function externalServersSource({ backend, getSetting, projectPath, getEnv, log } = {}) {
   const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
-  return () => {
+  const source = () => {
     const servers = externalServersFor({ backend, getSetting, projectPath });
     if (!servers.length) return [];
     const env = (typeof getEnv === 'function' ? getEnv() : null) || {};
@@ -106,6 +111,8 @@ function externalServersSource({ backend, getSetting, projectPath, getEnv, log }
     }
     return rows;
   };
+  source.external = true;
+  return source;
 }
 
 // The project's enabled entries meant for this backend, before any `${VAR}` is expanded. The source above injects
@@ -143,7 +150,8 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
   try {
     const accepts = Array.isArray(backend.acceptsMcpTransports) ? backend.acceptsMcpTransports : [];
     const servers = [];
-    for (const row of await collectRows(sources, ctx, log)) {
+    const externalRows = new Set();
+    for (const row of await collectRows(sources, ctx, log, externalRows)) {
       if (accepts.includes(row.transport)) servers.push(row);
       else log.info(`[mcp-inject] dropped server "${row.name}": transport ${row.transport} is not accepted by ${backend.id || 'this backend'}`);
     }
@@ -170,6 +178,8 @@ async function composeMcpInjection({ backend, ctx, sources, dir, tag, cwd, optio
       args: Array.isArray(built.args) ? built.args : [],
       env: built.env && typeof built.env === 'object' ? built.env : null,
       names: servers.map((s) => s.name),
+      // The subset that came from the project's own list, for the prune's D-P6 guard (spec 37, O5).
+      externalNames: servers.filter((s) => externalRows.has(s)).map((s) => s.name),
       release,
     };
   } catch (err) {
