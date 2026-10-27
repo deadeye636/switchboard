@@ -19,7 +19,8 @@
 })(typeof window !== 'undefined' ? window : null, function () {
   'use strict';
 
-  const SAFE_TOKEN = /^[A-Za-z0-9._\-@:+=/]+$/;
+  // A leading `@` is refused: PowerShell reads `@name` as an argument as splatting (O10).
+  const SAFE_TOKEN = /^(?!@)[A-Za-z0-9._\-@:+=/]+$/;
   const RUNTIMES = ['uv', 'pipx'];   // installed forms only; the zero-install `uvx` form is not catalogued (O7)
 
   // The terms the three upstream LICENSE files share, worded as they read them (D7).

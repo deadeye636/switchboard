@@ -73,7 +73,7 @@ test('commandLine joins safe tokens with single spaces', () => {
 });
 
 test('commandLine throws on a token outside the safe set, an empty list or a non-string', () => {
-  for (const bad of ['a b', 'a;b', 'a&b', 'a|b', '$x', '"x"', "'x'", '`x`', 'a\\b', 'a>b', 'a<b', '(x)', '%X%', '', 'a\nb']) {
+  for (const bad of ['@args', '@x/y', 'a b', 'a;b', 'a&b', 'a|b', '$x', '"x"', "'x'", '`x`', 'a\\b', 'a>b', 'a<b', '(x)', '%X%', '', 'a\nb']) {
     assert.throws(() => commandLine(['uv', bad]), /unsafe command token/, JSON.stringify(bad));
   }
   assert.throws(() => commandLine([]), /at least one token/);
