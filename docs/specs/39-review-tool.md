@@ -372,7 +372,8 @@ Numbered, stable. The plan carries the same list; an answered point says so.
 
 **Answered (owner, 2026-10-27): every point below as recommended (O1 to O20).** O2 and O11 still depend on their
 measurement (the scan timing in M5, and M3) for which branch applies; O15 takes the CLI's own default (no `model` sent).
-O21 was added by T1 and is not answered.
+O21 was added by T1 and is answered as recommended too (owner, 2026-10-27): the cap counts code points, through the
+exported `cutText`.
 
 1. **O1 The parent/child link.** New `session_meta.spawnedBy` + `spawnKind` (recommended), reuse `lineageParentId` with a
    new kind (renders the caller as the review's ancestor, wrong), reuse `parentSessionId` (hides the row, wrong), or a
