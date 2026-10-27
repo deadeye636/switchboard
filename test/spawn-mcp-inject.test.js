@@ -156,6 +156,26 @@ test('a template env also wins over the injected env', async () => {
   assert.equal(ptySpawns.at(-1).opts.env.MCP_X, 'injected');
 });
 
+test('Windows launch and external expansion share case-folded layer precedence for PTY and pipe', { skip: process.platform !== 'win32' }, async () => {
+  for (const pipe of [false, true]) {
+    reset();
+    const templateEnv = { Sb_McP_Case: 'template' };
+    const buildLaunch = () => ({ command: 'agent-bin', args: [], env: { SB_MCP_CASE: 'backend', ...templateEnv }, spawnMode: 'argv' });
+    const backend = (pipe ? pipedBackend : fakeBackend)({ isProfile: true, baseId: 'codex', templateEnv, buildLaunch, acceptsMcpTransports: ['http'] });
+    const ctx = setup({ backend, userEnv: { sb_mcp_case: 'user' } });
+    ctx.cleanPtyEnv = { Sb_Mcp_Case: 'app' };
+    const getSetting = ctx.getSetting;
+    ctx.getSetting = (key) => key === 'project:' + CWD
+      ? { externalMcpServers: [{ name: 'x', transport: 'http', url: 'https://example.invalid', headers: { X: '${SB_MCP_CASE}' } }] }
+      : getSetting(key);
+    await spawn.openTerminal(`case-${pipe}`, CWD, true, { backendId: 'codex' });
+    const rows = await composerCalls[0].sources[1]();
+    const env = pipe ? ctx.agentSpawns.at(-1).env : ptySpawns.at(-1).opts.env;
+    assert.equal(rows[0].headers.X, 'template');
+    assert.deepEqual(Object.entries(env).filter(([key]) => key.toUpperCase() === 'SB_MCP_CASE'), [['Sb_McP_Case', 'template']]);
+  }
+});
+
 test('a composer that answers null still starts the session, launch unchanged', async () => {
   reset();
   setup();

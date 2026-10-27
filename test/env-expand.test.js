@@ -3,7 +3,30 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { expand, references } = require('../src/shared/env-expand');
+const { expand, references, mergeEnv } = require('../src/shared/env-expand');
+
+test('environment layers override folded names only on Windows', () => {
+  const layers = [{ Path: 'app', OTHER: 'x' }, { PATH: 'backend' }, { path: '' }, { PaTh: 'template' }];
+  assert.deepEqual(mergeEnv('win32', ...layers), { OTHER: 'x', PaTh: 'template' });
+  assert.deepEqual(mergeEnv('linux', ...layers), { Path: 'app', OTHER: 'x', PATH: 'backend', path: '', PaTh: 'template' });
+  assert.equal(expand('${PATH:-fallback}', mergeEnv('win32', ...layers.slice(0, 3)), new Set(), 'win32'), 'fallback');
+  const special = JSON.parse('{"__proto__":"value"}');
+  assert.equal(Object.hasOwn(mergeEnv('linux', special), '__proto__'), true);
+  assert.deepEqual(mergeEnv('win32', { '\u00df': 'first' }, { SS: 'second' }), { '\u00df': 'first', SS: 'second' });
+  assert.deepEqual(mergeEnv('win32', { '\u017f': 'first' }, { S: 'second' }), { '\u017f': 'first', S: 'second' });
+  assert.equal(expand('${S}', { '\u017f': 'first' }, new Set(), 'win32'), '');
+});
+
+test('Windows expansion folds names and uses the spelling passed to child processes', () => {
+  const missing = new Set();
+  const env = { Path: 'mixed', PATH: 'upper', Empty: '' };
+  assert.equal(expand('${path}/${PATH}/${Path}', env, missing, 'win32'), 'mixed/mixed/mixed');
+  assert.equal(expand('${EMPTY:-fallback}', env, missing, 'win32'), 'fallback');
+  assert.equal(expand('${empty}', env, missing, 'win32'), '');
+  assert.equal(missing.size, 0);
+  assert.equal(expand('${path}', env, missing, 'linux'), '');
+  assert.deepEqual([...missing], ['path']);
+});
 
 test('${VAR} takes the value from the environment', () => {
   const missing = new Set();

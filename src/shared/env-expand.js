@@ -9,14 +9,40 @@
 
 const VAR = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g;
 
+// References use ASCII names; leave other keys untouched rather than approximate Windows Unicode folding.
+function foldEnvName(name) {
+  return /^[\x00-\x7f]*$/.test(name) ? name.toUpperCase() : name;
+}
+
+// Later layers replace earlier names, including differently cased names on Windows.
+function mergeEnv(platform, ...layers) {
+  if (platform !== 'win32') return layers.reduce((result, layer) => ({ ...result, ...layer }), {});
+  const result = {};
+  const names = new Map();
+  for (const layer of layers) for (const [key, value] of Object.entries(layer || {})) {
+    const folded = foldEnvName(key);
+    const previous = names.get(folded);
+    if (previous !== undefined) delete result[previous];
+    Object.defineProperty(result, key, { value, enumerable: true, configurable: true, writable: true });
+    names.set(folded, key);
+  }
+  return result;
+}
+
+function lookup(env, name, platform = process.platform) {
+  if (platform !== 'win32') return env[name];
+  const key = Object.keys(env).find((k) => foldEnvName(k) === foldEnvName(name));
+  return key === undefined ? undefined : env[key];
+}
+
 /**
  * Expand `${VAR}` and `${VAR:-default}` in a string against `env`. A non-string is returned as it came.
  * A variable with no value and no default expands to '' and its name is added to `missing`.
  */
-function expand(value, env, missing) {
+function expand(value, env, missing, platform = process.platform) {
   if (typeof value !== 'string') return value;
   return value.replace(VAR, (_all, name, fallback) => {
-    const v = env[name];
+    const v = lookup(env, name, platform);
     // Shell semantics: `:-` also replaces an EMPTY value; a bare reference to a set-but-empty one is empty.
     if (fallback !== undefined) return v !== undefined && v !== '' ? v : fallback;
     if (v !== undefined) return v;
@@ -35,5 +61,5 @@ function references(value) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { expand, references };
+  module.exports = { expand, references, lookup, mergeEnv, foldEnvName };
 }

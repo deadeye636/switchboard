@@ -61,6 +61,22 @@ const baseContext = (over = {}) => ({
 
 const takesOf = (res) => Object.fromEntries(res.takes.map((t) => [t.id, [t.takes, t.reason]]));
 
+test('Windows references use folded names in the check and the external source', async () => {
+  const { externalServersSource } = require('../src/app/mcp-inject');
+  const entry = http({ headers: { X: '${PATH}', Y: '${EMPTY:-fallback}' } });
+  const env = { Path: 'mixed', Empty: '' };
+  const [result] = await checkEntries([entry], baseContext({ env, platform: 'win32' }));
+  assert.equal(result.variables.find((v) => v.name === 'PATH').state, 'app');
+  assert.equal(result.variables.find((v) => v.name === 'EMPTY').state, 'default');
+  assert.deepEqual(takesOf(result).alpha, [true, null]);
+  if (process.platform === 'win32') {
+    const source = externalServersSource({ backend: BACKENDS[0], projectPath: '/proj', getSetting: () => ({ externalMcpServers: [entry] }), getEnv: () => env });
+    assert.deepEqual(source()[0].headers, { X: 'mixed', Y: 'fallback' });
+  }
+  const [posix] = await checkEntries([http({ headers: { X: '${PATH}' } })], baseContext({ env: { Path: 'mixed' }, platform: 'linux' }));
+  assert.deepEqual(takesOf(posix).alpha, [false, 'unset-variable']);
+});
+
 test('command: found, missing, unknown and not-applicable', async () => {
   const ctx = baseContext();
   const out = await checkEntries([
@@ -322,7 +338,7 @@ test('F2: a PATH set by a backend variable or the entry makes a miss unknown, a 
   assert.ok(REASONS.command.includes('path-overridden'));
 });
 
-test('F3: keys that differ only in case stay two keys, as in the launch spread', async () => {
+test('F3: Windows names use the value passed to the child when spellings collide', async () => {
   const ctx = baseContext({
     platform: 'win32',
     env: { Path: 'C:/none', Mixed: 'app' },
@@ -331,10 +347,40 @@ test('F3: keys that differ only in case stay two keys, as in the launch spread',
   });
   const [res] = await checkEntries([stdio({ args: ['${Mixed}', '${MIXED}'] })], ctx);
   const by = Object.fromEntries(res.variables.map((v) => [v.name, v.state]));
-  assert.equal(by.Mixed, 'app');
+  assert.equal(by.Mixed, 'backend-env');
   assert.equal(by.MIXED, 'backend-env');
   assert.deepEqual(takesOf(res), { alpha: [true, null] });
 });
+
+test('Windows backend empty override remains visible when another backend inherits the app', async () => {
+  const ctx = baseContext({ platform: 'win32', env: { Path: 'app' }, backendEnv: { alpha: { PATH: '' } }, backends: BACKENDS.slice(0, 2) });
+  const [result] = await checkEntries([http({ headers: { X: '${PATH:-fallback}' } })], ctx);
+  assert.equal(result.variables[0].state, 'default');
+  assert.equal(result.variables[0].backendIds, undefined);
+  assert.equal(result.envGap, false);
+  assert.deepEqual(takesOf(result).alpha, [true, null]);
+});
+
+test('Windows empty backend override falls back instead of claiming a backend value', async () => {
+  const context = baseContext({ platform: 'win32', env: { Dir: 'C:/app' }, backendEnv: { alpha: { DIR: '' } }, backends: [BACKENDS[0]] });
+  const [result] = await checkEntries([http({ headers: { X: '${DIR:-fallback}' } })], context);
+  assert.equal(result.variables[0].state, 'default');
+  assert.deepEqual(takesOf(result).alpha, [true, null]);
+});
+
+test('Windows folds a backend bundle before dropping unresolved references', async () => {
+  const entry = http({ headers: { X: '${THING}' } });
+  const context = baseContext({ platform: 'win32', env: {}, backends: [BACKENDS[0]] });
+  context.backendEnv = { alpha: { Thing: 'literal', THING: '$ABSENT' } };
+  let [result] = await checkEntries([entry], context);
+  assert.equal(result.variables[0].state, 'declared-unresolved');
+  assert.deepEqual(takesOf(result).alpha, [false, 'unset-variable']);
+  context.backendEnv = { alpha: { THING: '$ABSENT', Thing: 'literal' } };
+  [result] = await checkEntries([entry], context);
+  assert.equal(result.variables[0].state, 'backend-env');
+  assert.deepEqual(takesOf(result).alpha, [true, null]);
+});
+
 
 test('F4: a relative cwd resolves against the project before the command is looked up', async () => {
   const f = fakeFs({});
