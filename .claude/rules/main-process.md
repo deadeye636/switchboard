@@ -532,6 +532,7 @@ line there, in the same commit.
 | The Claude Code hook server | `src/app/hooks.js` |
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
+| Stopping a running session on purpose (the user's Stop, the review runner) | `src/app/terminal/stop-session.js` (the `stop-session` handler stays in `main.js` and calls it) |
 | The Plans and Agent Files tabs, and the memory files | `src/app/plans-memory.js` |
 | Handoff packets — listing, saving, deleting | `src/app/handoffs.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
