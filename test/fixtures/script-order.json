@@ -162,6 +162,7 @@
     "settings-project-tags.js",
     "external-mcp-validate.js",
     "external-mcp-form.js",
+    "mcp-addon-catalog.js",
     "settings-external-mcp.js",
     "settings-global-html.js",
     "settings-panel.js",

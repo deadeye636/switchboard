@@ -93,6 +93,7 @@
           <button class="settings-nav-item" data-cat="backends">Backends</button>
           <button class="settings-nav-item" data-cat="launchers">Custom launchers</button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
+          <button class="settings-nav-item" data-cat="mcp-addons">MCP servers</button>
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">App</div>
           <button class="settings-nav-item" data-cat="maintenance">Maintenance <span class="settings-nav-count"></span></button>
@@ -1095,6 +1096,15 @@
                   </div>
                 </div>
               </div>
+            </section>
+
+            <!-- ===== MCP servers (#790): filled by settingsExternalMcp.bindAddons, nothing counted ===== -->
+            <section class="settings-cat" data-cat="mcp-addons">
+              <div class="settings-cat-head">
+                <h2>MCP servers</h2>
+                <p>Installed on this machine. A short, reviewed list of external MCP servers, whether they are on PATH, and the commands to install or remove them.</p>
+              </div>
+              <div id="sv-mcp-addons"></div>
             </section>
 
             <!-- ===== Tags (#138) ===== -->

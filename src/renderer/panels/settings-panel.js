@@ -932,6 +932,11 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
       const tourBtn = settingsViewerBody.querySelector('#sv-show-welcome-tour');
       if (tourBtn) tourBtn.addEventListener('click', () => window.api.showWelcomeTour?.());
 
+      // #790: the MCP servers catalog. Bound before the nav wiring, so its rows exist and its `settings-cat-shown`
+      // listener is in place before anything can show the category (the PATH check waits for that first show).
+      // Its nav entry has no count badge.
+      if (window.settingsExternalMcp) window.settingsExternalMcp.bindAddons(settingsViewerBody, listenerSignal);
+
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.
       wireTwoPane();
