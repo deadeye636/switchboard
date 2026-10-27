@@ -119,9 +119,16 @@ name and both commands were checked against the upstream project, and what was c
 
 | Entry | Verified on | Checked against |
 |---|---|---|
-| jcodemunch | *not yet* | |
-| jdocmunch | *not yet* | |
-| jdatamunch | *not yet* | |
+| jcodemunch | 2026-10-27 | Package page `pypi.org/project/jcodemunch-mcp` (installs with `uv tool install` and `pipx install`); upstream `pyproject.toml` (`name`, `license = "LicenseRef-jCodeMunch-Dual-Use-1"`, `[project.scripts]` names `jcodemunch-mcp`); upstream `LICENSE` ("jCodeMunch-MCP — Dual-Use License", version 1.2: non-commercial use free, commercial use needs a paid license). |
+| jdocmunch | 2026-10-27 | Package page `pypi.org/project/jdocmunch-mcp` (`uv tool install`, `pipx install`); upstream `pyproject.toml` (`license = "LicenseRef-jDocMunch-Dual-Use"`, `[project.scripts]` names `jdocmunch-mcp`); upstream `LICENSE` ("jDocMunch-MCP — Dual-Use License", same terms). |
+| jdatamunch | 2026-10-27 | Package page `pypi.org/project/jdatamunch-mcp` (`uv tool install`, `pipx install`); upstream `pyproject.toml` (`license = "LicenseRef-jDataMunch-Dual-Use"`, `[project.scripts]` names `jdatamunch-mcp`); upstream `LICENSE` ("jDataMunch-MCP — Dual-Use License", same terms). |
+
+None of the three upstream READMEs names an uninstall command. The uninstall lines come from the runtimes themselves:
+`uv tool uninstall <NAME>` (`uv tool uninstall --help`, the argument is the tool name) and `pipx uninstall ENVIRONMENT`
+(the pipx CLI reference, `pipx.pypa.io/stable/reference/cli.html`; the environment is named after the package). The
+optional extras jdatamunch documents (`jdatamunch-mcp[excel,parquet]`) are not catalogued: the brackets break D9, and
+the base package is what every README installs first. The data is `src/shared/mcp-addon-catalog.js`; the rules are
+checked by `test/mcp-addon-catalog.test.js`.
 
 ## Registry facts
 
