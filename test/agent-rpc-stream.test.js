@@ -800,3 +800,21 @@ test('a task notice\'s output file stays in main: the view gets hasOutput, the o
   assert.ok(!('outputFile' in read._task));
   assert.match((await agentRpc.taskOutput('launch-id', 'back')).text, /from the transcript/);
 });
+
+// Spec 39 (T2's verifier, carried into T5): a core observer is asked BEFORE the approval memory. A project rule that would
+// let the call through is never consulted for a watched session: the observer's refusal is what the runtime gets.
+test('a core observer is asked before a remembered approval, and its refusal is what the runtime gets', async (t) => {
+  const memory = fakeMemory();
+  memory.rules.push('bash');
+  const written = [];
+  const rpc = approvalRpc({ answerCommand: (id, answer) => { written.push(answer); return { type: 'answer', id }; } });
+  const h = streamHarness(t, { rpc, approvalMemory: memory, backendId: 'b' });
+  t.after(() => stopped(h));
+  const asked = [];
+  assert.equal(agentRpc.observe('launch-id', { onAsk: (r) => { asked.push(r.id); return { cancelled: true }; } }), true);
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });
+  await until(() => written.length === 1);
+  assert.deepEqual(asked, ['a1']);
+  assert.deepEqual(written, [{ cancelled: true }], 'the remembered rule did not answer it');
+  assert.ok(!ops(h).some((o) => o.op === 'ask'), 'no card');
+});

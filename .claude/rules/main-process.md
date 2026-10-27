@@ -180,6 +180,12 @@ re-derive the row's view through `openerFor`. Setting a view is always an open, 
 plain dependencies, one per registration, handed to the MCP bridge as `entry.discovery`. It re-derives its
 session and handoff listings on every call and answers only what is in them, so a session of another project and
 one that does not exist give the same sentence. Electron-free, db-free, no IPC, names no backend),
+`review-runner.js` (one agent asks another backend for a read-only second opinion — #507 slice 2b, spec 39; a factory
+per registration like the discovery reader. It opens the review session through `openTerminal` with the target's
+read-only profile as session options, follows it with `agentRpc.observe` (no view), sends one turn, keeps the last
+assistant text, refuses every ask, and stops the session through `terminal/stop-session.js`. The caller polls
+`result(id)`; 10 minutes, 32 768 code points, one review per caller and three in the app. Every effect arrives through
+`ctx`; it imports no backend folder and names no backend),
 `path-completion.js` (what an `@` in a session's text input completes to — #643; the project's files, by
 `readdir` for a named directory and by a bounded, cached, ASYNCHRONOUS walk for a bare name — a synchronous one
 measured 498 ms on a home directory, on the main process. It asks `isAtOrInside` about the directory BEFORE it

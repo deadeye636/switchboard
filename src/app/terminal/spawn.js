@@ -1953,4 +1953,7 @@ module.exports = {
   // #585: the silence notice's text and its deadline. Exported for the same reason the two above are —
   // the timer that uses them sits behind `pty.spawn`, which no test can reach.
   silentTerminalNotice, SILENT_TERMINAL_NOTICE_MS,
+  // Spec 39: the review runner's read-only profile is a session option, and its test pins that it wins over a
+  // stored default through this merge.
+  spawnOptionsFor,
 };
