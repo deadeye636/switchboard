@@ -160,7 +160,7 @@ const configFields = [
   // than the `--ide` bridge (claude-native has no bridge, and takes this field by reference). No `diffTool`
   // here: diffs stay on `--ide`. The wording names no bridge for that reason.
   { id: 'discoveryTools', label: 'Offer the session discovery tools', type: 'toggle', default: false, appliesAt: 'spawn',
-    description: 'Offers read-only discovery tools (list this project\'s sessions, read the last turns of one, list and read its handoff packets) to Claude through a per-session MCP server named switchboard. What Claude reads there may come from sessions of ANY backend in the same project, so another vendor\'s conversation reaches Anthropic\'s model. It is an offer: Claude has to choose the tool, its own approval prompt still runs, and nothing is written.' },
+    description: 'Offers read-only discovery tools (list this project\'s sessions, read the last turns of one, list and read its handoff packets) to Claude through a per-session MCP server named switchboard. What Claude reads there may come from sessions of ANY backend in the same project, so another vendor\'s conversation reaches Anthropic\'s model. It is an offer: Claude has to choose the tool, its own permission rules still apply (in auto mode a read-only call may run without a prompt), and nothing is written.' },
   // Named for what it does NOW (#559). The CLI stopped auto-continuing a question by default and grew a
   // setting of its own for it, so this field no longer switches that behaviour off — it switches it on,
   // for one session, which is the thing the CLI can only do globally. `0` and empty are NOT the same
@@ -1169,7 +1169,7 @@ description:
     contextFill: { state: 'limited', note: 'a model whose 1M window is opt-in reads as 200k unless [1m] is named in /model, the launch model, ANTHROPIC_MODEL or its settings' },
     resumeModel: 'yes',
     turnDigest: 'yes',
-    mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file, and the app\'s own discovery group there when discoveryTools is on (diffs still travel over --ide); a live Claude calling the own server is not yet checked' },
+    mcpInject: { state: 'yes', note: 'passes a project\'s external servers in a per-session --mcp-config file, and the app\'s own discovery group there when discoveryTools is on (diffs still travel over --ide); a live Claude lists and calls both (spec 36, spec 37 M1)' },
     mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it

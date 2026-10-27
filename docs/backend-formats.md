@@ -180,6 +180,23 @@ Measured on Claude Code 2.1.310, in a terminal session and in print mode (spec 3
 - **What it does not touch.** The `--ide` connection is not an MCP config entry: under the flag the CLI still
   connects to the IDE lock file, `/ide` names it, and an edit still opens its diff there.
 
+### An http row with a Bearer header in `--mcp-config` (spec 37)
+Measured on Claude Code 2.1.310 and 2.1.311 (Haiku), in a terminal session and in the piped `claude-native`.
+
+- **The row.** `{ "type": "http", "url": ..., "headers": { "Authorization": "Bearer <token>" } }` connects. (Per
+  Claude Code's MCP documentation, not measured here: a row with a `url` and no `type` is read as stdio.) `/mcp`
+  lists such a row under "Built-in MCPs (always available)", next to the claude.ai connectors and plugin servers.
+  The `--ide` server of the same session, connected per the app's log, was not in that list.
+- **The model finds the tools by search.** An MCP tool is deferred: the turn first calls `ToolSearch`, which
+  answers a `tool_reference` for `mcp__<server>__<tool>`, and only then calls the tool itself.
+- **The permission.** In the default auto mode (since 2.1.284) a read-only MCP call ran with no prompt. Over
+  the pipe it arrives as a `can_use_tool` request with an empty `{}` input when the model passes no arguments.
+- **A name collision.** With a user-scope `.claude.json` entry and a `--mcp-config` row both named `switchboard`,
+  `/mcp` shows ONE `switchboard`, the `--mcp-config` row, connected; no warning names the shadowed entry.
+- **Shift+Tab in a terminal session** cycles auto, accept edits and plan only; there is no asking mode in the
+  cycle once auto is the default. Not measured: whether an edit's `--ide` diff review then needs a session
+  started in another mode.
+
 ## Codex — file, JSONL (date-bucketed)
 
 ```

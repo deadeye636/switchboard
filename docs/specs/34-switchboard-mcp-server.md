@@ -411,7 +411,8 @@ Numbered so they can be referred to. Each is its own plan with its own go.
    with pros, cons and alternatives (reflex 16).
 4. **Claude on the seam.** Offer Claude external servers (and, if wanted, Switchboard's own endpoint through
    the standard transport next to `--ide`) through the same capability, by a launch flag instead of a config
-   write. Needs its own measurement; D7 keeps it out of Plan A.
+   write. Needs its own measurement; D7 keeps it out of Plan A. **Both halves are done:** external servers by
+   #789 (spec 36), Switchboard's own endpoint for the `discovery` group by spec 37. Diffs stay on `--ide`.
 5. **agy without a per-launch channel.** Only if T1 answers Q1 negatively: a request to the agy project, or an
    owner decision to accept a shared-file registration with its caveats. Not a Plan A step.
 6. **#790, the addon manager.** Flow (b): show the exact install command and a copy button, detect first

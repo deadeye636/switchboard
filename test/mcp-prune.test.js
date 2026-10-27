@@ -243,11 +243,14 @@ test('setting on: the own server alone does not satisfy D-P6 when the project\'s
     }),
   });
   ctx.registerMcpHttpSession = async () => ({ url: 'http://127.0.0.1:1/mcp', token: 't', release() {} });
+  const warns = [];
+  ctx.log.warn = (m) => warns.push(m);
   const r = await spawn.openTerminal('s7', CWD, true, { backendId: 'codex', discoveryTools: true });
   assert.equal(r.ok, true);
   assert.deepEqual(seen, ['switchboard'], 'the own row was injected');
   assert.ok(launchArgs().includes('--inj'));
   assert.ok(!launchArgs().includes('--prune'), 'and the launch is not pruned down to it');
+  assert.ok(warns.some((m) => /\[mcp-prune\] none of the project's 1 MCP server\(s\) reached this launch/.test(m)), 'the D-P6 warning is logged');
 });
 
 test('real backends: with the key absent or false, no launch carries its prune args or env (G4)', async () => {

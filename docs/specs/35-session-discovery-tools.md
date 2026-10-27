@@ -53,9 +53,10 @@ phases" below without a design.
 
 ## Who can call it (the reach of Phase 1)
 
-The group is offered through the injection seam of spec 34. Today that is **agy and Codex**. Claude keeps its own
-WebSocket bridge and `--ide` (spec 34, D7), and Pi and Hermes are not on the seam. So in Phase 1 a Codex or agy
-session can read **every** backend's sessions in its project, but a Claude session cannot call the tools yet.
+The group is offered through the injection seam of spec 34. In Phase 1 that was **agy and Codex**. Claude kept
+its own WebSocket bridge and `--ide` (spec 34, D7), and Pi and Hermes are not on the seam. So in Phase 1 a Codex
+or agy session could read **every** backend's sessions in its project, but a Claude session could not call the
+tools. **Since spec 37 Claude and claude-native can**, through a `switchboard` row in their `--mcp-config` file.
 
 The issue's headline use case (Claude asking another model for a second opinion) needs "Claude on the seam" (spec
 34, "Later phases", item 4) and Phase 2. This is stated up front because it is the first thing a reader will
@@ -173,7 +174,7 @@ finding in spec 34).
   protection; no redaction is attempted.
 - Transcripts are read from the end. A long session shows its recent turns, not its beginning; the list row's
   first prompt is the only look at the start (open point O8).
-- Claude, Pi and Hermes sessions can be read but cannot call the tools yet (see "Who can call it").
+- Pi and Hermes sessions can be read but cannot call the tools yet; Claude can since spec 37 (see "Who can call it").
 
 ## Open
 
@@ -214,7 +215,7 @@ ceiling per response, 16 000 characters per handoff slice, and a 32 MiB guard on
 provisional until more real use says otherwise (D13).
 
 **Reach (O3, accepted).** Only agy and Codex can call the tools, because they are the backends on the injection
-seam. Claude, Pi and Hermes sessions can be read but cannot call. The headline cross-model case needs Claude on
+seam. Claude, Pi and Hermes sessions can be read but cannot call. (Claude and claude-native can since spec 37.) The headline cross-model case needs Claude on
 the seam, a later phase.
 
 ### What the real-Codex check (G2) showed, and what it did not

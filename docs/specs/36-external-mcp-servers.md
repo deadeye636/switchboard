@@ -310,8 +310,9 @@ inline reject, backend round-trip, nav count). Steps T1–T6, `docs/plans/789-sl
 The piped `claude-native` driver now injects a project's external MCP servers. The spawn gate
 (`src/app/terminal/spawn.js`) dropped its `!backend.transport` clause, so a transport backend that declares the
 injection quartet takes it; `claude-native` declares the quartet reusing terminal Claude's implementation (the 0600
-`--mcp-config` file). The own server offers it nothing (no diff or discovery tools), so only the project's external
-servers inject. `pi-native` keeps `providesMcpInjection: false` — it never used the quartet — and injects external
+`--mcp-config` file). At the time the own server offered it nothing, so only the project's external servers
+injected; since spec 37 the `discoveryTools` toggle puts the own `switchboard` row (discovery group only) into the
+same file. `pi-native` keeps `providesMcpInjection: false` — it never used the quartet — and injects external
 stdio servers through the session-resources MCP section it inherits from terminal Pi instead (see below).
 
 Confirmed by a real measurement (2026-10-22): a piped Claude started with `claude-native`'s exact launch flags and a
@@ -436,7 +437,7 @@ it has no `--ide` bridge to check.
 | O-P5 one boolean across backends | Accepted (owner). In B only the Claude family acts on it, so a mixed project prunes its Claude sessions alone. |
 | O-P6 settings import | Dropped on import, as designed: a settings file from someone else must not take tools from a project. |
 | O-P7 Pi mechanism | Declines: the flags exist, but Pi's injected servers share the channel its own use (T1). |
-| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | Answered (gate G5, T9): the `--ide` bridge keeps working under prune; see "As built (A2)". For Claude that bridge IS the app's own server: the `diffTool`/`discoveryTools` toggles that would put a `switchboard` row into `--mcp-config` belong to Codex and agy only, so no Claude-family launch carries one for the prune to keep or drop. |
+| `--ide` diff bridge and the injected `switchboard` server under `--strict-mcp-config` | Answered (gate G5, T9): the `--ide` bridge keeps working under prune; see "As built (A2)". For Claude that bridge IS the app's own server: the `diffTool`/`discoveryTools` toggles that would put a `switchboard` row into `--mcp-config` belonged to Codex and agy only when this was answered. Since spec 37 a Claude-family launch with `discoveryTools` on carries a `switchboard` row; measured (M4): under `--strict-mcp-config` it survives, with `--ide` on the same argv, and the D-P6 guard does not count it (spec 37, O5). |
 
 ### Out, explicitly
 

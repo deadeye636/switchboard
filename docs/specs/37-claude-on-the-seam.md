@@ -1,7 +1,7 @@
 # 37 — Claude on the seam: Claude and claude-native can call the `discovery` tool group
 
-Issue #507 (orchestration tools), **Phase 2, slice 2a**. Status: **planned, not built.** This is the design record
-written before the build; the "As built" section is added when the gates in the plan have run.
+Issue #507 (orchestration tools), **Phase 2, slice 2a**. Status: **built** (2026-10-27). The design record below
+was written before the build; "As built" at the end says what the gates measured and where the build went further.
 
 Spec 34 is the shared core (the per-session registration on the app-wide HTTP listener, the Bearer token, the
 injection quartet). Spec 35 is the `discovery` group this slice makes reachable from Claude. Spec 36 wired Claude's
@@ -15,8 +15,9 @@ A Claude session (terminal, or the piped `claude-native`) can be offered the fou
 The offer is a new launch toggle, `discoveryTools`, **off by default**, on the Configure dialog and the backend
 defaults of both Claude backends. With it on, Claude sees the tools as `mcp__switchboard__*`.
 
-It stays an **offer, as in specs 34 and 35**: the model has to choose the tool, Claude's own approval prompt for an
-MCP tool still runs (a card on `claude-native`, the CLI's prompt in a terminal), and nothing is written or spawned.
+It stays an **offer, as in specs 34 and 35**: the model has to choose the tool, Claude's own permission rules for an
+MCP tool still apply, and nothing is written or spawned. Measured: a card on `claude-native`; in a terminal in the
+default auto mode, no prompt at all for this read-only call (see "As built").
 
 This is the first half of the issue's headline case, a Claude session reading what another backend did in the same
 project. The second half, Claude asking another backend for a second opinion, is slice 2b (below).
@@ -68,11 +69,11 @@ today's; a differential test pins it (spec 35 G2 did the same for Codex).
 
 ## Name coexistence and the prune
 
-- `ide` and `switchboard` do not clash. M2 shows both connected in one session and a diff still arriving through
-  `--ide`.
+- `ide` and `switchboard` do not clash. M2 showed both connected in one session; the diff path itself was not
+  triggered (see "As built").
 - A project with `externalMcpPrune` on passes `--strict-mcp-config`. The injected row lives in the `--mcp-config`
   file, which that flag keeps, so `switchboard` survives and the user's own servers are dropped as before (M4).
-- **The D-P6 guard is not external-only, which the brief for this slice assumed.** `composeMcpPrune` in
+- **The D-P6 guard was not external-only, which the brief for this slice assumed** (fixed: O5, O8). `composeMcpPrune` in
   `src/app/mcp-prune.js` skips the prune when the project wants servers (`wantedServers > 0`) and the injection
   produced no name. `names` is every injected row (`src/app/mcp-inject.js`), the own row included. So with
   `discoveryTools` on, a project whose external servers all failed to inject would still prune, and the session would
@@ -100,8 +101,7 @@ its prompt. It is a measurement, not a change to ship.
 
 ## Known limits
 
-- The agent has to choose the tool, and the CLI's own approval prompt still runs. Whether to allow-list
-  `mcp__switchboard__*` is open point O3; it is not on by default.
+- The agent has to choose the tool, and Claude's own permission rules still apply. No allow-list is added (O3).
 - **Cross-vendor flow, now from Claude's side.** A Claude session reading a Codex or agy transcript sends that text
   to Anthropic. The toggle is off by default and the text says so.
 - A transcript is untrusted input to the model that reads it (spec 35, R2). Nothing sanitizes it.
@@ -116,24 +116,26 @@ its prompt. It is a measurement, not a change to ship.
 Numbered, stable. The plan carries the same list; an answered point says so.
 
 1. **O1 `readOnlyHint`** (spec 35 O7). Set it in `tools/list` or not, and whether Claude then skips its prompt.
-   Unmeasured; M1 may measure it. Recommendation: measure, decide after.
+   **Answered (owner): not set.** In Claude's default auto mode the call ran with no prompt (M1), so the hint would
+   buy nothing there.
 2. **O2 Tool-call timeout** (spec 35 O2). Claude's per-call timeout against the bridge's blocking cap. Not blocking 2a
    (the four tools answer quickly); it matters for 2b.
 3. **O3 Approval allow-listing.** `--allowedTools` for `mcp__switchboard__*`, so a read-only call needs no prompt.
-   Recommendation: not by default; an owner decision once M1 and M3 show how heavy the prompt is.
+   **Answered (owner): no.** The terminal asks nothing in auto mode, and the conversation view's card already offers
+   "Always allow every mcp__switchboard__listSessions call in this project" (M3).
 4. **O4 Configure text.** Wording of the cross-vendor note on Claude, where the flow is "other backends' transcripts
-   go to Anthropic". Recommendation: reuse spec 35's sentence and name the vendor direction.
+   go to Anthropic". **Done** as recommended: spec 35's sentence, naming Anthropic's model as the receiver.
 5. **O5 D-P6 with the own row.** **Answered (owner): count external names only, fixed in this slice** (see
    "Decided" and "Name coexistence and the prune").
 6. **O6 `self` after a re-key.** Let the reader take the caller's current id, or accept spec 35's L1.
-   Recommendation: accept for 2a and record; it is cosmetic and the fix touches the reader's construction.
+   **Accepted for 2a** (see "Known limits").
+7. **O7 Restricted mode.** `claude --restricted` ignores settings files; whether it also changes how a
+   `--mcp-config` file is read is unmeasured (it is a Claude option the terminal backend offers). **Still open**: the
+   gates did not run a restricted session.
 8. **O8 What counts as reached.** **Answered (owner): the core applies `externalMcpTakes` before the emitter** (see
    "Decided"). Known and older than this slice: the static check says an entry whose command or url expands to
    nothing is taken, while the launch drops it; the card and the launch disagree there.
 9. **O9 A stored toggle the backend does not declare.** **Answered (owner): it opens no group** (see "Decided").
-7. **O7 Restricted mode.** `claude --restricted` ignores settings files; whether it also changes how a
-   `--mcp-config` file is read is unmeasured (it is a Claude option the terminal backend offers). Recommendation:
-   note it in the product text only if a cheap check shows an effect.
 
 ## Later phases
 
@@ -145,3 +147,36 @@ Not designed here. Each is its own plan with its own go.
   path, and does an http server take a header? Pi's own MCP section (`src/backends/pi/mcp-section.js`) is stdio
   only today.
 - Worktrees, promote and demote, messaging, resume, cascade shutdown stay later phases (spec 35, "Later phases").
+
+## As built
+
+The slice landed in six steps: the toggle on both Claude descriptors (T1), three core fixes the work uncovered
+(T6, T7, T8, decisions O5, O8, O9 above), and two test steps (T2, T3). E2b's expectation held for the reach itself:
+`discoveryTools` on `src/backends/claude/index.js`, taken by reference in `src/backends/claude-native/index.js`, and
+nothing else was needed to put the `switchboard` row into the `--mcp-config` file. What changed in the core is the
+prune guard and what feeds it, in `src/app/mcp-inject.js`, `src/app/mcp-prune.js` and `src/app/terminal/spawn.js`.
+
+The tests: `test/spawn-claude-discovery.test.js` drives the real spawn block for terminal Claude, claude-native and a
+Claude template (toggle on and off, the byte-identical differential, the prune, a stored `diffTool`);
+`test/mcp-discovery-e2e.test.js` runs the four tools end to end for both Claude shapes through the real
+`--mcp-config` file; `test/mcp-prune.test.js` and `test/mcp-inject-external.test.js` hold the guard and the filter.
+The `mcpInject` capability is `yes` on both Claude backends.
+
+### What the gates measured
+
+On the demo instance, Claude Code 2.1.310 (2.1.311 for M5, after the CLI updated itself), Haiku. The format facts
+are also in [`backend-formats.md`](../backend-formats.md).
+
+| | Result |
+|---|---|
+| Configure dialog | The toggle shows on the Claude dialog, styled like its neighbours and off. Started from the dialog with real clicks. |
+| M1 terminal Claude | Passed. `/mcp` lists `✓ switchboard · 4 tools` under "Built-in MCPs (always available)". Haiku called `listSessions` and answered with the count. In the default auto mode there was no prompt to record. |
+| M2 with `--ide` | Coexistence passed: the `--ide` bridge connected on its own port beside `switchboard`. The diff itself was not triggered: Shift+Tab cycles auto, accept edits and plan only, and no mode in that cycle opens an edit for review. The `--ide` argv is unchanged by this slice (T3's differential). |
+| M3 claude-native | Passed. The call arrived as the card "The agent wants to run mcp__switchboard__listSessions" with an empty `{}` input and Allow once / Always allow … in this project / Refuse. The model reached the tool through `ToolSearch` first: Claude defers MCP tools. |
+| M4 prune | Passed. The argv carried `--mcp-config … --strict-mcp-config --ide`, and `switchboard` stayed connected. The demo has no servers of its own; that the prune drops a user's servers was measured in spec 36 (A2). |
+| M5 name clash | Passed. With a user-scope entry also named `switchboard`, `/mcp` showed one `switchboard`, the injected row, connected; Claude names no shadowed entry. |
+
+Two findings outside this slice came up on the way and are tracked as issues of their own: the claude-native
+conversation view lost its entries after an approval (#795), and a project trusted in the terminal was refused by
+claude-native while the demo's `.claude.json` held two trust keys for it that differ only in one folder's case
+(#796).

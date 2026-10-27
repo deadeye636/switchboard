@@ -472,17 +472,18 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   answer. An offer, not a redirect: Codex's own approval prompt still runs. Confirmed end to end in an
   interactive Codex session; off by default. Spec:
   [`specs/34-switchboard-mcp-server.md`](specs/34-switchboard-mcp-server.md).
-- **Session discovery tools for agy and Codex (#507, Phase 1)** — an opt-in `discoveryTools` launch option
+- **Session discovery tools for agy, Codex and Claude (#507, Phase 1 and slice 2a)** — an opt-in `discoveryTools` launch option
   adds a second read-only tool group to the per-session MCP endpoint of the diff tool. The agent is offered
   four tools: list the other sessions of its project, read the last turns of one, list the project's handoff
   packets, read one. Every output is capped, a session or handoff is named by id, and a session of another
   project answers the same as one that does not exist. Switchboard writes nothing and spawns nothing. Sessions
-  of every backend can be read, but only agy and Codex can call the tools; Claude, Pi and Hermes cannot yet. The
-  scope is the caller's own directory, worktrees not included. What an agent reads is text from another session,
-  possibly another vendor's, so the option says so and is off by default. Checked on a real Codex: the spawn
-  gate and the unchanged user config; the tools themselves were exercised through a stand-in client, and a real
-  model choosing one is not yet observed. Spec:
-  [`specs/35-session-discovery-tools.md`](specs/35-session-discovery-tools.md).
+  of every backend can be read. agy, Codex and, since spec 37, Claude and claude-native can call the tools; Pi
+  and Hermes cannot yet. The scope is the caller's own directory, worktrees not included. What an agent reads is
+  text from another session, possibly another vendor's, so the option says so and is off by default. Checked on a
+  real Codex: the spawn gate and the unchanged user config. A real model choosing a tool was observed on Claude
+  (Haiku called `listSessions` in a terminal and in the conversation view). Specs:
+  [`specs/35-session-discovery-tools.md`](specs/35-session-discovery-tools.md),
+  [`specs/37-claude-on-the-seam.md`](specs/37-claude-on-the-seam.md).
 - **External MCP servers per project (#789, slices A and B)** — a project can list MCP servers that exist elsewhere
   (a stdio launch, an HTTP endpoint), and each session started in it gets them for that launch only. Nothing is
   written to the CLI's own config. It reaches Codex, agy, Claude (terminal) and Pi; Hermes has no per-launch

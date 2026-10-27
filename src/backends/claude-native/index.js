@@ -209,7 +209,7 @@ const capabilities = {
   queuedTurn: { state: 'no', note: 'the stream says when a queued line starts, not how many are waiting' },
   quota: { state: 'no', note: 'shown for the terminal Claude backend, whose account this is' },
   resourcesFrom: 'no',
-  mcpInject: { state: 'limited', note: 'passes a project\'s external servers in a per-session --mcp-config file, measured on the pipe (listed, and gated by the approval card); the app\'s own discovery group rides the same file when discoveryTools is on, not yet checked live' },
+  mcpInject: { state: 'yes', note: 'passes a project\'s external servers in a per-session --mcp-config file, and the app\'s own discovery group there when discoveryTools is on; measured on the pipe: listed, and a call arrives as an approval card (spec 37 M3)' },
   mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },

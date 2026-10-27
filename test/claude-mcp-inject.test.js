@@ -25,7 +25,7 @@ test('claude declares the quartet; claude-native forwards the same one (plan 789
   assert.deepEqual(claudeNative.acceptsMcpTransports, claude.acceptsMcpTransports);
   assert.equal(claudeNative.buildMcpInjection, claude.buildMcpInjection, 'one implementation, not a fork');
   assert.equal(claudeNative.releaseMcpInjection, claude.releaseMcpInjection);
-  assert.equal(claudeNative.capabilities.mcpInject.state, 'limited');
+  assert.equal(claudeNative.capabilities.mcpInject.state, 'yes');
 });
 
 test('the discovery offer is one spawn-applied toggle, off by default, Claude\'s own field on claude-native (spec 37)', () => {
@@ -38,7 +38,7 @@ test('the discovery offer is one spawn-applied toggle, off by default, Claude\'s
   assert.equal(claudeNative.configFields.find(f => f.id === 'discoveryTools'), field, 'one declaration, by reference');
   for (const d of [claude, claudeNative]) {
     assert.ok(!d.configFields.some(f => f.id === 'diffTool'), `${d.id}: diffs stay on --ide`);
-    assert.equal(d.capabilities.mcpInject.state, 'limited', `${d.id}: no live call checked yet`);
+    assert.equal(d.capabilities.mcpInject.state, 'yes', `${d.id}: measured live (spec 37 M1, M3)`);
   }
   const argv = (d, options) => d.buildLaunch({ sessionId: 's', options }).args;
   for (const d of [claude, claudeNative]) {

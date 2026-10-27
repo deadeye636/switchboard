@@ -149,11 +149,12 @@ chart rather than a row of zeroes.
   agy's own approval prompt still runs — in practice agy prompts a lot before it will call the tool.
   Confirmed working end to end with a real agy; off by default.
   → [`docs/specs/34-switchboard-mcp-server.md`](docs/specs/34-switchboard-mcp-server.md)
-- **Session discovery tools for agy and Codex** — an opt-in launch option lets the agent list the other
+- **Session discovery tools for agy, Codex and Claude** — an opt-in launch option lets the agent list the other
   sessions of its project, read the last turns of one, and list and read the project's handoffs. Read-only
   and capped. Text from another session, possibly another vendor's, reaches the calling model, so it is off by
-  default. Only agy and Codex can call the tools so far.
-  → [`docs/specs/35-session-discovery-tools.md`](docs/specs/35-session-discovery-tools.md)
+  default. Claude takes them in the terminal and in the conversation view; Pi and Hermes cannot call them yet.
+  → [`docs/specs/35-session-discovery-tools.md`](docs/specs/35-session-discovery-tools.md),
+  [`docs/specs/37-claude-on-the-seam.md`](docs/specs/37-claude-on-the-seam.md)
 - **External MCP servers per project** — list MCP servers (a stdio launch or an HTTP endpoint) in a project's
   settings, as a card per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view holds
   the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes not

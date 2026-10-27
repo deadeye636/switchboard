@@ -21,7 +21,7 @@ const PINNED = {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     // limited (#620): the transcript never says [1m], so an opt-in 1M model with no spec reads as 200k.
     contextFill: 'limited',
-    mcpInject: 'limited', // --mcp-config file for external servers; a live Claude listing them is unchecked (plan 789)
+    mcpInject: 'yes',     // --mcp-config file: external servers and the own discovery group, both called live (spec 36, spec 37 M1)
     mcpPrune: 'yes',  // spec 36: --strict-mcp-config via buildMcpPrune (plan 789 T4)
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
@@ -98,7 +98,7 @@ const PINNED = {
   'claude-native': {
     fork: 'yes', deleteSessions: 'yes', moveProject: 'yes', transcriptHandoff: 'yes', lineage: 'yes',
     contextFill: 'limited',
-    mcpInject: 'limited', // external servers via --mcp-config, measured on the pipe; the own discovery group with discoveryTools on, not yet checked live (spec 37)
+    mcpInject: 'yes',     // the same --mcp-config file on the pipe; a call arrives as an approval card (spec 37 M3)
     mcpPrune: 'yes',  // spec 36: same --strict-mcp-config hook as terminal Claude (plan 789 T4)
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
