@@ -1,5 +1,6 @@
-// The global settings' "MCP servers" category (#790 T5, spec 38): the catalog rows, the PATH check on first sight,
-// Copy, and the registry search. Real renderer files in jsdom; `window.api` and the clipboard are fakes.
+// The global settings' "MCP servers" category (#790 T5 and T6, spec 38): the catalog rows, the PATH check on first
+// sight, Copy, the registry search, and Add to project. Real renderer files in jsdom; `window.api`, the clipboard
+// and the dialog are fakes.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -16,13 +17,19 @@ const PAGE = '<!DOCTYPE html><html><body><div id="body">'
 
 const tick = () => new Promise(r => setTimeout(r, 0));
 
-function setup({ check, search, clipboard } = {}) {
+function setup({ check, search, clipboard, projects, dialog } = {}) {
   const dom = new JSDOM(PAGE, { url: 'http://localhost/', runScripts: 'outside-only' });
   const ctx = dom.getInternalVMContext();
   for (const rel of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   const { window } = dom;
-  const calls = { check: [], search: [], copied: [] };
+  const calls = { check: [], search: [], copied: [], projects: 0, opened: [], dialogs: [] };
+  window.showControlDialog = async (o) => { calls.dialogs.push(o); return dialog === undefined ? true : dialog; };
   window.api = {
+    getProjectsAdmin: async () => {
+      calls.projects += 1;
+      return projects === undefined ? { ok: true, projects: [] } : projects;
+    },
+    openSettingsWindow: (scope, projectPath, seed) => { calls.opened.push({ scope, projectPath, seed }); },
     checkExternalMcp: async (projectPath, entries) => {
       calls.check.push({ projectPath, entries });
       return check ? check(entries, calls.check.length) : { ok: true, results: [] };
@@ -222,5 +229,90 @@ test('a settings search keeps a matching row and hides the others (rows are .set
     assert.deepEqual(visible('jDocMunch'), ['jdocmunch']);
     assert.deepEqual(visible('Dual-Use'), ids(window));
     assert.deepEqual(visible('no such thing'), []);
+  } finally { dom.window.close(); }
+});
+
+// --- Add to project (T6): the picker and the hand-off. ---
+
+const PROJECTS = { ok: true, projects: [
+  { projectPath: '/work/zeta', displayName: 'Zeta', registered: true },
+  { projectPath: '/work/alpha', displayName: '', registered: true },
+  { projectPath: '/work/hidden', displayName: 'Hidden', registered: true, hidden: true },
+  { projectPath: '/work/gone', displayName: 'Gone', registered: true, missing: true },
+  { projectPath: '/work/alpha/.claude/worktrees/wt1', displayName: 'wt1', registered: true, worktreeRoot: '/work/alpha' },
+  { projectPath: '/work/<b>odd</b>', displayName: '<img src=x onerror="window.__pwned=1">', registered: true },
+  // Not on the list: one a backend's config alone knows, and one the user removed.
+  { projectPath: '/work/config-only', displayName: '', registered: false, configOnly: true },
+  { projectPath: '/work/removed', displayName: 'Removed', registered: false, removedAt: 1 },
+] };
+
+test('the project list is read on the first show only, and lists only projects on the list, present and not worktrees, as text', async () => {
+  const { dom, window, body, calls, show } = setup({ projects: PROJECTS });
+  try {
+    const picker = body.querySelector('[data-addon="jcodemunch"] select');
+    assert.equal(picker.disabled, true, 'nothing to pick before the list is read');
+    await tick();
+    assert.equal(calls.projects, 0, 'not read at bind');
+    show(); await tick(); await tick();
+    show(); await tick();
+    assert.equal(calls.projects, 1);
+    const options = [...picker.options].slice(1).map(o => [o.value, o.textContent]);
+    assert.deepEqual(JSON.parse(JSON.stringify(options)), [
+      ['/work/<b>odd</b>', '<img src=x onerror="window.__pwned=1">'],
+      ['/work/alpha', 'alpha'],
+      ['/work/zeta', 'Zeta'],
+    ]);
+    assert.equal(picker.querySelector('img, b'), null);
+    assert.equal(window.__pwned, undefined);
+    assert.equal(picker.disabled, false);
+    assert.ok(picker.classList.contains('settings-select'));
+  } finally { dom.window.close(); }
+});
+
+test('a failed or empty project list says so and offers nothing to press', async () => {
+  for (const [projects, words] of [[{ error: 'nope' }, /could not be read/], [{ ok: true, projects: [] }, /No project to add to yet/]]) {
+    const { dom, body, show } = setup({ projects });
+    try {
+      show(); await tick(); await tick();
+      const row = body.querySelector('[data-addon="jdocmunch"]');
+      assert.match(row.querySelector('select').options[0].textContent, words);
+      assert.equal([...row.querySelectorAll('button')].find(b => b.textContent === 'Add to project').disabled, true);
+    } finally { dom.window.close(); }
+  }
+});
+
+test('Add to project warns, then opens the project with the catalog id as the seed; Cancel opens nothing', async () => {
+  const run = async (dialog) => {
+    const env = setup({ projects: PROJECTS, dialog });
+    env.show(); await tick(); await tick();
+    const row = env.body.querySelector('[data-addon="jdatamunch"]');
+    row.querySelector('select').value = '/work/zeta';
+    [...row.querySelectorAll('button')].find(b => b.textContent === 'Add to project').click();
+    await tick(); await tick();
+    return env;
+  };
+  const yes = await run(true);
+  try {
+    assert.equal(yes.calls.dialogs.length, 1);
+    assert.match(yes.calls.dialogs[0].message, /not saved are lost/);
+    assert.deepEqual(JSON.parse(JSON.stringify(yes.calls.opened)), [{ scope: 'project', projectPath: '/work/zeta', seed: { addon: 'jdatamunch' } }]);
+  } finally { yes.dom.window.close(); }
+  const no = await run(false);
+  try {
+    assert.equal(no.calls.dialogs.length, 1);
+    assert.deepEqual(no.calls.opened, []);
+  } finally { no.dom.window.close(); }
+});
+
+test('Add to project without a chosen project asks for one and opens nothing', async () => {
+  const { dom, body, calls, show } = setup({ projects: PROJECTS });
+  try {
+    show(); await tick(); await tick();
+    const row = body.querySelector('[data-addon="jcodemunch"]');
+    [...row.querySelectorAll('button')].find(b => b.textContent === 'Add to project').click();
+    await tick();
+    assert.match(body.textContent, /Choose a project first\./);
+    assert.deepEqual(calls.dialogs, []);
+    assert.deepEqual(calls.opened, []);
   } finally { dom.window.close(); }
 });

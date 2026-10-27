@@ -19,6 +19,9 @@ if (typeof window.openSettingsViewer === 'function') {
       // Set only when the path was resolved from a worktree (#593). A label, so it rides beside the
       // scope rather than changing it — `openSettingsViewer`'s two arguments still say WHICH settings.
       window.__SETTINGS_FROM_WORKTREE__ = params.get('worktree') || null;
+      // #790: a catalog id to open the MCP servers Add form with. One-shot: the panel takes it and clears it, so
+      // Apply's rebuild (another `openSettingsViewer`, no reload) does not open the form again.
+      window.__SETTINGS_SEED__ = params.get('addon') ? { addon: params.get('addon') } : null;
     }
   } catch { /* no query: the global settings are the sane default */ }
   window.openSettingsViewer(scope, projectPath);

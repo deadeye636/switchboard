@@ -14,6 +14,7 @@
 
 const { BrowserWindow, dialog, ipcMain, Menu, screen, shell } = require('electron');
 const { worktreeLabelOf, settingsOwnerPath } = require('../shared/worktree-path');
+const { findCatalogItem } = require('../shared/mcp-addon-catalog');
 const path = require('path');
 const fs = require('fs');
 const quitGuard = require('./quit-guard');
@@ -63,7 +64,11 @@ function init(context) {
 // because the re-seed is a load either way, and a load carries its query with it — a message would
 // have to be re-sent on every one of them, and a missed one would show the previous project's
 // settings under the new project's name. A window already showing the same thing is just focused.
-function settingsQuery(scope, projectPath) {
+//
+// `seed` (#790, spec 38 D11) opens the project's MCP servers Add form prefilled from a catalog entry:
+// `{ addon: <catalog id> }`. Only an id the catalog knows joins the query, and only for a project; anything
+// else is dropped here, so no text from a renderer reaches the form through the URL.
+function settingsQuery(scope, projectPath, seed) {
   const query = { scope: scope === 'project' && projectPath ? 'project' : 'global' };
   // Opened for a WORKTREE, this shows the project it belongs to. Its settings are that project's since
   // the cascade resolves the owner, so a screen keyed on the worktree's own path would show global
@@ -84,6 +89,8 @@ function settingsQuery(scope, projectPath) {
     // the leaf alone names two checkouts identically and disagrees with the row that was clicked.
     const wt = worktreeLabelOf(projectPath);
     if (wt) query.worktree = wt;
+    const addon = seed && typeof seed === 'object' ? seed.addon : undefined;
+    if (findCatalogItem(addon)) query.addon = addon;
   }
   return query;
 }
@@ -92,15 +99,23 @@ function loadSettings(win, query) {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'), { query });
 }
 
-function openSettingsWindow(scope, projectPath) {
-  const query = settingsQuery(scope, projectPath);
+// What the window is ABOUT, for the "already showing this" test: the scope and the project, not the one-shot seed
+// (#790). A seeded open still differs from what is shown and loads; a later plain open of the same project then
+// only raises the window instead of reloading it over the form the seed opened.
+function shownQueryKey(query) {
+  const { addon, ...about } = query;
+  return JSON.stringify(about);
+}
+
+function openSettingsWindow(scope, projectPath, seed) {
+  const query = settingsQuery(scope, projectPath, seed);
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     const win = settingsWindow;
     // Showing this already? Then there is nothing to re-seed and nothing to discard — raising it is
     // the whole of the answer, and reloading would throw away edits in progress.
     const sameThing = win.isVisible() && win.__settingsQuery === JSON.stringify(query);
     if (sameThing) { win.focus(); return; }
-    win.__settingsQuery = JSON.stringify(query);
+    win.__settingsQuery = shownQueryKey(query);
     win.webContents.once('did-finish-load', () => {
       if (win.isDestroyed()) return;
       win.show();
@@ -120,7 +135,7 @@ function openSettingsWindow(scope, projectPath) {
     webPreferences: { preload: path.join(__dirname, '..', 'preload.js'), nodeIntegration: false, contextIsolation: true },
   });
   settingsWindow.setMenu(null);
-  settingsWindow.__settingsQuery = JSON.stringify(query);
+  settingsWindow.__settingsQuery = shownQueryKey(query);
   loadSettings(settingsWindow, query);
   settingsWindow.once('ready-to-show', () => {
     if (!settingsWindow || settingsWindow.isDestroyed()) return;
@@ -441,7 +456,7 @@ function applyMainZoom(level) {
 }
 
 function registerIpc(ipc = ipcMain) {
-  ipc.on('open-settings-window', (_event, scope, projectPath) => openSettingsWindow(scope, projectPath));
+  ipc.on('open-settings-window', (_event, scope, projectPath, seed) => openSettingsWindow(scope, projectPath, seed));
 
   // Cancel/Save in the standalone settings window (#175). The renderer used to call
   // window.close(), which destroys the window without ever emitting 'close' — there is
@@ -500,6 +515,8 @@ module.exports = {
   // Pure, and exported so it can be tested without a window: it decides WHICH settings a load is about,
   // and the worktree half of that answer has no other seam.
   settingsQuery,
+  // Pure, for the same reason: whether an open only raises the window that already shows it (#790).
+  shownQueryKey,
   createWindow,
   buildMenu,
   openSettingsWindow,

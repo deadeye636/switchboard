@@ -430,14 +430,17 @@
     return { el, read: () => inputs.map(r => ({ name: r.name.value, value: r.value ? r.value.value : '' })) };
   }
 
-  /** Open the inline form. `index` null = Add; a number = Edit that entry, seeded through entryToForm. */
-  function openForm(body, signal, index) {
+  /**
+   * Open the inline form. `index` null = Add; a number = Edit that entry, seeded through entryToForm. An Add may carry
+   * `seedEntry` (a raw entry, #790's catalog hand-off): the form starts from it, and nothing is written until Add.
+   */
+  function openForm(body, signal, index, seedEntry) {
     const host = body.querySelector('#' + FORM_ID);
     const ta = body.querySelector('#' + TEXT_ID);
-    if (!host || !ta) return;
+    if (!host || !ta) return false;
     const parsed = parseList(ta.value);
-    if (parsed.error || (index !== null && index >= parsed.list.length)) return;
-    const seed = window.entryToForm(index === null ? {} : parsed.list[index]);
+    if (parsed.error || (index !== null && index >= parsed.list.length)) return false;
+    const seed = window.entryToForm(index === null ? (seedEntry || {}) : parsed.list[index]);
     host.textContent = '';
     const formEl = node('div', 'sv-mcp-form');
     formEl.appendChild(node('div', 'settings-section-title', index === null ? 'Add server' : 'Edit server'));
@@ -532,6 +535,19 @@
     formEl.appendChild(msg);
     formEl.appendChild(actions);
     host.appendChild(formEl);
+    return true;
+  }
+
+  /**
+   * #790: open the Add form prefilled from a catalog entry (the seed a global "Add to project" sent). Only an id the
+   * catalog knows opens anything; the entry comes from the catalog itself, never from the seed. -> opened or not.
+   */
+  function openSeeded(body, signal, id) {
+    const item = typeof window.findCatalogItem === 'function' ? window.findCatalogItem(id) : null;
+    if (!item || !openForm(body, signal, null, window.entryFromCatalog(item))) return false;
+    const host = body.querySelector('#' + FORM_ID);
+    if (host && typeof host.scrollIntoView === 'function') host.scrollIntoView({ block: 'nearest' });
+    return true;
   }
 
   /** The section markup. `list` is the stored value (anything; shown as it is, so a bad stored value can be fixed). */
@@ -718,6 +734,15 @@
       control.appendChild(copyLine(`Install with ${r.runtime}`, window.commandLine(r.install), msg, signal));
       control.appendChild(copyLine(`Uninstall with ${r.runtime}`, window.commandLine(r.uninstall), msg, signal));
     }
+    // Add to project: a project picker and the button (filled by bindAddons once the project list is read).
+    const handoff = node('div', 'sv-mcp-row');
+    const picker = document.createElement('select');
+    picker.className = 'settings-select';
+    picker.setAttribute('aria-label', `Project to add ${item.name} to`);
+    const addTo = cardButton('Add to project', () => onAddToProject(item, picker, msg), signal);
+    handoff.appendChild(picker);
+    handoff.appendChild(addTo);
+    control.appendChild(handoff);
     row.appendChild(control);
     const commands = item.runtimes.map(r => r.install[0]).concat(item.stdio.command);
     const setStates = (states) => {
@@ -728,7 +753,63 @@
       }
     };
     setStates(null);
-    return { el: row, setStates };
+    return { el: row, setStates, picker, addTo };
+  }
+
+  /** One option per project, text set as text. `projects` null = still loading; a string = why there are none. */
+  function fillPicker(picker, button, projects) {
+    picker.textContent = '';
+    const first = document.createElement('option');
+    first.value = '';
+    first.textContent = projects === null ? 'Projects load when this category is shown'
+      : typeof projects === 'string' ? projects : 'Choose a project…';
+    picker.appendChild(first);
+    for (const p of Array.isArray(projects) ? projects : []) {
+      const o = document.createElement('option');
+      o.value = p.path;
+      o.textContent = p.label;
+      o.title = p.path;
+      picker.appendChild(o);
+    }
+    const ready = Array.isArray(projects) && projects.length > 0;
+    picker.disabled = !ready;
+    button.disabled = !ready;
+  }
+
+  // The projects a server can be handed to: on the project list (registered, not hidden), on disk, and not a worktree
+  // (a worktree's settings are its project's). A project only a backend's config knows, or one removed, is not offered.
+  function pickableProjects(res) {
+    const rows = res && res.ok === true && Array.isArray(res.projects) ? res.projects : null;
+    if (!rows) return null;
+    return rows
+      .filter(r => r && typeof r.projectPath === 'string' && r.projectPath && r.registered && !r.hidden && !r.missing && !r.worktreeRoot)
+      .map(r => ({
+        path: r.projectPath,
+        label: typeof r.displayName === 'string' && r.displayName.trim() ? r.displayName.trim()
+          : r.projectPath.split(/[\\/]/).filter(Boolean).pop() || r.projectPath,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
+  /**
+   * Hand a catalog entry to a project (spec 38, D6, D11): warn that this window is replaced (O3), then ask main to open
+   * the project's settings with the catalog id as the seed. Nothing is stored here or there until the user saves.
+   */
+  async function onAddToProject(item, picker, msg) {
+    const path = picker.value;
+    if (!path) { msg.textContent = 'Choose a project first.'; return; }
+    const option = picker.selectedOptions && picker.selectedOptions[0];
+    const ok = typeof showControlDialog === 'function' ? await showControlDialog({
+      title: 'Open the project\'s settings',
+      message: `This window switches to the project's settings, with the Add form filled in for ${item.name}. `
+        + 'Changes here that you have not saved are lost. Nothing is added until you press Add and then Save there.',
+      confirmLabel: 'Open project settings',
+      tone: 'warning',
+      details: { Server: item.name, Project: option ? option.textContent : path },
+    }) : true;
+    if (!ok || !window.api || typeof window.api.openSettingsWindow !== 'function') return;
+    msg.textContent = '';
+    window.api.openSettingsWindow('project', path, { addon: item.id });
   }
 
   /** One registry result, every string set as text. Marked Unverified; Copy at most. */
@@ -776,7 +857,7 @@
     catalog.appendChild(node('div', 'settings-hint',
       'Found means the program is on PATH; nothing was started. Copy a command and run it in your own terminal: '
       + 'Switchboard installs and removes nothing. uvx can run a server without installing it; that form is not checked here. '
-      + 'To use a server in a project, add it under that project\'s MCP servers.'));
+      + 'Add to project opens that project\'s settings with the server filled in; installing is per machine, using it is per project.'));
     const actions = node('div', 'sv-mcp-add');
     const again = cardButton('Check again', () => runAddonsCheck(), signal);
     actions.appendChild(again);
@@ -801,7 +882,19 @@
       }
       for (const r of rows) r.setStates(states);
     }
-    // The first sight of this panel build asks PATH once; a later show does not. A reply for an older build is stale.
+    for (const r of rows) fillPicker(r.picker, r.addTo, null);
+    async function loadProjects() {
+      if (!window.api || typeof window.api.getProjectsAdmin !== 'function') return;
+      let res = null;
+      try { res = await window.api.getProjectsAdmin(); } catch { res = null; }
+      if (signal.aborted || !host.isConnected) return;
+      const projects = pickableProjects(res);
+      const pickerChoices = projects === null ? 'The project list could not be read.'
+        : projects.length ? projects : 'No project to add to yet.';
+      for (const r of rows) fillPicker(r.picker, r.addTo, pickerChoices);
+    }
+
+    // The first sight of this panel build asks PATH and reads the project list once; a later show does not.
     let shown = false;
     const section = host.closest('.settings-cat');
     if (section) {
@@ -809,6 +902,7 @@
         if (shown) return;
         shown = true;
         runAddonsCheck();
+        loadProjects();
       }, { signal });
     }
 
@@ -861,5 +955,5 @@
     }
   }
 
-  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, bindAddons };
+  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, bindAddons, openSeeded };
 })();
