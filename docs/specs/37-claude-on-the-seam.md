@@ -165,6 +165,17 @@ Not designed here. Each is its own plan with its own go.
 
 - **Slice 2b, `runReview`.** A narrow read-only spawn tool: one turn on a pipe-driven backend, read-only, shared
   cwd, asynchronous with polling, depth at most one. Needs its own proposal (CLAUDE.md reflex 16).
+  **Proposal decided (owner, 2026-10-27), design to follow in its own spec:**
+  - **Contract: handle and poll** (`startReview` answers an id, `reviewResult(id)` answers running or the text), not
+    one blocking call. Reason: O2 above; it holds whatever each CLI's timeout is, agy's included.
+  - **Runner: a real pipe-driven Switchboard session** through `src/app/agent-rpc.js` (claude-native, pi-native as
+    targets first), not a headless one-shot CLI and not a request the user starts by hand.
+  - **Visible as a sidebar row**, recognisable as the caller's child; no tab of its own.
+  - **Model: the target backend's default.**
+  - **Guardrails:** an opt-in toggle of its own (`reviewTools`, off by default); the review session gets no review
+    tool (depth 1); one running review per caller; at most 10 minutes, then stopped; the answer capped at about
+    32 KB; read-only (claude-native in plan mode, pi-native through its approval gate refusing writes; the plan
+    settles each backend's way).
 - **Pi on the seam.** Its own slice. First step is measurement M7: `pi mcp --help`, is there a per-launch config
   path, and does an http server take a header? Pi's own MCP section (`src/backends/pi/mcp-section.js`) is stdio
   only today.
