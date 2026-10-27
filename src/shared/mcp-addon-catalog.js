@@ -103,6 +103,34 @@
     return commands.map((command, i) => ({ name: `probe-${i + 1}`, transport: 'stdio', command }));
   }
 
+  // The reason a probe carries when the reply says nothing usable about it. Not one of main's codes, so the renderer's
+  // `reasonSentence` gives its neutral sentence.
+  const NO_ANSWER = 'no-answer';
+  const PROBE_STATES = ['found', 'missing', 'unknown'];
+
+  /**
+   * The check's `results` for `probeEntries()` -> { <command>: { state: 'found' | 'missing' | 'unknown', reason? } }.
+   * Every probe gets an answer: a rejected, absent or unexpected result is `unknown` with NO_ANSWER, never `missing`
+   * (spec 36 slice D: missing only with evidence). Only the command fact is read.
+   */
+  function readProbe(results, probes) {
+    const list = probes || probeEntries();
+    const byIndex = new Map();
+    for (const r of Array.isArray(results) ? results : []) {
+      if (r && typeof r === 'object' && Number.isInteger(r.index) && !byIndex.has(r.index)) byIndex.set(r.index, r);
+    }
+    const out = {};
+    list.forEach((probe, i) => {
+      const r = byIndex.get(i);
+      const fact = r && !r.rejected && r.name === probe.name && r.command && typeof r.command === 'object' ? r.command : null;
+      if (!fact || !PROBE_STATES.includes(fact.state)) { out[probe.command] = { state: 'unknown', reason: NO_ANSWER }; return; }
+      const answer = { state: fact.state };
+      if (fact.state === 'unknown') answer.reason = typeof fact.reason === 'string' ? fact.reason : NO_ANSWER;
+      out[probe.command] = answer;
+    });
+    return out;
+  }
+
   /** Every rule a catalog has to keep -> [message]. Empty means it holds. The test runs this over the real catalog. */
   function catalogProblems(catalog) {
     const problems = [];
@@ -139,5 +167,5 @@
     return problems;
   }
 
-  return { MCP_ADDON_CATALOG, commandLine, findCatalogItem, entryFromCatalog, probeEntries, catalogProblems };
+  return { MCP_ADDON_CATALOG, commandLine, findCatalogItem, entryFromCatalog, probeEntries, readProbe, catalogProblems };
 });

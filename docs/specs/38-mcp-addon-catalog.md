@@ -61,6 +61,10 @@ reply's `command` facts are read; the variable and backend facts are not used. T
 (`found`, `missing`, `unknown`) and a reason code, which the renderer maps with the existing `reasonSentence`
 (exported from `src/renderer/panels/settings-external-mcp.js`). The check runs when the category is first shown, not
 when the window opens, and again on **Check again**. Open point O5 records why the existing IPC is used.
+`probeEntries` and `readProbe` in `src/shared/mcp-addon-catalog.js` build the throwaway entries (one per distinct
+executable) and read the reply back per command. A probe the reply says nothing usable about (rejected, absent, another
+name, a state outside `found`/`missing`/`unknown`) reads as `unknown` with reason `no-answer`, which `reasonSentence`
+words neutrally, never as `missing`.
 
 Two honest limits, both shown in the UI text:
 

@@ -1,9 +1,10 @@
-// The reviewed MCP addon catalog (#790 T2, spec 38): every entry keeps the shape the settings screen and the project
-// form rely on, and every command is one string for every shell (D9).
+// The reviewed MCP addon catalog (#790 T2 and T4, spec 38): every entry keeps the shape the settings screen and the
+// project form rely on, every command is one string for every shell (D9), and detection reads the static check's reply
+// back per command, with "missing" only where the check had evidence.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  MCP_ADDON_CATALOG, commandLine, findCatalogItem, entryFromCatalog, probeEntries, catalogProblems,
+  MCP_ADDON_CATALOG, commandLine, findCatalogItem, entryFromCatalog, probeEntries, readProbe, catalogProblems,
 } = require('../src/shared/mcp-addon-catalog');
 const { entryToForm, formToEntry } = require('../src/shared/external-mcp-form');
 const { validateExternalMcpServers } = require('../src/shared/external-mcp-validate');
@@ -142,4 +143,83 @@ test('probeEntries asks once per distinct executable, as valid stdio entries', (
   assert.deepEqual(new Set(commands), want);
   const res = validateExternalMcpServers(probes);
   assert.equal(res.rejected.length, 0, JSON.stringify(res.rejected));
+});
+
+// --- Detection (T4): the probe reply mapped back per command, over hand-made replies and the real check. ---
+
+const commandsOf = (probes) => probes.map(p => p.command);
+const reply = (probes, commandFor) => probes.map((p, index) => {
+  const command = commandFor(p.command, index);
+  return command === undefined ? undefined : { index, name: p.name, enabled: true, transport: 'stdio', command, variables: [], takes: [], envGap: false };
+}).filter(Boolean);
+
+test('readProbe maps found, missing and unknown with each reason code, keyed by command', () => {
+  const probes = probeEntries();
+  // Main's own list, so a reason code added there is covered here without an edit.
+  const { REASONS } = require('../src/app/external-mcp-check');
+  const facts = [{ state: 'found', resolved: '/bin/x' }, { state: 'missing' }, ...REASONS.command.map(reason => ({ state: 'unknown', reason }))];
+  // One pass per fact, every probe answered by it: there are fewer probes than facts.
+  for (const f of facts) {
+    const out = readProbe(reply(probes, () => f), probes);
+    assert.deepEqual(Object.keys(out).sort(), commandsOf(probes).sort());
+    const want = f.state === 'unknown' ? { state: 'unknown', reason: f.reason } : { state: f.state };
+    for (const c of commandsOf(probes)) assert.deepEqual(out[c], want, `${c} ${JSON.stringify(f)}`);
+  }
+});
+
+test('readProbe answers unknown, never missing, for a rejected, absent, short, mismatched or odd reply', () => {
+  const probes = probeEntries();
+  const unknown = { state: 'unknown', reason: 'no-answer' };
+  for (const results of [undefined, null, 'nope', {}, []]) {
+    for (const c of commandsOf(probes)) assert.deepEqual(readProbe(results, probes)[c], unknown, JSON.stringify(results));
+  }
+  const rejected = probes.map((_p, index) => ({ index, rejected: true }));
+  assert.ok(Object.values(readProbe(rejected, probes)).every(a => a.state === 'unknown'));
+
+  const short = reply(probes, () => ({ state: 'found' })).slice(0, 2);
+  const outShort = readProbe(short, probes);
+  assert.deepEqual(outShort[probes[0].command], { state: 'found' });
+  assert.deepEqual(outShort[probes[probes.length - 1].command], unknown);
+
+  const swapped = reply(probes, () => ({ state: 'missing' })).map(r => ({ ...r, name: 'someone-else' }));
+  assert.ok(Object.values(readProbe(swapped, probes)).every(a => a.state === 'unknown'));
+
+  const odd = reply(probes, (_c, i) => [{ state: 'not-applicable' }, { state: 'gone' }, null, { state: 'unknown' }][i % 4]);
+  const outOdd = readProbe(odd, probes);
+  for (const c of commandsOf(probes)) assert.deepEqual(outOdd[c], unknown, c);
+});
+
+test('the real check, with no project, reads present, absent and unreadable PATH entries as found, missing and unknown', async () => {
+  const { checkEntries } = require('../src/app/external-mcp-check');
+  const { forgetListing } = require('../src/app/path-resolve');
+  const errno = (code) => Object.assign(new Error(code), { code });
+  const fakeFs = (dirs) => ({
+    promises: {
+      async readdir(dir) {
+        const v = dirs[dir];
+        if (v instanceof Error) throw v;
+        if (!v) throw errno('ENOENT');
+        return v;
+      },
+      async stat() { return { isDirectory: () => false, mode: 0o755 }; },
+    },
+  });
+  const probes = probeEntries();
+  const run = async (PATH, dirs) => {
+    forgetListing();
+    const results = await checkEntries(probes, { projectPath: null, env: { PATH }, backendEnv: {}, backends: [], platform: 'linux', fs: fakeFs(dirs) });
+    return readProbe(results, probes);
+  };
+
+  const readable = await run('/bin1', { '/bin1': ['uv', 'jcodemunch-mcp'] });
+  assert.deepEqual(readable.uv, { state: 'found' });
+  assert.deepEqual(readable['jcodemunch-mcp'], { state: 'found' });
+  assert.deepEqual(readable.pipx, { state: 'missing' });
+  assert.deepEqual(readable['jdocmunch-mcp'], { state: 'missing' });
+
+  const unreadable = await run('/bin1:/bin2', { '/bin1': ['uv'], '/bin2': errno('EACCES') });
+  assert.deepEqual(unreadable.uv, { state: 'found' });
+  assert.deepEqual(unreadable.pipx, { state: 'unknown', reason: 'unreadable' });
+  assert.deepEqual(unreadable['jdatamunch-mcp'], { state: 'unknown', reason: 'unreadable' });
+  forgetListing();
 });
