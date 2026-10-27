@@ -282,6 +282,8 @@ module.exports = {
     // `identity` op. No `messagesCommand`: the conversation is read from the transcript.
     entriesFromTranscript,
     entryKey: protocol.entryKey,
+    // The text of an assistant entry, for a core observer such as the review runner (spec 39).
+    assistantTextOf: protocol.assistantTextOf,
     // No `gracefulStopMs` (#653 E14): measured, a child killed the moment its `result` arrived had already
     // written that turn's last line, so a wait would save nothing.
   },

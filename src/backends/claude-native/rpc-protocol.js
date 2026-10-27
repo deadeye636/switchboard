@@ -600,7 +600,11 @@ function createDecoder() {
     skillResults = [];
     summaryNext = false;
     noteReadCalls(msg, readCalls);
-    ops.push({ op: 'append', entry: entryOf(msg) });
+    const entry = entryOf(msg);
+    // A failed model call is drawn like a reply but is not one: marked, so `assistantTextOf` does not hand its
+    // sentence to an observer as the answer (spec 39).
+    if (msg.error) entry._failed = true;
+    ops.push({ op: 'append', entry });
     for (const b of Array.isArray(m.content) ? m.content : []) {
       if (b && b.type === 'tool_use' && b.id) {
         if (b.name === 'Skill') skillCalls.add(b.id);
@@ -1441,9 +1445,20 @@ const entryKey = (entry) => {
   return entry && typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : null;
 };
 
+// The text of an assistant entry, for a core observer (spec 39, the review runner): Claude's own transcript line
+// `{ type: 'assistant', message: { content } }`, its text blocks joined. `null` for anything else, an assistant line
+// that carries only tool calls included — one turn writes several assistant lines, and the observer keeps the last text.
+// A failed model call (`_failed`, a lapsed login, an exhausted account) is not a reply and answers `null` too.
+const assistantTextOf = (entry) => {
+  if (!entry || entry.type !== 'assistant' || !entry.message || entry._failed) return null;
+  const text = textOf(entry.message.content).trim();
+  return text || null;
+};
+
 module.exports = {
   createDecoder,
   responseOf,
+  assistantTextOf,
   sendCommand,
   abortCommand,
   stopTaskCommand,

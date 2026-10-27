@@ -586,6 +586,10 @@ answers instead of the core learning its format:
   its images inline. Spec 33 has the rest.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
+- `assistantTextOf(entry)` — optional (spec 39). The text of a finished assistant entry in the backend's own shape,
+  `null` for anything else (a user line, a tool result, an assistant line holding only tool calls). The core hands it to
+  a session's observer (`agentRpc.observe`, the review runner's way of following a session without a view); one turn
+  yields several assistant entries and the observer keeps the last text. Both runtime-driven backends declare it.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own
   format, for an answer that means something only against what was asked. Claude ends a turn it was told to
   stop with the same `error_during_execution` result a failed turn gets (measured), so claude-native's

@@ -121,6 +121,8 @@ module.exports = {
     // session has an assistant reply, and flushes nothing on exit that it held before one — a wait would
     // save nothing, so it is stopped at once as before.
     responseOf: protocol.responseOf,
+    // The text of an assistant entry, for a core observer such as the review runner (spec 39).
+    assistantTextOf: protocol.assistantTextOf,
     sendCommand: protocol.sendCommand,
     // A turn may carry images (#656), in Pi's `images` field; the limits are the shared ones in
     // `../rpc-shared.js`, since Pi hands the image to whichever provider the session uses.

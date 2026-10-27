@@ -157,7 +157,10 @@ function createDecoder({ cwd } = {}) {
         const m = msg.message;
         const ops = [];
         if (m && m.role === 'assistant') { partial = null; ops.push({ op: 'partial', entry: null }); }
-        for (const entry of entriesFor(m, docs)) ops.push({ op: 'append', entry });
+        // A failed model call is drawn like a reply but is not one: marked, so `assistantTextOf` does not hand its
+        // partial text to an observer as the answer (spec 39).
+        const failed = !!(m && m.role === 'assistant' && m.stopReason === 'error');
+        for (const entry of entriesFor(m, docs)) ops.push({ op: 'append', entry: failed ? { ...entry, _failed: true } : entry });
         if (m && m.role === 'assistant' && m.stopReason === 'error') {
           ops.push({ op: 'notice', level: 'error', text: String(m.errorMessage || NOTICES.modelFailed) });
         } else if (m && m.role === 'assistant' && m.stopReason === 'aborted') {
@@ -751,8 +754,19 @@ function entriesFromMessages(response, { cwd } = {}) {
   return out;
 }
 
+// The text of an assistant entry, for a core observer (spec 39, the review runner): Pi's message entry
+// `{ type: 'message', message: { role: 'assistant', content } }`, its text blocks joined. `null` for anything else — a
+// tool result is drawn as role `user` too, and an assistant message that holds only tool calls has no text. A failed
+// model call (`_failed`, `stopReason: 'error'`) is not a reply either.
+function assistantTextOf(entry) {
+  if (!entry || entry.type !== 'message' || !entry.message || entry.message.role !== 'assistant' || entry._failed) return null;
+  const text = textOf(entry.message.content).trim();
+  return text || null;
+}
+
 module.exports = {
   createDecoder,
+  assistantTextOf,
   responseOf,
   sendCommand,
   abortCommand,
