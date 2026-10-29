@@ -746,7 +746,7 @@ and because a second window can corrupt them.
 | `filePanelWidth`, `filePanelDiffMode` | the side panel's width; side-by-side vs inline diff |
 | `projectCollapseState`, `projectOrder` | sidebar arrangement — these two are localStorage-only |
 | `projectSortMode`, `favoritesOwnList` | a **boot cache** of two real global settings (see the table above). The blob is the source of truth; the mirror is what lets the first paint sort before the settings arrive |
-| `expandedSlugs`, `expandedSubagents`, `orphanExpanded:<project>` | which sidebar groups are open |
+| `expandedSlugs`, `expandedSubagents`, `expandedLineage`, `collapsedReviews`, `orphanExpanded:<project>` | which sidebar groups are open (`collapsedReviews` holds the callers whose review fold is closed; it defaults open) |
 | `usageStatusLastValue` | the last usage reading, so the status bar is not empty on boot |
 
 **A detached session window (#2) shares this storage** — it is the same `index.html` on the same

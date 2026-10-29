@@ -93,6 +93,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/convention-dirs.js     where a project keeps its handoffs and its plans
   src/app/skills.js              what a running session can be asked to run
   src/app/terminal/images.js     images pasted or dropped into a terminal
+  src/app/terminal/stop-session.js  stopping a running session on purpose (the user's Stop, the review runner); the stop-session handler stays in main.js and calls it
   src/app/agent-rpc.js           a session driven over a runtime protocol instead of a terminal
   src/app/resource-sources.js    which of another backend's skills, commands, agents and MCP servers a session takes over
   src/app/external-mcp-check.js  the static check of a project's external MCP server entries (command, variables, which backends take it)

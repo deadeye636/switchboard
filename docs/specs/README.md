@@ -7,7 +7,7 @@ Each file in this folder is a **self-contained spec for one feature**, written s
 **How to read one.** For specs 01–20 the `Status:` line is the current state. The later ones have no single
 form: 21–24, 27 and 33 open with `Issue: #NNN. Built: …`, 25, 26 and 28 with a `Status:` line, 30–32 with a
 sentence naming the issue and where the code went, and 29 with neither (its issue, #569, is in the table
-below). Every one of them is built unless its row says **planned**, which the table says in its own column. Where a spec's body still describes the plan, an **"As built"** banner at the top says what diverged and where the code went — read the banner first, and treat anything it contradicts as history. Line numbers and `public/` paths date from before #214/#218 and have drifted; `test/doc-refs.test.js` guards the paths, nothing guards a line number.
+below). Every one of them is built unless its row says **planned** or **in progress**, which the table says at the start of its Spec cell; specs 34 onward also carry a `Status:` sentence in their opening paragraph. Where a spec's body still describes the plan, an **"As built"** banner at the top says what diverged and where the code went — read the banner first, and treat anything it contradicts as history. Line numbers and `public/` paths date from before #214/#218 and have drifted; `test/doc-refs.test.js` guards the paths, nothing guards a line number.
 
 **Every agent must read this README first**, then their assigned spec.
 

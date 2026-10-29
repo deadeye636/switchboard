@@ -18,7 +18,7 @@ Rules for project metadata management and MCP server integrations (#211, #241, #
 
 ## Servers & MCP Bridge (`src/servers/**`)
 
-- Houses `src/servers/mcp-bridge.js`, the MCP IDE bridge.
+- Houses `src/servers/mcp-bridge.js` (the MCP IDE bridge and the shared registry), `mcp-http.js` (the HTTP listener), and the tool groups `discovery-tools.js` (spec 35) and `review-tools.js` (spec 39).
 - **Store Isolation:** Resolves lock file destinations from `SWITCHBOARD_STORE_CLAUDE`, never `os.homedir()`.
 - **Window Lifetime (`startMcpServer`):** Takes a GETTER (`() => BrowserWindow`), never a static window object (#392). The bridge outlives window teardowns and re-openings.
 - **Pending Diffs & Windows:** A pending diff records `pending.win` (the window it was sent to, not necessarily the session host). Cleaning up a window must call `rejectPendingDiffsForWindow` and inspect `hasPendingDiffsForWindow` (#393).

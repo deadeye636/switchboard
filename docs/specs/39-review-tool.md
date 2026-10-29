@@ -113,7 +113,7 @@ to the bridge as `entry.review` exactly as `entry.discovery` is. Module-level st
 reviews for the app-wide cap (O8). It names no backend. Rows below were verified on 2026-10-27.
 
 **1. Start a session with no window and no tab.**
-`openTerminal(sessionId, projectPath, isNew, sessionOptions)` is exported (`src/app/terminal/spawn.js:1950`) and is a plain
+`openTerminal(sessionId, projectPath, isNew, sessionOptions)` is exported (`src/app/terminal/spawn.js`) and is a plain
 async function, not tied to a renderer call. The renderer is only the usual caller (`src/renderer/app.js:1565`), and it
 also injects a pending sidebar row before the call, which the runner cannot do (see "The sidebar row"). It does need the
 main window to exist: `spawn.js:295` answers `{ ok: false, error: 'no window' }` without one, which the runner turns
@@ -131,7 +131,7 @@ all: it gets `sessionOptions` as sent, so claude-native's `permissionMode` reach
 stored option the launch reads (a `model`, `promptSuggestionsOff`) reaches a review (Verified in T1, item 4, corrected).
 
 **2. Send one turn.** After the observer below is attached, `agentRpc.sendTurn(sessionId, { text })`
-(`src/app/agent-rpc.js:1446`) writes the prompt as a turn. The runner sends it with the id the session holds at that moment
+(`src/app/agent-rpc.js`) writes the prompt as a turn. The runner sends it with the id the session holds at that moment
 and keeps the **session object** afterwards, not the id: pi-native adopts the runtime's own id after the start
 (`adoptIdentity`, `agent-rpc.js:378`), so the id may change. `_terminalTag` is stable across re-keys (`agent-rpc.js:108`).
 
@@ -165,7 +165,7 @@ claude-native and pi-native in their own folders; `agent-rpc.js` hands its answe
 entry, and the runner keeps the last one (`rec.lastText`). A backend that declares no `assistantTextOf` is not a review target (see "Targets").
 
 **5. Stop the session.** When the turn has ended and the text is read, or on a timeout, the runner stops the session the
-way the `stop-session` handler does (`src/main.js:1596`): set `session.exited`, record the timeline line, `session.pty.kill()`.
+way the `stop-session` handler does (`src/main.js`, now `src/app/terminal/stop-session.js`): set `session.exited`, record the timeline line, `session.pty.kill()`.
 The proposal moves those four lines into a function in `src/app/terminal/` that the handler and the runner share (the
 handler stays in `main.js` as a grandfathered handler; reflex 4 forbids a *new* one, and this adds none). A killed process
 keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session. The
@@ -184,7 +184,7 @@ pins the three cases.
 
 **The 10-minute cap** runs from the moment `startReview` is accepted, so session start-up (Pi may take up to
 `STARTUP_TIMEOUT_MS`, 120 s, `agent-rpc.js:80`) is inside it. At the cap the runner calls `agentRpc.abortTurn`
-(`agent-rpc.js:1492`), reads what text exists, marks the review `timeout`, and stops the session. The timer is `unref`'d and
+(`abortTurn` in `agent-rpc.js`), reads what text exists, marks the review `timeout`, and stops the session. The timer is `unref`'d and
 cleared on every terminal state.
 
 **Depth 1** is enforced three times: (a) the review session is launched with `reviewTools: false` **and** a
@@ -421,7 +421,7 @@ Off by default; no confirm dialog (spec 35 O10 precedent, O17).
 
 ## What this spec does not do
 
-No headless one-shot runner, no resume of a review, no second turn into a review (one turn, then stop), no model argument,
+No headless one-shot runner, no resume of a review by the runner (a user may resume the row, see "The runner"), no second turn into a review (one turn, then stop), no model argument,
 no `paths` argument, no streaming of partial text to the caller, no worktree isolation (the review shares the folder; a
 read-only agent does not need one), no cost aggregation, no promote/demote to a tab, no backend other than claude-native
 and pi-native as a target in this slice, no new IPC handler in `src/main.js` (reflex 4: the runner is an `src/app/` module

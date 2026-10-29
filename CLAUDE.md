@@ -76,7 +76,7 @@ All app code lives under `src/`:
 | `src/watch/**` | Store and project filesystem watchers, adoption, trigger watchers. |
 | `src/backends/**` | CLI backend descriptors, registry (`index.js`), file-store, probe utilities. |
 | `src/session/**` | Session transitions, lineage, clear-claims, project-path derivation, subagent tail and transcript. App lifecycle is `src/app/lifecycle.js`. |
-| `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`). |
+| `src/servers/**` | MCP IDE bridge (`mcp-bridge.js`), the app's own HTTP MCP listener (`mcp-http.js`) and its tool groups (`discovery-tools.js`, `review-tools.js`). |
 | `src/vcs/**` | VCS provider registry, git provider (including the diff argv), porcelain-v2 status parser. Diff output is not parsed. |
 | `src/projects/**` | Backend-neutral project registry and metadata. |
 
