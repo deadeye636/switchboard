@@ -150,7 +150,9 @@ pipe, wrapped to answer what `session.pty` is asked so stop, quit, re-key and th
 unchanged; the backend's `rpc` half turns lines into the app's own ops and back, so this module names no
 backend and reads no format. Its busy/idle goes through `hooks.deliverBindSignal`, the same delivery a
 terminal's binding extension gets — a second copy of that path is how the two would start to disagree
-about when a session is finished),
+about when a session is finished. A core caller can follow a session without a view through
+`observe(sessionId, observer)` — the review runner does (spec 39): busy edges with the turn's outcome, finished
+entries with their assistant text, every ask before the approval memory, the exit),
 `agent-shell.js` (a `!` line run BY THE APP for a runtime-driven session whose protocol has no shell command —
 #786, claude-native; the project's terminal shell as a login shell with no stdin, output kept up to a cap, the
 tree killed on Stop and on the session's exit, no timeout. `agent-rpc.js` starts it and carries the finished line

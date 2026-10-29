@@ -284,6 +284,11 @@ clauses there carry "the user opened it", which is the whole answer for a fold t
 reopens a user's collapse on every render otherwise. The worktrees fold copies `display` and toggles
 `expanded` explicitly for that reason.
 
+**The review rows under their caller follow the same rule (spec 39).** A closed review fold hides only rows with
+nothing running, and a running review makes its caller's item running, so the caller never lands in "N older" with a
+running child. The caller's item also carries its reviews' ids, so an OPEN review behind a folded caller keeps its row
+(#516). `nestReviews` in `shell/sidebar-state.js` decides, `appendReviewChildren` in `shell/sidebar-subagents.js` draws.
+
 **Where the fold is INSERTED is three constraints, and each one is a bug if you get it wrong.** It goes
 before both the `.sessions-more-toggle` and the `.sidebar-orphan-subagents` anchor (the orphan group is
 appended last in either shape); it matches DIRECT children only, because `appendSubagentChildren` drops

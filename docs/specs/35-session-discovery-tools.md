@@ -267,10 +267,12 @@ Switchboard tool. Nobody observed Codex calling `listSessions`.
 Not designed here. Each is its own plan with its own go, and each starts from a proposal with alternatives.
 
 1. **Headless and interactive spawn** with completion tracking (`switchboard_run_subagent` and
-   `switchboard_spawn_session` in the issue), the execution modes, the permission-prompt deadlock policy.
+   `switchboard_spawn_session` in the issue), the execution modes, the permission-prompt deadlock policy. A narrow
+   read-only form is built: the review tool, [spec 39](39-review-tool.md) (one turn, depth 1, every ask refused).
 2. **Resume** of an interrupted session through the backend's own resume.
 3. **Workspace isolation** by git worktree, its pruning, and the shared-working-tree option.
-4. **Parent and child lifecycle**: cascade shutdown, quit-guard and shutdown registration of children, a
+4. **Parent and child lifecycle** (a narrow form is built for the review tool, spec 39: depth 1, and a caller that ends
+   stops its review): cascade shutdown, quit-guard and shutdown registration of children, a
    recursion limit.
 5. **Promote and demote** between background and tab, the auto and manual promotion setting, the attention
    notification.

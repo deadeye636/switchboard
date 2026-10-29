@@ -138,7 +138,7 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
         });
       },
       onEntry(entry, text) {
-        // `_failed` is the neutral mark a backend's decoder puts on a failed model call (spec 39, T2).
+        // `_failed` is the neutral mark a backend's decoder puts on a failed model call (spec 39, "Detect the end of the turn").
         if (entry && entry._failed) { rec.turnFailed = true; return; }
         if (typeof text === 'string' && text.trim()) rec.lastText = text;
       },
@@ -209,7 +209,7 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
     runningEverywhere.add(rec.id);
     rec.timer = setTimer(() => onTimeout(rec), MAX_MS);
 
-    // The profile wins over the stored defaults: session options are merged last (spec 39, T3's verifier). `buildLaunch`
+    // The profile wins over the stored defaults: session options are merged last (spec 39, "Design", step 1). `buildLaunch`
     // reads these options as sent, so the CLI's own model runs (O15); the empty `model` keeps the merged copy the spawn
     // path hands the extension in line with that. `reviewTools: false` and `spawnedBy` keep the review session from
     // getting a review tool of its own (depth 1).

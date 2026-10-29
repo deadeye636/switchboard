@@ -1462,8 +1462,8 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     _sessionResourcesCleanup: sessionResourcesCleanup,
     // Spec 34: and the release of the MCP servers injected for this spawn.
     _mcpInjectionRelease: mcpInjectionRelease,
-    // Spec 39: a session a review started, and the caller it answers to (T8 links them, T9 keeps attention off it).
-    // `_review` (no attention, T9) only for the runner's own launch: a resume is the user opening the row, in whichever
+    // Spec 39: a session a review started, and the caller it answers to (the stored link; no attention for `_review`).
+    // `_review` (no attention) only for the runner's own launch: a resume is the user opening the row, in whichever
     // view, and the user is told about it like any session. The link (`_spawnedBy`) holds for both.
     _review: !!(sessionOptions && sessionOptions.spawnedBy),
     _spawnedBy: spawnParent,

@@ -1,9 +1,8 @@
 # 39 — The review tool: one agent asks another backend for a read-only second opinion
 
-Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **in progress** (planned 2026-10-27; since 2026-10-29
-the observer seam, the read-only profiles, the runner, the tool group and the spawn gate are built, marked "As built"
-where they are described, and so are the stored parent link, the attention rule and the sidebar row; the end-to-end test and the live
-measurements are not). "Verified" means read in the
+Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **built** (planned 2026-10-27, built 2026-10-29). "As built" paragraphs
+mark where the build differs from the design; the last section says what is where and what the click test showed, and
+which measurements were not run. "Verified" means read in the
 code on that date, "Unverified" means it needs a measurement or a closer read, and the
 plan says where.
 
@@ -138,7 +137,7 @@ and keeps the **session object** afterwards, not the id: pi-native adopts the ru
 
 **3. Detect the end of the turn.** `agent-rpc.js` already tracks busy and idle in `handleOp` (`case 'busy'`, lines
 713-738) and reports them through `ctx.deliverBindSignal` (`report`, line 601). The core has **no subscription seam** for
-another module. This spec adds one, small and backend-blind: `agentRpc.observe(session, observer)` stores
+another module. This spec adds one, small and backend-blind: `agentRpc.observe(sessionId, observer)` stores
 `state.observer` on the session's state (the state lives on the pty object, `stateFor`, `agent-rpc.js:152`, so it survives a
 re-key), and `handleOp` calls it at three places:
 
@@ -151,7 +150,8 @@ re-key), and `handleOp` calls it at three places:
   `success` is `failed`, a turn limit (`error_max_turns`) included, so a review cut off that way returns no text. pi-native reads the run's last
   assistant `stopReason` (`aborted`, `error`). A turn the user stopped ends the review as `stopped` ("the review session
   was stopped") and its text is not returned, so narration written before the Stop never reads as `done`.
-- `append`: `observer.onEntry(entry)`, so the runner can keep the last assistant text.
+- `append`: `observer.onEntry(entry, text)`, `text` being the backend's `assistantTextOf(entry)`, so the runner can keep
+  the last assistant text.
 - `ask`: `observer.onAsk(request)` **before** `autoAnswer` (`agent-rpc.js:772-773`), see "Read-only".
 
 and `observer.onExit()` from the child's exit path. The observer is optional and one per state; a session without one behaves
@@ -161,8 +161,8 @@ byte-for-byte as before (a differential test pins that).
 core must not read a backend's grammar (spec 35 D9, reflex 5). claude-native does **not** declare `lastReplyCommand`
 (verified: no match in `src/backends/claude-native/`), pi-native does (`src/backends/pi-native/index.js:151`), so that hook
 cannot be the one road. The proposal is one optional `rpc` hook, **`assistantTextOf(entry)`** → string or `null`, declared by
-claude-native and pi-native in their own folders; `agent-rpc.js` keeps `state.lastAssistantText` from it when an observer
-is attached. A backend that declares no `assistantTextOf` is not a review target (see "Targets").
+claude-native and pi-native in their own folders; `agent-rpc.js` hands its answer to the observer with each finished
+entry, and the runner keeps the last one (`rec.lastText`). A backend that declares no `assistantTextOf` is not a review target (see "Targets").
 
 **5. Stop the session.** When the turn has ended and the text is read, or on a timeout, the runner stops the session the
 way the `stop-session` handler does (`src/main.js:1596`): set `session.exited`, record the timeline line, `session.pty.kill()`.
@@ -229,8 +229,8 @@ lazily from `activeSessions` by `_terminalTag`, as `agent-rpc.js` does in `findS
    (`:348`); the timeline send is `:359`. `agent-rpc.js` reaches it only through `ctx.deliverBindSignal`
    (`src/app/agent-rpc.js:603-617`). A refused ask never calls `report('waiting')`, so only busy and idle remain. The gate
    belongs in that closure, keyed on the session found by id or `realSessionId` in `ctx.activeSessions`
-   (the lookup `hooks.js:201` uses). Whether the renderer chimes on a bare `cli-busy-state` idle edge: still unverified,
-   needs a live run (M5).
+   (the lookup `hooks.js:201` uses). Whether the renderer chimes on a bare `cli-busy-state` idle edge: moot, the gate sends
+   no edge to the window at all; the click raised no attention (see "As built").
 4. **Main-side options cascade.** There is one, as a backstop: `spawnOptionsFor` (`src/app/terminal/spawn.js:279-291`)
    merges global, project and session options. It does not read a template's own options. **Corrected after T5 (verifier
    F3):** `openTerminal` calls it for every spawn-applied hook (the session resources, the MCP injection, the prompt
@@ -255,7 +255,7 @@ lazily from `activeSessions` by `_terminalTag`, as `agent-rpc.js` does in `findS
 8. **No view.** `openTerminal` needs only the main window (`spawn.js:295`). `sendOp` skips a destroyed window
    (`src/app/agent-rpc.js:161-167`) and the renderer drops an `agent-event` for a session with no mounted entry
    (`src/renderer/session/conversation-view.js:2651-2652`; it still sets the activity clock for the id, harmless).
-   Console cleanliness under a real review: needs a live run (M5, `drive-app.js console`).
+   Console cleanliness under a real review: clean in the click test (see "As built").
 
 ### Targets and the read-only profile
 
@@ -270,7 +270,7 @@ Which backends can be reviewed, and how each is made read-only, is a **descripto
 
 | Backend | Proposed `reviewProfile().options` | What stops a write | Verified | Unverified |
 |---|---|---|---|---|
-| `claude-native` | `{ permissionMode: 'plan', promptSuggestionsOff: true }` (`--permission-mode plan`, no `--prompt-suggestions`) | Claude's plan mode; no suggested next prompt, since a review is one turn (owner, after T5's F3). Anything it still asks about arrives as an `approval` ask and is refused. | `plan` is in `PERMISSION_MODES` (`claude-native/index.js:36`); approvals come over `--permission-prompt-tool stdio` (line 129); refusing is `answerCommand(.., { cancelled: true })` (`rpc-protocol.js:1279-1340`) | Whether a user's own `permissions.allow` rule (for example `Bash(*)`) lets a write through plan mode **without an ask**; whether the model ends in `ExitPlanMode` with its review as the plan (O11). Measurements M2, M3. |
+| `claude-native` | `{ permissionMode: 'plan', promptSuggestionsOff: true }` (`--permission-mode plan`, no `--prompt-suggestions`) | Claude's plan mode; no suggested next prompt, since a review is one turn (owner, after T5's F3). Anything it still asks about arrives as an `approval` ask and is refused. | `plan` is in `PERMISSION_MODES` (`claude-native/index.js:36`); approvals come over `--permission-prompt-tool stdio` (line 129); refusing is `answerCommand(.., { cancelled: true })` (`rpc-protocol.js:1279-1340`) | Whether a user's own `permissions.allow` rule (for example `Bash(*)`) lets a write through plan mode **without an ask**; whether the model ends in `ExitPlanMode` with its review as the plan (O11). Measurements M2, M3; M3 answered (assistant text), the allow rule not tried (see "As built"). |
 | `pi-native` | `{ approvalGate: true }` | The approval gate: `bash`, `powershell`, `edit`, `write` and `subagent` are gated by name (`runtime-extension.js:68`), MCP tools and taken-over commands too (`index.js:48-52`). The session starts in mode `ask` (`launchMode`, line 180). Every ask is refused. | The gate exists and is on by default; its answers are the app's (`approvals.js:101`) | That the gate covers every tool a review could use to write. Spec 30 says plainly the gate is "a convenience, not a security boundary". Measurement M4. |
 
 **Honest wording.** "Read-only" here means *the agent is asked to, and the CLI's own mode or gate refuses the actions it
@@ -445,8 +445,9 @@ declarations, the target list comes from the registry), and no new stored settin
 
 Numbered, stable. The plan carries the same list; an answered point says so.
 
-**Answered (owner, 2026-10-27): every point below as recommended (O1 to O20).** O2 and O11 still depend on their
-measurement (the scan timing in M5, and M3) for which branch applies; O15 takes the CLI's own default (no `model` sent).
+**Answered (owner, 2026-10-27): every point below as recommended (O1 to O20).** O2 was built as the push (a
+`projects-changed` once the review is linked), and M3 showed a claude-native review ending in assistant text, so O11's
+plan branch is the fallback only; O15 takes the CLI's own default (no `model` sent).
 O21 was added by T1 and is answered as recommended too (owner, 2026-10-27): the cap counts code points, through the
 exported `cutText`.
 
@@ -455,7 +456,7 @@ exported `cutText`.
    live-only map in main (lost on restart, so the nesting disappears for a finished review). Recommendation: the
    `session_meta` columns with a re-key copy and move; a stale link falls back to a top-level row.
 2. **O2 How the row appears.** A one-way push to the main window that injects a pending row (recommended), or wait for the
-   scan. Recommendation: the push, if T4's measurement shows the scan alone is late or absent (pi-native writes its file only
+   scan. Recommendation: the push, if the M5 measurement shows the scan alone is late or absent (pi-native writes its file only
    after a reply).
 3. **O3 Which backends declare `reviewTools` (may call).** Recommendation: Claude and claude-native only (the issue's
    headline case, and the two that can already call discovery). Codex and agy can take the group later by declaring the
@@ -525,5 +526,52 @@ target's default (R4); a test run names the cheaper model in the target's launch
 
 ## As built
 
-Not built yet. The plan is `docs/plans/507-slice-2b-review/PLAN.md` (local); the as-built section is written when the slice
-lands.
+Built 2026-10-29 on `main`, in the commits after `1d5b4095` (this spec's plan) up to the one that adds this section. The sections above carry
+an "As built" paragraph where the build differs from the design or adds to it; this one lists what is where and what the
+click test showed.
+
+**Where it is.**
+
+- `src/app/agent-rpc.js`: `observe(sessionId, observer)`; the idle edge carries the turn's `outcome`.
+- Both runtime-driven backends: `rpc.assistantTextOf`, the `outcome` on `busy: false`, and `reviewProfile()`
+  (claude-native `permissionMode: 'plan'` and `promptSuggestionsOff: true`; pi-native `approvalGate: true`). Every other
+  backend answers `null`. `src/backends/review-targets.js` decides what is offered.
+- `src/app/review-runner.js`: the runner, one per registration. `src/app/terminal/stop-session.js`: the stop it shares
+  with the user's Stop.
+- `src/servers/review-tools.js`: the tool group; the bridge and the HTTP registration pass it through.
+- `src/app/terminal/spawn.js`: the `reviewTools` gate (Claude and claude-native), depth 1 from `spawnedBy` or the stored
+  link on a resume, `_review` and `_spawnedBy` on the session.
+- `session_meta.spawnedBy` / `spawnKind` (one appended migration), kept across re-keys from both ends.
+- `src/app/hooks.js`: no attention for a `_review` session.
+- The sidebar: `nestReviews` (`src/renderer/shell/sidebar-state.js`) and `appendReviewChildren`
+  (`src/renderer/shell/sidebar-subagents.js`).
+
+**The open points.** O1 to O21 were answered as recommended (owner, 2026-10-27), with two later owner decisions: a resume
+of a review row reads the stored link back (no own-server group, not silenced), and claude-native's profile turns prompt
+suggestions off.
+
+**The click test** (2026-10-29, demo instance, Haiku for every Claude turn, smallest Pi model in Pi's settings, all
+restored afterwards):
+
+- M1: passed. The toggle is in claude-native's Configure dialog, styled like its neighbours, off. With it on, the caller
+  loaded `startReview` / `reviewResult` through `ToolSearch` and each call came as an approval card.
+- Pi target: the first call was refused with the untrusted-project sentence (O16) before the project was trusted for Pi.
+  After that the review session started and its model call failed on the demo's copied Pi login; the runner answered
+  `failed` ("The review turn ended without a reply."), which is the failed-call path working. A successful Pi review
+  (M4) was not run, because refreshing that login would have shared a refresh token with the user's real Pi home.
+- claude-native target: launched with `--permission-mode plan`, no `--model`, no `--prompt-suggestions`. `reviewResult`
+  answered `done` with the reply after about nine seconds, the session was stopped, and the caller reported the answer.
+- M2 in part: a review asked to create a file and run a redirecting shell command wrote nothing and made no tool call;
+  the model refused on its own, so `refusedActions` was 0 and the refusal path was not exercised live. A user-level
+  allow rule was not tried.
+- M5: the review row appeared under its caller with the Review pill and raised no attention; the caller was the only
+  inbox entry.
+- M3: the claude-native review ended in assistant text, not `ExitPlanMode`.
+- Not run: terminal Claude's Configure dialog (only claude-native's was opened), a live `reviewResult` answering
+  running and a live second `startReview` (the caller polled after the short reviews had ended), opening a review row
+  while it ran, stop from the sidebar during a run, stopping the caller during a run (the review finished before the
+  click), `/clear` of the caller with a live child, M6 (quit with a review running), and M7 (there is no seam to shorten
+  the 10-minute cap). The unit and end-to-end tests cover the logic of each; the live behaviour is not measured.
+- `drive-app.js console` was clean after every step (verbose lines only).
+- Seen in passing, not part of this slice: after a turn that failed to authenticate, the caller's conversation view
+  stopped showing later turns while the transcript kept them.

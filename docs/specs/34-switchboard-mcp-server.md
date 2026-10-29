@@ -395,7 +395,8 @@ blocks until the user answers or the bridge's ten-minute cap passes. O1 and O3 a
 Numbered so they can be referred to. Each is its own plan with its own go.
 
 1. **#507, orchestration tools.** Phase 1, read-only discovery, is specified in
-   [spec 35](35-session-discovery-tools.md); the rest stays here as later phases. A second tool group on the same registration: read-only discovery first (list
+   [spec 35](35-session-discovery-tools.md), and a narrow read-only spawn, the review tool, in
+   [spec 39](39-review-tool.md); the rest stays here as later phases. A second tool group on the same registration: read-only discovery first (list
    sessions, read handoffs, turn summaries across backends), then headless spawn with completion tracking, then
    resume and live messaging. The issue's design points (worktree isolation, cascade shutdown, a depth limit,
    a policy gate for unattended permission prompts) are that plan's content. Its "universal stdio bridge" is

@@ -155,6 +155,12 @@ chart rather than a row of zeroes.
   default. Claude takes them in the terminal and in the conversation view; Pi and Hermes cannot call them yet.
   → [`docs/specs/35-session-discovery-tools.md`](docs/specs/35-session-discovery-tools.md),
   [`docs/specs/37-claude-on-the-seam.md`](docs/specs/37-claude-on-the-seam.md)
+- **A second opinion from another backend** — an opt-in launch option for Claude and Claude (native) gives the
+  agent two tools: start a read-only review on Claude (native) or Pi (native) and poll for its answer. The review
+  is a real session in the same folder, shown under the caller in the sidebar, in plan mode or behind Pi's approval
+  gate, with every action it asks about refused. One at a time, ten minutes at most, no notifications. The prompt
+  and the files the reviewer reads go to that backend's vendor, so it is off by default.
+  → [`docs/specs/39-review-tool.md`](docs/specs/39-review-tool.md)
 - **External MCP servers per project** — list MCP servers (a stdio launch or an HTTP endpoint) in a project's
   settings, as a card per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view holds
   the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes not

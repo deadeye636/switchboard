@@ -141,7 +141,8 @@ Numbered, stable. The plan carries the same list; an answered point says so.
      cap is the diff tool's (`DIFF_TIMEOUT_MS`, 10 min, `src/servers/mcp-bridge.js`).
 
    So a call that blocks for minutes is not safe on every backend without a per-launch timeout, and on agy not known at
-   all; progress notifications are no way around that. **Still open:** the decision is part of 2b's proposal.
+   all; progress notifications are no way around that. **Answered for 2b (owner, 2026-10-27): handle and poll**, no
+   blocking call (`startReview` answers an id, `reviewResult` is polled; spec 39, R1). Switchboard still sets no timeout.
 3. **O3 Approval allow-listing.** `--allowedTools` for `mcp__switchboard__*`, so a read-only call needs no prompt.
    **Answered (owner): no.** The terminal asks nothing in auto mode, and the conversation view's card already offers
    "Always allow every mcp__switchboard__listSessions call in this project" (M3).
@@ -163,9 +164,10 @@ Numbered, stable. The plan carries the same list; an answered point says so.
 
 Not designed here. Each is its own plan with its own go.
 
-- **Slice 2b, `runReview`.** A narrow read-only spawn tool: one turn on a pipe-driven backend, read-only, shared
-  cwd, asynchronous with polling, depth at most one. Needs its own proposal (CLAUDE.md reflex 16).
-  **Proposal decided (owner, 2026-10-27), design to follow in its own spec:**
+- **Slice 2b, the review tool. Built (2026-10-29) as `startReview` / `reviewResult`, spec
+  [39](39-review-tool.md).** A narrow read-only spawn tool: one turn on a pipe-driven backend, read-only, shared
+  cwd, asynchronous with polling, depth at most one. **Proposal decided (owner, 2026-10-27)**, designed and built in
+  spec 39:
   - **Contract: handle and poll** (`startReview` answers an id, `reviewResult(id)` answers running or the text), not
     one blocking call. Reason: O2 above; it holds whatever each CLI's timeout is, agy's included.
   - **Runner: a real pipe-driven Switchboard session** through `src/app/agent-rpc.js` (claude-native, pi-native as
