@@ -270,6 +270,14 @@ function handleHookRequest(req, res, token = attentionHookToken) {
   });
 }
 
+// Whether the live session under this id (or adopted onto it) is one the review runner started (spec 39, `_review`).
+function isReviewSession(sessionId) {
+  const sessions = ctx && ctx.activeSessions;
+  if (!sessionId || !sessions) return false;
+  const sess = sessions.get(sessionId) || [...sessions.values()].find((s) => s && s.realSessionId === sessionId);
+  return !!(sess && sess._review);
+}
+
 /**
  * Deliver one lifecycle report about a session: busy, idle, or waiting on the user (#303, #529, #530).
  *
@@ -315,7 +323,8 @@ function deliverBindSignal(sessionId, hook) {
   // ready: it goes out the way the SubagentStart / SubagentStop hooks do, and nothing else happens.
   if (bindSignal && (bindSignal.kind === 'subagent-live-start' || bindSignal.kind === 'subagent-live-stop')) {
     const mainWindow = ctx.getMainWindow();
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    // A review session's subagents stay off the attention channel too (spec 39); the timeline below records them.
+    if (mainWindow && !mainWindow.isDestroyed() && !isReviewSession(sessionId)) {
       mainWindow.webContents.send('attention-signal', {
         sessionId,
         kind: bindSignal.kind,
@@ -340,7 +349,12 @@ function deliverBindSignal(sessionId, hook) {
     const busy = typeof bindSignal.busy === 'boolean' ? bindSignal.busy : bindSignal.kind === 'busy';
     const deliver = () => {
       const mainWindow = ctx.getMainWindow();
-      if (mainWindow && !mainWindow.isDestroyed()) {
+      // A session a review started (spec 39) raises nothing: no busy edge and no attention signal reach the window,
+      // so no notification, inbox entry, chime or badge. The timeline below still records the edge. Keyed on the
+      // session's flag, never on a backend. The cost, accepted: the review row shows no busy indicator.
+      if (isReviewSession(sessionId)) {
+        if (typeof ctx.log.debug === 'function') ctx.log.debug(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} held back: a review session`);
+      } else if (mainWindow && !mainWindow.isDestroyed()) {
         // Third arg = exact backend lifecycle edge. Renderer keeps OSC/store guesses from clearing a
         // Ready row, but a terminal-bound lifecycle hook is the user's new turn and must clear it.
         mainWindow.webContents.send('cli-busy-state', sessionId, busy, true);
