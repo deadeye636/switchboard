@@ -205,6 +205,11 @@ function claimLiveRecord(sessionId, session, backend, candidatePaths) {
     if (typeof ctx.copyOpener === 'function') {
       try { ctx.copyOpener(sessionId, realId); } catch { /* the database may be gone during a quit */ }
     }
+    // …and the review link from both ends (spec 39), stored and on the live children.
+    if (typeof ctx.rekeySpawnLinks === 'function') {
+      try { ctx.rekeySpawnLinks(sessionId, realId); } catch { /* the database may be gone during a quit */ }
+    }
+    for (const s of ctx.activeSessions.values()) if (s && s._spawnedBy === sessionId) s._spawnedBy = realId;
     liveStoreRef.set(realId, match.ref);
     const wasBusy = liveBusy.get(sessionId);
     liveBusy.delete(sessionId);

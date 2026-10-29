@@ -29,6 +29,8 @@ test('a live session is reported with what the renderer needs to draw it', () =>
   assert.deepEqual(liveSessions.snapshot(), [{
     sessionId: 's1', projectPath: '/p', backendId: 'hermes', isPlainTerminal: false,
     liveBound: false, liveBindingMissing: false, startedAt: 1000,
+    // Spec 39: the link of a session a review started; none here.
+    spawnedBy: null, spawnKind: null,
   }]);
 });
 

@@ -82,6 +82,9 @@ function snapshot() {
       // live in this process — the renderer names no backend and knows no capability (reflex 5).
       liveBindingMissing: liveBindingMissing(mapped && mapped.backendId, session),
       startedAt: session._openedAt || 0,
+      // A session a review started (spec 39), so a row with no transcript yet can still be nested under its caller.
+      spawnedBy: session._spawnedBy || null,
+      spawnKind: session._review ? 'review' : null,
     });
   }
   return out;

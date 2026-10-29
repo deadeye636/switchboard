@@ -319,6 +319,10 @@ function buildProjectsFromCache(showArchived) {
         : (row.backendId || 'claude'),
       ownerBackendId: row.backendId || LEGACY_SESSION_BACKEND,
       openerStored: !!meta?.opener,
+      // A session the app started for another one (spec 39, `session_meta.spawnedBy`): the caller's id and why
+      // ('review'). Its own fields, never `parentSessionId` (Claude's subagents) or `lineageParentId` (continuation).
+      spawnedBy: meta?.spawnedBy || null,
+      spawnKind: meta?.spawnedBy ? (meta.spawnKind || null) : null,
       // v12 cost + lineage (T-5.5). Null on every token-only backend. `costStatus` says whether the
       // figure is an estimate or a settled amount. `lineageParentId` is a backend's OWN parent link
       // (Hermes' parent_session_id), deliberately separate from `parentSessionId` = Claude subagent.

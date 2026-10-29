@@ -566,6 +566,15 @@ const migrations = [
       )
     `);
   },
+
+  // A session the APP started for another one (#507 slice 2b, spec 39): `spawnedBy` is the caller's session id,
+  // `spawnKind` what it was started for ('review'). An app decision, like `opener`, so it sits in session_meta and
+  // not in session_cache, which the scanner rewrites; and neither `parentSessionId` (Claude's subagents) nor
+  // `lineageParentId` (continuation), which mean other things. Nothing is backfilled.
+  (db) => {
+    try { db.exec('ALTER TABLE session_meta ADD COLUMN spawnedBy TEXT'); } catch {}
+    try { db.exec('ALTER TABLE session_meta ADD COLUMN spawnKind TEXT'); } catch {}
+  },
 ];
 
 /**

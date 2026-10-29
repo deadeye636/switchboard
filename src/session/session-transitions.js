@@ -16,6 +16,7 @@ const LEGACY_SESSION_BACKEND = 'claude';
  */
 let PROJECTS_DIR, activeSessions, getMainWindow, log, rekeyMcpServer, rekeySessionBackend, recordLineage;
 let copyOpener = () => {};
+let rekeySpawnLinks = () => {};
 // Which backend spawned a live session — read from the launch overlay (session-backends.js), injected so
 // this module stays loadable under `node --test`. Absent (tests, a pre-#161 session) → null, and the
 // caller falls back to the named legacy default.
@@ -38,6 +39,8 @@ function init(ctx) {
   // #670: the view the user chose for the session (`session_meta.opener`) follows a re-key too — a fork's
   // temp id, a `/clear` and a CLI naming its own session all land here. No-op if not injected.
   copyOpener = typeof ctx.copyOpener === 'function' ? ctx.copyOpener : () => {};
+  // Spec 39: the link between a review session and its caller (`session_meta.spawnedBy`) follows a re-key of either.
+  rekeySpawnLinks = typeof ctx.rekeySpawnLinks === 'function' ? ctx.rekeySpawnLinks : () => {};
   // Record a /clear child's soft lineage link the moment we resolve it (#193). No-op if not injected
   // (the tests drive detectSessionTransitions without a DB).
   recordLineage = ctx.recordLineage || (() => {});
@@ -387,6 +390,9 @@ function applyRekey(fromId, session, toId, origin) {
   rekeySessionBackend(fromId, toId);
   // …and the view the user chose for it (#670), which lives in the database rather than the overlay.
   try { copyOpener(fromId, toId); } catch { /* the database may be gone during a quit */ }
+  // …and the review link from both ends (spec 39): stored, and on the live children's session objects.
+  try { rekeySpawnLinks(fromId, toId); } catch { /* the database may be gone during a quit */ }
+  for (const s of activeSessions.values()) if (s && s._spawnedBy === fromId) s._spawnedBy = toId;
   // …and the window that renders it (#2). Output is sent under the NEW id, so a detached window
   // registered under the old one would fall silent mid-run while its bytes went to the main window.
   try { require('../app/detach').rekey(fromId, toId); } catch { /* module not wired in a test build */ }

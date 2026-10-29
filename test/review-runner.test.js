@@ -254,6 +254,22 @@ test('release while the session starts: the caller ended, and the session that s
   for (let i = 0; i < APP_CAP; i += 1) await startOk(world());
 });
 
+// T8 verifier F1: the caller re-keyed (a fork, a /clear) while its review session started. The link names the caller's
+// id as it is when the link is written, and so does the live session.
+test('a caller re-keyed while the session starts is linked under its new id', async () => {
+  const w = world();
+  const gate = holdOpen(w);
+  const pending = w.runner.start({ backend: 'pi-native', prompt: 'x' });
+  const caller = w.activeSessions.get('caller-id');
+  w.activeSessions.delete('caller-id');
+  w.activeSessions.set('caller-new', caller);
+  await gate.let();
+  assert.equal((await pending).ok, true);
+  assert.equal(w.calls.open[0].opts.spawnedBy, 'caller-id', 'the launch went out under the id it had then');
+  assert.deepEqual(w.calls.links, [[w.calls.open[0].id, 'caller-new', 'review']]);
+  assert.equal(w.session()._spawnedBy, 'caller-new');
+});
+
 test('a session that cannot be observed, or does not take the prompt, is stopped once and leaves nothing running', async () => {
   const cases = [
     [(w) => { w.ctx.agentRpc.observe = () => false; }, SENTENCES.notStarted, 0],

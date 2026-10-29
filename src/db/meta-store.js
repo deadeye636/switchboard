@@ -38,6 +38,13 @@ const stmts = {
     INSERT INTO session_meta (sessionId, opener) VALUES (?, ?)
     ON CONFLICT(sessionId) DO UPDATE SET opener = excluded.opener
   `),
+  // Which session the app started this one for, and why (#507 slice 2b, spec 39).
+  upsertSpawnedBy: db.prepare(`
+    INSERT INTO session_meta (sessionId, spawnedBy, spawnKind) VALUES (?, ?, ?)
+    ON CONFLICT(sessionId) DO UPDATE SET spawnedBy = excluded.spawnedBy, spawnKind = excluded.spawnKind
+  `),
+  // A caller that moved to a new id keeps its children: every row naming the old id names the new one.
+  moveSpawnedBy: db.prepare('UPDATE session_meta SET spawnedBy = ? WHERE spawnedBy = ?'),
   // Project favorites (toggle on the real projectPath, analog to upsertStar)
   projectFavoriteToggle: db.prepare(`
     INSERT INTO project_meta (projectPath, favorited) VALUES (?, 1)
@@ -112,6 +119,33 @@ function copyOpener(fromId, toId) {
   if (!chosen || getOpener(toId)) return false;
   setOpener(toId, chosen);
   return true;
+}
+
+// The session the app started this one for (#507 slice 2b, spec 39): the caller's id and the kind ('review').
+// Written by the review runner once its session started, under the id the session holds then.
+function setSpawnedBy(sessionId, parentId, kind) {
+  if (!sessionId || !parentId || sessionId === parentId) return;
+  runWithBusyRetry(() => stmts.upsertSpawnedBy.run(sessionId, parentId, kind || null));
+}
+
+function getSpawnedBy(sessionId) {
+  const row = sessionId ? stmts.get.get(sessionId) : null;
+  return row && row.spawnedBy ? { spawnedBy: row.spawnedBy, spawnKind: row.spawnKind || null } : null;
+}
+
+// A re-key keeps the link from both ends, the way `copyOpener` keeps the view. The CHILD that moves takes its
+// link along (copied, never over a link the new id already carries); a CALLER that moves takes its children
+// along (every row naming the old id is moved). An id that is neither is a no-op. Answers what it did.
+function rekeySpawnLinks(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) return { copied: false, moved: 0 };
+  let copied = false;
+  const link = getSpawnedBy(fromId);
+  if (link && !getSpawnedBy(toId) && link.spawnedBy !== toId) {
+    setSpawnedBy(toId, link.spawnedBy, link.spawnKind);
+    copied = true;
+  }
+  const moved = runWithBusyRetry(() => stmts.moveSpawnedBy.run(toId, fromId));
+  return { copied, moved: (moved && moved.changes) || 0 };
 }
 
 function toggleProjectFavorite(projectPath) {
@@ -218,6 +252,7 @@ function getProjectDisplayNames() {
 
 module.exports = {
   getMeta, getAllMeta, setName, toggleStar, setArchived, setOpener, getOpener, copyOpener,
+  setSpawnedBy, getSpawnedBy, rekeySpawnLinks,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones,

@@ -2,7 +2,7 @@
 
 Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **in progress** (planned 2026-10-27; since 2026-10-29
 the observer seam, the read-only profiles, the runner, the tool group and the spawn gate are built, marked "As built"
-where they are described; the parent link, the attention rule and the sidebar row are not). "Verified" means read in the
+where they are described, and so is the stored parent link; the attention rule and the sidebar row are not). "Verified" means read in the
 code on that date, "Unverified" means it needs a measurement or a closer read, and the
 plan says where.
 
@@ -167,10 +167,11 @@ is attached. A backend that declares no `assistantTextOf` is not a review target
 way the `stop-session` handler does (`src/main.js:1596`): set `session.exited`, record the timeline line, `session.pty.kill()`.
 The proposal moves those four lines into a function in `src/app/terminal/` that the handler and the runner share (the
 handler stays in `main.js` as a grandfathered handler; reflex 4 forbids a *new* one, and this adds none). A killed process
-keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session. The
-`spawnedBy` marker lives only in the running session (`sessionOptions`, `_spawnedBy`), so a resumed review row launches as
-an ordinary session: with the user's stored `reviewTools` on it is offered the review tools itself. Depth 1 holds for the
-turn the runner sent; whether a resume should read the parent link back (the `session_meta` link) is open for that step.
+keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session. The marker
+the spawn path acts on is `sessionOptions.spawnedBy`, which only the runner's launch carries; the link is also stored
+(`session_meta.spawnedBy`), but a resume does not read it back. So a resumed review row launches as an ordinary session:
+with the user's stored `reviewTools` on it is offered the review tools itself, while its stored link still nests it under
+the caller as a review. Depth 1 holds for the turn the runner sent; whether a resume should read the link back is open.
 
 **6. Keep it as a sidebar row linked to the caller.** See the next section.
 
@@ -318,6 +319,16 @@ review row, and **a move on re-key for rows that name the re-keyed id as their p
 children). The projects payload carries `spawnedBy`/`spawnKind`; the renderer draws the row **nested under the caller's
 row** with the existing caret affordance and a small "review" mark, and falls back to an ordinary top-level row when the caller
 is not in the payload (archived, other project view, deleted), so a link that went stale never hides a session.
+
+As built (the data half; the nesting in the renderer is not built yet): the appended migration adds both columns,
+`src/db/meta-store.js` has `setSpawnedBy`, `getSpawnedBy` and `rekeySpawnLinks`, and the runner writes the link through
+`ctx.linkSession` under the id the review session holds when it is written. Both re-key paths (`applyRekey` in
+`src/session/session-transitions.js` and the adoption in `src/watch/adopt.js`) call `rekeySpawnLinks` beside `copyOpener`:
+the child's link is copied (never over one the new id has), and every row naming a re-keyed caller is moved. The same
+two paths move `_spawnedBy` on the live children's session objects. `src/index/projects-view.js` stamps `spawnedBy` /
+`spawnKind` from the `getAllMeta()` it already reads, and `src/app/live-sessions.js` carries them from the session object
+for a row that has no transcript yet. `test/session-spawned-by.test.js` runs the store against `node:sqlite` with the real
+schema and migrations.
 
 **A row the renderer did not start.** The renderer normally injects a pending row before `openTerminal` returns
 (`src/renderer/app.js:1535-1562`); a session started from main has no such row until the scan finds its transcript.

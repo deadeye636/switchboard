@@ -180,6 +180,7 @@ const { encodeProjectPath } = require('./session/encode-project-path');
 
 const {
   getMeta, getAllMeta, toggleStar, setName, setArchived, getOpener, setOpener, copyOpener,
+  setSpawnedBy, rekeySpawnLinks,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones, getPlanRefAttributions,
@@ -2169,6 +2170,8 @@ const sessionTransitions = require('./session/session-transitions');
 sessionTransitions.init({ PROJECTS_DIR, activeSessions, getMainWindow: () => mainWindow, log, rekeyMcpServer, rekeySessionBackend: sessionBackends.rekeySession,
   // #670: a re-key keeps the view the user chose for the session.
   copyOpener,
+  // Spec 39: and the link between a review session and its caller, from both ends.
+  rekeySpawnLinks,
   // #235: which backend spawned a live session — the launch overlay is what knows, so the subagent
   // dispatch asks it instead of reading a field an activeSessions entry never carries.
   getSessionBackend: (id) => sessionBackends.get(id),
@@ -2242,6 +2245,8 @@ watchAdopt.init({
   rekeyTimelineSession: (fromId, toId) => timeline.rekeySession(fromId, toId),
   // …and so does the view the user chose for the session (#670, `session_meta.opener`).
   copyOpener,
+  // …and the link between a review session and its caller (spec 39), from both ends.
+  rekeySpawnLinks,
   // "No record for this session" is published as a state rather than sent as a toast (#460) — the tab
   // it explains stays blank for as long as the session lives.
   noteMissingStoreRecord: (sessionId, message) => storeRecordNotice.notice(sessionId, message),
@@ -2365,7 +2370,7 @@ spawn.init({
   // #507: the project-scoped reader behind the discovery tools, one per registration ({ projectPath, callerSessionId }).
   createDiscoveryReader: (scope) => require('./app/discovery-reader').createDiscoveryReader({ ...scope, getCachedSessions: getAllCached, getSessionMeta: getAllMeta, activeSessions, backends, handoffs, isForeignNetworkFile: (p) => isForeignNetworkFile(p), log }),
   // Spec 39: the review runner behind the review tools, one per registration ({ projectPath, callerTag }).
-  createReviewRunner: (scope) => require('./app/review-runner').createReviewRunner({ ...scope, ctx: { listTargets: () => require('./backends/review-targets').reviewTargets(backends.list(), backends.launchableIds()), openTerminal: (...args) => spawn.openTerminal(...args), agentRpc, activeSessions, stopSession, timeline, getAppQuitting: () => appQuitting, log } }),
+  createReviewRunner: (scope) => require('./app/review-runner').createReviewRunner({ ...scope, ctx: { listTargets: () => require('./backends/review-targets').reviewTargets(backends.list(), backends.launchableIds()), openTerminal: (...args) => spawn.openTerminal(...args), agentRpc, activeSessions, stopSession, timeline, linkSession: (childId, parentId, kind) => setSpawnedBy(childId, parentId, kind), getAppQuitting: () => appQuitting, log } }),
   // #223 live re-binding: where a backend may put its per-spawn binding file (userData — never the
   // user's own CLI config), the URL its hook posts to, and the way to forget a dead terminal's claim.
   bindingDir: path.join(app.getPath('userData'), 'clear-bindings'),

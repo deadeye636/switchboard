@@ -254,8 +254,12 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
       finish(rec, 'failed', SENTENCES.notStarted);
       return refuse(SENTENCES.notStarted);
     }
+    // Both ends as they are NOW: the review session may have adopted its runtime's id, and the caller may have been
+    // re-keyed (a fork, a /clear) while the session started, which the re-key's own follow-up could not see yet.
+    const parentNow = callerId() || caller;
+    if (rec.session) rec.session._spawnedBy = parentNow;
     if (typeof ctx.linkSession === 'function') {
-      try { ctx.linkSession(rec.sessionId, caller, 'review'); } catch (err) {
+      try { ctx.linkSession(sessionIdOf(rec), parentNow, 'review'); } catch (err) {
         log.warn(`[review] the review session could not be linked to its caller: ${err.message}`);
       }
     }
