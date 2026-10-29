@@ -358,14 +358,15 @@ test('the read-only profile wins over a stored default through the real options 
     const opts = { backendId: target.id, ...target.options, model: '', reviewTools: false, spawnedBy: 'caller-id' };
     const merged = spawn.spawnOptionsFor({ id: target.id }, PROJECT, opts);
     for (const [k, v] of Object.entries(target.options)) assert.equal(merged[k], v, `${target.id}.${k}`);
-    assert.equal(merged.model, '', 'a stored model is kept out');
+    assert.equal(merged.model, '', 'the model the runner sends wins over the merged stored one (here: none stored for the runner to name)');
   }
 });
 
 // T5 verifier F3. `buildLaunch` gets the session options as the runner sent them, not `spawnOptionsFor`'s merge
 // (`src/app/terminal/spawn.js`, `launchOptions`), so the argv is decided by them alone: the profile's mode is on it, and
-// the empty `model` puts no `--model` there (O15). Each target's real descriptor, with its real profile.
-test('each target launches with its read-only profile and no model, from the options the runner sends', async () => {
+// with nothing stored for the target the empty `model` puts no `--model` there (O15). Each target's real descriptor,
+// with its real profile.
+test('each target launches with its read-only profile and, with nothing stored, no model', async () => {
   for (const id of ['claude-native', 'pi-native']) {
     const descriptor = require(`../src/backends/${id}`);
     const w = world({ targets: [{ id, label: id, options: descriptor.reviewProfile().options }] });
@@ -409,6 +410,34 @@ test('a review cut off mid-reply returns what was streaming, and a finished entr
   d.obs().onEntry({}, 'The whole reply.');
   d.obs().onBusy(false);
   assert.equal(d.runner.result(did).result.text, 'The whole reply.', 'done takes the finished text, never a partial');
+});
+
+// Owner decision 2026-10-29: the review runs on the model the user set for the target in Switchboard. Claude in plan
+// mode ignores its own settings' model and falls back to Opus (measured), so naming none would cost more.
+test('the review is launched with the model stored for the target, or none when nothing is stored', async () => {
+  const w = world();
+  const asked = [];
+  w.ctx.storedModel = (id, p) => { asked.push([id, p]); return 'haiku'; };
+  await startOk(w, 'claude-native');
+  assert.equal(w.calls.open[0].opts.model, 'haiku');
+  assert.deepEqual(asked, [['claude-native', PROJECT]]);
+
+  forgetRunning();
+  const none = world();
+  none.ctx.storedModel = () => '';
+  await startOk(none);
+  assert.equal(none.calls.open[0].opts.model, '');
+
+  forgetRunning();
+  const broken = world();
+  broken.ctx.storedModel = () => { throw new Error('settings gone'); };
+  await startOk(broken);
+  assert.equal(broken.calls.open[0].opts.model, '', 'a failing lookup sends none');
+
+  const descriptor = require('../src/backends/claude-native');
+  const { args } = descriptor.buildLaunch({ cwd: PROJECT, resume: false, sessionId: 'review-2', options: { ...w.calls.open[0].opts } });
+  const at = args.indexOf('--model');
+  assert.ok(at >= 0 ? args[at + 1] === 'haiku' : args.includes('--model=haiku'), args.join(' '));
 });
 
 test('the cap can be shortened for a measurement, and anything but a positive number keeps ten minutes', async () => {

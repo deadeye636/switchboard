@@ -220,13 +220,16 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ma
     rec.timer = setTimer(() => onTimeout(rec), capMs);
 
     // The profile wins over the stored defaults: session options are merged last (spec 39, "Design", step 1). `buildLaunch`
-    // reads these options as sent, so the CLI's own model runs (O15); the empty `model` keeps the merged copy the spawn
-    // path hands the extension in line with that. `reviewTools: false` and `spawnedBy` keep the review session from
-    // getting a review tool of its own (depth 1).
+    // reads these options as sent, so the model is named here: the one the user set for the target in Switchboard
+    // (owner, 2026-10-29), because Claude in plan mode ignores its own settings' model and falls back to Opus
+    // (measured; it raises Haiku to Sonnet either way). None set sends an empty `model`, and the CLI decides (O15).
+    // `reviewTools: false` and `spawnedBy` keep the review session from getting a review tool of its own (depth 1).
+    let model = '';
+    try { model = typeof ctx.storedModel === 'function' ? String(ctx.storedModel(target.id, projectPath) || '') : ''; } catch { model = ''; }
     const sessionOptions = {
       backendId: target.id,
       ...(target.options || {}),
-      model: '',
+      model,
       reviewTools: false,
       spawnedBy: caller,
     };

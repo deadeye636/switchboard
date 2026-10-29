@@ -42,7 +42,7 @@ Already recorded in spec 37 ("Later phases", slice 2b) and on #507. Binding for 
 | R1 | **Contract: handle and poll.** `startReview` answers an id; `reviewResult(id)` answers "running" or the text. Not one blocking call. | Spec 37 O2: a tool call has a per-CLI timeout (Claude about 5 min idle on HTTP, Codex 300 s in source, agy unknown), so a call that blocks for minutes is not safe on every caller. Polling holds whatever the timeout is. |
 | R2 | **Runner: a real pipe-driven Switchboard session** through `src/app/agent-rpc.js`. claude-native and pi-native are the first targets. Not a headless one-shot CLI, not a request the user starts by hand. | Owner. The session, its approvals, its stop and its quit handling are the ones every pipe session already has. |
 | R3 | **Visible as a sidebar row**, recognisable as the caller's child. No tab of its own. | Owner. The user can always see and stop what the app started on their behalf. |
-| R4 | **Model: the target backend's default.** | Owner. The caller does not pick a model. |
+| R4 | **Model: the target backend's default.** Changed (owner, 2026-10-29): the model stored for the target in Switchboard; none stored = the CLI decides (see O15 and "As built"). | Owner. The caller does not pick a model. |
 | R5 | **Guardrails:** opt-in toggle `reviewTools` (off by default, declared per backend in `configFields`, `appliesAt: 'spawn'`); the review session gets no review tool (depth 1); one running review per caller; at most 10 minutes, then stopped; the answer capped at about 32 KB; read-only. | Owner. The exact read-only mechanism per backend is a descriptor declaration, never a `switch (backendId)` (CLAUDE.md reflex 5); this spec proposes it. |
 
 ## Design
@@ -128,7 +128,8 @@ does for any pipe session: the trust gate (`trustBeforeStart`), the runtime exte
 session's), so a user's stored `permissionMode` or `approvalGate` cannot undo the read-only profile where that merge is
 read (pi-native's gate is applied through the runtime extension, which gets it). `buildLaunch` does not read the merge at
 all: it gets `sessionOptions` as sent, so claude-native's `permissionMode` reaches the argv from the profile alone, and no
-stored option the launch reads (a `model`, `promptSuggestionsOff`) reaches a review (Verified in T1, item 4, corrected).
+stored option the launch reads (`promptSuggestionsOff`, for one) reaches a review (Verified in T1, item 4, corrected). The
+one exception is `model`: since 2026-10-29 the runner names the model stored for the target itself (O15).
 
 **2. Send one turn.** After the observer below is attached, `agentRpc.sendTurn(sessionId, { text })`
 (`src/app/agent-rpc.js`) writes the prompt as a turn. The runner sends it with the id the session holds at that moment
@@ -243,7 +244,9 @@ lazily from `activeSessions` by `_terminalTag`, as `agent-rpc.js` does in `findS
    `promptSuggestionsOff`, for one). The empty `model` the runner sends is kept anyway: it keeps the backstop's merged
    copy, which `appliedOptions` and the extension see, in line with the argv. `test/review-runner.test.js` runs each
    target's real `buildLaunch` on the runner's options: no `--model` for either, `--permission-mode plan` for
-   claude-native. Whether the CLI then runs its own default model is the first real launch (M1/M4).
+   claude-native. Whether the CLI then runs its own default model is the first real launch (M1/M4). **Superseded for
+   `model` (owner, 2026-10-29, O15):** the runner now sends the model stored for the target, because Claude in plan mode
+   does not run its own default.
 5. **A cutter.** `cutText(text, cap)` exists in `src/session/turn-view.js:31-38` (head two thirds, tail one third, marker
    "[... N characters omitted ...]" outside the cap) but was **not exported** when T1 read it. It counts **code points**,
    not UTF-8 bytes. **Since T5** it is exported for the runner, and O21 took code points as the cap's unit.
@@ -449,7 +452,7 @@ Numbered, stable. The plan carries the same list; an answered point says so.
 
 **Answered (owner, 2026-10-27): every point below as recommended (O1 to O20).** O2 was built as the push (a
 `projects-changed` once the review is linked), and M3 showed a claude-native review ending in assistant text, so O11's
-plan branch is the fallback only; O15 takes the CLI's own default (no `model` sent).
+plan branch is the fallback only; O15 was changed on 2026-10-29: the review sends the model stored for the target.
 O21 was added by T1 and is answered as recommended too (owner, 2026-10-27): the cap counts code points, through the
 exported `cutText`.
 
@@ -494,8 +497,9 @@ exported `cutText`.
 15. **O15 Model.** Decided as the target's default (R4). Open sub-point: "default" is the CLI's own default (recommended: the
     review sends no `model` option) or the user's configured default for that backend. T1 read the main-side backstop
     (`spawnOptionsFor`, `spawn.js:279-291`) as applying the stored `model` to the launch; T5's verifier (F3) found that
-    `buildLaunch` never gets its merge, so the CLI's own default runs without help. The runner still sends an explicit
-    empty `model` for the merged copy; see Verified in T1, item 4.
+    `buildLaunch` never gets its merge, so the CLI's own default runs without help. **Changed (owner, 2026-10-29):** the
+    runner sends the model stored for the target in Switchboard, because Claude in plan mode does not run its own
+    default and falls back to Opus (see "As built"); an empty `model` only when none is stored. See Verified in T1, item 4.
 16. **O16 Untrusted project at the target.** pi-native refuses to start in a project it does not trust. Recommendation: `startReview`
     answers the refusal sentence ("trust this project for Pi in Switchboard first"); no dialog from a tool call.
 17. **O17 A confirm dialog when the toggle is turned on.** Recommendation: text only, as spec 35 O10.
@@ -513,8 +517,9 @@ exported `cutText`.
 ## Measurements (acceptance gates, after the build)
 
 Run on the demo instance, **the smallest model of each backend that has one** (Haiku for Claude; the smallest Pi offers for
-Pi), settings restored afterwards. They check the flow, not the answer quality. Model choice for the review itself is the
-target's default (R4); a test run names the cheaper model in the target's launch for the test only and says so in the report.
+Pi), settings restored afterwards. They check the flow, not the answer quality. The review itself runs on the model stored
+for the target (R4, as changed); a test run stores the cheaper model for the target for the test only and says so in the
+report.
 
 | | What | Records |
 |---|---|---|
@@ -566,8 +571,13 @@ settings, all restored afterwards; a second round the same day measured what the
 - **The review ran on Sonnet, not on the CLI default.** With `haiku` as the demo's Claude default the callers ran on
   Haiku 5.5, and every claude-native review, launched with no `--model` in plan mode, ran on `claude-sonnet-5-5` (the
   model its transcript names). Claude picks its own model in plan mode, so "the target's default" (R4, O15) is not the
-  default the user set for that backend. A cost the toggle text does not name; whether the profile should send a
-  model is a decision for the owner.
+  default the user set for that backend. Measured outside the app the same day (`claude -p --permission-mode plan`,
+  output tokens per model): with nothing set Claude answers on Opus; with `haiku` in its settings, or even
+  `--model haiku`, it answers on Sonnet (787 of 808 tokens); `--model sonnet` stays on Sonnet. Without plan mode
+  `--model haiku` answers on Haiku. So plan mode answers on Sonnet at the least. **Decided (owner, 2026-10-29): the
+  review sends a model**, the one stored for the target in Switchboard (its global or project launch option), asked
+  through `ctx.storedModel`, which keeps a review off Opus; Haiku is raised to Sonnet by the CLI. With none stored it
+  sends none. Checked in the app: the review launched with `--model haiku` and answered on Sonnet, as measured.
 - M2 in part: a review asked to create a file and run a redirecting shell command wrote nothing and made no tool call;
   the model refused on its own, so `refusedActions` was 0 and the refusal path was not exercised live. A user-level
   allow rule was not tried.

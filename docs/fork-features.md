@@ -489,7 +489,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   `review` group to the session's own MCP endpoint: `startReview` answers an id at once and `reviewResult` answers
   running or the reply (a call does not block, because each CLI times tool calls out differently). The review is a
   real pipe-driven session of the target (claude-native in plan mode, pi-native behind its approval gate) in the
-  caller's folder, on the target's default model. Every approval it asks for is refused and counted. It gets no
+  caller's folder, on the model set for that backend in Switchboard. Claude's plan mode answers on Sonnet at the
+  least (a Haiku setting is raised) and on Opus when no model is set, so setting one keeps a review off Opus. Every approval it asks for is refused and counted. It gets no
   tools of the app's own, so it cannot start a review itself, also when resumed later. It runs for ten minutes at
   most, its answer is cut at 32 768 code points, and a caller runs one at a time, the app three. The row nests under
   the caller in the sidebar with a Review pill and raises no attention. Clicked on the demo with Haiku: the approval
