@@ -84,7 +84,8 @@ function snapshot() {
       startedAt: session._openedAt || 0,
       // A session a review started (spec 39), so a row with no transcript yet can still be nested under its caller.
       spawnedBy: session._spawnedBy || null,
-      spawnKind: session._review ? 'review' : null,
+      // From the link, like the stored row: a resumed review row has the link but is not silenced (`_review`).
+      spawnKind: session._spawnedBy ? 'review' : null,
     });
   }
   return out;

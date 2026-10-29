@@ -180,7 +180,7 @@ const { encodeProjectPath } = require('./session/encode-project-path');
 
 const {
   getMeta, getAllMeta, toggleStar, setName, setArchived, getOpener, setOpener, copyOpener,
-  setSpawnedBy, rekeySpawnLinks,
+  setSpawnedBy, getSpawnedBy, rekeySpawnLinks,
   toggleProjectFavorite, getFavoritedProjects, getProjectDisplayNames,
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones, getPlanRefAttributions,
@@ -2361,6 +2361,8 @@ spawn.init({
   // written only after a spawn that carried an explicit choice succeeded.
   getOpener,
   setOpener,
+  // Spec 39: a resume of a review row reads its stored link back, so it stays a review.
+  getSpawnedBy,
   cleanupSecretRefsForSession,
   ensureProjectAdded: (p, opts) => projects.ensureProjectAdded(p, opts),
   startMcpServer,

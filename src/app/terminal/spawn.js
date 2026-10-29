@@ -293,6 +293,13 @@ function spawnOptionsFor(backend, projectPath, sessionOptions) {
 /** The open-terminal handler. Reattaches to a live session, or spawns a new PTY for it. */
 async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
   if (!ctx.getMainWindow()) return { ok: false, error: 'no window' };
+  // Spec 39: the caller a review session answers to. The runner's launch names it; a resume of a review row reads the
+  // stored link back (owner decision), so a resumed review gets no group of the app's own server either (depth 1).
+  // A fork is a new session and reads nothing.
+  let spawnParent = (sessionOptions && sessionOptions.spawnedBy) || null;
+  if (!spawnParent && !isNew && !(sessionOptions && sessionOptions.forkFrom) && typeof ctx.getSpawnedBy === 'function') {
+    try { const link = ctx.getSpawnedBy(sessionId); spawnParent = (link && link.spawnedBy) || null; } catch { spawnParent = null; }
+  }
 
   // Starting a session here is an explicit act, so the project goes on the list — in BOTH modes (#167).
   // The mode governs DISCOVERY (may a session that merely turned up in a store register its project?),
@@ -1065,10 +1072,11 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
         // template on a base that lacks it) must not open a group, e.g. `diff` beside Claude's `--ide` (spec 37, O9).
         const declares = (id) => Array.isArray(backend.configFields) && backend.configFields.some((f) => f && f.id === id);
         const mcpGroups = [];
-        // A session a review started (`spawnedBy`, spec 39) gets no group of the app's own server at all: depth 1,
+        // A session a review started (`spawnParent`, spec 39: the runner's launch, or a resume of its row) gets no
+        // group of the app's own server at all: depth 1,
         // and a reviewer has no use for the diff or discovery tools either (A4/O12). Its project's external servers
         // below are not the app's and stay.
-        if (!sessionOptions || !sessionOptions.spawnedBy) {
+        if (!spawnParent) {
           if (mcpOptions.diffTool === true && declares('diffTool')) mcpGroups.push('diff');
           if (mcpOptions.discoveryTools === true && declares('discoveryTools')) mcpGroups.push('discovery');
           if (mcpOptions.reviewTools === true && declares('reviewTools')) mcpGroups.push('review');
@@ -1455,8 +1463,10 @@ async function openTerminal(sessionId, projectPath, isNew, sessionOptions) {
     // Spec 34: and the release of the MCP servers injected for this spawn.
     _mcpInjectionRelease: mcpInjectionRelease,
     // Spec 39: a session a review started, and the caller it answers to (T8 links them, T9 keeps attention off it).
+    // `_review` (no attention, T9) only for the runner's own launch: a resume is the user opening the row, in whichever
+    // view, and the user is told about it like any session. The link (`_spawnedBy`) holds for both.
     _review: !!(sessionOptions && sessionOptions.spawnedBy),
-    _spawnedBy: (sessionOptions && sessionOptions.spawnedBy) || null,
+    _spawnedBy: spawnParent,
     // #568: driven over a pipe rather than a PTY. Recorded so nothing downstream has to ask the descriptor.
     transport: (launchBackend && launchBackend.transport) || null,
     // #670: which backend this session was launched with, so a reattach can refuse a request for the other

@@ -2,7 +2,7 @@
 
 Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **in progress** (planned 2026-10-27; since 2026-10-29
 the observer seam, the read-only profiles, the runner, the tool group and the spawn gate are built, marked "As built"
-where they are described, and so is the stored parent link; the attention rule and the sidebar row are not). "Verified" means read in the
+where they are described, and so are the stored parent link and the attention rule; the sidebar row is not). "Verified" means read in the
 code on that date, "Unverified" means it needs a measurement or a closer read, and the
 plan says where.
 
@@ -167,11 +167,17 @@ is attached. A backend that declares no `assistantTextOf` is not a review target
 way the `stop-session` handler does (`src/main.js:1596`): set `session.exited`, record the timeline line, `session.pty.kill()`.
 The proposal moves those four lines into a function in `src/app/terminal/` that the handler and the runner share (the
 handler stays in `main.js` as a grandfathered handler; reflex 4 forbids a *new* one, and this adds none). A killed process
-keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session. The marker
-the spawn path acts on is `sessionOptions.spawnedBy`, which only the runner's launch carries; the link is also stored
-(`session_meta.spawnedBy`), but a resume does not read it back. So a resumed review row launches as an ordinary session:
-with the user's stored `reviewTools` on it is offered the review tools itself, while its stored link still nests it under
-the caller as a review. Depth 1 holds for the turn the runner sent; whether a resume should read the link back is open.
+keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session. The
+runner's launch carries the marker (`sessionOptions.spawnedBy`) and the link is stored (`session_meta.spawnedBy`); after
+T8 a resume did not read the link back, so a resumed review row could be offered the review tools itself.
+**Decided (owner, 2026-10-29): a resume reads it back.** `openTerminal` reads `session_meta.spawnedBy` for a resume that is not a fork
+(`ctx.getSpawnedBy`), so a resumed review row gets no group of the app's own server, whatever the user's stored toggles
+say, and keeps its link (`_spawnedBy`). It is **not** silenced: `_review` (no attention, see below) is set only for the
+runner's own launch. A resume is the user opening the row, in whichever view `openerFor` picks, and a terminal view has
+attention paths of its own (the attention hook, the OSC edges) that the pipe gate does not reach, so a silent resume would
+have been a promise only half kept. A resume the backend cannot honour ("started a new one instead") runs under the same
+row id and reads the same link. A fork of a review row is a new session and reads nothing. `test/spawn-review.test.js`
+pins the three cases.
 
 **6. Keep it as a sidebar row linked to the caller.** See the next section.
 
@@ -346,6 +352,16 @@ parent link. So the push stays (O2), and it can be the existing `projects-change
 at spawn and the attention path (notifications, inbox, chime, badge) drops its signal; the timeline still records it.
 Verified in T1 (item 3): the choke point is the `deliver` closure inside `deliverBindSignal` (`src/app/hooks.js:341-371`),
 which makes the two sends the renderer raises attention from; the timeline send stays.
+
+As built: `deliverBindSignal` skips its window sends (`cli-busy-state`, `attention-signal`, the subagent edges too) for a
+live session whose entry, found by id or by `realSessionId`, carries `_review`, and still hands every edge to the
+timeline. Keyed on the session's flag, never on a backend. `_review` is set only on the runner's launch, which is always
+a pipe session (both targets are runtime-driven), and a pipe session's busy, idle and waiting reach the window through
+this one delivery; the attention hook already drops attention for a session with a `transport`. The gate does not cover
+the terminal paths (the attention hook for a terminal session, the OSC edges in `spawn.js`), which no `_review` session
+takes. A review session the user opens and types into while it runs stays silent; the flag belongs to the session. The
+row shows no busy indicator (accepted). `test/review-attention.test.js` pins it. Whether the renderer raises anything
+from another path is the click (M5).
 
 ### Cost and privacy
 

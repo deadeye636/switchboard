@@ -166,6 +166,34 @@ for (const [shape, make] of Object.entries(SHAPES)) {
   });
 }
 
+// Owner decision after T8: a resume of a review row reads the stored link back, so it gets no group of the app's own
+// server (depth 1). It is the user opening the row, so it is not silenced (`_review` stays the runner's launch's
+// alone). A fork of it is a new session and reads nothing.
+test('a resumed review row keeps its link and gets no own-server group; a fork of it and an unlinked resume do', async () => {
+  const backend = SHAPES['claude-native']();
+  const stored = { global: { backendDefaults: { [backend.id]: { reviewTools: true } } } };
+  const links = { 'review-row': { spawnedBy: 'caller-1', spawnKind: 'review' } };
+  const open = async (id, opts) => {
+    const ctx = setup(backend, stored);
+    ctx.getSpawnedBy = (sid) => links[sid] || null;
+    const r = await spawn.openTerminal(id, CWD, false, { backendId: backend.id, ...opts });
+    assert.equal(r.ok, true, r.error);
+    return { ctx, session: ctx.activeSessions.get(id) || [...ctx.activeSessions.values()].at(-1) };
+  };
+  const resumed = await open('review-row', {});
+  assert.equal(resumed.ctx.registered.length, 0, 'no group of the app\'s own server');
+  assert.equal(resumed.session._review, false, 'the user opened it: it is told about like any session');
+  assert.equal(resumed.session._spawnedBy, 'caller-1');
+
+  const fork = await open('fork-of-review', { forkFrom: 'review-row' });
+  assert.deepEqual(fork.ctx.registered[0].groups, ['review'], 'a fork is an ordinary session');
+  assert.equal(fork.session._review, false);
+
+  const plain = await open('plain-row', {});
+  assert.deepEqual(plain.ctx.registered[0].groups, ['review']);
+  assert.equal(plain.session._review, false);
+});
+
 test('without a runner factory the review group is dropped, and nothing else changes', async () => {
   const backend = SHAPES.claude();
   const ctx = setup(backend);
