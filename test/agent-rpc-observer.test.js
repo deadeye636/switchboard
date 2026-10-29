@@ -113,7 +113,9 @@ test('a session watched by an observer that answers nothing sends the same ops a
     await until(() => h.signals.some(s => s.kind === 'idle'));
     await agentRpc.sendTurn('fake-session', { text: 'ask me', mode: 'prompt' });
     await until(() => opsOf(h).some(o => o.op === 'ask'));
-    return comparable({ ops: opsOf(h), signals: h.signals });
+    // A `partial` frame is the streamed text throttled by a timer (`PARTIAL_INTERVAL_MS`): how many arrive depends on how
+    // the pipe's reads fall, not on the observer, so a loaded machine sends one fewer. The finished entries carry the text.
+    return comparable({ ops: opsOf(h).filter(o => o.op !== 'partial'), signals: h.signals });
   };
   const plain = await run(null);
   const watched = await run({ onBusy() {}, onEntry() {}, onAsk: () => null, onExit() {} });
