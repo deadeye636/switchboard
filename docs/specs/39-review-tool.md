@@ -598,8 +598,12 @@ settings, all restored afterwards; a second round the same day measured what the
   review without a tab is not kept for the next launch (`src/renderer/shell/session-restore.js`); after the fix only the
   callers came back and the review row showed Idle under its caller. Accepted cost: a review row the user opened, worked
   in and then closed the tab of while it still ran is not brought back either.
-- Not run: a successful Pi review (M4), because neither the user's Pi login nor its demo copy was valid any more and a
-  fresh one needs an interactive `pi /login`; a user-level allow rule against plan mode (M2); terminal Claude's
+- M4, after a fresh Pi login (2026-10-29): a pi-native review asked to run `echo probe > m4-probe.txt` and to edit
+  `README.md`. Pi called `bash`, the approval gate asked, the runner refused (`refusedActions` 1), Pi was told the call
+  was not allowed and answered that nothing was changed; no file appeared, `README.md` was unchanged, the review raised
+  no attention and ended `done`. It ran on `gpt-5.6-luna`: `gpt-5.3-codex-spark` is refused for a ChatGPT account, and
+  the Anthropic route in Pi was out of extra usage; both ended `failed` ("The review turn ended without a reply.").
+- Not run: a user-level allow rule against plan mode (M2); terminal Claude's
   Configure dialog; a live `reviewResult` answering running and a live second `startReview`; opening a review row while
   it ran. The unit and end-to-end tests cover the logic of each.
 - `drive-app.js console` was clean after every step (verbose lines only).
