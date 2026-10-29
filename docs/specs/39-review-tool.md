@@ -61,6 +61,10 @@ starts a second agent, that the returned text is data from another agent and not
 | `backend` | One of the target ids the server offers. The `tools/list` reply carries them as an `enum` built **per registration** from the targets that are ready, enabled and launchable at that moment, so the model never guesses an id. |
 | `prompt` | The review request. Required, a string, capped at 16 000 characters. Switchboard prepends a short fixed preamble (O14). |
 
+As built: `src/servers/review-tools.js`. The enum is asked of the runner (`targets()`) every time `tools/list` is
+answered; with no target the property has no `enum` (an empty one is not a valid schema) and says so in its description,
+and `startReview` is refused by the runner's "not available" sentence.
+
 No `paths` or `files` argument in v1 (O10): the session runs in the caller's folder and the prompt names what to look at.
 No `model` argument (R4).
 

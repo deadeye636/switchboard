@@ -50,8 +50,9 @@ async function collectRows(sources, ctx, log, externalRows) {
 // with the launch — also when the composer ends up building nothing.
 // `groups` is the list of tool groups the caller computed from the launch's toggles (spec 35, D7); an empty
 // list registers nothing. `discovery` is the project-scoped reader the caller built for the `discovery`
-// group; it is handed to the registration only when that group is on.
-function ownServerSource({ backend, groups, discovery, registerSession, sessionId, projectPath, getWindow, log } = {}) {
+// group, `review` the review runner for the `review` group (spec 39); each is handed to the registration only when its
+// group is on.
+function ownServerSource({ backend, groups, discovery, review, registerSession, sessionId, projectPath, getWindow, log } = {}) {
   const groupList = Array.isArray(groups) ? groups.filter((g) => typeof g === 'string' && g) : [];
   const lg = { debug: noop, info: noop, warn: noop, ...(log || {}) };
   let registration = null;
@@ -60,6 +61,7 @@ function ownServerSource({ backend, groups, discovery, registerSession, sessionI
     if (!accepts.includes('http') || !groupList.length || typeof registerSession !== 'function') return [];
     const reg = { sessionId, projectPath, getWindow, groups: groupList, log };
     if (groupList.includes('discovery')) reg.discovery = discovery;
+    if (groupList.includes('review')) reg.review = review;
     const got = await registerSession(reg);
     if (!got || got.unavailable || !got.url || !got.token) {
       lg.info(`[mcp-inject] own server unavailable: ${(got && got.reason) || 'no answer'}`);

@@ -139,6 +139,21 @@ test('a throw (sync or async) inside the reader is contained as an isError resul
   h.close();
 });
 
+// #507 slice 2b, T6: the `review` group joined the bridge. Without it the `tools/list` bytes are what they were, and a
+// runner handed to a registration that did not open the group changes nothing either.
+test('without the review group the diff and discovery lists are byte-identical', async () => {
+  const diffOnly = open({ groups: ['diff'] });
+  const diffTools = (await diffOnly.send('tools/list')).result.tools;
+  diffOnly.close();
+  const runner = { targets: () => [{ id: 'alpha' }], start() {}, result() {} };
+  for (const extra of [{}, { review: runner }]) {
+    const h = open({ groups: ['diff', 'discovery'], discovery: fakeReader(), ...extra });
+    const res = await h.send('tools/list');
+    assert.equal(JSON.stringify(res.result.tools), JSON.stringify([...diffTools, ...DISCOVERY_TOOLS]));
+    h.close();
+  }
+});
+
 test('the group names no backend id and no tool name is shared with another group', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'servers', 'discovery-tools.js'), 'utf8');
   assert.doesNotMatch(src, /\b(claude|codex|hermes|agy|pi)\b/i);
