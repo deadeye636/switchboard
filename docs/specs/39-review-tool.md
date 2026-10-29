@@ -573,5 +573,7 @@ restored afterwards):
   click), `/clear` of the caller with a live child, M6 (quit with a review running), and M7 (there is no seam to shorten
   the 10-minute cap). The unit and end-to-end tests cover the logic of each; the live behaviour is not measured.
 - `drive-app.js console` was clean after every step (verbose lines only).
-- Seen in passing, not part of this slice: after a turn that failed to authenticate, the caller's conversation view
-  stopped showing later turns while the transcript kept them.
+- Read in the screenshots and corrected afterwards (#800): the caller's conversation view seemed to stop drawing later
+  turns. It was the demo window being covered by another window, which turns `document.hidden` on; the view then
+  keeps arriving entries and draws them when the window is shown again (#723). Not a defect, and unrelated to the
+  failed-auth turn before it. A screenshot of a covered window shows that deferred state.
