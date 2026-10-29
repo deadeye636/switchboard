@@ -1,7 +1,9 @@
 # 39 — The review tool: one agent asks another backend for a read-only second opinion
 
-Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **planned** (2026-10-27). Nothing below is built;
-"Verified" means read in the code on that date, "Unverified" means it needs a measurement or a closer read, and the
+Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **in progress** (planned 2026-10-27; since 2026-10-29
+the observer seam, the read-only profiles, the runner, the tool group and the spawn gate are built, marked "As built"
+where they are described; the parent link, the attention rule and the sidebar row are not). "Verified" means read in the
+code on that date, "Unverified" means it needs a measurement or a closer read, and the
 plan says where.
 
 Spec 34 is the shared core (the app-wide HTTP listener, one registration and one Bearer token per session, the injection
@@ -165,7 +167,10 @@ is attached. A backend that declares no `assistantTextOf` is not a review target
 way the `stop-session` handler does (`src/main.js:1596`): set `session.exited`, record the timeline line, `session.pty.kill()`.
 The proposal moves those four lines into a function in `src/app/terminal/` that the handler and the runner share (the
 handler stays in `main.js` as a grandfathered handler; reflex 4 forbids a *new* one, and this adds none). A killed process
-keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session.
+keeps the session's transcript, so the row stays and can be resumed by the user like any stopped session. The
+`spawnedBy` marker lives only in the running session (`sessionOptions`, `_spawnedBy`), so a resumed review row launches as
+an ordinary session: with the user's stored `reviewTools` on it is offered the review tools itself. Depth 1 holds for the
+turn the runner sent; whether a resume should read the parent link back (the `session_meta` link) is open for that step.
 
 **6. Keep it as a sidebar row linked to the caller.** See the next section.
 
@@ -179,6 +184,10 @@ structural `spawnedBy` marker in `sessionOptions`; `spawn.js` never adds the `re
 stored `reviewTools: true` in the user's backend defaults opens nothing (the same shape as spec 37 O9); (b) the review session
 gets **no** own-server registration at all, not even `discovery` (O12), so there is no tool surface to recurse through;
 (c) `startReview` refuses when the runner's own caller is a review session (`callerIsReview`), as defence in depth.
+As built: (a) and (b) are one check in the spawn block's group list (`src/app/terminal/spawn.js`, the MCP injection), so no
+runner is ever built for a review session and (c) is never reached from the app; `test/spawn-review.test.js` pins it. The
+session object carries `_review` and `_spawnedBy`. Releasing the caller's registration releases its runner (O7), in
+`ownServerSource`'s release, also when the registration itself never came about.
 
 **One review per caller.** The runner instance is per registration, which is per session (`registerSession`,
 `src/servers/mcp-http.js:322`). A second `startReview` while one runs is refused with the running id. Beyond that a small
@@ -187,7 +196,7 @@ app-wide cap (O8) keeps three callers from starting a dozen agents.
 **Caller identity.** The bridge entry holds the caller's id (`entry.sessionId`, `mcp-bridge.js:655-670`, re-keyed by
 `rekeyMcpServer`), and the project (`entry.projectPath`). The token names the entry (spec 34), so the caller cannot ask for
 another caller's review: `reviewResult` looks the id up in **this runner's** map only. The runner is built in
-`spawn.js` with `{ projectPath, callerTag: terminalTag, callerBackendId: backend.id }`; the live caller id is resolved
+`spawn.js` with `{ projectPath, callerTag: terminalTag }` (the runner needs no caller backend); the live caller id is resolved
 lazily from `activeSessions` by `_terminalTag`, as `agent-rpc.js` does in `findSession` (line 111), because a Claude
 `/clear` re-keys the id (spec 37 O6).
 

@@ -74,6 +74,13 @@ function ownServerSource({ backend, groups, discovery, review, registerSession, 
     const reg = registration;
     registration = null;
     if (reg && typeof reg.release === 'function') reg.release();
+    // The caller's launch is over: its running review is stopped and its results dropped (spec 39, O7). Also when the
+    // registration never came about, so a runner is never left behind; once.
+    const runner = review;
+    review = null;
+    if (runner && typeof runner.release === 'function') {
+      try { runner.release(); } catch (err) { lg.warn(`[mcp-inject] the review runner could not be released: ${err && err.name}`); }
+    }
   };
   return source;
 }

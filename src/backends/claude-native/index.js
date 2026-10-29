@@ -56,7 +56,7 @@ const configFields = [
     description: 'Removes the tools that run commands or code, and WebFetch. Also ignores your settings files, and refuses the Bypass permission mode: that combination fails to start.' },
   ...['autocompact'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
   // Spec 37: the piped CLI takes the same `--mcp-config` row, so the discovery offer is Claude's own field.
-  ...['discoveryTools'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
+  ...['discoveryTools', 'reviewTools'].map(id => claude.configFields.find(f => f.id === id)).filter(Boolean),
   // Claude's suggested next prompt, greyed out in the input and taken with Tab (#693). `--prompt-suggestions` is
   // part of this backend's launch, like `--verbose` (the CLI keeps them off in print mode without it — measured,
   // spec 32), and this option is the way OUT: an opt-out whose default, off, sends nothing — the configFields
