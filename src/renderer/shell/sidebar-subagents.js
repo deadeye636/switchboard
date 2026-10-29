@@ -20,6 +20,11 @@
 //
 // `subagentLiveStatusOn` is NOT a reach-back — it is defined right here. This line claimed otherwise
 // until a verifier checked it.
+//
+// The review rows under their caller (spec 39) live here too, because they are the same kind of thing: a caret and
+// a nested list under a session row. `appendReviewChildren` is called by `buildSessionsList`; it reaches back into
+// sidebar-session-row.js for `buildSessionItem`, lib/utils.js for `readLsJson`, and app.js for `activePtyIds` and
+// `launchPending`, at render time. Which rows nest is `nestReviews` in sidebar-state.js.
 
 // ===== Subagent sidebar rendering (ported from JBR #1/#2/#9, integrated into
 // HaydnG's buildSessionsList) =====
@@ -246,6 +251,61 @@ function buildKnownSessionIds(sessions) {
   const ids = new Set();
   for (const s of sessions) if (s.sessionId) ids.add(s.sessionId);
   return ids;
+}
+
+// --- The review rows under the session that asked for them (spec 39) ---
+//
+// Which rows nest is `nestReviews` in sidebar-state.js; this draws them. A caret like the subagent tree's, and the
+// rows are ordinary session rows (`buildSessionItem`, which marks them "Review"). The fold defaults OPEN, and a
+// running review stays visible while it is closed (#598): a closed fold hides only the rows with nothing running.
+// The closed state is a localStorage set, read on every build, so a re-render keeps it without a preserve clause.
+function getCollapsedReviews() {
+  return new Set(readLsJson('collapsedReviews', '[]'));
+}
+
+function saveCollapsedReviews(set) {
+  try {
+    localStorage.setItem('collapsedReviews', JSON.stringify([...set]));
+  } catch (e) {}
+}
+
+function appendReviewChildren(parentEl, callerId, reviewIndex, subagentIndex) {
+  const children = reviewIndex && reviewIndex.get(callerId);
+  if (!children || children.length === 0) return;
+  const collapsed = getCollapsedReviews().has(callerId);
+  const safeId = callerId.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  const caret = document.createElement('div');
+  caret.className = 'sidebar-children-caret review-children-caret' + (collapsed ? '' : ' expanded');
+  caret.id = 'rev-caret-' + safeId;
+  caret.innerHTML = `<span class="caret-arrow">&#9654;</span> ${children.length} review${children.length !== 1 ? 's' : ''}`;
+  caret.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+
+  const container = document.createElement('div');
+  container.className = 'sidebar-subagents-container sidebar-reviews-container' + (collapsed ? ' collapsed' : '');
+  container.id = 'revc-' + safeId;
+  for (const child of children) {
+    const childEl = buildSessionItem(child);
+    // Running by the same answer the caller's item used (a live pty or a launch still pending): a closed fold keeps it.
+    if (activePtyIds.has(child.sessionId) || launchPending(child.sessionId)) childEl.classList.add('review-running');
+    container.appendChild(childEl);
+    // A review's own subagents nest under it, as under any row; they are not orphans, its id is known.
+    if (subagentIndex) appendSubagentChildren(childEl, child.sessionId, subagentIndex);
+  }
+
+  caret.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const set = getCollapsedReviews();
+    const nowCollapsed = !set.has(callerId);
+    if (nowCollapsed) set.add(callerId); else set.delete(callerId);
+    saveCollapsedReviews(set);
+    container.classList.toggle('collapsed', nowCollapsed);
+    caret.classList.toggle('expanded', !nowCollapsed);
+    caret.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
+  });
+
+  parentEl.after(caret);
+  caret.after(container);
 }
 
 // Build Map<parentSessionId, subagentSession[]> from a project's session list.

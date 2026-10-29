@@ -2,7 +2,8 @@
 
 Issue #507 (orchestration tools), **Phase 2, slice 2b**. Status: **in progress** (planned 2026-10-27; since 2026-10-29
 the observer seam, the read-only profiles, the runner, the tool group and the spawn gate are built, marked "As built"
-where they are described, and so are the stored parent link and the attention rule; the sidebar row is not). "Verified" means read in the
+where they are described, and so are the stored parent link, the attention rule and the sidebar row; the end-to-end test and the live
+measurements are not). "Verified" means read in the
 code on that date, "Unverified" means it needs a measurement or a closer read, and the
 plan says where.
 
@@ -326,7 +327,7 @@ children). The projects payload carries `spawnedBy`/`spawnKind`; the renderer dr
 row** with the existing caret affordance and a small "review" mark, and falls back to an ordinary top-level row when the caller
 is not in the payload (archived, other project view, deleted), so a link that went stale never hides a session.
 
-As built (the data half; the nesting in the renderer is not built yet): the appended migration adds both columns,
+As built (the data half): the appended migration adds both columns,
 `src/db/meta-store.js` has `setSpawnedBy`, `getSpawnedBy` and `rekeySpawnLinks`, and the runner writes the link through
 `ctx.linkSession` under the id the review session holds when it is written. Both re-key paths (`applyRekey` in
 `src/session/session-transitions.js` and the adoption in `src/watch/adopt.js`) call `rekeySpawnLinks` beside `copyOpener`:
@@ -335,6 +336,24 @@ two paths move `_spawnedBy` on the live children's session objects. `src/index/p
 `spawnKind` from the `getAllMeta()` it already reads, and `src/app/live-sessions.js` carries them from the session object
 for a row that has no transcript yet. `test/session-spawned-by.test.js` runs the store against `node:sqlite` with the real
 schema and migrations.
+
+As built (the row): `nestReviews` in `src/renderer/shell/sidebar-state.js` decides which rows nest, in
+`processProjectSessions`, before the sort and the split; `appendReviewChildren` in `src/renderer/shell/sidebar-subagents.js`
+draws a caret ("N reviews", the existing `.sidebar-children-caret`) and the review rows, which are ordinary session rows with
+a "Review" pill. A review nests only when it and its caller are single rows in the list; a caller filtered away, folded
+into a slug group or not in the payload leaves an ordinary top-level row. Not while searching. The fold defaults open,
+its closed state is a localStorage set read on every build, and a closed fold hides only rows with nothing running; a
+running review also makes its caller's item running, so the caller is never folded behind "N older" (#598). The push
+(O2) is the existing `projects-changed`, sent by the runner once its session started; the renderer's `loadProjects` reads
+`getLiveSessions` and `syntheticSessionRow` copies `spawnedBy` / `spawnKind`. No new preload binding.
+The caller's item carries its reviews' ids, so a caller folded behind "N older" whose review is open still has its rows
+built (session navigation and the grid read the sidebar's rows). A review row takes its own subagent tree. Like the
+subagent tree, nested reviews are not counted in "N older" and "Archive all older" does not reach them. A caller in a
+slug group never takes children, so its reviews stay top-level rows. A closed review fold keeps a row shown that is
+`.review-running` (stamped at build: a live pty or a pending launch) or `.has-running-pty` (kept by the status patch
+between renders); a running review's own subagent tree is hidden while the fold is closed (accepted).
+`test/sidebar-review-nesting.test.js` pins it; the click on the demo instance confirmed nesting, the fold across a render
+and a running review shown while folded.
 
 **A row the renderer did not start.** The renderer normally injects a pending row before `openTerminal` returns
 (`src/renderer/app.js:1535-1562`); a session started from main has no such row until the scan finds its transcript.

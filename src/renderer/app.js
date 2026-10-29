@@ -1204,6 +1204,9 @@ function syntheticSessionRow(live) {
     name: null, summary: live.sessionId, firstPrompt: '',
     starred: 0, archived: 0, messageCount: 0,
     created: when, modified: when,
+    // A session a review started (spec 39) nests under its caller before its transcript is read.
+    spawnedBy: live.spawnedBy || null,
+    spawnKind: live.spawnKind || null,
   };
 }
 

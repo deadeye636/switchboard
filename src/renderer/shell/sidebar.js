@@ -333,7 +333,7 @@ function sortSidebarSessions(sessions) {
 }
 
 // Process a project's sessions: filter, sort, slug-group, order, and truncate.
-// Returns { filtered, visible, older, sortOrderEntry } or null if project should be skipped.
+// Returns { filtered, visible, older, reviewIndex, sortOrderEntry } or null if project should be skipped.
 function processProjectSessions(project, resort) {
     let filtered = filterSidebarSessions(project.sessions);
     // Subagents are rendered nested under their parent (or in the orphan
@@ -408,6 +408,16 @@ function processProjectSessions(project, resort) {
       });
     }
 
+    // A review row nests under the session that asked for it (spec 39) — not while searching, like subagents. Done
+    // before the sort and the split, because a running review makes its caller's item running.
+    let reviewIndex = new Map();
+    if ((typeof searchMatchIds === 'undefined' || searchMatchIds === null) && typeof nestReviews === 'function') {
+      const nesting = nestReviews(allItems, new Map(filtered.map(s => [s.sessionId, s])),
+        (id) => activePtyIds.has(id) || launchPending(id));
+      allItems.splice(0, allItems.length, ...nesting.items);
+      reviewIndex = nesting.index;
+    }
+
     // Sort render items
     const prevEntry = sortedOrder.find(e => e.projectPath === project.projectPath);
     if (resort || !prevEntry) {
@@ -464,7 +474,7 @@ function processProjectSessions(project, resort) {
     }
 
     return {
-      filtered, visible, older,
+      filtered, visible, older, reviewIndex,
       sortOrderEntry: { projectPath: project.projectPath, itemIds: allItems.map(item => item.id) },
     };
 }
@@ -477,7 +487,7 @@ function processProjectSessions(project, resort) {
 // subagents render nested under their parent + an "Orphan subagents" section.
 // knownSessionIds carries the project's full, unfiltered id set so the orphan section can tell a
 // parent that is GONE from one that is merely filtered away (#247).
-function buildSessionsList(fId, visible, older, subagentIndex, projectPath, knownSessionIds) {
+function buildSessionsList(fId, visible, older, subagentIndex, projectPath, knownSessionIds, reviewIndex) {
   const nestSubagents = subagentIndex && (typeof searchMatchIds === 'undefined' || searchMatchIds === null);
   const sessionsList = document.createElement('div');
   sessionsList.className = 'project-sessions';
@@ -486,6 +496,7 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
     const element = item.build();
     sessionsList.appendChild(element);
     if (nestSubagents && item.topLevelId) appendSubagentChildren(element, item.topLevelId, subagentIndex);
+    if (reviewIndex && item.topLevelId) appendReviewChildren(element, item.topLevelId, reviewIndex, nestSubagents ? subagentIndex : null);
   }
   if (older.length > 0) {
     // Same ▶/▼ caret as the subagent tree and the lineage thread (#193) — three expanders in one
@@ -524,6 +535,7 @@ function buildSessionsList(fId, visible, older, subagentIndex, projectPath, know
         const element = item.build();
         olderList.appendChild(element);
         if (nestSubagents && item.topLevelId) appendSubagentChildren(element, item.topLevelId, subagentIndex);
+        if (reviewIndex && item.topLevelId) appendReviewChildren(element, item.topLevelId, reviewIndex, nestSubagents ? subagentIndex : null);
       }
     } else {
       // The rows the fold would have held, for the one caller that reads them without opening it: the
@@ -739,7 +751,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
     newBtn.title = 'New session';
     header.appendChild(newBtn);
 
-    const sessionsList = buildSessionsList(fId, visible, older, buildSubagentIndex(project.sessions), project.projectPath, buildKnownSessionIds(project.sessions));
+    const sessionsList = buildSessionsList(fId, visible, older, buildSubagentIndex(project.sessions), project.projectPath, buildKnownSessionIds(project.sessions), result.reviewIndex);
 
     // Whether this project starts folded — explicit toggle, missing path, search-matched-only, and the
     // age heuristic that now only runs in `auto` mode (#278). The decision itself is in sidebar-state.js
@@ -826,7 +838,7 @@ function appendProjectGroups(container, projects, resort, newSortedOrder, { sort
       wtNewBtn.title = 'New session in worktree';
       if (!wt.missing) wtHeader.appendChild(wtNewBtn);
 
-      const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older, buildSubagentIndex(wt.sessions), wt.projectPath, buildKnownSessionIds(wt.sessions));
+      const wtSessionsList = buildSessionsList(wtFId, wtResult.visible, wtResult.older, buildSubagentIndex(wt.sessions), wt.projectPath, buildKnownSessionIds(wt.sessions), wtResult.reviewIndex);
       wtSessionsList.className = 'worktree-sessions';
 
       // Auto-collapse worktree if stale — same decision as the project header above, and the same mode

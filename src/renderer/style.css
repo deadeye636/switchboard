@@ -8756,6 +8756,18 @@ body.grid-dragging .grid-card-header {
   /* display toggled via JS */
 }
 
+/* Review rows under their caller (spec 39): ordinary session rows, indented like the subagent tree. A closed fold
+   hides only the rows with nothing running (and a review's own subagent tree beside them), so a running review is
+   never folded away (#598). `.review-running` is stamped by appendReviewChildren (a live pty or a launch pending) and
+   `.has-running-pty` is the one the status patch keeps current between renders; either keeps a row shown. */
+.sidebar-reviews-container > .session-item {
+  margin-left: 12px;
+  border-left: 2px solid rgba(96,190,240,0.35);
+}
+.sidebar-reviews-container.collapsed > :not(.review-running):not(.has-running-pty) {
+  display: none;
+}
+
 /* Nested subagent row */
 .sidebar-subagent {
   padding-left: 28px !important;

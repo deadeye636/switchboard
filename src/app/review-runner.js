@@ -263,6 +263,11 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
         log.warn(`[review] the review session could not be linked to its caller: ${err.message}`);
       }
     }
+    // The sidebar learns of a session main started only when it reloads its projects (spec 39, O2): ask it to, so
+    // the review row appears under its caller now, from the live snapshot, not when the scan reads its transcript.
+    if (typeof ctx.notifyProjectsChanged === 'function') {
+      try { ctx.notifyProjectsChanged(); } catch { /* the window may be gone */ }
+    }
     let sent = null;
     try { sent = await ctx.agentRpc.sendTurn(sessionIdOf(rec), { text: PREAMBLE + text, mode: 'prompt' }); } catch { sent = null; }
     if (rec.state === 'running' && quitting()) { finish(rec, 'stopped', SENTENCES.appQuitting); return refuse(SENTENCES.quitting); }

@@ -220,6 +220,15 @@ function buildSessionItem(session, opts = {}) {
       + 'its own backend.';
     detailEl.appendChild(importedChip);
   }
+  // A session another session's agent started for a read-only review (spec 39). The same plain pill as
+  // "Imported": a hint about where the row came from, not a state.
+  if (session.spawnKind === 'review') {
+    const reviewChip = document.createElement('span');
+    reviewChip.className = 'session-detail-pill session-review-chip';
+    reviewChip.textContent = 'Review';
+    reviewChip.title = 'Started by another session\'s agent for a read-only review.';
+    detailEl.appendChild(reviewChip);
+  }
   if (typeof window.isMcpActiveForSession === 'function' && window.isMcpActiveForSession(session.sessionId)) {
     const ideChip = document.createElement('span');
     ideChip.className = 'session-detail-pill session-ide-chip';
