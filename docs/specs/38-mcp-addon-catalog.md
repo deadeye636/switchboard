@@ -210,10 +210,11 @@ Not done in the click test:
 
 - A session launch carrying the server through `--mcp-config`. The entry the form writes is an ordinary spec 36
   entry, and that injection path is confirmed there.
-- Copy against the real clipboard and a character-for-character paste. The unit tests stub the clipboard.
-- The registry cases beyond one search: typing without a request, a search with the network down, a second search
-  while the first is out, a long or odd name. The unit tests with a fake `fetch` and a fake IPC cover them; the app
-  did not.
+- Clicked later (2026-10-29, demo instance): Copy wrote the row's text to the system clipboard, read back with the
+  operating system's own reader (a source URL and a `uv tool install` line); and two searches started back to back
+  both answered, with the eleven results drawn once.
+- Still not done in the app: a search with the network down (it needs the machine's network cut), typing without a
+  request, and a long or odd name. The unit tests with a fake `fetch` and a fake IPC cover them.
 - An unsaved edit in the global window followed by a seeded open. The warning dialog says the edits are lost, and a
   seeded open reloads the window, so they are.
 

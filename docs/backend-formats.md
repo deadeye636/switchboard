@@ -54,6 +54,12 @@ Related: [`specs/09-multi-llm.md`](specs/09-multi-llm.md) (the contract), [`mult
     again, and a CLI that still writes the on-disk case meets the mirror image of #796. Existing duplicate entries
     are not cleaned up, and a trusted ancestor is now looked for under the spelled case (unmeasured on 2.1.311).
 
+    **Re-measured after the fix** (2026-10-29, same demo home, a fresh project registered as `<drive>:/temp/…`): trust
+    granted in a terminal Claude session, then a claude-native launch in the same project started without a refusal
+    and without the app's trust question; the other way round, trust granted through the app's question for
+    claude-native, then a terminal session showed no trust dialog. Each direction left exactly one key in
+    `.claude.json`, in the spelled case.
+
   How it is **looked up**: exactly, case included, and the file often holds several spellings of one
   directory. Outside a repository a trusted **ancestor** trusts the directory, and an entry of its own with
   `false` (the CLI writes one after inheriting) does not stop that. Inside a repository only the root's own
