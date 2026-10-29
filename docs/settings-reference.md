@@ -799,6 +799,7 @@ Still open:
 | `SWITCHBOARD_SUBMIT_ENTER_DELAY_MS` | Delay between writing the text and writing Enter on a PTY submit | built-in default; only finite values ≥ 0 are accepted |
 | `SWITCHBOARD_SUBMIT_VERIFY_MS` | Window in which a submit waits for the busy rising edge | built-in default; same validation |
 | `SWITCHBOARD_DEBUG_PORT` | CDP port for `drive-app.js` / `check-debug-port.js` / `perf-sample.js` / `perf-trace.js`, and the port `demo:start -- --debug` binds. Set it when an instance already holds the default — an installed app started with a debugging port leaves the demo nothing to bind. | `9222` |
+| `SWITCHBOARD_REVIEW_MAX_MS` | A test seam: shortens the review tool's cap (spec 39) to this many milliseconds, one second at the least, so the timeout can be measured without waiting ten minutes. It never lengthens the cap. Read when a session's review runner is built. | 10 minutes; a value that is not a positive number below that keeps it |
 | `SWITCHBOARD_DEMO_DIR` | Root of the isolated demo environment | `C:/temp/switchboard` |
 | `SWITCHBOARD_PI_MCP_SERVERS` | **Set by the app, not by you**: the MCP server list a Pi session's resources extension starts (#633, `mcpServers` above). Added to that session's environment only, and deleted by the extension as it loads | unset |
 

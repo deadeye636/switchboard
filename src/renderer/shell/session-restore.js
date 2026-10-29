@@ -52,9 +52,10 @@ function restoreOpenSessionsEnabled() {
 // not stop the CLI — the sidebar still marks it running and the quit guard counts it among what the close
 // will end — so it is part of the state at quit and has to come back with the rest.
 //
-// Two exclusions, both about not mounting one PTY twice: a session that still has a live tab is already
+// Three exclusions. Two are about not mounting one PTY twice: a session that still has a live tab is already
 // collected from `openSessions`, and a session living in a window of its own is restored by THAT window
-// (#2) — taking it here would put a second xterm on it the moment both restores finish.
+// (#2) — taking it here would put a second xterm on it the moment both restores finish. The third is a review row
+// (spec 39): its runner does not outlive the quit, so its CLI would come back with nobody to read it.
 function runningSessionsWithoutTab() {
   if (typeof activePtyIds === 'undefined' || typeof sessionMap === 'undefined') return [];
   const out = [];
@@ -63,6 +64,9 @@ function runningSessionsWithoutTab() {
     if (entry && !entry.closed) continue;
     if (typeof window.isSessionDetached === 'function' && window.isSessionDetached(sessionId)) continue;
     const session = sessionMap.get(sessionId);
+    // A review another session's agent started (spec 39) runs for its runner, and the runner does not outlive the
+    // quit: resuming it would start a CLI nobody reads. One the user opened has a tab and is collected above.
+    if (session && session.spawnKind === 'review') continue;
     if (session) out.push(session);
   }
   return out;

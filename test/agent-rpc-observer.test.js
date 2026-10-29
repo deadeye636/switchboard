@@ -47,6 +47,27 @@ test('the idle edge after a Stop carries the outcome; a turn that ends on its ow
   assert.deepEqual(edges, [[true, null], [false, null], [true, null], [false, 'stopped']]);
 });
 
+// The fake writes the whole turn at once, so the coalescing leaves only the partial's end (`null`); what text a
+// partial carries is `assistantTextOf`'s, and the runner's use of it is pinned in review-runner.test.js.
+test('the observer hears the end of the streaming entry, coalesced like the view (spec 39, M7)', async (t) => {
+  const h = harness();
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length === 1);
+  const partials = [];
+  let idle = false;
+  agentRpc.observe('fake-session', { onPartial: (text) => partials.push(text), onBusy: (busy) => { if (!busy) idle = true; } });
+  await agentRpc.sendTurn('fake-session', { text: 'hello', mode: 'prompt' });
+  await until(() => idle && partials.length > 0 && partials[partials.length - 1] === null);
+  assert.ok(partials.every((p) => p === null || 'pong'.startsWith(p)), JSON.stringify(partials));
+  assert.equal(partials[partials.length - 1], null, 'the finished entry clears it');
+  const claudeProtocol = require('../src/backends/claude-native/rpc-protocol');
+  const piProtocol = require('../src/backends/pi-native/rpc-protocol');
+  assert.equal(claudeProtocol.assistantTextOf({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '1 one' }] } }), '1 one',
+    'a claude-native partial has the shape of a finished entry');
+  assert.equal(piProtocol.assistantTextOf({ type: 'message', message: { role: 'assistant', content: [{ type: 'text', text: '1 one' }] } }), '1 one',
+    'and so does a pi-native one');
+});
+
 test('an observer that answers an ask writes the answer, draws nothing and reports no waiting', async (t) => {
   const h = harness();
   t.after(() => stopped(h));

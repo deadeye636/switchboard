@@ -39,7 +39,7 @@ const SENTENCES = {
   notStarted: 'The review session could not start.',
   notSent: 'The review session started but did not take the prompt.',
   noReply: 'The review turn ended without a reply.',
-  timeout: 'The review took longer than 10 minutes and was stopped.',
+  timeout: 'The review took longer than 10 minutes and was stopped.',  // the sentence for the cap as shipped
   sessionStopped: 'The review session was stopped.',
   callerEnded: 'The calling session ended.',
   appQuitting: 'The app is quitting.',
@@ -53,10 +53,15 @@ const runningEverywhere = new Set();
 const TERMINAL = new Set(['done', 'failed', 'timeout', 'stopped']);
 
 /**
- * deps: { projectPath, callerTag, callerIsReview, ctx }
+ * deps: { projectPath, callerTag, callerIsReview, maxMs, ctx }. `maxMs` is a test seam for the cap (spec 39, M7): it
+ * only shortens it, to one second at the least; anything that is not a number below 10 minutes keeps 10 minutes.
  * -> { targets(), start({ backend, prompt }), result(id), release() }
  */
-function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ctx } = {}) {
+function createReviewRunner({ projectPath, callerTag, callerIsReview = false, maxMs, ctx } = {}) {
+  const capMs = Number.isFinite(maxMs) && maxMs > 0 && maxMs < MAX_MS ? Math.max(1000, Math.floor(maxMs)) : MAX_MS;
+  // The timeout sentence names the cap that applied, so a shortened one for a measurement does not say ten minutes.
+  const timeoutSentence = capMs === MAX_MS ? SENTENCES.timeout
+    : `The review took longer than ${Math.ceil(capMs / 1000)} second${Math.ceil(capMs / 1000) === 1 ? '' : 's'} and was stopped.`;
   const now = () => (ctx && typeof ctx.now === 'function' ? ctx.now() : Date.now());
   const quitting = () => !!(ctx && typeof ctx.getAppQuitting === 'function' && ctx.getAppQuitting());
   const setTimer = (fn, ms) => {
@@ -105,7 +110,8 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
     rec.state = state;
     rec.reason = reason || null;
     rec.endedAt = now();
-    const raw = state === 'done' ? (rec.lastText || rec.planText) : rec.lastText;
+    // A review cut off mid-reply keeps what was streaming: newer than the last finished entry, when there is one.
+    const raw = state === 'done' ? (rec.lastText || rec.planText) : (rec.partialText || rec.lastText);
     if (raw) {
       rec.truncated = Array.from(raw).length > MAX_TEXT;
       rec.text = cutText(raw, MAX_TEXT);
@@ -137,6 +143,9 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
           else finish(rec, 'failed', SENTENCES.noReply);
         });
       },
+      onPartial(text) {
+        rec.partialText = typeof text === 'string' && text.trim() ? text : null;
+      },
       onEntry(entry, text) {
         // `_failed` is the neutral mark a backend's decoder puts on a failed model call (spec 39, "Detect the end of the turn").
         if (entry && entry._failed) { rec.turnFailed = true; return; }
@@ -166,7 +175,7 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
     if (id && ctx.agentRpc && typeof ctx.agentRpc.abortTurn === 'function') {
       Promise.resolve(ctx.agentRpc.abortTurn(id)).catch(() => {});
     }
-    finish(rec, 'timeout', SENTENCES.timeout);
+    finish(rec, 'timeout', timeoutSentence);
   }
 
   /** -> { ok: true, accepted } | { ok: false, error } */
@@ -197,6 +206,7 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
       timer: null,
       sawBusy: false,
       lastText: null,
+      partialText: null,
       turnFailed: false,
       planText: null,
       text: null,
@@ -207,7 +217,7 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
     // Counted from here, before the first await, so two starts at once cannot both pass the caps.
     records.set(rec.id, rec);
     runningEverywhere.add(rec.id);
-    rec.timer = setTimer(() => onTimeout(rec), MAX_MS);
+    rec.timer = setTimer(() => onTimeout(rec), capMs);
 
     // The profile wins over the stored defaults: session options are merged last (spec 39, "Design", step 1). `buildLaunch`
     // reads these options as sent, so the CLI's own model runs (O15); the empty `model` keeps the merged copy the spawn
@@ -280,7 +290,7 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
         backend: rec.backend,
         state: 'running',
         startedAt: new Date(rec.startedAt).toISOString(),
-        maxMinutes: MAX_MS / 60000,
+        maxMinutes: capMs / 60000,
         pollAfterSeconds: POLL_AFTER_SECONDS,
       },
     };

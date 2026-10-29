@@ -761,7 +761,8 @@ function entriesFromMessages(response, { cwd } = {}) {
   return out;
 }
 
-// The text of an assistant entry, for a core observer (spec 39, the review runner): Pi's message entry
+// The text of an assistant entry, finished or streaming (a partial has the same shape), for a core observer (spec 39,
+// the review runner): Pi's message entry
 // `{ type: 'message', message: { role: 'assistant', content } }`, its text blocks joined. `null` for anything else — a
 // tool result is drawn as role `user` too, and an assistant message that holds only tool calls has no text. A failed
 // model call (`_failed`, `stopReason: 'error'`) is not a reply either.

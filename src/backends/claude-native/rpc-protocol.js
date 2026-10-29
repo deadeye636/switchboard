@@ -1461,7 +1461,8 @@ const entryKey = (entry) => {
   return entry && typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : null;
 };
 
-// The text of an assistant entry, for a core observer (spec 39, the review runner): Claude's own transcript line
+// The text of an assistant entry, finished or streaming (a partial has the same shape), for a core observer (spec 39,
+// the review runner): Claude's own transcript line
 // `{ type: 'assistant', message: { content } }`, its text blocks joined. `null` for anything else, an assistant line
 // that carries only tool calls included — one turn writes several assistant lines, and the observer keeps the last text.
 // A failed model call (`_failed`, a lapsed login, an exhausted account) is not a reply and answers `null` too.

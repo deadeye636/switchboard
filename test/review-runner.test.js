@@ -380,6 +380,63 @@ test('each target launches with its read-only profile and no model, from the opt
   }
 });
 
+// Measured on the demo (spec 39, M7): one long reply still streaming at the cap gave an empty text, because only
+// finished entries reached the runner. The streaming text now arrives through `onPartial`.
+test('a review cut off mid-reply returns what was streaming, and a finished entry clears it', async () => {
+  const w = world();
+  const id = await startOk(w);
+  w.obs().onBusy(true);
+  w.obs().onEntry({}, 'An earlier finished paragraph.');
+  w.obs().onPartial('1 one\n2 two\n3 thr');
+  w.fire();
+  assert.equal(w.runner.result(id).result.text, '1 one\n2 two\n3 thr');
+
+  forgetRunning();
+  const v = world();
+  const vid = await startOk(v);
+  v.obs().onBusy(true);
+  v.obs().onPartial('streaming');
+  v.obs().onPartial(null);
+  v.obs().onEntry({}, 'The finished reply.');
+  v.fire();
+  assert.equal(v.runner.result(vid).result.text, 'The finished reply.', 'a cleared partial does not linger');
+
+  forgetRunning();
+  const d = world();
+  const did = await startOk(d);
+  d.obs().onBusy(true);
+  d.obs().onPartial('half a sentence');
+  d.obs().onEntry({}, 'The whole reply.');
+  d.obs().onBusy(false);
+  assert.equal(d.runner.result(did).result.text, 'The whole reply.', 'done takes the finished text, never a partial');
+});
+
+test('the cap can be shortened for a measurement, and anything but a positive number keeps ten minutes', async () => {
+  const make = (maxMs) => {
+    const w = world();
+    const runner = createReviewRunner({ projectPath: PROJECT, callerTag: 'caller-tag', maxMs, ctx: w.ctx });
+    return { w, runner };
+  };
+  const short = make(90000);
+  const res = await short.runner.start({ backend: 'pi-native', prompt: 'x' });
+  assert.equal(res.accepted.maxMinutes, 1.5);
+  assert.equal(short.w.timers.at(-1).ms, 90000);
+  short.w.fire();
+  assert.equal(short.runner.result(res.accepted.id).result.reason, 'The review took longer than 90 seconds and was stopped.');
+  forgetRunning();
+  const tiny = make(0.5);
+  const t = await tiny.runner.start({ backend: 'pi-native', prompt: 'x' });
+  assert.equal(tiny.w.timers.at(-1).ms, 1000, 'one second at the least');
+  tiny.w.fire();
+  assert.equal(tiny.runner.result(t.accepted.id).result.reason, 'The review took longer than 1 second and was stopped.');
+  for (const bad of [undefined, 0, -5, NaN, 'abc', MAX_MS, MAX_MS * 100]) {
+    forgetRunning();
+    const k = make(bad);
+    await k.runner.start({ backend: 'pi-native', prompt: 'x' });
+    assert.equal(k.w.timers.at(-1).ms, MAX_MS, String(bad));
+  }
+});
+
 test('the runner names no backend and needs no electron', () => {
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'review-runner.js'), 'utf8'));
   assert.doesNotMatch(src, /require\(['"]electron['"]\)/);

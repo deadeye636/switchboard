@@ -156,7 +156,8 @@ function stateFor(sessionId) {
 
 /**
  * A core caller that follows one session without a view (#507 slice 2b, spec 39): the review runner. `observer` is
- * `{ onBusy(busy, outcome), onEntry(entry, text), onAsk(request) -> answer | null, onExit() }`, every member optional.
+ * `{ onBusy(busy, outcome), onEntry(entry, text), onPartial(text), onAsk(request) -> answer | null, onExit() }`, every
+ * member optional. `onPartial` hands the text of the entry still streaming (coalesced), `null` once it is gone.
  * `outcome` is what the decoder put on an idle edge: `'stopped'` (a Stop ended the turn), `'failed'`, or `null` for a
  * turn that ended on its own. `text` is
  * the backend's `rpc.assistantTextOf(entry)`: the text of an assistant entry, `null` for anything else. `onAsk` is asked
@@ -320,7 +321,18 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // part of it.
   function flushPartial() {
     if (state.partialTimer) { clearTimeout(state.partialTimer); state.partialTimer = null; }
-    if (state.partialOp) { const op = state.partialOp; state.partialOp = null; sendOp(state, op); }
+    if (state.partialOp) {
+      const op = state.partialOp;
+      state.partialOp = null;
+      sendOp(state, op);
+      // The text streaming now, for a core observer (spec 39): what a review has written so far when it is cut off.
+      // Coalesced like the view's copy; `null` once the entry is finished or the partial cleared.
+      if (state.observer) {
+        let text = null;
+        try { text = op.entry && typeof rpc.assistantTextOf === 'function' ? rpc.assistantTextOf(op.entry) : null; } catch { text = null; }
+        notifyObserver(state, 'onPartial', typeof text === 'string' ? text : null);
+      }
+    }
     flushLocalOps();
   }
 

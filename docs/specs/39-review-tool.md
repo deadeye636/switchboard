@@ -153,6 +153,8 @@ re-key), and `handleOp` calls it at three places:
 - `append`: `observer.onEntry(entry, text)`, `text` being the backend's `assistantTextOf(entry)`, so the runner can keep
   the last assistant text.
 - `ask`: `observer.onAsk(request)` **before** `autoAnswer` (`agent-rpc.js:772-773`), see "Read-only".
+- As built (M7): `partial`: `observer.onPartial(text)` with the text still streaming, coalesced like the view's copy, and
+  `null` once it is finished or cleared, so a review cut off by the cap keeps what it was writing.
 
 and `observer.onExit()` from the child's exit path. The observer is optional and one per state; a session without one behaves
 byte-for-byte as before (a differential test pins that).
@@ -550,8 +552,8 @@ click test showed.
 of a review row reads the stored link back (no own-server group, not silenced), and claude-native's profile turns prompt
 suggestions off.
 
-**The click test** (2026-10-29, demo instance, Haiku for every Claude turn, smallest Pi model in Pi's settings, all
-restored afterwards):
+**The click test** (2026-10-29, demo instance, `haiku` as the demo's Claude default and the smallest Pi model in Pi's
+settings, all restored afterwards; a second round the same day measured what the first left open):
 
 - M1: passed. The toggle is in claude-native's Configure dialog, styled like its neighbours, off. With it on, the caller
   loaded `startReview` / `reviewResult` through `ToolSearch` and each call came as an approval card.
@@ -561,17 +563,35 @@ restored afterwards):
   (M4) was not run, because refreshing that login would have shared a refresh token with the user's real Pi home.
 - claude-native target: launched with `--permission-mode plan`, no `--model`, no `--prompt-suggestions`. `reviewResult`
   answered `done` with the reply after about nine seconds, the session was stopped, and the caller reported the answer.
+- **The review ran on Sonnet, not on the CLI default.** With `haiku` as the demo's Claude default the callers ran on
+  Haiku 5.5, and every claude-native review, launched with no `--model` in plan mode, ran on `claude-sonnet-5-5` (the
+  model its transcript names). Claude picks its own model in plan mode, so "the target's default" (R4, O15) is not the
+  default the user set for that backend. A cost the toggle text does not name; whether the profile should send a
+  model is a decision for the owner.
 - M2 in part: a review asked to create a file and run a redirecting shell command wrote nothing and made no tool call;
   the model refused on its own, so `refusedActions` was 0 and the refusal path was not exercised live. A user-level
   allow rule was not tried.
 - M5: the review row appeared under its caller with the Review pill and raised no attention; the caller was the only
   inbox entry.
 - M3: the claude-native review ended in assistant text, not `ExitPlanMode`.
-- Not run: terminal Claude's Configure dialog (only claude-native's was opened), a live `reviewResult` answering
-  running and a live second `startReview` (the caller polled after the short reviews had ended), opening a review row
-  while it ran, stop from the sidebar during a run, stopping the caller during a run (the review finished before the
-  click), `/clear` of the caller with a live child, M6 (quit with a review running), and M7 (there is no seam to shorten
-  the 10-minute cap). The unit and end-to-end tests cover the logic of each; the live behaviour is not measured.
+- M7, with the cap shortened by `SWITCHBOARD_REVIEW_MAX_MS` (60 s): a review writing a very long reply ended `timeout`
+  at 60 s and its session was stopped. The first run returned an empty text, because only finished entries reached the
+  runner and the one reply was still streaming; the observer now hears the streaming text (`onPartial`) and the second
+  run returned 27 KB of it. The timeout sentence names the cap that applied. A timeout returns the message still
+  streaming when there is one, otherwise the last finished text; the two are not joined.
+- Stop from the sidebar during a run (the row's Stop and its confirm): `stopped`, the row stays. Stopping the caller
+  during a run: the review stopped with it, its row stays.
+- `/clear` of the caller (a real re-key to a new id): the review row moved with it and stays nested under the new id.
+  The review had ended by then, so a live child across the re-key is covered by the unit tests only.
+- M6, quit with a review running: both processes gone, the database closed with nothing written after it. On the next
+  start the review came back as a resumed CLI, because #438 restores every running session without a tab. Fixed: a
+  review without a tab is not kept for the next launch (`src/renderer/shell/session-restore.js`); after the fix only the
+  callers came back and the review row showed Idle under its caller. Accepted cost: a review row the user opened, worked
+  in and then closed the tab of while it still ran is not brought back either.
+- Not run: a successful Pi review (M4), because neither the user's Pi login nor its demo copy was valid any more and a
+  fresh one needs an interactive `pi /login`; a user-level allow rule against plan mode (M2); terminal Claude's
+  Configure dialog; a live `reviewResult` answering running and a live second `startReview`; opening a review row while
+  it ran. The unit and end-to-end tests cover the logic of each.
 - `drive-app.js console` was clean after every step (verbose lines only).
 - Read in the screenshots and corrected afterwards (#800): the caller's conversation view seemed to stop drawing later
   turns. It was the demo window being covered by another window, which turns `document.hidden` on; the view then

@@ -298,7 +298,8 @@ Smaller but important changes (mostly in main/Node-side files).
   - a session that had a **tab** is reopened with its tab, as before;
   - a session that was only **running** (its tab closed, its CLI still going — the quit guard already
     counts it) gets its **process back and no tab**. The sidebar marks it running and a click
-    reattaches it with its scrollback, exactly as before the quit.
+    reattaches it with its scrollback, exactly as before the quit. The exception is a review row (spec 39): one
+    running without a tab is not brought back, because the review it ran for ended with the quit.
 
   In panes mode such a session keeps its tab in the saved layout, drawn dormant. Its placeholder follows
   the process it describes: once the poll has seen the restarted process it stops saying "not running"

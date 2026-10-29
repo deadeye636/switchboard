@@ -244,6 +244,21 @@ function loadSessionRestore({ suppress = false, stored = null } = {}) {
   return { sandbox, store };
 }
 
+// Spec 39, measured on the demo (M6): a review running without a tab at quit came back on the next launch as a
+// resumed CLI nobody reads, because its runner does not outlive the quit. A review row the user opened has a tab.
+test('a running review without a tab is not kept for the next launch; other tabless sessions are', () => {
+  const { sandbox } = loadSessionRestore();
+  sandbox.activePtyIds = new Set(['plain', 'review', 'opened-review']);
+  sandbox.openSessions = new Map([['opened-review', { closed: false }]]);
+  sandbox.sessionMap = new Map([
+    ['plain', { sessionId: 'plain' }],
+    ['review', { sessionId: 'review', spawnKind: 'review', spawnedBy: 'caller' }],
+    ['opened-review', { sessionId: 'opened-review', spawnKind: 'review' }],
+  ]);
+  const ids = JSON.parse(JSON.stringify(sandbox.runningSessionsWithoutTab().map((s) => s.sessionId)));
+  assert.deepEqual(ids, ['plain']);
+});
+
 test('rekeySavedOpenSessions writes the renamed blob back, and only in the main window (#669)', () => {
   const blob = JSON.stringify({ activeSessionId: null, sessions: [], headless: [{ sessionId: 'old', projectPath: '/p' }] });
 

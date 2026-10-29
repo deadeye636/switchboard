@@ -586,7 +586,7 @@ answers instead of the core learning its format:
   its images inline. Spec 33 has the rest.
 - `answerCommand(id, answer, ask)` gets the question it answers, for a runtime that wants part of its own
   request back.
-- `assistantTextOf(entry)` — optional (spec 39). The text of a finished assistant entry in the backend's own shape,
+- `assistantTextOf(entry)` — optional (spec 39). The text of an assistant entry, finished or still streaming (a partial has the same shape), in the backend's own shape,
   `null` for anything else (a user line, a tool result, an assistant line holding only tool calls). The core hands it to
   a session's observer (`agentRpc.observe`, the review runner's way of following a session without a view); one turn
   yields several assistant entries and the observer keeps the last text. Both runtime-driven backends declare it.
