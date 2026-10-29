@@ -86,6 +86,9 @@ const DIALOG_METHODS = new Set(['select', 'confirm', 'input', 'editor']);
  */
 function createDecoder({ cwd } = {}) {
   let partial = null;   // { role: 'assistant', content: [], timestamp }
+  // How the run's last assistant message ended (`stopReason`), for the outcome on its idle edge (spec 39). The last
+  // one decides: a failed call Pi retries is followed by the retry's message.
+  let lastStop = null;
   // The session's `read` calls by id, kept for as long as the decoder lives (#755). A partial turn is drawn
   // without it: a call whose arguments are still streaming must not register a path.
   const docs = { cwd: typeof cwd === 'string' ? cwd : '', calls: new Map() };
@@ -135,13 +138,16 @@ function createDecoder({ cwd } = {}) {
   function decode(msg) {
     if (!msg || typeof msg !== 'object') return [];
     switch (msg.type) {
-      case 'agent_start': return [{ op: 'busy', busy: true }];
+      case 'agent_start': lastStop = null; return [{ op: 'busy', busy: true }];
       // `agent_settled`, not `agent_end`: Pi says an `agent_end` "may still be followed by retry,
       // compaction, or queued continuations". The same reading `../pi/live-binding.js` takes (#573).
       case 'agent_settled': {
         const ops = [];
         if (partial) { partial = null; ops.push({ op: 'partial', entry: null }); }
-        ops.push({ op: 'busy', busy: false });
+        // The turn's outcome rides on the idle edge (spec 39): a Stop is `stopped`, a failed call `failed`.
+        const outcome = lastStop === 'aborted' ? 'stopped' : lastStop === 'error' ? 'failed' : null;
+        lastStop = null;
+        ops.push(outcome ? { op: 'busy', busy: false, outcome } : { op: 'busy', busy: false });
         return ops;
       }
       case 'message_start': {
@@ -160,6 +166,7 @@ function createDecoder({ cwd } = {}) {
         // A failed model call is drawn like a reply but is not one: marked, so `assistantTextOf` does not hand its
         // partial text to an observer as the answer (spec 39).
         const failed = !!(m && m.role === 'assistant' && m.stopReason === 'error');
+        if (m && m.role === 'assistant') lastStop = m.stopReason || null;
         for (const entry of entriesFor(m, docs)) ops.push({ op: 'append', entry: failed ? { ...entry, _failed: true } : entry });
         if (m && m.role === 'assistant' && m.stopReason === 'error') {
           ops.push({ op: 'notice', level: 'error', text: String(m.errorMessage || NOTICES.modelFailed) });

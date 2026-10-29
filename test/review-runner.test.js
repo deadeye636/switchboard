@@ -15,7 +15,7 @@ beforeEach(() => forgetRunning());
 const PROJECT = '/projects/example/alpha';
 const TARGETS = [
   { id: 'pi-native', label: 'Pi (native)', options: { approvalGate: true } },
-  { id: 'claude-native', label: 'Claude (native)', options: { permissionMode: 'plan' } },
+  { id: 'claude-native', label: 'Claude (native)', options: { permissionMode: 'plan', promptSuggestionsOff: true } },
 ];
 
 // A fake world. `open` decides what openTerminal answers; everything the runner did is recorded.
@@ -219,6 +219,81 @@ test('release stops a running review and forgets every result', async () => {
   assert.deepEqual(w.armed(), []);
 });
 
+// T5 verifier F7. `openTerminal` held open until the test lets it answer: what ends a review while its session is still
+// starting, and what happens to the session that starts after that.
+function holdOpen(w) {
+  const open = w.ctx.openTerminal;
+  const held = [];
+  w.ctx.openTerminal = (...args) => new Promise((resolve) => held.push(() => resolve(open(...args))));
+  return { let: async () => { while (held.length) held.shift()(); await new Promise((r) => setImmediate(r)); } };
+}
+
+test('the cap firing while the session starts: a timeout, and the session that starts late is stopped once', async () => {
+  const w = world();
+  const gate = holdOpen(w);
+  const pending = w.runner.start({ backend: 'pi-native', prompt: 'x' });
+  w.fire();
+  await gate.let();
+  assert.deepEqual(await pending, { ok: false, error: SENTENCES.timeout });
+  assert.equal(w.session().kills, 1, 'the session that did start is stopped');
+  assert.equal(w.calls.sent.length, 0, 'no turn is sent into it');
+  assert.deepEqual(w.armed(), []);
+  for (let i = 0; i < APP_CAP; i += 1) await startOk(world());
+});
+
+test('release while the session starts: the caller ended, and the session that starts late is stopped once', async () => {
+  const w = world();
+  const gate = holdOpen(w);
+  const pending = w.runner.start({ backend: 'pi-native', prompt: 'x' });
+  w.runner.release();
+  await gate.let();
+  assert.deepEqual(await pending, { ok: false, error: SENTENCES.callerEnded });
+  assert.equal(w.session().kills, 1);
+  assert.equal(w.calls.sent.length, 0);
+  assert.deepEqual(w.armed(), []);
+  for (let i = 0; i < APP_CAP; i += 1) await startOk(world());
+});
+
+test('a session that cannot be observed, or does not take the prompt, is stopped once and leaves nothing running', async () => {
+  const cases = [
+    [(w) => { w.ctx.agentRpc.observe = () => false; }, SENTENCES.notStarted, 0],
+    [(w) => { w.ctx.agentRpc.observe = () => { throw new Error('gone'); }; }, SENTENCES.notStarted, 0],
+    [(w) => { w.ctx.agentRpc.sendTurn = async () => ({ ok: false, error: 'busy' }); }, SENTENCES.notSent, 1],
+    [(w) => { w.ctx.agentRpc.sendTurn = async () => { throw new Error('pipe closed'); }; }, SENTENCES.notSent, 1],
+  ];
+  for (const [breakIt, sentence, linked] of cases) {
+    const w = world();
+    breakIt(w);
+    assert.deepEqual(await w.runner.start({ backend: 'pi-native', prompt: 'x' }), { ok: false, error: sentence });
+    assert.equal(w.session().kills, 1, sentence);
+    assert.equal(w.calls.links.length, linked);
+    assert.deepEqual(w.armed(), []);
+  }
+  for (let i = 0; i < APP_CAP; i += 1) await startOk(world());
+});
+
+test('starts at the same moment: one per caller, and no more than the app-wide cap', async () => {
+  const w = world();
+  const gate = holdOpen(w);
+  const [first, second] = [w.runner.start({ backend: 'pi-native', prompt: 'a' }), w.runner.start({ backend: 'pi-native', prompt: 'b' })];
+  await gate.let();
+  const answers = await Promise.all([first, second]);
+  assert.equal(answers[0].ok, true);
+  assert.equal(answers[1].ok, false);
+  assert.match(answers[1].error, new RegExp(answers[0].accepted.id));
+  assert.equal(w.calls.open.length, 1, 'the second start opened nothing');
+
+  forgetRunning();
+  const worlds = Array.from({ length: APP_CAP + 1 }, () => world());
+  const gates = worlds.map(holdOpen);
+  const starts = worlds.map((x) => x.runner.start({ backend: 'pi-native', prompt: 'x' }));
+  for (const g of gates) await g.let();
+  const results = await Promise.all(starts);
+  assert.equal(results.filter((r) => r.ok).length, APP_CAP);
+  assert.deepEqual(results[APP_CAP], { ok: false, error: SENTENCES.appCap });
+  assert.equal(worlds[APP_CAP].calls.open.length, 0);
+});
+
 test('another caller\'s review id answers the same sentence as one that never existed', async () => {
   const a = world();
   const id = await startOk(a);
@@ -271,6 +346,24 @@ test('the read-only profile wins over a stored default through the real options 
   }
 });
 
+// T5 verifier F3. `buildLaunch` gets the session options as the runner sent them, not `spawnOptionsFor`'s merge
+// (`src/app/terminal/spawn.js`, `launchOptions`), so the argv is decided by them alone: the profile's mode is on it, and
+// the empty `model` puts no `--model` there (O15). Each target's real descriptor, with its real profile.
+test('each target launches with its read-only profile and no model, from the options the runner sends', async () => {
+  for (const id of ['claude-native', 'pi-native']) {
+    const descriptor = require(`../src/backends/${id}`);
+    const w = world({ targets: [{ id, label: id, options: descriptor.reviewProfile().options }] });
+    await startOk(w, id);
+    const { args } = descriptor.buildLaunch({ cwd: PROJECT, resume: false, sessionId: 'review-1', options: w.calls.open[0].opts });
+    assert.ok(!args.includes('--model') && !args.some((a) => String(a).startsWith('--model=')), `${id}: no model on the argv`);
+    if (id === 'claude-native') {
+      const at = args.indexOf('--permission-mode');
+      assert.equal(args[at + 1], 'plan', 'claude-native starts in plan mode');
+      assert.ok(!args.includes('--prompt-suggestions'), 'a review asks for no prompt suggestions');
+    }
+  }
+});
+
 test('the runner names no backend and needs no electron', () => {
   const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'app', 'review-runner.js'), 'utf8'));
   assert.doesNotMatch(src, /require\(['"]electron['"]\)/);
@@ -295,6 +388,23 @@ test('narration before the plan does not beat it; a failed model call is no answ
   f.obs().onEntry({ _failed: true }, null);
   f.obs().onBusy(false);
   assert.equal(f.runner.result(fid).result.state, 'failed');
+
+  // F2: a turn the user stopped is no answer, whatever it narrated before the Stop; a failed outcome is failed.
+  const s = world();
+  const sid = await startOk(s);
+  s.obs().onBusy(true);
+  s.obs().onEntry({}, 'I will start by reading the files.');
+  s.obs().onBusy(false, 'stopped');
+  assert.deepEqual(s.runner.result(sid).result, { id: sid, state: 'stopped', reason: SENTENCES.sessionStopped, sessionId: s.calls.open[0].id });
+  assert.equal(s.session().kills, 1, 'the review session is stopped once');
+
+  const e = world();
+  const eid = await startOk(e);
+  e.obs().onBusy(true);
+  e.obs().onEntry({}, 'Partial.');
+  e.obs().onBusy(false, 'failed');
+  assert.equal(e.runner.result(eid).result.state, 'failed');
+  assert.equal(e.runner.result(eid).result.text, undefined);
 
   const g = world();
   g.activeSessions.delete('caller-id');

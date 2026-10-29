@@ -156,7 +156,9 @@ function stateFor(sessionId) {
 
 /**
  * A core caller that follows one session without a view (#507 slice 2b, spec 39): the review runner. `observer` is
- * `{ onBusy(busy), onEntry(entry, text), onAsk(request) -> answer | null, onExit() }`, every member optional. `text` is
+ * `{ onBusy(busy, outcome), onEntry(entry, text), onAsk(request) -> answer | null, onExit() }`, every member optional.
+ * `outcome` is what the decoder put on an idle edge: `'stopped'` (a Stop ended the turn), `'failed'`, or `null` for a
+ * turn that ended on its own. `text` is
  * the backend's `rpc.assistantTextOf(entry)`: the text of an assistant entry, `null` for anything else. `onAsk` is asked
  * BEFORE the approval memory and the card: an answer is written to the runtime and nothing is drawn or reported (an
  * answer that cannot be written falls through to the card). A session without an observer runs exactly as before.
@@ -742,7 +744,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         flushPartial();
         if (state.busy === op.busy) return;
         state.busy = op.busy;
-        if (state.observer) notifyObserver(state, 'onBusy', op.busy);
+        if (state.observer) notifyObserver(state, 'onBusy', op.busy, op.busy ? null : (op.outcome || null));
         if (op.busy) state.suggestion = null;
         // What the start said is about the start: once a turn runs, a later attach would draw it under turns it
         // no longer belongs to (#754 verifier F4).

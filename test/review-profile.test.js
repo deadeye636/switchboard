@@ -14,7 +14,7 @@ test('every backend answers reviewProfile, and only the two pipe drivers answer 
   const answers = Object.fromEntries(descriptors.map((d) => [d.id, d.reviewProfile()]));
   assert.deepEqual(answers, {
     claude: null,
-    'claude-native': { options: { permissionMode: 'plan' } },
+    'claude-native': { options: { permissionMode: 'plan', promptSuggestionsOff: true } },
     pi: null,
     'pi-native': { options: { approvalGate: true } },
     codex: null,
@@ -35,7 +35,7 @@ test('the capability row says the same as the hook, with a note for every no', (
 
 test('reviewTargets offers the two drivers when they can launch, with their own options', () => {
   assert.deepEqual(reviewTargets(descriptors, all).map((t) => [t.id, t.options]), [
-    ['claude-native', { permissionMode: 'plan' }],
+    ['claude-native', { permissionMode: 'plan', promptSuggestionsOff: true }],
     ['pi-native', { approvalGate: true }],
   ]);
   assert.deepEqual(reviewTargets(descriptors, new Set(['pi-native'])).map((t) => t.id), ['pi-native'], 'a backend that cannot launch is not offered');
@@ -63,5 +63,5 @@ test('reviewTargets leaves out a template, a backend without a pipe or an answer
 test('a returned options object is a copy: a caller cannot change the descriptor\'s profile', () => {
   const [first] = reviewTargets(descriptors, all);
   first.options.permissionMode = 'bypassPermissions';
-  assert.deepEqual(reviewTargets(descriptors, all)[0].options, { permissionMode: 'plan' });
+  assert.deepEqual(reviewTargets(descriptors, all)[0].options, { permissionMode: 'plan', promptSuggestionsOff: true });
 });

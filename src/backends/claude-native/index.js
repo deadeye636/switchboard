@@ -303,8 +303,9 @@ module.exports = {
   // Per-spawn MCP prune (spec 36): the same `--strict-mcp-config` hook terminal Claude uses.
   providesMcpPrune: true,
   // The read-only profile a review session starts with (spec 39): Claude's plan mode, in which a write is asked
-  // for first, and the review runner refuses every ask.
-  reviewProfile: () => ({ options: { permissionMode: 'plan' } }),
+  // for first, and the review runner refuses every ask. No prompt suggestions: a review is one turn, and a suggested
+  // next prompt nobody reads is a model call for nothing.
+  reviewProfile: () => ({ options: { permissionMode: 'plan', promptSuggestionsOff: true } }),
   buildMcpPrune: claude.buildMcpPrune,
   // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
   externalMcpTakes: claude.externalMcpTakes,

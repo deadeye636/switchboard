@@ -590,6 +590,9 @@ answers instead of the core learning its format:
   `null` for anything else (a user line, a tool result, an assistant line holding only tool calls). The core hands it to
   a session's observer (`agentRpc.observe`, the review runner's way of following a session without a view); one turn
   yields several assistant entries and the observer keeps the last text. Both runtime-driven backends declare it.
+  Beside it, the decoder may put an `outcome` on a `busy: false` op — `'stopped'` for a turn a Stop ended, `'failed'`
+  for one that ended in an error, absent otherwise — and the core hands it to the observer's `onBusy(false, outcome)`.
+  A plan the user (or the review runner) declined interrupts the turn too and is neither.
 - The decoder may declare `noteSent(line)`: the core hands it every line it wrote, in the backend's own
   format, for an answer that means something only against what was asked. Claude ends a turn it was told to
   stop with the same `error_during_execution` result a failed turn gets (measured), so claude-native's
@@ -658,7 +661,7 @@ declares no `diffTool`: its diffs stay on `--ide`. A group opens only for a togg
 
 **A review target is ONE hook, `reviewProfile()` (spec 39):** `{ options } | null`, answered by every backend (`null` to
 decline, with a comment naming why). The options are the read-only profile a review session starts with, in the backend's
-own option keys (claude-native `permissionMode: 'plan'`, pi-native `approvalGate: true`). `src/backends/review-targets.js`
+own option keys (claude-native `permissionMode: 'plan'` and `promptSuggestionsOff: true`, pi-native `approvalGate: true`). `src/backends/review-targets.js`
 (`reviewTargets`) is the one place that decides what is offered: a profile, a `transport`, an `rpc.assistantTextOf`, not a
 template, launchable. The `review` capability row says the same; `test/backend-parity.test.js` and
 `test/review-profile.test.js` pin both. A template does not inherit it (`NOT_INHERITED`).

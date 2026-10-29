@@ -382,6 +382,8 @@ function createDecoder() {
   // that turn, and by a turn starting — a Stop sent while nothing ran ends nothing, and must not turn the
   // next turn's real failure into "Stopped.".
   let stopping = null;
+  // Whether `stopping` came from a Stop (an `interrupt`) rather than an answer that interrupts.
+  let stoppingByStop = false;
   // Background tasks (#691). `running` is the list Claude last sent, in its order, enriched from
   // `task_started` and from the call that started each one. The rest outlives a task's end: which kind a call
   // was (for the notice that arrives after it), what it ran, and where each task wrote its output.
@@ -686,17 +688,24 @@ function createDecoder() {
     summaryNext = false;
     if (partial) { partial = null; ops.push({ op: 'partial', entry: null }); }
     const stopped = stopping && msg.subtype === 'error_during_execution' ? stopping : null;
+    const byStop = stopped && stoppingByStop;
     stopping = null;
+    stoppingByStop = false;
+    // The turn's outcome rides on the idle edge (spec 39): a Stop is `stopped`, an error `failed`. An answer that
+    // interrupts ("keep planning") ended the turn on purpose and is neither.
+    let outcome = null;
     if (stopped) {
       ops.push({ op: 'notice', level: 'info', text: stopped });
+      if (byStop) outcome = 'stopped';
     } else if (msg.is_error || (msg.subtype && msg.subtype !== 'success')) {
       // `errors` is the CLI's own sentences about what went wrong; `result` is the reply text, which for a
       // failed turn is usually the same sentence. Neither is a thrown message naming a path.
       const why = Array.isArray(msg.errors) && msg.errors.length ? msg.errors.map(String).join(' ')
         : (typeof msg.result === 'string' && msg.result ? msg.result : '');
       ops.push({ op: 'notice', level: 'error', text: why || 'The turn ended with an error.' });
+      outcome = 'failed';
     }
-    ops.push({ op: 'busy', busy: false });
+    ops.push(outcome ? { op: 'busy', busy: false, outcome } : { op: 'busy', busy: false });
     return ops;
   }
 
@@ -706,6 +715,7 @@ function createDecoder() {
       // It names the permission mode as well (#696).
       case 'init': {
         stopping = null;
+        stoppingByStop = false;
         // Point 12: the turn that starts is the one whose line is still to be drawn, unless it already was.
         inTurn = true;
         armed = !placed;
@@ -932,9 +942,15 @@ function createDecoder() {
         if (due.length > DUE_CAP) carrying.delete(due.shift());
       }
     }
-    if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') stopping = NOTICES.stopped;
+    if (line.type === 'control_request' && line.request && line.request.subtype === 'interrupt') {
+      stopping = NOTICES.stopped;
+      stoppingByStop = true;
+    }
     const answer = line.type === 'control_response' && line.response && line.response.response;
-    if (answer && answer.behavior === 'deny' && answer.interrupt === true) stopping = 'Kept planning. Say what to change.';
+    if (answer && answer.behavior === 'deny' && answer.interrupt === true) {
+      stopping = 'Kept planning. Say what to change.';
+      stoppingByStop = false;
+    }
   }
 
   return { decode, noteSent, currentPartial: partialEntry, taskOutputFile };

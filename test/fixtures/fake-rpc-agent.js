@@ -12,6 +12,8 @@ let runningBash = null;   // { id, printed } of a shell line waiting to be stopp
 
 function out(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
 
+let waitingForStop = false;
+
 function turn(text) {
   const user = { role: 'user', content: [{ type: 'text', text }], timestamp: 1 };
   const assistant = { role: 'assistant', content: [{ type: 'text', text: 'pong' }], stopReason: 'stop', timestamp: 2 };
@@ -100,6 +102,11 @@ process.stdin.on('data', (chunk) => {
           // Stands in for the runtime extension's `input` hook: a `!` line is answered with the marker and
           // never reaches the model.
           out({ type: 'extension_ui_request', id: 'n5', method: 'notify', message: SHELL_PREFIX + JSON.stringify({ command: cmd.message.slice(1).trim() }) });
+        } else if (cmd.message === 'stop me') {
+          // A turn that narrates and then waits for a Stop (spec 39, T5 verifier F2).
+          out({ type: 'agent_start' });
+          out({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Reading the files first.' }], stopReason: 'toolUse', timestamp: 2 } });
+          waitingForStop = true;
         } else if (cmd.message === 'take it back') {
           // Pi stopped waiting on that question (a login's browser callback won), and the command says so.
           out({ type: 'extension_ui_request', id: 'n1', method: 'notify', message: DISMISS_PREFIX + JSON.stringify({ token: 't1' }) });
@@ -158,6 +165,12 @@ process.stdin.on('data', (chunk) => {
       case 'abort':
         // As measured on Pi 0.85.1: an abort answers success and leaves a running shell line alone.
         out({ id: cmd.id, type: 'response', command: 'abort', success: true });
+        if (waitingForStop) {
+          waitingForStop = false;
+          out({ type: 'message_end', message: { role: 'assistant', content: [], stopReason: 'aborted', timestamp: 3 } });
+          out({ type: 'agent_end', messages: [] });
+          out({ type: 'agent_settled' });
+        }
         break;
       default:
         out({ id: cmd.id, type: 'response', command: cmd.type, success: false, error: 'unknown' });

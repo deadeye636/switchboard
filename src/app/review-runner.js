@@ -122,15 +122,17 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
 
   function observerFor(rec) {
     return {
-      onBusy(busy) {
+      onBusy(busy, outcome) {
         if (busy) { rec.sawBusy = true; return; }
         // An idle before the turn began is the start settling, not the end of the review.
         if (!rec.sawBusy || rec.state !== 'running') return;
         defer(() => {
           if (rec.state !== 'running') return;
           if (quitting()) { finish(rec, 'stopped', SENTENCES.appQuitting); return; }
+          // A turn somebody stopped is no answer: what it said before the Stop is kept, never returned as `done`.
+          if (outcome === 'stopped') { finish(rec, 'stopped', SENTENCES.sessionStopped); return; }
           // A turn that ended in a failed model call is no answer, whatever it said on the way.
-          if (rec.turnFailed) finish(rec, 'failed', SENTENCES.noReply);
+          if (rec.turnFailed || outcome === 'failed') finish(rec, 'failed', SENTENCES.noReply);
           else if (rec.lastText || rec.planText) finish(rec, 'done');
           else finish(rec, 'failed', SENTENCES.noReply);
         });
@@ -207,9 +209,10 @@ function createReviewRunner({ projectPath, callerTag, callerIsReview = false, ct
     runningEverywhere.add(rec.id);
     rec.timer = setTimer(() => onTimeout(rec), MAX_MS);
 
-    // The profile wins over the stored defaults: session options are merged last (spec 39, T3's verifier). An empty
-    // `model` keeps a stored one out, so the CLI's own default runs (O15); `reviewTools: false` and `spawnedBy` keep the
-    // review session from getting a review tool of its own (depth 1).
+    // The profile wins over the stored defaults: session options are merged last (spec 39, T3's verifier). `buildLaunch`
+    // reads these options as sent, so the CLI's own model runs (O15); the empty `model` keeps the merged copy the spawn
+    // path hands the extension in line with that. `reviewTools: false` and `spawnedBy` keep the review session from
+    // getting a review tool of its own (depth 1).
     const sessionOptions = {
       backendId: target.id,
       ...(target.options || {}),

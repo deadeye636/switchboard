@@ -32,6 +32,21 @@ test('the observer sees the busy edges in order and each finished entry with its
   assert.equal(agentRpc.observe('nobody', {}), false);
 });
 
+test('the idle edge after a Stop carries the outcome; a turn that ends on its own carries none (T5 verifier F2)', async (t) => {
+  const h = harness();
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length === 1);
+  const edges = [];
+  agentRpc.observe('fake-session', { onBusy: (busy, outcome) => edges.push([busy, outcome]) });
+  await agentRpc.sendTurn('fake-session', { text: 'hello', mode: 'prompt' });
+  await until(() => edges.length === 2);
+  await agentRpc.sendTurn('fake-session', { text: 'stop me', mode: 'prompt' });
+  await until(() => edges.length === 3);
+  assert.deepEqual(await agentRpc.abortTurn('fake-session'), { ok: true });
+  await until(() => edges.length === 4);
+  assert.deepEqual(edges, [[true, null], [false, null], [true, null], [false, 'stopped']]);
+});
+
 test('an observer that answers an ask writes the answer, draws nothing and reports no waiting', async (t) => {
   const h = harness();
   t.after(() => stopped(h));

@@ -68,7 +68,7 @@ test('every turn opens with system/init and ends with result — the busy edges 
 
 test('a failed turn says so, in the CLI\'s own words', () => {
   const ops = decodeAll([{ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Credit balance is too low'] }]);
-  assert.deepEqual(ops, [{ op: 'notice', level: 'error', text: 'Credit balance is too low' }, { op: 'busy', busy: false }]);
+  assert.deepEqual(ops, [{ op: 'notice', level: 'error', text: 'Credit balance is too low' }, { op: 'busy', busy: false, outcome: 'failed' }]);
   const failedCall = decodeAll([{ type: 'assistant', uuid: 'a1', error: 'authentication_failed', message: { role: 'assistant', content: [{ type: 'text', text: 'Please run /login' }] } }]);
   assert.deepEqual(failedCall.find(o => o.op === 'notice'), { op: 'notice', level: 'error', text: 'Please run /login' });
 });
@@ -77,7 +77,7 @@ test('a turn ended by Stop is drawn as stopped; a Stop that ended nothing leaves
   const stopped = protocol.createDecoder();
   stopped.noteSent(protocol.abortCommand('i1'));
   const ops = stopped.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] });
-  assert.deepEqual(ops, [{ op: 'notice', level: 'info', text: 'Stopped.' }, { op: 'busy', busy: false }]);
+  assert.deepEqual(ops, [{ op: 'notice', level: 'info', text: 'Stopped.' }, { op: 'busy', busy: false, outcome: 'stopped' }]);
   const after = stopped.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['Credit balance is too low'] });
   assert.equal(after[0].level, 'error', 'the stop is spent by the turn it ended');
 
@@ -572,6 +572,21 @@ test('ExitPlanMode is a plan card: approve lets it start, keep planning ends the
   const ops = decoder.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] });
   assert.equal(ops[0].level, 'info');
   assert.match(ops[0].text, /Kept planning/);
+  // Spec 39 (T5 verifier F2): a declined plan ended the turn on purpose, so its idle edge carries no outcome.
+  assert.deepEqual(ops[ops.length - 1], { op: 'busy', busy: false });
+  // A Stop after the declined plan, before the result, is a Stop.
+  decoder.noteSent(protocol.answerCommand('p1', { value: ask.request.answers.keep }, ask.request));
+  decoder.noteSent(protocol.abortCommand('i9'));
+  const stopped = decoder.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] });
+  assert.equal(stopped[stopped.length - 1].outcome, 'stopped');
+  // The other order: the declined plan, written after the Stop, is what ended the turn.
+  decoder.noteSent(protocol.abortCommand('i10'));
+  decoder.noteSent(protocol.answerCommand('p1', { value: ask.request.answers.keep }, ask.request));
+  const kept = decoder.decode({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['[ede_diagnostic] result_type=user'] });
+  assert.deepEqual(kept[kept.length - 1], { op: 'busy', busy: false });
+  // A turn that ends on its own carries none.
+  const ok = decoder.decode({ type: 'result', subtype: 'success', is_error: false, result: 'A' });
+  assert.deepEqual(ok, [{ op: 'busy', busy: false }]);
 });
 
 test('the CLI\'s bookkeeping lines are not drawn', () => {

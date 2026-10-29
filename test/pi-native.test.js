@@ -65,6 +65,26 @@ test('a failed model call arrives as an empty assistant turn and is said out lou
   assert.match(notice.text, /out of extra usage/);
 });
 
+test('the idle edge carries the outcome of the turn: the last assistant message of the run decides (spec 39)', () => {
+  const d = protocol.createDecoder();
+  const end = (stopReason) => d.decode({ type: 'message_end', message: { role: 'assistant', content: [], stopReason } });
+  d.decode({ type: 'agent_start' });
+  end('aborted');
+  assert.deepEqual(d.decode({ type: 'agent_settled' }), [{ op: 'busy', busy: false, outcome: 'stopped' }]);
+  d.decode({ type: 'agent_start' });
+  end('error');
+  assert.deepEqual(d.decode({ type: 'agent_settled' }), [{ op: 'busy', busy: false, outcome: 'failed' }]);
+  // A failed call Pi retried is followed by the retry's answer, and that one decides.
+  d.decode({ type: 'agent_start' });
+  end('error');
+  end('stop');
+  assert.deepEqual(d.decode({ type: 'agent_settled' }), [{ op: 'busy', busy: false }]);
+  // A new run forgets the last one's ending.
+  end('aborted');
+  d.decode({ type: 'agent_start' });
+  assert.deepEqual(d.decode({ type: 'agent_settled' }), [{ op: 'busy', busy: false }]);
+});
+
 test('tool execution becomes running/done ops with the live output', () => {
   const d = protocol.createDecoder();
   assert.deepEqual(d.decode({ type: 'tool_execution_start', toolCallId: 'c1', toolName: 'bash', args: {} }),

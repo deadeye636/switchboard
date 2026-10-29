@@ -93,10 +93,11 @@ released (the caller's session ends) or after one hour**, whichever is first. Th
 durable copy. An id that is gone answers one fixed sentence, the same one for an id that never existed (no existence
 oracle, as in spec 35 D11).
 
-The answer text is the **last assistant text of the turn**, capped at 32 768 bytes of UTF-8 cut on a character boundary,
-with a marker naming how many characters were left out and `truncated: true`. Head and tail are kept as in spec 35's cap
-(the conclusion of a review is at the end); the cutter in `src/session/turn-view.js` (`cutText`) exists but is not exported and counts
-code points, not bytes (verified in T1, item 5; see O21).
+The answer text is the **last assistant text of the turn**, capped at 32 768 code points (O21), so an emoji or a
+surrogate pair is never split, with a marker naming how many characters were left out and `truncated: true`. Head and
+tail are kept as in spec 35's cap (two thirds head, one third tail; the conclusion of a review is at the end). The cutter
+is `cutText` in `src/session/turn-view.js`, exported for the runner since T5; the marker sits outside the cap. In UTF-8
+the answer is at most four times the cap for exotic text and close to 32 KB for ordinary text.
 
 ### The runner: how the core does it
 
@@ -118,7 +119,10 @@ does for any pipe session: the trust gate (`trustBeforeStart`), the runtime exte
 (`spawn.js:1842` and neighbours). Nothing is duplicated.
 
 `sessionOptions` last wins over the stored defaults (`spawnOptionsFor`, `spawn.js:279-291`: global, then project, then the
-session's), so a user's stored `permissionMode` or `approvalGate` cannot undo the read-only profile.
+session's), so a user's stored `permissionMode` or `approvalGate` cannot undo the read-only profile where that merge is
+read (pi-native's gate is applied through the runtime extension, which gets it). `buildLaunch` does not read the merge at
+all: it gets `sessionOptions` as sent, so claude-native's `permissionMode` reaches the argv from the profile alone, and no
+stored option the launch reads (a `model`, `promptSuggestionsOff`) reaches a review (Verified in T1, item 4, corrected).
 
 **2. Send one turn.** After the observer below is attached, `agentRpc.sendTurn(sessionId, { text })`
 (`src/app/agent-rpc.js:1446`) writes the prompt as a turn. The runner sends it with the id the session holds at that moment
@@ -133,6 +137,13 @@ re-key), and `handleOp` calls it at three places:
 
 - `busy`: `observer.onBusy(busy)`. The runner ignores an idle edge until it has seen a busy edge (the write of a turn is
   followed by `agent_start`/`system/init` some time later; an early idle would end the review before it began).
+  As built (T5 verifier F2): the idle edge carries the turn's outcome, `observer.onBusy(false, outcome)`. The decoder puts an
+  optional `outcome` on its `busy: false` op: `'stopped'` when a Stop ended the turn, `'failed'` when it ended in an error,
+  absent when it ended on its own. claude-native reads a Stop from the `interrupt` it saw go out (`noteSent`); the
+  "keep planning" answer the runner gives a plan ask also interrupts, and that is no Stop. Any other result that is not
+  `success` is `failed`, a turn limit (`error_max_turns`) included, so a review cut off that way returns no text. pi-native reads the run's last
+  assistant `stopReason` (`aborted`, `error`). A turn the user stopped ends the review as `stopped` ("the review session
+  was stopped") and its text is not returned, so narration written before the Stop never reads as `done`.
 - `append`: `observer.onEntry(entry)`, so the runner can keep the last assistant text.
 - `ask`: `observer.onAsk(request)` **before** `autoAnswer` (`agent-rpc.js:772-773`), see "Read-only".
 
@@ -200,14 +211,19 @@ lazily from `activeSessions` by `_terminalTag`, as `agent-rpc.js` does in `findS
    (the lookup `hooks.js:201` uses). Whether the renderer chimes on a bare `cli-busy-state` idle edge: still unverified,
    needs a live run (M5).
 4. **Main-side options cascade.** There is one, as a backstop: `spawnOptionsFor` (`src/app/terminal/spawn.js:279-291`)
-   merges global, project and session options, and `openTerminal` calls it for the injection, the runtime extension and the
-   launch (`spawn.js:1007`, `:1061`, `:1338`, `:1363`). It does not read a template's own options. Consequence for O15: a
-   stored `model` in the user's backend defaults **does** reach a review unless `sessionOptions` overrides it, so "no model
-   sent" is not free. Whether an empty `model` in `sessionOptions` clears it in each `buildLaunch`: still unverified, needs
-   a live run (M1/M4 launch).
+   merges global, project and session options. It does not read a template's own options. **Corrected after T5 (verifier
+   F3):** `openTerminal` calls it for every spawn-applied hook (the session resources, the MCP injection, the prompt
+   templates, the prune, the runtime extension) and for the `appliedOptions` it hands `agent-rpc.js`, but **not** for the
+   launch: `buildLaunch` gets the session options as they were sent
+   (`launchOptions`, `spawn.js:901` and `:928`; the renderer resolves the cascade before it opens a session). So a stored
+   `model` never reaches a review's argv, and neither does any other stored option `buildLaunch` reads (claude-native's
+   `promptSuggestionsOff`, for one). The empty `model` the runner sends is kept anyway: it keeps the backstop's merged
+   copy, which `appliedOptions` and the extension see, in line with the argv. `test/review-runner.test.js` runs each
+   target's real `buildLaunch` on the runner's options: no `--model` for either, `--permission-mode plan` for
+   claude-native. Whether the CLI then runs its own default model is the first real launch (M1/M4).
 5. **A cutter.** `cutText(text, cap)` exists in `src/session/turn-view.js:31-38` (head two thirds, tail one third, marker
-   "[... N characters omitted ...]" outside the cap) but is **not exported** (`:105` exports `buildTurnView`, `DEFAULTS`,
-   `MAXIMA`). It counts **code points**, not UTF-8 bytes.
+   "[... N characters omitted ...]" outside the cap) but was **not exported** when T1 read it. It counts **code points**,
+   not UTF-8 bytes. **Since T5** it is exported for the runner, and O21 took code points as the cap's unit.
 6. **Re-key sites.** Two copies, not one. `applyRekey` (`src/session/session-transitions.js:380-412`) moves the map key,
    the MCP server (`:385`), the backend overlay (`:387`), `copyOpener` (`:389`), the detach registration (`:392`) and the
    timeline (`:398`). Identity adoption has its own inline copy (`src/watch/adopt.js:198-223`: `copyOpener` `:205`,
@@ -233,7 +249,7 @@ Which backends can be reviewed, and how each is made read-only, is a **descripto
 
 | Backend | Proposed `reviewProfile().options` | What stops a write | Verified | Unverified |
 |---|---|---|---|---|
-| `claude-native` | `{ permissionMode: 'plan' }` (`--permission-mode plan`, `claude-native/index.js:135`) | Claude's plan mode. Anything it still asks about arrives as an `approval` ask and is refused. | `plan` is in `PERMISSION_MODES` (`claude-native/index.js:36`); approvals come over `--permission-prompt-tool stdio` (line 129); refusing is `answerCommand(.., { cancelled: true })` (`rpc-protocol.js:1279-1340`) | Whether a user's own `permissions.allow` rule (for example `Bash(*)`) lets a write through plan mode **without an ask**; whether the model ends in `ExitPlanMode` with its review as the plan (O11). Measurements M2, M3. |
+| `claude-native` | `{ permissionMode: 'plan', promptSuggestionsOff: true }` (`--permission-mode plan`, no `--prompt-suggestions`) | Claude's plan mode; no suggested next prompt, since a review is one turn (owner, after T5's F3). Anything it still asks about arrives as an `approval` ask and is refused. | `plan` is in `PERMISSION_MODES` (`claude-native/index.js:36`); approvals come over `--permission-prompt-tool stdio` (line 129); refusing is `answerCommand(.., { cancelled: true })` (`rpc-protocol.js:1279-1340`) | Whether a user's own `permissions.allow` rule (for example `Bash(*)`) lets a write through plan mode **without an ask**; whether the model ends in `ExitPlanMode` with its review as the plan (O11). Measurements M2, M3. |
 | `pi-native` | `{ approvalGate: true }` | The approval gate: `bash`, `powershell`, `edit`, `write` and `subagent` are gated by name (`runtime-extension.js:68`), MCP tools and taken-over commands too (`index.js:48-52`). The session starts in mode `ask` (`launchMode`, line 180). Every ask is refused. | The gate exists and is on by default; its answers are the app's (`approvals.js:101`) | That the gate covers every tool a review could use to write. Spec 30 says plainly the gate is "a convenience, not a security boundary". Measurement M4. |
 
 **Honest wording.** "Read-only" here means *the agent is asked to, and the CLI's own mode or gate refuses the actions it
@@ -414,9 +430,10 @@ exported `cutText`.
     the first turn. Alternative: send the prompt as written (a model that does not know it is read-only will try to write and be
     refused, wasting turns).
 15. **O15 Model.** Decided as the target's default (R4). Open sub-point: "default" is the CLI's own default (recommended: the
-    review sends no `model` option) or the user's configured default for that backend. T1 found a main-side backstop
-    (`spawnOptionsFor`, `spawn.js:279-291`) that applies the stored global and project `model` unless the session options
-    override it, so the CLI's own default needs an explicit empty `model`; see Verified in T1, item 4.
+    review sends no `model` option) or the user's configured default for that backend. T1 read the main-side backstop
+    (`spawnOptionsFor`, `spawn.js:279-291`) as applying the stored `model` to the launch; T5's verifier (F3) found that
+    `buildLaunch` never gets its merge, so the CLI's own default runs without help. The runner still sends an explicit
+    empty `model` for the merged copy; see Verified in T1, item 4.
 16. **O16 Untrusted project at the target.** pi-native refuses to start in a project it does not trust. Recommendation: `startReview`
     answers the refusal sentence ("trust this project for Pi in Switchboard first"); no dialog from a tool call.
 17. **O17 A confirm dialog when the toggle is turned on.** Recommendation: text only, as spec 35 O10.
