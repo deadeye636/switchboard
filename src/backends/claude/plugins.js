@@ -107,6 +107,64 @@ function installedPluginSkillDirs(claudeHome, projectPath) {
   return out;
 }
 
+// What a Claude plugin checkout can carry, in the core's neutral words (#803). Claude's plugin layout, so
+// it lives here: a directory per kind, and `.mcp.json` for the MCP servers a plugin starts.
+const PLUGIN_PARTS = [
+  { word: 'skills', rel: 'skills', dir: true },
+  { word: 'commands', rel: 'commands', dir: true },
+  { word: 'agents', rel: 'agents', dir: true },
+  { word: 'hooks', rel: 'hooks', dir: true },
+  { word: 'mcp-servers', rel: '.mcp.json', dir: false },
+];
+
+function pluginParts(installPath) {
+  return PLUGIN_PARTS.filter((p) => {
+    const at = path.join(installPath, p.rel);
+    if (p.dir) return isDir(at);
+    try { return fs.statSync(at).isFile(); } catch { return false; }
+  }).map((p) => p.word);
+}
+
+/**
+ * Every installed plugin that applies here, switched on or not, for the Plugins manager (#803).
+ *
+ * The same install record and the same scope rule as `installedPluginSkillDirs`, without its two filters
+ * — "enabled" and "ships skills" — because this list is the inventory, and a plugin that is switched off
+ * is exactly the one a user goes looking for. `state` is the settings' answer for the install key:
+ * `enabled` only for an explicit `true`, which is also what the CLI loads.
+ *
+ * Returns `[{ name, scope, state, path, brings }]`, sorted by name.
+ */
+function listInstalledPlugins(claudeHome, projectPath) {
+  if (!claudeHome) return [];
+  const record = readJson(path.join(claudeHome, 'plugins', 'installed_plugins.json'));
+  const plugins = record && record.plugins && typeof record.plugins === 'object' ? record.plugins : null;
+  if (!plugins) return [];
+  const enabled = enabledPluginMap(claudeHome, projectPath);
+
+  const out = [];
+  for (const [installKey, installs] of Object.entries(plugins)) {
+    for (const install of Array.isArray(installs) ? installs : []) {
+      if (!install || typeof install.installPath !== 'string') continue;
+      const localScope = install.scope === 'local' || install.scope === 'project';
+      if (localScope && !samePath(install.projectPath, projectPath)) continue;
+      // The record is a file the user can edit, and one stat of a path ending in `.asar` holds that file
+      // open for the life of the process (`src/app/build-dirs.js`, #483). A plugin is never one.
+      if (install.installPath.split(/[\\/]/).some(seg => seg.toLowerCase().endsWith('.asar'))) continue;
+      if (!isDir(install.installPath)) continue;
+      out.push({
+        name: pluginName(install.installPath, installKey),
+        scope: localScope ? 'project' : 'global',
+        state: enabled[installKey] === true ? 'enabled' : 'disabled',
+        path: install.installPath,
+        brings: pluginParts(install.installPath),
+      });
+    }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
 /** The source a plugin's skills directory is listed under, and the plugin it names. */
 const PLUGIN_SKILLS_SOURCE = 'plugin-skills';
 
@@ -123,6 +181,7 @@ function pluginFromSource(source) {
 
 module.exports = {
   installedPluginSkillDirs,
+  listInstalledPlugins,
   pluginSkillsSource,
   pluginFromSource,
   PLUGIN_SKILLS_SOURCE,

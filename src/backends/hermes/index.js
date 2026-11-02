@@ -371,6 +371,9 @@ module.exports = {
    */
   skillInvocation: ({ name }) => (name ? '/' + name : null),
   listResources: resources.listResources,
+  // #803: Hermes declares no plugin state; the core lists its plugin directory from `listResources`.
+  listPlugins: null,
+  listApps: null,
   // #632 offers another backend's resources to Pi, and the owner named Claude, Codex and Antigravity as
   // the sources. Hermes has skills too; it declines until somebody asks for it, rather than by accident.
   sharedResources: null,

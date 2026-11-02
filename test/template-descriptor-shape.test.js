@@ -51,6 +51,8 @@ const NOT_INHERITED = {
   resumeLaunchOptions: '#754 — a template\'s transcript model may be a name its env bundle maps from an alias, and handing it back as the launch model could override that mapping; a template resumes on its configured default',
   listSharedHooks: '#635 — the hook half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
   reviewProfile: 'spec 39 — a review starts the built-in pipe driver with its own read-only profile; src/backends/review-targets.js skips isProfile, so a template answering it would be a second target over one binary',
+  listPlugins: '#803 — src/app/plugins-inventory.js skips isProfile and asks one entry per CLI; a template reads its base\'s install record, so answering it would list every plugin a second time',
+  listApps: '#803 — the same consumer and the same reason as listPlugins: one app list per CLI, answered by the base',
 
   // Store internals and root setters. Not descriptor hooks the core dispatches on — main.js sets the
   // roots on the base descriptor, and a template writes into that same store.

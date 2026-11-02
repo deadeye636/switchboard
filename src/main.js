@@ -648,6 +648,11 @@ skills.init({
 });
 skills.registerIpc(ipcMain);
 
+// The plugins and apps the Plugins manager lists (#803) — asked of each descriptor, one per CLI.
+const pluginsInventory = require('./app/plugins-inventory');
+pluginsInventory.init({ backends, log });
+pluginsInventory.registerIpc(ipcMain);
+
 // --- IPC: delete-worktree ---
 // The layout the path has to match is `shared/worktree-path.js` (#582) — the same one the sidebar nests
 // by, so a worktree can no longer be deletable as one without being displayed as one.

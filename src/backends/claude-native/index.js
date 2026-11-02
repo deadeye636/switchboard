@@ -325,6 +325,9 @@ module.exports = {
   projectTrust: claude.projectTrust,
   skillInvocation: claude.skillInvocation,
   listResources: claude.listResources,
+  // #803: the same CLI's plugins, as terminal Claude reads them.
+  listPlugins: claude.listPlugins,
+  listApps: claude.listApps,
   expandResource: claude.expandResource,
   resourceEditing: claude.resourceEditing,
   resourceScaffolds: claude.resourceScaffolds,

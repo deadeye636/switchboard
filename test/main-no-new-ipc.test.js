@@ -92,6 +92,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/file-watch.js          keeping an open document live while something else rewrites it
   src/app/convention-dirs.js     where a project keeps its handoffs and its plans
   src/app/skills.js              what a running session can be asked to run, and the neutral skill inventory
+  src/app/plugins-inventory.js   the installed plugins and reported apps the Plugins manager lists
   src/app/terminal/images.js     images pasted or dropped into a terminal
   src/app/terminal/stop-session.js  stopping a running session on purpose (the user's Stop, the review runner); the stop-session handler stays in main.js and calls it
   src/app/agent-rpc.js           a session driven over a runtime protocol instead of a terminal

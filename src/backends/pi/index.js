@@ -634,6 +634,10 @@ module.exports = {
    */
   skillInvocation: ({ name }) => (name ? '/skill:' + name : null),
   listResources: resources.listResources,
+  // #803: Pi's packages and extensions are listing rows already and carry no on/off; the core shows
+  // them from `listResources`.
+  listPlugins: null,
+  listApps: null,
   expandResource: resources.expandResource,   // one level into a listed directory (#440)
   // Pi's skills can be plain markdown files; its extensions are `.ts`/`.js` and are not offered (#441).
   resourceEditing: { extensions: ['.md', '.markdown', '.json'] },

@@ -269,6 +269,10 @@ module.exports = {
   // agy keeps sessions in per-conversation SQLite DBs — row.filePath if the row has one, else null (#211).
   transcriptPathFor: (row) => (row && row.filePath) || null,
   listResources: resources.createListResources({ conversationsRoot }),
+  // #803: agy's `config/config.json` keeps a plugins map that is deliberately not read (`./resources.js`),
+  // so it states no plugin's on/off. The core lists its plugin directory from `listResources` instead.
+  listPlugins: null,
+  listApps: null,
   // What another backend may take over from this one (#632): the global skills directory (#611). Its
   // folder shape is inferred from plugin bundles (see `./resources.js`), not yet from a hand-made skill,
   // and the listing names no commands, so there is no command dialect to declare.

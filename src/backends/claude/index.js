@@ -940,6 +940,13 @@ module.exports = {
     return plugin ? `/${plugin}:${name}` : '/' + name;
   },
   listResources: resources.createListResources({ claudeHome }),
+  // #803: every installed plugin that applies here, switched on or not, with the settings' state — the
+  // Plugins manager's row. The install record and the scope rule are `./plugins.js`'s, read from the
+  // isolated home like every other reader here.
+  listPlugins: ({ projectPath } = {}) => ({ ok: true, plugins: plugins.listInstalledPlugins(claudeHome(), projectPath || null) }),
+  // #803: Claude reports no apps of its own; a claude.ai connector is a live session's MCP status, not an
+  // install this file can read.
+  listApps: null,
   // What another backend may take over from this one (#632) — "Resources from: Claude" on a Pi session.
   //
   // `sources` names the listing entries by their `source`, so a plugin's skills (`plugin-skills:<name>`)

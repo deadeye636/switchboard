@@ -175,6 +175,42 @@ function installedPluginSkillDirs(codexHome) {
   return out;
 }
 
+/**
+ * Every plugin `config.toml` names, switched on or not, for the Plugins manager (#803).
+ *
+ * The same key check, cache containment and newest-version rule as `installedPluginSkillDirs`, without its
+ * two filters: a plugin that is switched off is the one a user goes looking for. A key with nothing cached
+ * is left out — there is nothing installed to show. `brings` says only `skills`, the one part of a Codex
+ * plugin this file has measured; anything else a checkout carries is not claimed. Global only, as above.
+ *
+ * Returns `[{ name, scope, state, path, brings }]`, sorted by name.
+ */
+function listInstalledPlugins(codexHome) {
+  if (!codexHome) return [];
+  const config = readToml(path.join(codexHome, 'config.toml'));
+  const plugins = config && config.plugins;
+  if (!plugins || typeof plugins !== 'object') return [];
+  const cacheRoot = path.join(codexHome, 'plugins', 'cache');
+  const out = [];
+  for (const [installKey, value] of Object.entries(plugins)) {
+    const split = splitInstallKey(installKey);
+    if (!split) continue;
+    const pluginDir = path.join(cacheRoot, split.marketplace, split.plugin);
+    if (!isAtOrInside(pluginDir, cacheRoot)) continue;
+    const installDir = newestVersionDir(pluginDir);
+    if (!installDir) continue;
+    out.push({
+      name: pluginName(installDir, installKey),
+      scope: 'global',
+      state: value && value.enabled === true ? 'enabled' : 'disabled',
+      path: installDir,
+      brings: isDir(path.join(installDir, 'skills')) ? ['skills'] : [],
+    });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
 /** The source a plugin's skills directory is listed under, and the plugin it names. */
 const PLUGIN_SKILLS_SOURCE = 'plugin-skills';
 
@@ -191,6 +227,7 @@ function pluginFromSource(source) {
 
 module.exports = {
   installedPluginSkillDirs,
+  listInstalledPlugins,
   pluginSkillsSource,
   pluginFromSource,
   PLUGIN_SKILLS_SOURCE,

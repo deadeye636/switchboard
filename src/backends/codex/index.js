@@ -20,6 +20,7 @@ const path = require('path');
 const parser = require('./parser');
 const trust = require('./trust');
 const resources = require('./resources');
+const plugins = require('./plugins');
 const resumeModel = require('./resume-model');
 const mcpInject = require('./mcp-inject');
 const { createFileStore, findOnPath } = require('../file-store');
@@ -260,6 +261,10 @@ module.exports = {
   // Codex's per-project instruction file is AGENTS.md (#227). It used to be read under Claude's branch in
   // the core, so a Codex project's own file was attributed to Claude; now Codex declares it.
   listResources: resources.createListResources({ codexHome }),
+  // #803: every plugin `config.toml` names, switched on or not, with its state (`./plugins.js`).
+  listPlugins: () => ({ ok: true, plugins: plugins.listInstalledPlugins(codexHome()) }),
+  // #803: no app source of Codex's has been measured; declining is the honest answer.
+  listApps: null,
   // What another backend may take over from this one (#632): its own skills directory. Plugin skills stay
   // out (E5, later), and the listing names no commands, so there is no command dialect to declare.
   sharedResources: { sources: ['skills-directory'], commandDialect: null },

@@ -246,6 +246,9 @@ module.exports = {
   listModels: pi.listModels,
   skillInvocation: pi.skillInvocation,
   listResources: pi.listResources,
+  // #803: the same CLI's packages, as Pi lists them.
+  listPlugins: pi.listPlugins,
+  listApps: pi.listApps,
   expandResource: pi.expandResource,
   resourceEditing: pi.resourceEditing,
   resourceScaffolds: pi.resourceScaffolds,

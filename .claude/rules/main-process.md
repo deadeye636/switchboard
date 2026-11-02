@@ -27,6 +27,10 @@ per skill FILE, no backend id to the renderer, every owner of a file kept in mai
 `declined` or `none` with a sentence; it asks `resource-sources.resolve` for the target's configured source and
 matches the skill file by containment, so the detail page and the launch cannot disagree. Pure, no IPC, names
 no backend),
+`plugins-inventory.js` (the installed plugins, packages and extensions and the reported apps the Plugins manager
+lists — #803; a descriptor that states on/off answers `listPlugins`, one that does not is shown from its
+`listResources` plugin rows with the state "not reported"; `listApps` is optional and nobody answers it yet. One
+asker per CLI, no backend id in an answer),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
 CLAUDE.md reflex 12; the handoff prompts, the plan prompt and a saved variable's insert template all
 ask it, and a second reading of `eff.handoffDir` is how two of them start naming different directories.
@@ -561,6 +565,7 @@ line there, in the same commit.
 | May this file be written; keeping an open document live | `src/app/file-access.js` / `src/app/file-watch.js` |
 | Where a project keeps its handoffs and its plans | `src/app/convention-dirs.js` |
 | What a running session can be asked to run, and the neutral skill inventory of the Plugins manager (#803) | `src/app/skills.js` |
+| The installed plugins and reported apps the Plugins manager lists (#803) | `src/app/plugins-inventory.js` |
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
 | Which of another backend's skills, commands, agents and MCP servers a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |

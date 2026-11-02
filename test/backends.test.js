@@ -584,6 +584,8 @@ test('every list-shaped consumer of a per-CLI answer goes through oneAskerPerCli
     ['../src/app/live-owners.js', 'answeringBackends', 'polls a CLI about its own running sessions'],
     ['../src/projects/projects.js', 'listBackendsWithTrust', 'reads and writes one entry in the CLI\'s config file'],
     ['../src/app/plans-memory.js', 'memoryBackends', 'groups a CLI\'s own files under one name in the memory view (#683)'],
+    ['../src/app/skills.js', 'inventoryBackends', 'lists every skill file once in the Plugins manager (#803)'],
+    ['../src/app/plugins-inventory.js', 'inventoryBackends', 'lists every installed plugin once in the Plugins manager (#803)'],
   ];
 
   for (const [rel, fn, why] of ASKS_PER_CLI) {

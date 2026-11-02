@@ -279,6 +279,30 @@ test('every backend answers the review profile hook — a decline is () => null'
   assert.match(reviewHookProblem({ id: 'stub', reviewProfile: () => 'yes' }), /null or \{ options \}/);
 });
 
+// #803: the Plugins manager asks each backend for its installed plugins (`listPlugins`) and its apps
+// (`listApps`). Both are answered by every backend — a function, or `null` to decline: a backend that
+// declines plugins is shown from its `listResources` plugin rows without a state. Only Claude and Codex read
+// an on/off today (spec 40 F4), and their drivers forward the same answer.
+test('every backend answers listPlugins and listApps — a function, or null to decline', () => {
+  for (const b of READY) {
+    for (const hook of ['listPlugins', 'listApps']) {
+      assert.ok(hook in b, `${b.id} must answer ${hook}, declining with null`);
+      assert.ok(b[hook] === null || typeof b[hook] === 'function', `${b.id}.${hook} is null or a function`);
+    }
+  }
+});
+
+test('listPlugins: Claude and Codex read a state, their drivers forward it, the rest decline', () => {
+  const byId = Object.fromEntries(READY.map(b => [b.id, b]));
+  assert.equal(typeof byId.claude.listPlugins, 'function');
+  assert.equal(typeof byId.codex.listPlugins, 'function');
+  assert.equal(byId['claude-native'].listPlugins, byId.claude.listPlugins);
+  assert.equal(byId.agy.listPlugins, null);
+  assert.equal(byId.hermes.listPlugins, null);
+  assert.equal(byId.pi.listPlugins, null);
+  assert.equal(byId['pi-native'].listPlugins, null);
+});
+
 // Spec 36, slice D: `externalMcpTakes` says what a project's external MCP servers get through a backend. Every
 // backend answers it — `null` for no channel (carries no transports), else `{ transports, cwd }`. A backend with
 // the injection quartet takes exactly the transports it accepts; Pi takes servers through the resources extension

@@ -667,6 +667,16 @@ own option keys (claude-native `permissionMode: 'plan'` and `promptSuggestionsOf
 template, launchable. The `review` capability row says the same; `test/backend-parity.test.js` and
 `test/review-profile.test.js` pin both. A template does not inherit it (`NOT_INHERITED`).
 
+**The Plugins manager asks two hooks, `listPlugins` and `listApps` (#803, spec 40)**, answered by every backend —
+a function or `null` (`test/backend-parity.test.js`). `listPlugins({ projectPath })` → `{ ok, plugins: [{ name, scope,
+state, path, brings }] }` is for a backend that can say what is installed AND whether it is on, read from its own
+settings in its own folder (Claude `installed_plugins.json` + `enabledPlugins`, Codex `config.toml`); `state` is
+`enabled` / `disabled`, `brings` neutral words (`skills`, `commands`, `agents`, `hooks`, `mcp-servers`) for parts the
+backend has measured. A backend that declines is shown by `src/app/plugins-inventory.js` from its `listResources` rows of
+kind `plugin` / `package` / `extension`, read one level through its own `expandResource`, with the state "not reported" —
+never a guess. `listApps` is optional and nobody answers it yet. A driver forwards its owner's answers; a template does
+not inherit them (`NOT_INHERITED`), because the consumer asks one entry per CLI.
+
 **What a backend takes of a project's external servers is `externalMcpTakes` (spec 36, slice D):** `{ transports, cwd } | null`, answered by every backend (`null` = no channel; `cwd: false` = an entry with a `cwd` is not given at all, declined rather than stripped) and forwarded by a template; it also covers Pi and pi-native, which take servers through the resources extension without the quartet, and `test/external-mcp-takes.test.js` pins each answer against the real emitter.
 
 **A select may declare where its choices come from** (`choicesFrom: 'sharedResourceSources'`, #632). A
