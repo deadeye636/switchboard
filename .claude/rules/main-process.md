@@ -555,7 +555,7 @@ line there, in the same commit.
 | A backend's model discovery / a backend's own files | `src/app/backend-models.js` / `src/app/backend-resources.js` |
 | May this file be written; keeping an open document live | `src/app/file-access.js` / `src/app/file-watch.js` |
 | Where a project keeps its handoffs and its plans | `src/app/convention-dirs.js` |
-| What a running session can be asked to run | `src/app/skills.js` |
+| What a running session can be asked to run, and the neutral skill inventory of the Plugins manager (#803) | `src/app/skills.js` |
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
 | Which of another backend's skills, commands, agents and MCP servers a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |

@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('api', {
   savePlan: (filePath, content, baseline) => ipcRenderer.invoke('save-plan', filePath, content, baseline ?? null),
   // #462: the skills this session may be handed — its backend's, plus the app's own.
   getSkills: (projectPath, backendId) => ipcRenderer.invoke('get-skills', projectPath, backendId),
+  // #803: every skill on the machine for one project, one neutral row per file (no backend id).
+  getSkillInventory: (projectPath) => ipcRenderer.invoke('get-skill-inventory', projectPath),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
