@@ -30,6 +30,8 @@ const path = require('path');
 
 const { _expandSkillTree } = require('../backends/resource-expand');
 const { isAtOrInside } = require('./path-containment');
+const resourceSources = require('./resource-sources');
+const skillDelivery = require('./skill-delivery');
 
 let ctx = null;
 
@@ -269,13 +271,67 @@ function getSkillInventory({ projectPath = null } = {}) {
   return { skills, skillsDir: switchboardSkillsDir(projectPath) };
 }
 
+/** The CLI a descriptor belongs to — a driver of a CLI counts as that CLI. The registry's rule. */
+function cliOwnerIdOf(b) {
+  try {
+    if (typeof ctx.backends.cliOwnerOf === 'function') return (ctx.backends.cliOwnerOf(b) || b).id;
+  } catch { /* fall through to the descriptor's own word */ }
+  return b.transcriptsOf || b.id;
+}
+
+/**
+ * One skill's detail page (#803 T3, spec 40 F2): the inventory row and, per launchable backend, what
+ * that backend makes of the skill in this project — `{ targetLabel, state, sentence, invocation }`,
+ * decided by `skill-delivery.js` from the target's effective options and `resource-sources.resolve`.
+ *
+ * Every ready, non-profile backend is a target, a driver included: a native GUI backend launches with
+ * options of its own, so its answer can differ from its CLI's. `projectPath` is in the answer because
+ * "effective" is per project; on the global page it is null and only global options count.
+ */
+async function getSkillDetail({ id, projectPath = null } = {}) {
+  const row = collectSkillInventory({ projectPath }).find(r => skillId(r.filePath) === id);
+  if (!row) return { ok: false, reason: 'That skill is no longer listed.' };
+  let defaults = {};
+  try {
+    const settings = ctx.effectiveSettings ? ctx.effectiveSettings(projectPath || null) : null;
+    defaults = (settings && settings.backendDefaults) || {};
+  } catch { defaults = {}; }
+  const labelOf = (backendId) => { const d = backendById(backendId); return d ? (d.label || d.id) : null; };
+  // Ready AND switched on: a backend the user turned off launches nothing, so what it would make of the
+  // skill answers no question anybody has. `status` is 'ready' for every installed built-in either way.
+  const ready = (() => {
+    try { return (ctx.backends.list() || []).filter(b => b && !b.isProfile && b.status === 'ready' && b.enabled !== false); }
+    catch { return []; }
+  })();
+  // One `resolve` per target, not shared between targets on one source: the answer depends on the TARGET
+  // (its trust question, what it declines), so a cache keyed without it would hand one target another's.
+  const targets = [];
+  for (const b of ready) {
+    const target = backendById(b.id);
+    if (!target) continue;
+    const answer = await skillDelivery.deliveryFor({
+      row, target, ownerOf: cliOwnerIdOf, labelOf, projectPath,
+      options: defaults[target.id] || {},
+      resolve: resourceSources.resolve,
+    });
+    targets.push({ targetLabel: target.label || target.id, ...answer });
+  }
+  return {
+    ok: true, id, name: row.name, scope: row.scope, sourceLabel: row.origin, filePath: row.filePath,
+    projectPath: projectPath || null, targets,
+  };
+}
+
 /** Wire the IPC surface. main.js hands in ipcMain; this file never requires electron. */
 function registerIpc(ipcMain) {
   ipcMain.handle('get-skills', (_e, projectPath, backendId) => getSkills({ projectPath, backendId }));
   ipcMain.handle('get-skill-inventory', (_e, projectPath) => getSkillInventory({ projectPath }));
+  ipcMain.handle('get-skill-detail', (_e, id, projectPath) => getSkillDetail({
+    id: typeof id === 'string' ? id : '', projectPath: typeof projectPath === 'string' && projectPath ? projectPath : null,
+  }));
 }
 
 module.exports = {
-  init, registerIpc, getSkills, getSkillInventory,
+  init, registerIpc, getSkills, getSkillInventory, getSkillDetail,
   _collectSkillInventory: collectSkillInventory, _switchboardSkillsDir: switchboardSkillsDir,
 };

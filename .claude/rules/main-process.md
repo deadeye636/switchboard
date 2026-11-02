@@ -21,7 +21,12 @@ moving them buys churn).
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `skills.js` (what a running session can be asked to run — #462; a BACKEND skill is asked for through
 the descriptor's `listResources`/`expandResource`, a SWITCHBOARD skill belongs to nobody's CLI and is
-always handed over as text),
+always handed over as text. Since #803 it also answers the Plugins manager's neutral inventory — one row
+per skill FILE, no backend id to the renderer, every owner of a file kept in main — and one skill's detail),
+`skill-delivery.js` (what one skill is to one target backend — #803, spec 40 F2: `text`, `native`, `shared`,
+`declined` or `none` with a sentence; it asks `resource-sources.resolve` for the target's configured source and
+matches the skill file by containment, so the detail page and the launch cannot disagree. Pure, no IPC, names
+no backend),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
 CLAUDE.md reflex 12; the handoff prompts, the plan prompt and a saved variable's insert template all
 ask it, and a second reading of `eff.handoffDir` is how two of them start naming different directories.

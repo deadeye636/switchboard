@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('api', {
   getSkills: (projectPath, backendId) => ipcRenderer.invoke('get-skills', projectPath, backendId),
   // #803: every skill on the machine for one project, one neutral row per file (no backend id).
   getSkillInventory: (projectPath) => ipcRenderer.invoke('get-skill-inventory', projectPath),
+  // #803: one skill's detail — what each backend makes of it in this project, as states and sentences.
+  getSkillDetail: (id, projectPath) => ipcRenderer.invoke('get-skill-detail', id, projectPath),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
