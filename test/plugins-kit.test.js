@@ -269,3 +269,21 @@ test('refresh leaves an open detail page untouched while its row is there, and r
   assert.equal(h.querySelectorAll('.plugins-row').length, 1);
   assert.equal(h.querySelector('.plugins-row-meta').hidden, true, 'an empty meta takes no space');
 });
+
+test('showList({ focus: false }) leaves focus where it is; clearFilter drops the filter; viewsIn finds every view', () => {
+  const { host: h, doc, window: win } = host();
+  const v = kit.mountView(h, view());
+  const f = h.querySelector('.plugins-filter');
+  f.value = 'beta';
+  f.dispatchEvent(new win.Event('input'));
+  v.openDetail('b');
+  const outside = doc.createElement('input');
+  doc.body.appendChild(outside);
+  outside.focus();
+  assert.equal(v.showList({ focus: false }), true);
+  assert.equal(doc.activeElement, outside, 'no jump to the row');
+  v.clearFilter();
+  assert.equal(h.querySelectorAll('.plugins-row').length, 3, 'every row again');
+  assert.equal(h.querySelector('.plugins-filter').value, '');
+  assert.deepEqual(kit.viewsIn(doc.body), [v]);
+});

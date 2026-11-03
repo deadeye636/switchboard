@@ -456,7 +456,9 @@
     let twoPane = null;
     // The Plugins group of this render (#803): asked before a search, Cancel, Save or Apply drops a page's work.
     let pluginsCtl = null;
-    const pluginsMayLeave = () => !pluginsCtl || pluginsCtl.leave();
+    const pluginsMayLeave = (opts) => !pluginsCtl || pluginsCtl.leave(opts);
+    // A deep link names a category of either window; one this window does not have is ignored, not left pending.
+    const navHasCat = (cat) => !!settingsViewerBody.querySelector(`.settings-nav-item[data-cat="${CSS.escape(cat)}"]`);
     function wireTwoPane() {
       const navRoot = settingsViewerBody.querySelector('.settings-nav');
       if (!navRoot) return null;
@@ -534,7 +536,7 @@
         }
         // A Plugins page holding unsaved work (#803) is not searched away: the search stops and says why. Every other
         // page of the group goes back to its list first, so its rows are where the search can show them.
-        if (!pluginsMayLeave()) {
+        if (!pluginsMayLeave({ clearFilter: true })) {
           if (searchInput) searchInput.value = '';
           return;
         }
@@ -556,7 +558,8 @@
         let any = false;
         cats().forEach(cat => {
           cat.querySelectorAll('.settings-field').forEach(f => {
-            const match = f.textContent.toLowerCase().includes(q);
+            // A row under a hidden list page (a kit view showing a detail page) is not on screen, so it is no match.
+            const match = !f.closest('.plugins-list-page[hidden]') && f.textContent.toLowerCase().includes(q);
             f.style.display = match ? '' : 'none';
             if (match) any = true;
           });
@@ -890,7 +893,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
       const addonSeed = window.__SETTINGS_SEED__;
       window.__SETTINGS_SEED__ = null;
       if (addonSeed && addonSeed.addon && window.settingsExternalMcp.openSeeded(settingsViewerBody, listenerSignal, addonSeed.addon)) restoreCat('mcp');
-      else if (addonSeed && addonSeed.cat) restoreCat(addonSeed.cat);
+      else if (addonSeed && addonSeed.cat && navHasCat(addonSeed.cat)) restoreCat(addonSeed.cat);
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
@@ -958,7 +961,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
       // #790: the MCP servers catalog. Bound before the nav wiring, so its rows exist and its `settings-cat-shown`
       // listener is in place before anything can show the category (the PATH check waits for that first show).
       // Its nav entry has no count badge.
-      if (window.settingsExternalMcp) window.settingsExternalMcp.bindAddons(settingsViewerBody, listenerSignal);
+      if (window.settingsExternalMcp) window.settingsExternalMcp.bindAddons(settingsViewerBody, listenerSignal, { mayLeave: () => pluginsMayLeave() });
 
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.
@@ -967,7 +970,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
       pluginsCtl = window.settingsPlugins.bind(settingsViewerBody, listenerSignal, { scope, projectPath: null, restoreCat });
       const globalSeed = window.__SETTINGS_SEED__;
       window.__SETTINGS_SEED__ = null;
-      if (globalSeed && globalSeed.cat) restoreCat(globalSeed.cat);
+      if (globalSeed && globalSeed.cat && navHasCat(globalSeed.cat)) restoreCat(globalSeed.cat);
     }
 
     // --- Backends (T-2.3/T-2.6): backends-panel.js owns the section's DOM. Global scope gets the
@@ -1747,6 +1750,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
     const hideBtn = svBtn('#sv-remove-btn');
     if (hideBtn) {
       hideBtn.addEventListener('click', async () => {
+        if (!pluginsMayLeave()) return;   // this screen closes after it: a skill page's unsaved text is asked first (#803)
         const confirmed = await showControlDialog({
           title: 'Hide Project',
           message: 'The project stays on the list, Switchboard just stops showing it. New sessions do not bring it back — restore it from the hidden list. No files are deleted.',
@@ -1764,6 +1768,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
     const removeProjectBtn = svBtn('#sv-remove-project-btn');
     if (removeProjectBtn) {
       removeProjectBtn.addEventListener('click', async () => {
+        if (!pluginsMayLeave()) return;   // as Hide above (#803)
         const confirmed = await showControlDialog({
           title: 'Remove Project',
           message: 'The project comes off the list and its cached sessions are cleared. Your transcripts stay on disk: the old ones will not bring it back, but a NEW session in this folder will. To delete the history itself, use Remove in Settings → Projects.',

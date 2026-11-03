@@ -522,6 +522,8 @@ function registerIpc(ipc = ipcMain) {
 module.exports = {
   init,
   registerIpc,
+  // The deep-link categories, exported so the test can compare them with the renderer's `SEED_CATS` both ways.
+  SETTINGS_SEED_CATS,
   // Pure, and exported so it can be tested without a window: it decides WHICH settings a load is about,
   // and the worktree half of that answer has no other seam.
   settingsQuery,

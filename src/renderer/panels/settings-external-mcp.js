@@ -736,6 +736,8 @@
   // The check and the search of the CURRENT panel build: a reply for an older build or an older request is dropped.
   let addonCheckSeq = 0;
   let addonSearchSeq = 0;
+  // The current build's "may this window's pages be left" (from `bindAddons` opts), or null.
+  let addonsMayLeave = null;
 
   /** Put `text` on the clipboard; the button says Copied, a failure is said on `msg`. */
   async function copyText(button, text, msg) {
@@ -873,6 +875,8 @@
   async function onAddToProject(item, picker, msg) {
     const path = picker.value;
     if (!path) { msg.textContent = 'Choose a project first.'; return; }
+    // This window is replaced: a page holding unsaved work (#803) is asked before the warning, and says why itself.
+    if (addonsMayLeave && !addonsMayLeave()) return;
     const option = picker.selectedOptions && picker.selectedOptions[0];
     const ok = typeof showControlDialog === 'function' ? await showControlDialog({
       title: 'Open the project\'s settings',
@@ -923,6 +927,8 @@
     addonSearchSeq++;
     // In a project window (E9) the hand-off is this window's own Add form; elsewhere the global picker.
     const projectAdd = opts && typeof opts.projectAdd === 'function' ? opts.projectAdd : null;
+    // Asked before the global hand-off replaces this window (the settings screen's own "may the pages be left").
+    addonsMayLeave = opts && typeof opts.mayLeave === 'function' ? opts.mayLeave : null;
 
     const catalog = node('div', 'settings-section');
     const msg = node('div', 'settings-hint sv-mcp-form-msg');

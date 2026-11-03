@@ -218,9 +218,11 @@
 
     // Leaving a detail page asks the view first (`canLeave`), so a page holding unsaved work is not
     // dismissed by a stray Back, Escape or Backspace (renderer rule: work must not be dismissible by accident).
-    function leaveDetail() {
+    // `focus: false` for a caller that is not the user coming back (the settings search, a Cancel): focus stays
+    // where the user has it rather than jumping to the row.
+    function leaveDetail(opts) {
       if (detailKey && current.canLeave && current.canLeave() === false) return false;
-      showList(true);
+      showList(!(opts && opts.focus === false));
       return true;
     }
 
@@ -245,11 +247,11 @@
       detailPage.replaceChildren();
       const back = el(doc, 'button', 'settings-action-btn plugins-back', 'Back');
       back.type = 'button';
-      back.addEventListener('click', leaveDetail);
+      back.addEventListener('click', () => leaveDetail());
       const title = el(doc, 'div', 'plugins-title', current.rowLabel(row));
       const container = el(doc, 'div', 'plugins-detail');
       detailPage.append(back, title, container);
-      if (current.renderDetail) current.renderDetail(row, container, leaveDetail);
+      if (current.renderDetail) current.renderDetail(row, container, () => leaveDetail());
       back.focus();
     }
 
@@ -280,10 +282,17 @@
     drawHead();
     drawList();
 
-    return {
+    const handle = {
       root: rootEl,
-      // Back to the list from a detail page; on the list already, nothing moves.
-      showList: () => (detailKey ? leaveDetail() : true),
+      // Back to the list from a detail page; on the list already, nothing moves. -> false while the page refuses.
+      showList: (opts) => (detailKey ? leaveDetail(opts) : true),
+      // Drop the view's own filter text (the settings search runs over every row, not the filtered few).
+      clearFilter() {
+        if (!filterText) return;
+        filterText = '';
+        filter.value = '';
+        if (!detailKey) drawList();
+      },
       openDetail,
       // A view's data changed. On the list: redraw it, keeping the filter and where focus is. On an open detail
       // page whose row is still there: nothing is redrawn — the page may hold the user's work, and the view
@@ -315,7 +324,16 @@
         }
       },
     };
+    // The handle rides on the view's own root, so whoever holds the page — the settings screen asking every view
+    // before a search or a Cancel — finds each mounted view without a list of its own to keep in step.
+    rootEl.pluginsKitView = handle;
+    return handle;
   }
 
-  return { mountView };
+  /** Every mounted view's handle under `root`, in document order. */
+  function viewsIn(root) {
+    return [...root.querySelectorAll('.plugins-view')].map(n => n.pluginsKitView).filter(Boolean);
+  }
+
+  return { mountView, viewsIn };
 }));

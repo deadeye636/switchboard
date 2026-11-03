@@ -90,7 +90,7 @@
   }
 
   /** The global window's MCPs view (E8): a project picker that opens that project's Settings on its MCPs. */
-  function bindGlobalMcps(body, signal) {
+  function bindGlobalMcps(body, signal, mayLeave) {
     const host = body.querySelector('#sv-plugins-mcps-pick');
     const msg = body.querySelector('#sv-plugins-mcps-msg');
     const ext = window.settingsExternalMcp;
@@ -106,6 +106,8 @@
     ext.fillPicker(picker, go, null);
     go.addEventListener('click', async () => {
       if (!picker.value) { msg.textContent = 'Choose a project first.'; return; }
+      // The window is replaced: a skill page with unsaved text is asked first, before any warning (it says why itself).
+      if (mayLeave && !mayLeave()) return;
       const option = picker.selectedOptions && picker.selectedOptions[0];
       const ok = typeof showControlDialog === 'function' ? await showControlDialog({
         title: 'Open the project\'s settings',
@@ -133,16 +135,14 @@
    * `restoreCat(cat)` is the panel's own way to switch to a category (used for the E9 hand-off).
    */
   function bind(body, signal, { scope, projectPath, restoreCat }) {
-    const views = [];
     const ctx = { projectPath: scope === 'project' ? projectPath : null };
     const lazy = (cat, mount) => {
       const sectionEl = body.querySelector(`.settings-cat[data-cat="${cat}"]`);
       const host = sectionEl && sectionEl.querySelector('.sv-plugins-host');
       if (!sectionEl || !host || !window.pluginsViews) return;
       window.pluginsViews.bindLazy(sectionEl, async () => {
-        const view = await mount(host, ctx);
+        await mount(host, ctx);
         if (signal.aborted) return;
-        if (view) views.push(view);
         setCount(body, cat, rowCount(host));
       });
     };
@@ -164,21 +164,35 @@
     }
     setCount(body, CATS.marketplace, body.querySelectorAll('.sv-addon-catalog .plugins-row').length);
 
-    if (scope !== 'project') {
-      const loadProjects = bindGlobalMcps(body, signal);
-      const sectionEl = body.querySelector(`.settings-cat[data-cat="${CATS.globalMcps}"]`);
-      if (sectionEl && loadProjects && window.pluginsViews) window.pluginsViews.bindLazy(sectionEl, loadProjects);
-    }
-
-    return {
-      // Every mounted view back to its list, unless one holds unsaved work: then nothing moves and the answer is false.
-      leave() {
-        for (const v of views) {
-          if (v && typeof v.showList === 'function' && v.showList() === false) return false;
+    const ctl = {
+      /**
+       * Every mounted view on this body — the lazy ones, the project MCP list, the Marketplace catalog and its registry
+       * results — back to its list, without moving focus (the user may be typing into the settings search). A view
+       * that refuses (a skill page with unsaved text) stops it: the answer is false, and the screen switches to that
+       * view's category so the refusal is seen rather than a button that silently does nothing.
+       * `clearFilter`: also drop each view's own filter text, for the settings search, which runs over every row.
+       */
+      leave(opts) {
+        const kit = window.pluginsKit;
+        if (!kit || typeof kit.viewsIn !== 'function') return true;
+        for (const v of kit.viewsIn(body)) {
+          if (v.showList({ focus: false }) === false) {
+            const sectionEl = v.root.closest('.settings-cat');
+            if (restoreCat && sectionEl) restoreCat(sectionEl.dataset.cat);
+            return false;
+          }
+          if (opts && opts.clearFilter) v.clearFilter();
         }
         return true;
       },
     };
+
+    if (scope !== 'project') {
+      const loadProjects = bindGlobalMcps(body, signal, () => ctl.leave());
+      const sectionEl = body.querySelector(`.settings-cat[data-cat="${CATS.globalMcps}"]`);
+      if (sectionEl && loadProjects && window.pluginsViews) window.pluginsViews.bindLazy(sectionEl, loadProjects);
+    }
+    return ctl;
   }
 
   window.settingsPlugins = { CATS, SEED_CATS, navHtml, sectionsHtml, bind };

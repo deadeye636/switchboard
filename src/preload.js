@@ -117,6 +117,7 @@ contextBridge.exposeInMainWorld('api', {
   // Settings always open in a window of their own (#365). `scope` is 'global' or 'project'; a project
   // scope carries the path whose settings to show. `seed` (#790) is `{ addon: <catalog id> }`: the project's
   // MCP servers Add form opens prefilled from that catalog entry; main drops an id the catalog does not know.
+  // `seed.cat` (#803) lands on a category of the Plugins group, in either scope; main drops one not on its list.
   openSettingsWindow: (scope, projectPath, seed) => ipcRenderer.send('open-settings-window', scope, projectPath, seed),
   // Closing the window kills every running session. Main cancels the close, asks here — in the app's own
   // dialog, not a Windows system box — and closes again if the answer is yes.

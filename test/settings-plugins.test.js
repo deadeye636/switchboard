@@ -11,7 +11,7 @@ const { JSDOM } = require('jsdom');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 const tick = () => new Promise(r => setTimeout(r, 0));
-const { settingsQuery, shownQueryKey } = require('../src/app/windows');
+const { settingsQuery, shownQueryKey, SETTINGS_SEED_CATS } = require('../src/app/windows');
 
 function load(api = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
@@ -50,7 +50,9 @@ test('a deep link carries only a category from the fixed list, the same list mai
     assert.equal(settingsQuery('global', null, { cat: 'plugins-skills' }).cat, 'plugins-skills');
     assert.equal(settingsQuery('global', null, { cat: 'backends' }).cat, undefined, 'not a Plugins category');
     assert.equal(settingsQuery('global', null, { cat: '<x>' }).cat, undefined);
-    for (const cat of JSON.parse(JSON.stringify(dom.window.settingsPlugins.SEED_CATS))) {
+    const rendererCats = JSON.parse(JSON.stringify(dom.window.settingsPlugins.SEED_CATS));
+    assert.deepEqual([...rendererCats].sort(), [...SETTINGS_SEED_CATS].sort(), 'main and the renderer hold the same list, both ways');
+    for (const cat of rendererCats) {
       assert.equal(settingsQuery('global', null, { cat }).cat, cat, `main takes ${cat}`);
     }
     assert.equal(shownQueryKey({ scope: 'global', cat: 'plugins-apps' }), shownQueryKey({ scope: 'global' }),
