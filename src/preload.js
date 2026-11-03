@@ -20,6 +20,9 @@ contextBridge.exposeInMainWorld('api', {
   // #803 T5: a skill's text for the editor on its detail page, and its save — named by inventory id, never a path.
   readSkill: (id, projectPath) => ipcRenderer.invoke('read-skill', id, projectPath),
   saveSkill: (id, projectPath, content, baseline) => ipcRenderer.invoke('save-skill', id, projectPath, content, baseline ?? null),
+  // #803 T12a: where a new skill may go (opaque place ids from main), and creating one there from its backend's scaffold.
+  getSkillPlaces: (projectPath) => ipcRenderer.invoke('get-skill-places', projectPath),
+  createSkill: (placeId, name, projectPath) => ipcRenderer.invoke('create-skill', placeId, name, projectPath),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),

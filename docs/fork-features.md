@@ -528,7 +528,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   lists what each CLI has installed: Claude and Codex say whether a plugin is on (shown, never changed), the others
   are listed from their folders as "not reported". *Apps* is empty until a CLI reports apps. *Skills* lists each skill
   file once with its source and scope, says per CLI whether the skill is native there, shared to it, handed over as
-  text, declined or not offered, and edits the file on its page with a conflict check against the disk. *MCPs* is the
+  text, declined or not offered, edits the file on its page with a conflict check against the disk, and creates a new
+  skill from a CLI's own template in a skills folder that CLI declares (#803 T12a). *MCPs* is the
   project's server list as one-line rows (the global window explains it is per project and opens a project's), and
   *Marketplace* is the catalog above, adding straight to the project in a project window. The views read only when
   first shown, and leaving a skill page with unsaved text is refused. Spec:

@@ -141,7 +141,8 @@
       const host = sectionEl && sectionEl.querySelector('.sv-plugins-host');
       if (!sectionEl || !host || !window.pluginsViews) return;
       window.pluginsViews.bindLazy(sectionEl, async () => {
-        await mount(host, ctx);
+        // A view that changes its rows later (a new skill) recounts through `onCount`.
+        await mount(host, { ...ctx, onCount: (n) => { if (!signal.aborted) setCount(body, cat, typeof n === 'number' ? n : rowCount(host)); } });
         if (signal.aborted) return;
         setCount(body, cat, rowCount(host));
       });
@@ -187,6 +188,8 @@
           v.showList({ focus: false });
           if (opts && opts.clearFilter) v.clearFilter();
         }
+        // A half-filled "New skill" form holds nothing that is not retyped in a second; it goes with the rest.
+        body.querySelectorAll('.plugins-new-skill').forEach(f => f.remove());
         return true;
       },
     };

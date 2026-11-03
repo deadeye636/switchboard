@@ -13,7 +13,8 @@
 //     an editable row the editor (E11): the same CodeMirror editor the file panel uses, read and saved by the row's
 //     id (`readSkill` / `saveSkill`), Ctrl+S included. A save over a change on disk is refused and said; the text in
 //     the editor stays, and the disk version is loaded only on request. Leaving the page with unsaved text is refused
-//     (the kit's `canLeave`).
+//     (the kit's `canLeave`). "New skill" creates one in a folder main offers (`getSkillPlaces` / `createSkill`, from
+//     the backend's own scaffold) and opens its page.
 //
 // It names no backend and derives nothing a backend owns: every label, state and sentence is served by main. Every
 // string goes in with textContent. Loaded in settings.html only; `window.pluginsViews`.
@@ -296,12 +297,82 @@
     }
   }
 
+  async function readSkillRows(ctx) {
+    let res = null;
+    try { res = await api().getSkillInventory(ctx.projectPath || null); } catch { res = null; }
+    return res && Array.isArray(res.skills) ? res.skills : null;
+  }
+
+  // "New skill" (#803 T12a, E15): a small form above the list. The places are main's answer — a label and an opaque
+  // id each, read when the form opens; the file comes from the backend's own scaffold, and its page opens after.
+  function newSkillForm(anchor, ctx, onCreated) {
+    const existing = anchor.parentNode && anchor.parentNode.querySelector(':scope > .plugins-new-skill');
+    if (existing) { const input = existing.querySelector('input'); if (input) input.focus(); return; }
+    const form = node('div', 'sv-mcp-form plugins-new-skill');
+    form.appendChild(node('div', 'settings-section-title', 'New skill'));
+    const place = document.createElement('select');
+    place.className = 'settings-select';
+    place.setAttribute('aria-label', 'Folder for the new skill');
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.className = 'settings-input';
+    name.spellcheck = false;
+    name.placeholder = 'skill-name';
+    name.setAttribute('aria-label', 'Name of the new skill');
+    const msg = node('div', 'sv-mcp-problem sv-mcp-form-msg');
+    msg.setAttribute('aria-live', 'polite');
+    const fieldOf = (label, control) => {
+      const f = node('div', 'sv-mcp-form-field');
+      f.appendChild(node('span', 'settings-label', label));
+      f.appendChild(control);
+      return f;
+    };
+    form.appendChild(fieldOf('Folder', place));
+    form.appendChild(fieldOf('Name', name));
+    const actions = node('div', 'sv-mcp-form-actions');
+    const create = button('Create', async () => {
+      msg.textContent = '';
+      if (!place.value) { msg.textContent = 'There is no folder to create it in.'; return; }
+      create.disabled = true;
+      let out = null;
+      try { out = await api().createSkill(place.value, name.value, ctx.projectPath || null); } catch { out = null; }
+      create.disabled = false;
+      if (!out || !out.ok) { msg.textContent = (out && out.reason) || 'The skill could not be created.'; return; }
+      // A skill page opened while the create was out closed the form: the user went elsewhere, so the new skill
+      // joins the list without pulling them off that page.
+      const stillHere = form.isConnected;
+      form.remove();
+      onCreated(out.id, stillHere);
+    });
+    actions.appendChild(create);
+    actions.appendChild(button('Cancel', () => form.remove()));
+    form.appendChild(actions);
+    form.appendChild(msg);
+    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create.click(); } });
+    anchor.parentNode.insertBefore(form, anchor);
+
+    create.disabled = true;
+    (async () => {
+      let res = null;
+      try { res = await api().getSkillPlaces(ctx.projectPath || null); } catch { res = null; }
+      const places = res && res.ok && Array.isArray(res.places) ? res.places : null;
+      if (!places) { msg.textContent = (res && res.reason) || 'The folders could not be read.'; return; }
+      if (!places.length) { msg.textContent = 'No CLI here has a skills folder to create a skill in.'; return; }
+      for (const p of places) {
+        const o = document.createElement('option');
+        o.value = p.id;
+        o.textContent = p.label;
+        place.appendChild(o);
+      }
+      create.disabled = false;
+      name.focus();
+    })();
+  }
+
   async function mountSkills(host, ctx) {
     host.textContent = '';
     host.appendChild(node('div', 'settings-hint', 'Reading the skills…'));
-    let res = null;
-    try { res = await api().getSkillInventory(ctx.projectPath || null); } catch { res = null; }
-    const rows = res && Array.isArray(res.skills) ? res.skills : null;
+    const rows = await readSkillRows(ctx);
     if (!rows) {
       host.textContent = '';
       host.appendChild(node('div', 'sv-mcp-problem', 'The skills could not be read.'));
@@ -315,12 +386,28 @@
       if (page.destroy) page.destroy();
       page = {};
     };
-    const view = window.pluginsKit.mountView(host, {
+    let view = null;
+    // The form belongs to the list: a skill page that opens closes it, so a create never lands on top of a page
+    // holding unsaved text. The new skill's page opens only when the list is what is on screen.
+    const closeForm = () => {
+      const form = host.parentNode && host.parentNode.querySelector(':scope > .plugins-new-skill');
+      if (form) form.remove();
+    };
+    const afterCreate = async (id, navigate) => {
+      const next = await readSkillRows(ctx);
+      if (!next || !view) return;
+      view.refresh(spec(next));
+      // From the rows, not the DOM: a refresh under an open page redraws no list until Back.
+      if (typeof ctx.onCount === 'function') ctx.onCount(next.length);
+      if (id && navigate && view.showList({ focus: false }) !== false) view.openDetail(id);
+    };
+    const spec = (list) => ({
       filterPlaceholder: 'Filter skills',
       emptyText: 'No skills found for any CLI here.',
+      actions: [{ label: 'New skill', onClick: () => newSkillForm(host, ctx, afterCreate) }],
       sections: [
-        { title: 'This project', rows: rows.filter(r => r.scope === 'project') },
-        { title: 'Global', rows: rows.filter(r => r.scope !== 'project') },
+        { title: 'This project', rows: list.filter(r => r.scope === 'project') },
+        { title: 'Global', rows: list.filter(r => r.scope !== 'project') },
       ],
       rowKey: (r) => r.id,
       rowLabel: (r) => r.name,
@@ -331,6 +418,7 @@
       onLeave: releasePage,
       renderDetail: (r, c) => {
         releasePage();
+        closeForm();
         c.appendChild(line('Source', r.sourceLabel));
         c.appendChild(line('File', r.filePath));
         for (const o of r.alsoNamed || []) c.appendChild(line('Also named in', `${o.sourceLabel} — ${o.filePath}`));
@@ -339,6 +427,7 @@
         else c.appendChild(node('div', 'settings-hint', 'This skill is read-only here: the CLI it belongs to does not let Switchboard edit it.'));
       },
     });
+    view = window.pluginsKit.mountView(host, spec(rows));
     return view;
   }
 

@@ -324,3 +324,64 @@ test('a failed read says so instead of drawing an empty list', async () => {
     assert.match(host.textContent, /could not be read/);
   } finally { dom.window.close(); }
 });
+
+test('Skills: "New skill" offers main\'s places, creates by place id and opens the new skill\'s page (E15)', async () => {
+  let created = false;
+  const NEW = { id: 'n1', name: 'fresh', scope: 'global', sourceLabel: 'Some CLI · global', filePath: '/g/fresh/SKILL.md', alsoNamed: [], editable: false };
+  const { dom, window, host, views, calls } = setup({
+    getSkillInventory: () => ({ skills: created ? [...SKILLS, NEW] : SKILLS }),
+    getSkillDetail: () => DETAIL,
+    getSkillPlaces: () => ({ ok: true, places: [{ id: 'pl1', label: 'Some CLI · global — /g', scope: 'global' }] }),
+    createSkill: (placeId, name) => { created = true; return name === 'fresh' ? { ok: true, id: 'n1' } : { ok: false, reason: 'no' }; },
+  });
+  try {
+    await views.mountSkills(host, { projectPath: '/proj', createEditor: fakeEditor().factory });
+    btn(host, 'New skill').click();
+    await tick(); await tick();
+    const form = window.document.querySelector('.plugins-new-skill');
+    assert.ok(form, 'the form is shown above the list');
+    assert.deepEqual([...form.querySelectorAll('option')].map(o => [o.value, o.textContent]), [['pl1', 'Some CLI · global — /g']]);
+    form.querySelector('input').value = 'fresh';
+    btn(form, 'Create').click();
+    await tick(); await tick(); await tick(); await tick();
+    assert.deepEqual(calls.filter(c => c[0] === 'createSkill').map(c => c.slice(1)), [['pl1', 'fresh', '/proj']]);
+    assert.equal(window.document.querySelector('.plugins-new-skill'), null, 'the form closes');
+    assert.equal(host.querySelector('.plugins-detail-page').hidden, false, 'the new skill\'s page is open');
+    assert.match(host.querySelector('.plugins-detail-page').textContent, /fresh/);
+  } finally { dom.window.close(); }
+});
+
+test('Skills: "New skill" with no place says so and creates nothing', async () => {
+  const { dom, window, host, views, calls } = setup({
+    getSkillInventory: () => ({ skills: SKILLS }),
+    getSkillPlaces: () => ({ ok: true, places: [] }),
+  });
+  try {
+    await views.mountSkills(host, { projectPath: null, createEditor: fakeEditor().factory });
+    btn(host, 'New skill').click();
+    await tick(); await tick();
+    const form = window.document.querySelector('.plugins-new-skill');
+    assert.match(form.textContent, /No CLI here has a skills folder/);
+    assert.equal(btn(form, 'Create').disabled, true);
+    assert.equal(calls.filter(c => c[0] === 'createSkill').length, 0);
+    btn(form, 'Cancel').click();
+    assert.equal(window.document.querySelector('.plugins-new-skill'), null);
+  } finally { dom.window.close(); }
+});
+
+test('Skills: opening a skill\'s page closes the "New skill" form, so a create cannot land on unsaved text (verifier H1)', async () => {
+  const { dom, window, host, views } = setup({
+    getSkillInventory: () => ({ skills: SKILLS }),
+    getSkillDetail: () => DETAIL,
+    getSkillPlaces: () => ({ ok: true, places: [{ id: 'pl1', label: 'Some CLI · global — /g', scope: 'global' }] }),
+  });
+  try {
+    await views.mountSkills(host, { projectPath: '/proj', createEditor: fakeEditor().factory });
+    btn(host, 'New skill').click();
+    await tick(); await tick();
+    assert.ok(window.document.querySelector('.plugins-new-skill'));
+    open(host, 0);
+    assert.equal(window.document.querySelector('.plugins-new-skill'), null);
+    await tick(); await tick();
+  } finally { dom.window.close(); }
+});

@@ -178,7 +178,7 @@ chart rather than a row of zeroes.
 - **Plugins manager** — a *Plugins* group in both settings windows, also reached from the command palette, with
   five views: Plugins, Apps, MCPs, Skills and Marketplace. Each is a short list with a filter and a count; a row opens
   its own page. Plugins shows what each CLI has installed and, where the CLI says, whether it is on (read only). Skills lists every skill
-  file once, whichever CLI reported it, says what each CLI makes of it, and has an editor on its page. MCPs and
+  file once, whichever CLI reported it, says what each CLI makes of it, has an editor on its page, and creates a new one in a CLI's skills folder. MCPs and
   Marketplace are the two entries above. Nothing is read until you open a view.
   → [`docs/specs/40-plugins-manager.md`](docs/specs/40-plugins-manager.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or

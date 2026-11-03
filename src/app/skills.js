@@ -502,6 +502,71 @@ async function saveSkill({ id, projectPath = null, content, baseline = null } = 
   }
 }
 
+// --- A new skill (#803 T12a, owner decision E15) -----------------------------------------------------------
+//
+// Where a new skill may go is the backends' answer, the same one the sidebar's "New" used (#441): a directory the
+// current listing names as skills, under a source the backend's own `skill` scaffold claims, that exists. The window
+// gets an opaque place id and a label, never a backend id or a path to send back; the file is written by
+// `backend-resources.createResource`, which checks the directory against the listing again. The app's own skills
+// directory is not a place: no scaffold is declared for it, and the sidebar never offered one either.
+
+/** Every place a new skill may be created for this project: `[{ id, label, scope, backendId, dir }]`. */
+function collectSkillPlaces(projectPath) {
+  const places = [];
+  for (const b of inventoryBackends()) {
+    const d = backendById(b.id);
+    // `expandResource` too: a skill the inventory cannot list could be created but never opened (the sidebar's rule).
+    if (!d || typeof d.listResources !== 'function' || typeof d.expandResource !== 'function') continue;
+    const scaffold = (Array.isArray(d.resourceScaffolds) ? d.resourceScaffolds : [])
+      .find(sc => sc && sc.kind === 'skill' && typeof sc.template === 'function');
+    if (!scaffold || !Array.isArray(scaffold.sources)) continue;
+    for (const scope of projectPath ? ['project', 'global'] : ['global']) {
+      let listed = null;
+      try { listed = d.listResources({ projectPath: scope === 'project' ? projectPath : null }); } catch { continue; }
+      if (!listed || listed.ok === false || !Array.isArray(listed.resources)) continue;
+      for (const entry of listed.resources) {
+        if (!entry || entry.kind !== 'skill' || !entry.path) continue;
+        if ((entry.scope || 'global') !== scope || !scaffold.sources.includes(entry.source)) continue;
+        try { if (!fs.statSync(entry.path).isDirectory()) continue; } catch { continue; }
+        // One folder listed in both scopes (a project at the home directory) is offered once, as the project's.
+        if (places.some(p => p.backendId === d.id && samePath(p.dir, entry.path))) continue;
+        places.push({
+          id: crypto.createHash('sha1').update(`${d.id}\0${scope}\0${entry.path}`).digest('hex').slice(0, 16),
+          label: `${d.label || d.id} · ${scope} — ${entry.path}`,
+          scope, backendId: d.id, dir: entry.path,
+        });
+      }
+    }
+  }
+  return places;
+}
+
+/** The places for the window: `{ ok, places: [{ id, label, scope }] }`. */
+function getSkillPlaces({ projectPath = null } = {}) {
+  if (!projectAllowed(projectPath)) return { ok: false, reason: 'That project is not on the list.' };
+  return { ok: true, places: collectSkillPlaces(projectPath).map(({ id, label, scope }) => ({ id, label, scope })) };
+}
+
+/**
+ * Create one skill from its backend's scaffold: `{ ok, id }` (the new row's inventory id, so the window opens its
+ * page) or `{ ok: false, reason }`. The place is looked up again on this call; the name rule, the listing check,
+ * the real-path containment and the no-overwrite write are `createResource`'s.
+ */
+async function createSkill({ placeId, name, projectPath = null } = {}) {
+  if (!projectAllowed(projectPath)) return { ok: false, reason: 'That project is not on the list.' };
+  const place = collectSkillPlaces(projectPath).find(p => p.id === placeId);
+  if (!place) return { ok: false, reason: 'That folder is no longer offered for a new skill.' };
+  const created = await backendResources.createResource(place.backendId, {
+    kind: 'skill', name: typeof name === 'string' ? name.trim() : '', parentDir: place.dir,
+    projectPath: place.scope === 'project' ? projectPath : null,
+  });
+  if (!created || !created.ok) return { ok: false, reason: (created && created.reason) || 'The skill could not be created.' };
+  // The inventory names a skill by its file or by its folder, whichever the backend's expander reports.
+  const row = collectSkillInventory({ projectPath })
+    .find(r => samePath(r.filePath, created.path) || samePath(r.filePath, path.dirname(created.path)));
+  return { ok: true, id: row ? skillId(row.filePath) : null };
+}
+
 /** The CLI a descriptor belongs to — a driver of a CLI counts as that CLI. The registry's rule. */
 function cliOwnerIdOf(b) {
   try {
@@ -567,9 +632,14 @@ function registerIpc(ipcMain) {
     id: idOf(id), projectPath: projectOf(projectPath), content,
     baseline: typeof baseline === 'string' ? baseline : null,
   }));
+  ipcMain.handle('get-skill-places', (_e, projectPath) => getSkillPlaces({ projectPath: projectOf(projectPath) }));
+  ipcMain.handle('create-skill', (_e, placeId, name, projectPath) => createSkill({
+    placeId: idOf(placeId), name: typeof name === 'string' ? name : '', projectPath: projectOf(projectPath),
+  }));
 }
 
 module.exports = {
   init, registerIpc, getSkills, getSkillInventory, getSkillDetail, switchboardSkillFiles, readSkill, saveSkill,
+  getSkillPlaces, createSkill,
   _collectSkillInventory: collectSkillInventory, _switchboardSkillsDir: switchboardSkillsDir,
 };
