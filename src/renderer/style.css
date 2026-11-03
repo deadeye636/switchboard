@@ -12386,6 +12386,39 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .sv-mcp-chip { font-size: 12px; line-height: 1.6; padding: 1px 8px; border-radius: 10px; border: 1px solid #4a4a5a; white-space: nowrap; }
 .sv-mcp-chip.active { border-color: #61afef; color: #61afef; }
 .sv-mcp-chip-unknown { border-style: dashed; color: var(--status-attention, #f0a050); }
+/* The Plugins manager's list-to-detail kit (#803, spec 40 D7, panels/plugins-kit.js): a page head, a filter with a
+   count, labelled sections, and one-line rows grouped in one rounded container. A row is a `.settings-field` (so the
+   settings search sees it) made compact; its controls are `.settings-toggle` and `.settings-action-btn`. */
+.plugins-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.plugins-head-text { min-width: 0; }
+.plugins-title { font-size: 18px; font-weight: 600; color: #e0e0f0; }
+.plugins-head-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.plugins-filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.plugins-filter { max-width: 280px; }
+.plugins-count { margin-top: 0; white-space: nowrap; }
+.plugins-section { margin-bottom: 18px; }
+.plugins-rows { border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); }
+.plugins-rows > .plugins-row { min-height: 0; padding: 8px 14px; gap: 12px; }
+.plugins-rows > .plugins-row:last-child { border-bottom: none; }
+.plugins-row-open {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px; padding: 2px 0;
+  background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.plugins-row-open:focus-visible { outline: 2px solid #8088ff; outline-offset: 2px; border-radius: 4px; }
+.plugins-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plugins-row-meta { margin-top: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plugins-row-disabled .plugins-row-name { color: #7a7a90; }
+.plugins-row-gear {
+  display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0;
+  background: none; border: none; border-radius: 4px; color: #7a7a90; cursor: pointer;
+}
+.plugins-row-gear:hover { color: #c0c0d0; background: rgba(255,255,255,0.06); }
+.plugins-row-gear:focus-visible,
+.plugins-view .settings-action-btn:focus-visible { outline: 2px solid #8088ff; outline-offset: 2px; }
+.plugins-view .settings-toggle input:focus-visible + .settings-toggle-slider { outline: 2px solid #8088ff; outline-offset: 2px; }
+.plugins-empty { padding: 10px 4px; }
+.plugins-back { margin-bottom: 12px; }
+.plugins-detail { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 /* A command or a URL to copy (#790): the text in a box, a label before it and a Copy button after it. Long text
    wraps rather than widening the pane; everything else in the MCP servers category reuses the classes above. */
 .sv-addon-command { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }
