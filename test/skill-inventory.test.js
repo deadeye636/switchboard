@@ -201,7 +201,7 @@ test('the main-side collection keeps the owner and the listing source for the de
   const [row] = skills._collectSkillInventory({});
   assert.equal(row.backendId, 'one');
   assert.equal(row.source, 'skills-directory');
-  assert.deepEqual(row.owners, [{ backendId: 'one', source: 'skills-directory' }]);
+  assert.deepEqual(row.owners, [{ backendId: 'one', source: 'skills-directory', fromPlugin: false }]);
 });
 
 test('a file two backends report keeps both owners, whatever the registry order', () => {

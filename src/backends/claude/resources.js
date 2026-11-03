@@ -81,6 +81,9 @@ function add(out, item) {
     // live in a cache folder named after the marketplace, so a row built from the path would be labelled
     // with something the user never typed (#463). Absent everywhere else.
     originLabel: item.originLabel || null,
+    // A directory something ELSE installed and keeps (a plugin's cache). The Skills page offers no Delete
+    // there: the plugin's next update would bring a deleted skill back (#803, O5). Absent everywhere else.
+    ...(item.fromPlugin ? { fromPlugin: true } : {}),
   });
 }
 
@@ -116,6 +119,7 @@ function addPluginSkills(out, home, projectPath) {
       path: plugin.skillsDir,
       source: pluginSkillsSource(plugin.name),
       originLabel: `Plugin ${plugin.name}`,
+      fromPlugin: true,
     });
   }
 }

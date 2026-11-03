@@ -34,7 +34,7 @@ function skillsBackend({ id = 'cli', label = 'Cli', dirs, scaffolds = [SCAFFOLD]
     listResources: ({ projectPath }) => ({
       ok: true,
       resources: dirs.filter(d => (d.scope === 'project') === !!projectPath)
-        .map(d => ({ kind: d.kind || 'skill', scope: d.scope, name: 'skills', path: d.path, source: d.source || 'skills-directory' })),
+        .map(d => ({ kind: d.kind || 'skill', scope: d.scope, name: 'skills', path: d.path, source: d.source || 'skills-directory', ...(d.fromPlugin ? { fromPlugin: true } : {}) })),
     }),
     expandResource: ({ path: d, scope }) => ({
       ok: true,
@@ -157,6 +157,39 @@ test('deleteSkill removes a CLI\'s skill folder by id; a row Edit is not offered
   assert.equal((await skills.deleteSkill({ id: row.id })).ok, true);
   assert.equal(fs.existsSync(folder), false, 'the folder goes with its helper files');
   assert.ok(fs.existsSync(global), 'never the listed directory itself');
+});
+
+test('a plugin\'s skill (the listing marks its folder `fromPlugin`) is editable but not deletable (O5)', async () => {
+  const pluginDir = tmpdir('plugin');
+  const folder = path.join(pluginDir, 'from-plugin');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'SKILL.md'), '# x\n');
+  const b = skillsBackend({ dirs: [{ scope: 'global', path: pluginDir, source: 'plugin-skills:demo', fromPlugin: true }], resourceEditing: { extensions: ['.md'] } });
+  b.expandResource = ({ path: d, scope }) => ({
+    ok: true,
+    entries: fs.readdirSync(d).map(n => ({ kind: 'skill', scope, name: n, path: path.join(d, n, 'SKILL.md'), source: 'plugin-skills:demo' })),
+  });
+  b.expandResource.knowsSource = () => true;
+  setup({ backends: [b] });
+  const row = skills.getSkillInventory({}).skills.find(s => s.name === 'from-plugin');
+  assert.equal(row.editable, true);
+  assert.equal(row.deletable, false);
+  const out = await skills.deleteSkill({ id: row.id });
+  assert.equal(out.ok, false);
+  assert.match(out.reason, /plugin/);
+  assert.ok(fs.existsSync(folder));
+});
+
+test('a CLI that declares no skill template (agy) still deletes its own skills (verifier G1 on O5)', async () => {
+  const global = tmpdir('global');
+  const folder = path.join(global, 'own-one');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'SKILL.md'), '# x\n');
+  setup({ backends: [skillsBackend({ dirs: [{ scope: 'global', path: global }], scaffolds: [], resourceEditing: { extensions: ['.md'] } })] });
+  const row = skills.getSkillInventory({}).skills.find(s => s.name === 'own-one');
+  assert.equal(row.deletable, true);
+  assert.equal((await skills.deleteSkill({ id: row.id })).ok, true);
+  assert.equal(fs.existsSync(folder), false);
 });
 
 test('deleteSkill removes a project-scope skill through the project\'s own listing', async () => {

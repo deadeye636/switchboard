@@ -74,15 +74,17 @@ function switchboardSkillsDir(projectPath) {
  * skill came from. That one stays in main: the picker never had it, and what it means is the backend's
  * (spec 40, F2 — the delivery answer of #803 matches on it).
  */
-function skillRow({ name, filePath, origin, scope, backendId, invocation, source }) {
+function skillRow({ name, filePath, origin, scope, backendId, invocation, source, fromPlugin }) {
   return {
     name, filePath, origin, scope, backendId: backendId || null, invocation: invocation || null,
     source: source || null,
+    // The listing marked the directory as one a plugin installed and keeps (#803 O5: no Delete there).
+    fromPlugin: !!fromPlugin,
   };
 }
 
-/** The picker's row: everything but `source`. */
-function pickerRow({ source: _source, ...row }) {
+/** The picker's row: everything but `source` and `fromPlugin`. */
+function pickerRow({ source: _source, fromPlugin: _fromPlugin, ...row }) {
   return row;
 }
 
@@ -137,6 +139,7 @@ function backendSkills(descriptor, projectPath, scope) {
         backendId: descriptor.id,
         invocation,
         source: child.source || entry.source || null,
+        fromPlugin: !!entry.fromPlugin,
       }));
     }
   }
@@ -330,7 +333,7 @@ function collectSkillInventory({ projectPath = null } = {}) {
   const byKey = new Map();
   for (const row of rows) {
     const key = row.filePath.toLowerCase();
-    const owner = row.backendId ? { backendId: row.backendId, source: row.source } : null;
+    const owner = row.backendId ? { backendId: row.backendId, source: row.source, fromPlugin: row.fromPlugin } : null;
     const kept = byKey.get(key);
     if (!kept) {
       byKey.set(key, { ...row, owners: owner ? [owner] : [] });
@@ -368,8 +371,7 @@ function getSkillInventory({ projectPath = null } = {}) {
       .map(o => ({ sourceLabel: o.origin, filePath: o.filePath })),
     ...(() => {
       const d = door(r);
-      // `deletable`: a CLI's skill Edit is offered for (E16); the app's own skills are only edited here.
-      return { editable: !!d, deletable: !!d && d.kind === 'backend' };
+      return { editable: !!d, deletable: deletableThrough(r, d) };
     })(),
   }));
   return { skills, skillsDir: switchboardSkillsDir(projectPath) };
@@ -566,6 +568,18 @@ async function createSkill({ placeId, name, projectPath = null } = {}) {
 }
 
 /**
+ * May this row be deleted through this door? A CLI's skill (the app's own are only edited here, E16) that its
+ * listing does not mark `fromPlugin`. A plugin's skills sit in a folder the plugin installed and keeps, so its
+ * next update would bring a deleted skill back (O5). Which folders those are is the backend's answer.
+ */
+function deletableThrough(row, door) {
+  if (!door || door.kind !== 'backend') return false;
+  const owners = row.owners || [];
+  // Any owner's mark counts: a second CLI listing the same plugin folder unmarked must not open Delete.
+  return owners.some(o => o.backendId === door.backendId) && !owners.some(o => o.fromPlugin);
+}
+
+/**
  * Delete one skill (#803, owner decision E16): `{ ok }` or `{ ok: false, reason }`. Offered where Edit is — a
  * backend's skill whose door admits it — and done by `backend-resources.deleteResource`, which re-derives the
  * listing, takes only an entry its expander names, and removes a skill's folder only while it holds that entry.
@@ -576,6 +590,7 @@ async function deleteSkill({ id, projectPath = null } = {}) {
   if (found.error) return { ok: false, reason: found.error };
   const { row, door } = found;
   if (door.kind !== 'backend') return { ok: false, reason: 'Switchboard does not delete its own skills; remove the file in its folder.' };
+  if (!deletableThrough(row, door)) return { ok: false, reason: 'This skill was installed with something else, such as a plugin; remove it there.' };
   return backendResources.deleteResource(door.backendId, row.filePath, row.scope === 'project' ? projectPath : null);
 }
 

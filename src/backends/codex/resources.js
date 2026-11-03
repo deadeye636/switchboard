@@ -41,6 +41,8 @@ function add(out, item) {
     // cached under the MARKETPLACE's name with a version folder in between, so the path names neither the
     // plugin nor anything a person would recognise.
     originLabel: item.originLabel || null,
+    // A directory a plugin installed and keeps: no Delete on the Skills page there (#803, O5).
+    ...(item.fromPlugin ? { fromPlugin: true } : {}),
   });
 }
 
@@ -71,6 +73,7 @@ function addPluginSkills(out, home) {
       path: plugin.skillsDir,
       source: pluginSkillsSource(plugin.name),
       originLabel: `Plugin ${plugin.name}`,
+      fromPlugin: true,
     });
   }
 }

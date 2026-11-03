@@ -225,6 +225,10 @@ test('a plugin\'s skills are listed as skills, expandable, and named for the inv
   assert.equal(row.kind, 'skill');
   assert.equal(row.source, 'plugin-skills:toolkit');
   assert.equal(row.originLabel, 'Plugin toolkit', 'the row says which plugin it came from');
+  assert.equal(row.fromPlugin, true, 'a plugin keeps this folder: no Delete on the Skills page (#803 O5)');
+  for (const other of listed.resources.filter(r => r !== row)) {
+    assert.equal(other.fromPlugin, undefined, `only a plugin's folder is marked, not ${other.source}`);
+  }
   assert.equal(row.path, path.join(installPath, 'skills'));
 
   // The source key is not in any static rule map — the backend resolves it, or nothing could read it.

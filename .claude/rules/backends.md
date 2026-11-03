@@ -88,7 +88,9 @@ every ordinary directory unexpandable, and `reachable()` gates read, write and d
 (`expandResource.knowsSource`), so nothing else would notice.
 
 A listing entry may also carry `originLabel`, for a directory whose path does not say what a reader should
-call it (a plugin is cached under the MARKETPLACE's name, not its own). **And a name that becomes a path
+call it (a plugin is cached under the MARKETPLACE's name, not its own), and `fromPlugin: true`, for a directory a
+plugin installed and keeps — the Skills page offers no Delete there, because the plugin's next update would bring
+it back (#803 O5). Claude and Codex mark their plugin skill directories; a backend that marks nothing has none. **And a name that becomes a path
 segment is checked before it is joined**: Codex builds its cache path out of an install key from
 `config.toml`, and a key spelled `../../..@marketplace` put an arbitrary directory into the listing — which
 IS the allow-list every other guard consults. A segment out of a config file is user input.

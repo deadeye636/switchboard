@@ -165,6 +165,10 @@ test('each plugin is one listing row, labelled with the plugin it belongs to (#5
     // The path names the marketplace and a version, neither of which a reader would recognise as the
     // plugin — so the row has to say it itself.
     assert.equal(row.originLabel, `Plugin ${row.name}`);
+    assert.equal(row.fromPlugin, true, 'a plugin keeps this folder: no Delete on the Skills page (#803 O5)');
+  }
+  for (const other of listed.resources.filter(r => !rows.includes(r))) {
+    assert.equal(other.fromPlugin, undefined, `only a plugin's folder is marked, not ${other.source}`);
   }
 });
 
