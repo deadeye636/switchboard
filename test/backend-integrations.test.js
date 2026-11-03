@@ -156,6 +156,8 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/settings-external-mcp.js': [],
   // #803 T6 — the Plugins manager's list-to-detail kit; it is handed rows and callbacks and names no backend.
   'src/renderer/panels/plugins-kit.js': [],
+  // #803 T9 — the Plugins, Apps and Skills views; every label, state and sentence is served by main.
+  'src/renderer/panels/plugins-views.js': [],
   'src/renderer/panels/settings-global-html.js': [],
   'src/renderer/shell/session-restore.js': [],
   'src/renderer/shell/detach-window.js': [],

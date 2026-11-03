@@ -36,7 +36,8 @@ no backend),
 `plugins-inventory.js` (the installed plugins, packages and extensions and the reported apps the Plugins manager
 lists — #803; a descriptor that states on/off answers `listPlugins`, one that does not is shown from its
 `listResources` plugin rows with the state "not reported"; `listApps` is optional and nobody answers it yet. One
-asker per CLI, no backend id in an answer),
+asker per CLI, no backend id in an answer. `open-plugin` takes a row's id and opens its folder through
+`backend-resources.js`'s `openResource`, so it reaches only what that backend's listing reaches),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
 CLAUDE.md reflex 12; the handoff prompts, the plan prompt and a saved variable's insert template all
 ask it, and a second reading of `eff.handoffDir` is how two of them start naming different directories.

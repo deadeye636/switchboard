@@ -12419,6 +12419,19 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .plugins-empty { padding: 10px 4px; }
 .plugins-back { margin-bottom: 12px; }
 .plugins-detail { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* The Plugins, Apps and Skills pages (#803 T9, panels/plugins-views.js). */
+.plugins-fact { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.plugins-fact-value { color: #c0c0d0; font-size: 12.5px; overflow-wrap: anywhere; min-width: 0; }
+.plugins-delivery-list { display: flex; flex-direction: column; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); }
+.plugins-delivery-row { display: flex; gap: 12px; align-items: baseline; padding: 8px 14px; background: rgba(255,255,255,0.02); border-bottom: 1px solid rgba(255,255,255,0.035); }
+.plugins-delivery-row:last-child { border-bottom: none; }
+.plugins-delivery-row .settings-label { flex-shrink: 0; min-width: 140px; }
+.plugins-delivery-row .settings-description { margin-top: 0; flex: 1; min-width: 0; }
+.plugins-invocation { font-size: 12px; color: #c0c0d0; }
+.plugins-skill-editor { height: 360px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
+.plugins-skill-editor .cm-editor { height: 100%; }
+.plugins-skill-conflict { display: flex; flex-direction: column; gap: 6px; }
+.plugins-skill-disk { max-height: 200px; overflow: auto; margin: 0; padding: 8px 12px; border-radius: 6px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); font-size: 12px; white-space: pre-wrap; color: #c0c0d0; }
 /* A command or a URL to copy (#790): the text in a box, a label before it and a Copy button after it. Long text
    wraps rather than widening the pane; everything else in the MCP servers category reuses the classes above. */
 .sv-addon-command { display: flex; align-items: center; gap: 8px; margin-top: 6px; min-width: 0; }

@@ -265,3 +265,32 @@ test('the real Claude and Codex descriptors answer listPlugins from the home the
   assert.deepEqual(claude.listPlugins({}).plugins.map(p => [p.name, p.state]), [['iso', 'disabled']]);
   assert.deepEqual(codex.listPlugins({}).plugins.map(p => [p.name, p.state]), [['iso-codex', 'enabled']]);
 });
+
+test('open-plugin opens a row by id through the backend\'s own door, and refuses what that door refuses', async () => {
+  const backendResources = require('../src/app/backend-resources');
+  const root = tmpdir('plugin-root');
+  const inside = path.join(root, 'cache', 'one');
+  fs.mkdirSync(inside, { recursive: true });
+  const outside = tmpdir('plugin-outside');
+  const owner = {
+    id: 'owner',
+    label: 'Owner',
+    listApps: null,
+    listPlugins: () => ({ ok: true, plugins: [
+      { name: 'one', scope: 'global', state: 'enabled', path: inside, brings: [] },
+      { name: 'stray', scope: 'global', state: 'enabled', path: outside, brings: [] },
+      { name: 'no-folder', scope: 'global', state: 'enabled', path: null, brings: [] },
+    ] }),
+    listResources: () => ({ ok: true, resources: [{ kind: 'plugin', scope: 'global', name: 'plugins', path: root, source: 'plugins-directory' }] }),
+  };
+  setup([owner]);
+  const opened = [];
+  backendResources.init({ backends: { get: (id) => (id === 'owner' ? owner : null), list: () => [] }, shell: { openPath: async (p) => { opened.push(p); return ''; } } });
+  const rows = Object.fromEntries(inventory.getPluginInventory({}).plugins.map(r => [r.name, r]));
+  assert.deepEqual(await inventory.openPlugin({ id: rows.one.id }), { ok: true });
+  assert.deepEqual(opened, [inside]);
+  assert.match((await inventory.openPlugin({ id: rows.stray.id })).reason, /not a discovered resource/);
+  assert.match((await inventory.openPlugin({ id: rows['no-folder'].id })).reason, /no folder/);
+  assert.match((await inventory.openPlugin({ id: '0000000000000000' })).reason, /no longer listed/);
+  assert.deepEqual(opened, [inside], 'nothing else was opened');
+});

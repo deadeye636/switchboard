@@ -25,6 +25,8 @@
 const crypto = require('crypto');
 const path = require('path');
 
+const backendResources = require('./backend-resources');
+
 let ctx = null;
 
 function init(context) {
@@ -133,12 +135,8 @@ function fromListing(descriptor, projectPath) {
   return out;
 }
 
-/**
- * Every installed plugin, package and extension for one project: `{ plugins: [{ id, kind, name,
- * backendLabel, scope, state, path, brings }] }`, sorted by name. A backend that throws is skipped and
- * the others still answer.
- */
-function getPluginInventory({ projectPath = null } = {}) {
+/** The rows with their owner kept beside them — main's own view, never sent to a window. */
+function collectPlugins(projectPath) {
   const plugins = [];
   for (const b of inventoryBackends()) {
     const descriptor = backendById(b.id);
@@ -148,11 +146,32 @@ function getPluginInventory({ projectPath = null } = {}) {
       ? fromHook(descriptor, projectPath)
       : fromListing(descriptor, projectPath);
     for (const r of rows) {
-      plugins.push({ id: rowId([descriptor.id, r.kind, r.scope, r.name, r.path]), backendLabel: label, ...r });
+      plugins.push({ id: rowId([descriptor.id, r.kind, r.scope, r.name, r.path]), backendLabel: label, ...r, _backendId: descriptor.id });
     }
   }
   plugins.sort((a, b) => a.name.localeCompare(b.name) || a.backendLabel.localeCompare(b.backendLabel));
-  return { plugins };
+  return plugins;
+}
+
+/**
+ * Every installed plugin, package and extension for one project: `{ plugins: [{ id, kind, name,
+ * backendLabel, scope, state, path, brings }] }`, sorted by name. A backend that throws is skipped and
+ * the others still answer.
+ */
+function getPluginInventory({ projectPath = null } = {}) {
+  return { plugins: collectPlugins(projectPath).map(({ _backendId, ...row }) => row) };
+}
+
+/**
+ * Open one plugin's folder (#803 T9), named by its inventory id. The owner and the path are looked up here and
+ * the open goes through `backend-resources.js`'s own door, which re-derives that backend's listing and refuses a
+ * path it does not reach — so a window can name a row, never a path, and never more than the listing allows.
+ */
+async function openPlugin({ id, projectPath = null } = {}) {
+  const row = collectPlugins(projectPath).find(r => r.id === id);
+  if (!row) return { ok: false, reason: 'That plugin is no longer listed.' };
+  if (!row.path) return { ok: false, reason: 'This entry names no folder to open.' };
+  return backendResources.openResource(row._backendId, row.path, projectPath);
 }
 
 /** Every app a backend reports: `{ apps: [{ id, name, backendLabel, state }] }`. Empty while none answers. */
@@ -180,6 +199,7 @@ function registerIpc(ipcMain) {
   const projectOf = (p) => (typeof p === 'string' && p ? p : null);
   ipcMain.handle('get-plugin-inventory', (_e, projectPath) => getPluginInventory({ projectPath: projectOf(projectPath) }));
   ipcMain.handle('get-app-inventory', (_e, projectPath) => getAppInventory({ projectPath: projectOf(projectPath) }));
+  ipcMain.handle('open-plugin', (_e, id, projectPath) => openPlugin({ id: typeof id === 'string' ? id : '', projectPath: projectOf(projectPath) }));
 }
 
-module.exports = { init, registerIpc, getPluginInventory, getAppInventory, PLUGIN_KINDS };
+module.exports = { init, registerIpc, getPluginInventory, getAppInventory, openPlugin, PLUGIN_KINDS };
