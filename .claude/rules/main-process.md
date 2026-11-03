@@ -22,7 +22,13 @@ moving them buys churn).
 `skills.js` (what a running session can be asked to run — #462; a BACKEND skill is asked for through
 the descriptor's `listResources`/`expandResource`, a SWITCHBOARD skill belongs to nobody's CLI and is
 always handed over as text. Since #803 it also answers the Plugins manager's neutral inventory — one row
-per skill FILE, no backend id to the renderer, every owner of a file kept in main — and one skill's detail),
+per skill FILE, no backend id to the renderer, every owner of a file kept in main — and one skill's detail.
+Since #803 T5 it is also the skill editor's door: `read-skill` / `save-skill` take an inventory ID, never a path, and
+a registered project or none. The app's own skill is admitted by EQUALITY with `switchboardSkillFiles` (what the
+expander named, real path inside `skillsDir`; a network path, a filesystem root, the home directory or above, and a
+backend's own directory are refused) and written through `safe-write.js`; a backend's skill goes through
+`backend-resources.js` for the first owner whose `resourceEditing` takes it. `editable` on a row is the same
+predicate. The sidebar's Agent Files is not this door and does not list the app's skills),
 `skill-delivery.js` (what one skill is to one target backend — #803, spec 40 F2: `text`, `native`, `shared`,
 `declined` or `none` with a sentence; it asks `resource-sources.resolve` for the target's configured source and
 matches the skill file by containment, so the detail page and the launch cannot disagree. Pure, no IPC, names

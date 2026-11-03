@@ -645,6 +645,8 @@ skills.init({
   dataDir: require('./db/connection').DATA_DIR,
   // Lazy for the same reason the plans wiring is: the settings module is required further down this file.
   effectiveSettings: (projectPath) => require('./app/settings').effectiveSettings(projectPath),
+  // #803 T5: the skill editor speaks only for a registered project (it decides where `skillsDir` resolves).
+  projectStates: () => getProjectStates(),
 });
 skills.registerIpc(ipcMain);
 

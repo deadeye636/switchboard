@@ -438,4 +438,4 @@ function registerIpc(ipc) {
   ipc.handle('backend-delete-resource', (_event, backendId, resourcePath, projectPath) => deleteResource(backendId, resourcePath, projectPath ?? null));
 }
 
-module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, writeResource, createResource, deleteResource, isDeletableKind, _isInside: isInside, _editableHere: editableHere, _validResourceName: validResourceName, _readableError: readableError };
+module.exports = { init, registerIpc, listResources, openResource, expandResource, readResource, writeResource, createResource, deleteResource, isDeletableKind, _isInside: isInside, _editableHere: editableHere, _reachable: reachable, _validResourceName: validResourceName, _readableError: readableError };

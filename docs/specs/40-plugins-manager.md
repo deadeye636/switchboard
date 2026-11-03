@@ -140,7 +140,11 @@ E1 to E10 were put to the owner with options; every one was answered as recommen
 | E2 | An MCP toggle is staged until Save (spec 36's contract). |
 | E3 | Apps view present with an honest empty state, plus an optional `listApps` descriptor hook no backend implements yet. |
 | E4 | One skill row per file path; same-name files elsewhere are marked "also named in". |
-| E5 | Skill Edit hands off to Agent Files through a main relay; no second editor. Reopened by T1 (F1), because Agent Files listed and opened no Switchboard-owned skill. **Re-decided 2026-11-02:** Agent Files gains a "Switchboard skills" group, `isAllowedMemoryPath` admits the configured skills directory (that one directory, resolved on real paths through `src/app/path-containment.js`), and the relay opens the file there. Still one editor. |
+| E5 | Skill Edit hands off to Agent Files through a main relay; no second editor. Reopened by T1 (F1), because Agent Files listed and opened no Switchboard-owned skill. Re-decided 2026-11-02 (Agent Files group + widened memory door + relay). **Superseded by E11 on 2026-11-03** before it was committed. |
+| E11 | (2026-11-03) The sidebar's Agent Files is the old surface; Settings → Plugins is the new one. A skill is **edited on its own detail page** in the Skills view. Reads and saves go through `read-skill` / `save-skill` in `src/app/skills.js`, named by inventory ID: the app's own skill through `safe-write.js`, a backend's through `src/app/backend-resources.js` for the first owner whose `resourceEditing` takes it. No relay to the main window. |
+| E12 | (2026-11-03) Once the Plugins manager is built, the sidebar's Agent Files **stops listing skills and plugins**; it keeps instruction files, settings files and handoffs. A step of its own (T12). |
+| E13 | (2026-11-03) The sidebar gets **no** "Switchboard skills" group; the memory door is not widened. |
+| E14 | (2026-11-03) A `skillsDir` at, inside or above a backend's own directory is **refused** for editing — those files belong to that CLI and its own door decides. Also refused, for the editor and the picker's walk alike, on the real path: a network path, a filesystem root (a junction to one included), the home directory and anything above it. |
 | E6 | Plugin state is read-only; Switchboard does not write a CLI's plugin settings. |
 | E7 | Five nav items under a "Plugins" head, not a tab strip. |
 | E8 | The global window's MCPs view explains the per-project list and offers a project picker. |

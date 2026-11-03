@@ -103,7 +103,7 @@ test('no row carries a backend id, an invocation or the listing source', () => {
   const rows = skills.getSkillInventory({}).skills;
   assert.equal(rows.length, 2);
   for (const row of rows) {
-    assert.deepEqual(Object.keys(row).sort(), ['alsoNamed', 'filePath', 'id', 'name', 'scope', 'sourceLabel']);
+    assert.deepEqual(Object.keys(row).sort(), ['alsoNamed', 'editable', 'filePath', 'id', 'name', 'scope', 'sourceLabel']);
   }
 });
 

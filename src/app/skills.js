@@ -26,10 +26,15 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const { _expandSkillTree } = require('../backends/resource-expand');
-const { isAtOrInside } = require('./path-containment');
+const { isAtOrInside, samePath, realPathish } = require('./path-containment');
+const backendResources = require('./backend-resources');
+const { readableError } = require('./readable-error');
+const { writeTextFile } = require('./safe-write');
+const { worktreeRootOf } = require('../shared/worktree-path');
 const resourceSources = require('./resource-sources');
 const skillDelivery = require('./skill-delivery');
 
@@ -141,6 +146,9 @@ function backendSkills(descriptor, projectPath, scope) {
 /** The app's own skills. Always text, so no descriptor is consulted and none could answer. */
 function ownSkills(projectPath) {
   const dir = switchboardSkillsDir(projectPath);
+  // Not a directory nobody should walk (#803 T5): a root, the home directory or a network path set as
+  // `skillsDir` meant a synchronous walk of everything below it, on the main process, for the picker too.
+  if (unsafeToWalk(dir)) return [];
   try { if (!fs.statSync(dir).isDirectory()) return []; } catch { return []; }
   const entries = [];
   // `rootMarkdown`, so a one-file skill sitting directly in the directory counts. Somebody writing their
@@ -150,6 +158,96 @@ function ownSkills(projectPath) {
     name: e.name, filePath: e.path, origin: 'Switchboard', scope: 'global', backendId: null, invocation: null,
     source: 'switchboard-skills',
   }));
+}
+
+/**
+ * Why the app's skills directory must not be read, or null when it may be (#803 T5, owner decisions E11, E14).
+ *
+ * The skill editor saves what this admits, and a `skillsDir` is a setting anyone can point anywhere — and the
+ * expander walks it with `rootMarkdown`, so a wide directory is both a write permission over every loose `.md`
+ * in it and a synchronous walk of everything below it on the main process. Refused, each on the REAL path
+ * (reflex 13; a junction to `C:\` is spelled like an ordinary folder):
+ *   - a network path, before anything touches it (a stat of `\\host\share` is a connection to that host);
+ *   - a filesystem root;
+ *   - the home directory or any directory above it;
+ *   - a directory at, inside or above one of a backend's own directories (E14): those files belong to that
+ *     CLI, and its own door decides whether they are writable — a backend that declares nothing is read-only.
+ */
+function unusableSkillsDir(dir, projectPath) {
+  const unsafe = unsafeToWalk(dir);
+  if (unsafe) return unsafe;
+  const real = realPathish(path.resolve(dir));
+  for (const root of backendRoots(projectPath)) {
+    if (isAtOrInside(real, root) || isAtOrInside(root, real)) return 'a backend\'s own directory';
+  }
+  return null;
+}
+
+/**
+ * The half of the refusal that also guards the picker's walk: network path, filesystem root, home and above.
+ * The network test is asked of the spelled path AND the real one: a junction or a mapped drive can resolve
+ * to a share while being spelled like a local folder.
+ */
+function unsafeToWalk(dir) {
+  const isNetwork = (p) => /^[\\/]{2}/.test(String(p));
+  if (isNetwork(dir)) return 'a network path';
+  const real = realPathish(path.resolve(dir));
+  if (isNetwork(real)) return 'a network path';
+  if (path.parse(real).root === real) return 'a drive root';
+  if (isAtOrInside(os.homedir(), real)) return 'the home directory or a directory above it';
+  return null;
+}
+
+/**
+ * The directories the backends list as their own, for one scope — what a `skillsDir` must stay clear of.
+ *
+ * Listed directories, and the folder of a GLOBAL listed file. A project file says nothing about who owns the
+ * folder it sits in: Claude and Codex list a project's `CLAUDE.md` / `AGENTS.md`, and taking their parent would
+ * make the project root "a backend's" and refuse every project-relative `skillsDir` (`docs/skills`). For the
+ * same reason a root that is the project, the home directory or above either is skipped — it is not a CLI's own.
+ */
+function backendRoots(projectPath) {
+  const roots = [];
+  for (const b of inventoryBackends()) {
+    const d = backendById(b.id);
+    if (!d || typeof d.listResources !== 'function') continue;
+    let listed = null;
+    try { listed = d.listResources({ projectPath: projectPath || null }); } catch { continue; }
+    for (const entry of (listed && Array.isArray(listed.resources) ? listed.resources : [])) {
+      if (!entry || !entry.path) continue;
+      let root = null;
+      try {
+        if (fs.statSync(entry.path).isDirectory()) root = entry.path;
+        // A GLOBAL file (a CLI's own CLAUDE.md, settings.json) does name its home: a fresh install lists no
+        // directory at all, and its home must still be the CLI's. A project file names only the project,
+        // which the two skips below leave out.
+        else if ((entry.scope || 'global') === 'global') root = path.dirname(entry.path);
+      } catch { continue; }
+      if (!root) continue;
+      if (isAtOrInside(os.homedir(), root)) continue;
+      if (projectPath && isAtOrInside(projectPath, root)) continue;
+      roots.push(root);
+    }
+  }
+  return roots;
+}
+
+/**
+ * The app's own skill FILES the skill editor may open and save (#803 T5): `{ dir, files, refused }`.
+ *
+ * Exactly the files the expander named, and of those only the ones whose REAL path is still inside the
+ * directory — a skill folder that is a junction to somewhere else is listed by the expander (it follows
+ * links) and is left out here, because what is saved through it would land outside the directory the
+ * setting names. The answer is a list of files: a caller admits a path by equality, never by directory.
+ */
+function switchboardSkillFiles(projectPath = null) {
+  const dir = switchboardSkillsDir(projectPath);
+  const refused = unusableSkillsDir(dir, projectPath);
+  if (refused) return { dir, files: [], refused };
+  const files = ownSkills(projectPath)
+    .filter(r => isAtOrInside(r.filePath, dir))
+    .map(r => ({ name: r.name, filePath: r.filePath }));
+  return { dir, files, refused: null };
 }
 
 /** Rows with one key per file, the first listing kept: a directory listed under two sources is one skill. */
@@ -258,6 +356,7 @@ function getSkillInventory({ projectPath = null } = {}) {
     if (!byName.has(key)) byName.set(key, []);
     byName.get(key).push(r);
   }
+  const editable = editableCheck(projectPath);
   const skills = rows.map(r => ({
     id: skillId(r.filePath),
     name: r.name,
@@ -267,8 +366,140 @@ function getSkillInventory({ projectPath = null } = {}) {
     alsoNamed: byName.get(r.name.toLowerCase())
       .filter(o => o !== r)
       .map(o => ({ sourceLabel: o.origin, filePath: o.filePath })),
+    editable: editable(r),
   }));
   return { skills, skillsDir: switchboardSkillsDir(projectPath) };
+}
+
+// --- The skill editor's door (#803 T5, owner decisions E11, E13, E14) ------------------------------------
+//
+// A skill is edited on its own detail page in Settings → Plugins, not in the sidebar's Agent Files (E11). The
+// window names a skill by its inventory ID, never by a path: the path, the door and the guards are decided
+// here on every call. Two doors, and `editable` on an inventory row is the same predicate, so nothing is
+// offered an Edit that the save then refuses:
+//   - the app's own skill: a file the expander named in a `skillsDir` that `unusableSkillsDir` admits, whose
+//     REAL path is still inside that directory (a skill folder linked out of it is listed, never editable),
+//     markdown only, written through `safe-write.js`;
+//   - a backend's skill: through the backend's own resource reader and writer (`backend-resources.js`), for
+//     the first owner whose `resourceEditing` takes the extension AND whose listing reaches the file — the two
+//     checks that module's writer makes, asked here the same way so `editable` does not promise a refused save.
+
+const OWN_SKILL_EXTENSIONS = new Set(['.md']);
+const MAX_SKILL_BYTES = 1024 * 1024;
+
+/**
+ * The door for one listing pass: `door(row)` → `{ kind: 'own', dir } | { kind: 'backend', backendId } | null`.
+ * The app's directory is judged once and each backend listed once per pass, not once per row.
+ */
+function doorCheck(projectPath) {
+  let own = null;
+  const listings = new Map();
+  const listingOf = (d) => {
+    if (!listings.has(d.id)) {
+      let resources = [];
+      try {
+        const listed = d.listResources({ projectPath: projectPath || null });
+        resources = listed && Array.isArray(listed.resources) ? listed.resources : [];
+      } catch { resources = []; }
+      listings.set(d.id, resources);
+    }
+    return listings.get(d.id);
+  };
+  return (row) => {
+    if (row.source === 'switchboard-skills') {
+      if (!OWN_SKILL_EXTENSIONS.has(path.extname(row.filePath).toLowerCase())) return null;
+      if (!own) {
+        const dir = switchboardSkillsDir(projectPath);
+        own = { dir, refused: unusableSkillsDir(dir, projectPath) };
+      }
+      if (own.refused || !isAtOrInside(row.filePath, own.dir)) return null;
+      return { kind: 'own', dir: own.dir };
+    }
+    for (const o of row.owners || []) {
+      const d = backendById(o.backendId);
+      if (!d || typeof d.listResources !== 'function') continue;
+      if (!backendResources._editableHere(d, row.filePath)) continue;
+      if (!backendResources._reachable(d, listingOf(d), row.filePath)) continue;
+      return { kind: 'backend', backendId: o.backendId };
+    }
+    return null;
+  };
+}
+
+/** `editable` on a listing pass: the same door the read and the save use. */
+function editableCheck(projectPath) {
+  const door = doorCheck(projectPath);
+  return (row) => !!door(row);
+}
+
+/**
+ * A project the request may speak for: none (the global scope) or one the register holds — a worktree
+ * through the project it belongs to (reflex 17). The project decides where a relative `skillsDir` resolves,
+ * so an arbitrary path from a window would choose the directory the editor writes into.
+ */
+function projectAllowed(projectPath) {
+  if (!projectPath) return true;
+  const owner = worktreeRootOf(projectPath) || projectPath;
+  try {
+    for (const [p, state] of (ctx.projectStates ? ctx.projectStates() : [])) {
+      if (state && state.registered && samePath(p, owner)) return true;
+    }
+  } catch {}
+  return false;
+}
+
+function doorFor(id, projectPath) {
+  if (!projectAllowed(projectPath)) return { error: 'That project is not on the list.' };
+  const row = collectSkillInventory({ projectPath }).find(r => skillId(r.filePath) === id);
+  if (!row) return { error: 'That skill is no longer listed.' };
+  const door = doorCheck(projectPath)(row);
+  if (!door) return { error: 'This skill cannot be edited here.' };
+  return { row, door };
+}
+
+/** The text of one skill for its editor: `{ ok, content }` or `{ ok: false, reason }`. */
+async function readSkill({ id, projectPath = null } = {}) {
+  const found = doorFor(id, projectPath);
+  if (found.error) return { ok: false, reason: found.error };
+  const { row, door } = found;
+  if (door.kind === 'backend') return backendResources.readResource(door.backendId, row.filePath, projectPath);
+  try {
+    const stat = fs.statSync(row.filePath);
+    if (!stat.isFile()) return { ok: false, reason: 'That is not a file.' };
+    if (stat.size > MAX_SKILL_BYTES) return { ok: false, reason: 'Too large to edit here.' };
+    return { ok: true, content: fs.readFileSync(row.filePath, 'utf8') };
+  } catch (err) {
+    return { ok: false, reason: readableError(err, 'Could not read that skill.', ctx.log) };
+  }
+}
+
+/**
+ * Save one skill: `{ ok, content }`, `{ ok: false, conflict: true, diskContent, reason }` when the file moved
+ * under the editor (the baseline compare of `safe-write.js`), or `{ ok: false, reason }`.
+ *
+ * A baseline is required: the editor only ever saves a file it read, and a save without one would overwrite
+ * whatever is on disk unchecked. The door is judged on this call, so a skill folder that became a link out of
+ * the directory since the page was drawn is refused; a swap in the instant between that check and the write
+ * is the race every memory and plan save in this app carries, and it is not narrowed here.
+ */
+async function saveSkill({ id, projectPath = null, content, baseline = null } = {}) {
+  if (typeof content !== 'string') return { ok: false, reason: 'Nothing to save.' };
+  if (typeof baseline !== 'string') return { ok: false, reason: 'Open the skill again before saving it.' };
+  const found = doorFor(id, projectPath);
+  if (found.error) return { ok: false, reason: found.error };
+  const { row, door } = found;
+  if (door.kind === 'backend') {
+    return backendResources.writeResource(door.backendId, row.filePath, content, projectPath, baseline);
+  }
+  try {
+    const result = writeTextFile(row.filePath, content, { expectPrevious: baseline, mustExist: true });
+    if (result.ok) return { ok: true, content: result.content };
+    if (result.code === 'stale') return { ok: false, conflict: true, diskContent: result.diskContent, reason: result.error };
+    if (result.code === 'failed') return { ok: false, reason: readableError(result.cause, 'Could not save that skill.', ctx.log) };
+    return { ok: false, reason: result.error || 'Could not save that skill.' };
+  } catch (err) {
+    return { ok: false, reason: readableError(err, 'Could not save that skill.', ctx.log) };
+  }
 }
 
 /** The CLI a descriptor belongs to — a driver of a CLI counts as that CLI. The registry's rule. */
@@ -329,9 +560,16 @@ function registerIpc(ipcMain) {
   ipcMain.handle('get-skill-detail', (_e, id, projectPath) => getSkillDetail({
     id: typeof id === 'string' ? id : '', projectPath: typeof projectPath === 'string' && projectPath ? projectPath : null,
   }));
+  const idOf = (id) => (typeof id === 'string' ? id : '');
+  const projectOf = (p) => (typeof p === 'string' && p ? p : null);
+  ipcMain.handle('read-skill', (_e, id, projectPath) => readSkill({ id: idOf(id), projectPath: projectOf(projectPath) }));
+  ipcMain.handle('save-skill', (_e, id, projectPath, content, baseline) => saveSkill({
+    id: idOf(id), projectPath: projectOf(projectPath), content,
+    baseline: typeof baseline === 'string' ? baseline : null,
+  }));
 }
 
 module.exports = {
-  init, registerIpc, getSkills, getSkillInventory, getSkillDetail,
+  init, registerIpc, getSkills, getSkillInventory, getSkillDetail, switchboardSkillFiles, readSkill, saveSkill,
   _collectSkillInventory: collectSkillInventory, _switchboardSkillsDir: switchboardSkillsDir,
 };

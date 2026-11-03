@@ -188,7 +188,7 @@ a terminal. The conventions themselves are `docs/plans-convention.md` and `docs/
 | `planDirNames` | Plan directories to look for | list of project-relative paths, each searched up to three folder levels down for plan bundles (#743) | `['.plans', 'docs/plans', 'plans', '.agent/plans']` | global + project |
 | `planDir` | Where this project keeps plans | project-relative path | `.plans` | global + project |
 | `planInsertTemplate` | Plan insert template | string with `{path}` / `{title}` / `{filename}` (for a bundle plan, `{filename}` is its path below the plans directory, e.g. `<slug>/PLAN.md`) | `Follow the plan at {path}` | global + project |
-| `skillsDir` | Where the app's own skills live | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
+| `skillsDir` | Where the app's own skills live. A network path, a filesystem root (also reached through a link), or the home directory and anything above it lists no skills at all; a directory at, inside or above a CLI's own directory lists them but they cannot be edited in Settings → Plugins (#803) | absolute path, or project-relative in a project | `''` (the `skills` directory beside the database) | global + project |
 | `skillInsertTemplate` | Skill insert template | string with `{path}` / `{name}` | `Use the skill at {path}` | global + project |
 | `submitSkillOnPick` | Picking a skill runs it | `true` \| `false` | `true` | global + project |
 | `handoffDirNames` | Handoff directories | list of project-relative paths | `['.handoffs', 'docs/handoffs', 'handoffs', '.agent/handoffs']` | global + project |
