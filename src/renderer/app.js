@@ -949,6 +949,17 @@ globalSettingsBtn.innerHTML = ICONS.gear(18);
 // second layout of the same screen to keep working as the settings grow.
 globalSettingsBtn.addEventListener('click', () => window.api.openSettingsWindow('global'));
 
+// #803: the Plugins manager from the command palette — the global Settings window, on its Plugins view.
+if (typeof registerCommandAction === 'function') {
+  registerCommandAction({
+    id: 'settings.plugins',
+    title: 'Open Plugins',
+    group: 'Settings',
+    keywords: 'plugins apps mcp mcps servers skills marketplace extensions',
+    run: () => window.api.openSettingsWindow('global', null, { cat: 'plugins-plugins' }),
+  });
+}
+
 // --- Add project button ---
 addProjectBtn.addEventListener('click', () => {
   showAddProjectDialog();

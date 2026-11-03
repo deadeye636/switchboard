@@ -23,6 +23,9 @@ if (typeof window.openSettingsViewer === 'function') {
       // Apply's rebuild (another `openSettingsViewer`, no reload) does not open the form again.
       window.__SETTINGS_SEED__ = params.get('addon') ? { addon: params.get('addon') } : null;
     }
+    // #803: a category of the Plugins group to land on, in either scope. Main sends only an id from its fixed list.
+    const cat = params.get('cat');
+    if (cat) window.__SETTINGS_SEED__ = { ...(window.__SETTINGS_SEED__ || {}), cat };
   } catch { /* no query: the global settings are the sane default */ }
   window.openSettingsViewer(scope, projectPath);
 }

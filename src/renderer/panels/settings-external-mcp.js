@@ -1085,5 +1085,5 @@
     }
   }
 
-  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, rowStateWords, bindAddons, openSeeded };
+  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, rowStateWords, bindAddons, openSeeded, fillPicker, pickableProjects };
 })();

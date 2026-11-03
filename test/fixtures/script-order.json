@@ -166,6 +166,7 @@
     "plugins-kit.js",
     "plugins-views.js",
     "settings-external-mcp.js",
+    "settings-plugins.js",
     "settings-global-html.js",
     "settings-panel.js",
     "settings-window.js"

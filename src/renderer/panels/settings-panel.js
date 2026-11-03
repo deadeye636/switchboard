@@ -454,6 +454,9 @@
     // are delegated, because the project scope grows a nav entry and a pane PER BACKEND after main has
     // answered — a snapshot taken at wiring time would leave every one of those entries dead.
     let twoPane = null;
+    // The Plugins group of this render (#803): asked before a search, Cancel, Save or Apply drops a page's work.
+    let pluginsCtl = null;
+    const pluginsMayLeave = () => !pluginsCtl || pluginsCtl.leave();
     function wireTwoPane() {
       const navRoot = settingsViewerBody.querySelector('.settings-nav');
       if (!navRoot) return null;
@@ -518,7 +521,7 @@
         q = (q || '').trim().toLowerCase();
         if (!q) {
           settingsViewerBody.querySelectorAll('.settings-cat .settings-field').forEach(f => { f.style.display = ''; });
-          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv').forEach(e => { e.style.display = ''; });
+          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv, .plugins-section, .plugins-filter-row').forEach(e => { e.style.display = ''; });
           // A search force-opens every disclosure so a hit inside one is visible. Leaving the search must
           // put the EXPLAINERS back — they are prose that defaults to collapsed, and without this one
           // search left them open for the rest of the session. An Advanced block is a settings surface the
@@ -529,8 +532,16 @@
           if (cat) showCat(cat);
           return;
         }
+        // A Plugins page holding unsaved work (#803) is not searched away: the search stops and says why. Every other
+        // page of the group goes back to its list first, so its rows are where the search can show them.
+        if (!pluginsMayLeave()) {
+          if (searchInput) searchInput.value = '';
+          return;
+        }
         // Search across all categories at once.
         cats().forEach(c => c.classList.add('active'));
+        // A view's own filter box and count have nothing to do with this search.
+        settingsViewerBody.querySelectorAll('.plugins-filter-row').forEach(e => { e.style.display = 'none'; });
         settingsViewerBody.querySelectorAll('.settings-cat-head').forEach(e => e.style.display = 'none');
         settingsViewerBody.querySelectorAll('details.settings-adv').forEach(d => {
           d.style.display = '';
@@ -549,7 +560,8 @@
             f.style.display = match ? '' : 'none';
             if (match) any = true;
           });
-          cat.querySelectorAll('.settings-section').forEach(s => {
+          // A list kit's section (#803) is a titled container of rows, the same shape as a settings section.
+          cat.querySelectorAll('.settings-section, .plugins-section').forEach(s => {
             const vis = Array.from(s.querySelectorAll('.settings-field')).some(f => f.style.display !== 'none');
             s.style.display = vis ? '' : 'none';
           });
@@ -641,7 +653,7 @@
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">Extensions</div>
           <button class="settings-nav-item" data-cat="launchers">Terminal tools</button>
-          <button class="settings-nav-item" data-cat="mcp" data-count-own="1">MCP servers <span class="settings-nav-count"></span></button>
+          ${window.settingsPlugins.navHtml('project')}
           <div class="settings-nav-sep" id="sv-nav-backends-sep" hidden></div>
           <div class="settings-nav-head" id="sv-nav-backends-head" hidden>Backends</div>
           <div id="sv-nav-backends"></div>
@@ -858,6 +870,7 @@
         <div id="sv-launchers-root"></div>
         </section>
 ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETTING_KEY], current[window.settingsExternalMcp.PRUNE_KEY])}
+${window.settingsPlugins.sectionsHtml('project')}
 
         <!-- Per-backend launch defaults (T-2.6) + that backend's resources (#490). One SECTION per
              backend, appended by backends-panel.js once main has answered which backends there are —
@@ -868,12 +881,16 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
       </div>`;
       wireTwoPane();
       window.settingsExternalMcp.bind(settingsViewerBody, listenerSignal, projectPath);
+      // #803: the Plugins group (the views, the Marketplace with "Add to this project", the counts).
+      pluginsCtl = window.settingsPlugins.bind(settingsViewerBody, listenerSignal, { scope, projectPath, restoreCat });
       // #790: opened from the global catalog's "Add to project" — show MCP servers with the Add form prefilled. The
       // seed is one-shot (settings-window.js sets it from the URL): taken and cleared here, so Apply's rebuild, which
-      // calls this function again without a reload, does not open the form a second time.
+      // calls this function again without a reload, does not open the form a second time. #803 adds `cat`: land on a
+      // category of the Plugins group.
       const addonSeed = window.__SETTINGS_SEED__;
       window.__SETTINGS_SEED__ = null;
-      if (addonSeed && window.settingsExternalMcp.openSeeded(settingsViewerBody, listenerSignal, addonSeed.addon)) restoreCat('mcp');
+      if (addonSeed && addonSeed.addon && window.settingsExternalMcp.openSeeded(settingsViewerBody, listenerSignal, addonSeed.addon)) restoreCat('mcp');
+      else if (addonSeed && addonSeed.cat) restoreCat(addonSeed.cat);
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
@@ -946,6 +963,11 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.
       wireTwoPane();
+      // #803: the Plugins group, and a deep link into it (`openSettingsWindow('global', null, { cat })`, one-shot).
+      pluginsCtl = window.settingsPlugins.bind(settingsViewerBody, listenerSignal, { scope, projectPath: null, restoreCat });
+      const globalSeed = window.__SETTINGS_SEED__;
+      window.__SETTINGS_SEED__ = null;
+      if (globalSeed && globalSeed.cat) restoreCat(globalSeed.cat);
     }
 
     // --- Backends (T-2.3/T-2.6): backends-panel.js owns the section's DOM. Global scope gets the
@@ -1651,6 +1673,7 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
 
     // Save button
     svBtn('#sv-save-btn').addEventListener('click', async () => {
+      if (!pluginsMayLeave()) return;   // a skill page with unsaved text says so on itself (#803)
       if (await persistSettings() === false) return;
       flashSaved(svBtn('#sv-save-btn'));
       setTimeout(() => closeSettingsViewer(), 600);
@@ -1664,6 +1687,7 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
     // still be holding the pre-Apply state. Rebuilding is what makes Apply idempotent
     // and leaves Cancel discarding only what was edited since.
     svBtn('#sv-apply-btn').addEventListener('click', async () => {
+      if (!pluginsMayLeave()) return;   // the rebuild below would drop a skill page's unsaved text (#803)
       if (await persistSettings() === false) return;
       flashSaved(svBtn('#sv-apply-btn'));
       // Come back to the category the user was on, not to the top of the nav.
@@ -1683,6 +1707,7 @@ ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETT
 
     // Cancel button
     svBtn('#sv-cancel-btn').addEventListener('click', () => {
+      if (!pluginsMayLeave()) return;   // unsaved skill text is not discarded by a Cancel meant for the settings (#803)
       stopShortcutCapture();
       closeSettingsViewer();
     });

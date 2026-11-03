@@ -93,7 +93,7 @@
           <button class="settings-nav-item" data-cat="backends">Backends</button>
           <button class="settings-nav-item" data-cat="launchers">Custom launchers</button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
-          <button class="settings-nav-item" data-cat="mcp-addons">MCP servers</button>
+          ${window.settingsPlugins.navHtml('global')}
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">App</div>
           <button class="settings-nav-item" data-cat="maintenance">Maintenance <span class="settings-nav-count"></span></button>
@@ -1098,14 +1098,15 @@
               </div>
             </section>
 
-            <!-- ===== MCP servers (#790): filled by settingsExternalMcp.bindAddons, nothing counted ===== -->
+            <!-- ===== Marketplace (#790, #803): filled by settingsExternalMcp.bindAddons; counted by settings-plugins.js ===== -->
             <section class="settings-cat" data-cat="mcp-addons">
               <div class="settings-cat-head">
-                <h2>MCP servers</h2>
+                <h2>Marketplace</h2>
                 <p>Installed on this machine. A short, reviewed list of external MCP servers, whether they are on PATH, and the commands to install or remove them.</p>
               </div>
               <div id="sv-mcp-addons"></div>
             </section>
+${window.settingsPlugins.sectionsHtml('global')}
 
             <!-- ===== Tags (#138) ===== -->
             <section class="settings-cat" data-cat="tags">

@@ -87,7 +87,7 @@ function setup() {
   }
   // The modules under test.
   for (const rel of ['panels/settings-tags.js', 'panels/settings-maintenance.js', 'panels/settings-shortcuts.js',
-                     'panels/settings-project-tags.js', 'panels/settings-global-html.js']) {
+                     'panels/settings-project-tags.js', 'panels/settings-plugins.js', 'panels/settings-global-html.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
   const inCtx = (code) => vm.runInContext(code, ctx);
@@ -291,7 +291,7 @@ test('settings-external-mcp: the text area renders the stored list, round-trips 
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -341,7 +341,7 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -434,7 +434,7 @@ test('settings-external-mcp: the inline form adds and edits through the one vali
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -545,7 +545,7 @@ test('settings-external-mcp: the prune switch reflects the stored flag, is read 
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -586,7 +586,7 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
       { url: 'http://localhost/', runScripts: 'outside-only' });
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     if (listImpl) dom.window.api = { backends: { list: listImpl } };
@@ -678,7 +678,7 @@ test('settings-external-mcp: the nav count is the number of servers', () => {
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -708,7 +708,7 @@ test('settings-external-mcp: editing an already-rejected entry into a duplicate 
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -741,7 +741,7 @@ test('settings-external-mcp: the facts line renders, a stale reply is dropped, a
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -849,7 +849,7 @@ test('settings-external-mcp: facts arrive on an open detail page, and survive sw
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -885,7 +885,7 @@ test('settings-external-mcp: a row says one state — not used at launch, off, f
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const w = dom.window.settingsExternalMcp.rowStateWords;
@@ -906,7 +906,7 @@ test('settings-external-mcp: every reason code has a sentence and an unknown cod
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const mod = dom.window.settingsExternalMcp;
@@ -940,7 +940,7 @@ test('settings-external-mcp: facts wording for a default, no redraw while typing
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;

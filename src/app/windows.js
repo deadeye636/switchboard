@@ -92,8 +92,16 @@ function settingsQuery(scope, projectPath, seed) {
     const addon = seed && typeof seed === 'object' ? seed.addon : undefined;
     if (findCatalogItem(addon)) query.addon = addon;
   }
+  // #803: land on a category of the Plugins group. Only an id from this fixed list rides along; anything else is
+  // dropped and the window opens where it always does. The list is `SEED_CATS` in panels/settings-plugins.js.
+  const cat = seed && typeof seed === 'object' ? seed.cat : undefined;
+  if (typeof cat === 'string' && SETTINGS_SEED_CATS.includes(cat)) query.cat = cat;
   return query;
 }
+
+// The categories a deep link may name — a copy of `SEED_CATS` in src/renderer/panels/settings-plugins.js (the two are
+// compared by test/settings-plugins.test.js). `mcp` exists only in a project window, `plugins-mcps` only in the global.
+const SETTINGS_SEED_CATS = ['plugins-plugins', 'plugins-apps', 'plugins-skills', 'plugins-mcps', 'mcp', 'mcp-addons'];
 
 function loadSettings(win, query) {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'), { query });
@@ -103,7 +111,7 @@ function loadSettings(win, query) {
 // (#790). A seeded open still differs from what is shown and loads; a later plain open of the same project then
 // only raises the window instead of reloading it over the form the seed opened.
 function shownQueryKey(query) {
-  const { addon, ...about } = query;
+  const { addon, cat, ...about } = query;
   return JSON.stringify(about);
 }
 
@@ -113,7 +121,9 @@ function openSettingsWindow(scope, projectPath, seed) {
     const win = settingsWindow;
     // Showing this already? Then there is nothing to re-seed and nothing to discard — raising it is
     // the whole of the answer, and reloading would throw away edits in progress.
-    const sameThing = win.isVisible() && win.__settingsQuery === JSON.stringify(query);
+    // A category to land on (`cat`, #803) does not make it a different thing: the window is raised as it is, edits
+    // kept, rather than reloaded onto that category. A catalog hand-off (`addon`) still reloads — it has a form to fill.
+    const sameThing = win.isVisible() && !query.addon && win.__settingsQuery === shownQueryKey(query);
     if (sameThing) { win.focus(); return; }
     win.__settingsQuery = shownQueryKey(query);
     win.webContents.once('did-finish-load', () => {

@@ -158,6 +158,8 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/plugins-kit.js': [],
   // #803 T9 — the Plugins, Apps and Skills views; every label, state and sentence is served by main.
   'src/renderer/panels/plugins-views.js': [],
+  // #803 T10 — the Plugins group of the settings screen: nav, sections, wiring; names no backend.
+  'src/renderer/panels/settings-plugins.js': [],
   'src/renderer/panels/settings-global-html.js': [],
   'src/renderer/shell/session-restore.js': [],
   'src/renderer/shell/detach-window.js': [],
