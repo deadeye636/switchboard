@@ -32,6 +32,14 @@ const { JSDOM } = require('jsdom');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 
+// #803 T7: a project MCP server is a one-line row of the list kit; what its card held is on its detail page.
+const mcpRows = (root) => Array.from(root.querySelectorAll('#sv-external-mcp-cards .plugins-row'));
+function mcpOpen(root, i) {
+  mcpRows(root)[i].querySelector('.plugins-row-open').click();
+  return root.querySelector('#sv-external-mcp-cards .plugins-detail');
+}
+const mcpButton = (detail, label) => Array.from(detail.querySelectorAll('button')).find(b => b.textContent === label);
+
 // The markup openSettingsViewer builds before it wires these modules — enough ids that every init()
 // finds what it queries. A module whose ids are absent early-returns (that is real behaviour too), but
 // giving it the ids exercises the listener binding, which is where a stale reference would surface.
@@ -283,7 +291,7 @@ test('settings-external-mcp: the text area renders the stored list, round-trips 
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -333,7 +341,7 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -346,53 +354,66 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     body.innerHTML = mod.sectionHtml(stored);
     mod.bind(body, new window.AbortController().signal);
     const ta = body.querySelector('#sv-external-mcp');
-    const cards = () => Array.from(body.querySelectorAll('#sv-external-mcp-cards .sv-mcp-card'));
     const json = body.querySelector('details.settings-adv#sv-external-mcp-json');
 
-    assert.strictEqual(cards().length, 2, 'one card per stored entry');
+    assert.strictEqual(mcpRows(body).length, 2, 'one row per stored entry');
     assert.ok(json && !json.open, 'the JSON disclosure is closed by default');
     assert.ok(json.contains(ta), 'the text area lives in the disclosure');
     assert.strictEqual(body.querySelector('#sv-external-mcp-add').disabled, false, 'Add is reachable on a valid list');
 
-    // Every control is a styled one; nothing carries an inline colour.
+    // One line per server: name, transport and one state, the switch — no chips, facts or sentences on the row.
     const region = body.querySelector('#sv-external-mcp-cards');
-    for (const b of region.querySelectorAll('button')) assert.ok(b.className.includes('settings-action-btn'), 'a styled button');
-    assert.strictEqual(region.querySelectorAll('[style]').length, 0, 'no inline style in the cards');
+    assert.deepStrictEqual(mcpRows(body).map(r => r.querySelector('.plugins-row-meta').textContent), ['http', 'stdio · not checked']);
+    for (const r of mcpRows(body)) {
+      assert.strictEqual(r.querySelector('.sv-mcp-chip, .sv-mcp-card-facts, .sv-mcp-problem, .sv-mcp-warning'), null);
+      assert.strictEqual(r.querySelector('.settings-description:not(.plugins-row-meta)'), null, 'no description node on a row');
+    }
+    assert.strictEqual(region.querySelectorAll('[style]').length, 0, 'no inline style in the list');
     assert.ok(region.querySelector('label.settings-toggle'), 'the switch reuses .settings-toggle');
 
     // The switch changes only `enabled` and leaves an unknown key in place.
-    const sw = cards()[0].querySelector('.settings-toggle input');
+    const sw = mcpRows(body)[0].querySelector('.settings-toggle input');
     assert.strictEqual(sw.checked, true);
+    sw.focus();
     sw.checked = false;
     sw.dispatchEvent(new window.Event('change'));
+    assert.strictEqual(window.document.activeElement, mcpRows(body)[0].querySelector('.settings-toggle input'),
+      'focus stays on the switch: a toggle is the same row');
     let now = JSON.parse(ta.value);
     assert.deepStrictEqual(now[0], { ...stored[0], enabled: false });
     assert.deepStrictEqual(now[1], stored[1]);
-    assert.strictEqual(cards()[0].querySelector('.settings-toggle input').checked, false, 'redrawn from the text');
+    assert.strictEqual(mcpRows(body)[0].querySelector('.settings-toggle input').checked, false, 'redrawn from the text');
+    assert.match(mcpRows(body)[0].querySelector('.plugins-row-meta').textContent, /off/);
 
-    // Remove drops exactly that entry.
-    cards()[0].querySelector('button.danger').click();
+    // The detail page: every button styled; Remove there drops exactly that entry and returns to the list.
+    let detail = mcpOpen(body, 0);
+    for (const b of detail.querySelectorAll('button')) assert.ok(b.className.includes('settings-action-btn'), 'a styled button');
+    assert.match(detail.textContent, /All backends/);
+    mcpButton(detail, 'Remove').click();
     now = JSON.parse(ta.value);
     assert.deepStrictEqual(now.map(e => e.name), ['tool']);
-    assert.strictEqual(cards().length, 1);
-    cards()[0].querySelector('button.danger').click();
+    assert.strictEqual(mcpRows(body).length, 1);
+    mcpButton(mcpOpen(body, 0), 'Remove').click();
     assert.strictEqual(ta.value, '', 'an emptied list is blank text');
-    assert.strictEqual(cards().length, 0);
+    assert.strictEqual(mcpRows(body).length, 0);
+    assert.match(region.textContent, /No servers yet/);
 
-    // A text edit redraws on blur; a rejected entry keeps a card with its reason and no switch.
+    // A text edit redraws on blur; a rejected entry keeps a row with no switch, its reason on the detail page.
     ta.value = JSON.stringify([{ name: 'bad name', transport: 'stdio', command: 'x' }, stored[1]]);
     ta.dispatchEvent(new window.Event('blur'));
-    assert.strictEqual(cards().length, 2);
-    assert.strictEqual(cards()[0].querySelector('.settings-toggle'), null, 'no switch on a rejected entry');
-    assert.match(cards()[0].textContent, /may only use/);
-    assert.ok(cards()[0].querySelector('button.danger'), 'a rejected entry can still be removed');
-    assert.ok(cards()[1].querySelector('.settings-toggle'));
+    assert.strictEqual(mcpRows(body).length, 2);
+    assert.strictEqual(mcpRows(body)[0].querySelector('.settings-toggle'), null, 'no switch on a rejected entry');
+    assert.match(mcpRows(body)[0].textContent, /not used at launch/);
+    assert.ok(mcpRows(body)[1].querySelector('.settings-toggle'));
+    detail = mcpOpen(body, 0);
+    assert.match(detail.textContent, /may only use/);
+    assert.ok(mcpButton(detail, 'Remove'), 'a rejected entry can still be removed');
 
-    // Invalid JSON: no cards, a sentence, the disclosure opens, read() still refuses.
+    // Invalid JSON: no rows, a sentence, the disclosure opens, read() still refuses.
     json.open = false;
     ta.value = '[{';
     ta.dispatchEvent(new window.Event('blur'));
-    assert.strictEqual(cards().length, 0);
+    assert.strictEqual(mcpRows(body).length, 0);
     assert.match(region.textContent, /not valid JSON/);
     assert.strictEqual(json.open, true);
     assert.strictEqual(body.querySelector('#sv-external-mcp-add').disabled, true);
@@ -402,7 +423,7 @@ test('settings-external-mcp: cards follow the text, a card operation edits the r
     body.innerHTML = mod.sectionHtml({ name: 'x' });
     mod.bind(body, new window.AbortController().signal);
     assert.deepStrictEqual(JSON.parse(body.querySelector('#sv-external-mcp').value), { name: 'x' });
-    assert.strictEqual(body.querySelectorAll('.sv-mcp-card').length, 0);
+    assert.strictEqual(mcpRows(body).length, 0);
     assert.match(body.querySelector('#sv-external-mcp-cards').textContent, /not a list/);
   } finally { dom.window.close(); }
 });
@@ -413,7 +434,7 @@ test('settings-external-mcp: the inline form adds and edits through the one vali
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -471,7 +492,7 @@ test('settings-external-mcp: the inline form adds and edits through the one vali
       name: 'tool', transport: 'stdio', command: 'npx', args: ['-y', 'pkg with space'],
       env: { MODE: 'fast', API_KEY: '${API_KEY}' }, cwd: '~/work',
     });
-    assert.strictEqual(body.querySelectorAll('.sv-mcp-card').length, 2);
+    assert.strictEqual(mcpRows(body).length, 2);
 
     // Add an http server: url and headers only.
     addBtn.click();
@@ -501,7 +522,7 @@ test('settings-external-mcp: the inline form adds and edits through the one vali
     btn('Cancel').click();
 
     // Edit one field in place; the other entries and the unknown key stay.
-    body.querySelectorAll('.sv-mcp-card')[0].querySelector('button').click();
+    mcpButton(mcpOpen(body, 0), 'Edit').click();
     assert.strictEqual(fieldOf('URL').querySelector('input').value, 'https://example.invalid/mcp');
     set(fieldOf('URL').querySelector('input'), 'https://example.invalid/new');
     btn('Save changes').click();
@@ -524,7 +545,7 @@ test('settings-external-mcp: the prune switch reflects the stored flag, is read 
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -565,7 +586,7 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
       { url: 'http://localhost/', runScripts: 'outside-only' });
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     if (listImpl) dom.window.api = { backends: { list: listImpl } };
@@ -592,21 +613,26 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     ];
     body.innerHTML = mod.sectionHtml(stored);
     mod.bind(body, new window.AbortController().signal);
-    const cards = () => Array.from(body.querySelectorAll('.sv-mcp-card'));
-    const chipText = (card) => Array.from(card.querySelectorAll('.sv-mcp-chip')).map(c => c.textContent);
-    assert.deepStrictEqual(chipText(cards()[0]), ['beta', 'zeta'], 'raw ids before the list resolves');
+    const chipText = (detail) => Array.from(detail.querySelectorAll('.sv-mcp-chip')).map(c => c.textContent);
+    const back = () => body.querySelector('#sv-external-mcp-cards .plugins-back').click();
+    assert.deepStrictEqual(chipText(mcpOpen(body, 0)), ['beta', 'zeta'], 'raw ids before the list resolves');
+    back();
     await tick();
-    assert.deepStrictEqual(chipText(cards()[0]), ['Beta CLI', 'zeta (unknown)']);
-    assert.ok(cards()[0].querySelector('.sv-mcp-chip-unknown'));
-    assert.deepStrictEqual(chipText(cards()[1]), [], 'no backends key: no chip');
-    assert.match(cards()[1].textContent, /All backends/);
+    let detail = mcpOpen(body, 0);
+    assert.deepStrictEqual(chipText(detail), ['Beta CLI', 'zeta (unknown)']);
+    assert.ok(detail.querySelector('.sv-mcp-chip-unknown'));
+    back();
+    detail = mcpOpen(body, 1);
+    assert.deepStrictEqual(chipText(detail), [], 'no backends key: no chip');
+    assert.match(detail.textContent, /All backends/);
+    back();
 
     // The form offers every enabled served backend plus the stored unknown id.
     const ta = body.querySelector('#sv-external-mcp');
     const host = body.querySelector('#sv-external-mcp-form');
     const formChips = () => Array.from(host.querySelectorAll('.sv-mcp-chips button'));
     const pressed = () => formChips().filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.textContent);
-    cards()[0].querySelector('button').click();
+    mcpButton(mcpOpen(body, 0), 'Edit').click();
     assert.deepStrictEqual(formChips().map(b => b.textContent), ['Alpha CLI', 'Beta CLI', 'Gamma CLI', 'zeta (unknown)']);
     assert.deepStrictEqual(pressed(), ['Beta CLI', 'zeta (unknown)']);
     const save = () => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Save changes').click();
@@ -614,14 +640,14 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     assert.deepStrictEqual(JSON.parse(ta.value)[0].backends, ['beta', 'zeta'], 'an unknown id round-trips');
 
     // Selecting more stores them in served order, unknown ids after.
-    cards()[0].querySelector('button').click();
+    mcpButton(mcpOpen(body, 0), 'Edit').click();
     formChips()[2].click(); // Gamma
     formChips()[0].click(); // Alpha
     save();
     assert.deepStrictEqual(JSON.parse(ta.value)[0].backends, ['alpha', 'beta', 'gamma', 'zeta']);
 
     // Deselecting everything stores no key.
-    cards()[0].querySelector('button').click();
+    mcpButton(mcpOpen(body, 0), 'Edit').click();
     formChips().filter(b => b.getAttribute('aria-pressed') === 'true').forEach(b => b.click());
     save();
     assert.ok(!('backends' in JSON.parse(ta.value)[0]));
@@ -636,8 +662,9 @@ test('settings-external-mcp: backends chips come from the served list, keep an u
     body.innerHTML = mod.sectionHtml([{ name: 'one', transport: 'stdio', command: 'x', backends: ['zeta'] }]);
     mod.bind(body, new window.AbortController().signal);
     await tick();
-    assert.deepStrictEqual(Array.from(body.querySelectorAll('.sv-mcp-card .sv-mcp-chip')).map(c => c.textContent), ['zeta']);
-    body.querySelector('.sv-mcp-card button').click();
+    const detail = mcpOpen(body, 0);
+    assert.deepStrictEqual(Array.from(detail.querySelectorAll('.sv-mcp-chip')).map(c => c.textContent), ['zeta']);
+    mcpButton(detail, 'Edit').click();
     const host = body.querySelector('#sv-external-mcp-form');
     assert.deepStrictEqual(Array.from(host.querySelectorAll('.sv-mcp-chips button')).map(b => b.textContent), ['zeta']);
     Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Save changes').click();
@@ -651,7 +678,7 @@ test('settings-external-mcp: the nav count is the number of servers', () => {
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -666,9 +693,9 @@ test('settings-external-mcp: the nav count is the number of servers', () => {
     mod.bind(body, new window.AbortController().signal);
     assert.strictEqual(badge.textContent, '2');
     assert.strictEqual(badge.hidden, false);
-    host.querySelectorAll('.sv-mcp-card')[0].querySelectorAll('button')[1].click(); // Remove
+    mcpButton(mcpOpen(host, 0), 'Remove').click();
     assert.strictEqual(badge.textContent, '1');
-    host.querySelector('.sv-mcp-card').querySelectorAll('button')[1].click();
+    mcpButton(mcpOpen(host, 0), 'Remove').click();
     assert.strictEqual(badge.textContent, '');
     assert.strictEqual(badge.hidden, true);
   } finally { dom.window.close(); }
@@ -681,7 +708,7 @@ test('settings-external-mcp: editing an already-rejected entry into a duplicate 
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -695,7 +722,7 @@ test('settings-external-mcp: editing an already-rejected entry into a duplicate 
     const ta = body.querySelector('#sv-external-mcp');
     const host = body.querySelector('#sv-external-mcp-form');
     const snapshot = ta.value;
-    body.querySelectorAll('.sv-mcp-card')[0].querySelector('button').click();
+    mcpButton(mcpOpen(body, 0), 'Edit').click();
     const input = (label) => Array.from(host.querySelectorAll('.sv-mcp-form-field'))
       .find(f => f.querySelector('.settings-label').textContent === label).querySelector('input');
     input('Name').value = 'docs';
@@ -714,7 +741,7 @@ test('settings-external-mcp: the facts line renders, a stale reply is dropped, a
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -750,6 +777,7 @@ test('settings-external-mcp: the facts line renders, a stale reply is dropped, a
     assert.ok(calls.length >= 1);
     assert.strictEqual(calls[calls.length - 1].projectPath, 'example.invalid/project');
     const again = () => body.querySelector('#sv-external-mcp-check');
+    mcpOpen(body, 0); // the facts are on the server's page, and a check answering while it is open fills them in place
     const facts = () => body.querySelector('.sv-mcp-card-facts');
     const text = () => facts().textContent;
     assert.match(text(), /Command: found \(\.cmd\)\./);
@@ -757,7 +785,10 @@ test('settings-external-mcp: the facts line renders, a stale reply is dropped, a
     assert.match(text(), /HOME_B \(for Label One\)/);
     assert.match(text(), /Checked against the saved global variables\./);
     assert.match(text(), /taken by Label One; not taken by Label Two \(it does not take this kind of server\)/);
-    assert.strictEqual(body.querySelector('.sv-mcp-card').title, '/opt/tools/example-tool');
+    assert.strictEqual(body.querySelector('.sv-mcp-detail-facts').title, '/opt/tools/example-tool');
+    body.querySelector('#sv-external-mcp-cards .plugins-back').click();
+    assert.strictEqual(mcpRows(body)[0].querySelector('.plugins-row-meta').textContent, 'stdio · found', 'the row says it in one word');
+    mcpOpen(body, 0);
     assert.strictEqual(JSON.stringify(mod.read(body)), before, 'read() is unchanged by the facts');
 
     // Check again reruns the check.
@@ -811,13 +842,71 @@ test('settings-external-mcp: the facts line renders, a stale reply is dropped, a
   } finally { dom.window.close(); }
 });
 
+// #803 T7: a check that answers while a server's page is open fills its facts in place; a toggle keeps them.
+test('settings-external-mcp: facts arrive on an open detail page, and survive switching the server off and on', async () => {
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    const mod = window.settingsExternalMcp;
+    let release = null;
+    let reply = (l) => new Promise(r => { release = () => r({ ok: true, results: l.map((e, index) => ({
+      index, name: e.name, enabled: true, transport: 'stdio', command: { state: 'found' }, variables: [], takes: [], envGap: false })) }); });
+    window.api = { backends: { list: async () => ({ backends: [] }) }, checkExternalMcp: (p, l) => reply(l) };
+    const body = window.document.getElementById('body');
+    body.innerHTML = mod.sectionHtml([{ name: 'one', transport: 'stdio', command: 'example-tool' }]);
+    mod.bind(body, new window.AbortController().signal);
+    await tick();
+    const detail = mcpOpen(body, 0);
+    assert.strictEqual(detail.querySelector('.sv-mcp-card-facts'), null, 'nothing yet');
+    release();
+    await tick(); await tick();
+    assert.match(detail.querySelector('.sv-mcp-card-facts').textContent, /Command: found/, 'filled in place');
+
+    // Off and on again: the row keeps its facts word, whatever the next check does.
+    body.querySelector('#sv-external-mcp-cards .plugins-back').click();
+    reply = async () => ({ ok: false, reason: 'x' });
+    const sw = () => mcpRows(body)[0].querySelector('.settings-toggle input');
+    sw().checked = false; sw().dispatchEvent(new window.Event('change'));
+    await tick();
+    sw().checked = true; sw().dispatchEvent(new window.Event('change'));
+    await tick();
+    assert.strictEqual(mcpRows(body)[0].querySelector('.plugins-row-meta').textContent, 'stdio · found');
+  } finally { dom.window.close(); }
+});
+
+// #803 T7: the one state word a server's row shows.
+test('settings-external-mcp: a row says one state — not used at launch, off, found, not found, not checked', () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const w = dom.window.settingsExternalMcp.rowStateWords;
+    const stdio = { name: 'a', transport: 'stdio', command: 'x' };
+    assert.strictEqual(w(stdio, 'bad name', null), 'not used at launch');
+    assert.strictEqual(w({ ...stdio, enabled: false }, '', { command: { state: 'found' } }), 'off');
+    assert.strictEqual(w(stdio, '', { command: { state: 'found' } }), 'found');
+    assert.strictEqual(w(stdio, '', { command: { state: 'missing' } }), 'not found');
+    assert.strictEqual(w(stdio, '', { command: { state: 'unknown' } }), 'not checked');
+    assert.strictEqual(w(stdio, '', null), 'not checked');
+    assert.strictEqual(w({ name: 'h', transport: 'http', url: 'https://example.invalid' }, '', null), '', 'an http server has no command to find');
+  } finally { dom.window.close(); }
+});
+
 // #789 slice D: every reason code main can send has a sentence; an unknown one gets a neutral sentence.
 test('settings-external-mcp: every reason code has a sentence and an unknown code a neutral one', () => {
   const { REASONS } = require('../src/app/external-mcp-check');
   const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const mod = dom.window.settingsExternalMcp;
@@ -851,7 +940,7 @@ test('settings-external-mcp: facts wording for a default, no redraw while typing
     { url: 'http://localhost/', runScripts: 'outside-only' });
   try {
     const ctx = dom.getInternalVMContext();
-    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/settings-external-mcp.js']) {
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js']) {
       vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
     }
     const { window } = dom;
@@ -876,6 +965,7 @@ test('settings-external-mcp: facts wording for a default, no redraw while typing
     const again = () => body.querySelector('#sv-external-mcp-check');
     const ta = body.querySelector('#sv-external-mcp');
     assert.strictEqual(note(), 'The check could not run.', 'no facts yet: no "last check" claim');
+    mcpOpen(body, 0);
     assert.strictEqual(body.querySelector('.sv-mcp-card-facts'), null);
 
     // While the text area has focus the reply is stored but not drawn; the blur draws it.

@@ -10,7 +10,7 @@ const { JSDOM } = require('jsdom');
 
 const REN = path.join(__dirname, '..', 'src', 'renderer');
 const SCRIPTS = ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js',
-  '../shared/mcp-addon-catalog.js', 'panels/settings-external-mcp.js'];
+  '../shared/mcp-addon-catalog.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js'];
 const PAGE = '<!DOCTYPE html><html><body><div id="body">'
   + '<section class="settings-cat" data-cat="mcp-addons"><div class="settings-cat-head"><h2>MCP servers</h2></div>'
   + '<div id="sv-mcp-addons"></div></section></div></body></html>';

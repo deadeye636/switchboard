@@ -1,4 +1,8 @@
-// settings-external-mcp.js — the project's `externalMcpServers` editor: cards over one JSON text area (#789, spec 36).
+// settings-external-mcp.js — the project's `externalMcpServers` editor: rows over one JSON text area (#789, spec 36).
+//
+// Since #803 T7 (spec 40 D2) a server is one line of the shared list kit (panels/plugins-kit.js, loaded before this
+// file): name, transport, one state (`rowStateWords`) and the switch. Its backends, the check's facts, the validator's
+// sentences, Edit and Remove are on the server's own detail page. "Card" below means that row and its page.
 //
 // The TEXT AREA is the store and the cards are a projection of it (slice B): a card operation (switch, remove)
 // parses the text, changes the one RAW entry (never the validator's normalised copy), writes the list back as pretty
@@ -54,9 +58,16 @@
   // What each served backend answers for the `mcpPrune` capability, [{ label, state, note }], or null while unresolved.
   let pruneRows = null;
 
-  // The static check (D-D10): what main last said about each entry, keyed by the entry's own JSON so a reply never
+  // The static check (D-D10): what main last said about each entry, keyed by the entry (without its switch, entryKey) so a reply never
   // lands on a card whose entry has since changed. `checkSeq` drops a stale reply; `checkFailed` keeps the last facts.
   let factsByKey = new Map();
+  // The key of an entry for its facts and its row: the entry as stored WITHOUT its switch. Turning a server off or on
+  // changes neither what the check says about it nor which row it is, so the facts stay and focus stays on the switch.
+  const entryKey = (raw) => {
+    if (!isPlainObject(raw)) return JSON.stringify(raw);
+    const { enabled: _enabled, ...rest } = raw;
+    return JSON.stringify(rest);
+  };
   let checkSeq = 0;
   let checkFailed = false;
   let checkProjectPath = null;
@@ -147,7 +158,7 @@
 
   /** The facts block for one raw entry, or null while there is nothing to say. -> { el, title } */
   function factsNode(raw) {
-    const r = factsByKey.get(JSON.stringify(raw));
+    const r = factsByKey.get(entryKey(raw));
     const lines = factLines(r);
     if (!lines.length) return null;
     const el = node('div', 'sv-mcp-card-facts');
@@ -172,7 +183,7 @@
     if (res && res.ok === true && Array.isArray(res.results)) {
       const next = new Map();
       for (const r of res.results) {
-        if (r && !r.rejected && Number.isInteger(r.index) && r.index >= 0 && r.index < list.length) next.set(JSON.stringify(list[r.index]), r);
+        if (r && !r.rejected && Number.isInteger(r.index) && r.index >= 0 && r.index < list.length) next.set(entryKey(list[r.index]), r);
       }
       factsByKey = next;
       checkFailed = false;
@@ -254,17 +265,31 @@
     return b;
   }
 
-  /** One card. `index` is the entry's place in the stored list; `reason`/`warnings` come from the one validator. */
-  function buildCard(raw, index, reason, warnings, onToggle, onRemove, onEdit, signal) {
+  const nameOf = (obj) => (typeof obj.name === 'string' && obj.name ? obj.name : '(no name)');
+  const transportOf = (obj) => (obj.transport === 'http' || obj.transport === 'stdio' ? obj.transport : 'transport?');
+
+  /**
+   * The ONE concise state a server's row shows (#803 T7, spec 40 D2): `not used at launch` for an entry the validator
+   * rejects, `off` for one switched off, and for a stdio command what the check said — `found`, `not found` or `not
+   * checked`. An http entry has no command to find, so it adds no word. Pure; the long form is on the detail page.
+   */
+  function rowStateWords(raw, reason, facts) {
     const obj = isPlainObject(raw) ? raw : {};
-    const card = node('div', 'sv-mcp-card' + (reason ? ' sv-mcp-card-rejected' : ''));
-    const info = node('div', 'sv-mcp-card-info');
-    const head = node('div', 'sv-mcp-card-head');
-    head.appendChild(node('span', 'settings-label', typeof obj.name === 'string' && obj.name ? obj.name : '(no name)'));
-    head.appendChild(node('span', 'sv-mcp-card-transport', obj.transport === 'http' || obj.transport === 'stdio' ? obj.transport : 'transport?'));
-    info.appendChild(head);
+    if (reason) return 'not used at launch';
+    if (obj.enabled === false) return 'off';
+    if (obj.transport !== 'stdio') return '';
+    const c = facts && facts.command;
+    if (c && c.state === 'found') return 'found';
+    if (c && c.state === 'missing') return 'not found';
+    return 'not checked';
+  }
+
+  /** The detail page of one server: its backends, the check's facts, the validator's sentences, Edit and Remove. */
+  function serverDetail(container, row, onEdit, onRemove, signal) {
+    const obj = isPlainObject(row.raw) ? row.raw : {};
+    container.appendChild(node('div', 'sv-mcp-card-transport', transportOf(obj)));
     const ids = Array.isArray(obj.backends) ? obj.backends.filter(b => typeof b === 'string') : [];
-    if (!ids.length) info.appendChild(node('div', 'settings-hint sv-mcp-card-backends', 'All backends'));
+    if (!ids.length) container.appendChild(node('div', 'settings-hint sv-mcp-card-backends', 'All backends'));
     else {
       const chips = node('div', 'sv-mcp-chips');
       for (const id of ids) {
@@ -272,45 +297,45 @@
         chips.appendChild(known ? node('span', 'sv-mcp-chip', known.label)
           : node('span', 'sv-mcp-chip' + (choices ? ' sv-mcp-chip-unknown' : ''), choices ? id + ' (unknown)' : id));
       }
-      info.appendChild(chips);
+      container.appendChild(chips);
     }
-    if (!reason) {
-      const facts = factsNode(raw);
+    // The facts are kept in their own box, so a check that answers while the page is open fills it in place.
+    const factsBox = node('div', 'sv-mcp-detail-facts');
+    container.appendChild(factsBox);
+    const fillFacts = () => {
+      factsBox.textContent = '';
+      if (row.reason) return;
+      const facts = factsNode(row.raw);
       if (facts) {
-        info.appendChild(facts.el);
-        if (facts.title) card.title = facts.title;
+        factsBox.appendChild(facts.el);
+        if (facts.title) factsBox.title = facts.title;
       }
-    }
-    if (reason) info.appendChild(node('div', 'sv-mcp-problem', 'Not used at launch: ' + reason));
-    for (const w of warnings) info.appendChild(node('div', 'sv-mcp-warning', w));
-    card.appendChild(info);
-
+    };
+    fillFacts();
+    detailFacts = { box: factsBox, fill: fillFacts };
+    if (row.reason) container.appendChild(node('div', 'sv-mcp-problem', 'Not used at launch: ' + row.reason));
+    for (const w of row.warnings) container.appendChild(node('div', 'sv-mcp-warning', w));
     const actions = node('div', 'sv-mcp-card-actions');
-    if (!reason) {
-      const sw = node('label', 'settings-toggle');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = obj.enabled !== false;
-      cb.setAttribute('aria-label', 'Use ' + obj.name + ' in this project');
-      cb.addEventListener('change', () => onToggle(index, cb.checked), { signal });
-      sw.appendChild(cb);
-      sw.appendChild(node('span', 'settings-toggle-slider'));
-      actions.appendChild(sw);
-    }
-    actions.appendChild(cardButton('Edit', () => onEdit(index), signal));
-    actions.appendChild(cardButton('Remove', () => onRemove(index), signal, { danger: true }));
-    card.appendChild(actions);
-    return card;
+    actions.appendChild(cardButton('Edit', () => onEdit(row.index), signal));
+    actions.appendChild(cardButton('Remove', () => onRemove(row.index), signal, { danger: true }));
+    container.appendChild(actions);
   }
 
-  /** Draw the cards from the text area. A text that is not a list shows no cards, says why and opens the JSON view. */
+  // The list of the current panel build (plugins-kit.js), and the open detail page's facts box (or null).
+  let serverView = null;
+  let detailFacts = null;
+
+  /**
+   * Draw the servers from the text area as one-line rows (#803 T7) through the shared kit: name, transport and one
+   * state, and the switch; everything else is on the server's own detail page. A text that is not a list shows no
+   * rows, says why and opens the JSON view.
+   */
   function renderCards(body, signal) {
     const region = body.querySelector('#' + CARDS_ID);
     const ta = body.querySelector('#' + TEXT_ID);
     if (!region || !ta) return;
     const addBtn = body.querySelector('#' + ADD_ID);
     const parsed = parseList(ta.value);
-    region.textContent = '';
     // The nav count is the number of servers drawn (the entry is data-count-own, so the generic field walk skips it).
     const badge = body.querySelector('.settings-nav-item[data-cat="mcp"] .settings-nav-count');
     if (badge) {
@@ -323,13 +348,12 @@
     if (againBtn) againBtn.disabled = !!parsed.error; // nothing to check while the text is not a list
     if (parsed.error) {
       closeForm(body);
-      region.appendChild(node('div', 'sv-mcp-problem', 'Cards are unavailable. ' + parsed.error + ' Fix it in the JSON below.'));
+      serverView = null;
+      detailFacts = null;
+      region.textContent = '';
+      region.appendChild(node('div', 'sv-mcp-problem', 'The server list is unavailable. ' + parsed.error + ' Fix it in the JSON below.'));
       const details = body.querySelector('#' + JSON_ID);
       if (details) details.open = true;
-      return;
-    }
-    if (!parsed.list.length) {
-      region.appendChild(node('div', 'settings-hint sv-mcp-empty', 'No servers yet.'));
       return;
     }
     const res = window.validateExternalMcpServers(parsed.list);
@@ -347,13 +371,44 @@
       renderCards(body, signal);
       runCheck(body, signal);
     };
-    parsed.list.forEach((raw, i) => {
-      region.appendChild(buildCard(raw, i, reasons.get(i) || '', warns.get(i) || [],
-        (idx, on) => edit(list => { if (isPlainObject(list[idx])) list[idx].enabled = on; }),
-        (idx) => edit(list => { list.splice(idx, 1); }),
-        (idx) => openForm(body, signal, idx),
-        signal));
-    });
+    const onToggle = (idx, on) => edit(list => { if (isPlainObject(list[idx])) list[idx].enabled = on; });
+    const onRemove = (idx) => edit(list => { list.splice(idx, 1); });
+    const onEdit = (idx) => {
+      if (!openForm(body, signal, idx)) return;
+      const host = body.querySelector('#' + FORM_ID);
+      if (host && typeof host.scrollIntoView === 'function') host.scrollIntoView({ block: 'nearest' });
+    };
+    // A row's key is its place AND its content: an entry that moved or changed is a different row, so an open
+    // detail page never goes on showing an entry that is no longer the one it was opened for.
+    const rows = parsed.list.map((raw, i) => ({
+      index: i, raw, reason: reasons.get(i) || '', warnings: warns.get(i) || [], key: i + ':' + entryKey(raw),
+    }));
+    const model = {
+      filterPlaceholder: 'Filter servers',
+      emptyText: 'No servers yet.',
+      sections: [{ title: '', rows }],   // one section: the category's own heading names it
+      rowKey: (r) => r.key,
+      rowLabel: (r) => nameOf(isPlainObject(r.raw) ? r.raw : {}),
+      rowMeta: (r) => {
+        const obj = isPlainObject(r.raw) ? r.raw : {};
+        const state = rowStateWords(r.raw, r.reason, r.reason ? null : factsByKey.get(entryKey(r.raw)));
+        return state ? transportOf(obj) + ' · ' + state : transportOf(obj);
+      },
+      rowSwitch: (r) => (r.reason ? null : {
+        checked: !isPlainObject(r.raw) || r.raw.enabled !== false,
+        label: 'Use ' + nameOf(isPlainObject(r.raw) ? r.raw : {}) + ' in this project',
+        onChange: (on) => onToggle(r.index, on),
+      }),
+      renderDetail: (r, container) => serverDetail(container, r, onEdit, onRemove, signal),
+    };
+    if (serverView && region.contains(serverView.root)) serverView.refresh(model);
+    else {
+      region.textContent = '';
+      detailFacts = null;
+      serverView = window.pluginsKit.mountView(region, model);
+    }
+    // An open detail page is not redrawn by a refresh (it may be read or acted on); its facts box is.
+    if (detailFacts && detailFacts.box.isConnected) detailFacts.fill();
   }
 
   function closeForm(body) {
@@ -956,5 +1011,5 @@
     }
   }
 
-  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, bindAddons, openSeeded };
+  window.settingsExternalMcp = { SETTING_KEY, PRUNE_KEY, sectionHtml, bind, read, check, reasonSentence, factLines, rowStateWords, bindAddons, openSeeded };
 })();

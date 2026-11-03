@@ -135,6 +135,8 @@
         b.addEventListener('click', () => a.onClick && a.onClick());
         actionsEl.appendChild(b);
       }
+      // A view inside a category that already has a heading passes no title and no actions: no empty head.
+      head.hidden = !current.title && !current.subtitle && !(current.actions || []).length;
       filter.placeholder = current.filterPlaceholder || 'Filter';
       filter.setAttribute('aria-label', current.filterPlaceholder || 'Filter');
     }
