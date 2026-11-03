@@ -3,9 +3,10 @@
 //
 // The panel is loaded the way settings.html loads it (every script that page names, in order, into one jsdom vm
 // context — the harness of settings-project-action-close.test.js) and its buttons are really clicked. What this pins
-// is what the occluded demo window could not show: Cancel, Save, Apply, Hide and the settings search stop while a
-// skill page holds unsaved text, and say so by showing that page; the search keeps focus in its box and brings every
-// view back to its list; a deep-link category is taken once and an unknown one is ignored.
+// is what the occluded demo window could not show: Cancel, Save, Apply, Hide, Remove and the settings search stop
+// while a skill page holds unsaved text, and say so by showing that page, without moving any other view; the search
+// keeps focus in its box and brings every view back to its list; a deep-link category is taken once and an unknown
+// one is ignored.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -45,6 +46,7 @@ function makeApi(record) {
     backends: { list: async () => [] },
     profiles: { list: async () => [], setDefault: async () => ({ ok: true }) },
     hideProject: async (p) => { record.hide.push(p); return { ok: true }; },
+    removeProject: async (p) => { record.remove.push(p); return { ok: true }; },
     hideSettingsWindow: () => { record.windowHidden += 1; },
     getSkillInventory: async () => ({ skills: [SKILL] }),
     getSkillDetail: async () => ({ ok: true, targets: [] }),
@@ -59,7 +61,7 @@ function makeApi(record) {
 }
 
 async function openSettings(scope, seed) {
-  const record = { hide: [], windowHidden: 0 };
+  const record = { hide: [], remove: [], windowHidden: 0 };
   const dom = new JSDOM(DOM_FIXTURE, { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   window.api = makeApi(record);
@@ -133,6 +135,44 @@ test('Hide Project asks the skill page first (L1)', async () => {
   } finally { destroy(); }
 });
 
+test('Remove Project asks the skill page first', async () => {
+  const { window, record, doc, destroy } = await openSettings('project');
+  try {
+    await dirtySkill(window, doc);
+    nav(doc, 'mcp').click();
+    doc.getElementById('sv-remove-project-btn').click();
+    await new Promise(r => setTimeout(r, 50));
+    assert.deepEqual(record.remove, []);
+    assert.equal(activeCat(doc), 'plugins-skills', 'the refusal is shown');
+  } finally { destroy(); }
+});
+
+test('a refused leave moves no other view: an open catalog page and its filter stay as they were', async () => {
+  const { window, record, doc, destroy } = await openSettings('global');
+  try {
+    // The catalog comes before the Skills view in the document, so a leave that moved views one by one would
+    // already have sent it back to its list (and, for the search, emptied its filter) before the skill page refused.
+    nav(doc, 'mcp-addons').click();
+    const item = window.MCP_ADDON_CATALOG[0];
+    const filter = doc.querySelector('.sv-addon-catalog .plugins-filter');
+    filter.value = item.name;
+    filter.dispatchEvent(new window.Event('input'));
+    doc.querySelector(`.sv-addon-catalog .plugins-row[data-key="${item.id}"] .plugins-row-open`).click();
+    await dirtySkill(window, doc);
+
+    doc.getElementById('sv-cancel-btn').click();
+    await tick();
+    assert.equal(record.windowHidden, 0);
+    const search = doc.getElementById('sv-search');
+    search.value = 'a';
+    search.dispatchEvent(new window.Event('input'));
+    assert.equal(search.value, '', 'the search was refused');
+
+    assert.equal(doc.querySelector('.sv-addon-catalog .plugins-list-page').hidden, true, 'the catalog page is still open');
+    assert.equal(filter.value, item.name, 'its filter is kept');
+  } finally { destroy(); }
+});
+
 test('the settings search brings every view back to its list without taking focus from the search box (M1, M3)', async () => {
   const { window, doc, destroy } = await openSettings('global');
   try {
@@ -176,6 +216,9 @@ test('a search typed while a skill page holds unsaved text is refused and the pa
   } finally { destroy(); }
 });
 
+// The unknown-category half pins the outcome, not the `navHasCat` guard itself: a seed category is one of
+// `SETTINGS_SEED_CATS`, and one this window lacks never gets a nav button later, so a pending restore without the
+// guard would also have done nothing visible. The guard is defensive; this test keeps the outcome from changing.
 test('a deep-link category is taken once; one this window does not have is ignored (L7)', async () => {
   let env = await openSettings('global', { cat: 'plugins-skills' });
   try {
@@ -186,7 +229,6 @@ test('a deep-link category is taken once; one this window does not have is ignor
   try {
     const first = activeCat(env.doc);
     assert.notEqual(first, 'mcp');
-    env.doc.getElementById('sv-apply-btn');   // nothing pending to land on later
     nav(env.doc, 'terminal').click();
     assert.equal(activeCat(env.doc), 'terminal');
   } finally { env.destroy(); }

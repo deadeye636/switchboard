@@ -559,6 +559,8 @@
         cats().forEach(cat => {
           cat.querySelectorAll('.settings-field').forEach(f => {
             // A row under a hidden list page (a kit view showing a detail page) is not on screen, so it is no match.
+            // Defensive: `pluginsMayLeave` above has already sent every view back to its list, so today no row is
+            // hidden this way; it keeps a later path that searches without asking first from matching unseen rows.
             const match = !f.closest('.plugins-list-page[hidden]') && f.textContent.toLowerCase().includes(q);
             f.style.display = match ? '' : 'none';
             if (match) any = true;

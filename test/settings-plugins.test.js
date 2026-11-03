@@ -139,7 +139,7 @@ test('Marketplace in a project window: "Add to this project" switches to MCPs an
   } finally { dom.window.close(); }
 });
 
-test('leave(): a skill page with unsaved text refuses, and every other view goes back to its list', async () => {
+test('leave(): a skill page with unsaved text refuses and stays open', async () => {
   let typed = null;
   const dom = load({
     getSkillInventory: async () => ({ skills: [{ id: 'a', name: 'a', scope: 'global', sourceLabel: 'X', filePath: '/a', alsoNamed: [], editable: true }] }),

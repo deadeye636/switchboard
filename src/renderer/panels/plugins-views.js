@@ -325,11 +325,10 @@
       rowKey: (r) => r.id,
       rowLabel: (r) => r.name,
       rowMeta: (r) => r.sourceLabel,
-      canLeave: () => {
-        if (page.canLeave && !page.canLeave()) return false;
-        releasePage();
-        return true;
-      },
+      // Asked without moving (the settings screen asks every view before any of them goes back), so it only answers;
+      // the editor is released in `onLeave`, once the page really goes.
+      canLeave: () => !(page.canLeave && !page.canLeave()),
+      onLeave: releasePage,
       renderDetail: (r, c) => {
         releasePage();
         c.appendChild(line('Source', r.sourceLabel));

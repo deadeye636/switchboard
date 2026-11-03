@@ -169,18 +169,22 @@
        * Every mounted view on this body — the lazy ones, the project MCP list, the Marketplace catalog and its registry
        * results — back to its list, without moving focus (the user may be typing into the settings search). A view
        * that refuses (a skill page with unsaved text) stops it: the answer is false, and the screen switches to that
-       * view's category so the refusal is seen rather than a button that silently does nothing.
+       * view's category so the refusal is seen rather than a button that silently does nothing. Every view is asked
+       * before any of them moves, so a refused action leaves the other pages and their filters as they were.
        * `clearFilter`: also drop each view's own filter text, for the settings search, which runs over every row.
        */
       leave(opts) {
         const kit = window.pluginsKit;
         if (!kit || typeof kit.viewsIn !== 'function') return true;
-        for (const v of kit.viewsIn(body)) {
-          if (v.showList({ focus: false }) === false) {
-            const sectionEl = v.root.closest('.settings-cat');
-            if (restoreCat && sectionEl) restoreCat(sectionEl.dataset.cat);
-            return false;
-          }
+        const views = kit.viewsIn(body);
+        const refusing = views.find(v => v.canLeave() === false);
+        if (refusing) {
+          const sectionEl = refusing.root.closest('.settings-cat');
+          if (restoreCat && sectionEl) restoreCat(sectionEl.dataset.cat);
+          return false;
+        }
+        for (const v of views) {
+          v.showList({ focus: false });
           if (opts && opts.clearFilter) v.clearFilter();
         }
         return true;

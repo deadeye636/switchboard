@@ -9,8 +9,8 @@
 //
 // Keyboard: Up/Down move between rows, Home/End jump, Enter opens (a real <button>), Escape or Backspace go
 // back from a detail page — never while focus is in a text field or an editor, which own those keys. A view
-// holding unsaved work answers `canLeave()` and can refuse; a refresh never redraws an open detail page or moves
-// focus. A row may be disabled with a reason; the reason is its meta text and its title.
+// holding unsaved work answers `canLeave()` and can refuse (an answer only — `onLeave()` releases the page once it
+// really goes); a refresh never redraws an open detail page or moves focus. A row may be disabled with a reason; the reason is its meta text and its title.
 //
 // Every string goes in with textContent (catalog and registry text is external input). Each row is a
 // `.settings-field`, so the settings search sees it. The kit knows no view, no backend and no IPC: a view hands
@@ -227,6 +227,9 @@
     }
 
     function showList(returnFocus) {
+      // The view releases what its page held (an editor) only now that the page really goes; its `canLeave` is
+      // asked without a move and must not release anything.
+      if (detailKey && current.onLeave) current.onLeave();
       detailKey = null;
       detailPage.hidden = true;
       detailPage.replaceChildren();
@@ -284,6 +287,10 @@
 
     const handle = {
       root: rootEl,
+      // Whether the view may go back to its list, without moving it: false while a detail page refuses. A caller
+      // that moves several views asks each of them first, so a refusal leaves every view where it was. A view's
+      // own `canLeave` therefore only answers; what it releases on the way out belongs in `onLeave`.
+      canLeave: () => !detailKey || !current.canLeave || current.canLeave() !== false,
       // Back to the list from a detail page; on the list already, nothing moves. -> false while the page refuses.
       showList: (opts) => (detailKey ? leaveDetail(opts) : true),
       // Drop the view's own filter text (the settings search runs over every row, not the filtered few).

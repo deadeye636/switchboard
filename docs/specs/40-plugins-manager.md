@@ -193,7 +193,8 @@ What differs from the design above, and why:
   window opens; a nav badge stays empty until its view has read. The Marketplace badge counts catalog rows, never
   registry hits.
 - **Leaving asks first.** Cancel, Save, Apply, Hide Project, Remove Project, the settings search and both hand-offs to a
-  project's window call `leave()`. A skill page with unsaved text refuses, and the screen switches to it. The settings
+  project's window call `leave()`. It asks every view before it moves any (`canLeave` on the kit's handle), so a skill
+  page with unsaved text refuses with every other page left as it was, and the screen switches to it. The settings
   search also sends every view back to its list and clears its own filter, without taking the caret from the search.
 - **An unknown `cat` in a deep link is ignored**, in main and in the renderer.
 
@@ -203,11 +204,8 @@ What differs from the design above, and why:
   Plugins manager; taking them out is a step of its own.
 - **The window's title-bar X does not ask.** It hides the settings window, and unsaved skill text is lost. The same is
   true of any unsaved setting there; it predates this spec.
-- **A refused leave can still have moved other views.** `leave()` asks the views in document order and stops at the
-  first refusal, so a view before the refusing skill page has already gone back to its list (and, for the search, lost
-  its filter). Nothing unsaved is lost. Asking every `canLeave` before changing any view would close it.
-- **Remove Project and the two hand-offs have no panel test** of the refusal; Hide, Cancel, Save, Apply and the search
-  do (`test/settings-plugins-panel.test.js`).
+- **The two hand-offs to a project's window have no panel test** of the refusal; Cancel, Save, Apply, Hide, Remove
+  and the search do (`test/settings-plugins-panel.test.js`).
 - **One inventory call lists each backend up to three times**, and each skill read or save rebuilds the inventory. Both
   run only on a click; share the listings if it shows.
 - **A deep link with `cat` to a settings window of the same scope that is already open only raises it**; the category

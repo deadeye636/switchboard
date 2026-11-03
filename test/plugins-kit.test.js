@@ -287,3 +287,16 @@ test('showList({ focus: false }) leaves focus where it is; clearFilter drops the
   assert.equal(h.querySelector('.plugins-filter').value, '');
   assert.deepEqual(kit.viewsIn(doc.body), [v]);
 });
+
+test('canLeave asks the open page without moving the view', () => {
+  const { host: h } = host();
+  let allow = false;
+  const v = kit.mountView(h, view({ canLeave: () => allow }));
+  assert.equal(v.canLeave(), true, 'on the list there is nothing to refuse');
+  v.openDetail('a');
+  assert.equal(v.canLeave(), false);
+  assert.equal(h.querySelector('.plugins-list-page').hidden, true, 'still on its page');
+  allow = true;
+  assert.equal(v.canLeave(), true);
+  assert.equal(h.querySelector('.plugins-list-page').hidden, true, 'asking never moves it');
+});
