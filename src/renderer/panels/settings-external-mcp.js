@@ -32,7 +32,10 @@
 // `reasonSentence`, `node` and `cardButton`. It reads the catalog module (shared/mcp-addon-catalog.js, loaded before this
 // file: MCP_ADDON_CATALOG, commandLine, probeEntries, readProbe) at call time. Every catalog and registry string is set
 // with textContent. The PATH check reuses `checkExternalMcp` with no project; the registry search is
-// `window.api.searchMcpRegistry`, only on Search or Enter. It stores nothing and runs nothing.
+// `window.api.searchMcpRegistry`, only on Search or Enter. It stores nothing and runs nothing. Since #803 T8 catalog entries
+// and registry hits are one-line kit rows too (name, runtimes or "Unverified", one state); the commands, Copy, the licence
+// and the hand-off are on each entry's page. In a project window `bindAddons(…, { projectAdd })` replaces the picker with
+// "Add to this project" (E9), which the shell (T10) wires to this file's own prefilled Add form.
 (function () {
   'use strict';
 
@@ -773,16 +776,25 @@
     return { text: 'not checked: ' + reasonSentence('command', answer.reason), unknown: true };
   }
 
-  /** One catalog row, wrapped in `.settings-field` so the settings search sees it. -> { el, setStates(states) } */
-  function addonRow(item, msg, signal) {
-    const row = node('div', 'settings-field settings-field-wide sv-addon');
+  /** The one state a catalog row shows (#803 T8): whether the server's own command is on PATH. */
+  function addonStateWord(item, states) {
+    return stateWords(states && states[item.stdio.command]).text;
+  }
+
+  /**
+   * One catalog entry's detail page (#803 T8, spec 40 D1): summary, licence, source, the state of every command it
+   * needs, install and uninstall commands with Copy, and the hand-off. `projectAdd` is set in a project window (E9):
+   * then the hand-off is "Add to this project", which opens this window's own Add form prefilled (staged until Save),
+   * instead of the global picker. -> { el, setStates(states), picker, addTo }
+   */
+  function addonRow(item, msg, signal, projectAdd) {
+    const row = node('div', 'sv-addon');
     row.dataset.addon = item.id;
     const info = node('div', 'settings-field-info');
-    info.appendChild(node('span', 'settings-label', item.name));
     info.appendChild(node('div', 'settings-description', item.summary));
     info.appendChild(node('div', 'settings-description', 'Licence: ' + item.licence));
     row.appendChild(info);
-    const control = node('div', 'settings-field-control');
+    const control = node('div', 'sv-addon-detail');
     control.appendChild(copyLine('Source', item.source, msg, signal));
     const chips = node('div', 'sv-mcp-chips');
     control.appendChild(chips);
@@ -790,14 +802,21 @@
       control.appendChild(copyLine(`Install with ${r.runtime}`, window.commandLine(r.install), msg, signal));
       control.appendChild(copyLine(`Uninstall with ${r.runtime}`, window.commandLine(r.uninstall), msg, signal));
     }
-    // Add to project: a project picker and the button (filled by bindAddons once the project list is read).
+    // Add to project: a project picker and the button (filled by bindAddons once the project list is read) — or, in a
+    // project window, one button for that project.
     const handoff = node('div', 'sv-mcp-row');
-    const picker = document.createElement('select');
-    picker.className = 'settings-select';
-    picker.setAttribute('aria-label', `Project to add ${item.name} to`);
-    const addTo = cardButton('Add to project', () => onAddToProject(item, picker, msg), signal);
-    handoff.appendChild(picker);
-    handoff.appendChild(addTo);
+    let picker = null;
+    let addTo = null;
+    if (projectAdd) {
+      handoff.appendChild(cardButton('Add to this project', () => projectAdd(item), signal));
+    } else {
+      picker = document.createElement('select');
+      picker.className = 'settings-select';
+      picker.setAttribute('aria-label', `Project to add ${item.name} to`);
+      addTo = cardButton('Add to project', () => onAddToProject(item, picker, msg), signal);
+      handoff.appendChild(picker);
+      handoff.appendChild(addTo);
+    }
     control.appendChild(handoff);
     row.appendChild(control);
     const commands = item.runtimes.map(r => r.install[0]).concat(item.stdio.command);
@@ -868,12 +887,13 @@
     window.api.openSettingsWindow('project', path, { addon: item.id });
   }
 
-  /** One registry result, every string set as text. Marked Unverified; Copy at most. */
+  const registryLabel = (r) => (r.title ? `${r.title} (${r.name})` : r.name);
+
+  /** One registry result's detail page, every string set as text. Marked Unverified; Copy at most. */
   function registryResult(r, msg, signal) {
-    const card = node('div', 'sv-mcp-card');
+    const card = node('div', 'sv-registry-result');
     const info = node('div', 'sv-mcp-card-info');
     const head = node('div', 'sv-mcp-card-head');
-    head.appendChild(node('span', 'settings-label', r.title ? `${r.title} (${r.name})` : r.name));
     head.appendChild(node('span', 'sv-mcp-chip sv-mcp-chip-unknown', 'Unverified'));
     info.appendChild(head);
     if (r.description) info.appendChild(node('div', 'settings-description', r.description));
@@ -894,20 +914,53 @@
    * the category's first `settings-cat-shown` of this build, and again on Check again; the registry is asked only on
    * Search or Enter. Nothing here is stored (spec 38, D8). Loaded with the catalog module before this file.
    */
-  function bindAddons(body, signal) {
+  function bindAddons(body, signal, opts) {
     const host = body.querySelector('#' + ADDONS_HOST_ID);
     if (!host || !Array.isArray(window.MCP_ADDON_CATALOG)) return;
     host.textContent = '';
     // A reply still out for an earlier build is stale from here on.
     addonCheckSeq++;
     addonSearchSeq++;
+    // In a project window (E9) the hand-off is this window's own Add form; elsewhere the global picker.
+    const projectAdd = opts && typeof opts.projectAdd === 'function' ? opts.projectAdd : null;
 
     const catalog = node('div', 'settings-section');
-    catalog.appendChild(node('div', 'settings-section-title', 'Catalog'));
     const msg = node('div', 'settings-hint sv-mcp-form-msg');
     msg.setAttribute('aria-live', 'polite');
-    const rows = window.MCP_ADDON_CATALOG.map(item => addonRow(item, msg, signal));
-    for (const r of rows) catalog.appendChild(r.el);
+    // The catalog is one-line rows of the list kit (#803 T8): name, runtimes and one state; the rest is on the page.
+    let states = null;
+    let projectChoices = null;
+    let open = null;   // the open detail page's handle: { el, setStates, picker, addTo }
+    const catalogModel = () => ({
+      filterPlaceholder: 'Filter the catalog',
+      sections: [{ title: 'Catalog', rows: window.MCP_ADDON_CATALOG }],
+      rowKey: (item) => item.id,
+      rowLabel: (item) => item.name,
+      rowMeta: (item) => item.runtimes.map(r => r.runtime).join(', ') + ' · ' + addonStateWord(item, states),
+      renderDetail: (item, container) => {
+        // The page's own message line: a Copy that failed or a missing project is said beside the button pressed.
+        const pageMsg = node('div', 'settings-hint sv-mcp-form-msg');
+        pageMsg.setAttribute('aria-live', 'polite');
+        open = addonRow(item, pageMsg, signal, projectAdd);
+        open.setStates(states);
+        if (open.picker) fillPicker(open.picker, open.addTo, projectChoices);
+        container.appendChild(open.el);
+        container.appendChild(pageMsg);
+      },
+    });
+    const catalogHost = node('div', 'sv-addon-catalog');
+    catalog.appendChild(catalogHost);
+    const catalogView = window.pluginsKit.mountView(catalogHost, catalogModel());
+    const rows = {
+      // What a state or a project list change reaches: the rows' one word, and the open page in place.
+      setStates() {
+        catalogView.refresh(catalogModel());
+        if (open && open.el.isConnected) open.setStates(states);
+      },
+      fillPickers() {
+        if (open && open.el.isConnected && open.picker) fillPicker(open.picker, open.addTo, projectChoices);
+      },
+    };
     // The category's own hint comes first: a settings search hides the first hint outside a field, and the line
     // beside Check again must stay with its button.
     catalog.appendChild(node('div', 'settings-hint',
@@ -922,7 +975,6 @@
     catalog.appendChild(msg);
     host.appendChild(catalog);
 
-    let states = null;
     async function runAddonsCheck() {
       if (signal.aborted || !window.api || typeof window.api.checkExternalMcp !== 'function') return;
       const probes = window.probeEntries();
@@ -936,18 +988,17 @@
       } else {
         msg.textContent = states ? CHECK_FAILED + ' The states shown are from the last check.' : CHECK_FAILED;
       }
-      for (const r of rows) r.setStates(states);
+      rows.setStates();
     }
-    for (const r of rows) fillPicker(r.picker, r.addTo, null);
     async function loadProjects() {
-      if (!window.api || typeof window.api.getProjectsAdmin !== 'function') return;
+      if (projectAdd || !window.api || typeof window.api.getProjectsAdmin !== 'function') return;
       let res = null;
       try { res = await window.api.getProjectsAdmin(); } catch { res = null; }
       if (signal.aborted || !host.isConnected) return;
       const projects = pickableProjects(res);
-      const pickerChoices = projects === null ? 'The project list could not be read.'
+      projectChoices = projects === null ? 'The project list could not be read.'
         : projects.length ? projects : 'No project to add to yet.';
-      for (const r of rows) fillPicker(r.picker, r.addTo, pickerChoices);
+      rows.fillPickers();
     }
 
     // The first sight of this panel build asks PATH and reads the project list once; a later show does not.
@@ -1007,7 +1058,30 @@
         return;
       }
       rMsg.textContent = res.results.length ? '' : 'No servers found.';
-      for (const r of res.results) if (r && typeof r.name === 'string') results.appendChild(registryResult(r, rMsg, signal));
+      const hits = res.results.filter(r => r && typeof r.name === 'string');
+      if (!hits.length) return;
+      // Registry hits are rows too (#803 T8): the name and "Unverified"; the description and commands on the page.
+      // Keyed by position as well as name: the registry is outside input and may list one name twice.
+      const keyed = hits.map((r, i) => ({ r, key: i + ':' + r.name }));
+      window.pluginsKit.mountView(results, {
+        filterPlaceholder: 'Filter the results',
+        sections: [{ title: 'Results', rows: keyed }],
+        rowKey: (h) => h.key,
+        rowLabel: (h) => registryLabel(h.r),
+        // The runtimes main built a command for, then "Unverified" — the same shape as a catalog row.
+        rowMeta: (h) => {
+          const runtimes = [...new Set((Array.isArray(h.r.packages) ? h.r.packages : [])
+            .flatMap(p => (p && Array.isArray(p.commands) ? p.commands : []))
+            .map(c => (c && typeof c.runtime === 'string' ? c.runtime : '')).filter(Boolean))];
+          return runtimes.length ? runtimes.join(', ') + ' · Unverified' : 'Unverified';
+        },
+        renderDetail: (h, container) => {
+          const pageMsg = node('div', 'settings-hint sv-mcp-form-msg');
+          pageMsg.setAttribute('aria-live', 'polite');
+          container.appendChild(registryResult(h.r, pageMsg, signal));
+          container.appendChild(pageMsg);
+        },
+      });
     }
   }
 

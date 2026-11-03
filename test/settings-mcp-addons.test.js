@@ -61,22 +61,42 @@ const ids = (window) => JSON.parse(JSON.stringify(window.MCP_ADDON_CATALOG.map(i
 
 const buttonsNamed = (root, label) => [...root.querySelectorAll('button')].filter(b => b.textContent === label);
 
-test('one row per catalog entry, as a settings field, with the licence, the source and both commands per runtime', () => {
+// #803 T8: a catalog entry is a one-line row of the list kit; what it held is on its detail page.
+const catalogRows = (body) => [...body.querySelectorAll('.sv-addon-catalog .plugins-row')];
+function openAddon(body, id) {
+  const back = body.querySelector('.sv-addon-catalog .plugins-back');
+  if (back && !body.querySelector('.sv-addon-catalog .plugins-detail-page').hidden) back.click();
+  body.querySelector(`.sv-addon-catalog .plugins-row[data-key="${id}"] .plugins-row-open`).click();
+  return body.querySelector('.sv-addon-catalog .plugins-detail [data-addon]');
+}
+const resultRows = (body) => [...body.querySelectorAll('[aria-live="polite"].sv-mcp-cards .plugins-row')];
+
+test('one row per catalog entry, as a settings field; its page holds the licence, the source and both commands per runtime', () => {
   const { dom, window, body } = setup();
   try {
-    const rows = [...body.querySelectorAll('.settings-field.sv-addon')];
-    assert.deepEqual(rows.map(r => r.dataset.addon), ids(window));
-    for (const [i, item] of window.MCP_ADDON_CATALOG.entries()) {
-      const text = rows[i].textContent;
-      assert.ok(text.includes(item.name) && text.includes(item.licence) && text.includes(item.source), item.id);
-      const lines = [...rows[i].querySelectorAll('.sv-addon-command code')].map(c => c.textContent);
+    const rows = catalogRows(body);
+    assert.deepEqual(JSON.parse(JSON.stringify(rows.map(r => r.dataset.key))), ids(window));
+    for (const r of rows) {
+      assert.ok(r.classList.contains('settings-field'));
+      assert.match(r.querySelector('.plugins-row-meta').textContent, / · not checked yet$/, 'one state word, before any check');
+      assert.equal(r.querySelector('.sv-addon-command, select'), null, 'no command and no picker on a row');
+    }
+    for (const item of window.MCP_ADDON_CATALOG) {
+      const page = openAddon(body, item.id);
+      const text = page.textContent;
+      assert.ok(text.includes(item.licence) && text.includes(item.source), item.id);
+      const lines = [...page.querySelectorAll('.sv-addon-command code')].map(c => c.textContent);
       for (const r of item.runtimes) {
         assert.ok(lines.includes(r.install.join(' ')), `${item.id} ${r.runtime} install`);
         assert.ok(lines.includes(r.uninstall.join(' ')), `${item.id} ${r.runtime} uninstall`);
       }
-      assert.ok([...rows[i].querySelectorAll('.sv-mcp-chip')].every(c => /not checked yet/.test(c.textContent)));
+      assert.ok([...page.querySelectorAll('.sv-mcp-chip')].every(c => /not checked yet/.test(c.textContent)));
     }
-    for (const b of body.querySelectorAll('button')) assert.ok(b.classList.contains('settings-action-btn'), b.textContent);
+    // Every button is a styled one: the kit's row buttons have their own rules, every other is a settings button.
+    for (const b of body.querySelectorAll('button')) {
+      const kitRow = b.classList.contains('plugins-row-open') || b.classList.contains('plugins-row-gear');
+      assert.ok(kitRow || b.classList.contains('settings-action-btn'), b.textContent);
+    }
     assert.equal(body.querySelector('details'), null, 'no disclosure: the settings search would force it open');
   } finally { dom.window.close(); }
 });
@@ -101,13 +121,15 @@ test('found, not found on PATH and not checked render as words, never as "missin
   const { dom, body, show } = setup({ check: answering(cmd => states[cmd] || { state: 'unknown', reason: 'some-new-code' }) });
   try {
     show(); await tick(); await tick();
-    const chips = [...body.querySelectorAll('[data-addon="jcodemunch"] .sv-mcp-chip')].map(c => [c.textContent, c.classList.contains('sv-mcp-chip-unknown')]);
+    const chips = [...openAddon(body, 'jcodemunch').querySelectorAll('.sv-mcp-chip')].map(c => [c.textContent, c.classList.contains('sv-mcp-chip-unknown')]);
     assert.deepEqual(chips, [
       ['uv: found', false],
       ['pipx: not found on PATH', false],
       ['jcodemunch-mcp: not checked: a folder on PATH could not be read', true],
     ]);
-    const other = body.querySelector('[data-addon="jdocmunch"]').textContent;
+    assert.match(catalogRows(body).find(r => r.dataset.key === 'jcodemunch').querySelector('.plugins-row-meta').textContent,
+      /not checked: a folder on PATH could not be read$/, 'the row says the state of the server command');
+    const other = openAddon(body, 'jdocmunch').textContent;
     assert.match(other, /jdocmunch-mcp: not checked: the reason is not known to this version/);
     assert.doesNotMatch(body.textContent, /missing/);
   } finally { dom.window.close(); }
@@ -127,6 +149,7 @@ test('a stale check reply is dropped, and a failed one keeps the shown states an
     show();
     buttonsNamed(body, 'Check again')[0].click(); await tick(); await tick();
     release(); await tick(); await tick();
+    openAddon(body, 'jcodemunch');
     const chip = () => body.querySelector('[data-addon="jcodemunch"] .sv-mcp-chip').textContent;
     assert.equal(chip(), 'uv: found', 'the later answer stands');
     buttonsNamed(body, 'Check again')[0].click(); await tick(); await tick();
@@ -139,7 +162,7 @@ test('Copy puts the exact command on the clipboard; a refused clipboard says so'
   const { dom, window, body, calls } = setup();
   try {
     const item = window.MCP_ADDON_CATALOG[0];
-    const line = [...body.querySelectorAll(`[data-addon="${item.id}"] .sv-addon-command`)]
+    const line = [...openAddon(body, item.id).querySelectorAll('.sv-addon-command')]
       .find(l => l.querySelector('code').textContent === item.runtimes[0].uninstall.join(' '));
     const button = line.querySelector('button');
     button.click(); await tick();
@@ -149,7 +172,7 @@ test('Copy puts the exact command on the clipboard; a refused clipboard says so'
 
   const refused = setup({ clipboard: async () => { throw new Error('denied'); } });
   try {
-    buttonsNamed(refused.body, 'Copy')[0].click(); await tick();
+    buttonsNamed(openAddon(refused.body, refused.window.MCP_ADDON_CATALOG[0].id), 'Copy')[0].click(); await tick();
     assert.match(refused.body.textContent, /Could not copy\. Select the text and copy it by hand\./);
   } finally { refused.dom.window.close(); }
 });
@@ -157,7 +180,7 @@ test('Copy puts the exact command on the clipboard; a refused clipboard says so'
 test('the registry is asked only on Search or Enter, never while typing', async () => {
   const { dom, window, body, calls } = setup();
   try {
-    const input = body.querySelector('input.settings-input');
+    const input = body.querySelector('.sv-addon-search input.settings-input');
     input.value = 'demo';
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
     input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'a', bubbles: true }));
@@ -187,7 +210,11 @@ test('registry text holding markup stays text, marked Unverified, with Copy for 
     const results = () => body.querySelector('[aria-live="polite"].sv-mcp-cards');
     assert.equal(results().textContent, '', 'nothing from the registry before a search');
     buttonsNamed(body, 'Search')[0].click(); await tick(); await tick();
-    const card = results().querySelector('.sv-mcp-card');
+    assert.equal(resultRows(body).length, 1);
+    assert.equal(resultRows(body)[0].querySelector('.plugins-row-meta').textContent, 'uv · Unverified', 'runtimes main built a command for, then Unverified');
+    assert.ok(resultRows(body)[0].textContent.includes(evil) && resultRows(body)[0].textContent.includes('<b>bold</b>'));
+    resultRows(body)[0].querySelector('.plugins-row-open').click();
+    const card = results().querySelector('.plugins-detail-page');
     assert.ok(card.textContent.includes(evil));
     assert.ok(card.textContent.includes('<b>bold</b>'));
     assert.equal(card.querySelector('img, b, script, i'), null, 'no element built from registry text');
@@ -212,7 +239,7 @@ test('a later search wins over an earlier one still out; a refusal shows main\'s
     const search = buttonsNamed(body, 'Search')[0];
     search.click(); search.click(); await tick(); await tick();
     release(); await tick(); await tick();
-    const names = () => [...body.querySelectorAll('.sv-mcp-card .settings-label')].map(n => n.textContent);
+    const names = () => resultRows(body).map(r => r.querySelector('.plugins-row-name').textContent);
     assert.deepEqual(names(), ['second']);
     search.click(); await tick(); await tick();
     assert.match(body.textContent, /Type a name to search for\./);
@@ -225,9 +252,10 @@ test('a settings search keeps a matching row and hides the others (rows are .set
     // The settings search's own rule (settings-panel.js applyGlobalSearch): a field shows when its text holds the query.
     const visible = (q) => [...body.querySelectorAll('.settings-cat .settings-field')]
       .filter(f => f.textContent.toLowerCase().includes(q.toLowerCase()))
-      .map(f => f.dataset.addon).filter(Boolean);
+      .map(f => f.dataset.key).filter(Boolean);
+    // A row holds the name and its one state; the summary and the licence are on its page (spec 40 D1).
     assert.deepEqual(visible('jDocMunch'), ['jdocmunch']);
-    assert.deepEqual(visible('Dual-Use'), ids(window));
+    assert.deepEqual(visible('not checked yet'), ids(window));
     assert.deepEqual(visible('no such thing'), []);
   } finally { dom.window.close(); }
 });
@@ -249,13 +277,15 @@ const PROJECTS = { ok: true, projects: [
 test('the project list is read on the first show only, and lists only projects on the list, present and not worktrees, as text', async () => {
   const { dom, window, body, calls, show } = setup({ projects: PROJECTS });
   try {
-    const picker = body.querySelector('[data-addon="jcodemunch"] select');
+    let picker = openAddon(body, 'jcodemunch').querySelector('select');
     assert.equal(picker.disabled, true, 'nothing to pick before the list is read');
     await tick();
     assert.equal(calls.projects, 0, 'not read at bind');
     show(); await tick(); await tick();
     show(); await tick();
     assert.equal(calls.projects, 1);
+    assert.equal(picker.disabled, false, 'an open page is filled in place');
+    picker = openAddon(body, 'jdocmunch').querySelector('select');
     const options = [...picker.options].slice(1).map(o => [o.value, o.textContent]);
     assert.deepEqual(JSON.parse(JSON.stringify(options)), [
       ['/work/<b>odd</b>', '<img src=x onerror="window.__pwned=1">'],
@@ -274,7 +304,7 @@ test('a failed or empty project list says so and offers nothing to press', async
     const { dom, body, show } = setup({ projects });
     try {
       show(); await tick(); await tick();
-      const row = body.querySelector('[data-addon="jdocmunch"]');
+      const row = openAddon(body, 'jdocmunch');
       assert.match(row.querySelector('select').options[0].textContent, words);
       assert.equal([...row.querySelectorAll('button')].find(b => b.textContent === 'Add to project').disabled, true);
     } finally { dom.window.close(); }
@@ -285,7 +315,7 @@ test('Add to project warns, then opens the project with the catalog id as the se
   const run = async (dialog) => {
     const env = setup({ projects: PROJECTS, dialog });
     env.show(); await tick(); await tick();
-    const row = env.body.querySelector('[data-addon="jdatamunch"]');
+    const row = openAddon(env.body, 'jdatamunch');
     row.querySelector('select').value = '/work/zeta';
     [...row.querySelectorAll('button')].find(b => b.textContent === 'Add to project').click();
     await tick(); await tick();
@@ -308,11 +338,62 @@ test('Add to project without a chosen project asks for one and opens nothing', a
   const { dom, body, calls, show } = setup({ projects: PROJECTS });
   try {
     show(); await tick(); await tick();
-    const row = body.querySelector('[data-addon="jcodemunch"]');
+    const row = openAddon(body, 'jcodemunch');
     [...row.querySelectorAll('button')].find(b => b.textContent === 'Add to project').click();
     await tick();
     assert.match(body.textContent, /Choose a project first\./);
     assert.deepEqual(calls.dialogs, []);
     assert.deepEqual(calls.opened, []);
+  } finally { dom.window.close(); }
+});
+
+test('in a project window the page offers "Add to this project" and no picker, and reads no project list (E9)', async () => {
+  const dom = new JSDOM(PAGE, { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of SCRIPTS) vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    const { window } = dom;
+    let projectsRead = 0;
+    window.api = { getProjectsAdmin: async () => { projectsRead++; return { ok: true, projects: [] }; }, checkExternalMcp: async () => ({ ok: true, results: [] }) };
+    const added = [];
+    const body = window.document.getElementById('body');
+    window.settingsExternalMcp.bindAddons(body, new window.AbortController().signal, { projectAdd: (item) => added.push(item.id) });
+    const showIt = () => body.querySelector('section[data-cat="mcp-addons"]').dispatchEvent(new window.CustomEvent('settings-cat-shown', { bubbles: true }));
+    showIt(); await tick();
+    showIt(); await tick();
+    const page = openAddon(body, 'jcodemunch');
+    assert.equal(page.querySelector('select'), null);
+    buttonsNamed(page, 'Add to this project')[0].click();
+    assert.deepEqual(added, ['jcodemunch']);
+    assert.equal(projectsRead, 0);
+  } finally { dom.window.close(); }
+});
+
+test('two registry hits with one name are two rows, each opening its own page', async () => {
+  const { dom, body } = setup({
+    search: () => ({ ok: true, results: [
+      { name: 'same', description: 'first one', packages: [] },
+      { name: 'same', description: 'second one', packages: [] },
+    ] }),
+  });
+  try {
+    buttonsNamed(body, 'Search')[0].click(); await tick(); await tick();
+    assert.equal(resultRows(body).length, 2);
+    resultRows(body)[1].querySelector('.plugins-row-open').click();
+    assert.match(body.querySelector('[aria-live="polite"].sv-mcp-cards .plugins-detail').textContent, /second one/);
+  } finally { dom.window.close(); }
+});
+
+test('Check again updates an open catalog page in place', async () => {
+  let state = 'missing';
+  const { dom, body, show } = setup({ check: answering(() => ({ state })) });
+  try {
+    show(); await tick(); await tick();
+    const page = openAddon(body, 'jcodemunch');
+    assert.match(page.textContent, /uv: not found on PATH/);
+    state = 'found';
+    buttonsNamed(body, 'Check again')[0].click(); await tick(); await tick();
+    assert.equal(body.querySelector('.sv-addon-catalog .plugins-detail [data-addon]'), page, 'the same page, not rebuilt');
+    assert.match(page.textContent, /uv: found/);
   } finally { dom.window.close(); }
 });
