@@ -11,14 +11,16 @@ user flows. The decisions below are the owner's unless a row says otherwise; the
 
 ## What changes for the user
 
-Global settings gain a category **MCP servers** ("Installed on this machine") in the Extensions group. It lists a
+Global settings gain a category **MCP servers** ("Installed on this machine") in the Extensions group. (Since #803 the
+category is **Marketplace** in the Plugins group of both settings windows, with the same id `mcp-addons`; its entries
+are one-line rows that open a detail page. See [spec 40](40-plugins-manager.md).) It lists a
 short, fixed catalog of servers kept in the repository. Each row says what the server is, where it comes from
 (upstream URL), its licence, which runtime installs it, and whether that runtime and the server are found on this
 machine. A row shows the exact install and the exact uninstall command with a **Copy** button. The user pastes it into
 their own terminal. Switchboard never starts a package manager.
 
-A row also has **Add to project**: pick a project, and that project's settings open on its *MCP servers* cards with the
-Add form already filled in for this server. Nothing is stored until the user presses Save there. Installing is per
+A row also has **Add to project**: pick a project, and that project's settings open on its *MCP servers* cards (since #803 the
+MCPs view) with the Add form already filled in for this server. Nothing is stored until the user presses Save there. Installing is per
 machine, enabling stays per project (spec 36, D-A2).
 
 Below the catalog a **Search the MCP registry** box. It sends nothing until the user presses Search (or Enter in the
@@ -170,7 +172,7 @@ Built on 2026-10-27, as planned, with the open points O1 to O10 answered as reco
 |---|---|
 | The catalog, the D9 token rule, the probe entries and reading their answer | `src/shared/mcp-addon-catalog.js` (`MCP_ADDON_CATALOG`, `commandLine`, `findCatalogItem`, `entryFromCatalog`, `probeEntries`, `readProbe`, `catalogProblems`); `test/mcp-addon-catalog.test.js` |
 | The registry search | `src/app/mcp-registry.js`, IPC `mcp-registry-search`, `window.api.searchMcpRegistry(term)`; `test/mcp-registry.test.js` |
-| The global category and Add to project | `bindAddons` and `openSeeded` in `src/renderer/panels/settings-external-mcp.js`; the host in `src/renderer/panels/settings-global-html.js` (`data-cat="mcp-addons"`); `test/settings-mcp-addons.test.js` |
+| The global category and Add to project | `bindAddons` and `openSeeded` in `src/renderer/panels/settings-external-mcp.js`; the host in `src/renderer/panels/settings-global-html.js` (`data-cat="mcp-addons"`); `test/settings-mcp-addons.test.js`. Since #803 the Marketplace of the Plugins group in both windows; in a project window Add to project opens that window's own Add form (spec 40, E9). |
 | The seed | `settingsQuery`/`shownQueryKey` in `src/app/windows.js`, `window.__SETTINGS_SEED__` in `src/renderer/panels/settings-window.js`, taken once in `src/renderer/panels/settings-panel.js`; `test/settings-window-scope.test.js`, `test/settings-mcp-addon-handoff.test.js` |
 
 What differs from the plan, and why:

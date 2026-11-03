@@ -17,7 +17,9 @@ module being added), and the **small IPC handlers** that stayed on purpose (thin
 moving them buys churn).
 `GRANDFATHERED` in `test/main-no-new-ipc.test.js` is the list — count it there rather than here.
 
-`src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js`,
+`src/app/` holds `lifecycle.js` (boot, ordered teardown), `windows.js` (its settings-window seed carries `addon`
+and, since #803, a `cat` that is passed on only when it is in `SETTINGS_SEED_CATS` — the renderer's list of the
+Plugins group's views, compared both ways by `test/settings-plugins.test.js`),
 `notifications.js`, `hooks.js`, `variables.js`, `settings.js`, `quit-guard.js`,
 `skills.js` (what a running session can be asked to run — #462; a BACKEND skill is asked for through
 the descriptor's `listResources`/`expandResource`, a SWITCHBOARD skill belongs to nobody's CLI and is
@@ -230,7 +232,7 @@ reason otherwise, a network or relative PATH entry never touched. It exists beca
 `findOnPath` from `src/backends/file-store.js`; #790 reaches it through `external-mcp-check.js` for `uv`, `pipx` and the
 catalog's servers, not as a second direct caller),
 `external-mcp-check.js` (the static check of a project's external MCP server entries — #789 slice D, spec 36; entries in, neutral facts out: does the command resolve (`path-resolve.js`), is every `${VAR}` set, which enabled backends take the entry and why not. It reuses the launch's own rules (`references`/`expand`, `entryAppliesTo`, the descriptor's `externalMcpTakes`, the unset-variable skip of `externalServersSource`) and `test/external-mcp-check-agreement.test.js` runs the real launch path against it. No value ever leaves it, only names, states and reason codes; IPC `external-mcp-check`; #790 reuses `checkEntries`),
-`mcp-registry.js` (the search in the official MCP Registry behind the global "MCP servers" category — #790, spec 38; one `GET` to one fixed `https` host, only when the user presses Search, with a timeout, a streamed body-size cap and redirects refused. The term is the only variable part and is never logged. The reply is validated field by field against spec 38's "Registry facts", stripped of control characters and capped; a command is built by main only for a `pypi` package whose identifier passes the PyPI name rule and the catalog's token rule (`commandLine` in `src/shared/mcp-addon-catalog.js`), never taken from the registry. IPC `mcp-registry-search`),
+`mcp-registry.js` (the search in the official MCP Registry behind the Marketplace category (the global "MCP servers" until #803) — #790, spec 38; one `GET` to one fixed `https` host, only when the user presses Search, with a timeout, a streamed body-size cap and redirects refused. The term is the only variable part and is never logged. The reply is validated field by field against spec 38's "Registry facts", stripped of control characters and capped; a command is built by main only for a `pypi` package whose identifier passes the PyPI name rule and the catalog's token rule (`commandLine` in `src/shared/mcp-addon-catalog.js`), never taken from the registry. IPC `mcp-registry-search`),
 `readable-error.js` (what a THROWN filesystem error may say to a user — #444; it names the path it
 failed on, so the errno is translated and the rest of the message is dropped, with the raw text sent to
 the log instead. A reason a module wrote itself is not an error and never goes through it),

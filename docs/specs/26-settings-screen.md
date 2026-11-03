@@ -1,6 +1,6 @@
 # 26 — The settings screen
 
-Status: **built** (#471, #472, #490; later #565, #593).
+Status: **built** (#471, #472, #490; later #565, #593, #803).
 Written after the fact, as a design record.
 
 The enforceable half is the *settings screen* section of [`.claude/rules/renderer.md`](../../.claude/rules/renderer.md);
@@ -32,9 +32,10 @@ those two edits and nothing else.
 
 **The counts are counted** (#471). `settings-panel.js` fills each badge from its section's
 `.settings-field` elements after the markup is in. A category another module fills in later — Backends,
-Tags, Custom launchers, MCP servers — counts nothing and shows nothing, which is honest: the panel cannot count what it
-has not been given yet. MCP servers (#790, [spec 38](38-mcp-addon-catalog.md)) has no badge at all: its rows are
-`.settings-field`s so the search finds them, but they are catalog entries, not settings.
+Tags, Custom launchers — counts nothing and shows nothing, which is honest: the panel cannot count what it
+has not been given yet. The Plugins group (#803, [spec 40](40-plugins-manager.md)) counts its own: each entry carries
+`data-count-own="1"`, and its badge is the number of rows the view drew, empty until the view has read. The Marketplace
+(#790, [spec 38](38-mcp-addon-catalog.md)) counts its catalog rows, never registry hits.
 
 The rule that comes with it, and the reason the grouping is worth writing down: **a field goes where its
 subject is.** Terminal is what a terminal does, not what happens to be reachable from one.
@@ -104,6 +105,18 @@ defeats a rule it was never told about. Anything future that opens, expands or m
 settings tree has to answer this question again — see
 [`docs/ai/lessons.md`](../ai/lessons.md).
 
+## The Plugins group reads lazily and can hold unsaved work (#803)
+
+The Plugins group ([spec 40](40-plugins-manager.md)) sits in both windows' nav, built by
+`src/renderer/panels/settings-plugins.js`. Its Plugins, Apps and Skills views read on their category's first
+`settings-cat-shown`, like a backend's resources, so opening the window walks nothing. The search does not open a view
+nobody has looked at.
+
+It is also the first part of the screen that holds work outside a setting: a skill page with text not yet saved to its
+file. Cancel, Save, Apply, Hide Project, Remove Project, the search and the hand-offs to a project's window all ask
+`leave()` first. A refusing page stops the action and the screen switches to it. The search also sends each view back
+to its list and clears the view's own filter, so every row is searched.
+
 ## What it cost, and what caught it
 
 The suite stayed green through the whole change, including through that defect: nothing tests
@@ -160,3 +173,5 @@ says so.
   global one is the obvious follow-up, and was left alone here because the change was already large.
 - **`data-count-own` is a convention, not a type.** A future entry that wants its own badge has to know
   the attribute exists.
+- **The title-bar X does not ask** (#803). It hides the window, and a skill page's unsaved text is lost with it, as is
+  any unsaved setting.

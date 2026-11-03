@@ -162,11 +162,12 @@ chart rather than a row of zeroes.
   and the files the reviewer reads go to that backend's vendor, so it is off by default.
   → [`docs/specs/39-review-tool.md`](docs/specs/39-review-tool.md)
 - **External MCP servers per project** — list MCP servers (a stdio launch or an HTTP endpoint) in a project's
-  settings, as a card per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view holds
-  the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes not
-  yet. Confirmed end to end: a Claude/Haiku turn chose and called an external tool. A project can also start its
-  Claude sessions with only the servers Switchboard injects (off by default; Claude only). Each card says, without
-  starting anything, whether the command is found, which `${VAR}` references are unset, and which backends take it.
+  settings, as a one-line row per server with an on/off switch and a form to add or edit one; an *Edit as JSON* view
+  holds the same list. Its sessions start with them for that launch only. Works for Codex, agy, Claude and Pi; Hermes
+  not yet. Confirmed end to end: a Claude/Haiku turn chose and called an external tool. A project can also start its
+  Claude sessions with only the servers Switchboard injects (off by default; Claude only). Each server's page says,
+  without starting anything, whether the command is found, which `${VAR}` references are unset, and which backends
+  take it.
   → [`docs/specs/36-external-mcp-servers.md`](docs/specs/36-external-mcp-servers.md)
 - **MCP server catalog** — global settings list a few reviewed MCP servers (jcodemunch, jdocmunch, jdatamunch) with
   their source and licence, say whether `uv`, `pipx` and the server are on PATH, and show the install and uninstall
@@ -174,6 +175,12 @@ chart rather than a row of zeroes.
   server filled in. A search of the official MCP Registry runs only when you press Search; its results are marked
   Unverified and are text to copy.
   → [`docs/specs/38-mcp-addon-catalog.md`](docs/specs/38-mcp-addon-catalog.md)
+- **Plugins manager** — a *Plugins* group in both settings windows, also reached from the command palette, with
+  five views: Plugins, Apps, MCPs, Skills and Marketplace. Each is a short list with a filter and a count; a row opens
+  its own page. Plugins shows what each CLI has installed and, where the CLI says, whether it is on (read only). Skills lists every skill
+  file once, whichever CLI reported it, says what each CLI makes of it, and has an editor on its page. MCPs and
+  Marketplace are the two entries above. Nothing is read until you open a view.
+  → [`docs/specs/40-plugins-manager.md`](docs/specs/40-plugins-manager.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
   *Claude Code pointed at another endpoint*. Appears in the launch menu with its own badge.
 - **Attention inbox** — a prioritized queue of every session needing you, with "focus next" and a hotkey

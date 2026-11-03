@@ -402,11 +402,24 @@ noticing.
   a resources disclosure only when `dataset.loaded === '1'` — one already read has nothing left to pay, one
   nobody has opened stays closed and is not searched. Any future "open everything" over the settings DOM has
   to answer this same question.
-- **The global MCP servers category is `data-cat="mcp-addons"`** (#790, spec 38); `mcp` is the project scope's own.
-  Its PATH check and project list run on the category's first `settings-cat-shown`, so `bindAddons` is bound before
-  `wireTwoPane()`. Its "Add to project" hands a catalog id through the URL as `addon`; settings-window.js turns it
-  into `window.__SETTINGS_SEED__`, and the project branch takes and clears it once, so Apply's rebuild (no reload)
-  does not reopen the form.
+- **The Plugins group is one module in both windows (#803, spec 40).** `panels/settings-plugins.js` writes its nav
+  head, its sections and its wiring; `panels/plugins-views.js` draws Plugins, Apps and Skills, and
+  `panels/settings-external-mcp.js` the MCPs and the Marketplace, all over `panels/plugins-kit.js` so the list-to-detail
+  behaviour cannot drift. Category ids: `plugins-plugins`, `plugins-apps`, `plugins-skills`, `mcp-addons`
+  (Marketplace, the #790 id kept), and for MCPs `mcp` in a project window, `plugins-mcps` in the global one. A deep link
+  `{ cat }` must name one of `SETTINGS_SEED_CATS` in `src/app/windows.js`; `test/settings-plugins.test.js` compares that
+  list with the renderer's both ways, so a new view id goes in both.
+  - **The views read on their first `settings-cat-shown`, never at bind** (`pluginsViews.bindLazy`). Their nav badge
+    is `data-count-own`, the view's row count once it has read; a new view follows both rules.
+  - **A view can hold unsaved work, so anything that drops the screen asks `pluginsMayLeave` first** — Cancel, Save,
+    Apply, Hide, Remove, the search, both hand-offs. A new action that rebuilds, closes or replaces the window joins
+    that list. `leave()` reaches every kit view through `pluginsKit.viewsIn(body)`, never a list of names.
+- **The Marketplace's PATH check and project list run on the category's first `settings-cat-shown`** (#790, spec 38),
+  so `bindAddons` is bound before anything can show the category (in the global window before `wireTwoPane()`, in a
+  project window inside `settingsPlugins.bind`). Its "Add to project" in the global window hands a catalog id through
+  the URL as `addon`; settings-window.js turns it into `window.__SETTINGS_SEED__`, and the project branch takes and
+  clears it once, so Apply's rebuild (no reload) does not reopen the form. In a project window it opens that window's
+  own Add form instead (E9).
 - **An action that takes the screen's SUBJECT away closes the screen (#565).** Hide Project and Remove
   Project are the two; `closeAfterProjectAction` flashes the pressed button and calls
   `closeSettingsViewer`. Neither staying nor going "back to the project list" is on the table: every field

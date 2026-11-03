@@ -520,7 +520,19 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   MCP servers with the Add form filled in from the catalog; nothing is stored until Save there. Below the catalog, a
   search of the official MCP Registry runs only on Search or Enter. Results are marked *Unverified*, shown as text,
   and get an install command only when main can build one from a valid PyPI name. Spec:
-  [`specs/38-mcp-addon-catalog.md`](specs/38-mcp-addon-catalog.md).
+  [`specs/38-mcp-addon-catalog.md`](specs/38-mcp-addon-catalog.md). Since #803 the category is *Marketplace* in the
+  Plugins group, in both settings windows.
+- **Plugins manager (#803)** — a *Plugins* group in the nav of both settings windows (and *Open Plugins* in the
+  command palette) with five views: *Plugins*, *Apps*, *MCPs*, *Skills* and *Marketplace*. Every view is a compact
+  list with a filter and a count, and a row opens its own detail page with Back and keyboard navigation. *Plugins*
+  lists what each CLI has installed: Claude and Codex say whether a plugin is on (shown, never changed), the others
+  are listed from their folders as "not reported". *Apps* is empty until a CLI reports apps. *Skills* lists each skill
+  file once with its source and scope, says per CLI whether the skill is native there, shared to it, handed over as
+  text, declined or not offered, and edits the file on its page with a conflict check against the disk. *MCPs* is the
+  project's server list as one-line rows (the global window explains it is per project and opens a project's), and
+  *Marketplace* is the catalog above, adding straight to the project in a project window. The views read only when
+  first shown, and leaving a skill page with unsaved text is refused. Spec:
+  [`specs/40-plugins-manager.md`](specs/40-plugins-manager.md).
 - **Subagents for Pi (#634)** — Pi has no nested agents of its own. With the `subagentTool` setting on, a
   Pi session gets a `subagent` tool that hands one task to an agent defined in a markdown file. The agent
   runs as a separate Pi process with a fresh context and without a session file, and the tool result says

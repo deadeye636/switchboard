@@ -2,7 +2,8 @@
 
 Issue #789, **slice A (injection), slice B (the cards editor), A2 (prune) and D (a static check per card), all built**. Status: **confirmed end to end — a
 Claude/Haiku model turn chose, called and got the result of an injected external tool, and the cards-and-form editor
-ships** (see "As built" and "Slice B"; plans: `docs/plans/789-external-mcp-injection/`, `docs/plans/789-slice-b-mcp-cards/` and
+ships** (since #803 the cards are one-line rows in the MCPs view of [spec 40](40-plugins-manager.md); see "As
+built" and "Slice B"; plans: `docs/plans/789-external-mcp-injection/`, `docs/plans/789-slice-b-mcp-cards/` and
 `docs/plans/789-detection/`, local). This is the inbound counterpart to [spec 34](34-switchboard-mcp-server.md) and
 [spec 35](35-session-discovery-tools.md): there Switchboard is the server and the CLI calls it; here the user
 names servers that exist elsewhere (an `uvx <server>` stdio launch, an HTTP endpoint) and Switchboard puts them in
@@ -253,7 +254,7 @@ today, and a change takes effect on the next session started. Cancel discards.
 |---|---|---|
 | D-B1 | **One data model, two views (W1).** Cards and the JSON text area read and write the same `externalMcpServers` value; there is no second setting and no second copy of the list. | Owner. Two stores would drift, and the validator, the reader and the settings-reference row stay as they are. |
 | D-B2 | **The JSON view stays** as a disclosure: fields the form does not cover (`backends` edits beyond chips, future keys) and repair of a broken stored value. | Owner. A form can only show a list that parses; the text is the one view that can always be fixed. |
-| D-B3 | **Scope is the MCP surface only.** No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790, built as [spec 38](38-mcp-addon-catalog.md)), no skills (they keep their file model, design note H2/H3). | Owner; the reference's five-tab manager is not adopted. |
+| D-B3 | **Scope is the MCP surface only** — for this slice. No tabs for Plugins, Apps, Marketplace, no install or uninstall (#790, built as [spec 38](38-mcp-addon-catalog.md)), no skills (they keep their file model, design note H2/H3). **Superseded by [spec 40](40-plugins-manager.md) (#803):** the project MCP editor is now the MCPs view of a Plugins group with Plugins, Apps, Skills and Marketplace beside it; its rows are one line each and the cards' verbose parts sit on a detail page. The data model, the form, the validator and D-B4 are unchanged. | Owner; the five-tab manager was not adopted here, and was adopted later as five nav items (spec 40, E7). |
 | D-B4 | **Per project only (H1).** No global or personal list. | Owner. |
 | D-B5 | **Pruning a backend's defaults (A2) and reachability detection are not in slice B.** | Owner; unchanged from D-A4 and D-A6. |
 | D-B6 | **Native-driver injection: both shipped (T10).** claude-native over `--mcp-config`; pi-native through the session-resources MCP section it inherits from terminal Pi (stdio only). The cards show the per-project set both now inject over the pipe. | Owner. |

@@ -1,6 +1,6 @@
 # 40 — The Plugins manager: five compact views over the inventories Switchboard already has
 
-Issue #803. Status: **planned** (design only; building needs the owner's go; the working plan is
+Issue #803. Status: **built** except E12 (see "As built" and "Known gaps"; the working plan was
 `docs/plans/803-plugins-manager/PLAN.md`, local). This restores the unified manager chosen in #789's design note (D1)
 and narrowed by [spec 36](36-external-mcp-servers.md) D-B3. It is separate from #507. The owner decisions below are
 binding; E1 to E10 were answered by the owner on 2026-11-02 (see "Decided by the owner").
@@ -19,8 +19,8 @@ Selecting a row opens that item's own detail page (with a Back control); everyth
 | Plugins | name, backend label, scope, state | path, what it brings (skills, commands), Open |
 | Apps | name, backend label, state | whatever the backend declares; nothing else is invented |
 | MCPs | name, transport, one concise state, **enable switch** | the facts lines (command found, variables, which backends take it), backends, Edit (the existing form), Remove, the "not used at launch" reason |
-| Skills | name, source label, scope | path, invocation per backend, backend compatibility and effective delivery, Edit (hand-off to Agent Files) |
-| Marketplace | name, runtime, one state chip (registry hits: **Unverified**) | summary, source, licence, install and uninstall commands with Copy, Add to project |
+| Skills | name, source label, scope | path, invocation per backend, backend compatibility and effective delivery, an editor on the page (E11) |
+| Marketplace | name, runtime, one state in words (registry hits: **Unverified**) | summary, source, licence, install and uninstall commands with Copy, Add to project |
 
 ## Decided (owner; binding)
 
@@ -30,7 +30,7 @@ Selecting a row opens that item's own detail page (with a Back control); everyth
 | D2 | An MCP row is one line: identity, concise state, enable switch. Description, reachability, commands, configuration, Edit and Remove sit on the detail page. | #803 comment 2 |
 | D3 | Machine-wide discovery and install stay apart from per-project enablement. A server's on/off is saved only with that project's settings. | #789/#790, #803 |
 | D4 | A skill is one neutral inventory row with source and scope, never one UI record per backend. Discovery and delivery run through the core; invocation, injection, flags, paths and formats stay in the target backend's descriptor. The detail page shows compatibility from facts main serves. | #803 comment 3 |
-| D5 | Reuse, do not rebuild: resource listing, Agent Files skill editing, the project MCP editor, the reviewed catalog, the official-registry search. | #803 |
+| D5 | Reuse, do not rebuild: resource listing, Agent Files skill editing (superseded by E11: the skill is edited on its own page), the project MCP editor, the reviewed catalog, the official-registry search. | #803 |
 | D6 | No new IPC handler in `src/main.js`; no backend id in the renderer; CLI-read files only through `src/app/safe-write.js`; a setting change goes into `docs/settings-reference.md`; English everywhere. | CLAUDE.md |
 | D7 | **The visual reference is a screenshot the owner supplied** (an MCPs view, kept locally with the plan). One **Plugins** menu item with sub-items (Plugins, Apps, MCPs, Skills, Marketplace), which matches E7. Taken over: a page head with title, one-line subtitle and header actions (browse, Add); a filter box under it; a view split into labelled sections (MCPs: configured servers, then servers that come from plugins); rows grouped in one rounded container with thin separators; per row a settings icon that opens the detail page and the enable switch. Sections the reference shows without a Switchboard source (for example MCP app data) are not copied; whether a "From plugins" MCP section has a source is checked in T7. Styling reuses the settings screen's existing tokens (reflex 8). | Owner, 2026-11-02 |
 
@@ -93,8 +93,8 @@ Checked against the code at HEAD aa59e114. Research only.
 4. **Agent Files lives in the main window**; the Settings window (`settings.html`) has neither it nor a path to it.
    `backend-open-resource` needs a backend id (`src/preload.js:40`), and a Switchboard skill has none. "Edit from the
    skill detail" therefore needs a relay (E5). **T1 found that Agent Files does not list Switchboard skills at all (F1), so
-   a relay alone does not open one.** E5 was re-decided: Agent Files gets a Switchboard-skills group and a read/save door
-   for the configured skills directory (see "Decided by the owner").
+   a relay alone does not open one.** E5 was re-decided and then superseded by E11: a skill is edited on its own
+   detail page in Settings, so no relay was built (see "Decided by the owner").
 5. **The project settings category called "Skills" (`settings-panel.js:639`, `:729`) is the `skillsDir` path field**,
    not a skill list. The new view needs another category id.
 6. **Apps have no data source.** No descriptor declares apps or connectors; claude.ai connectors are only visible in a
@@ -151,12 +151,67 @@ E1 to E10 were put to the owner with options; every one was answered as recommen
 | E9 | Marketplace in a project window adds directly to that project (staged); the global hand-off stays. |
 | E10 | No skill enable switch in v1; a neutral disabled-skills setting would be its own issue. |
 
-## Verification (planned)
+## Verification
 
 Renderer tests (jsdom) for navigation, counts, density, master-detail, toggles and scope; main tests for the
-inventory and delivery tables pinned per backend; a live click test on the demo instance (`npm run demo:start`).
-No model turn is needed; if one is, the smallest model runs it.
+inventory and delivery tables pinned per backend; a live click test on the demo instance (`npm run demo:start`) after
+each renderer step. No model turn was started.
 
 ## As built
 
-Not built yet.
+Built 2026-11-02 to 2026-11-03 in steps T1 to T10 of the plan, each one verified and click-tested before its commit.
+
+| Part | Where |
+|---|---|
+| The neutral skill inventory: one row per file path, source label, scope, `alsoNamed`, `editable`; the owner backends stay in main | `getSkillInventory` and IPC `get-skill-inventory` in `src/app/skills.js`; `test/skill-inventory.test.js` |
+| What one skill is to each target backend (`native`, `shared`, `text`, `declined`, `none`) with the sentence and the invocation | `src/app/skill-delivery.js` (pure), IPC `get-skill-detail` in `src/app/skills.js`; `test/skill-delivery.test.js` |
+| The skill editor's door (E11, E14): read and save by inventory ID, never by path | `read-skill` / `save-skill` in `src/app/skills.js`; the app's own skills through `src/app/safe-write.js`, a backend's through `src/app/backend-resources.js`; `test/skill-editor-door.test.js` |
+| Installed plugins and reported apps | `src/app/plugins-inventory.js` (IPC for both lists and `open-plugin` by ID); descriptor hooks `listPlugins` (Claude and Codex answer, their drivers forward) and `listApps` (no backend answers yet); `test/plugins-inventory.test.js`, `test/backend-parity.test.js` |
+| The list-to-detail kit: compact row, filter, count, detail page, Back, keyboard, `canLeave` | `src/renderer/panels/plugins-kit.js` (`window.pluginsKit`); `test/plugins-kit.test.js` |
+| The Plugins, Apps and Skills views, the skill editor on the Skills page | `src/renderer/panels/plugins-views.js` (`bindLazy`, `mountPlugins`, `mountApps`, `mountSkills`); `test/plugins-views.test.js` |
+| The MCPs view (project window) and the Marketplace | `src/renderer/panels/settings-external-mcp.js` (rows over the kit; `bindAddons(..., { projectAdd })` for E9); `test/settings-mcp-addons.test.js`, `test/settings-mcp-addon-handoff.test.js` |
+| The nav group, the sections, counts, the global MCPs picker (E8), `leave()` | `src/renderer/panels/settings-plugins.js` (`window.settingsPlugins`), used by `src/renderer/panels/settings-global-html.js` and `src/renderer/panels/settings-panel.js`; `test/settings-plugins.test.js`, `test/settings-plugins-panel.test.js` |
+| Deep link to a view | `openSettingsWindow(scope, path, { cat })`, validated against `SETTINGS_SEED_CATS` in `src/app/windows.js`; the renderer's list is compared with it both ways in `test/settings-plugins.test.js` |
+| Entry points | the "Plugins" head in both settings windows; the command palette action "Open Plugins" in `src/renderer/app.js` (the global window on Plugins) |
+
+The category ids are `plugins-plugins`, `plugins-apps`, `plugins-skills`, `mcp-addons` (Marketplace, the spec 38 id
+kept) and, for MCPs, `mcp` in a project window and `plugins-mcps` in the global one.
+
+What differs from the design above, and why:
+
+- **No "From plugins" MCP section** (D7). No source names a plugin's MCP servers one by one; the plugin inventory only
+  says that a plugin brings MCP servers.
+- **States are words in the row, not chips.** D1 asks for one compact line, and a chip per row was wider than the text
+  it carried. A registry hit still reads **Unverified**.
+- **Plugin rows come from the install record, not the directory listing** (F3, F4). Expanding Claude's or Codex' plugins
+  directory lists cache and marketplace folders. A backend that declines `listPlugins` is shown from its listing with
+  the state "not reported".
+- **A skill is edited on its own page (E11)**, not in the sidebar's Agent Files. The editor is the file panel's
+  CodeMirror viewer, loaded at run time from `codemirror-bundle.js`. A conflict shows the text on disk read-only and
+  offers "Save mine over it" or "Load the version on disk"; one save runs at a time.
+- **Views read lazily.** Plugins, Apps and Skills read on their category's first `settings-cat-shown`, never when the
+  window opens; a nav badge stays empty until its view has read. The Marketplace badge counts catalog rows, never
+  registry hits.
+- **Leaving asks first.** Cancel, Save, Apply, Hide Project, Remove Project, the settings search and both hand-offs to a
+  project's window call `leave()`. A skill page with unsaved text refuses, and the screen switches to it. The settings
+  search also sends every view back to its list and clears its own filter, without taking the caret from the search.
+- **An unknown `cat` in a deep link is ignored**, in main and in the renderer.
+
+## Known gaps
+
+- **E12 is not built yet.** The sidebar's Agent Files still lists skills, commands, agents and plugins beside the
+  Plugins manager; taking them out is a step of its own.
+- **The window's title-bar X does not ask.** It hides the settings window, and unsaved skill text is lost. The same is
+  true of any unsaved setting there; it predates this spec.
+- **A refused leave can still have moved other views.** `leave()` asks the views in document order and stops at the
+  first refusal, so a view before the refusing skill page has already gone back to its list (and, for the search, lost
+  its filter). Nothing unsaved is lost. Asking every `canLeave` before changing any view would close it.
+- **Remove Project and the two hand-offs have no panel test** of the refusal; Hide, Cancel, Save, Apply and the search
+  do (`test/settings-plugins-panel.test.js`).
+- **One inventory call lists each backend up to three times**, and each skill read or save rebuilds the inventory. Both
+  run only on a click; share the listings if it shows.
+- **A deep link with `cat` to a settings window of the same scope that is already open only raises it**; the category
+  does not change.
+- **Apps is empty for every backend** until one answers `listApps` (E3).
+- **Plugin state is read-only** (E6), and a skill has no on/off (E10).
+- **The CodeMirror loader exists three times** (`src/renderer/panels/plugins-views.js`, `src/renderer/views/viewer-panel.js`, `src/renderer/diff-window.js`).
