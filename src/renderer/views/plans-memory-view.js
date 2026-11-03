@@ -566,7 +566,7 @@ function buildResourceGroup(rg, parentKey, projectPath) {
   const key = parentKey + '::' + rg.id;
   const block = document.createElement('div');
   block.className = 'project-group memory-resource-group';
-  // Collapsed by default, but never while a filter is on: filtering to Skills and being shown one
+  // Collapsed by default, but never while a filter is on: filtering to Rules and being shown one
   // collapsed folder answers the question with the question. The stored state is left alone, so
   // clearing the filter puts everything back the way it was.
   const filtering = window.agentFileFiltering(memoryFilters());

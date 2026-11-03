@@ -1,6 +1,6 @@
 # 40 — The Plugins manager: five compact views over the inventories Switchboard already has
 
-Issue #803. Status: **built** except E12 (see "As built" and "Known gaps"; the working plan was
+Issue #803. Status: **built** (see "As built" and "Known gaps"; the working plan was
 `docs/plans/803-plugins-manager/PLAN.md`, local). This restores the unified manager chosen in #789's design note (D1)
 and narrowed by [spec 36](36-external-mcp-servers.md) D-B3. It is separate from #507. The owner decisions below are
 binding; E1 to E10 were answered by the owner on 2026-11-02 (see "Decided by the owner").
@@ -146,6 +146,8 @@ E1 to E10 were put to the owner with options; every one was answered as recommen
 | E13 | (2026-11-03) The sidebar gets **no** "Switchboard skills" group; the memory door is not widened. |
 | E14 | (2026-11-03) A `skillsDir` at, inside or above a backend's own directory is **refused** for editing — those files belong to that CLI and its own door decides. Also refused, for the editor and the picker's walk alike, on the real path: a network path, a filesystem root (a junction to one included), the home directory and anything above it. |
 | E15 | (2026-11-03) E12 takes out of the sidebar what the Skills view replaces, and nothing more: the `skill` kind. Commands, agents, rules and Hermes' skill bundles stay in Agent Files, because no view here lists them. First the Skills view gets "New skill" (the sidebar's only way to create one), then the sidebar drops skills. |
+| E16 | (2026-11-03) The Skills page also gets **Delete**, which the sidebar offered: for a CLI's skill where Edit is offered, after a confirmation. The app's own skills are not deleted here. |
+| E17 | (2026-11-03) Accepted: with skills gone from Agent Files, the app search no longer finds text inside a skill. The Skills view's filter matches name and source only. |
 | E6 | Plugin state is read-only; Switchboard does not write a CLI's plugin settings. |
 | E7 | Five nav items under a "Plugins" head, not a tab strip. |
 | E8 | The global window's MCPs view explains the per-project list and offers a project picker. |
@@ -168,6 +170,8 @@ Built 2026-11-02 to 2026-11-03 in steps T1 to T10 of the plan, each one verified
 | What one skill is to each target backend (`native`, `shared`, `text`, `declined`, `none`) with the sentence and the invocation | `src/app/skill-delivery.js` (pure), IPC `get-skill-detail` in `src/app/skills.js`; `test/skill-delivery.test.js` |
 | The skill editor's door (E11, E14): read and save by inventory ID, never by path | `read-skill` / `save-skill` in `src/app/skills.js`; the app's own skills through `src/app/safe-write.js`, a backend's through `src/app/backend-resources.js`; `test/skill-editor-door.test.js` |
 | "New skill" (E15): the places a backend's `skill` scaffold claims, by opaque id; the file from that scaffold | `get-skill-places` / `create-skill` in `src/app/skills.js` over `createResource` in `src/app/backend-resources.js`; the form in `src/renderer/panels/plugins-views.js`; `test/skill-create.test.js`, `test/plugins-views.test.js` |
+| Delete (E16): `deletable` on a row is a CLI's skill whose door admits Edit; the folder goes through `deleteResource` | `delete-skill` in `src/app/skills.js`; the button and confirmation in `src/renderer/panels/plugins-views.js`; `test/skill-create.test.js`, `test/plugins-views.test.js` |
+| The sidebar drops skills (E12, E15) | `skill` is out of `TAB_KINDS` in `src/app/plans-memory.js`; `test/plans-memory-resource-groups.test.js` |
 | Installed plugins and reported apps | `src/app/plugins-inventory.js` (IPC for both lists and `open-plugin` by ID); descriptor hooks `listPlugins` (Claude and Codex answer, their drivers forward) and `listApps` (no backend answers yet); `test/plugins-inventory.test.js`, `test/backend-parity.test.js` |
 | The list-to-detail kit: compact row, filter, count, detail page, Back, keyboard, `canLeave` | `src/renderer/panels/plugins-kit.js` (`window.pluginsKit`); `test/plugins-kit.test.js` |
 | The Plugins, Apps and Skills views, the skill editor on the Skills page | `src/renderer/panels/plugins-views.js` (`bindLazy`, `mountPlugins`, `mountApps`, `mountSkills`); `test/plugins-views.test.js` |
@@ -202,8 +206,10 @@ What differs from the design above, and why:
 
 ## Known gaps
 
-- **E12 is not built yet.** The sidebar's Agent Files still lists skills, commands, agents and plugins beside the
-  Plugins manager; taking them out is a step of its own.
+- **E12 is narrowed by E15.** The sidebar's Agent Files no longer lists skills, but still lists commands, agents,
+  rules and Hermes' skill bundles: no view of the Plugins manager lists those.
+- **The app search does not find text inside a skill** (E17, accepted). Agent Files indexed it; the Skills view's
+  filter matches name and source only.
 - **The window's title-bar X does not ask.** It hides the settings window, and unsaved skill text is lost. The same is
   true of any unsaved setting there; it predates this spec.
 - **The two hand-offs to a project's window have no panel test** of the refusal; Cancel, Save, Apply, Hide, Remove

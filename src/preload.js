@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('api', {
   // #803 T12a: where a new skill may go (opaque place ids from main), and creating one there from its backend's scaffold.
   getSkillPlaces: (projectPath) => ipcRenderer.invoke('get-skill-places', projectPath),
   createSkill: (placeId, name, projectPath) => ipcRenderer.invoke('create-skill', placeId, name, projectPath),
+  // #803 E16: delete a CLI's skill by inventory id; main checks the same door Edit uses.
+  deleteSkill: (id, projectPath) => ipcRenderer.invoke('delete-skill', id, projectPath),
   // backendId (optional): scope every figure to one backend. Omitted / 'all' = the whole corpus (#159).
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),

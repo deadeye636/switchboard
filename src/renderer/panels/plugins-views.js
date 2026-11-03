@@ -425,8 +425,41 @@
         deliveryTable(c, r, ctx);
         if (r.editable) skillEditor(c, r, ctx, page);
         else c.appendChild(node('div', 'settings-hint', 'This skill is read-only here: the CLI it belongs to does not let Switchboard edit it.'));
+        if (r.deletable) deleteControl(c, r);
       },
     });
+    // Delete (E16): asked first, then main deletes through the CLI's own listing. The editor's text goes with the
+    // skill, so the page is released before the list is redrawn without the row.
+    const deleteControl = (c, r) => {
+      const msg = node('div', 'settings-hint sv-mcp-form-msg');
+      msg.setAttribute('aria-live', 'polite');
+      const actions = node('div', 'sv-mcp-card-actions');
+      actions.appendChild(button('Delete skill', async () => {
+        msg.textContent = '';
+        const unsaved = !!(page.canLeave && !page.canLeave());
+        const ok = typeof showControlDialog === 'function' ? await showControlDialog({
+          title: 'Delete skill',
+          message: 'The skill is deleted from disk, with its folder and everything in it. This cannot be undone.'
+            + (unsaved ? ' Unsaved changes in the editor are discarded.' : ''),
+          confirmLabel: 'Delete skill',
+          tone: 'danger',
+          details: { Skill: r.name, File: r.filePath },
+        }) : false;
+        if (!ok) return;
+        let out = null;
+        try { out = await api().deleteSkill(r.id, ctx.projectPath || null); } catch { out = null; }
+        if (!out || !out.ok) { msg.textContent = (out && out.reason) || 'The skill could not be deleted.'; return; }
+        // The skill is gone either way: its editor goes now, and the page with it.
+        releasePage();
+        const next = await readSkillRows(ctx);
+        if (!view) return;
+        if (!next) { view.showList({ focus: false }); return; }
+        view.refresh(spec(next));
+        if (typeof ctx.onCount === 'function') ctx.onCount(next.length);
+      }, { danger: true }));
+      c.appendChild(actions);
+      c.appendChild(msg);
+    };
     view = window.pluginsKit.mountView(host, spec(rows));
     return view;
   }

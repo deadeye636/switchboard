@@ -402,8 +402,13 @@ function typeCounts(files) {
 //
 // This is a property of the tab, not of any backend — it names kinds, which are the shared vocabulary,
 // and no backend id appears here.
+//
+// `skill` left with #803 (owner decisions E12, E15): skills are listed, edited, created and deleted on the
+// Skills page of Settings → Plugins, so the tab no longer lists them — nor indexes their text for the app
+// search (E17, accepted). A Hermes `skill-bundle` is not a skill and stays; so do commands and agents, which no
+// view there lists.
 const TAB_KINDS = new Set([
-  'skill', 'skill-bundle', 'rule', 'command', 'agent', 'prompt-template',
+  'skill-bundle', 'rule', 'command', 'agent', 'prompt-template',
   'output-style', 'workflow', 'memory-store', 'memory', 'hook', 'resource',
 ]);
 

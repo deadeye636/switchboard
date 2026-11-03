@@ -30,7 +30,9 @@ a registered project or none. The app's own skill is admitted by EQUALITY with `
 expander named, real path inside `skillsDir`; a network path, a filesystem root, the home directory or above, and a
 backend's own directory are refused) and written through `safe-write.js`; a backend's skill goes through
 `backend-resources.js` for the first owner whose `resourceEditing` takes it. `editable` on a row is the same
-predicate. The sidebar's Agent Files is not this door and does not list the app's skills. Since #803 T12a it also
+predicate. The sidebar's Agent Files is not this door and, since #803 E15, lists no skills at all (`skill` is out of
+`TAB_KINDS` in `plans-memory.js`). `delete-skill` (E16) deletes a CLI's skill through `deleteResource` where the door
+admits Edit (`deletable` on a row); the app's own skills are never deleted here. Since #803 T12a it also
 creates one: `get-skill-places` answers opaque place ids for the skills directories a backend's `skill` scaffold
 claims, and `create-skill` writes there through `backend-resources.createResource`, never to a path the window names),
 `skill-delivery.js` (what one skill is to one target backend — #803, spec 40 F2: `text`, `native`, `shared`,

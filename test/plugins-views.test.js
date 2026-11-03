@@ -385,3 +385,39 @@ test('Skills: opening a skill\'s page closes the "New skill" form, so a create c
     await tick(); await tick();
   } finally { dom.window.close(); }
 });
+
+test('Skills: Delete is offered only on a deletable row, asks first, deletes by id and leaves the page (E16)', async () => {
+  let deleted = false;
+  const GONE = { id: 'd1', name: 'old-one', scope: 'global', sourceLabel: 'Some CLI · global', filePath: '/c/old-one/SKILL.md', alsoNamed: [], editable: true, deletable: true };
+  let confirm = false;
+  const { dom, window, host, views, calls } = setup({
+    getSkillInventory: () => ({ skills: deleted ? SKILLS : [GONE, ...SKILLS] }),
+    getSkillDetail: () => DETAIL,
+    readSkill: () => ({ ok: true, content: 'x\n' }),
+    deleteSkill: () => { deleted = true; return { ok: true }; },
+  });
+  try {
+    window.showControlDialog = async () => confirm;
+    await views.mountSkills(host, { projectPath: '/proj', createEditor: fakeEditor().factory });
+    // 's1' (the app's own) has no `deletable`: no Delete there.
+    const own = [...host.querySelectorAll('.plugins-row')].find(r => r.dataset.key === 's1');
+    own.querySelector('.plugins-row-open').click();
+    await tick(); await tick();
+    assert.equal(btn(host.querySelector('.plugins-detail'), 'Delete skill'), undefined);
+    host.querySelector('.plugins-back').click();
+
+    const row = [...host.querySelectorAll('.plugins-row')].find(r => r.dataset.key === 'd1');
+    row.querySelector('.plugins-row-open').click();
+    await tick(); await tick();
+    const del = btn(host.querySelector('.plugins-detail'), 'Delete skill');
+    del.click();
+    await tick(); await tick();
+    assert.equal(calls.filter(c => c[0] === 'deleteSkill').length, 0, 'a declined confirm deletes nothing');
+    confirm = true;
+    del.click();
+    for (let i = 0; i < 6; i++) await tick();
+    assert.deepEqual(calls.filter(c => c[0] === 'deleteSkill').map(c => c.slice(1)), [['d1', '/proj']]);
+    assert.equal(host.querySelector('.plugins-detail-page').hidden, true, 'back on the list');
+    assert.equal(rowNames(host).includes('old-one'), false);
+  } finally { dom.window.close(); }
+});

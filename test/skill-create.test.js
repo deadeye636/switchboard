@@ -5,6 +5,7 @@
 // backend's own `skill` scaffold claims, that exists. The window gets an opaque place id and a label, never a
 // backend id or a path to send back; the file is written by `backend-resources.createResource`, which keeps its
 // own checks (the name rule, no overwrite). The answer carries the new row's inventory id so its page opens.
+// Delete (E16) is offered where Edit is, for a CLI's skill only, and done by `deleteResource`.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -24,11 +25,12 @@ test.after(() => { for (const dir of made) fs.rmSync(dir, { recursive: true, for
 
 const SCAFFOLD = { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'], template: (n) => `---\nname: ${n}\n---\n` };
 
-function skillsBackend({ id = 'cli', label = 'Cli', dirs, scaffolds = [SCAFFOLD] }) {
+function skillsBackend({ id = 'cli', label = 'Cli', dirs, scaffolds = [SCAFFOLD], resourceEditing = null }) {
   return {
     id,
     label,
     resourceScaffolds: scaffolds,
+    ...(resourceEditing ? { resourceEditing } : {}),
     listResources: ({ projectPath }) => ({
       ok: true,
       resources: dirs.filter(d => (d.scope === 'project') === !!projectPath)
@@ -133,4 +135,60 @@ test('a backend that cannot read its skills folder offers no place (the new skil
   delete b.expandResource;
   setup({ backends: [b] });
   assert.deepEqual(skills.getSkillPlaces({}).places, []);
+});
+
+test('deleteSkill removes a CLI\'s skill folder by id; a row Edit is not offered for is neither deletable nor deleted', async () => {
+  const global = tmpdir('global');
+  const folder = path.join(global, 'gone-soon');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'SKILL.md'), '# x\n');
+  fs.writeFileSync(path.join(folder, 'notes.md'), 'helper\n');
+
+  setup({ backends: [skillsBackend({ dirs: [{ scope: 'global', path: global }] })] });   // no resourceEditing
+  let row = skills.getSkillInventory({}).skills.find(s => s.name === 'gone-soon');
+  assert.equal(row.deletable, false);
+  assert.equal((await skills.deleteSkill({ id: row.id })).ok, false);
+  assert.ok(fs.existsSync(folder));
+
+  setup({ backends: [skillsBackend({ dirs: [{ scope: 'global', path: global }], resourceEditing: { extensions: ['.md'] } })] });
+  row = skills.getSkillInventory({}).skills.find(s => s.name === 'gone-soon');
+  assert.equal(row.deletable, true);
+  assert.equal((await skills.deleteSkill({ id: 'nope' })).ok, false);
+  assert.equal((await skills.deleteSkill({ id: row.id })).ok, true);
+  assert.equal(fs.existsSync(folder), false, 'the folder goes with its helper files');
+  assert.ok(fs.existsSync(global), 'never the listed directory itself');
+});
+
+test('deleteSkill removes a project-scope skill through the project\'s own listing', async () => {
+  const project = tmpdir('project');
+  const dir = path.join(project, '.cli', 'skills');
+  const folder = path.join(dir, 'local-gone');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'SKILL.md'), '# x\n');
+  setup({
+    projects: [project],
+    backends: [skillsBackend({ dirs: [{ scope: 'project', path: dir }], resourceEditing: { extensions: ['.md'] } })],
+  });
+  const row = skills.getSkillInventory({ projectPath: project }).skills.find(s => s.name === 'local-gone');
+  assert.equal(row.scope, 'project');
+  assert.equal(row.deletable, true);
+  assert.equal((await skills.deleteSkill({ id: row.id, projectPath: project })).ok, true);
+  assert.equal(fs.existsSync(folder), false);
+});
+
+test('the app\'s own skills are editable but not deletable here', async () => {
+  const data = tmpdir('data');
+  const own = path.join(data, 'skills', 'mine', 'SKILL.md');
+  fs.mkdirSync(path.dirname(own), { recursive: true });
+  fs.writeFileSync(own, '# mine\n');
+  const registry = { list: () => [], get: () => null };
+  const log = { warn() {}, error() {}, info() {}, debug() {} };
+  skills.init({ backends: registry, log, dataDir: data, effectiveSettings: () => ({}), projectStates: () => new Map() });
+  backendResources.init({ backends: registry, log });
+  const row = skills.getSkillInventory({}).skills.find(s => s.name === 'mine');
+  assert.equal(row.editable, true);
+  assert.equal(row.deletable, false);
+  const out = await skills.deleteSkill({ id: row.id });
+  assert.equal(out.ok, false);
+  assert.ok(fs.existsSync(own));
 });

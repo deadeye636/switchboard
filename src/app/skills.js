@@ -356,7 +356,7 @@ function getSkillInventory({ projectPath = null } = {}) {
     if (!byName.has(key)) byName.set(key, []);
     byName.get(key).push(r);
   }
-  const editable = editableCheck(projectPath);
+  const door = doorCheck(projectPath);
   const skills = rows.map(r => ({
     id: skillId(r.filePath),
     name: r.name,
@@ -366,7 +366,11 @@ function getSkillInventory({ projectPath = null } = {}) {
     alsoNamed: byName.get(r.name.toLowerCase())
       .filter(o => o !== r)
       .map(o => ({ sourceLabel: o.origin, filePath: o.filePath })),
-    editable: editable(r),
+    ...(() => {
+      const d = door(r);
+      // `deletable`: a CLI's skill Edit is offered for (E16); the app's own skills are only edited here.
+      return { editable: !!d, deletable: !!d && d.kind === 'backend' };
+    })(),
   }));
   return { skills, skillsDir: switchboardSkillsDir(projectPath) };
 }
@@ -424,12 +428,6 @@ function doorCheck(projectPath) {
     }
     return null;
   };
-}
-
-/** `editable` on a listing pass: the same door the read and the save use. */
-function editableCheck(projectPath) {
-  const door = doorCheck(projectPath);
-  return (row) => !!door(row);
 }
 
 /**
@@ -567,6 +565,20 @@ async function createSkill({ placeId, name, projectPath = null } = {}) {
   return { ok: true, id: row ? skillId(row.filePath) : null };
 }
 
+/**
+ * Delete one skill (#803, owner decision E16): `{ ok }` or `{ ok: false, reason }`. Offered where Edit is — a
+ * backend's skill whose door admits it — and done by `backend-resources.deleteResource`, which re-derives the
+ * listing, takes only an entry its expander names, and removes a skill's folder only while it holds that entry.
+ * The app's own skills are not deleted here: the sidebar never offered it, and their folder is the user's.
+ */
+async function deleteSkill({ id, projectPath = null } = {}) {
+  const found = doorFor(id, projectPath);
+  if (found.error) return { ok: false, reason: found.error };
+  const { row, door } = found;
+  if (door.kind !== 'backend') return { ok: false, reason: 'Switchboard does not delete its own skills; remove the file in its folder.' };
+  return backendResources.deleteResource(door.backendId, row.filePath, row.scope === 'project' ? projectPath : null);
+}
+
 /** The CLI a descriptor belongs to — a driver of a CLI counts as that CLI. The registry's rule. */
 function cliOwnerIdOf(b) {
   try {
@@ -632,6 +644,7 @@ function registerIpc(ipcMain) {
     id: idOf(id), projectPath: projectOf(projectPath), content,
     baseline: typeof baseline === 'string' ? baseline : null,
   }));
+  ipcMain.handle('delete-skill', (_e, id, projectPath) => deleteSkill({ id: idOf(id), projectPath: projectOf(projectPath) }));
   ipcMain.handle('get-skill-places', (_e, projectPath) => getSkillPlaces({ projectPath: projectOf(projectPath) }));
   ipcMain.handle('create-skill', (_e, placeId, name, projectPath) => createSkill({
     placeId: idOf(placeId), name: typeof name === 'string' ? name : '', projectPath: projectOf(projectPath),
@@ -640,6 +653,6 @@ function registerIpc(ipcMain) {
 
 module.exports = {
   init, registerIpc, getSkills, getSkillInventory, getSkillDetail, switchboardSkillFiles, readSkill, saveSkill,
-  getSkillPlaces, createSkill,
+  getSkillPlaces, createSkill, deleteSkill,
   _collectSkillInventory: collectSkillInventory, _switchboardSkillsDir: switchboardSkillsDir,
 };

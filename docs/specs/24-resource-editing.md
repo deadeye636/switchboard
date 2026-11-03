@@ -1,7 +1,8 @@
 # Editing a backend's own files
 
 Issues: #440 (read), #441 (write, create, delete). Built: the Agent Files tab shows what each CLI reads
-its behaviour from, and can now change it.
+its behaviour from, and can now change it. Since #803 skills are not in that tab: they are listed, edited,
+created and deleted on the Skills page of Settings → Plugins ([spec 40](40-plugins-manager.md), E15 to E17).
 
 ## Two halves, and the second is where the rules are
 

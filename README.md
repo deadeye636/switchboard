@@ -178,7 +178,8 @@ chart rather than a row of zeroes.
 - **Plugins manager** — a *Plugins* group in both settings windows, also reached from the command palette, with
   five views: Plugins, Apps, MCPs, Skills and Marketplace. Each is a short list with a filter and a count; a row opens
   its own page. Plugins shows what each CLI has installed and, where the CLI says, whether it is on (read only). Skills lists every skill
-  file once, whichever CLI reported it, says what each CLI makes of it, has an editor on its page, and creates a new one in a CLI's skills folder. MCPs and
+  file once, whichever CLI reported it, says what each CLI makes of it, has an editor on its page, creates a new one in a CLI's skills folder and
+  deletes a CLI's skill after asking. MCPs and
   Marketplace are the two entries above. Nothing is read until you open a view.
   → [`docs/specs/40-plugins-manager.md`](docs/specs/40-plugins-manager.md)
 - **Templates** — a named set of defaults for a backend: *Codex with this model and sandbox*, or
@@ -237,11 +238,12 @@ chart rather than a row of zeroes.
 - **Skills** — a shortcut hands the CLI in the terminal one of its own skills, or one you keep in
   Switchboard for every CLI. A CLI that can run a skill from its prompt gets its own command; the rest
   get a reference to the document. → [spec 21](docs/specs/21-skills.md)
-- **Agent files** — every instruction file, skill, rule, command and settings file each backend reads,
+- **Agent files** — every instruction file, rule, command, agent and settings file each backend reads (skills are
+  in Settings → Plugins → Skills),
   filtered by type and by backend, with each row saying which CLIs actually read it. Editing one saves it
   back: the format is checked first, the file's own line endings survive, and a save built on a version
-  something else has changed since is refused rather than winning. Skills, commands, rules and agents can
-  be created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
+  something else has changed since is refused rather than winning. Commands, rules and agents can be
+  created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
 - **Command palette** — F1 over your sessions, your projects and the app's own commands, under
   headings. It opens on what the app can do rather than on where you were, answers from the first
   keystroke, and each row says which key does the same thing. Commands that act on the session you are

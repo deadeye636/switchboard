@@ -30,14 +30,17 @@ function write(file, body = 'x\n') {
 }
 
 /**
- * A backend with a skills directory holding one skill, an empty commands directory it CAN create into,
- * an empty output-styles directory it cannot, a settings file, and a model cache.
+ * A backend with an agents directory holding one agent, a skills directory holding one skill (which the tab
+ * no longer lists, #803 E15), an empty commands directory it CAN create into, an empty output-styles directory
+ * it cannot, a settings file, and a model cache.
  */
 function stubBackend(home, { scaffolds = true } = {}) {
   const skillsDir = path.join(home, 'skills');
   const commandsDir = path.join(home, 'commands');
   const stylesDir = path.join(home, 'output-styles');
   const skillFile = write(path.join(skillsDir, 'do-a-thing', 'SKILL.md'), '---\nname: do-a-thing\n---\n');
+  const agentsDir = path.join(home, 'agents');
+  const agentFile = write(path.join(agentsDir, 'reviewer.md'), '---\nname: reviewer\n---\n');
   fs.mkdirSync(commandsDir, { recursive: true });
   fs.mkdirSync(stylesDir, { recursive: true });
   const settings = write(path.join(home, 'settings.json'), '{}\n');
@@ -52,6 +55,7 @@ function stubBackend(home, { scaffolds = true } = {}) {
       ok: true,
       resources: [
         { kind: 'skill', scope: 'global', name: 'skills', path: skillsDir, source: 'skills-directory' },
+        { kind: 'agent', scope: 'global', name: 'agents', path: agentsDir, source: 'agents-directory' },
         { kind: 'command', scope: 'global', name: 'commands', path: commandsDir, source: 'commands-directory' },
         { kind: 'output-style', scope: 'global', name: 'output-styles', path: stylesDir, source: 'styles-directory' },
         { kind: 'settings', scope: 'global', name: 'settings.json', path: settings, source: 'settings' },
@@ -60,15 +64,17 @@ function stubBackend(home, { scaffolds = true } = {}) {
     }),
     expandResource: ({ path: dir }) => ({
       ok: true,
-      entries: dir === skillsDir ? [{ kind: 'skill', name: 'do-a-thing', path: skillFile }] : [],
+      entries: dir === skillsDir ? [{ kind: 'skill', name: 'do-a-thing', path: skillFile }]
+        : dir === agentsDir ? [{ kind: 'agent', name: 'reviewer', path: agentFile }] : [],
     }),
     ...(scaffolds ? {
       resourceScaffolds: [
         { kind: 'skill', layout: 'dir', entryFile: 'SKILL.md', sources: ['skills-directory'], template: () => '' },
         { kind: 'command', layout: 'file', ext: '.md', sources: ['commands-directory'], template: () => '' },
+        { kind: 'agent', layout: 'file', ext: '.md', sources: ['agents-directory'], template: () => '' },
       ],
     } : {}),
-    fixtures: { skillsDir, commandsDir, stylesDir, settings, cache, skillFile },
+    fixtures: { skillsDir, agentsDir, commandsDir, stylesDir, settings, cache, skillFile, agentFile },
   };
 }
 
@@ -89,10 +95,17 @@ const groupsOf = () => plansMemory._resourceGroups(null, new Map());
 
 test('a directory with entries is a group, and its rows say whether they can be deleted', () => {
   setup();
-  const skills = groupsOf().find(g => g.label === 'skills');
-  assert.ok(skills, 'the skills directory is a group');
-  assert.deepEqual(skills.files.map(f => f.filename), ['do-a-thing']);
-  assert.equal(skills.files[0].deletable, true, 'a skill has a lifecycle, so the tab may offer Delete');
+  const agents = groupsOf().find(g => g.label === 'agents');
+  assert.ok(agents, 'the agents directory is a group');
+  assert.deepEqual(agents.files.map(f => f.filename), ['reviewer']);
+  assert.equal(agents.files[0].deletable, true, 'an agent has a lifecycle, so the tab may offer Delete');
+});
+
+test('a skills directory is no group: skills live on the Skills page of Settings → Plugins (#803 E12, E15)', () => {
+  setup();
+  const groups = groupsOf();
+  assert.equal(groups.some(g => g.kind === 'skill'), false);
+  assert.equal(groups.flatMap(g => g.files).some(f => f.kind === 'skill'), false, 'no skill row, so no skill text in the search index');
 });
 
 test('an EMPTY directory survives when something can be created in it', () => {
@@ -114,7 +127,7 @@ test('with no scaffolds at all, an empty directory is dropped and no group offer
   setup({ scaffolds: false });
   const groups = groupsOf();
   assert.equal(groups.some(g => g.label === 'commands'), false);
-  assert.deepEqual(groups.find(g => g.label === 'skills').creatableKinds, []);
+  assert.deepEqual(groups.find(g => g.label === 'agents').creatableKinds, []);
 });
 
 test('the settings file is a group of its own, and is not deletable', () => {
@@ -134,9 +147,9 @@ test('a model cache is not offered — the CLI rewrites it, and editing one is a
 test('a file another row already claimed is not listed a second time', () => {
   const box = setup();
   const seen = new Map();
-  seen.set(box.fixtures.skillFile, { filename: 'do-a-thing', backendIds: ['other'] });
-  const skills = plansMemory._resourceGroups(null, seen).find(g => g.label === 'skills');
+  seen.set(box.fixtures.agentFile, { filename: 'reviewer', backendIds: ['other'] });
+  const agents = plansMemory._resourceGroups(null, seen).find(g => g.label === 'agents');
   // The claim adds this backend to the row that already exists, so the group has nothing of its own —
-  // and an empty group only survives when something can be created in it, which skills can.
-  assert.deepEqual(skills.files, []);
+  // and an empty group only survives when something can be created in it, which agents can here.
+  assert.deepEqual(agents.files, []);
 });
