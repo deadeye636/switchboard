@@ -224,6 +224,13 @@ const CATALOG = [
     declaredBy: 'reviewProfile',
   },
   {
+    id: 'task',
+    group: 'resources',
+    label: 'Run a task for another session',
+    description: 'Whether a session in another CLI can hand this one a task that may write: started by Switchboard in a worktree of its own, each ask shown on the task\'s row (spec 41).',
+    declaredBy: 'taskProfile',
+  },
+  {
     id: 'plans',
     group: 'resources',
     label: 'Plan documents',

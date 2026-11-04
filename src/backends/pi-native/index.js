@@ -92,6 +92,7 @@ const capabilities = {
   queuedTurn: { state: 'limited', note: 'the RPC reports the waiting prompts; the turn-hold reads the terminal backend’s record' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
   review: { state: 'yes', note: 'a review runs here with the approval gate on; every ask is refused' },
+  task: { state: 'yes', note: 'a task runs here with the approval gate on; each ask is shown on the row of the task' },
 };
 
 module.exports = {
@@ -215,6 +216,9 @@ module.exports = {
   // The read-only profile a review session starts with (spec 39): the approval gate, so every command, file change
   // and MCP tool is asked for first, and the review runner refuses every ask.
   reviewProfile: () => ({ options: { approvalGate: true } }),
+  // The profile a writing task starts with (spec 41 E3, E4): the approval gate on, so every command, file change and
+  // MCP tool is asked for first, and each ask reaches the task's row.
+  taskProfile: () => ({ options: { approvalGate: true } }),
   // External MCP servers (spec 36): Pi's resources-extension section, so Pi's answer.
   externalMcpTakes: pi.externalMcpTakes,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.

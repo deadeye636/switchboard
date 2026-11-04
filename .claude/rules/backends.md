@@ -669,6 +669,13 @@ own option keys (claude-native `permissionMode: 'plan'` and `promptSuggestionsOf
 template, launchable. The `review` capability row says the same; `test/backend-parity.test.js` and
 `test/review-profile.test.js` pin both. A template does not inherit it (`NOT_INHERITED`).
 
+**A task target is the same shape, `taskProfile()` (spec 41, #804):** `{ options } | null`, every backend answering,
+the options a WRITING task starts with (claude-native `permissionMode: 'default'` with `permissionModeSent: true`, so
+`--permission-mode default` is SENT — the stored default sends nothing, and an unconfigured Claude would start in auto
+mode (#776) — plus `promptSuggestionsOff`; pi-native `approvalGate: true`).
+`taskTargets` in `src/backends/review-targets.js` applies the review's rule to it; the `task` capability row says the
+same, `test/task-profile.test.js` and `test/backend-parity.test.js` pin both, and a template does not inherit it.
+
 **The Plugins manager asks two hooks, `listPlugins` and `listApps` (#803, spec 40)**, answered by every backend —
 a function or `null` (`test/backend-parity.test.js`). `listPlugins({ projectPath })` → `{ ok, plugins: [{ name, scope,
 state, path, brings }] }` is for a backend that can say what is installed AND whether it is on, read from its own

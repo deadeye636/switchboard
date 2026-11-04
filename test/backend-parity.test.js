@@ -279,6 +279,26 @@ test('every backend answers the review profile hook — a decline is () => null'
   assert.match(reviewHookProblem({ id: 'stub', reviewProfile: () => 'yes' }), /null or \{ options \}/);
 });
 
+// Spec 41 (#804): every backend answers `taskProfile` the same way — `null` to decline, else `{ options }` — and a
+// backend that answers one has the pipe and the answer reader a task needs.
+function taskHookProblem(b) {
+  if (typeof b.taskProfile !== 'function') return `${b.id} must answer taskProfile, declining with () => null`;
+  const profile = b.taskProfile();
+  if (profile === null) return null;
+  if (!profile || typeof profile.options !== 'object' || !profile.options) return `${b.id}: taskProfile must answer null or { options }`;
+  if (!b.transport || !b.rpc || typeof b.rpc.assistantTextOf !== 'function') {
+    return `${b.id} offers a task profile without a pipe and rpc.assistantTextOf`;
+  }
+  return null;
+}
+
+test('every backend answers the task profile hook — a decline is () => null', () => {
+  for (const b of READY) assert.equal(taskHookProblem(b), null);
+  assert.match(taskHookProblem({ id: 'stub' }), /must answer taskProfile/);
+  assert.match(taskHookProblem({ id: 'stub', taskProfile: () => ({ options: {} }) }), /without a pipe/);
+  assert.match(taskHookProblem({ id: 'stub', taskProfile: () => 'yes' }), /null or \{ options \}/);
+});
+
 // #803: the Plugins manager asks each backend for its installed plugins (`listPlugins`) and its apps
 // (`listApps`). Both are answered by every backend — a function, or `null` to decline: a backend that
 // declines plugins is shown from its `listResources` plugin rows without a state. Only Claude and Codex read

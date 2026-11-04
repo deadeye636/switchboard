@@ -172,9 +172,12 @@ not fail the create.
 rule, so its task gets the global settings. Recording the caller's project as the owner of an app-owned row would close
 it; that changes the #757 rule and is the owner's call.
 
-**Open (O16, assigned to Phase 2 by the owner, 2026-11-04):** a backend's own folder trust does not follow. Claude, Codex and Pi key trust by path in their own
-config, and the new checkout is a repository root of its own, so the CLI may ask its trust question there. Phase 2
-(T4's sentence for a project the target does not trust) has to answer it; nothing writes trust today.
+**O16 (decided by the owner, 2026-11-04: inherit):** a backend's own folder trust is keyed by path in its CLI's
+config, and both task targets declare `trustBeforeStart`, so the spawn would refuse every new worktree. A task
+therefore inherits trust: only when the target already trusts the caller's project, the app grants trust for the
+worktree through the target's `projectTrust.set` before the spawn and takes it back when the worktree is removed.
+When the target does not trust the caller's project, the task is refused with a sentence, as a review is. Built in
+Phase 2 (the task runner).
 
 **Discovery does not follow it (owner, 2026-11-04).** Spec 35 O4 stays strict: a task's sessions are not listed for the
 caller's project, and `readSession` refuses them like any other directory's. The caller reaches its task through the
@@ -182,6 +185,18 @@ caller's project, and `readSession` refuses them like any other directory's. The
 
 Tests: `test/task-worktree.test.js`, against real git in throwaway repositories; `test/app-worktree-store.test.js` for
 the migration and the store.
+
+## Built: the task target declaration (#804 T4)
+
+Every backend answers `taskProfile()`: `null` to decline, or `{ options }` for the launch a writing task starts with. Per
+E4 only the two pipe drivers answer: claude-native with `permissionMode: 'default'` SENT as a flag
+(`permissionModeSent`), because the stored default sends nothing and an unconfigured Claude starts in auto mode on the
+models that take it (#776), so a task would edit without one ask; and no prompt suggestions. pi-native with the
+approval gate on. `taskTargets` (`src/backends/review-targets.js`) offers a backend only with a profile, a pipe and
+an answer reader, never a template, and only while it can launch. The capability row is `task`.
+
+Trust (O16, above) is not part of the profile: both targets declare `trustBeforeStart`, and the runner grants the
+worktree the caller project's trust before the spawn.
 
 ## Probes not run
 

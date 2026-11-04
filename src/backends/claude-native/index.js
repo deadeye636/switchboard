@@ -105,9 +105,19 @@ function probe({ launch = false } = {}) {
 // without the flag starts in `default`, because restricted mode ignores the settings files that could name another
 // (the option's own description says so; not measured for #730), so the settings are not asked about a default
 // that does not apply.
-function launchMode(options) {
+// A mode is SENT when it is not `default`, or when the launch insists on it (`permissionModeSent`). The settings
+// screen never sets that key: `default` there means "send nothing, your settings decide", as the field says. The one
+// caller is a writing task (`taskProfile` below, spec 41): it must ask before every edit and command, and without the
+// flag an unconfigured Claude starts in auto mode on the models that take it (#776).
+function sentMode(options) {
   const mode = options && options.permissionMode;
-  if (mode && mode !== 'default' && PERMISSION_MODES.includes(mode)) return String(mode);
+  if (!mode || !PERMISSION_MODES.includes(mode)) return null;
+  return mode !== 'default' || options.permissionModeSent === true ? String(mode) : null;
+}
+
+function launchMode(options) {
+  const mode = sentMode(options);
+  if (mode) return mode;
   return options && options.restricted ? 'default' : null;
 }
 
@@ -132,9 +142,8 @@ function buildLaunch({ cwd, resume, sessionId, forkFrom, options } = {}) {
     if (sessionId) args.push(`--session-id=${sessionId}`);
   } else if (resume) args.push(`--resume=${sessionId}`);
   else args.push(`--session-id=${sessionId}`);
-  if (opts.permissionMode && opts.permissionMode !== 'default' && PERMISSION_MODES.includes(opts.permissionMode)) {
-    args.push('--permission-mode', String(opts.permissionMode));
-  }
+  const mode = sentMode(opts);
+  if (mode) args.push('--permission-mode', mode);
   if (opts.model) args.push('--model', String(opts.model));
   // The flags the terminal backend sends for these options (#685), with a value joined to its flag as above
   // rather than a separate argv entry — both spellings were measured to start.
@@ -212,6 +221,7 @@ const capabilities = {
   mcpInject: { state: 'yes', note: 'passes a project\'s external servers in a per-session --mcp-config file, and the app\'s own discovery group there when discoveryTools is on; measured on the pipe: listed, and a call arrives as an approval card (spec 37 M3)' },
   mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
   review: { state: 'yes', note: 'a review runs here in plan mode; every ask is refused' },
+  task: { state: 'yes', note: 'a task runs here in the default permission mode, sent as a flag; each ask is shown on the row of the task' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
@@ -306,6 +316,10 @@ module.exports = {
   // for first, and the review runner refuses every ask. No prompt suggestions: a review is one turn, and a suggested
   // next prompt nobody reads is a model call for nothing.
   reviewProfile: () => ({ options: { permissionMode: 'plan', promptSuggestionsOff: true } }),
+  // The profile a writing task starts with (spec 41 E3, E4): `default`, the mode in which Claude asks before an edit
+  // or a command, SENT as a flag (`permissionModeSent`) so neither the user's settings nor Claude's own auto mode
+  // decide it; each ask reaches the task's row. No prompt suggestions, for the reason the review gives.
+  taskProfile: () => ({ options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true } }),
   buildMcpPrune: claude.buildMcpPrune,
   // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
   externalMcpTakes: claude.externalMcpTakes,
