@@ -14,6 +14,7 @@ Rules and invariants for version control integration in Switchboard (#15, #277, 
 - `git.js` is the primary provider.
 - Porcelain-v2 status parsing lives in `parse-git-status.js` — pure functions without process execution or DOM references.
 - Diffs are not parsed: `git.js` only builds the argv (`diffArgs`), and `src/app/vcs.js` hands the raw text to the changes window, which draws it as-is (`src/renderer/changed-files.js`, coloured by line prefix). An untracked file skips `diffArgs` and is read as an all-added diff (`readUntrackedDiff`). The side-by-side diff window gets the two file versions through `showArgs` (`vcsFileVersions`), never diff output. There is no diff parser; do not go looking for one.
+- App-owned worktrees (#805): the provider's `worktree` hooks (`git.js`) spell the argv and read the output, and `src/app/task-worktree.js` runs them without naming a VCS. A provider without worktrees sets `worktree: null`. The key is singular on purpose: the bare word `worktrees` in code is the layout guard's pattern (`test/worktree-path.test.js`). The measured cases and what the service does about each are in `docs/specs/41-task-sessions.md` ("Built").
 
 ## Key Invariants
 

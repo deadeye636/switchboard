@@ -31,18 +31,21 @@ const meta = require('../src/db/meta-store');
 
 const reset = () => db.exec('DELETE FROM session_meta');
 
-test('the migration is appended, adds both columns once, and is a no-op on a database that has them', () => {
+test('the migration adds both columns once, and is a no-op on a database that has them', () => {
+  // Found by what it does, not as the last entry: later migrations are appended after it.
+  const at = migrations.findIndex((m) => String(m).includes('ADD COLUMN spawnedBy'));
+  assert.ok(at > 0, 'the spawnedBy migration is in the array');
   const old = new DatabaseSync(':memory:');
   applySchema(old);
-  // A database one version behind: every migration but the last has run.
-  for (let i = 0; i < migrations.length - 1; i++) migrations[i](old);
-  old.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_version', ?)").run(JSON.stringify(migrations.length - 1));
+  // A database just before it: every earlier migration has run.
+  for (let i = 0; i < at; i++) migrations[i](old);
+  old.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_version', ?)").run(JSON.stringify(at));
   const cols = () => old.prepare('PRAGMA table_info(session_meta)').all().map((c) => c.name);
   assert.ok(!cols().includes('spawnedBy'));
   const step = runMigrations(old);
-  assert.deepEqual([step.from, step.to], [migrations.length - 1, migrations.length], 'exactly one version');
+  assert.deepEqual([step.from, step.to], [at, migrations.length], 'from that version to the current one');
   assert.ok(cols().includes('spawnedBy') && cols().includes('spawnKind'));
-  assert.doesNotThrow(() => migrations[migrations.length - 1](old), 'running it again changes nothing');
+  assert.doesNotThrow(() => migrations[at](old), 'running it again changes nothing');
   const again = runMigrations(old);
   assert.equal(again.from, again.to, 'a current database fires nothing');
 });

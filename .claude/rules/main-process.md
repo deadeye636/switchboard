@@ -123,6 +123,8 @@ renamed restore set and pane layout were measured lost to a kill fourteen second
 Chromium commits localStorage on a delay of its own. Called right after both `session-forked` sends, never on
 every write),
 `vcs-ignore.js` (will this directory be committed — the two questions asked before the app suggests writing into one; shared by the plans convention and the handoff writer since #468),
+`task-worktree.js` (the checkouts the app creates for a writing task — #805, spec 41; under the data folder, outside
+every project, removed only when a row in `app_worktree` says the app made it. No IPC: the task runner is its caller),
 `build-dirs.js` (generated output, fetched dependencies and the VCS stores, by NAME — what a walk does
 not enter and a watch does not follow, #483. Its second export is the one that is not guessable:
 **anything that stats a path ending in `.asar` holds that file open for the life of the process.**

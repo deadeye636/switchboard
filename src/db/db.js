@@ -93,6 +93,10 @@ module.exports = {
   getKnownWorktrees: worktreeStore.getKnownWorktrees,
   recordKnownWorktree: worktreeStore.recordKnownWorktree,
   forgetKnownWorktree: worktreeStore.forgetKnownWorktree,
+  // --- worktrees the app created for a task, the owner marker (worktree-store.js, #805) ---
+  getAppWorktrees: worktreeStore.getAppWorktrees,
+  recordAppWorktree: worktreeStore.recordAppWorktree,
+  forgetAppWorktree: worktreeStore.forgetAppWorktree,
   // --- a project's whole footprint, moved or dropped atomically (project-refs.js) ---
   renameProjectRefs: projectRefs.renameProjectRefs,
   deleteProjectRefs: projectRefs.deleteProjectRefs,

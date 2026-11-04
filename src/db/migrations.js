@@ -575,6 +575,23 @@ const migrations = [
     try { db.exec('ALTER TABLE session_meta ADD COLUMN spawnedBy TEXT'); } catch {}
     try { db.exec('ALTER TABLE session_meta ADD COLUMN spawnKind TEXT'); } catch {}
   },
+
+  // Worktrees the APP created for a task (#805, spec 41 E5): where, of which repository, on which branch and from
+  // which commit, and for which task. A row here is what makes a checkout app-owned — the only kind the app ever
+  // removes. A decision the app made, so apart from worktree_repo, which holds what a sweep observed. Nothing to
+  // backfill: no such worktree exists before this.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_worktree (
+        worktreePath TEXT PRIMARY KEY,
+        repoPath TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        baseCommit TEXT NOT NULL,
+        taskId TEXT NOT NULL,
+        createdAt INTEGER NOT NULL
+      )
+    `);
+  },
 ];
 
 /**

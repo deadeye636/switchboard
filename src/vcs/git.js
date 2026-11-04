@@ -97,6 +97,97 @@ function pruneWorktreesArgs() {
   return ['worktree', 'prune'];
 }
 
+// --- App-owned worktrees (#805, spec 41 M6) ---
+//
+// The argv and the output readers the worktree service in `src/app/task-worktree.js` runs. That module names
+// no VCS; everything git spells is here. Each argv is run with `cwd` set to the repository (or the worktree,
+// for `dirtyArgs`), never with `-C` (vcs rule 3), and always as an argument vector, never a shell string.
+
+// The repository's top level and the commit a new branch starts from. Fails (exit 128) outside a work tree,
+// in a bare repository (`--show-toplevel` needs a work tree) and in a repository with no commit yet — all
+// three are folders a writing task cannot branch from. `--is-inside-work-tree` alone is not enough: a bare
+// repository answers `false` with exit 0.
+function worktreeHeadArgs() {
+  return ['rev-parse', '--show-toplevel', 'HEAD'];
+}
+
+/** @returns {{root: string, head: string}|null} */
+function parseWorktreeHead(stdout) {
+  const lines = String(stdout || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (lines.length < 2 || !/^[0-9a-f]{40,64}$/i.test(lines[1])) return null;
+  return { root: lines[0], head: lines[1] };
+}
+
+// Exit 0 when the branch exists, 1 when it does not — `show-ref --quiet` reports nothing else. A branch
+// name already taken is answered BEFORE `add`, because `add -b` with a taken name exits 255, not 128.
+function branchExistsArgs(branch) {
+  return ['show-ref', '--verify', '--quiet', 'refs/heads/' + branch];
+}
+
+function worktreeAddArgs({ path, branch, base } = {}) {
+  return ['worktree', 'add', '-b', branch, '--', path, base];
+}
+
+// `-z` keeps a path with a newline in it one field; records end with an empty field.
+function worktreeListArgs() {
+  return ['worktree', 'list', '--porcelain', '-z'];
+}
+
+/**
+ * `worktree list --porcelain -z`, one object per checkout. Paths are as git writes them (forward slashes,
+ * the drive letter as git spells it), so a caller compares them through `src/app/path-containment.js`.
+ *
+ * @returns {Array<{path: string, head: string|null, branch: string|null, bare: boolean, detached: boolean,
+ *   locked: boolean, prunable: boolean}>}
+ */
+function parseWorktreeList(stdout) {
+  const out = [];
+  let cur = null;
+  for (const field of String(stdout || '').split('\0')) {
+    if (!field) { if (cur) out.push(cur); cur = null; continue; }
+    const space = field.indexOf(' ');
+    const key = space < 0 ? field : field.slice(0, space);
+    const value = space < 0 ? '' : field.slice(space + 1);
+    if (key === 'worktree') {
+      if (cur) out.push(cur);
+      cur = { path: value, head: null, branch: null, bare: false, detached: false, locked: false, prunable: false };
+      continue;
+    }
+    if (!cur) continue;
+    if (key === 'HEAD') cur.head = value;
+    else if (key === 'branch') cur.branch = value.replace(/^refs\/heads\//, '');
+    else if (key === 'bare') cur.bare = true;
+    else if (key === 'detached') cur.detached = true;
+    else if (key === 'locked') cur.locked = true;
+    else if (key === 'prunable') cur.prunable = true;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+// Anything to lose in a checkout: modified, staged, untracked (every file, not only the directory) and a
+// submodule with changes of its own. Run with `cwd` = the worktree; any output means it is not clean.
+// `git worktree remove` refuses one untracked file too — this is the same question, asked before it.
+function worktreeDirtyArgs() {
+  return ['--no-optional-locks', 'status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none'];
+}
+
+// `--force` only when the caller has decided: after its own clean check for a worktree with submodules
+// (which `remove` refuses without it, always), or on the user's explicit consent for one with changes.
+function worktreeRemoveArgs({ path, force } = {}) {
+  return ['worktree', 'remove', ...(force ? ['--force'] : []), '--', path];
+}
+
+// Rolls back the branch a failed `add -b` leaves behind — and only if it still points at the commit it was made
+// from. `update-ref -d <ref> <old>` checks and deletes in one step, so a branch somebody else created under the same
+// name in the meantime (another instance of the app, the user) is left alone, commits and all.
+function branchRollbackArgs(branch, commit) {
+  return ['update-ref', '-d', 'refs/heads/' + branch, commit];
+}
+
+// The submodule marker in a checkout, by file name — the reason `remove` needs `--force` there.
+const SUBMODULE_MARKER = '.gitmodules';
+
 let _probe = null;
 function probe() {
   if (_probe) return _probe;
@@ -125,6 +216,21 @@ module.exports = {
   diffArgs,
   showArgs,
   pruneWorktreesArgs,
+  // App-owned worktrees (#805). A provider without them sets `worktree: null`, and the service refuses a
+  // writing task in its folders with a sentence.
+  worktree: {
+    headArgs: worktreeHeadArgs,
+    parseHead: parseWorktreeHead,
+    branchExistsArgs,
+    addArgs: worktreeAddArgs,
+    listArgs: worktreeListArgs,
+    parseList: parseWorktreeList,
+    dirtyArgs: worktreeDirtyArgs,
+    removeArgs: worktreeRemoveArgs,
+    branchRollbackArgs,
+    pruneArgs: pruneWorktreesArgs,
+    submoduleMarker: SUBMODULE_MARKER,
+  },
   parse,
   probe,
   _resetProbeForTests() { _probe = null; },

@@ -1,8 +1,9 @@
 # 41 — Task sessions on another backend: what was measured before the design
 
 Issues #804 (start a task session), #805 (worktree isolation), #806 to #810 (the rest of the former #507). Status:
-**draft, measurements only**. Nothing here is built. The working plan is `docs/plans/507-mcp-orchestration/PLAN.md`
-(local); its step T1 produced this file. The design sections are written when the first build phase starts.
+**draft**. Built so far: the worktree service (#805 T2, "Built" below). The working plan is
+`docs/plans/507-mcp-orchestration/PLAN.md` (local); its step T1 produced the measurements. The design sections are
+written as each build phase starts.
 
 ## Decided by the owner (2026-11-03)
 
@@ -116,6 +117,52 @@ removes them).
 
 `list --porcelain` spells paths with forward slashes and the drive letter as git writes it, so compare them through
 `src/app/path-containment.js`, never as strings.
+
+## Built: the worktree service (#805 T2)
+
+`src/app/task-worktree.js` creates, reads and removes the checkouts a writing task works in. Its caller is the task
+runner (#804); it has no IPC and no tool of its own. It names no VCS: the provider's `worktree` hooks in
+`src/vcs/git.js` spell every argv and read every output, and a folder whose provider has none refuses a writing task.
+
+Where a checkout goes: `<data folder>/wt/<task id>`, outside every project (E5). The branch is
+`switchboard/task-<task id>`, from the caller's `HEAD`. A task id is letters, digits and hyphens, at most 40.
+
+| Case (M6) | What the service does |
+|---|---|
+| Not a repository, a bare one, or one with no commit | `rev-parse --show-toplevel HEAD` fails; refused as `not-a-repository` |
+| The data folder lies inside the repository, also through a junction | refused as `inside-project`, so a checkout never lands in a project tree |
+| Path over 200 characters | refused as `path-too-long` before git runs (210 worked, about 220 failed) |
+| Branch name taken | checked with `show-ref` first, then `-2` to `-5` appended; never decided on `add`'s exit code |
+| A failed `add -b` | the branch is deleted only while it still points at the base commit (`update-ref -d <ref> <commit>`), so one somebody else made under that name survives; an empty folder it left is removed |
+| Dirty main checkout | the worktree is made; `baseDirty: true` tells the caller the task will not see those changes |
+| Submodules | `hasSubmodules: true` on create (they are not initialised); on remove, `--force` after the service's own clean check |
+| Edits, staged changes or untracked files in the worktree | `remove` refused as `dirty` unless the caller passes `force` (the user's consent) |
+| Locked worktree | refused as `locked`, even with `force` |
+| Folder deleted by hand | `create` and `remove` prune first; `remove` then drops the record and answers `removed: false`. `status` only reads and answers `exists: false` |
+| A row left by a task of the same id whose folder is gone | `create` drops it once git has forgotten the checkout, then makes the new one on a fresh branch |
+| Path not created by the app | refused as `not-owned`: the owner marker is a row in `app_worktree` |
+| Owned path resolving outside `<data folder>/wt` (a junction) | refused as `outside-root`, decided on real paths, and asked again right before `add` and `remove` |
+| The record cannot be written | the checkout and its branch are taken back; refused as `internal` |
+
+`remove` keeps the branch: the work on it is the task's result, and nothing is merged automatically (E5). Operations
+on one repository run one after another. A refusal carries a reason code and a fixed sentence; git's own text goes
+only to the log, and so does a thrown error's. Once the app starts quitting, nothing is written, and every write is
+preceded by that check: a checkout made in that moment stays unrecorded and the log says so. The caller decides
+whether the folder may be touched at all: a network path has to pass `src/app/network-path.js` before `create`.
+
+**Open (O14):** there is no prune when the app starts. A checkout deleted by hand stays `prunable` in the user's own
+`git worktree list` until the next `create` or `remove` in that repository. M6 asked for a prune at start; it would
+run `git worktree prune` in every repository that holds an app-owned checkout, and that also clears the user's own
+entries whose folder is missing at that moment (#679's cost). Left for the owner.
+
+The record is the table `app_worktree` (`src/db/worktree-store.js`): path, repository, branch, base commit, task id,
+creation time. It sits apart from `worktree_repo`, which holds what a sweep observed; an app-owned checkout is still
+found by that sweep through its `.git` file and resolves to its project like any worktree outside the layout
+(`src/projects/known-worktree.js`, then `worktreeRootOf`). That a task's sessions are listed under the caller's project
+is T3.
+
+Tests: `test/task-worktree.test.js`, against real git in throwaway repositories; `test/app-worktree-store.test.js` for
+the migration and the store.
 
 ## Probes not run
 

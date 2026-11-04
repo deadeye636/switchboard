@@ -185,6 +185,7 @@ const {
   getProjectMeta, setProjectAutoHidden, resetProjectAutoHide, getAutoHiddenProjects,
   setProjectState, getProjectStates, getProjectTombstones, getPlanRefAttributions,
   getKnownWorktrees, recordKnownWorktree, forgetKnownWorktree,
+  getAppWorktrees, recordAppWorktree, forgetAppWorktree,
   renameProjectRefs, deleteProjectRefs,
   toggleBookmark, removeBookmark, listBookmarks,
   createTask, listTasks, getTask, updateTask, removeTask, openTaskCountsBySession, openTaskCountsByProject,
@@ -776,6 +777,17 @@ vcsPoll.init({
   shell,
 });
 vcsPoll.registerIpc(ipcMain);
+
+// --- The worktrees the app creates for a writing task (#805, spec 41) ---
+// No IPC of its own: the task runner (#804) is its caller. Under the data folder, outside every project (E5).
+const taskWorktrees = require('./app/task-worktree');
+taskWorktrees.init({
+  vcs: require('./vcs'),
+  dataDir: require('./db/connection').DATA_DIR,
+  db: { getAppWorktrees, recordAppWorktree, forgetAppWorktree },
+  log,
+  getAppQuitting: () => appQuitting,
+});
 
 // --- IPC: get-projects ---
 ipcMain.handle('open-external', (_event, url) => {
