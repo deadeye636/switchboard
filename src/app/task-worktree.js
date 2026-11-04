@@ -236,6 +236,13 @@ async function create({ projectPath, taskId } = {}) {
       else await rollbackBranch(provider, wt, repoPath, branch, head.head);
       return refuse('internal');
     }
+    // The app's settings cascade from the project a worktree belongs to (`settingsOwnerPath`), and a worktree
+    // outside the layout belongs to one only once its `.git` file was read (#757). A sweep reads it when the first
+    // session there is indexed — after the task's spawn has already resolved its settings. So it is read now. A
+    // backend's own folder trust is keyed by path in that CLI's config and does not follow (spec 41 O16).
+    if (typeof ctx.noteWorktree === 'function') {
+      try { ctx.noteWorktree(worktreePath); } catch (err) { warn(`noting ${worktreePath} failed: ${err && (err.code || err.message)}`); }
+    }
     const hasSubmodules = fs.existsSync(path.join(worktreePath, wt.submoduleMarker));
     if (ctx.log) ctx.log.info(`[task-worktree] created ${worktreePath} on ${branch} for task ${taskId}`);
     return { ok: true, worktreePath, repoPath, branch, baseCommit: head.head, baseDirty, hasSubmodules };

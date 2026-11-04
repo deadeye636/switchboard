@@ -121,6 +121,25 @@ test('a session of another project and an unknown id answer byte-identically', a
   fs.rmSync(other, { recursive: true, force: true });
 });
 
+test('a worktree that belongs to the project is still not the project (spec 35 O4, kept strict for task worktrees by #805)', async () => {
+  const wtPath = require('../src/shared/worktree-path');
+  const project = tempProject('sb-disc-o4-');
+  const worktree = tempProject('sb-disc-o4-wt-');
+  // The worktree resolves to the project for settings, as an app-owned task checkout does once it is created.
+  wtPath.setKnownWorktrees([{ path: worktree, parentPath: project, repoPath: project }]);
+  try {
+    assert.equal(wtPath.settingsOwnerPath(worktree), project);
+    const reader = readerFor(project, { rows: [sessionRow('mine', project), sessionRow('task', worktree)] });
+    const listed = await reader.listSessions({});
+    assert.deepEqual(listed.sessions.map(s => s.id), ['mine']);
+    assert.equal((await reader.readSession({ sessionId: 'task' })).error, NO_SUCH_SESSION);
+  } finally {
+    wtPath.setKnownWorktrees([]);
+    fs.rmSync(project, { recursive: true, force: true });
+    fs.rmSync(worktree, { recursive: true, force: true });
+  }
+});
+
 test('a reader without a project answers an error and lists nothing', async () => {
   const reader = createDiscoveryReader({ projectPath: '', getCachedSessions: () => [sessionRow('a', '/x')], getSessionMeta: () => new Map(), log });
   assert.equal(reader.listSessions().ok, false);

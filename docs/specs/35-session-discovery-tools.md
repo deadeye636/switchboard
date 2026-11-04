@@ -248,7 +248,9 @@ Switchboard tool. Nobody observed Codex calling `listSessions`.
 - **O8 deferred:** no reverse reader or paging cursor; a long session shows its recent turns only. A later phase.
 - **O9 settled:** archived sessions and subagent rows are excluded; no argument includes them.
 - **O3** accepted (above).
-- **O4 accepted:** the scope is strictly the caller's own directory. Worktrees are not folded in.
+- **O4 accepted:** the scope is strictly the caller's own directory. Worktrees are not folded in. **Confirmed for
+  app-owned task worktrees (#805, 2026-11-04):** a task's sessions are not listed for the caller's project either; the
+  caller reaches its task through the `tasks` group (#804). Pinned in `test/discovery-reader.test.js`.
 - **O10 accepted:** the cross-vendor data flow is stated in the toggle's help text only, with no confirm dialog.
 - **O2 (timeout) still open:** the per-tool-call timeout of the CLIs against the bridge's blocking cap is not
   measured. (D7's group-list wiring itself is built as decided.)

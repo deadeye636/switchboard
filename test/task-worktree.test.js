@@ -412,15 +412,74 @@ test('nothing is written once the app is quitting', { skip: !HAVE_GIT }, async (
   assert.equal(db.rows.length, 0);
 });
 
-test('the new worktree resolves through worktreeRootOf to its project', { skip: !HAVE_GIT }, async () => {
-  const { box } = setup();
+test('the new worktree resolves to its project for settings as soon as it is created, before any sweep (T3)', { skip: !HAVE_GIT }, async () => {
+  const box = sandbox();
   const repo = makeRepo(box);
+  const facts = [];
+  knownWorktrees.init({ db: { getKnownWorktrees: () => facts.slice(), recordKnownWorktree: (w, r) => facts.push({ worktreePath: w, repoPath: r }) }, log: { info() {} } });
+  const states = new Map([[repo, { registered: 1 }]]);
+  // The refresh half of main.js's wiring; the forget half is the reuse test below.
+  service.init({
+    vcs, dataDir: path.join(box, 'data'), db: fakeDb(), log: { info() {}, warn() {} },
+    noteWorktree: (p) => knownWorktrees.refresh([p], states),
+  });
   const made = await service.create({ projectPath: repo, taskId: 't1' });
-  const rows = [];
-  knownWorktrees.init({ db: { getKnownWorktrees: () => rows.slice(), recordKnownWorktree: (w, r) => rows.push({ worktreePath: w, repoPath: r }) }, log: { info() {} } });
-  knownWorktrees.refresh([repo, made.worktreePath], new Map([[repo, { registered: 1 }]]));
+  assert.equal(made.ok, true, made.message);
   assert.ok(samePath(wtPath.worktreeRootOf(made.worktreePath), repo));
   assert.ok(samePath(wtPath.settingsOwnerPath(made.worktreePath), repo));
+  assert.equal(facts.length, 1, 'the fact is stored, so it holds after a restart and after the folder is gone');
+});
+
+test('main.js hands the service a noteWorktree that forgets, then refreshes known-worktree', () => {
+  // A source check, because main.js cannot be loaded here: a dropped or mistyped line there passes every behavioural
+  // test above (a missing hook is skipped, a throwing one only logged) and the task spawn silently loses its settings.
+  const { stripComments } = require('./helpers/strip-comments');
+  const src = stripComments(fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8'));
+  const init = src.slice(src.indexOf("require('./app/task-worktree')"));
+  const block = init.slice(0, init.indexOf('});') + 3);
+  assert.match(block, /noteWorktree:/);
+  assert.match(block, /require\('\.\/projects\/known-worktree'\)/);
+  assert.ok(block.indexOf('.forget(') >= 0 && block.indexOf('.forget(') < block.indexOf('.refresh('), 'forget before refresh');
+});
+
+test('a task id reused for another repository resolves to the new one', { skip: !HAVE_GIT }, async () => {
+  const box = sandbox();
+  const repoA = makeRepo(box, 'a');
+  const repoB = makeRepo(box, 'b');
+  const facts = [];
+  knownWorktrees.init({
+    db: {
+      getKnownWorktrees: () => facts.slice(),
+      recordKnownWorktree: (w, r) => facts.push({ worktreePath: w, repoPath: r }),
+      forgetKnownWorktree: (w) => { const i = facts.findIndex(f => f.worktreePath === w); if (i >= 0) facts.splice(i, 1); },
+    },
+    log: { info() {} },
+  });
+  const states = new Map([[repoA, { registered: 1 }], [repoB, { registered: 1 }]]);
+  service.init({
+    vcs, dataDir: path.join(box, 'data'), db: fakeDb(), log: { info() {}, warn() {} },
+    noteWorktree: (p) => { knownWorktrees.forget(p); return knownWorktrees.refresh([p], states); },
+  });
+  const first = await service.create({ projectPath: repoA, taskId: 't1' });
+  assert.ok(samePath(wtPath.settingsOwnerPath(first.worktreePath), repoA));
+  fs.rmSync(first.worktreePath, { recursive: true, force: true });
+  gitIn(repoA, 'worktree', 'prune');
+  const second = await service.create({ projectPath: repoB, taskId: 't1' });
+  assert.equal(second.ok, true, second.message);
+  assert.ok(samePath(wtPath.settingsOwnerPath(second.worktreePath), repoB));
+});
+
+test('a failing note does not fail the create', { skip: !HAVE_GIT }, async () => {
+  const box = sandbox();
+  const repo = makeRepo(box);
+  const warnings = [];
+  service.init({
+    vcs, dataDir: path.join(box, 'data'), db: fakeDb(), log: { info() {}, warn: (m) => warnings.push(m) },
+    noteWorktree: () => { throw new Error('boom'); },
+  });
+  const made = await service.create({ projectPath: repo, taskId: 't1' });
+  assert.equal(made.ok, true, made.message);
+  assert.ok(warnings.some(w => w.includes('noting')));
 });
 
 test('git: the worktree list reader takes the -z porcelain, bare entry included', () => {

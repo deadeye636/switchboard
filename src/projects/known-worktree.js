@@ -14,7 +14,7 @@
 const fs = require('fs');
 const { worktreeRepoAt } = require('../session/derive-project-path');
 const { isAtOrInside } = require('../app/path-containment');
-const { parseWorktreePath, setKnownWorktrees } = require('../shared/worktree-path');
+const { parseWorktreePath, setKnownWorktrees, knownWorktreeParentOf } = require('../shared/worktree-path');
 
 let ctx = null;
 const probed = new Set();       // paths whose `.git` was read this run, whatever it said
@@ -65,8 +65,10 @@ function refresh(projectPaths, states) {
     const key = keyOf(p);
     if (!key || probed.has(key)) continue;
     probed.add(key);
-    // A layout path is already a worktree by its spelling; asking its `.git` again adds nothing.
-    if (parseWorktreePath(p) && !known.has(key)) continue;
+    // A layout path is already a worktree by its spelling; asking its `.git` again adds nothing. Only the
+    // SPELLING counts here: `parseWorktreePath` also answers from the list this module handed the shared one, and
+    // a path `forget` just dropped is still on that list until the recompute below — it must be read again.
+    if (parseWorktreePath(p) && !knownWorktreeParentOf(p) && !known.has(key)) continue;
     const had = known.get(key);
     const repoPath = worktreeRepoAt(p);
     if (repoPath) {

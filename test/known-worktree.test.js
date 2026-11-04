@@ -246,3 +246,25 @@ test('a remembered worktree outside the layout is hidden the same way, and stamp
   assert.equal(byPath.get(present).knownWorktreeParent, project);
   assert.equal(byPath.get(project).knownWorktreeParent, null);
 });
+
+test('a forgotten path that comes back in the same run is read again, not taken from the old answer', () => {
+  const root = tmp();
+  const repoA = path.join(root, 'a');
+  const repoB = path.join(root, 'b');
+  const worktree = path.join(root, 'wt', 't1');
+  makeWorktree(worktree, repoA, 't1');
+  const states = new Map([[repoA, { registered: 1 }], [repoB, { registered: 1 }]]);
+  const db = fakeDb();
+  db.forgetKnownWorktree = (w) => { const i = db.rows.findIndex(r => r.worktreePath === w); if (i >= 0) db.rows.splice(i, 1); };
+  knownWorktrees.init({ db, log: { info() {} } });
+  knownWorktrees.refresh([worktree], states);
+  assert.equal(wt.worktreeRootOf(worktree), repoA);
+
+  // The checkout goes; a new one of another repository takes its place in the same run (a reused task id, #805).
+  fs.rmSync(worktree, { recursive: true, force: true });
+  makeWorktree(worktree, repoB, 't1');
+  knownWorktrees.forget(worktree);
+  knownWorktrees.refresh([worktree], states);
+  assert.equal(wt.worktreeRootOf(worktree), repoB);
+  assert.deepEqual(db.rows, [{ worktreePath: worktree, repoPath: repoB }]);
+});

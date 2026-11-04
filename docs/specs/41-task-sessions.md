@@ -150,16 +150,35 @@ only to the log, and so does a thrown error's. Once the app starts quitting, not
 preceded by that check: a checkout made in that moment stays unrecorded and the log says so. The caller decides
 whether the folder may be touched at all: a network path has to pass `src/app/network-path.js` before `create`.
 
-**Open (O14):** there is no prune when the app starts. A checkout deleted by hand stays `prunable` in the user's own
+**O14 (decided by the owner, 2026-11-04: keep it so):** there is no prune when the app starts. A checkout deleted by hand stays `prunable` in the user's own
 `git worktree list` until the next `create` or `remove` in that repository. M6 asked for a prune at start; it would
 run `git worktree prune` in every repository that holds an app-owned checkout, and that also clears the user's own
-entries whose folder is missing at that moment (#679's cost). Left for the owner.
+entries whose folder is missing at that moment (#679's cost).
 
 The record is the table `app_worktree` (`src/db/worktree-store.js`): path, repository, branch, base commit, task id,
 creation time. It sits apart from `worktree_repo`, which holds what a sweep observed; an app-owned checkout is still
 found by that sweep through its `.git` file and resolves to its project like any worktree outside the layout
-(`src/projects/known-worktree.js`, then `worktreeRootOf`). That a task's sessions are listed under the caller's project
-is T3.
+(`src/projects/known-worktree.js`, then `worktreeRootOf`).
+
+**The app's settings follow the worktree (T3).** A sweep reads a worktree's `.git` file only once a session there is
+indexed, which is after the task's spawn has resolved its settings. So `create` hands the new checkout to
+`known-worktree` at once (`noteWorktree` in the service's ctx: `forget`, then `refresh`, so a task id reused for another
+repository is read again), and `settingsOwnerPath` answers from the first moment. What it answers is the #757 owner:
+the nearest LISTED project that holds the repository — the caller's project when it is the repository or contains it.
+The app's launch defaults, approval memory and external MCP servers cascade from there. A failure is logged and does
+not fail the create.
+
+**Open (O15, deferred by the owner, 2026-11-04):** a caller whose project is a subfolder of the repository, or not listed at all, owns no worktree by that
+rule, so its task gets the global settings. Recording the caller's project as the owner of an app-owned row would close
+it; that changes the #757 rule and is the owner's call.
+
+**Open (O16, assigned to Phase 2 by the owner, 2026-11-04):** a backend's own folder trust does not follow. Claude, Codex and Pi key trust by path in their own
+config, and the new checkout is a repository root of its own, so the CLI may ask its trust question there. Phase 2
+(T4's sentence for a project the target does not trust) has to answer it; nothing writes trust today.
+
+**Discovery does not follow it (owner, 2026-11-04).** Spec 35 O4 stays strict: a task's sessions are not listed for the
+caller's project, and `readSession` refuses them like any other directory's. The caller reaches its task through the
+`tasks` group (#804), so there is one way to a child, not two.
 
 Tests: `test/task-worktree.test.js`, against real git in throwaway repositories; `test/app-worktree-store.test.js` for
 the migration and the store.

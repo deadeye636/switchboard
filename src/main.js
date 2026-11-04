@@ -787,6 +787,13 @@ taskWorktrees.init({
   db: { getAppWorktrees, recordAppWorktree, forgetAppWorktree },
   log,
   getAppQuitting: () => appQuitting,
+  // A new checkout resolves to its project for settings at once, not after the next sweep (T3). `forget` first: a
+  // task id reused for another repository in the same run would otherwise keep the first repository's fact.
+  noteWorktree: (p) => {
+    const knownWorktree = require('./projects/known-worktree');
+    knownWorktree.forget(p);
+    return knownWorktree.refresh([p], getProjectStates());
+  },
 });
 
 // --- IPC: get-projects ---
