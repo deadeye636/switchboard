@@ -60,7 +60,9 @@ function documentTextElement(content) {
   const md = document.createElement('div');
   md.className = 'document-viewer-text markdown-preview';
   const html = window.marked ? window.marked.parse(String(content.text || '')) : '';
-  if (html && typeof DOMPurify !== 'undefined') md.innerHTML = DOMPurify.sanitize(html);
+  // No <style>: DOMPurify keeps it by default, and Markdown lands in the app's own document, not a frame, so an
+  // agent-written block (#811) could restyle the whole window while the viewer is open.
+  if (html && typeof DOMPurify !== 'undefined') md.innerHTML = DOMPurify.sanitize(html, { FORBID_TAGS: ['style'] });
   else md.textContent = String(content.text || '');
   return md;
 }

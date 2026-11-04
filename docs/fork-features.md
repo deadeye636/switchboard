@@ -456,8 +456,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   the pager but no open buttons. `Documents in the conversation` (`card` or `inline`) and `Largest document with
   a thumbnail (KB)` are in the Sessions category. Pi returns no PDF pages, so its PDF reads stay text; Codex,
   Hermes and agy do not stamp and keep their images inline; the open buttons are refused once the session has
-  exited. Since #811 a fenced `html` block in a message has a Preview button that opens the block rendered in the
-  same viewer, in a frame without scripts; the conversation view and the history viewer both show it. Spec:
+  exited. Since #811 a fenced `html` or `markdown` block in a message has a Preview button that opens the block
+  rendered in the same viewer, HTML in a frame without scripts; the conversation view and the history viewer both show it. Spec:
   [`specs/33-document-preview.md`](specs/33-document-preview.md).
 - **A diff-review tool offered to agy over MCP (#333)** — an opt-in `diffTool` launch option on the
   Antigravity CLI. With it on, Switchboard registers its own loopback HTTP MCP endpoint for that session and

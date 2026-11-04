@@ -62,6 +62,19 @@ test('the source stays in place beside the button', () => {
   assert.equal(el.querySelector('.jsonl-code-actions').nextElementSibling.tagName, 'PRE');
 });
 
+test('a markdown or md block opens the viewer as Markdown', () => {
+  for (const lang of ['markdown', 'md']) {
+    const { el, opened } = setup()('```' + lang + '\n# Title\n\n- item\n```');
+    const btn = el.querySelector('.jsonl-code-actions > button');
+    assert.equal(btn.title, 'Show this Markdown rendered');
+    btn.click();
+    const o = opened()[0];
+    assert.equal(o.content.kind, 'markdown');
+    assert.equal(o.name, 'Markdown preview');
+    assert.equal(o.content.text.trim(), '# Title\n\n- item');
+  }
+});
+
 test('htm counts, other languages and untagged blocks get no button', () => {
   const draw = setup();
   assert.equal(draw('```HTM\n<p>x</p>\n```').el.querySelectorAll('.jsonl-code-actions').length, 1);

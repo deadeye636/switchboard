@@ -125,8 +125,8 @@ chart rather than a row of zeroes.
   conversation with a pager and zoom, and a Markdown, HTML or whole PDF file opens there rendered; Ctrl/Cmd-click
   opens it the way your file-click setting says. Two buttons open
   it in the default app or in a tab. `Documents in the conversation` switches back to inline images. An HTML
-  page the agent writes into its answer as a code block has a Preview button that opens it rendered in the same
-  viewer, with scripts off.
+  page or a Markdown document the agent writes into its answer as a code block has a Preview button that opens it
+  rendered in the same viewer, HTML with scripts off.
   → [`docs/specs/33-document-preview.md`](docs/specs/33-document-preview.md)
 - **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (native),
   Pi and Pi (native)), each sidebar row shows where it opens, and a session can be opened in the other view

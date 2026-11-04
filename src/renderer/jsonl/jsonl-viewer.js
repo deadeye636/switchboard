@@ -327,13 +327,17 @@ function renderJsonlText(text) {
   return html;
 }
 
-// A fenced ```html block in rendered text offers a preview (#811): a button above the block opens the document
-// viewer (jsonl/document-viewer.js) with the block's text, in the same sandboxed frame without scripts a read HTML
-// file gets (#764). Nothing is built until the click, and the source stays where it is. `ctx.host` is the view the
-// viewer covers; the history viewer has no ctx and falls back like the document card does. The open claims the host,
+// A fenced ```html or ```markdown block in rendered text offers a preview (#811): a button above the block opens the
+// document viewer (jsonl/document-viewer.js) with the block's text, rendered as a read file of that kind is (#764):
+// HTML in a sandboxed frame without scripts, Markdown through marked and DOMPurify. Nothing is built until the click,
+// and the source stays where it is. `ctx.host` is the view the viewer covers; the history viewer has no ctx and falls back like the document card does. The open claims the host,
 // since a card's read or an agent's transcript still loading would otherwise replace the preview (#787). The
 // button's word is drawn by CSS, not a text node, so copying the entry's text and the in-log search do not see it.
-const PREVIEWABLE_CODE_KINDS = { html: 'html', htm: 'html' };
+const PREVIEWABLE_CODE_KINDS = { html: 'html', htm: 'html', markdown: 'markdown', md: 'markdown' };
+const PREVIEW_LABELS = {
+  html: { name: 'HTML preview', title: 'Show this HTML rendered (scripts do not run)' },
+  markdown: { name: 'Markdown preview', title: 'Show this Markdown rendered' },
+};
 function addCodePreviews(textEl, ctx) {
   for (const code of textEl.querySelectorAll('pre > code[class*="language-"]')) {
     const lang = (code.className.match(/language-(\S+)/) || [])[1];
@@ -345,14 +349,14 @@ function addCodePreviews(textEl, ctx) {
     btn.type = 'button';
     btn.className = 'task-notice-output jsonl-code-preview';
     btn.setAttribute('aria-label', 'Preview');
-    btn.title = 'Show this HTML rendered (scripts do not run)';
+    btn.title = PREVIEW_LABELS[kind].title;
     btn.addEventListener('click', () => {
       if (typeof openDocumentViewer !== 'function') return;
       const host = (ctx && ctx.host) || textEl.closest('#jsonl-viewer') || textEl.ownerDocument.body;
       claimInlineOpen(host);
       openDocumentViewer({
         host,
-        name: 'HTML preview',
+        name: PREVIEW_LABELS[kind].name,
         content: { kind, text: code.textContent },
         focusFallback: ctx && ctx.focusFallback,
       });
