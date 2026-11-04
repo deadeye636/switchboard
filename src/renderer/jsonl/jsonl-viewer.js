@@ -327,6 +327,41 @@ function renderJsonlText(text) {
   return html;
 }
 
+// A fenced ```html block in rendered text offers a preview (#811): a button above the block opens the document
+// viewer (jsonl/document-viewer.js) with the block's text, in the same sandboxed frame without scripts a read HTML
+// file gets (#764). Nothing is built until the click, and the source stays where it is. `ctx.host` is the view the
+// viewer covers; the history viewer has no ctx and falls back like the document card does. The open claims the host,
+// since a card's read or an agent's transcript still loading would otherwise replace the preview (#787). The
+// button's word is drawn by CSS, not a text node, so copying the entry's text and the in-log search do not see it.
+const PREVIEWABLE_CODE_KINDS = { html: 'html', htm: 'html' };
+function addCodePreviews(textEl, ctx) {
+  for (const code of textEl.querySelectorAll('pre > code[class*="language-"]')) {
+    const lang = (code.className.match(/language-(\S+)/) || [])[1];
+    const kind = lang && PREVIEWABLE_CODE_KINDS[lang.toLowerCase()];
+    if (!kind) continue;
+    const bar = document.createElement('div');
+    bar.className = 'jsonl-code-actions';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'task-notice-output jsonl-code-preview';
+    btn.setAttribute('aria-label', 'Preview');
+    btn.title = 'Show this HTML rendered (scripts do not run)';
+    btn.addEventListener('click', () => {
+      if (typeof openDocumentViewer !== 'function') return;
+      const host = (ctx && ctx.host) || textEl.closest('#jsonl-viewer') || textEl.ownerDocument.body;
+      claimInlineOpen(host);
+      openDocumentViewer({
+        host,
+        name: 'HTML preview',
+        content: { kind, text: code.textContent },
+        focusFallback: ctx && ctx.focusFallback,
+      });
+    });
+    bar.appendChild(btn);
+    code.parentElement.before(bar);
+  }
+}
+
 function formatDuration(ms) {
   if (ms < 1000) return ms + 'ms';
   const s = (ms / 1000).toFixed(1);
@@ -1106,6 +1141,7 @@ function renderJsonlEntry(entry, toolResultMap, ctx) {
       const textEl = document.createElement('div');
       textEl.className = 'jsonl-text agent-report-text';
       textEl.innerHTML = renderJsonlText(r.text);
+      addCodePreviews(textEl, ctx);
       div.appendChild(textEl);
       head.classList.add('agent-report-toggle');
       head.tabIndex = 0;
@@ -1257,6 +1293,7 @@ function renderJsonlEntry(entry, toolResultMap, ctx) {
       const textEl = document.createElement('div');
       textEl.className = 'jsonl-text';
       textEl.innerHTML = renderJsonlText(block.text.trim());
+      addCodePreviews(textEl, ctx);
       div.appendChild(textEl);
     } else if (block.type === 'image') {
       const data = block.source?.data || block.data;
