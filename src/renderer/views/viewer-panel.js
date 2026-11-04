@@ -734,7 +734,8 @@ class ViewerPanel {
         : content;
       this.previewEl.appendChild(frame);
     } else {
-      this.previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(content));
+      // No <style>: the Markdown lands in the app's own document, so a file's style block would restyle the window.
+      this.previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(content), { FORBID_TAGS: ['style'] });
     }
   }
 

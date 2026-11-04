@@ -58,7 +58,8 @@ function flashButtonText(btn, text, duration = 1200) {
 function toggleMarkdownPreview({ editorEl, previewEl, toggleBtn, editorView, isPreview, storageKey }) {
   if (!isPreview) {
     const content = editorView ? editorView.state.doc.toString() : '';
-    previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(content));
+    // No <style>: the Markdown lands in the app's own document, so a file's style block would restyle the window.
+    previewEl.innerHTML = DOMPurify.sanitize(window.marked.parse(content), { FORBID_TAGS: ['style'] });
     editorEl.style.display = 'none';
     previewEl.style.display = 'block';
     toggleBtn.classList.add('active');

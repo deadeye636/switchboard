@@ -198,7 +198,8 @@ as a ```` ```html ```` (or `htm`) block, or a document as a ```` ```markdown ```
 `src/renderer/jsonl/jsonl-viewer.js` puts a Preview button above the block. A click opens this viewer in text mode with
 the block's text as `{ kind: 'html' | 'markdown', text }`: HTML in the same frame with no `allow-scripts`, Markdown
 through marked and DOMPurify. Markdown is drawn into the app's own document, so the viewer forbids `<style>` there,
-for a read file as well; the file view (`views/viewer-panel.js`) still keeps it. There is no file behind the block, so there is no `dirUrl`, and relative images
+for a read file as well. The file view's Markdown preview (`src/renderer/views/viewer-panel.js`,
+`src/renderer/views/viewer-toolbar.js`) forbids it too. There is no file behind the block, so there is no `dirUrl`, and relative images
 in it do not load. Nothing is built until the click, and the source stays in the message. It applies wherever message
 text is drawn through `renderJsonlText` from `renderJsonlEntry`: the conversation view and the history viewer. The
 plan card's body is not wired. The open claims the host like a card does, and the button (`.task-notice-output`) draws
