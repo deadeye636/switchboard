@@ -163,6 +163,11 @@ Everything here was measured against Pi 0.84.4. Later Pi versions were not re-me
   one turn and not several.
 - A renderer reload leaves the child running. Opening the session again reattaches and loads the
   conversation from `get_messages`.
+- Pi offers no suggested next prompt (#814; measured against Pi 1.1.0, not 0.84.4 like the points above).
+  One RPC turn produced `agent_start`, `turn_start`, `message_start`, `message_update`, `message_end`,
+  `turn_end`, `agent_end` and `agent_settled`, and no key mentioning a suggestion. The package's only
+  "suggest" code is the interactive mode's bug-report hint. So the composer shows no suggestion for Pi, and
+  no hook was added for it.
 
 ## Input (step B)
 
