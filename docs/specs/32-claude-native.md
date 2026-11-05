@@ -942,7 +942,8 @@ first turn, so a user whose settings name `auto` saw no mode on any new or resum
 ## Prompt suggestions (#693)
 
 The view shows a suggestion as the empty input's placeholder, greyed and in italics with "Tab to use it";
-**Tab** takes it into the input, typing anything or Escape throws it away, and a turn starting drops it. The
+**Tab** takes it into the input. Typing only hides it: an input cleared again shows it once more (#812). A send,
+Escape, a turn starting or a new suggestion throws it away. The
 launch carries `--prompt-suggestions` the way it carries `--verbose`, so suggestions are on; the backend option
 `promptSuggestionsOff` (default `false`) is the way out and leaves the flag off. An opt-out, because a
 `configFields` default describes and is never sent — a default of "on" that put the flag on the command line

@@ -536,6 +536,18 @@ test('a hand-typed [Image #n] is not reused, and a picker that overwrites a plac
   assert.equal(h.entry.element.querySelectorAll('.conversation-attachment').length, 0);
 });
 
+// #812: the × can leave the input empty, and an empty input offers the suggestion again.
+test('removing the only image brings the hidden suggestion back', async () => {
+  const h = setup({ imageInput: { types: ['image/png'], maxBytes: 1024 } });
+  h.entry.conversation.apply({ op: 'suggestion', text: 'write the script' });
+  pasteImages(h, [new h.w.File(['a'], 'a.png', { type: 'image/png' })]);
+  await until(() => h.entry.element.querySelectorAll('.conversation-attachment').length === 1);
+  assert.doesNotMatch(h.input.placeholder, /write the script/);
+  h.entry.element.querySelector('.conversation-attachment .viewer-header-close').click();
+  assert.equal(h.input.value, '');
+  assert.match(h.input.placeholder, /write the script/);
+});
+
 // #699: a file that is not attached is NAMED, the way a terminal session inserts its path. Paths invented.
 const NOTES = '/srv/invented/notes.txt';
 const SPACED = '/srv/invented/my docs/plan.md';
@@ -1469,7 +1481,7 @@ test('Stop in the Background list stops that one task', async () => {
 });
 
 // #693: a suggested next prompt, offered in the empty input and taken with Tab.
-test('a suggestion shows in the empty input; Tab takes it, typing drops it, a turn starting drops it', () => {
+test('a suggestion shows in the empty input; Tab takes it, typing hides it, Escape and a turn starting drop it', () => {
   const h = setup();
   const conv = h.entry.conversation;
   conv.apply({ op: 'suggestion', text: 'write the script' });
@@ -1484,15 +1496,35 @@ test('a suggestion shows in the empty input; Tab takes it, typing drops it, a tu
   conv.apply({ op: 'suggestion', text: 'next' });
   h.input.value = 'x';
   h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.doesNotMatch(h.input.placeholder, /next/, 'typing hides it');
+  assert.ok(!h.input.classList.contains('has-suggestion'));
   h.input.value = '';
   h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
-  assert.doesNotMatch(h.input.placeholder, /next/, 'typing threw it away for good');
+  assert.match(h.input.placeholder, /next/, 'an input cleared again offers it once more (#812)');
+  assert.ok(h.input.classList.contains('has-suggestion'));
+  const esc = new h.w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+  h.input.dispatchEvent(esc);
+  assert.doesNotMatch(h.input.placeholder, /next/, 'Escape throws it away');
   conv.apply({ op: 'suggestion', text: 'again' });
   conv.apply({ op: 'busy', busy: true });
   assert.doesNotMatch(h.input.placeholder, /again/);
   const plainTab = new h.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
   h.input.dispatchEvent(plainTab);
   assert.equal(plainTab.defaultPrevented, false, 'without a suggestion Tab is left alone');
+});
+
+// #812: typing only hides the suggestion, so a send has to answer it, even one that starts no turn.
+test('a send drops a suggestion the typing had only hidden', async () => {
+  const h = setup();
+  h.entry.conversation.apply({ op: 'suggestion', text: 'write the script' });
+  h.input.value = 'something else';
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  h.key({ key: 'Enter' });
+  h.answerSend({ ok: true });
+  await h.settle();
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.equal(h.input.value, '');
+  assert.doesNotMatch(h.input.placeholder, /write the script/);
 });
 
 // #694: a sent message is on screen at once, and the played-back entry takes its place.

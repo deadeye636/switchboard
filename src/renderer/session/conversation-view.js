@@ -816,6 +816,8 @@ function createConversationView(getSession, container) {
       // Only what was sent is taken away — something typed while the send was in flight stays, and so does
       // an image attached meanwhile.
       if (input.value.startsWith(text)) input.value = input.value.slice(text.length).replace(/^\s+/, '');
+      // Typing only hid the suggestion (#812); a send answers it, even one that starts no turn.
+      if (view.suggestion) setSuggestion(null);
       if (attached.length) {
         view.attachments = view.attachments.filter(a => !attached.includes(a));
         renderAttachments();
@@ -1046,8 +1048,8 @@ function createConversationView(getSession, container) {
   input.addEventListener('input', syncAttachmentsToText);
 
   // --- A suggested next prompt (#693) ---
-  // Shown as the empty input's placeholder, greyed, with the key that takes it. Typing anything discards it,
-  // as the TUI does; a turn starting discards it too.
+  // Shown as the empty input's placeholder, greyed, with the key that takes it. Typing only hides it: an input
+  // cleared again shows it once more (#812). A send, a turn starting, Escape or a new suggestion discards it.
   function setSuggestion(text) {
     view.suggestion = text && String(text).trim() ? String(text).trim() : null;
     renderSuggestion();
@@ -1057,7 +1059,7 @@ function createConversationView(getSession, container) {
     input.placeholder = on ? `${view.suggestion}    — Tab to use it` : composerPlaceholder();
     input.classList.toggle('has-suggestion', on);
   }
-  input.addEventListener('input', () => { if (view.suggestion && input.value) setSuggestion(null); });
+  input.addEventListener('input', () => { if (view.suggestion) renderSuggestion(); });
 
   function renderAttachments() {
     attachStrip.replaceChildren();
@@ -1086,6 +1088,7 @@ function createConversationView(getSession, container) {
         view.attachments = view.attachments.filter(x => x !== a);
         if (a.label) removeLabelText(a.label);
         renderAttachments();
+        renderComposer(); // the label may have been all the input held, and the suggestion shows again (#812)
         input.focus();
       });
       item.appendChild(remove);
@@ -1161,8 +1164,8 @@ function createConversationView(getSession, container) {
       else notice('error', `${file.name || 'The file'} could not be named: it has no path on disk.`);
     }
     if (refs.length) insertAtCaret(refs.join(' '));
-    // A write of the value fires no `input` event, so the suggestion's own clearing never runs.
-    if (view.suggestion && input.value) setSuggestion(null);
+    // A write of the value fires no `input` event, so the suggestion's own hiding never runs.
+    if (view.suggestion) renderSuggestion();
   }
 
   // Text with pictures carried only in its HTML (#779) — a mail, a Word passage: the text goes in as it
