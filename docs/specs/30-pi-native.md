@@ -167,7 +167,8 @@ Everything here was measured against Pi 0.84.4. Later Pi versions were not re-me
   One RPC turn produced `agent_start`, `turn_start`, `message_start`, `message_update`, `message_end`,
   `turn_end`, `agent_end` and `agent_settled`, and no key mentioning a suggestion. The package's only
   "suggest" code is the interactive mode's bug-report hint. So the composer shows no suggestion for Pi, and
-  no hook was added for it.
+  no hook was added for it. The one key the check finds, `followUpMode` in the `get_state` answer, is how
+  Pi delivers messages queued during a turn, not a suggestion. After a Pi update, `scripts/pi-rpc-spike.js` repeats the check (its third report).
 
 ## Input (step B)
 

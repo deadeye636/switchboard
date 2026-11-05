@@ -1,19 +1,22 @@
 // scripts/pi-rpc-spike.js — what Pi's RPC mode actually sends (#568).
 //
-//   node scripts/pi-rpc-spike.js [cwd] ["prompt"]
+//   node scripts/pi-rpc-spike.js [cwd] ["prompt"] [model]
 //
 // Spawns `pi --mode rpc` in `cwd` (default: the working directory), sends one prompt, and reports
-// three things and nothing else:
+// four things and nothing else:
 //
 //   1. every event type in arrival order, so a reader can see what a turn is really made of
 //   2. the assistant message assembled from deltas alone — `message_update` carries a delta and no
 //      cumulative snapshot, so a client that does not assemble sees nothing
-//   3. the session the events belong to, and whether its file on disk is named the way
+//   3. every key anywhere in the events that names a suggestion or a next/follow-up prompt — how #814
+//      found that Pi offers no suggested next prompt for the composer
+//   4. the session the events belong to, and whether its file on disk is named the way
 //      `backends/pi/turn-queue.js` expects
 //
 // It costs one real model call against whatever Pi is configured and authenticated for, so keep the
-// prompt small. It writes nothing except what the prompt makes Pi write, and it is not part of the
-// suite: it exists to be run by hand when a question about the protocol comes up.
+// prompt small and name the smallest model as `model` (e.g. `anthropic/claude-haiku-4-5`); it is passed
+// as `--model` with thinking off. It writes nothing except what the prompt makes Pi write, and it is not
+// part of the suite: it exists to be run by hand when a question about the protocol comes up.
 'use strict';
 
 const { spawn } = require('child_process');
@@ -22,10 +25,14 @@ const path = require('path');
 
 const CWD = process.argv[2] || process.cwd();
 const PROMPT = process.argv[3] || 'Reply with exactly the word: pong';
+const MODEL = process.argv[4] || '';
 const TIMEOUT_MS = 120000;
+const SUGGESTION_KEY = /suggest|next|follow/i;
 
 // `shell: true` because pi is a `.cmd` shim on Windows, which Node cannot spawn directly.
-const child = spawn('pi', ['--mode', 'rpc'], {
+const args = ['--mode', 'rpc'];
+if (MODEL) args.push('--model', MODEL, '--thinking', 'off');
+const child = spawn('pi', args, {
   cwd: CWD,
   shell: true,
   stdio: ['pipe', 'pipe', 'pipe'],
@@ -38,6 +45,15 @@ let thinking = '';
 const toolCalls = [];
 let state = null;
 let asked = false;
+const suggestionKeys = new Set();
+
+function findSuggestionKeys(value, at) {
+  if (!value || typeof value !== 'object') return;
+  for (const [key, inner] of Object.entries(value)) {
+    if (SUGGESTION_KEY.test(key)) suggestionKeys.add(`${at}.${key}`);
+    findSuggestionKeys(inner, `${at}.${key}`);
+  }
+}
 
 function send(obj) {
   child.stdin.write(JSON.stringify(obj) + '\n');
@@ -66,6 +82,7 @@ child.stdout.on('data', (chunk) => {
 });
 
 function handle(msg) {
+  findSuggestionKeys(msg, msg.type);
   if (msg.type === 'response') {
     console.log(`[response] command=${msg.command} success=${msg.success} id=${msg.id || ''}`);
     if (msg.command === 'get_state') { state = msg; finish(); }
@@ -118,7 +135,10 @@ function report() {
   console.log('   thinking : ' + JSON.stringify(thinking.slice(0, 120)));
   console.log('   tools    : ' + JSON.stringify(toolCalls));
 
-  console.log('\n3. SESSION mapping:');
+  console.log('\n3. KEYS naming a suggestion or a next prompt:');
+  console.log('   ' + (suggestionKeys.size ? [...suggestionKeys].join(', ') : '(none)'));
+
+  console.log('\n4. SESSION mapping:');
   if (!state) { console.log('   no get_state answer'); return; }
   console.log('   get_state keys: ' + JSON.stringify(Object.keys(state).filter(k => k !== 'type')));
   const flat = JSON.stringify(state);
@@ -140,4 +160,5 @@ function report() {
 child.stdin.on('error', () => {});
 console.log(`[spike] cwd=${CWD}`);
 console.log(`[spike] prompt=${JSON.stringify(PROMPT)}`);
+console.log(`[spike] model=${MODEL || '(Pi default)'}`);
 send({ id: 'req-1', type: 'prompt', message: PROMPT });
