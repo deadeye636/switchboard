@@ -393,7 +393,7 @@ function createConversationView(getSession, container) {
   }
   // Shown again, by either of the two signals below: what arrived meanwhile is drawn once, and the reader is put
   // back. `follow` after `restore`, because the entries just drawn take their real height a frame later.
-  const reveal = () => { if (drawable()) flushDeferred(); restore(); follow(); renderJump(); tick(); };
+  const reveal = () => { if (drawable()) flushDeferred(); fitInput(); restore(); follow(); renderJump(); tick(); };
   // …and shown again without changing size (#723): a hidden container keeps its box now, so the observer above
   // does not fire on a tab switch. The `.visible` class is what both display modes set on show — panes, and
   // grid in its single view and on its cards.
@@ -885,6 +885,7 @@ function createConversationView(getSession, container) {
     input.hidden = docked;
     if (docked) { sendBtn.style.display = 'none'; steerBtn.style.display = 'none'; } else sendBtn.style.display = '';
     renderSuggestion();
+    fitInput();
   }
 
   // The pickers a terminal opens on the same chords. They are handed an ANCHOR where a terminal would go: the
@@ -1060,6 +1061,29 @@ function createConversationView(getSession, container) {
     input.classList.toggle('has-suggestion', on);
   }
   input.addEventListener('input', () => { if (view.suggestion) renderSuggestion(); });
+
+  // --- The input grows with what it holds (#813) ---
+  // Up to the stylesheet's `max-height`, past which it scrolls, and back down when the text gets shorter. Measured
+  // with the height let go, so a shorter text gives the height back. An empty input keeps its `rows`, so a long
+  // placeholder (a suggestion) never sizes it. A view that cannot be drawn is not measured, like the log (no
+  // layout read while hidden): `reveal` fits it once it is shown, the observer below whenever the width changes
+  // the wrapping, and `rescale` when the font size does.
+  function fitInput() {
+    if (input.hidden || !input.value) { input.style.height = ''; return; }
+    if (!drawable()) return;
+    input.style.height = 'auto';
+    const content = input.scrollHeight;
+    if (!content) { input.style.height = ''; return; }
+    input.style.height = `${content + input.offsetHeight - input.clientHeight}px`;
+  }
+  input.addEventListener('input', fitInput);
+  if (typeof ResizeObserver === 'function') {
+    let fittedWidth = 0;
+    new ResizeObserver(() => {
+      const width = input.clientWidth;
+      if (width && width !== fittedWidth) { fittedWidth = width; fitInput(); }
+    }).observe(input);
+  }
 
   function renderAttachments() {
     attachStrip.replaceChildren();
@@ -2599,6 +2623,7 @@ function createConversationView(getSession, container) {
     rescale: (ratio) => {
       if (!(ratio > 0) || ratio === 1) return;
       readerTop *= ratio;
+      fitInput(); // the input's text is scaled too, and neither its width nor a typed key says so (#813)
       if (!shown()) return;
       if (stuck) follow(); else log.scrollTop = readerTop;
       renderJump();

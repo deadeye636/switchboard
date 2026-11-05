@@ -3192,7 +3192,8 @@ html body .terminal-container.conversation-container:not(.visible) {
   font-family: inherit;
   font-size: calc(13px * var(--conversation-scale, 1));
   line-height: 1.45;
-  resize: vertical;
+  /* It grows with its text up to max-height (#813, `fitInput`), so there is no handle to drag. */
+  resize: none;
 }
 .conversation-input:focus { outline: none; border-color: rgba(128, 136, 255, 0.6); }
 /* A `!` line in the input (#788): the shell colour of a drawn shell line (`renderLocalCommand`), a fixed-width

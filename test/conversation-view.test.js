@@ -1527,6 +1527,40 @@ test('a send drops a suggestion the typing had only hidden', async () => {
   assert.doesNotMatch(h.input.placeholder, /write the script/);
 });
 
+// #813: the input grows with its text; jsdom lays nothing out, so the content height is stood in for.
+test('the input takes the height of its text, and an empty one gives it back', () => {
+  const h = setup();
+  let content = 0;
+  Object.defineProperty(h.input, 'scrollHeight', { configurable: true, get: () => content });
+  h.entry.conversation.apply({ op: 'suggestion', text: 'a very long suggestion '.repeat(40) });
+  assert.equal(h.input.style.height, '', 'a placeholder does not size the input');
+  content = 240;
+  h.input.value = 'line\n'.repeat(12);
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.equal(h.input.style.height, '240px');
+  content = 0;
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.equal(h.input.style.height, '', 'nothing measured, nothing set');
+  content = 240;
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  h.input.value = '';
+  h.input.dispatchEvent(new h.w.Event('input', { bubbles: true }));
+  assert.equal(h.input.style.height, '', 'emptied, it is back at its rows');
+  content = 120;
+  h.input.dispatchEvent(new h.w.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  assert.equal(h.input.style.height, '120px', 'a suggestion taken with Tab is fitted without an input event');
+  content = 180;
+  h.entry.conversation.rescale(1.5);
+  assert.equal(h.input.style.height, '180px', 'a font size change refits');
+  h.entry.element.classList.remove('visible');
+  content = 60;
+  h.entry.conversation.rescale(0.5);
+  assert.equal(h.input.style.height, '180px', 'a hidden view is not measured');
+  h.entry.element.classList.add('visible');
+  h.entry.conversation.reveal();
+  assert.equal(h.input.style.height, '60px', 'shown again, it is fitted');
+});
+
 // #694: a sent message is on screen at once, and the played-back entry takes its place.
 test('a sent message shows at once as pending and goes when the runtime plays it back; a refusal takes it away', async () => {
   const h = setup();

@@ -944,7 +944,8 @@ first turn, so a user whose settings name `auto` saw no mode on any new or resum
 The view shows a suggestion as the empty input's placeholder, greyed and in italics with "Tab to use it";
 **Tab** takes it into the input. Typing only hides it: an input cleared again shows it once more (#812). A send,
 Escape, a turn starting or a new suggestion throws it away. Escape counts only while the suggestion is on screen:
-pressed over typed text it leaves the hidden suggestion alone, a decision of #812. The
+pressed over typed text it leaves the hidden suggestion alone, a decision of #812. The input itself grows with
+its text up to `40vh` and has no resize handle (#813); the placeholder, and so a long suggestion, never sizes it. The
 launch carries `--prompt-suggestions` the way it carries `--verbose`, so suggestions are on; the backend option
 `promptSuggestionsOff` (default `false`) is the way out and leaves the flag off. An opt-out, because a
 `configFields` default describes and is never sent — a default of "on" that put the flag on the command line
