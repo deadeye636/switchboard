@@ -1075,6 +1075,56 @@ function modelLabel(model) {
   return m[3] != null ? `${family} ${m[2]}.${m[3]}` : `${family} ${m[2]}`;
 }
 
+// The breakdown of a `get_context_usage` answer in the neutral `context` shape (#758), measured on 2.1.318:
+// `categories` is `{ id, name, tokens, kind }` with `kind` used, deferred, buffer or free; `memoryFiles`, `agents`,
+// `skills.skillFrontmatter` and `mcpTools` each name their tokens per entry. MCP's categories and `mcpTools` stay
+// empty until the servers have connected, so an answer right after the start can lack them.
+//
+// `slot` is the fixed colour place of a category: a category keeps its colour when another one comes or goes.
+// A category this table does not know is drawn without one. The CLI's own `color` is a name from its TUI theme.
+const CONTEXT_CATEGORY_SLOTS = {
+  messages: 1, system_tools: 2, mcp_tools: 3, system_prompt: 4, memory_files: 5, skills: 6, mcp_instructions: 7, custom_agents: 8,
+};
+const CONTEXT_KIND_ORDER = { used: 0, buffer: 1, free: 2, deferred: 3 };
+function contextBreakdown(d) {
+  if (!Array.isArray(d.categories) || !d.categories.length) return null;
+  const count = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const categories = d.categories.filter((c) => c && typeof c.name === 'string').map((c) => {
+    const kind = Object.hasOwn(CONTEXT_KIND_ORDER, c.kind) ? c.kind : 'used';
+    const slot = Object.hasOwn(CONTEXT_CATEGORY_SLOTS, c.id) ? CONTEXT_CATEGORY_SLOTS[c.id] : null;
+    return { label: c.name, tokens: count(c.tokens), kind, slot };
+  }).sort((a, b) => (CONTEXT_KIND_ORDER[a.kind] - CONTEXT_KIND_ORDER[b.kind]) || ((a.slot ?? 99) - (b.slot ?? 99)));
+  const list = (id, label, entries, toRow) => {
+    const rows = (Array.isArray(entries) ? entries : []).filter(Boolean).map(toRow).filter((r) => r.name);
+    return { id, label, rows: rows.sort((a, b) => (Number(!!a.deferred) - Number(!!b.deferred)) || (b.tokens - a.tokens)) };
+  };
+  const lists = [
+    list('memory', 'Memory files', d.memoryFiles, (f) => ({
+      name: String(f.path || '').split(/[\\/]/).pop(), tokens: count(f.tokens), title: String(f.path || ''),
+    })),
+    list('skills', 'Skills', d.skills && d.skills.skillFrontmatter, (s) => ({ name: String(s.name || ''), tokens: count(s.tokens) })),
+    list('agents', 'Custom agents', d.agents, (a) => ({ name: String(a.agentType || ''), tokens: count(a.tokens) })),
+    list('mcp', 'MCP tools', d.mcpTools, (t) => {
+      const tool = /^mcp__.+?__(.+)$/.exec(String(t.name || ''));
+      return {
+        name: t.serverName && tool ? `${t.serverName} · ${tool[1]}` : String(t.name || ''),
+        tokens: count(t.tokens),
+        deferred: t.isLoaded === false,
+      };
+    }),
+  ].filter((l) => l.rows.length);
+  return { categories, lists };
+}
+
+// Before the first turn the fill is a baseline (#758). Measured on 2.1.318: `apiUsage` is null and the message
+// breakdown names no user or assistant tokens until the first turn has run, and both change with it. A resumed
+// session also answers a null `apiUsage` but names those tokens, so the tokens are what tell the two apart. An answer
+// without these fields is not called one either. What `/clear` answers was not measured.
+function contextIsBaseline(d) {
+  const m = d.messageBreakdown;
+  return d.apiUsage === null && !!m && typeof m === 'object' && !m.userMessageTokens && !m.assistantMessageTokens;
+}
+
 function contextFromResponse(response) {
   const d = response && response.success !== false && response.data && typeof response.data === 'object' ? response.data : null;
   if (!d) return null;
@@ -1083,7 +1133,11 @@ function contextFromResponse(response) {
   const window = num(d.maxTokens);
   const percent = num(d.percentage) != null ? num(d.percentage) : (tokens != null && window ? Math.round((tokens / window) * 100) : null);
   const modelId = typeof d.model === 'string' ? d.model : '';
-  return { percent, tokens, window, model: modelId ? modelLabel(modelId) : '', modelId };
+  const context = { percent, tokens, window, model: modelId ? modelLabel(modelId) : '', modelId };
+  const breakdown = contextBreakdown(d);
+  if (breakdown) context.breakdown = breakdown;
+  if (contextIsBaseline(d)) context.baseline = true;
+  return context;
 }
 
 // A command the app answers instead of writing it as a turn (point 13): the op the core handles for it, or

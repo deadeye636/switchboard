@@ -10,8 +10,8 @@ one: Tasks & notes (with a project's forge issues when spec 42 is on), Handoffs,
 ## Decided by the owner (2026-11-06)
 
 - **E1:** one per session or pane, not one per window. A user has it open in one pane and closed in another.
-- **E4:** those four groups first. The breakdown by category waits for #758, and changes, background tasks, the plan and
-  bookmarks are candidates for later.
+- **E4:** those four groups first. The breakdown by category came with #758, repository, branch and worktree are #821, and
+  changes, background tasks, the plan and bookmarks are candidates for later.
 - **E6:** a new session starts collapsed.
 - **E7, E8:** open or closed, which groups are open and the width are per session and survive a restart.
 - **E9:** no sidebar in a grid card.
@@ -48,9 +48,31 @@ by another window in the same moment, which costs a remembered width.
 - **Clicks:** a task opens the project's Tasks view, an issue opens in the browser, a handoff inserts its path into the
   session.
 
+## The context breakdown (#758)
+
+Where a backend answers `context.breakdown`, the Context group draws one bar, a row per category, and a collapsible list
+each for memory files, skills, custom agents and MCP tools with their tokens. A session without one shows the total as
+before: a terminal session, and pi-native, whose stats name no categories.
+
+- **A colour belongs to its category, not to its place.** The backend answers a `slot` per category, so the colours stay
+  put when a category comes or goes, as Messages does with the first turn. A category it does not know is grey. The eight slots are a
+  categorical palette, validated against the sidebar's surface.
+- **The bar shows what is used and the reserved buffer.** The rest of the track is the free space. Deferred tools are not
+  in the context, so they have a row, no share and no segment.
+- **A memory file shows its file name, its path only in the tooltip** (owner's decision on #758).
+- **A list keeps its open state across a redraw.** The group redraws with every `context` op, so it reads the open lists
+  from the DOM first. That state is not stored, so closing the sidebar or a restart closes them.
+- **An attach redraws the group too**, or a sidebar drawn before the answer came says it has no figure until the next
+  `context` op.
+- **The answer can hold several hundred MCP tools.** A real answer held 440. Synthetic rows of that count measured 67 KB of
+  markup and 8 ms to build and parse, so the rows are drawn with the group rather than on opening a list.
+- **A group out of view marks itself stale** on a `context` op and redraws when it comes into view (E10).
+
 ## Known gaps
 
 - A backend that measures no context fill shows "No figure for this session yet." rather than leaving the group out, as
   does a session that has not reported yet. A projected capability could tell the two apart; nothing does yet.
 - MCP status exists only for a session driven over a pipe. A terminal session leaves that row out.
 - The Context group in a terminal session updates when the group is reloaded, not live.
+- MCP is missing from the breakdown until the first turn. The app asks at the start, before the servers have connected,
+  and only a turn asks again (spec 32). So the fill before that turn is low by that amount, and the MCP list is absent.

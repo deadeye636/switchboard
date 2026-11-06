@@ -13,8 +13,8 @@
 // openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), window.api.
 //
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
-// toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), and the conversation
-// view's `context` op (`sessionSidebarContextChanged`).
+// toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
+// view's `context` op (`sessionSidebarContextChanged`) and its session line's tooltip (`contextLineDetails`).
 
 const SESSION_SIDEBAR_KEY = 'sessionSidebar';
 const SESSION_SIDEBAR_WIDTH = { min: 200, default: 280, max: 560 };
@@ -87,9 +87,50 @@ function sidebarServerRows(answer) {
   return Array.isArray(rows) ? rows : null;
 }
 
+function sidebarTokens(n) {
+  const v = Number(n) || 0;
+  if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v);
+}
+
+// A category's share of the window. Deferred tools are not in the context, so they have none.
+function sidebarCategoryShare(category, window) {
+  if (category.kind === 'deferred' || !(Number(window) > 0)) return '';
+  return `${((category.tokens / window) * 100).toFixed(1)} %`;
+}
+
+// What the bar draws: what is used, then the reserved buffer. The rest of the track is the free space.
+function sidebarBarSegments(breakdown, window) {
+  if (!(Number(window) > 0)) return [];
+  return breakdown.categories.filter((c) => (c.kind === 'used' || c.kind === 'buffer') && c.tokens > 0)
+    .map((c) => ({ ...c, width: Math.min(100, (c.tokens / window) * 100) }));
+}
+
+const CONTEXT_BASELINE_NOTE = 'Nothing has been sent yet. This is about what the first request will carry.';
+const CONTEXT_LINE_FILES = 3;
+
+// The session line's tooltip, in lines: the baseline's sentence, what is used, and where a user can save.
+function contextLineDetails(context) {
+  const c = context || {};
+  const lines = c.baseline ? [CONTEXT_BASELINE_NOTE] : [];
+  const b = c.breakdown;
+  if (!b || !Array.isArray(b.categories) || !Array.isArray(b.lists)) return lines;
+  if (lines.length) lines.push('');
+  for (const row of b.categories) {
+    if (row.kind === 'used' && row.tokens > 0) lines.push(`${row.label}: ${row.tokens.toLocaleString()}`);
+  }
+  const memory = b.lists.find((l) => l.id === 'memory');
+  if (memory) {
+    lines.push('', 'Largest memory files:');
+    for (const row of memory.rows.slice(0, CONTEXT_LINE_FILES)) lines.push(`${row.name}: ${row.tokens.toLocaleString()}`);
+  }
+  return lines;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+    sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
   };
 }
@@ -138,6 +179,28 @@ function sidebarRow(main, meta, attrs = '') {
     + `${meta ? `<span class="ssb-row-meta">${escapeHtml(meta)}</span>` : ''}</button>`;
 }
 const sidebarNote = (text) => `<div class="ssb-note">${escapeHtml(text)}</div>`;
+
+// The breakdown under the Context group's figures (#758, spec 43): one bar, a row per category, then the lists a
+// user can save in. The group redraws with every `context` op, so a list keeps the open state it had. A list that
+// nobody opened costs only its markup; the rows are text the CLI wrote, and all of it is escaped.
+function sidebarBreakdownHtml(entry, breakdown, window) {
+  const section = entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="context"]');
+  const open = new Set(section ? [...section.querySelectorAll('.ssb-sublist[open]')].map((d) => d.dataset.list) : []);
+  const slotAttr = (c) => (Number.isInteger(c.slot) ? ` data-slot="${c.slot}"` : '');
+  const bar = sidebarBarSegments(breakdown, window).map((s) => `<i${slotAttr(s)} data-kind="${escapeHtml(s.kind)}" `
+    + `style="width:${s.width}%" title="${escapeHtml(`${s.label}: ${s.tokens.toLocaleString()}`)}"></i>`).join('');
+  const rows = breakdown.categories.map((c) => `<div class="ssb-cat" data-kind="${escapeHtml(c.kind)}">`
+    + `<span class="ssb-swatch"${slotAttr(c)} data-kind="${escapeHtml(c.kind)}"></span>`
+    + `<span class="ssb-row-main">${escapeHtml(c.label)}</span>`
+    + `<span class="ssb-row-meta">${escapeHtml(sidebarTokens(c.tokens))}</span>`
+    + `<span class="ssb-cat-share">${escapeHtml(sidebarCategoryShare(c, window))}</span></div>`).join('');
+  const lists = breakdown.lists.map((l) => `<details class="ssb-sublist" data-list="${escapeHtml(l.id)}"${open.has(l.id) ? ' open' : ''}>`
+    + `<summary><span class="ssb-row-main">${escapeHtml(l.label)}</span><span class="ssb-row-meta">${l.rows.length}</span></summary>`
+    + l.rows.map((r) => sidebarRow(r.name, `${sidebarTokens(r.tokens)}${r.deferred ? ' · deferred' : ''}`,
+      `disabled${r.title ? ` title="${escapeHtml(r.title)}"` : ''}`)).join('')
+    + '</details>').join('');
+  return `<div class="ssb-stack">${bar}</div><div class="ssb-cats">${rows}</div>${lists}`;
+}
 
 // Each group reads when it is open and in view, and answers markup. All of it is escaped: a task title, an issue and
 // a skill name are all text somebody else may have written.
@@ -192,10 +255,13 @@ const SESSION_SIDEBAR_GROUPS = [
       const percent = Math.max(0, Math.min(100, figures.percent));
       const tokens = Number.isFinite(Number(figures.tokens)) && Number.isFinite(Number(figures.window))
         ? `${Number(figures.tokens).toLocaleString()} of ${Number(figures.window).toLocaleString()} tokens` : '';
-      return `<div class="ssb-meter"><i style="width:${percent}%"></i></div>`
+      const breakdown = fromView && fromView.breakdown;
+      return (breakdown ? '' : `<div class="ssb-meter"><i style="width:${percent}%"></i></div>`)
         + `<div class="ssb-figure">${Math.round(figures.percent)} % used</div>`
         + (tokens ? `<div class="ssb-note">${escapeHtml(tokens)}</div>` : '')
-        + (figures.model ? `<div class="ssb-note">${escapeHtml(figures.model)}</div>` : '');
+        + (figures.model ? `<div class="ssb-note">${escapeHtml(figures.model)}</div>` : '')
+        + (fromView && fromView.baseline ? sidebarNote(CONTEXT_BASELINE_NOTE) : '')
+        + (breakdown ? sidebarBreakdownHtml(entry, breakdown, figures.window) : '');
     },
   },
   {
@@ -411,6 +477,7 @@ function sessionSidebarToggle(sessionId) {
 function sessionSidebarContextChanged(sessionId) {
   const entry = openSessions.get(sessionId);
   const section = entry && entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="context"]');
+  if (section && !sidebarInView(entry)) { section._stale = true; return; }
   if (section && section.open) loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === 'context'), section);
 }
 

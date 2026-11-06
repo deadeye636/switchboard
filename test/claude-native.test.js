@@ -1171,6 +1171,74 @@ test('an agent\'s notice from the transcript carries its kind and cost, and stop
   assert.equal(protocol.contextFromResponse({ success: false, error: 'no' }), null);
 });
 
+// #758: the shape measured on 2.1.318, shortened. Two rows per list, so the order is what is asserted.
+const USAGE = {
+  totalTokens: 1000, maxTokens: 10000, percentage: 10, model: 'claude-haiku-5-5', apiUsage: null,
+  messageBreakdown: { userMessageTokens: 0, assistantMessageTokens: 0, attachmentTokens: 20 },
+  categories: [
+    { id: 'system_tools_deferred', name: 'System tools (deferred)', tokens: 500, color: 'inactive', kind: 'deferred' },
+    { id: 'free_space', name: 'Free space', tokens: 8000, color: 'promptBorder', kind: 'free' },
+    { id: 'autocompact_buffer', name: 'Autocompact buffer', tokens: 1000, color: 'inactive', kind: 'buffer' },
+    { id: 'memory_files', name: 'Memory files', tokens: 400, color: 'claude', kind: 'used' },
+    { id: 'messages', name: 'Messages', tokens: 100, color: 'purple', kind: 'used' },
+    { id: 'something_new', name: 'Something new', tokens: 5, kind: 'used' },
+  ],
+  memoryFiles: [
+    { path: '<home>\\.claude\\small.md', type: 'User', tokens: 10 },
+    { path: '<project>/CLAUDE.md', type: 'Project', tokens: 300 },
+  ],
+  agents: [{ agentType: 'a-agent', source: 'plugin', path: '<home>/a.md', tokens: 5 }, { agentType: 'b-agent', tokens: 9 }],
+  skills: { totalSkills: 2, tokens: 30, skillFrontmatter: [{ name: 'one', path: '<home>/one', tokens: 1 }, { name: 'two', tokens: 2 }] },
+  mcpTools: [
+    { name: 'mcp__srv_a__big', serverName: 'srv a', tokens: 900, isLoaded: false },
+    { name: 'mcp__srv_a__small', serverName: 'srv a', tokens: 4, isLoaded: true },
+    { name: 'other', tokens: 1 },
+  ],
+};
+
+test('a context answer projects its categories: used by colour place, then buffer, free and deferred', () => {
+  const { breakdown } = protocol.contextFromResponse({ success: true, data: USAGE });
+  assert.deepEqual(breakdown.categories, [
+    { label: 'Messages', tokens: 100, kind: 'used', slot: 1 },
+    { label: 'Memory files', tokens: 400, kind: 'used', slot: 5 },
+    { label: 'Something new', tokens: 5, kind: 'used', slot: null },
+    { label: 'Autocompact buffer', tokens: 1000, kind: 'buffer', slot: null },
+    { label: 'Free space', tokens: 8000, kind: 'free', slot: null },
+    { label: 'System tools (deferred)', tokens: 500, kind: 'deferred', slot: null },
+  ]);
+});
+
+test('a context answer projects its lists: largest first, a file by its name, a deferred tool last', () => {
+  const { breakdown } = protocol.contextFromResponse({ success: true, data: USAGE });
+  const of = (id) => breakdown.lists.find((l) => l.id === id).rows;
+  assert.deepEqual(of('memory'), [
+    { name: 'CLAUDE.md', tokens: 300, title: '<project>/CLAUDE.md' },
+    { name: 'small.md', tokens: 10, title: '<home>\\.claude\\small.md' },
+  ]);
+  assert.deepEqual(of('skills').map((r) => r.name), ['two', 'one']);
+  assert.deepEqual(of('agents').map((r) => r.name), ['b-agent', 'a-agent']);
+  assert.deepEqual(of('mcp'), [
+    { name: 'srv a · small', tokens: 4, deferred: false },
+    { name: 'other', tokens: 1, deferred: false },
+    { name: 'srv a · big', tokens: 900, deferred: true },
+  ]);
+});
+
+test('an empty list is left out, and an answer without categories has no breakdown', () => {
+  const { breakdown } = protocol.contextFromResponse({ success: true, data: { ...USAGE, mcpTools: [], agents: undefined } });
+  assert.deepEqual(breakdown.lists.map((l) => l.id), ['memory', 'skills']);
+  assert.equal('breakdown' in protocol.contextFromResponse({ success: true, data: { ...USAGE, categories: [] } }), false);
+});
+
+test('the fill is a baseline only until a turn has run, and a resumed session is none', () => {
+  const baseline = (data) => protocol.contextFromResponse({ success: true, data }).baseline;
+  assert.equal(baseline(USAGE), true);
+  assert.equal(baseline({ ...USAGE, apiUsage: { input_tokens: 2 } }), undefined);
+  // Measured on a resumed session: `apiUsage` is still null, only the tokens tell it apart.
+  assert.equal(baseline({ ...USAGE, apiUsage: null, messageBreakdown: { userMessageTokens: 8, assistantMessageTokens: 24 } }), undefined);
+  assert.equal(baseline({ totalTokens: 1 }), undefined, 'an answer without the fields is not called one');
+});
+
 // #701: a subagent's report arrives as a user line with `origin.kind: 'peer'` (measured 2.1.261–2.1.283). It is
 // drawn as a report with its framing taken off, never as a line the user typed — live and read back alike.
 const PEER_BODY = '[Subagent hand-back] The text below is the final report of a subagent this session delegated to. '

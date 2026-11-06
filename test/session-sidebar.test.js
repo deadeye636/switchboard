@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+  sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
   SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
 } = require('../src/renderer/session/session-sidebar');
 
@@ -49,6 +50,41 @@ test('a running conversation answers first, a terminal from its transcript, and 
   assert.equal(sidebarContextFigures(null, { percent: 62, windowTokens: 200 }).percent, 62);
   assert.equal(sidebarContextFigures(null, null), null);
   assert.equal(sidebarContextFigures({}, undefined), null);
+});
+
+// #758: the neutral shape the backend answers. No field here names a backend.
+const BREAKDOWN = {
+  categories: [
+    { label: 'Messages', tokens: 500, kind: 'used', slot: 1 },
+    { label: 'Empty', tokens: 0, kind: 'used', slot: 2 },
+    { label: 'Buffer', tokens: 250, kind: 'buffer', slot: null },
+    { label: 'Free', tokens: 9000, kind: 'free', slot: null },
+    { label: 'Deferred', tokens: 700, kind: 'deferred', slot: null },
+  ],
+  lists: [{ id: 'memory', label: 'Memory files', rows: [
+    { name: 'a.md', tokens: 40 }, { name: 'b.md', tokens: 30 }, { name: 'c.md', tokens: 20 }, { name: 'd.md', tokens: 10 },
+  ] }],
+};
+
+test('tokens read short, and a deferred category or a missing window has no share', () => {
+  assert.deepEqual([sidebarTokens(999), sidebarTokens(52200), sidebarTokens(1000000), sidebarTokens(undefined)], ['999', '52.2k', '1.0M', '0']);
+  assert.equal(sidebarCategoryShare(BREAKDOWN.categories[0], 10000), '5.0 %');
+  assert.equal(sidebarCategoryShare(BREAKDOWN.categories[4], 10000), '');
+  assert.equal(sidebarCategoryShare(BREAKDOWN.categories[0], null), '');
+});
+
+test('the bar draws what is used and the buffer, and neither free space, nothing nor what is not in the context', () => {
+  assert.deepEqual(sidebarBarSegments(BREAKDOWN, 10000).map((s) => [s.label, s.width]), [['Messages', 5], ['Buffer', 2.5]]);
+  assert.deepEqual(sidebarBarSegments(BREAKDOWN, 0), []);
+});
+
+test('the session line says what is used and the largest files, and a baseline says so first', () => {
+  const lines = contextLineDetails({ breakdown: BREAKDOWN });
+  assert.deepEqual(lines, ['Messages: 500', '', 'Largest memory files:', 'a.md: 40', 'b.md: 30', 'c.md: 20']);
+  assert.match(contextLineDetails({ baseline: true, breakdown: BREAKDOWN })[0], /Nothing has been sent yet/);
+  assert.deepEqual(contextLineDetails({ percent: 5 }), [], 'a backend without a breakdown adds nothing');
+  assert.deepEqual(contextLineDetails(null), []);
+  assert.deepEqual(contextLineDetails({ breakdown: { categories: [] } }), [], 'a half breakdown does not throw in the status line');
 });
 
 test('the room taken is capped by the box, and a hidden box keeps the stored width', () => {

@@ -958,7 +958,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   session from a task. Opened from the project header or per-session from the terminal toolbar;
   session cards show an open-task count badge and the project task icon highlights on open tasks.
 - **Session sidebar** (#817, spec 43) — one per session or pane, collapsible, with Tasks & notes, Handoffs, Context and
-  Connectors as groups that collapse on their own. Its state survives a restart.
+  Connectors as groups that collapse on their own. Its state survives a restart. On a Claude session driven over a pipe,
+  Context breaks the fill down by category, memory file, skill, custom agent and MCP tool (#758).
+- **Context baseline** (#758) — before the first turn, the session line draws the fill dimmed and says that nothing has
+  been sent yet. Its tooltip names the categories and the largest memory files.
 - **Forge issues in Tasks & notes** (#816, spec 42) — a project's open GitHub or GitLab issues, read-only, in a group of
   their own. Read through the `gh` or `glab` CLI when the view opens. Off by default; provider and remote per project,
   binary paths global.

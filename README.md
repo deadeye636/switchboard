@@ -336,7 +336,8 @@ A project can also list its open GitHub or GitLab issues there, read-only, throu
 off until you turn it on in Settings.
 
 Each session also has a collapsible sidebar with its project's tasks and notes, its handoffs, its context fill and its
-connectors, opened from the session's toolbar.
+connectors, opened from the session's toolbar. On a Claude session driven over a
+pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool.
 
 ## Writing a prompt
 

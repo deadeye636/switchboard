@@ -31,7 +31,7 @@
 // (session/servers-dialog.js, #728),
 // clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
 // (terminal/terminal-context-menu.js, #690), sessionHealthOptions (app.js, #691 — the handoff threshold
-// the context fill turns warm at), and sessionSidebarMount / sessionSidebarContextChanged (session/session-sidebar.js, #817).
+// the context fill turns warm at), and sessionSidebarMount / sessionSidebarContextChanged / contextLineDetails (session/session-sidebar.js, #817, #758).
 
 // The right-click setting's action waiting on the answer for a click in the composer (#815). Only main knows
 // whether the click hit a marked word: it then draws the corrections, and otherwise this runs.
@@ -274,7 +274,7 @@ function createConversationView(getSession, container) {
     pendingSends: [],        // messages sent from here that the runtime has not played back yet: { text, el, at } (#694)
     heldPrompts: { items: [], paused: false }, // prompts main holds while a turn runs: { id, text, images } (#702)
     tasks: [],               // what runs in the background: { id, kind, description, detail, toolUseId, startedAt } (#691)
-    context: null,           // { percent, tokens, window, model } as the backend last read them (#691)
+    context: null,           // { percent, tokens, window, model, baseline?, breakdown? } as the backend last read them (#691, #758)
     mode: null,              // the permission mode, { id, label, symbol, tone } in the backend's words (#696)
     canSwitchMode: false,    // whether the backend can switch it — Pi has no such modes (#696)
   };
@@ -1370,11 +1370,16 @@ function createConversationView(getSession, container) {
       const threshold = typeof sessionHealthOptions === 'function' ? Number(sessionHealthOptions().handoffPercent) || 80 : 80;
       ctxEl.classList.toggle('hot', c.percent >= threshold);
       // Where this figure can differ from the sidebar's, said where the two are compared (#697): the line asks the
-      // session, the sidebar reads the last model reply in the transcript.
-      const why = 'Asked from the running session. The sidebar reads the last reply in the transcript, so it shows nothing before the first turn and the size from before a compaction until the next reply.';
-      ctxEl.title = Number.isFinite(c.tokens) && Number.isFinite(c.window)
-        ? `${c.tokens.toLocaleString()} of ${c.window.toLocaleString()} tokens\n${why}`
-        : why;
+      // session, the project list's row reads the last model reply in the transcript.
+      const why = 'Asked from the running session. The row in the project list reads the last reply in the transcript, so it shows nothing before the first turn and the size from before a compaction until the next reply.';
+      // The fill before the first turn is an estimate of the first request, not context already spent (#758).
+      ctxEl.classList.toggle('baseline', !!c.baseline);
+      const details = typeof contextLineDetails === 'function' ? contextLineDetails(c) : [];
+      ctxEl.title = [
+        Number.isFinite(c.tokens) && Number.isFinite(c.window) ? `${c.tokens.toLocaleString()} of ${c.window.toLocaleString()} tokens` : '',
+        details.join('\n'),
+        why,
+      ].filter(Boolean).join('\n\n');
       add(ctxEl);
     }
     if (c && (c.model || Number.isFinite(c.window))) {
@@ -2445,6 +2450,12 @@ function createConversationView(getSession, container) {
       }
       case 'busy':
         if (op.busy && !view.busy) view.busySince = Date.now();
+        // A turn has started, so "nothing has been sent" is over before the next answer says so (#758). A turn that
+        // sent nothing gets the mark back with the answer asked when it settles.
+        if (op.busy && view.context && view.context.baseline) {
+          view.context = { ...view.context, baseline: false };
+          if (typeof sessionSidebarContextChanged === 'function') sessionSidebarContextChanged(view.session.sessionId);
+        }
         view.busy = !!op.busy;
         if (view.busy && view.suggestion) setSuggestion(null);
         if (!view.busy) { view.busySince = null; view.tools.clear(); renderActivity(); }
@@ -2595,6 +2606,8 @@ function createConversationView(getSession, container) {
     setSuggestion(res.suggestion || null);
     for (const request of res.asks || []) renderAsk(request);
     renderStatus();
+    // A sidebar drawn before this answer came says it has no figure until the next `context` op.
+    if (typeof sessionSidebarContextChanged === 'function') sessionSidebarContextChanged(view.session.sessionId);
     // What the session said at its start (#754: "resumed on <model>", "started a new one instead"): the reset
     // above cleared every notice, and these belong after the conversation they comment on.
     for (const n of Array.isArray(res.notices) ? res.notices : []) if (n && n.text) notice(n.level, n.text);

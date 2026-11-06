@@ -472,3 +472,9 @@ test('pi-native declares the trust gate and offers no per-run trust override', (
       'a stored "trust this run" does not stand in for a saved answer');
   } finally { fs.rmSync(untrusted, { recursive: true, force: true }); }
 });
+
+// #758: Pi's stats name no categories, so its context answer stays the plain one and the renderer shows the total.
+test('a pi-native context answer carries no breakdown and no baseline', () => {
+  const context = protocol.contextFromResponse({ success: true, data: { contextUsage: { percent: 12, tokens: 100, contextWindow: 1000 } } });
+  assert.deepEqual(Object.keys(context).sort(), ['model', 'percent', 'tokens', 'window']);
+});

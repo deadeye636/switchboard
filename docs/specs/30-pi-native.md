@@ -426,7 +426,9 @@ version nobody pinned, and the copy in this repo would be the wrong one. So the 
 own answer, over the documented `get_session_stats`.
 
 The session line under the input (#691, spec 32 has the view) reads the same answer: `contextUsage.percent`
-and `contextWindow` become the context fill, asked at the start and after every settled run.
+and `contextWindow` become the context fill, asked at the start and after every settled run. That answer names no
+categories, so a pi-native session answers no breakdown (#758). It answers no baseline either: whether its fill before
+the first turn needs that mark was not measured. Its tooltip stays without both.
 
 **The model comes from `get_state` (#692).** `get_session_stats` does not name it. `get_state`, which is asked at
 the start and after every settled run anyway for the session id, answers Pi's whole model object, before the
