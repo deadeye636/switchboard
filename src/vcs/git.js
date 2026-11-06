@@ -188,11 +188,50 @@ function branchRollbackArgs(branch, commit) {
 // The submodule marker in a checkout, by file name — the reason `remove` needs `--force` there.
 const SUBMODULE_MARKER = '.gitmodules';
 
+// Which file `git` is. On Windows a bare name given to `execFile` is looked up in the child's working directory
+// BEFORE PATH, and every status, diff and worktree call runs with the repository as its working directory, so a
+// repository holding its own git.exe would have it run as soon as the app polled it (measured with
+// `scripts/measure-planted-exe.js`). So on Windows the provider answers an absolute path, or one that cannot start.
+//
+// `.exe` and `.com` only, the two a shell-less start can run, and absolute PATH entries only: a relative one means
+// the working directory again. A hit is kept while PATH stays the same; a miss is asked again after a while, so a git
+// installed while the app runs is found. POSIX has no such search, and the bare name stays.
+const BIN_MISS_MS = 30000;
+let _bin = { pathValue: null, file: null, missedAt: 0 };
+function resolveBin({ platform = process.platform, env = process.env, isFile = isFileOnDisk, now = Date.now() } = {}) {
+  if (platform !== 'win32') return 'git';
+  const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path');
+  const pathValue = pathKey ? String(env[pathKey]) : '';
+  // A hit is looked at again, so a removed git falls through to the next PATH entry as a bare name would.
+  if (_bin.pathValue === pathValue && (_bin.file ? isFile(_bin.file) : now - _bin.missedAt < BIN_MISS_MS)) {
+    return _bin.file || missingBin(env);
+  }
+  let file = null;
+  for (const raw of pathValue.split(';')) {
+    const dir = raw.trim().replace(/^"|"$/g, '');
+    if (!path.win32.isAbsolute(dir) || !/^([a-z]:[\\/]|\\\\)/i.test(dir)) continue;
+    for (const name of ['git.exe', 'git.com']) {
+      const candidate = path.win32.join(dir, name);
+      if (isFile(candidate)) { file = candidate; break; }
+    }
+    if (file) break;
+  }
+  _bin = { pathValue, file, missedAt: now };
+  return file || missingBin(env);
+}
+// Absolute, so the start fails with ENOENT like a missing git does, and no directory is searched for it.
+function missingBin(env) {
+  return path.win32.join(env.SystemRoot || env.SYSTEMROOT || 'C:\\Windows', 'git-is-not-on-path.exe');
+}
+function isFileOnDisk(p) {
+  try { return fs.statSync(p).isFile(); } catch { return false; }
+}
+
 let _probe = null;
 function probe() {
   if (_probe) return _probe;
   try {
-    execFileSync('git', ['--version'], { stdio: ['ignore', 'ignore', 'ignore'] });
+    execFileSync(resolveBin(), ['--version'], { stdio: ['ignore', 'ignore', 'ignore'] });
     _probe = { ok: true, reason: null };
   } catch {
     _probe = { ok: false, reason: 'git was not found on PATH' };
@@ -203,7 +242,8 @@ function probe() {
 module.exports = {
   id: 'git',
   label: 'Git',
-  bin: 'git',
+  get bin() { return resolveBin(); },
+  resolveBin,
   // What this VCS actually has — drives which chip segments render. A provider that lacks a segment
   // sets it false here AND returns null for it, so the core never shows an empty "staged: 0" for a VCS
   // with no index.

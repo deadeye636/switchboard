@@ -41,7 +41,7 @@ Before you touch an area, read its path-scoped rule file:
 7. **English in every artifact** (code, tests, commits, issues, docs, rules). Sole exception: `docs/customizing-colors.md` (retained third-party guide).
 8. **A new renderer control reuses existing styling.** Never ship an unstyled bare `<button>` or input element.
 9. **Settings changes go into `docs/settings-reference.md`.** Applies to any added, renamed, or re-defaulted setting, `SWITCHBOARD_*` env var, or script.
-10. **Prefer `execFile` and close a probe's stdin.** Avoid shell interpolation. Because `execFile` ignores `stdio: 'ignore'`, use `closeStdin(execFile(...))` from `src/backends/cli-probe.js`.
+10. **Prefer `execFile` and close a probe's stdin.** Avoid shell interpolation. Because `execFile` ignores `stdio: 'ignore'`, use `closeStdin(execFile(...))` from `src/backends/cli-probe.js`. **A bare program name never goes with a project as `cwd`:** Windows looks it up there before `PATH`, so a repository's own `git.exe` would run (`test/no-bare-exe-in-cwd.test.js`).
 11. **Never `fs.writeFileSync` a file a CLI reads.** Always use `src/app/safe-write.js` (`writeTextFile`) for baseline checks, atomic rename, and EOL retention. Exemptions: `src/backends/rewrite-cwd.js` (per-line append) and ephemeral per-spawn files.
 12. **One answer for where a project keeps its documents.** `src/app/convention-dirs.js` is the sole authority for handoff and plan directories. Lexical fallback rule lives in `src/shared/convention-dir-name.js` (`test/convention-dirs.test.js`, `test/convention-dir-name.test.js`).
 13. **Path containment is decided on real paths.** `src/app/path-containment.js` is the only way: checks canonical resolved paths before `fs.stat()`. Never rely on lexical string prefix matching.

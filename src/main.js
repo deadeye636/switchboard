@@ -173,7 +173,13 @@ const cleanPtyEnv = Object.fromEntries(
 // `backendCoreEnv` in `src/backends/index.js`, and that is where the whole mechanism is written down.
 
 // Shell profiles → shell-profiles.js
-const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, shellArgs, ptyShellArgs, quoteArgvForShell } = require('./app/terminal/shell-profiles');
+const { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, shellArgs, ptyShellArgs, quoteArgvForShell, absoluteSystemShell } = require('./app/terminal/shell-profiles');
+// A window of cmd in that directory. Both names are absolute: with a working directory set, a bare one would run the
+// project's own cmd.exe if it holds one.
+function openCmdWindow(cwd) {
+  const cmd = absoluteSystemShell('cmd.exe');
+  execFile(cmd, ['/c', 'start', cmd], { cwd }, () => {});
+}
 const { encodeProjectPath } = require('./session/encode-project-path');
 
 
@@ -854,11 +860,11 @@ ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
       } catch { /* fall through to the default behaviour */ }
 
       if (chosenShell && chosenShell.path) {
-        const shellArgv = [chosenShell.path, ...(chosenShell.args || [])];
+        const shellArgv = [absoluteSystemShell(chosenShell.path), ...(chosenShell.args || [])];
         execFile('wt.exe', ['-d', cwd, ...shellArgv], (err) => {
           if (err) {
-            execFile(chosenShell.path, [...(chosenShell.args || [])], { cwd }, (e2) => {
-              if (e2) execFile('cmd.exe', ['/c', 'start', 'cmd.exe'], { cwd }, () => {});
+            execFile(absoluteSystemShell(chosenShell.path), [...(chosenShell.args || [])], { cwd }, (e2) => {
+              if (e2) openCmdWindow(cwd);
             });
           }
         });
@@ -866,7 +872,7 @@ ipcMain.handle('open-external-terminal', (_event, cwdPath) => {
         // Prefer Windows Terminal; fall back to a cmd window in the directory. The cwd
         // is passed via execFile's option (no shell quoting of spaces).
         execFile('wt.exe', ['-d', cwd], (err) => {
-          if (err) execFile('cmd.exe', ['/c', 'start', 'cmd.exe'], { cwd }, () => {});
+          if (err) openCmdWindow(cwd);
         });
       }
     } else if (process.platform === 'darwin') {
@@ -952,7 +958,7 @@ ipcMain.handle('run-custom-launcher', (_event, payload) => {
 
   try {
     const { spawn } = require('child_process');
-    const child = spawn(shellPath, externalCommandArgs(shellPath, cmd), {
+    const child = spawn(absoluteSystemShell(shellPath), externalCommandArgs(shellPath, cmd), {
       cwd,
       env,
       detached: true,

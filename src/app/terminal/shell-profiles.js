@@ -400,4 +400,17 @@ function commandArgs(shellPath, cmd, cwd) {
   return { args: ['/d', '/s', '/c', `"${command}"`], verbatim: true };
 }
 
-module.exports = { discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, commandArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin, gitBashWrapperFor };
+// The absolute file of a Windows shell a profile names bare, for a start that sets a working directory: Windows looks
+// a bare name up in that directory before PATH, so a project's own wsl.exe would run instead. Anything else, a
+// user's own profile included, is handed back as it is.
+function absoluteSystemShell(shellPath, { platform = process.platform, env = process.env } = {}) {
+  if (platform !== 'win32') return shellPath;
+  const system32 = path.win32.join(env.SystemRoot || env.SYSTEMROOT || 'C:\\Windows', 'System32');
+  const name = String(shellPath || '').toLowerCase();
+  if (name === 'wsl.exe' || name === 'wsl') return path.win32.join(system32, 'wsl.exe');
+  if (name === 'cmd.exe' || name === 'cmd') return env.COMSPEC || path.win32.join(system32, 'cmd.exe');
+  if (name === 'powershell.exe' || name === 'powershell') return path.win32.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return shellPath;
+}
+
+module.exports = { absoluteSystemShell, discoverShellProfiles, getShellProfiles, invalidateShellProfiles, resolveShell, isWindows, isWslShell, windowsToWslPath, shellArgs, ptyShellArgs, commandArgs, quoteArgForShell, quoteArgvForShell, closeProbeStdin, gitBashWrapperFor };

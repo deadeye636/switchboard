@@ -25,7 +25,7 @@
 'use strict';
 
 const { spawn, execFile } = require('child_process');
-const { commandArgs, closeProbeStdin } = require('./terminal/shell-profiles');
+const { commandArgs, closeProbeStdin, absoluteSystemShell } = require('./terminal/shell-profiles');
 
 const OUTPUT_CAP = 200000;
 
@@ -44,7 +44,7 @@ function runShellLine({ command, cwd, shellPath, env, onOutput }) {
   let child;
   const { args, verbatim } = commandArgs(shellPath, command, cwd);
   try {
-    child = spawn(shellPath, args, {
+    child = spawn(absoluteSystemShell(shellPath), args, {
       cwd,
       // A login Git Bash or MSYS2 shell changes to the home directory unless it is told it was started where
       // it should stay.
