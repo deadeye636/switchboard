@@ -27,6 +27,79 @@ test('where the OS decides there is no list, so nothing is set', () => {
   assert.deepEqual(resolveLanguages('', []), { languages: [], unknown: [] });
 });
 
+// The menu's wait (#818). A fake contents and a fake menu: nothing here draws one.
+function menuWorld(t, { suggest, answersAtOnce = () => true } = {}) {
+  const { EventEmitter } = require('node:events');
+  const spellCheck = require('../src/app/spell-check');
+  const shown = [];
+  const fakeApp = new EventEmitter();
+  fakeApp.whenReady = () => new Promise(() => {});
+  spellCheck.init({
+    app: fakeApp,
+    session: { defaultSession: { availableSpellCheckerLanguages: ['de-DE', 'en-US'] } },
+    Menu: { buildFromTemplate: (template) => ({ popup: () => shown.push(template.map((i) => i.label).filter(Boolean)) }) },
+    BrowserWindow: { fromWebContents: () => null },
+    getSetting: () => ({}),
+    suggestFromOs: suggest,
+    osAnswersAtOnce: answersAtOnce,
+    log: { warn() {} },
+  });
+  const contents = new EventEmitter();
+  contents.isDestroyed = () => false;
+  contents.sent = [];
+  contents.send = (...a) => contents.sent.push(a);
+  return { spellCheck, contents, shown };
+}
+const marked = (word, dictionarySuggestions = []) => ({ isEditable: true, misspelledWord: word, dictionarySuggestions, editFlags: {} });
+
+test('a marked word opens with the OS checker\'s corrections first', async (t) => {
+  const { spellCheck, contents, shown } = menuWorld(t, { suggest: async () => ['Haus'] });
+  await spellCheck.onContextMenu(contents, marked('Hauss', ['Hausa']));
+  assert.deepEqual(contents.sent, [['editable-context-menu', true]]);
+  assert.deepEqual(shown[0].slice(0, 2), ['Haus', 'Hausa']);
+});
+
+test('with Hunspell\'s words in hand and the checker cold the menu does not wait, and warms it', async (t) => {
+  const asked = [];
+  const { spellCheck, contents, shown } = menuWorld(t, { answersAtOnce: () => false, suggest: (w) => { asked.push(w); return new Promise(() => {}); } });
+  await spellCheck.onContextMenu(contents, marked('hosue', ['house']));
+  assert.equal(shown[0][0], 'house');
+  assert.deepEqual(asked, ['hosue']);
+});
+
+test('the latest right click wins, and a press during the wait drops the menu', async (t) => {
+  let release = [];
+  const suggest = () => new Promise((r) => release.push(r));
+  const { spellCheck, contents, shown } = menuWorld(t, { suggest });
+  const first = spellCheck.onContextMenu(contents, marked('a'));
+  await new Promise((r) => setImmediate(r));
+  const second = spellCheck.onContextMenu(contents, marked('b'));
+  await new Promise((r) => setImmediate(r));
+  release.forEach((r) => r(['x']));
+  await Promise.all([first, second]);
+  assert.equal(shown.length, 1, 'one menu for two clicks');
+
+  release = [];
+  const pressed = spellCheck.onContextMenu(contents, marked('c'));
+  await new Promise((r) => setImmediate(r));
+  contents.emit('input-event', {}, { type: 'keyDown' });
+  release.forEach((r) => r(['y']));
+  await pressed;
+  assert.equal(shown.length, 1, 'typing went on, so no menu');
+  assert.equal(contents.listenerCount('input-event'), 0);
+});
+
+test('an answer for a closed window opens nothing', async (t) => {
+  let release;
+  const { spellCheck, contents, shown } = menuWorld(t, { suggest: () => new Promise((r) => { release = r; }) });
+  const open = spellCheck.onContextMenu(contents, marked('a'));
+  await new Promise((r) => setImmediate(r));
+  contents.isDestroyed = () => true;
+  release(['x']);
+  await open;
+  assert.equal(shown.length, 0);
+});
+
 const labels = (t) => t.map((i) => i.label || i.role || i.type);
 
 test('the menu offers the corrections, adding the word, and the edit roles', () => {

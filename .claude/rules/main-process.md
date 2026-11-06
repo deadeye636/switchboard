@@ -46,6 +46,7 @@ lists — #803; a descriptor that states on/off answers `listPlugins`, one that 
 asker per CLI, no backend id in an answer. `open-plugin` takes a row's id and opens its folder through
 `backend-resources.js`'s `openResource`, so it reaches only what that backend's listing reaches),
 `forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
+`spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
 menu on a marked word; spec 32 has what was measured),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —

@@ -992,7 +992,10 @@ Measured on Windows with Electron 41 and `scripts/measure-spell-check.js`:
 | Question | Answer |
 |---|---|
 | Who checks a language | The Windows spell checker where that language is installed (`de-DE` here: no dictionary file, correct words stay unmarked). A Hunspell dictionary from the Chromium CDN otherwise (`en-US`, about 450 KB). |
-| Suggestions | Only from Hunspell. A word only the Windows checker rejects has none, so `Rechtschreibprufung` is marked and its menu says "No suggestions". Adding `--disable-features=WinUseBrowserSpellChecker` changed nothing. |
+| Suggestions | Electron reports them only from Hunspell. For a word the Windows checker rejects, `src/app/spell-suggest-windows.js` asks that checker through COM (#818). Adding `--disable-features=WinUseBrowserSpellChecker` changed nothing, the code `de` lets typos through, and `de-CH` and `de-AT` do not exist in this build. |
+| Why not a dictionary library | For `Rechtschreibprufung` the Windows checker answers `Rechtschreibprüfung`, while nspell with dictionary-de answers nothing. That dictionary is GPL where this app is MIT. |
+| What the corrections cost | One Windows PowerShell of about 130 MB, started at the first right click on a marked word. Its first answer waits for it to compile the COM declarations, about 1.5 s measured, at most 8 s. Later ones are milliseconds. It ends after 10 minutes unused and at once when no asked language has a checker. A start that gives no answer, as under a policy that refuses it, is not tried again for 10 minutes and says so in the log, and the word falls back to what Electron has. |
+| A late menu | The menu opens at the pointer and a pick replaces what is selected then, so the latest right click wins and a key or mouse press during the wait drops the menu. With Hunspell's words in hand and the checker cold, the menu does not wait. |
 | What a download sends | A request for the dictionary file. Typed text is not part of it. |
 | With the check off | Electron still downloads its default dictionary (`en-US`) once at start. That was already so before #815. |
 | `webFrame.isWordMisspelled` | Knows only the Hunspell half: it called `Haus` misspelled while the field left it unmarked. |
@@ -1000,8 +1003,8 @@ Measured on Windows with Electron 41 and `scripts/measure-spell-check.js`:
 
 Because the renderer cannot ask whether a word is marked, the right-click setting (#690) waits for main. In its
 copy and paste modes a click in the composer no longer calls `preventDefault`, since that would suppress
-Electron's `context-menu` too. Main answers `editable-context-menu`: on a marked word it opens the menu with
-corrections, Add to dictionary, Cut, Copy and Paste; on anything else the view runs the mode's action. So in those
+Electron's `context-menu` too. Main answers `editable-context-menu`: on a marked word it opens the menu with the OS
+checker's corrections first, then Hunspell's, Add to dictionary, Cut, Copy and Paste; on anything else the view runs the mode's action. So in those
 modes a right click on a marked word opens the menu rather than pasting. The view does not read the setting for
 this: with the check off nothing is marked and main's answer runs the action. A disabled composer gets no answer
 from main, so there the action runs at once.

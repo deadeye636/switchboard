@@ -22,6 +22,7 @@ const BARE_WITH_CWD = /\b(?:execFile|execFileSync|execFileAsync|spawn|spawnSync|
 const CALL_SITES = {
   'app/agent-shell.js': 'spawn(absoluteSystemShell(shellPath)',
   'main.js': 'spawn(absoluteSystemShell(shellPath)',
+  'app/spell-suggest-windows.js': "'System32', 'WindowsPowerShell'",
 };
 
 function sources() {

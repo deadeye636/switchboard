@@ -4,15 +4,17 @@
 // Electron draws no menu of its own. Applies to every window: a field that opts out with `spellcheck="false"`
 // never reports a word here.
 //
-// What a right click on a marked word can offer depends on who knows the language. Measured on Windows with
-// Electron 41 (`scripts/measure-spell-check.js`, spec 32): a language with an OS spell checker installed is
-// marked by that checker, and Electron reports no suggestions for it; a language without one is checked by a
-// Hunspell dictionary, downloaded from the Chromium CDN on first use, and has suggestions. The menu says so
-// rather than leaving the list out.
+// Who knows the language decides where its corrections come from. Measured on Windows with Electron 41
+// (`scripts/measure-spell-check.js`, spec 32): a language with an OS spell checker installed is marked by that
+// checker, and Electron reports no suggestions for it, so `spell-suggest-windows.js` asks the checker itself; a
+// language without one is checked by a Hunspell dictionary, downloaded from the Chromium CDN on first use, and has
+// suggestions. A word nobody has anything for says so rather than leaving the list out.
 //
 // Electron-free like settings.js, so its decisions can be required by a test.
 
 let ctx;
+
+const { mergeSuggestions } = require('./spell-suggest-windows');
 
 // What an empty setting means: the owner's choice, not the system's languages (#815).
 const DEFAULT_LANGUAGES = ['de-DE', 'en-US'];
@@ -70,12 +72,37 @@ function menuTemplate(params, actions) {
 // A window that keeps the right click for itself has to know which click this was, and a marked word cannot be
 // asked for beforehand: the renderer's own check knows only the Hunspell half (measured). So it leaves the DOM
 // event alone and this answers, with the menu or without.
-function onContextMenu(contents, params) {
+//
+// The corrections may take a moment the first time, and the menu must not land on a caret that has moved since: it opens
+// at the pointer and a pick replaces what is selected then. So the latest right click wins, and any key or mouse press
+// during the wait drops the menu. With Hunspell's words in hand and the OS checker still cold, the menu does not wait.
+const latestClick = new WeakMap();
+async function onContextMenu(contents, params) {
   if (!params.isEditable || contents.isDestroyed()) return;
+  const click = (latestClick.get(contents) || 0) + 1;
+  latestClick.set(contents, click);
   const marked = !!params.misspelledWord;
   contents.send('editable-context-menu', marked);
   if (!marked) return;
-  ctx.Menu.buildFromTemplate(menuTemplate(params, {
+  let suggestions = params.dictionarySuggestions || [];
+  if (ctx.suggestFromOs) {
+    const tags = currentLanguages().languages;
+    if (suggestions.length && ctx.osAnswersAtOnce && !ctx.osAnswersAtOnce(tags)) {
+      ctx.suggestFromOs(params.misspelledWord, tags); // warms it for the next one
+    } else {
+      let interrupted = false;
+      const onInput = (_event, input) => {
+        if (input && /^(mouseDown|keyDown|rawKeyDown)$/.test(input.type)) interrupted = true;
+      };
+      contents.on('input-event', onInput);
+      const fromOs = await ctx.suggestFromOs(params.misspelledWord, tags);
+      if (contents.isDestroyed()) return;
+      contents.removeListener('input-event', onInput);
+      if (interrupted || latestClick.get(contents) !== click) return;
+      suggestions = mergeSuggestions(fromOs, suggestions);
+    }
+  }
+  ctx.Menu.buildFromTemplate(menuTemplate({ ...params, dictionarySuggestions: suggestions }, {
     replace: (word) => { if (!contents.isDestroyed()) contents.replaceMisspelling(word); },
     addWord: (word) => ctx.session.defaultSession.addWordToSpellCheckerDictionary(word),
   })).popup({ window: ctx.BrowserWindow.fromWebContents(contents) || undefined });
@@ -88,6 +115,8 @@ function onContextMenu(contents, params) {
  * @param {typeof Electron.Menu} context.Menu
  * @param {typeof Electron.BrowserWindow} context.BrowserWindow
  * @param {(key: string) => any} context.getSetting
+ * @param {(word: string, tags: string[]) => Promise<string[]>} [context.suggestFromOs]
+ * @param {(tags: string[]) => boolean} [context.osAnswersAtOnce]
  * @param {object} context.log
  */
 function init(context) {
@@ -110,4 +139,4 @@ function registerIpc(ipc) {
   });
 }
 
-module.exports = { init, registerIpc, apply, resolveLanguages, menuTemplate, DEFAULT_LANGUAGES };
+module.exports = { init, registerIpc, apply, onContextMenu, resolveLanguages, menuTemplate, DEFAULT_LANGUAGES };

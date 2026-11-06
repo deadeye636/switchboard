@@ -1398,7 +1398,9 @@ ipcMain.handle('search', (_event, type, query, titleOnly) => {
 // The spell check of a text field (#815): its switch and languages come from the settings blob, and its menu is
 // Electron's to draw on request. Wired before the settings module, whose write door re-applies it.
 const spellCheck = require('./app/spell-check');
-spellCheck.init({ app, session, Menu, BrowserWindow, getSetting, log });
+const spellSuggestWindows = require('./app/spell-suggest-windows');
+spellSuggestWindows.init({ app, dataDir: () => app.getPath('userData'), log });
+spellCheck.init({ app, session, Menu, BrowserWindow, getSetting, log, suggestFromOs: spellSuggestWindows.suggest, osAnswersAtOnce: spellSuggestWindows.ready });
 spellCheck.registerIpc(ipcMain);
 
 // --- Settings: the blob, the per-option cascade (#149), export/import (#145) -> app/settings.js ---

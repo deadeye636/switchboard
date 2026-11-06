@@ -963,8 +963,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   their own. Read through the `gh` or `glab` CLI when the view opens. Off by default; provider and remote per project,
   binary paths global.
 - **Spell check in the composer** (#815, spec 32) — marks words in text fields and offers corrections, Add to dictionary
-  and the edit actions on a right click. On by default, `de-DE, en-US` unless set. German on Windows is marked without
-  suggestions (#818).
+  and the edit actions on a right click. On by default, `de-DE, en-US` unless set. A language the Windows spell checker holds gets
+  its corrections from that checker (#818).
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
   a management tab (port of **brianstanley**). Insert into the terminal via the right-click
   menu or a **configurable hotkey** (default Ctrl/Cmd+Shift+V) — works in every right-click mode.
