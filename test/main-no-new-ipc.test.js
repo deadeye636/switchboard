@@ -101,6 +101,7 @@ A NEW IPC handler does not go in src/main.js. Pick the module that owns the area
   src/app/mcp-registry.js        the search in the official MCP Registry (one outbound GET, on the user's click)
   src/app/session-view.js        which view (terminal or GUI) a session opens in, when that is not a spawn
   src/app/documents.js           opening a document an agent read (only a path its session's backend reported)
+  src/app/spell-check.js         the spell check of a text field: its languages and its right-click menu
 
 None of the above? A NEW src/app/<area>.js — not main.js.
 

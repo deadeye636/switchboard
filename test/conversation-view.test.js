@@ -19,7 +19,7 @@ const richPaste = require('../src/renderer/lib/rich-paste.js');
 
 // `diskPaths` maps a file NAME to the path `getPathForFile` answers for it; a file not in it has none, the
 // way a clipboard bitmap has none.
-function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths = {}, globalSettings, url } = {}) {
+function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths = {}, globalSettings, url, mainAnswersRightClick } = {}) {
   const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>', url ? { url } : undefined);
   const w = dom.window;
   // A window in view: jsdom reports `document.hidden` unless told otherwise, and a hidden window draws
@@ -39,6 +39,7 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
       answer: () => Promise.resolve({ ok: true }),
     },
   };
+  if (mainAnswersRightClick) w.api.onEditableContextMenu = (cb) => { calls.answerRightClick = cb; };
   const ctx = vm.createContext(w);
   // What the page provides around it. An entry is drawn as a div carrying its text, which is all the
   // assertions below read.
@@ -216,6 +217,42 @@ test('copy-paste: a right click copies a selection, and pastes when there is non
   assert.equal(h.input.value, 'from clipboard');
   const menu = setup({ rightClick: 'menu', clipboard: 'x' });
   assert.equal(rightClick(menu).defaultPrevented, false);
+});
+
+// #815: only main knows whether a click hit a marked word, so a click in the composer waits for its answer.
+const rightClickInput = (h) => {
+  const ev = new h.w.MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+  h.input.dispatchEvent(ev);
+  return ev;
+};
+
+test('a right click in the composer leaves the event to main, and pastes only when no word was marked', async () => {
+  const h = setup({ rightClick: 'paste', clipboard: 'pasted', mainAnswersRightClick: true });
+  assert.equal(rightClickInput(h).defaultPrevented, false, 'preventDefault would take the corrections away');
+  h.calls.answerRightClick(true);
+  await h.settle();
+  assert.equal(h.input.value, '', 'a marked word opened the menu');
+  rightClickInput(h);
+  h.calls.answerRightClick(false);
+  await h.settle();
+  assert.equal(h.input.value, 'pasted');
+  h.calls.answerRightClick(false);
+  await h.settle();
+  assert.equal(h.input.value, 'pasted', 'an answer nobody waits for runs nothing');
+});
+
+test('in a disabled composer, and in the log, a right click acts at once, because main will not answer', async () => {
+  const off = setup({ rightClick: 'copy-paste', mainAnswersRightClick: true });
+  selectLogText(off, 'chosen');
+  off.input.disabled = true;
+  assert.equal(rightClickInput(off).defaultPrevented, true);
+  assert.deepEqual(off.calls.copied, ['chosen']);
+  off.calls.answerRightClick(false);
+  assert.deepEqual(off.calls.copied, ['chosen'], 'nothing is left waiting for a later answer');
+  const log = setup({ rightClick: 'paste', clipboard: 'pasted', mainAnswersRightClick: true });
+  assert.equal(rightClick(log).defaultPrevented, true);
+  await log.settle();
+  assert.equal(log.input.value, 'pasted');
 });
 
 test('a whitespace-only selection is not copied', async () => {

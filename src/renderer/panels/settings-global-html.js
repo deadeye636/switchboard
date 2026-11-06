@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -149,6 +149,24 @@
                       <option value="hold" ${conversationEnterWhileBusyValue !== 'steer' ? 'selected' : ''}>Queue</option>
                       <option value="steer" ${conversationEnterWhileBusyValue === 'steer' ? 'selected' : ''}>Steer</option>
                     </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Check spelling</span>
+                    <div class="settings-description">Marks misspelled words in text fields such as the conversation input. A right click on a marked word offers corrections, where its language has them, and adds it to the dictionary.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-spell-check" ${spellCheckValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field" id="sv-spell-check-languages-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Spelling languages</span>
+                    <div class="settings-description">Language codes separated by commas. Empty means de-DE, en-US. <span id="sv-spell-check-languages-note"></span></div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" id="sv-spell-check-languages" class="settings-input" value="${escapeHtml(spellCheckLanguagesValue)}" placeholder="de-DE, en-US" autocomplete="off" spellcheck="false">
                   </div>
                 </div>
                 <div class="settings-field">

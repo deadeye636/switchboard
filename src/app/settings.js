@@ -57,6 +57,7 @@ let ctx = null;
  * @param {() => void} context.startBackendWatchers
  * @param {{ postReconcile: () => void }} context.indexWorker
  * @param {() => void} context.notifyRendererProjectsChanged
+ * @param {() => void} [context.applySpellCheck]
  * @param {object} context.log
  */
 function init(context) {
@@ -397,6 +398,11 @@ function persistSettingsBlob(key, value) {
       ctx.notifyRendererProjectsChanged();
     } catch (err) {
       ctx.log.warn('[backends] re-arm after settings change failed:', err?.message || err);
+    }
+    try {
+      if (ctx.applySpellCheck) ctx.applySpellCheck();
+    } catch (err) {
+      ctx.log.warn('[spell-check] could not apply the setting:', err?.message || err);
     }
   } else if (key.startsWith('project:')) {
     // A project blob carries the display name the sidebar renders (buildProjectsFromCache reads it

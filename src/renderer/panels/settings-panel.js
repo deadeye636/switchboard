@@ -317,6 +317,8 @@
     const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
+    const spellCheckValue = fieldValue('spellCheck', true);
+    const spellCheckLanguagesValue = fieldValue('spellCheckLanguages', '');
     const documentPreviewValue = fieldValue('documentPreview', 'card');
     const documentPreviewMaxKBValue = fieldValue('documentPreviewMaxKB', 2048);
     const documentPdfThumbnailsValue = fieldValue('documentPdfThumbnails', true);
@@ -917,7 +919,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -968,6 +970,25 @@ ${window.settingsPlugins.sectionsHtml('project')}
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.
       wireTwoPane();
+      // #815: which languages the typed list comes to. Unknown codes are dropped by main, so the field says which.
+      {
+        const langInput = settingsViewerBody.querySelector('#sv-spell-check-languages');
+        const langNote = settingsViewerBody.querySelector('#sv-spell-check-languages-note');
+        const showLangs = async () => {
+          const r = await window.api.spellCheckLanguages(langInput.value);
+          if (!r || !Array.isArray(r.languages)) return;
+          if (r.osDecides) {
+            settingsViewerBody.querySelector('#sv-spell-check-languages-field').style.display = 'none';
+            return;
+          }
+          // With nothing usable main sets nothing, so the languages in force before stay in force.
+          const parts = [r.languages.length ? `In use: ${r.languages.join(', ')}.` : 'The current languages stay.'];
+          if (r.unknown.length) parts.push(`Not available: ${r.unknown.join(', ')}.`);
+          langNote.textContent = parts.join(' ');
+        };
+        langInput.addEventListener('input', showLangs, { signal: listenerSignal });
+        showLangs();
+      }
       // #803: the Plugins group, and a deep link into it (`openSettingsWindow('global', null, { cat })`, one-shot).
       pluginsCtl = window.settingsPlugins.bind(settingsViewerBody, listenerSignal, { scope, projectPath: null, restoreCat });
       const globalSeed = window.__SETTINGS_SEED__;
@@ -1444,6 +1465,8 @@ ${window.settingsPlugins.sectionsHtml('project')}
         settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         settings.expandToolOutput = settingsViewerBody.querySelector('#sv-expand-tool-output').checked;
         settings.conversationEnterWhileBusy = settingsViewerBody.querySelector('#sv-conversation-enter-while-busy')?.value === 'steer' ? 'steer' : 'hold';
+        settings.spellCheck = settingsViewerBody.querySelector('#sv-spell-check').checked;
+        settings.spellCheckLanguages = (settingsViewerBody.querySelector('#sv-spell-check-languages')?.value || '').trim();
         settings.documentPreview = settingsViewerBody.querySelector('#sv-document-preview')?.value === 'inline' ? 'inline' : 'card';
         {
           const kb = parseInt(settingsViewerBody.querySelector('#sv-document-preview-max-kb')?.value, 10);

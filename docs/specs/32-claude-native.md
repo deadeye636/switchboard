@@ -981,6 +981,31 @@ output (#680's `typedCommand`). A refused send removes it, a branch switch (a re
 any still pending, and a `!` shell line gets none (it is not a turn). Shared with pi-native, which plays a line
 back the same way.
 
+## Spell check in the composer (#815)
+
+The composer is a plain `textarea`, so Chromium checks it. The app adds the switch and the languages
+(`spellCheck`, `spellCheckLanguages`) and the right-click menu, in `src/app/spell-check.js`. It works the same in
+pi-native, and in any other text field of the app that does not opt out with `spellcheck="false"`.
+
+Measured on Windows with Electron 41 and `scripts/measure-spell-check.js`:
+
+| Question | Answer |
+|---|---|
+| Who checks a language | The Windows spell checker where that language is installed (`de-DE` here: no dictionary file, correct words stay unmarked). A Hunspell dictionary from the Chromium CDN otherwise (`en-US`, about 450 KB). |
+| Suggestions | Only from Hunspell. A word only the Windows checker rejects has none, so `Rechtschreibprufung` is marked and its menu says "No suggestions". Adding `--disable-features=WinUseBrowserSpellChecker` changed nothing. |
+| What a download sends | A request for the dictionary file. Typed text is not part of it. |
+| With the check off | Electron still downloads its default dictionary (`en-US`) once at start. That was already so before #815. |
+| `webFrame.isWordMisspelled` | Knows only the Hunspell half: it called `Haus` misspelled while the field left it unmarked. |
+| A code the build does not have | `setSpellCheckerLanguages` throws, so codes are filtered first and the settings field names what it dropped. |
+
+Because the renderer cannot ask whether a word is marked, the right-click setting (#690) waits for main. In its
+copy and paste modes a click in the composer no longer calls `preventDefault`, since that would suppress
+Electron's `context-menu` too. Main answers `editable-context-menu`: on a marked word it opens the menu with
+corrections, Add to dictionary, Cut, Copy and Paste; on anything else the view runs the mode's action. So in those
+modes a right click on a marked word opens the menu rather than pasting. The view does not read the setting for
+this: with the check off nothing is marked and main's answer runs the action. A disabled composer gets no answer
+from main, so there the action runs at once.
+
 ## Shared with pi-native, and what is not
 
 **An `@` path in the prompt is read by Claude and not by Pi** (measured on Claude Code 2.1.283 and Pi 0.85.1,

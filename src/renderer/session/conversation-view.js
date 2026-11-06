@@ -33,6 +33,17 @@
 // (terminal/terminal-context-menu.js, #690), and sessionHealthOptions (app.js, #691 — the handoff threshold
 // the context fill turns warm at).
 
+// The right-click setting's action waiting on the answer for a click in the composer (#815). Only main knows
+// whether the click hit a marked word: it then draws the corrections, and otherwise this runs.
+let pendingComposerRightClick = null;
+if (window.api && window.api.onEditableContextMenu) {
+  window.api.onEditableContextMenu((marked) => {
+    const action = pendingComposerRightClick;
+    pendingComposerRightClick = null;
+    if (action && !marked) action();
+  });
+}
+
 // How close to the bottom counts as "at the bottom" — the view follows new output only when the reader
 // was already there, so scrolling up to read something is not undone by the next token.
 const CONVERSATION_STICK_PX = 40;
@@ -1268,23 +1279,32 @@ function createConversationView(getSession, container) {
     // After the browser has settled the selection this mouseup ends.
     setTimeout(() => copy(selectedText()), 0);
   });
+  function copyOrPaste() {
+    const text = selectedText();
+    // A whitespace-only selection counts as none, so the click pastes rather than doing nothing.
+    if (text && text.trim()) {
+      copy(text);
+      const sel = window.getSelection && window.getSelection();
+      if (sel && log.contains(sel.anchorNode)) sel.removeAllRanges();
+    } else {
+      pasteIntoInput();
+    }
+  }
   container.addEventListener('contextmenu', (e) => {
+    pendingComposerRightClick = null;
     const mode = rightClickMode();
-    if (mode === 'copy-paste') {
-      e.preventDefault();
-      const text = selectedText();
-      // A whitespace-only selection counts as none, so the click pastes rather than doing nothing.
-      if (text && text.trim()) {
-        copy(text);
-        const sel = window.getSelection && window.getSelection();
-        if (sel && log.contains(sel.anchorNode)) sel.removeAllRanges();
-      } else {
-        pasteIntoInput();
-      }
+    // In copy-on-select the selection was copied when it was made, so the right button only pastes.
+    const action = mode === 'copy-paste' ? copyOrPaste : (mode === 'paste' || mode === 'copy-on-select') ? pasteIntoInput : null;
+    if (!action) return;
+    // preventDefault would also take away `context-menu` in main, which is what offers a marked word's corrections.
+    // Main answers for an editable field only, so a disabled composer acts at once. No check of the setting here:
+    // with the check off nothing is marked and the answer is the same, and a detached window's copy can be stale.
+    if (e.target === input && !input.disabled && window.api && window.api.onEditableContextMenu) {
+      pendingComposerRightClick = action;
       return;
     }
-    // In copy-on-select the selection was copied when it was made, so the right button only pastes.
-    if (mode === 'paste' || mode === 'copy-on-select') { e.preventDefault(); pasteIntoInput(); }
+    e.preventDefault();
+    action();
   });
 
   const draggingFiles = (e) => !!(e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files'));

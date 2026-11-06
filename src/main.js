@@ -1,4 +1,4 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, net, powerMonitor, safeStorage, screen, session, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, net, powerMonitor, safeStorage, screen, session, shell } = require('electron');
 const { Worker } = require('worker_threads');
 const { execFile } = require('child_process');
 const path = require('path');
@@ -1389,6 +1389,12 @@ ipcMain.handle('search', (_event, type, query, titleOnly) => {
   return searchViaWorker(type, query, titleOnly);
 });
 
+// The spell check of a text field (#815): its switch and languages come from the settings blob, and its menu is
+// Electron's to draw on request. Wired before the settings module, whose write door re-applies it.
+const spellCheck = require('./app/spell-check');
+spellCheck.init({ app, session, Menu, BrowserWindow, getSetting, log });
+spellCheck.registerIpc(ipcMain);
+
 // --- Settings: the blob, the per-option cascade (#149), export/import (#145) -> app/settings.js ---
 // persistSettingsBlob is the trust boundary — the ONE door to disk, so the secret scrub and the backend
 // re-arm cannot be walked around. The DB and the two file dialogs go in through ctx, which is what keeps
@@ -1411,6 +1417,7 @@ settings.init({
   startBackendWatchers: () => startBackendWatchers(),
   indexWorker,
   notifyRendererProjectsChanged: () => notifyRendererProjectsChanged(),
+  applySpellCheck: () => spellCheck.apply(),
   log,
 });
 settings.registerIpc(ipcMain);

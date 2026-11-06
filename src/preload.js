@@ -207,6 +207,9 @@ contextBridge.exposeInMainWorld('api', {
   onSessionDetachRekeyed: (cb) => ipcRenderer.on('session-detach-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
+  // #815: the languages the spell check would use for the field's text, and what a right click in a text field was.
+  spellCheckLanguages: (stored) => ipcRenderer.invoke('spell-check-languages', stored),
+  onEditableContextMenu: (cb) => ipcRenderer.on('editable-context-menu', (_e, marked) => cb(marked)),
   // The welcome tour (#146), asked for from Settings → Maintenance and drawn in the main window. The relay
   // is main's, not a direct window-to-window send: the settings window is a separate BrowserWindow and
   // only main can hide it, raise the main one, and address that window alone.
