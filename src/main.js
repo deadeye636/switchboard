@@ -1446,6 +1446,10 @@ const { effectiveSettings, migrateClaudeLaunchDefaults, migrateRetiredChoices, S
 // a prompt and a template cannot name different directories.
 const conventionDirs = require('./app/convention-dirs');
 conventionDirs.init({ effectiveSettings: (projectPath) => effectiveSettings(projectPath) });
+// A project's GitHub or GitLab issues, read-only (#816).
+const forgeIssues = require('./app/forge-issues');
+forgeIssues.init({ effectiveSettings: (projectPath) => effectiveSettings(projectPath), getSetting, isForeignNetworkFile, log });
+forgeIssues.registerIpc(ipcMain);
 conventionDirs.registerIpc(ipcMain);
 
 

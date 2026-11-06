@@ -6,7 +6,7 @@
 //
 // Depends on globals: escapeHtml, formatDate (utils.js), hideAllViewers,
 // returnToTerminal (app.js), showControlToast (control-dialogs.js),
-// filterTasks, sortTasks, nextTaskStatus, taskStatusLabel, taskScopeLabel,
+// filterTasks, filterIssues, sortTasks, nextTaskStatus, taskStatusLabel, taskScopeLabel,
 // TASK_STATUS_ORDER (tasks-logic.js), window.bookmarksTags.openSessionAt
 // (bookmarks-tags.js), window.api (preload).
 
@@ -20,6 +20,11 @@
   let statusFilter = 'all';
   let textFilter = '';
   let sortMode = 'newest';
+  // A project's forge issues (#816): null while nothing is known or the feature is off, { loading: true } while
+  // the CLI runs, else main's answer. In memory until the view next loads, never stored; `issuesAsked` drops a late answer.
+  let issues = null;
+  let issuesAsked = 0;
+  let issuesOpen = true;
 
   // Open task counts (open + in_progress) for the sidebar: per session (card
   // badge) and per project (project-header icon highlight).
@@ -223,9 +228,68 @@
     const rows = visibleTasks();
     if (!rows.length) {
       const empty = data.length ? 'No tasks match the filter.' : 'No tasks yet.';
-      return `<div class="tv-empty">${empty}</div>`;
+      return `<div class="tv-empty">${empty}</div>${issuesHtml()}`;
     }
-    return rows.map(cardHtml).join('');
+    return rows.map(cardHtml).join('') + issuesHtml();
+  }
+
+  // Foreign text throughout, so it is escaped and the body stays plain text: no markup, and no image in an issue
+  // can make the app fetch from another host.
+  function issueCardHtml(i) {
+    const meta = [i.author ? escapeHtml(i.author) : '', i.updatedAt ? 'Updated ' + escapeHtml(fmtDate(i.updatedAt)) : ''].filter(Boolean).join(' · ');
+    return `
+      <div class="tv-card tv-issue">
+        <div class="tv-main">
+          <div class="tv-title">#${escapeHtml(String(i.number))} ${escapeHtml(i.title)}</div>
+          ${i.labels.length ? `<div class="tv-issue-labels">${i.labels.map((l) => `<span class="tv-issue-label">${escapeHtml(l)}</span>`).join('')}</div>` : ''}
+          ${meta ? `<div class="tv-meta">${meta}</div>` : ''}
+          ${i.body.trim() ? `<details class="tv-issue-body"><summary>Description</summary><div class="tv-note">${escapeHtml(i.body)}</div></details>` : ''}
+        </div>
+        <div class="tv-actions">
+          ${i.url ? `<button data-action="open-issue" data-url="${escapeHtml(i.url)}" title="Open in the browser">↗</button>` : ''}
+        </div>
+      </div>`;
+  }
+
+  function issuesHtml() {
+    if (!issues) return '';
+    let heading = 'Issues';
+    let inner;
+    if (issues.loading) {
+      inner = '<div class="tv-empty">Loading issues…</div>';
+    } else if (!issues.ok) {
+      inner = `<div class="tv-empty">${escapeHtml(issues.message || 'The issues could not be read.')}</div>`;
+    } else {
+      heading = `${issues.provider} issues · ${escapeHtml(issues.repo)} · ${issues.issues.length}${issues.issues.length >= issues.limit ? '+' : ''} open`;
+      const rows = filterIssues(issues.issues, textFilter);
+      inner = rows.length ? rows.map(issueCardHtml).join('')
+        : `<div class="tv-empty">${issues.issues.length ? 'No issues match the filter.' : 'No open issues.'}</div>`;
+    }
+    return `
+      <details class="tv-issues"${issuesOpen ? ' open' : ''}>
+        <summary class="tv-issues-head"><span>${heading}</span><span class="tv-issues-readonly">Read-only</span></summary>
+        ${inner}
+      </details>`;
+  }
+
+  async function loadIssues() {
+    const projectPath = scopeFilter.projectPath;
+    const asked = ++issuesAsked;
+    issues = null;
+    if (!projectPath || !window.api.forgeIssuesList) return;
+    let answer = null;
+    try {
+      const effective = await window.api.getEffectiveSettings(projectPath);
+      if (asked !== issuesAsked || !effective || effective.forgeIssuesEnabled !== true) return;
+      issues = { loading: true };
+      refreshBody();
+      answer = await window.api.forgeIssuesList(projectPath);
+    } catch (err) {
+      answer = { enabled: true, ok: false, message: err.message };
+    }
+    if (asked !== issuesAsked) return;
+    issues = answer && answer.enabled ? answer : null;
+    refreshBody();
   }
 
   function statusOptions() {
@@ -289,7 +353,9 @@
         return;
       }
       data = res.tasks || [];
+      issues = null; // another project's answer must not be drawn for this one
       render();
+      loadIssues();
     } catch (err) {
       viewer.innerHTML = `<div class="tv-loading">Error: ${escapeHtml(err.message)}</div>`;
     }
@@ -378,10 +444,16 @@
     }
   }
 
+  // Capture: `toggle` does not bubble. A filter keystroke redraws the group, so its state has to live here.
+  viewer.addEventListener('toggle', (e) => {
+    if (e.target.classList && e.target.classList.contains('tv-issues')) issuesOpen = e.target.open;
+  }, true);
+
   viewer.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
+    if (action === 'open-issue') { window.api.openExternal(btn.dataset.url); return; }
     const card = btn.closest('.tv-card');
     const id = card ? card.dataset.id : null;
     handleAction(action, id, card);

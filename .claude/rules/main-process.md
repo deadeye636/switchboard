@@ -45,6 +45,7 @@ lists — #803; a descriptor that states on/off answers `listPlugins`, one that 
 `listResources` plugin rows with the state "not reported"; `listApps` is optional and nobody answers it yet. One
 asker per CLI, no backend id in an answer. `open-plugin` takes a row's id and opens its folder through
 `backend-resources.js`'s `openResource`, so it reaches only what that backend's listing reaches),
+`forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
 menu on a marked word; spec 32 has what was measured),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
@@ -590,6 +591,7 @@ line there, in the same commit.
 | Which view (terminal or GUI) a session opens in, when that is not a spawn | `src/app/session-view.js` |
 | Opening a document an agent read — only a path its session's backend reported | `src/app/documents.js` |
 | The spell check of a text field: its languages and its right-click menu | `src/app/spell-check.js` |
+| A project's GitHub or GitLab issues, read through their CLIs | `src/app/forge-issues.js` |
 | The static check of a project's external MCP server entries (command, variables, which backends take it) | `src/app/external-mcp-check.js` |
 | The search in the official MCP Registry (one outbound GET, on the user's click) | `src/app/mcp-registry.js` |
 | **None of the above** | a **new** `src/app/<area>.js` — not `main.js` |

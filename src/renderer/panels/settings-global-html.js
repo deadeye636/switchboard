@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -896,6 +896,52 @@
             <!-- ===== Projects & Sidebar ===== -->
             <section class="settings-cat" data-cat="projects">
               <div class="settings-cat-head"><h2>Projects &amp; sidebar</h2><p>Which projects appear and how the session list is trimmed.</p></div>
+
+              <div class="settings-subhead">Issues</div>
+              <div class="settings-section">
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Show GitHub or GitLab issues</span>
+                    <div class="settings-description">Lists a project's open issues, read-only, in Tasks &amp; notes. Reads them through the gh or glab CLI and its login when that view opens. A project can differ, and chooses its remote, in its own settings.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-forge-enabled" ${forgeEnabledValue ? 'checked' : ''}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Issue provider</span>
+                    <div class="settings-description">Auto decides from the remote's host. A self-hosted name that says neither needs a choice.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select class="settings-select" id="sv-forge-provider">
+                      <option value="auto" ${forgeProviderValue === 'auto' ? 'selected' : ''}>Auto</option>
+                      <option value="github" ${forgeProviderValue === 'github' ? 'selected' : ''}>GitHub</option>
+                      <option value="gitlab" ${forgeProviderValue === 'gitlab' ? 'selected' : ''}>GitLab</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Path to gh</span>
+                    <div class="settings-description">Empty looks it up on PATH. For this machine, so no project overrides it. <span id="sv-forge-gh-note"></span></div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-forge-gh-path" placeholder="gh" value="${escapeHtml(forgeGhPathValue)}" autocomplete="off" spellcheck="false">
+                    <button type="button" class="settings-action-btn" id="sv-forge-gh-test">Test</button>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Path to glab</span>
+                    <div class="settings-description">Empty looks it up on PATH. For this machine, so no project overrides it. <span id="sv-forge-glab-note"></span></div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="text" class="settings-input" id="sv-forge-glab-path" placeholder="glab" value="${escapeHtml(forgeGlabPathValue)}" autocomplete="off" spellcheck="false">
+                    <button type="button" class="settings-action-btn" id="sv-forge-glab-test">Test</button>
+                  </div>
+                </div>
+              </div>
 
               <div class="settings-subhead">Projects</div>
               <div class="settings-section">

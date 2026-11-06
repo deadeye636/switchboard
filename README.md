@@ -332,6 +332,9 @@ A task can hang off a project, a session, or one specific message in a transcrip
 selection, a message gutter, or the terminal's right-click menu. It keeps the quote it came from and
 jumps back to it.
 
+A project can also list its open GitHub or GitLab issues there, read-only, through the `gh` or `glab` CLI. This is
+off until you turn it on in Settings.
+
 ## Stats
 
 ![Stats](docs/images/stats.png)

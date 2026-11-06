@@ -11423,6 +11423,36 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   color: #6a6a80;
   white-space: nowrap;
 }
+.tv-issues { margin-top: 14px; }
+.tv-issues[open] > summary { margin-bottom: 8px; }
+.tv-issues-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #a0a0b8;
+}
+.tv-issues-readonly {
+  margin-left: auto;
+  font-size: 10px;
+  color: #6a6a80;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+.tv-issues .tv-card { margin-bottom: 8px; padding-bottom: 10px; }
+.tv-issue-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tv-issue-label {
+  font-size: 10px;
+  color: #a0a0b8;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+.tv-issue-body { margin-top: 6px; font-size: 11px; color: #7a7a90; }
+.tv-issue-body > summary { cursor: pointer; }
+.tv-issue-body .tv-note { white-space: pre-wrap; word-break: break-word; }
 .tv-card[data-status="done"] { opacity: 0.65; }
 .tv-card[data-status="dropped"] { opacity: 0.5; }
 .tv-status {

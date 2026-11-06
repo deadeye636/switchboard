@@ -207,6 +207,9 @@ contextBridge.exposeInMainWorld('api', {
   onSessionDetachRekeyed: (cb) => ipcRenderer.on('session-detach-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
+  // #816: a project's forge issues, and whether the saved CLI path answers.
+  forgeIssuesList: (projectPath) => ipcRenderer.invoke('forge-issues-list', projectPath),
+  forgeCliCheck: (providerId) => ipcRenderer.invoke('forge-cli-check', providerId),
   // #815: the languages the spell check would use for the field's text, and what a right click in a text field was.
   spellCheckLanguages: (stored) => ipcRenderer.invoke('spell-check-languages', stored),
   onEditableContextMenu: (cb) => ipcRenderer.on('editable-context-menu', (_e, marked) => cb(marked)),

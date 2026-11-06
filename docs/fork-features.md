@@ -957,6 +957,12 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   terminal (right-click / shortcut). Jump to the transcript source, or open/start the live
   session from a task. Opened from the project header or per-session from the terminal toolbar;
   session cards show an open-task count badge and the project task icon highlights on open tasks.
+- **Forge issues in Tasks & notes** (#816, spec 42) — a project's open GitHub or GitLab issues, read-only, in a group of
+  their own. Read through the `gh` or `glab` CLI when the view opens. Off by default; provider and remote per project,
+  binary paths global.
+- **Spell check in the composer** (#815, spec 32) — marks words in text fields and offers corrections, Add to dictionary
+  and the edit actions on a right click. On by default, `de-DE, en-US` unless set. German on Windows is marked without
+  suggestions (#818).
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
   a management tab (port of **brianstanley**). Insert into the terminal via the right-click
   menu or a **configurable hotkey** (default Ctrl/Cmd+Shift+V) — works in every right-click mode.

@@ -317,6 +317,10 @@
     const confirmQuitValue = fieldValue('confirmQuitWithRunningSessions', true);
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
+    const forgeEnabledValue = fieldValue('forgeIssuesEnabled', false) === true;
+    const forgeProviderValue = fieldValue('forgeProvider', 'auto');
+    const forgeGhPathValue = fieldValue('forgeGhPath', '');
+    const forgeGlabPathValue = fieldValue('forgeGlabPath', '');
     const spellCheckValue = fieldValue('spellCheck', true);
     const spellCheckLanguagesValue = fieldValue('spellCheckLanguages', '');
     const documentPreviewValue = fieldValue('documentPreview', 'card');
@@ -700,6 +704,42 @@
           </div>
         </div>
 
+
+        <div class="settings-section">
+          <div class="settings-section-title">Issues</div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header"><span class="settings-label">Show GitHub or GitLab issues</span>${useGlobalCheckbox('forgeIssuesEnabled')}</div>
+              <div class="settings-description">Lists this project's open issues, read-only, in Tasks &amp; notes. Reads them through the gh or glab CLI when that view opens.</div>
+            </div>
+            <div class="settings-field-control">
+              <label class="settings-toggle"><input type="checkbox" id="sv-forge-enabled" ${fieldValue('forgeIssuesEnabled', false) === true ? 'checked' : ''} ${fieldDisabled('forgeIssuesEnabled')}><span class="settings-toggle-slider"></span></label>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header"><span class="settings-label">Issue provider</span>${useGlobalCheckbox('forgeProvider')}</div>
+              <div class="settings-description">Auto decides from the remote's host. A self-hosted name that says neither needs a choice here.</div>
+            </div>
+            <div class="settings-field-control">
+              <select class="settings-select" id="sv-forge-provider" ${fieldDisabled('forgeProvider')}>
+                <option value="auto" ${fieldValue('forgeProvider', 'auto') === 'auto' ? 'selected' : ''}>Auto</option>
+                <option value="github" ${fieldValue('forgeProvider', 'auto') === 'github' ? 'selected' : ''}>GitHub</option>
+                <option value="gitlab" ${fieldValue('forgeProvider', 'auto') === 'gitlab' ? 'selected' : ''}>GitLab</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-field">
+            <div class="settings-field-info">
+              <div class="settings-field-header"><span class="settings-label">Issue remote</span>${useGlobalCheckbox('forgeRemote')}</div>
+              <div class="settings-description">The git remote whose issues are listed.</div>
+            </div>
+            <div class="settings-field-control">
+              <input type="text" class="settings-input" id="sv-forge-remote" placeholder="origin" value="${escapeHtml(String(fieldValue('forgeRemote', 'origin')))}" autocomplete="off" spellcheck="false" ${fieldDisabled('forgeRemote')}>
+            </div>
+          </div>
+        </div>
+
         </section>
 
         <section class="settings-cat" data-cat="plans">
@@ -919,7 +959,7 @@ ${window.settingsPlugins.sectionsHtml('project')}
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -970,6 +1010,18 @@ ${window.settingsPlugins.sectionsHtml('project')}
       // --- Two-pane wiring: category nav, live search, "?" help toggles ---
       // The same call the project scope makes (#490) — see wireTwoPane above.
       wireTwoPane();
+      // #816: the test runs the SAVED path, because main takes no path from a window. A typed one is applied first.
+      for (const [providerId, key, id] of [['github', 'forgeGhPath', 'gh'], ['gitlab', 'forgeGlabPath', 'glab']]) {
+        settingsViewerBody.querySelector(`#sv-forge-${id}-test`).addEventListener('click', async () => {
+          const note = settingsViewerBody.querySelector(`#sv-forge-${id}-note`);
+          const typed = settingsViewerBody.querySelector(`#sv-forge-${id}-path`).value.trim();
+          const saved = ((await window.api.getSetting('global')) || {})[key] || '';
+          if (typed !== saved) { note.textContent = 'Apply first: the test uses the saved path.'; return; }
+          note.textContent = 'Testing…';
+          const r = await window.api.forgeCliCheck(providerId);
+          note.textContent = r.message;
+        }, { signal: listenerSignal });
+      }
       // #815: which languages the typed list comes to. Unknown codes are dropped by main, so the field says which.
       {
         const langInput = settingsViewerBody.querySelector('#sv-spell-check-languages');
@@ -1052,6 +1104,9 @@ ${window.settingsPlugins.sectionsHtml('project')}
         const fieldMap = {
           shellProfile: 'sv-shell-profile',
           terminalShellProfile: 'sv-terminal-shell-profile',
+          forgeIssuesEnabled: 'sv-forge-enabled',
+          forgeProvider: 'sv-forge-provider',
+          forgeRemote: 'sv-forge-remote',
           planDir: 'sv-plan-dir',
           planDirNames: 'sv-plan-dir-names',
           skillsDir: 'sv-skills-dir',
@@ -1242,6 +1297,9 @@ ${window.settingsPlugins.sectionsHtml('project')}
               // Both shells cascade per project (T-2.5). `terminalShellProfile` is not consumed yet
               // (Phase 3, T-3.7); 'inherit' means "use the CLI shell", so this is a no-op today.
               shellProfile: () => settingsViewerBody.querySelector('#sv-shell-profile').value || 'auto',
+              forgeIssuesEnabled: () => settingsViewerBody.querySelector('#sv-forge-enabled').checked,
+              forgeProvider: () => settingsViewerBody.querySelector('#sv-forge-provider').value || 'auto',
+              forgeRemote: () => (settingsViewerBody.querySelector('#sv-forge-remote')?.value || '').trim() || 'origin',
               planDir: () => (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans',
               planDirNames: () => readPlanDirNames(),
               handoffDir: () => (settingsViewerBody.querySelector('#sv-handoff-dir')?.value || '').trim() || '.handoffs',
@@ -1465,6 +1523,10 @@ ${window.settingsPlugins.sectionsHtml('project')}
         settings.confirmQuitWithRunningSessions = settingsViewerBody.querySelector('#sv-confirm-quit').checked;
         settings.expandToolOutput = settingsViewerBody.querySelector('#sv-expand-tool-output').checked;
         settings.conversationEnterWhileBusy = settingsViewerBody.querySelector('#sv-conversation-enter-while-busy')?.value === 'steer' ? 'steer' : 'hold';
+        settings.forgeIssuesEnabled = settingsViewerBody.querySelector('#sv-forge-enabled').checked;
+        settings.forgeProvider = settingsViewerBody.querySelector('#sv-forge-provider').value || 'auto';
+        settings.forgeGhPath = (settingsViewerBody.querySelector('#sv-forge-gh-path').value || '').trim();
+        settings.forgeGlabPath = (settingsViewerBody.querySelector('#sv-forge-glab-path').value || '').trim();
         settings.spellCheck = settingsViewerBody.querySelector('#sv-spell-check').checked;
         settings.spellCheckLanguages = (settingsViewerBody.querySelector('#sv-spell-check-languages')?.value || '').trim();
         settings.documentPreview = settingsViewerBody.querySelector('#sv-document-preview')?.value === 'inline' ? 'inline' : 'card';

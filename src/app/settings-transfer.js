@@ -42,7 +42,8 @@ const NON_PORTABLE_KEYS = ['windowBounds', 'detachedWindows', 'db_version'];
 // whose stdio entries are commands run at the next launch (#789, spec 36); a file must not configure those
 // behind the user's back, so an imported copy is discarded and the user re-adds them knowingly.
 // `externalMcpPrune` rides with it: it decides whether the project's own MCP servers are withheld from a launch.
-const IMPORT_DROPPED_KEYS = ['externalMcpServers', 'externalMcpPrune'];
+// The forge CLI paths name a file that runs when Tasks & notes opens (#816), and belong to the machine anyway.
+const IMPORT_DROPPED_KEYS = ['externalMcpServers', 'externalMcpPrune', 'forgeGhPath', 'forgeGlabPath'];
 
 function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value);

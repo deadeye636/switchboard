@@ -33,6 +33,14 @@ function nextTaskStatus(status) {
   return TASK_STATUS_ORDER[(i + 1) % TASK_STATUS_ORDER.length];
 }
 
+// A case-insensitive text substring over a forge issue's number, title, author, labels and description (#816).
+function filterIssues(issues, text) {
+  const needle = (text || '').trim().toLowerCase();
+  if (!needle) return issues || [];
+  return (issues || []).filter((i) => ['#' + i.number, i.title, i.author, i.body, ...(i.labels || [])]
+    .filter(Boolean).join(' ').toLowerCase().includes(needle));
+}
+
 // Filter by status ('all' or a specific status) and a case-insensitive text
 // substring over title, note, quote, project and session names.
 function filterTasks(tasks, opts) {
@@ -82,6 +90,7 @@ if (typeof module !== 'undefined' && module.exports) {
     taskScopeLabel,
     nextTaskStatus,
     filterTasks,
+    filterIssues,
     sortTasks,
   };
 }

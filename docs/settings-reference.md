@@ -281,6 +281,16 @@ stored preference survives — the setting stopped being about tabs when panes s
 
 ## Projects & sidebar
 
+Issues in Tasks & notes (#816, spec 42). The binary paths belong to the machine, so no project overrides them:
+
+| Key | Label | Values | Default | Scope |
+|---|---|---|---|---|
+| `forgeIssuesEnabled` | Show GitHub or GitLab issues | bool | `false` | global + project |
+| `forgeProvider` | Issue provider | `auto` \| `github` \| `gitlab` | `auto` | global + project |
+| `forgeRemote` | Issue remote | a git remote name; no global control, so "use global" means `origin` | `origin` | project |
+| `forgeGhPath` | Path to gh | an absolute path to the executable, or a bare name; empty looks it up on `PATH`; `.cmd` and `.bat` are refused; dropped on a settings import | empty | global |
+| `forgeGlabPath` | Path to glab | the same | empty | global |
+
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
 | `projectSortMode` | Project order. `activity` and `alpha` move missing and empty projects to the end; `manual` follows the drag order alone, and only favorites stay pinned on top while `favoritesOwnList` is off (#772) | `activity` \| `alpha` \| `manual` | `activity` | global |

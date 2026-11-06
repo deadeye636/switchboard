@@ -75,6 +75,11 @@ const SETTING_DEFAULTS = {
   // read it. Correcting the dead value to what actually applies keeps every existing sidebar as it is;
   // choosing 5 would have shortened everyone's session list without them touching anything.
   visibleSessionCount: 10,
+  // A project's GitHub or GitLab issues in Tasks & notes (#816): off until someone asks for them, because it
+  // starts a CLI that talks to a server. The binary paths are not here: they are global only, see forge-issues.js.
+  forgeIssuesEnabled: false,
+  forgeProvider: 'auto',
+  forgeRemote: 'origin',
   sidebarWidth: 340,
   terminalTheme: 'switchboard',
   shellProfile: 'auto',
@@ -615,7 +620,7 @@ function registerIpc(ipc) {
       const keys = Object.keys(check.global).length;
       ctx.log.info(`[settings] imported ${keys} global key(s), ${incoming.length} project(s)`);
       if (check.dropped && check.dropped.length) {
-        ctx.log.warn(`[settings] import dropped ${check.dropped.join(', ')}: a stdio MCP entry is a command run at launch, so it is never taken from a file`);
+        ctx.log.warn(`[settings] import dropped ${check.dropped.join(', ')}: these name something the app runs, so they are never taken from a file`);
       }
       return { ok: true, keys, projects: incoming.length };
     } catch (err) {
