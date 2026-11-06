@@ -36,19 +36,19 @@ Before you touch an area, read its path-scoped rule file:
 2. **On renderer change the click IS the test.** Run `node scripts/drive-app.js console` to catch runtime errors. Note: renderer reload does not reload `src/app/**`, and synthesized events do not match real user interactions.
 3. **Migrations are append-only.** `migrations.length` IS the schema version. Parsers modifying stored field semantics must bump `PARSER_SCHEMA_VERSION` across all affected parsers in the same commit (`.claude/rules/db.md`).
 4. **No new IPC handler in `src/main.js`** — place it in an `src/app/` module and bind in `src/preload.js` (`test/main-no-new-ipc.test.js`).
-5. **No backend id or format outside its own folder.** Capabilities are descriptor hooks; never use `switch (backendId)`. Pre-#161 NULL records defaulting to `|| 'claude'` are grandfathered. Formatting and transcript grammar rules belong in backend descriptors, never renderer/shared helpers (`test/backend-integrations.test.js`).
-6. **No personal or local identifiers anywhere that leaves this machine.** No real names, emails, machines, or local paths (`<drive>:\...`). Use placeholders (`~`, `<project>`, `<user>`). Enforced by `test/no-local-paths.test.js`.
+5. **No backend id or format outside its own folder.** Capabilities are descriptor hooks; never use `switch (backendId)`. Pre-#161 NULL records defaulting to `|| 'claude'` are grandfathered. Formatting and transcript grammar rules belong in backend descriptors, never renderer/shared helpers. `test/backend-integrations.test.js` finds an id; nothing can find a format, so that half is on you.
+6. **No personal or local identifiers anywhere that leaves this machine.** No real names, emails, machines, or local paths (`<drive>:\...`). Use placeholders (`~`, `<project>`, `<user>`). `test/no-local-paths.test.js` catches this machine's account name, home and checkout parent; emails, other names and other paths are on you.
 7. **English in every artifact** (code, tests, commits, issues, docs, rules). Sole exception: `docs/customizing-colors.md` (retained third-party guide).
 8. **A new renderer control reuses existing styling.** Never ship an unstyled bare `<button>` or input element.
 9. **Settings changes go into `docs/settings-reference.md`.** Applies to any added, renamed, or re-defaulted setting, `SWITCHBOARD_*` env var, or script.
-10. **Prefer `execFile` and close a probe's stdin.** Avoid shell interpolation. Because `execFile` ignores `stdio: 'ignore'`, use `closeStdin(execFile(...))` from `src/backends/cli-probe.js`. **A bare program name never goes with a project as `cwd`:** Windows looks it up there before `PATH`, so a repository's own `git.exe` would run (`test/no-bare-exe-in-cwd.test.js`).
+10. **Prefer `execFile` and close a probe's stdin.** Avoid shell interpolation. Because `execFile` ignores `stdio: 'ignore'`, use `closeStdin(execFile(...))` from `src/backends/cli-probe.js` in `src/backends/**`, and `closeProbeStdin` from `src/app/terminal/shell-profiles.js` in `src/app/**`. **A bare program name never goes with a project as `cwd`:** Windows looks it up there before `PATH`, so a repository's own `git.exe` would run (`test/no-bare-exe-in-cwd.test.js`).
 11. **Never `fs.writeFileSync` a file a CLI reads.** Always use `src/app/safe-write.js` (`writeTextFile`) for baseline checks, atomic rename, and EOL retention. Exemptions: `src/backends/rewrite-cwd.js` (per-line append) and ephemeral per-spawn files.
 12. **One answer for where a project keeps its documents.** `src/app/convention-dirs.js` is the sole authority for handoff and plan directories. Lexical fallback rule lives in `src/shared/convention-dir-name.js` (`test/convention-dirs.test.js`, `test/convention-dir-name.test.js`).
-13. **Path containment is decided on real paths.** `src/app/path-containment.js` is the only way: checks canonical resolved paths before `fs.stat()`. Never rely on lexical string prefix matching.
+13. **Path containment is decided on real paths.** For any answer that guards access, `src/app/path-containment.js` is the only way: checks canonical resolved paths before `fs.stat()`. Never guard with lexical string prefix matching. (A lexical answer as a MATCH, not a guard, is argued where it stands: `src/app/skill-delivery.js`.)
 14. **Never strip comments with a pair of regexes.** Always use `test/helpers/strip-comments.js` (`test/strip-comments-shape.test.js`).
 15. **Shared working tree: no git stash, reset, checkout -- or branch switch.** Tree is shared across parallel sessions. Inspect past revisions with `git show <ref>:<path>`. Commit only with explicit pathspecs (`git commit <path1> <path2>`), never `git add -A` or `git commit -a`.
 16. **An issue is not law — check against concept before building.** Verify whether requirements still fit and confirm root causes independently. If building creates a new user flow or contract, state pros/cons and 2+ alternatives before proceeding.
-17. **Never assemble `project:<path>` by hand.** Use `settingsOwnerPath` (`src/shared/worktree-path.js`) for cascading settings; `worktreeRootOf` for ownership; `worktreeLabelOf` for display names (`test/worktree-path.test.js`).
+17. **Never assemble `project:<path>` by hand for a cascading setting.** Use `settingsOwnerPath` (`src/shared/worktree-path.js`); `worktreeRootOf` for ownership; `worktreeLabelOf` for display names. A display name's write keeps the raw path on purpose. `test/worktree-path.test.js` guards the files it names, not all of `src/`.
 
 ## Backlog & workflow
 
@@ -67,7 +67,7 @@ All app code lives under `src/`:
 | `src/main.js` | Composition root, `DATA_DIR`, module wiring, grandfathered IPC handlers. |
 | `src/app/**` | Core subsystems (settings, terminal, vcs, window management, handoffs, safe-write). |
 | `src/preload.js` | The only IPC surface (`window.api.*`). |
-| `src/shared/**` | Modules loaded by both main and renderer processes. |
+| `src/shared/**` | Modules loaded by both main and renderer processes, with two named exceptions (`.claude/rules/renderer.md`). |
 | `src/renderer/**` | Vanilla JS (no framework), morphdom, `@xterm/xterm`, CodeMirror via esbuild. |
 | `src/db/**` | SQLite database façade (`db.js`), connection, schema, migrations, and one `*-store.js` per table family. |
 | `src/index/**` | Cache layer (`session-cache.js`), `projects-view.js`, `worktree-dirs.js`, index writes and folder state, the clients of the two worker threads. |

@@ -1,7 +1,7 @@
 // app/forge-issues.js — a project's GitHub or GitLab issues, read-only (#816, spec 42).
 //
 // Read through the `gh` and `glab` CLIs: the login stays with the CLI and the app stores no token. Asked when the
-// Tasks & notes view opens and on its refresh, never on a timer, and nothing is stored. The answer says why when
+// Tasks & notes view or the session sidebar's group opens and on a refresh, never on a timer, and nothing is stored. The answer says why when
 // there is no list, because a missing CLI, a missing login and a remote that fits nobody need different moves.
 //
 // Which provider, which remote and whether it is on come from the cascade; the binary paths are global only,

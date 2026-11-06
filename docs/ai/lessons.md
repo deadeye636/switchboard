@@ -78,6 +78,15 @@ that looked like a click. What they cost, and what actually caught them:
   then draws its rows *underneath* an opaque dead layer, and every suspend/restore cycle stacks
   another pair. The grid had suspended terminals for months without noticing — it only ever suspends
   cards that are off-screen anyway.
+- **A shell from an agent harness can hide what a user's app would do.** Such shells set
+  `NoDefaultCurrentDirectoryInExePath`, which stops Windows looking in the working directory for a bare program name. With
+  it set, a project's planted `git.exe` or `claude.cmd` does not run, and a demo started from that shell inherits it, while
+  an app started from Explorer does not have it (#819, #820). A security check of this kind unsets it in the process under
+  test, and a control has to run in that same environment: `scripts/measure-planted-exe.js`. A session-start test without
+  that told us a planted `claude.cmd` did not run, and it proved nothing.
+- **Resolving the CLI to its `PATH` file under cmd was built and removed** (#820). It broke launches with a space in the
+  path and a quoted argument, ignored the session's own `PATH`, and left an npm starter's own bare `node` looking in the
+  project anyway. The session start needs a decision, not that shape.
 - **rAF does not run in a window you are not looking at.** A render scheduled with
   `requestAnimationFrame` never fired while the app sat behind the terminal, leaving a mounted
   terminal outside every pane. A microtask always runs; frame callbacks are for painting, not for

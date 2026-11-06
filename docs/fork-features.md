@@ -964,7 +964,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   binary paths global.
 - **Spell check in the composer** (#815, spec 32) — marks words in text fields and offers corrections, Add to dictionary
   and the edit actions on a right click. On by default, `de-DE, en-US` unless set. A language the Windows spell checker holds gets
-  its corrections from that checker (#818).
+  its corrections from that checker, through one PowerShell started on first use and ended when idle (#818).
+- **Shift+Enter in the pickers** (spec 25) — the plan and handoff pickers insert the bare path, the variable picker the value
+  without its template. A secret ignores it.
 - **Saved Variables** — reusable snippet/template panel with quick-pick, insert-template and
   a management tab (port of **brianstanley**). Insert into the terminal via the right-click
   menu or a **configurable hotkey** (default Ctrl/Cmd+Shift+V) — works in every right-click mode.

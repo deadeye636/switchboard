@@ -229,6 +229,9 @@ resolver's parser.
 
 ## The order (#676)
 
+Shift+Enter in the variable palette inserts a value without its template. Main ignores that for a secret and reads nothing
+the template names otherwise (`resolveVariableInsert`, spec 25).
+
 The variables are listed in **one order the user sets**, and every surface that lists them uses it: the
 variables manager, the variable palette (the `insertVariable` hotkey), the terminal context menu's Variables
 submenu, the terminal-header quick-pick and the `{var:}` picker in the New/Edit dialog. Arranging them once

@@ -259,6 +259,8 @@ It inserts a **reference**, never the plan: hundreds of lines do not belong in a
 agent has file tools. The wording is a template in the settings cascade, so a project can phrase it its
 own way, and an empty template falls back to the default rather than inserting nothing.
 
+Shift+Enter inserts the bare path instead of the template (spec 25, "The picker is one more description of one popover").
+
 The picker depends on the attribution above, and it is a filter rather than a sort order: the list holds
 this session's project and nothing else. It once drew the other projects underneath, grouped by name, on
 the argument that a plan written in one project is sometimes what you want to hand to another. That is

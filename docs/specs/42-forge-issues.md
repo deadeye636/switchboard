@@ -5,7 +5,8 @@ Issue #816. Status: **built**. The code is `src/app/forge-issues.js`; the view i
 ## What it does
 
 A project's Tasks & notes view lists the project's open issues in a group of their own, marked read-only. The group
-appears only in the project scope, because a session's view is about that session. Nothing is written back to the
+appears only in the project scope of that view, because a session's view is about that session. The session sidebar
+(spec 43) lists them too, under its Tasks & notes group, and holds its own answer for 30 seconds per project. Nothing is written back to the
 forge and nothing goes into the tasks table. A list stays in memory until the view next loads and is never stored.
 
 ## Decided by the owner (2026-11-06)
@@ -35,7 +36,7 @@ parse.
 
 ## Choices worth keeping
 
-- **Asked when the view opens and on its refresh, never on a timer.** A CLI start and a server request per project
+- **Asked when the view or the sidebar's group opens and on a refresh, never on a timer.** A CLI start and a server request per project
   per interval would be paid whether anyone looks or not.
 - **`execFile`, never a shell.** On Windows a `.cmd` shim cannot start without one, so a configured one is refused by
   name. One found on `PATH` is not seen at all, and the message says "not found as an executable".

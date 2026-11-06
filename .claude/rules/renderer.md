@@ -189,6 +189,19 @@ kept a Running that had already been retracted. `onProcessExited` deletes the id
 `confirmAndStopSession` already did for a user stop. This is not a second reading: the poll still owns
 the set and replaces it wholesale on the next tick, which is what heals a relaunch.
 
+## The session sidebar is part of the terminal's container (#817)
+
+`session/session-sidebar.js`, spec 43. It is a child of `.terminal-container`, so three things follow.
+
+- **Room comes from padding, not from the box.** FitAddon subtracts `.xterm`'s own padding, so the open sidebar is that
+  padding (`.xterm-viewport` gets the same inset) and `safeFit` needs no change. The container keeps its size, so
+  `scheduleObservedRefit` sees nothing to do: a change of width refits through `fitAndScroll`.
+- **A handler on the container sees clicks in the sidebar.** Right click, mouse release and wheel each return early on
+  `.closest('.session-sidebar')`. A new handler on the container makes the same check, or a click in the sidebar acts on
+  the session.
+- **Anything anchored to the container's right edge moves with it** while `.sidebar-open`, as the background list and the
+  search bar do.
+
 ## An `openSessions` entry may have NO terminal (#568)
 
 A session whose backend declares `transport` is mounted by `createConversationEntry`
@@ -461,7 +474,7 @@ is how the app loses its only preview panel:**
 logic is testable without Electron.
 
 **It is EVERY main-area surface, not the session-shaped ones** (#342). `#terminal-area` is the last
-child of `#main` and these viewers are earlier siblings at `z-index: auto`. In tabs and grid mode they
+child of `#main` and these viewers are earlier siblings at `z-index: auto`. In grid mode they
 take over by hiding `#terminal-area`; panes mode keeps that area alive on purpose
 (`display: flex !important`), so DOM order decides and the pane tree paints over anything not adopted.
 Projects and Variables sat behind the tree for exactly that reason while Activity worked — the only
@@ -493,23 +506,23 @@ Consequences that are easy to break:
 ## WebGL is decided per MODE, and the three answers differ
 
 Each terminal that runs the WebGL renderer holds its own GL context; they all share one glyph atlas.
-Three modes, three policies, and the reason they differ is measured, not assumed:
+Three layouts, three policies, and the reason they differ is measured, not assumed. Tabs mode itself is retired (#357); its row is what a single visible terminal does now:
 
 **One live GL renderer whenever more than one terminal is on screen.** That is the rule in every mode,
 arrived at twice from opposite directions:
 
 | Mode | Policy | Why |
 |---|---|---|
-| tabs / single | every open terminal keeps its context | only one is *visible*; a reveal heals whatever a sibling did to the atlas meanwhile (`forceRepaint`, #118 — and read what it heals with, below). **Nothing bounds the count** — see below |
+| single view | every open terminal keeps its context | only one is *visible*; a reveal heals whatever a sibling did to the atlas meanwhile (`forceRepaint`, #118 — and read what it heals with, below). **Nothing bounds the count** — see below |
 | **panes** | **WebGL only while ONE terminal is visible; two or more panes → every terminal on DOM**, never a mix | two visible terminals have no reveal moment, so the one nobody touched keeps the holes. All-or-nothing because a split renderer is a split *cell metric* — at dpr 2, 8.000 px under WebGL against 8.2065 px under DOM (#320) |
 | grid | only the focused card | same reason, reached first (#140) |
 
 **The LRU cap does NOT bound the live count, and this file used to say it did** (#352). `lruEvictOne`
 skips everything active, everything with a live PTY and everything not already `closed` — which is
 every session a user actually has open. Measured: `open 22 · webgl 22 · lruCap 12 · lruLen 22 ·
-closed 0 · canvases 45`. So in tabs/single mode the context count is whatever the user opens, and
-past roughly 32 Chromium starts killing contexts. Panes mode is saved by its own two-visible rule;
-tabs mode has nothing. Do not reason from the cap until something makes it true.
+closed 0 · canvases 45`. So with one terminal visible the context count is whatever the user opens, and
+past roughly 32 Chromium starts killing contexts. Two or more visible panes are saved by the two-visible rule;
+one pane is not, because at `visible <= 1` every mounted tab gets a context. Do not reason from the cap until something makes it true.
 
 **#320 is the cautionary tale.** It doubted the atlas, measured two WebGL terminals under a flood of
 18 000 codepoints, saw no corruption, and gave every pane a context. Daily use disproved it within
@@ -519,9 +532,10 @@ the bench was not.
 
 Three things that are easy to undo by accident:
 
-- **Never load WebGL from a view path.** `showSession` used to, and in an all-DOM layout that created
-  a context per click for the policy to dispose a microtask later — the churn #140 actually died of.
-  The layout decides the renderer; a reveal only repaints.
+- **Never load WebGL from a view path in a layout that decides the renderer.** `showSession`'s panes branch used to, and
+  in an all-DOM layout that created a context per click for the policy to dispose a microtask later — the churn #140
+  actually died of. There the layout decides and a reveal only repaints. Its single-view branch still calls
+  `restoreTerminalWebgl`, because nothing else decides there.
 - **A refused load must roll back.** If one pane's load refuses (setting off, WebGL given up after
   repeated losses), the panes that got a context give it back. Half-applied is the split the policy
   exists to prevent.
@@ -777,4 +791,5 @@ rule moved — what a name means with nothing to resolve it against — and main
 it has no project either, never in front of the filesystem check. **A three-word copy is still a copy:** the
 figure decided its own wording with a `..` test and therefore called `docs/..` "outside the project" when it
 is the root, and the source guard written to refuse a second derivation did not match three characters.
-**Nothing else belongs here.**
+**Nothing else belongs here**, with two exceptions that ended up in this directory: `env-expand` is required by the main
+process alone, and `external-mcp-form` is loaded by `settings.html` alone.

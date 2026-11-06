@@ -338,6 +338,15 @@ off until you turn it on in Settings.
 Each session also has a collapsible sidebar with its project's tasks and notes, its handoffs, its context fill and its
 connectors, opened from the session's toolbar.
 
+## Writing a prompt
+
+The conversation input checks spelling, in German and English unless you set other languages in Settings. A right click
+on a marked word offers corrections and adds it to the dictionary. On Windows these come from the system's spell checker
+where it holds the language, through a small PowerShell process that starts on first use.
+
+In the plan, handoff and variable pickers, Enter inserts the row with its template and Shift+Enter the bare path or value.
+A secret stays behind its template either way.
+
 ## Stats
 
 ![Stats](docs/images/stats.png)

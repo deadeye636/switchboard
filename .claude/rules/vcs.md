@@ -20,6 +20,6 @@ Rules and invariants for version control integration in Switchboard (#15, #277, 
 
 1. **Git Status Flags:** `--no-optional-locks` is a GLOBAL flag and must precede `status` (`git --no-optional-locks status ...`), or git rejects it and the background poller contends with CLI agents over `index.lock`.
 2. **In-Progress State:** Merge, rebase, and cherry-pick states are not reported in porcelain output; they are read directly from `.git/` filesystem markers without extra process spawning.
-3. **Worktree Directory Handling:** Worktrees resolve to their parent git repository for dirty/status checks. Never pass redundant or conflicting `-C` flags to `git` calls (#624).
+3. **Worktree Directory Handling:** The dirty check runs in the worktree alone, with one `-C` (`worktreeStatusArgs`, #624); only `worktree remove` runs in the parent repository, because the worktree may be gone. Never pass redundant or conflicting `-C` flags to `git` calls.
 4. **Path Containment:** Never decide "is this path inside that one" with a string comparison; use `src/app/path-containment.js` with real resolved paths.
 5. **`provider.bin` is an absolute path on Windows.** Every provider call runs with the repository as `cwd`, and Windows looks a bare name up there before `PATH`, so a repository holding its own `git.exe` would run on the status poll. Measured with `scripts/measure-planted-exe.js`; the note in `src/vcs/git.js` has the rule.

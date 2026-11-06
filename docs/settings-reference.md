@@ -87,7 +87,7 @@ demo store (not delete it): absent is re-stamped, `false` is left alone and show
 | `terminalTheme` | Theme | a key from `TERMINAL_THEMES` | `switchboard` | **cascades** |
 | `terminalFontFamily` | Font / Custom font family | CSS font stack | `'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace` | global |
 | `terminalFontSize` | Font size | 8–28 | `12` | global |
-| `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy-on-select` \| `action-bar` \| `default` | `menu` | global |
+| `terminalRightClick` | Right-click action | `menu` \| `copy-paste` \| `copy-on-select` \| `action-bar` \| `default`; the code also accepts `paste` and `none` from a stored value, and reads the retired copy as `copy-on-select` | `menu` | global |
 | `terminalMouseReporting` | Mouse mode | `native` \| `select` \| `off` | `select` | global |
 | `terminalCloseBehavior` | Closing a terminal tab | `kill` \| `keep` | `kill` | global |
 | `gpuAcceleration` | GPU rendering (WebGL) — *Advanced* | `auto` \| `on` \| `off` | `auto` | global |
@@ -759,6 +759,9 @@ and because a second window can corrupt them.
 | `projectCollapseState`, `projectOrder` | sidebar arrangement — these two are localStorage-only |
 | `projectSortMode`, `favoritesOwnList` | a **boot cache** of two real global settings (see the table above). The blob is the source of truth; the mirror is what lets the first paint sort before the settings arrive |
 | `expandedSlugs`, `expandedSubagents`, `expandedLineage`, `collapsedReviews`, `orphanExpanded:<project>` | which sidebar groups are open (`collapsedReviews` holds the callers whose review fold is closed; it defaults open) |
+| `paneActiveLeaf`, `panePresets` | which pane had the focus; the saved panes layouts |
+| `conversationHeldHintShown` | the once-only hint on how to steer has been shown |
+| `markdownPreviewMode`, `workFilesPreviewMode` | how a Markdown file and the work files open: the preview mode last chosen |
 | `sessionSidebar` | per-session state of the session sidebar: open or closed, width, open groups (#817). A detached window writes its own session's row |
 | `usageStatusLastValue` | the last usage reading, so the status bar is not empty on boot |
 
