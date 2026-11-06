@@ -101,7 +101,7 @@ function pruneWorktreesArgs() {
 //
 // The argv and the output readers the worktree service in `src/app/task-worktree.js` runs. That module names
 // no VCS; everything git spells is here. Each argv is run with `cwd` set to the repository (or the worktree,
-// for `dirtyArgs`), never with `-C` (vcs rule 3), and always as an argument vector, never a shell string.
+// for `dirtyArgs`) rather than with `-C`, and always as an argument vector, never a shell string.
 
 // The repository's top level and the commit a new branch starts from. Fails (exit 128) outside a work tree,
 // in a bare repository (`--show-toplevel` needs a work tree) and in a repository with no commit yet — all
@@ -168,6 +168,11 @@ function parseWorktreeList(stdout) {
 // Anything to lose in a checkout: modified, staged, untracked (every file, not only the directory) and a
 // submodule with changes of its own. Run with `cwd` = the worktree; any output means it is not clean.
 // `git worktree remove` refuses one untracked file too — this is the same question, asked before it.
+// The delete dialog's dirty check. One `-C`, the worktree (#624): a second would only add a chdir that can fail.
+function worktreeStatusArgs(worktreePath) {
+  return ['--no-optional-locks', '-C', worktreePath, 'status', '--porcelain'];
+}
+
 function worktreeDirtyArgs() {
   return ['--no-optional-locks', 'status', '--porcelain', '-z', '--untracked-files=all', '--ignore-submodules=none'];
 }
@@ -253,6 +258,7 @@ module.exports = {
   findRepo,
   detectState,
   statusArgs,
+  worktreeStatusArgs,
   diffArgs,
   showArgs,
   pruneWorktreesArgs,

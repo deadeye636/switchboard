@@ -535,13 +535,17 @@ function registerIpc(ipc) {
       // dies with "fatal: cannot change to …". #624 suspected a nested worktree could hit that; it cannot,
       // because all three layouts put a worktree INSIDE its parent, so the parent is there whenever the
       // worktree is. The chdir goes anyway: a step that can only fail is not worth keeping for nothing.
-      execFile('git', ['--no-optional-locks', '-C', normalizedPath, 'status', '--porcelain'],
+      const provider = vcs.detect(normalizedPath);
+      if (!provider || typeof provider.worktreeStatusArgs !== 'function') {
+        return resolve({ ok: false, error: 'This folder is not under version control.' });
+      }
+      execFile(provider.bin, provider.worktreeStatusArgs(normalizedPath),
         { windowsHide: true }, (err, stdout, stderr) => {
           if (err) {
             // git names the directory it failed on, and the dialog puts this straight on screen — so the
             // path goes to the log and the user gets a sentence (`.claude/rules/main-process.md`, #444).
             ctx.log && ctx.log.warn && ctx.log.warn('[vcs] worktree status failed: ' + String(stderr || (err && err.message) || err).trim());
-            return resolve({ ok: false, error: 'git could not read this worktree — see the log for what it said.' });
+            return resolve({ ok: false, error: provider.label + ' could not read this worktree — see the log for what it said.' });
           }
           const dirty = stdout.split('\n').map(l => l.trimEnd()).filter(Boolean);
           resolve({ ok: true, dirty, total: dirty.length });
