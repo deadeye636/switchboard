@@ -69,9 +69,10 @@
 
   // Insert the picked variable: resolved value plus ONE trailing space and no newline, so the line is
   // never submitted by accident and the next word does not run into the value.
-  async function insertVariableRow(variable, { terminal, sessionId }) {
+  // `plain` is Shift+Enter: the value without the variable's insert template. Main ignores it for a secret.
+  async function insertVariableRow(variable, { terminal, sessionId, plain }) {
     try {
-      const res = await window.api.resolveVariableInsert(variable.id, sessionId);
+      const res = await window.api.resolveVariableInsert(variable.id, sessionId, { plain: plain === true });
       if (res && res.ok && typeof res.text === 'string') {
         // An empty value would insert a lone space — say so instead of pretending something happened.
         if (!res.text) {
@@ -108,6 +109,7 @@
     emptyText: () => ({ before: 'No variables yet. Press ', key: 'Enter', after: ' to open the Variables tab.' }),
     noMatchText: (query) => `No variable matches “${query}”.`,
     emptyEnter: () => { window.openVariablesTab?.(); },
+    plainLabel: 'value only',
     pick: insertVariableRow,
   };
 

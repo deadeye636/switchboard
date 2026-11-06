@@ -146,9 +146,10 @@
       if (createFor) window.startHandoffForSession?.(createFor);
     },
     noMatchText: (query) => `No handoff matches “${query}”.`,
+    plainLabel: 'path only',
     /** A reference, plus one trailing space and no newline — never submitted. */
-    pick: (handoff, { terminal, sessionId, extra }) => {
-      const text = handoffInsertText(handoff, extra);
+    pick: (handoff, { terminal, sessionId, extra, plain }) => {
+      const text = plain ? handoff.filePath : handoffInsertText(handoff, extra);
       if (text && typeof insertResolvedText === 'function') {
         insertResolvedText(terminal, sessionId, text, { trailing: ' ' });
       }

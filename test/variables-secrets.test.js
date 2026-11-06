@@ -138,6 +138,31 @@ test('serializing a variable does not carry its value unless asked', (t) => {
 
 // --- materialization -----------------------------------------------------------
 
+test('Shift+Enter cannot take a secret past its template', (t) => {
+  setup(t, { rows: [secretRow({ insertTemplate: '{ref}' })] });
+  const out = variables.resolveVariableInsert('v1', 'sess-1', { plain: true });
+  assert.equal(out.ok, true);
+  assert.ok(!out.text.includes('hunter2'), 'the plaintext never reaches the terminal');
+});
+
+test('Shift+Enter inserts a plain variable without its template', (t) => {
+  setup(t, { rows: [secretRow({ secret: 0, value: 'hello', valueEncoding: 'plain', insertTemplate: 'Say {value} now' })] });
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1').text, 'Say hello now');
+  assert.equal(variables.resolveVariableInsert('v1', 'sess-1', { plain: true }).text, 'hello');
+});
+
+test('Shift+Enter reads nothing the template names, a secret behind {var:} included', (t) => {
+  const ctx = setup(t, { rows: [
+    secretRow(),
+    secretRow({ id: 'v2', name: 'plainone', secret: 0, value: 'line one', valueEncoding: 'plain', insertTemplate: '{var:token} {value}' }),
+  ] });
+  const out = variables.resolveVariableInsert('v2', 'sess-1', { plain: true });
+  assert.deepEqual([out.ok, out.text], [true, 'line one']);
+  assert.ok(!fs.existsSync(path.join(ctx.dir, 'secret-refs')) || fs.readdirSync(path.join(ctx.dir, 'secret-refs')).length === 0, 'no temp file');
+  const full = variables.resolveVariableInsert('v2', 'sess-1');
+  assert.ok(!full.text.includes('hunter2'), 'without Shift the secret stays behind its ref');
+});
+
 test('a {ref} writes the plaintext to a 0600 file and inserts a shell read, not the secret', (t) => {
   const ctx = setup(t, { rows: [secretRow({ insertTemplate: '{ref}' })] });
 

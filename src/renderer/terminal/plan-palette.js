@@ -122,9 +122,10 @@
     // otherwise, and a terminal the app cannot place is a different problem with a different fix.
     emptyText: ({ projectPath }) => (projectPath ? 'No plans in this project.' : 'This session has no project.'),
     noMatchText: (query) => `No plan matches “${query}”.`,
+    plainLabel: 'path only',
     /** A reference, plus one trailing space and no newline — never submitted. */
-    pick: (plan, { terminal, sessionId, extra }) => {
-      const text = planInsertText(plan, extra);
+    pick: (plan, { terminal, sessionId, extra, plain }) => {
+      const text = plain ? plan.filePath : planInsertText(plan, extra);
       if (text && typeof insertResolvedText === 'function') {
         insertResolvedText(terminal, sessionId, text, { trailing: ' ' });
       }

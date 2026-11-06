@@ -34,6 +34,8 @@
 //   emptyEnter(ctx)     — optional; what Enter does when there is nothing to pick (the variable picker
 //                         sends the user to the tab where they would add some)
 //   pick(row, ctx)      — the insert. The palette is already closed and the terminal is in ctx.
+//   plainLabel          — optional; a picker that has one offers Shift+Enter and Shift+click, and `ctx.plain` is true
+//                         for that pick: the row without its insert template. The footer names it in these words.
 //
 // Free globals it reaches for, all at CALL time so tag order does not decide them — guarded anyway:
 //   `closeTerminalContextMenu`, `closeSelectionBar` (terminal-context-menu.js) · `sessionMap` (app.js)
@@ -370,7 +372,7 @@
   }
 
   /** Take the highlighted row: close first, then hand it to the picker with the terminal it belongs to. */
-  async function pickActive() {
+  async function pickActive(plain = false) {
     if (!paletteState || !paletteState.loaded || paletteState.failed) return; // in flight, or failed
     const { config } = paletteState;
     // Nothing there at all → Enter is the way to go add some, where a picker offers that.
@@ -383,7 +385,7 @@
     }
     const row = paletteState.shown[paletteState.index];
     if (!row) return;
-    const ctx = pickerContext();
+    const ctx = { ...pickerContext(), plain: plain === true && !!config.plainLabel };
     closePalette({ refocus: false });
     try { await config.pick(row, ctx); } catch { /* the picker reports its own failures */ }
     // closePalette has already handed the focus back (to the terminal, or to whatever held it for a
@@ -440,7 +442,7 @@
     if (event.key === 'PageUp') { claim(event); moveClamped(-visiblePageStep()); return; }
     if (event.key === 'Home') { claim(event); moveClamped(-Infinity); return; }
     if (event.key === 'End') { claim(event); moveClamped(Infinity); return; }
-    if (event.key === 'Enter') { claim(event); pickActive(); }
+    if (event.key === 'Enter') { claim(event); pickActive(event.shiftKey); }
   }
 
   async function openPalette(config, terminal, sessionId) {
@@ -480,6 +482,7 @@
         <span><kbd>PgUp</kbd><kbd>PgDn</kbd> page</span>
         <span><kbd>Home</kbd><kbd>End</kbd> ends</span>
         <span><kbd>Enter</kbd> ${esc(config.enterLabel || 'insert')}</span>
+        ${config.plainLabel ? `<span><kbd>Shift+Enter</kbd> ${esc(config.plainLabel)}</span>` : ''}
         <span><kbd>Esc</kbd> close</span>
       </div>`;
     document.body.appendChild(palette);
@@ -556,7 +559,7 @@
       if (!row || !paletteState) return;
       event.preventDefault();
       const i = paletteState.shown.findIndex(r => String(paletteState.config.rowKey(r)) === row.dataset.key);
-      if (i >= 0) { paletteState.index = i; pickActive(); }
+      if (i >= 0) { paletteState.index = i; pickActive(event.shiftKey); }
     });
 
     let loaded = null;

@@ -239,7 +239,7 @@ function clipboardInsertValue(shellType) {
   return sanitizeClipboardText(read.text);
 }
 
-function resolveVariableInsert(id, sessionId) {
+function resolveVariableInsert(id, sessionId, opts = {}) {
   const written = [];   // files THIS insert created — unwound on any failure below
   try {
     const session = ctx.activeSessions.get(sessionId);
@@ -262,7 +262,11 @@ function resolveVariableInsert(id, sessionId) {
     // names the directory must get the same answer the root does, or one insert describes two projects.
     const conventionDirs = ctx.conventionDirs ? ctx.conventionDirs(session.projectPath || null) : null;
 
-    const graph = resolveVarGraph(root.id, nodesById, nameIndex);
+    // Shift+Enter in the picker: the value without its template, so nothing the template names is read. Never for a
+    // secret, whose template is what keeps the plaintext out of the terminal. Decided here, because a window must not
+    // be able to ask for that.
+    const plain = !!opts && opts.plain === true && !root.secret;
+    const graph = plain ? { order: [root.id] } : resolveVarGraph(root.id, nodesById, nameIndex);
     if (graph.cycle) {
       return { ok: false, error: `Variables reference each other in a loop: ${graph.cycle.join(' → ')}` };
     }
@@ -275,7 +279,7 @@ function resolveVariableInsert(id, sessionId) {
     // talking about different templates.
     const plan = graph.order.map((nodeId) => {
       const node = nodesById.get(nodeId);
-      const tmpl = finalTemplateFor(node, nodeId === root.id);
+      const tmpl = plain ? '{value}' : finalTemplateFor(node, nodeId === root.id);
       return {
         nodeId, node, tmpl,
         needsRef: tmpl.includes('{ref}'),
@@ -564,7 +568,7 @@ function registerIpc(ipc) {
     }
   });
 
-  ipc.handle('resolve-variable-insert', (_event, id, sessionId) => resolveVariableInsert(id, sessionId));
+  ipc.handle('resolve-variable-insert', (_event, id, sessionId, opts) => resolveVariableInsert(id, sessionId, opts));
 }
 
 module.exports = {

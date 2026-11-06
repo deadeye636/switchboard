@@ -118,6 +118,11 @@ anyone choosing to.
 
 ## The picker is one more description of one popover
 
+**Shift+Enter or Shift+click inserts the bare path, without the template.** The plan picker does the same. The
+variable picker inserts the value without the variable's template, except for a secret: main ignores the request
+there, because the template is what keeps its plaintext out of the terminal. A picker offers this by declaring
+`plainLabel`, which the footer shows. The skill picker declares none, because picking a skill is asking it to run.
+
 #469 adds no popover. `palette-core.js` (#462) already renders the saved-variable, plan and skill pickers;
 `handoff-palette.js` is a fifth description object beside the command palette's.
 

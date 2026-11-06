@@ -282,7 +282,7 @@ contextBridge.exposeInMainWorld('api', {
   // reason), which is what stops two files touched in the same beat from collapsing into one (#423).
   noteTimelineEvent: (sessionId, kind, label, detail, detailIsSubject = false) =>
     ipcRenderer.invoke('timeline:note', sessionId, kind, label, detail, detailIsSubject === true),
-  resolveVariableInsert: (id, sessionId) => ipcRenderer.invoke('resolve-variable-insert', id, sessionId),
+  resolveVariableInsert: (id, sessionId, opts) => ipcRenderer.invoke('resolve-variable-insert', id, sessionId, opts),
 
   browseFolder: () => ipcRenderer.invoke('browse-folder'),
   addProject: (projectPath) => ipcRenderer.invoke('add-project', projectPath),
