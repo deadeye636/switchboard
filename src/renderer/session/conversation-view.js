@@ -30,8 +30,8 @@
 // #779 — a pasted mail with its pictures), showBranchTreeDialog (session/branch-tree-dialog.js, #646), showServersDialog
 // (session/servers-dialog.js, #728),
 // clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
-// (terminal/terminal-context-menu.js, #690), and sessionHealthOptions (app.js, #691 — the handoff threshold
-// the context fill turns warm at).
+// (terminal/terminal-context-menu.js, #690), sessionHealthOptions (app.js, #691 — the handoff threshold
+// the context fill turns warm at), and sessionSidebarMount / sessionSidebarContextChanged (session/session-sidebar.js, #817).
 
 // The right-click setting's action waiting on the answer for a click in the composer (#815). Only main knows
 // whether the click hit a marked word: it then draws the corrections, and otherwise this runs.
@@ -1276,6 +1276,7 @@ function createConversationView(getSession, container) {
   // On the container, as the terminal does: a drag that starts in the log may end over the composer.
   container.addEventListener('mouseup', (e) => {
     if (e.button !== 0 || rightClickMode() !== 'copy-on-select') return;
+    if (e.target.closest && e.target.closest('.session-sidebar')) return; // a click there selected nothing here
     // After the browser has settled the selection this mouseup ends.
     setTimeout(() => copy(selectedText()), 0);
   });
@@ -1292,6 +1293,7 @@ function createConversationView(getSession, container) {
   }
   container.addEventListener('contextmenu', (e) => {
     pendingComposerRightClick = null;
+    if (e.target.closest && e.target.closest('.session-sidebar')) return; // not the conversation's right click
     const mode = rightClickMode();
     // In copy-on-select the selection was copied when it was made, so the right button only pastes.
     const action = mode === 'copy-paste' ? copyOrPaste : (mode === 'paste' || mode === 'copy-on-select') ? pasteIntoInput : null;
@@ -2451,7 +2453,11 @@ function createConversationView(getSession, container) {
       case 'suggestion': setSuggestion(op.text); break;
       // What runs in the background, and the session's figures (#691).
       case 'tasks': view.tasks = Array.isArray(op.tasks) ? op.tasks : []; renderStatus(); break;
-      case 'context': view.context = op.context || null; renderStatus(); break;
+      case 'context':
+        view.context = op.context || null;
+        renderStatus();
+        if (typeof sessionSidebarContextChanged === 'function') sessionSidebarContextChanged(view.session.sessionId);
+        break;
       case 'mode': view.mode = op.mode || null; renderStatus(); break;
       case 'queue': view.queue = { steering: op.steering || [], followUp: op.followUp || [] }; renderStatus(); break;
       case 'held': view.heldPrompts = { items: Array.isArray(op.items) ? op.items : [], paused: !!op.paused }; renderHeld(); break;
@@ -2628,6 +2634,9 @@ function createConversationView(getSession, container) {
   renderStatus();
   return {
     apply, attach, markExited, insertText,
+    // What the session sidebar reads (#817, spec 43).
+    context: () => view.context,
+    exited: () => !!view.exited,
     // Called from outside `apply` too (a launch error, `writeEntryError`), so it follows the end the same way.
     notice: (...args) => { notice(...args); follow(); renderJump(); },
     element: container, log, paletteAnchor,
@@ -2678,6 +2687,7 @@ function createConversationEntry(session) {
     conversation,
   };
   openSessions.set(session.sessionId, entry);
+  if (typeof sessionSidebarMount === 'function') sessionSidebarMount(entry);
   if (typeof lruTouch === 'function') lruTouch(session.sessionId);
   if (typeof renderDefaultStatus === 'function') renderDefaultStatus();
   return entry;

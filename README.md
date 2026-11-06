@@ -335,6 +335,9 @@ jumps back to it.
 A project can also list its open GitHub or GitLab issues there, read-only, through the `gh` or `glab` CLI. This is
 off until you turn it on in Settings.
 
+Each session also has a collapsible sidebar with its project's tasks and notes, its handoffs, its context fill and its
+connectors, opened from the session's toolbar.
+
 ## Stats
 
 ![Stats](docs/images/stats.png)

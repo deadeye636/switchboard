@@ -365,6 +365,7 @@ function setupTerminalKeyBindings(terminal, container, getSessionId, { onFind, g
   // `wheel-routing.js` says why, and when it steps aside.
   const wheelState = { acc: 0 };
   container.addEventListener('wheel', (e) => {
+    if (e.target.closest && e.target.closest('.session-sidebar')) return; // the sidebar scrolls itself (#817)
     if ((isMac ? e.metaKey : e.ctrlKey) && e.deltaY !== 0) {
       e.preventDefault();
       e.stopPropagation();
@@ -1596,6 +1597,7 @@ function createTerminalEntry(session, opts = {}) {
     observedEntries.set(container, entry);
     containerResizeObserver.observe(container);
   }
+  if (typeof sessionSidebarMount === 'function') sessionSidebarMount(entry);
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(() => {
       if (openSessions.get(entry.session.sessionId) !== entry) return; // destroyed/re-keyed

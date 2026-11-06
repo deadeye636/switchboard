@@ -104,6 +104,7 @@
     "branch-tree-dialog.js",
     "servers-dialog.js",
     "conversation-view.js",
+    "session-sidebar.js",
     "settings-project-tags.js",
     "dialogs.js",
     "welcome-tour.js",

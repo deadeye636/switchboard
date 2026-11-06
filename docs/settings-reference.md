@@ -759,6 +759,7 @@ and because a second window can corrupt them.
 | `projectCollapseState`, `projectOrder` | sidebar arrangement — these two are localStorage-only |
 | `projectSortMode`, `favoritesOwnList` | a **boot cache** of two real global settings (see the table above). The blob is the source of truth; the mirror is what lets the first paint sort before the settings arrive |
 | `expandedSlugs`, `expandedSubagents`, `expandedLineage`, `collapsedReviews`, `orphanExpanded:<project>` | which sidebar groups are open (`collapsedReviews` holds the callers whose review fold is closed; it defaults open) |
+| `sessionSidebar` | per-session state of the session sidebar: open or closed, width, open groups (#817). A detached window writes its own session's row |
 | `usageStatusLastValue` | the last usage reading, so the status bar is not empty on boot |
 
 **A detached session window (#2) shares this storage** — it is the same `index.html` on the same

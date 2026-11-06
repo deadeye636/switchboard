@@ -29,7 +29,7 @@
 //   `refreshSessionHeaderChrome` for the facts that live in the name's tooltip (#358).
 //   Cross-module: setActivity / applyAttention (shell/attention-engine.js), recordFileTouched
 //   (shell/away-overview-view.js), classifyAttentionSignal (shared/attention-source.js),
-//   rekeySavedOpenSessions (shell/session-restore.js, #669).
+//   rekeySavedOpenSessions (shell/session-restore.js, #669), rekeySessionSidebar (session/session-sidebar.js, #817).
 
 // --- IPC listeners from main process ---
 
@@ -161,6 +161,7 @@ window.rekeySessionState = function (oldId, newId) {
   // …and the saved restore set (#669), before the early return below: the blob can name a session this
   // window holds nothing for (it was saved at the last unload), and the rename is idempotent.
   if (typeof rekeySavedOpenSessions === 'function') rekeySavedOpenSessions(oldId, newId);
+  if (typeof rekeySessionSidebar === 'function') rekeySessionSidebar(oldId, newId);
   const entry = openSessions.get(oldId);
   const pendingEntry = pendingSessions.get(oldId);
   // A re-key changes the identity of the mounted surface, not what the user is doing in it. In a

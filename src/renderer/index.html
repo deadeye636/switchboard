@@ -147,6 +147,7 @@
         </div>
         <div id="terminal-header-controls">
           <button id="terminal-messages-btn" title="View messages" aria-label="View messages"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg></button>
+          <button id="terminal-sidebar-btn" title="Session sidebar" aria-label="Session sidebar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></button>
           <button id="terminal-tasks-btn" title="Tasks for this session" aria-label="Tasks for this session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></button>
           <button id="terminal-variables-btn" title="Saved variables" aria-label="Saved variables"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M12 12l8.5-8.5"/><path d="M16 8l2 2"/><path d="M18.5 5.5l2 2"/></svg></button>
           <span id="terminal-header-status"></span>
@@ -328,6 +329,8 @@
   <!-- #728: the MCP servers of that surface's session, opened by /mcp. -->
   <script src="session/servers-dialog.js"></script>
   <script src="session/conversation-view.js"></script>
+  <!-- #817: the collapsible sidebar on a session's right, in both kinds of surface. -->
+  <script src="session/session-sidebar.js"></script>
   <!-- #675: the project tag chip editor, shared with settings.html — the Add Project dialog in
        dialogs.js builds one for the new project's tags. -->
   <script src="panels/settings-project-tags.js"></script>

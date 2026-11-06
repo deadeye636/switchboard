@@ -24,6 +24,7 @@
 // getSessionStatus, getSessionRuntimeState, SESSION_STATUS_CLASSES,
 // subagentActiveSessions (session-status.js, app.js) · cleanDisplayName
 // (utils.js) · confirmAndStopSession, showJsonlViewer, openTasksView (app.js) ·
+// sessionSidebarToggle, sessionSidebarIsOpen (session/session-sidebar.js, #817) ·
 // PaneTree (views/pane-tree.js) · and four hooks the file panel exposes for the
 // view-tab half (#310): window.isMcpActiveForSession, window.filePanelTabLabel,
 // window.closeFilePanel, window.filePanelRelayout (views/file-panel.js).
@@ -1634,6 +1635,16 @@ window.__sessionDragId = null;
     tools.appendChild(btn('View messages',
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>',
       () => { if (session && typeof showJsonlViewer === 'function') showJsonlViewer(session); }));
+
+    // A dormant session has no surface to hold one, so it offers none.
+    const sidebarBtn = !openSessions.has(sessionId) ? null : btn('Session sidebar',
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>',
+      () => { if (typeof sessionSidebarToggle === 'function') sessionSidebarToggle(sessionId); });
+    if (sidebarBtn) {
+      sidebarBtn.dataset.sidebarSession = sessionId;
+      if (typeof sessionSidebarIsOpen === 'function') sidebarBtn.classList.toggle('active', sessionSidebarIsOpen(sessionId));
+      tools.appendChild(sidebarBtn);
+    }
 
     tools.appendChild(btn('Tasks for this session',
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',

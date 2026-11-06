@@ -2943,6 +2943,7 @@ body.restoring-sessions #restore-progress { display: flex; }
 }
 
 #terminal-messages-btn,
+#terminal-sidebar-btn,
 #terminal-tasks-btn,
 #terminal-variables-btn,
 #terminal-stop-btn {
@@ -2959,6 +2960,7 @@ body.restoring-sessions #restore-progress { display: flex; }
 }
 
 #terminal-messages-btn,
+#terminal-sidebar-btn,
 #terminal-tasks-btn,
 #terminal-variables-btn {
   color: #8a8aa0;
@@ -2969,6 +2971,7 @@ body.restoring-sessions #restore-progress { display: flex; }
 }
 
 #terminal-messages-btn:hover,
+#terminal-sidebar-btn:hover,
 #terminal-tasks-btn:hover,
 #terminal-variables-btn:hover {
   color: #c0c0d0;
@@ -3008,6 +3011,98 @@ body.restoring-sessions #restore-progress { display: flex; }
 }
 .terminal-container.grid-mode .xterm {
   padding: 6px 0 6px 6px;
+}
+/* The session sidebar (#817, spec 43). FitAddon subtracts .xterm's own padding, so that padding is the room it takes.
+   Nothing here applies in a grid card, and the grid's fit then sees the full width again. */
+.terminal-container.sidebar-open:not(.grid-mode) .xterm {
+  padding-right: var(--session-sidebar-width);
+}
+.terminal-container.sidebar-open:not(.grid-mode) .xterm-viewport {
+  right: var(--session-sidebar-width);
+}
+.terminal-container.conversation-container.sidebar-open:not(.grid-mode) {
+  padding-right: var(--session-sidebar-width);
+}
+.terminal-container.grid-mode .session-sidebar {
+  display: none;
+}
+.session-sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: var(--session-sidebar-width);
+  display: flex;
+  flex-direction: column;
+  background: #14141c;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  color: #c8c8d8;
+  font-size: 12px;
+}
+.ssb-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ssb-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  color: #a0a0b8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ssb-head > span { flex: 1; }
+.ssb-head-btn {
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: #8a8aa0;
+  cursor: pointer;
+  padding: 1px 5px;
+}
+.ssb-head-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e0e0ec; }
+.ssb-body { flex: 1; min-height: 0; overflow-y: auto; }
+.ssb-group { border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.ssb-group > summary { cursor: pointer; padding: 7px 8px; font-weight: 500; user-select: none; }
+.ssb-group-body { padding: 0 8px 8px; }
+.ssb-subhead { margin: 8px 0 3px; font-size: 10px; color: #6a6a80; }
+.ssb-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 4px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ssb-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
+.ssb-row:disabled { cursor: default; color: inherit; }
+.ssb-row-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssb-row-meta { flex-shrink: 0; font-size: 10px; color: #7a7a90; }
+.ssb-row[data-tone="failed"] .ssb-row-meta { color: #e06c75; }
+.ssb-row[data-tone="ok"] .ssb-row-meta { color: #3ecf5a; }
+.ssb-note { font-size: 11px; color: #7a7a90; padding: 2px 4px; }
+.ssb-meter { height: 5px; margin: 2px 4px 5px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden; }
+.ssb-meter > i { display: block; height: 100%; background: var(--status-running); }
+.ssb-figure { padding: 0 4px; }
+.pane-tool-btn.active { color: #e0e0ec; background: rgba(255, 255, 255, 0.1); }
+/* What is anchored to the container's right edge moves out from under it. */
+.terminal-container.sidebar-open:not(.grid-mode) .conversation-bg-pop {
+  right: calc(var(--session-sidebar-width) + 12px);
+}
+.terminal-container.sidebar-open:not(.grid-mode) .terminal-search-bar {
+  right: calc(var(--session-sidebar-width) + 28px);
 }
 
 .terminal-container.visible {

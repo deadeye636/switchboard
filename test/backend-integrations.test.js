@@ -221,6 +221,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/jsonl/document-card.js': [],
   'src/renderer/jsonl/document-viewer.js': [],
   'src/renderer/session/conversation-view.js': [],
+  'src/renderer/session/session-sidebar.js': [],
   'src/renderer/views/stats-view.js': [],
   'src/renderer/terminal/palette-core.js': [],
   'src/renderer/shell/command-palette.js': [],

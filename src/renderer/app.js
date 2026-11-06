@@ -2490,6 +2490,13 @@ async function reapplyGlobalSettings() {
       if (s && typeof showJsonlViewer === 'function') showJsonlViewer(s);
     });
   }
+  const sessionSidebarBtn = document.getElementById('terminal-sidebar-btn');
+  if (sessionSidebarBtn) {
+    sessionSidebarBtn.addEventListener('click', () => {
+      const s = activeSessionObject();
+      if (s && typeof sessionSidebarToggle === 'function') sessionSidebarToggle(s.sessionId);
+    });
+  }
   const sessionTasksBtn = document.getElementById('terminal-tasks-btn');
   if (sessionTasksBtn) {
     sessionTasksBtn.addEventListener('click', () => {

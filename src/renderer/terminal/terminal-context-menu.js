@@ -532,6 +532,7 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
   container.addEventListener('auxclick', swallowRightButton, { capture: true });
 
   container.addEventListener('contextmenu', (e) => {
+    if (e.target.closest && e.target.closest('.session-sidebar')) return; // not the terminal's right click
     if (terminalRightClickMode === 'default') return; // let xterm handle it natively
     // Capture-phase preventDefault + stopPropagation: xterm's contextmenu
     // listener is on a descendant element, so stopping here keeps it from
@@ -587,6 +588,7 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
   // same reason that one is: xterm finalises the selection after this mouseup.
   container.addEventListener('mouseup', (e) => {
     if (e.button !== 0 || terminalRightClickMode !== 'copy-on-select') return;
+    if (e.target.closest && e.target.closest('.session-sidebar')) return; // a click there selected nothing here
     setTimeout(() => {
       if (!terminal.hasSelection || !terminal.hasSelection()) return;
       const text = terminalCopyText(terminal);
@@ -600,6 +602,7 @@ function setupTerminalContextMenu(container, terminal, getSessionId, getHoveredL
   // pop the bar above the release point. Only in 'action-bar' mode.
   container.addEventListener('mouseup', (e) => {
     if (e.button !== 0 || terminalRightClickMode !== 'action-bar') return;
+    if (e.target.closest && e.target.closest('.session-sidebar')) return; // a click there selected nothing here
     const px = e.clientX;
     const py = e.clientY;
     // Defer so xterm has finalized the selection for this mouseup.
