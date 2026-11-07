@@ -407,3 +407,91 @@ test('chips: suspendGroups lifts the narrowing for the settings search and resto
   assert.equal(h.querySelectorAll('.plugins-row').length, 3);
   assert.equal(chips(h)[0].getAttribute('aria-pressed'), 'true');
 });
+
+// --- Content filter (#823 T4): `rowMatch`, debounced, tokened, never at mount ---
+
+function typeInto(win, h, text) {
+  const f = h.querySelector('.plugins-filter');
+  f.value = text;
+  f.dispatchEvent(new win.Event('input'));
+}
+const flush = () => new Promise(r => setImmediate(r));
+const shown = (h) => [...h.querySelectorAll('.plugins-row')].map(r => r.dataset.key).sort();
+
+test('content filter: a row passes by name or by the keys rowMatch answers, after the debounce', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { host: h, window: win } = host();
+  const asked = [];
+  const v = kit.mountView(h, view({ rowMatch: async (q) => { asked.push(q); return new Set(['c']); } }));
+  assert.deepEqual(asked, [], 'nothing is asked at mount');
+  typeInto(win, h, 'alp');
+  assert.deepEqual(shown(h), ['a'], 'the name matches at once');
+  t.mock.timers.tick(199);
+  assert.deepEqual(asked, [], 'still resting');
+  t.mock.timers.tick(1);
+  await flush();
+  assert.deepEqual(asked, ['alp']);
+  assert.deepEqual(shown(h), ['a', 'c'], 'the content hit joins the name hit');
+  v.clearFilter();
+  assert.equal(h.querySelectorAll('.plugins-row').length, 3);
+});
+
+test('content filter: typing again restarts the debounce, and a stale answer draws nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { host: h, window: win } = host();
+  const pending = [];
+  kit.mountView(h, view({ rowMatch: (q) => new Promise((res) => { pending.push({ q, res }); }) }));
+  typeInto(win, h, 'zz');
+  t.mock.timers.tick(150);
+  typeInto(win, h, 'zzz');
+  t.mock.timers.tick(150);
+  assert.equal(pending.length, 0, 'the first timer was replaced');
+  t.mock.timers.tick(50);
+  assert.deepEqual(pending.map(p => p.q), ['zzz']);
+  typeInto(win, h, 'zzzz');   // the answer for zzz is now stale
+  pending[0].res(['a']);
+  await flush();
+  assert.deepEqual(shown(h), [], 'a stale answer draws nothing');
+});
+
+test('content filter: an empty or one-character filter asks nothing; a rejection falls back to names', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { host: h, window: win } = host();
+  let calls = 0;
+  kit.mountView(h, view({ rowMatch: async () => { calls += 1; throw new Error('boom'); } }));
+  typeInto(win, h, 'a');
+  t.mock.timers.tick(500);
+  typeInto(win, h, '');
+  t.mock.timers.tick(500);
+  assert.equal(calls, 0);
+  typeInto(win, h, 'gamm');
+  t.mock.timers.tick(200);
+  await flush();
+  assert.equal(calls, 1);
+  assert.deepEqual(shown(h), ['c']);
+});
+
+test('content filter: the previous answer stays applied until the next arrives; below two characters it goes', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const { host: h, window: win } = host();
+  const pending = [];
+  kit.mountView(h, view({ rowMatch: (q) => new Promise((res) => { pending.push({ q, res }); }) }));
+  typeInto(win, h, 'zz');
+  t.mock.timers.tick(200);
+  pending[0].res(['c']);
+  await flush();
+  assert.deepEqual(shown(h), ['c']);
+  typeInto(win, h, 'zzz');
+  assert.deepEqual(shown(h), ['c'], 'no flicker while the next answer is out');
+  t.mock.timers.tick(200);
+  pending[1].res([]);
+  await flush();
+  assert.deepEqual(shown(h), []);
+  pending.length = 0;
+  typeInto(win, h, 'zz');
+  t.mock.timers.tick(200);
+  pending[0].res(['c']);
+  await flush();
+  typeInto(win, h, 'z');
+  assert.deepEqual(shown(h), [], 'one character: the old answer is dropped');
+});

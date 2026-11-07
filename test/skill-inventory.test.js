@@ -292,3 +292,16 @@ test('each row names the CLIs that reported it (#824): a driver folds into its o
   assert.deepEqual(release.clis, [{ key: 'owner', label: 'Owner CLI' }, { key: 'other', label: 'Other CLI' }]);
   assert.deepEqual(rows.find(r => r.name === 'house-style').clis, [{ key: 'switchboard', label: 'Switchboard' }]);
 });
+
+test('skillFiles (the content filter) lists only skills the read door admits (#823 T4)', () => {
+  const shared = tmpdir('shared');
+  writeSkill(shared, 'theirs');
+  const data = tmpdir('data');
+  writeSkill(path.join(data, 'skills'), 'mine');
+  setup({ backends: [stubBackend({ id: 'one', label: 'One', globalDir: shared })], dataDir: data });
+  const listed = skills.getSkillInventory({}).skills;
+  assert.equal(listed.length, 2);
+  const admitted = skills.skillFiles({});
+  assert.deepEqual(admitted.map(f => f.id), listed.filter(r => r.editable).map(r => r.id), 'the same bar as the read door');
+  assert.ok(admitted.length < listed.length, 'a skill the door refuses is not matched');
+});

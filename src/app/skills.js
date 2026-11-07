@@ -400,6 +400,15 @@ function getSkillInventory({ projectPath = null } = {}) {
   return { skills, skillsDir: switchboardSkillsDir(projectPath) };
 }
 
+/**
+ * The id and file of every skill the read door admits, for the content filter (#823 T4): main reads them, the window sees
+ * ids. The bar is `readSkill`'s own (`doorCheck`), so the filter never answers about a file the door refuses.
+ */
+function skillFiles({ projectPath = null } = {}) {
+  const door = doorCheck(projectPath);
+  return collectSkillInventory({ projectPath }).filter(r => door(r)).map(r => ({ id: skillId(r.filePath), filePath: r.filePath }));
+}
+
 // --- The skill editor's door (#803 T5, owner decisions E11, E13, E14) ------------------------------------
 //
 // A skill is edited on its own detail page in Settings → Plugins, not in the sidebar's Agent Files (E11). The
@@ -691,6 +700,6 @@ function registerIpc(ipcMain) {
 
 module.exports = {
   init, registerIpc, getSkills, getSkillInventory, getSkillDetail, switchboardSkillFiles, readSkill, saveSkill,
-  getSkillPlaces, createSkill, deleteSkill, projectAllowed,
+  getSkillPlaces, createSkill, deleteSkill, projectAllowed, skillFiles,
   _collectSkillInventory: collectSkillInventory, _switchboardSkillsDir: switchboardSkillsDir,
 };

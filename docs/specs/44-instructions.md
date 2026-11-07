@@ -116,9 +116,14 @@ are `src/renderer/panels/plugins-resources.js` over the Skills page's builder; s
 has the page. The window calls `get-resource-inventory` with the view name, reads and saves through the id doors passing
 the view, and draws `declines` as one line per CLI. No new setting.
 
+**The content filter (T4).** The filter of the three views (and of Skills, P5) matches name OR file content, decided in
+main by `match-resource-content(view, projectPath, query)` (`matchResourceContent` in preload) in the inventory module; spec 40
+("Content filter") has the bounds, the memo and the kit hook. The settings-wide search does not use it. The Instructions
+view (T6) will pass the same hook with its own view name.
+
 ## Known gaps
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The content filter, the Instructions inventory and category, the deep link, the sidebar group, and removing the Agent
+- The Instructions inventory and category, the deep link, the sidebar group, and removing the Agent
   Files tab are later steps of the plan and are not built.

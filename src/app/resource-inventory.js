@@ -20,6 +20,11 @@
 // `backend-resources.js`'s (its own re-listing, containment on real paths, `safe-write.js` with the baseline);
 // `editable` / `deletable` / `creatable` on a row are the predicates the doors use, so nothing is offered that
 // a door then refuses. A hook is listed and may be read, never saved or deleted; a plugin's file is never deleted.
+//
+// The CONTENT FILTER (#823 T4, P4/P5) is here too: `match-resource-content` answers which listed items of a view
+// (the three here and the Skills page) hold a text, so the window's filter matches name AND file content without the
+// window ever receiving file text. It resolves ids from a fresh listing only, reads asynchronously and bounded
+// (`CONTENT_LIMITS`), and remembers lowercased text by path + mtime + size in an LRU, so a longer query reads nothing.
 'use strict';
 
 const crypto = require('crypto');
@@ -343,6 +348,94 @@ async function createResourceItem({ view, placeId, name, projectPath = null } = 
   return { ok: true, id: row ? row.id : null };
 }
 
+// --- The content filter (#823 T4) ------------------------------------------------------------------------
+
+/** Bounds of one match call and of the memo. A file is read up to `fileBytes`; more files than `files` are not looked at. */
+const CONTENT_LIMITS = { fileBytes: 256 * 1024, files: 600, concurrency: 8, cacheBytes: 8 * 1024 * 1024, minQuery: 2, maxQuery: 200 };
+// Text only. '' stays: `path.extname` of a dotfile such as `.cursorrules` is '' (so are extensionless instruction files);
+// a binary behind it is caught by the NUL check in `lowerText`, as `readResource` does.
+const CONTENT_EXTENSIONS = new Set(['', '.md', '.markdown', '.mdc', '.txt', '.json', '.toml', '.yaml', '.yml', '.rules',
+  '.js', '.mjs', '.cjs', '.ts', '.py', '.sh', '.ps1']);
+
+// path key -> { mtimeMs, size, text (lowercased), bytes }. A Map is an LRU by delete-and-set; the oldest is first.
+const contentMemo = new Map();
+let contentMemoBytes = 0;
+
+function memoPut(key, entry, limits) {
+  const old = contentMemo.get(key);
+  if (old) { contentMemoBytes -= old.bytes; contentMemo.delete(key); }
+  if (entry.bytes > limits.cacheBytes) return;
+  contentMemo.set(key, entry);
+  contentMemoBytes += entry.bytes;
+  for (const [k, v] of contentMemo) {
+    if (contentMemoBytes <= limits.cacheBytes) break;
+    contentMemo.delete(k);
+    contentMemoBytes -= v.bytes;
+  }
+}
+
+/** The lowercased head of one file, from the memo while its mtime and size are unchanged; null when unreadable. */
+async function lowerText(filePath, limits) {
+  let st = null;
+  try { st = await fs.promises.stat(filePath); } catch { return null; }
+  if (!st.isFile()) return null;
+  const key = pathKey(filePath);
+  const hit = contentMemo.get(key);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+    contentMemo.delete(key);
+    contentMemo.set(key, hit);
+    return hit.text;
+  }
+  let text = '';
+  let handle = null;
+  try {
+    handle = await fs.promises.open(filePath, 'r');
+    const buf = Buffer.alloc(Math.min(st.size, limits.fileBytes));
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    const head = buf.subarray(0, bytesRead);
+    // A NUL byte means binary: remembered as empty text, so it is neither matched nor read again.
+    text = head.includes(0) ? '' : head.toString('utf8').toLowerCase();
+  } catch { return null; } finally { if (handle) await handle.close().catch(() => {}); }
+  memoPut(key, { mtimeMs: st.mtimeMs, size: st.size, text, bytes: text.length * 2 }, limits);
+  return text;
+}
+
+/**
+ * Which of `files` ([{ id, filePath }]) hold `query` (case-insensitive substring, two or more characters): the ids.
+ * At most `limits.files` files are looked at, `limits.concurrency` at a time, text extensions only.
+ */
+async function matchFiles(files, query, limits = CONTENT_LIMITS) {
+  const q = typeof query === 'string' ? query.trim().toLowerCase().slice(0, limits.maxQuery) : '';
+  if (q.length < limits.minQuery) return [];
+  const todo = files.filter(f => CONTENT_EXTENSIONS.has(path.extname(f.filePath).toLowerCase())).slice(0, limits.files);
+  const ids = [];
+  let next = 0;
+  const worker = async () => {
+    while (next < todo.length) {
+      const f = todo[next++];
+      const text = await lowerText(f.filePath, limits);
+      if (text && text.includes(q)) ids.push(f.id);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limits.concurrency, todo.length) }, worker));
+  return ids;
+}
+
+/**
+ * The ids of the items of `view` (agents, commands, rules or skills) whose file holds `query`: `{ ok, ids }`. The files
+ * come from a fresh listing only, so an id the window invents matches nothing, and no text and no path leaves main.
+ */
+async function matchResourceContent({ view, projectPath = null, query } = {}) {
+  const isSkills = view === 'skills';
+  if (!isSkills && !Object.prototype.hasOwnProperty.call(RESOURCE_VIEWS, view)) return { ok: false, reason: 'Unknown view.' };
+  if (!skills.projectAllowed(projectPath)) return { ok: false, reason: 'That project is not on the list.' };
+  const files = isSkills
+    ? skills.skillFiles({ projectPath })
+    // Only what a listing reaches: the same bar the read door uses.
+    : collect(view, projectPath).rows.filter(r => r.owners.some(o => o.reach)).map(r => ({ id: r.id, filePath: r.filePath }));
+  return { ok: true, ids: await matchFiles(files, query) };
+}
+
 /** Wire the IPC surface. main.js hands in ipcMain; this file never requires electron. */
 function registerIpc(ipcMain) {
   const idOf = (id) => (typeof id === 'string' ? id : '');
@@ -363,6 +456,9 @@ function registerIpc(ipcMain) {
     id: idOf(id), projectPath: projectOf(projectPath), view: optView(view),
   }));
   ipcMain.handle('get-resource-places', (_e, view, projectPath) => getResourcePlaces({ view: viewOf(view), projectPath: projectOf(projectPath) }));
+  ipcMain.handle('match-resource-content', (_e, view, projectPath, query) => matchResourceContent({
+    view: viewOf(view), projectPath: projectOf(projectPath), query: typeof query === 'string' ? query : '',
+  }));
   ipcMain.handle('create-resource-item', (_e, view, placeId, name, projectPath) => createResourceItem({
     view: viewOf(view), placeId: idOf(placeId), name: typeof name === 'string' ? name : '', projectPath: projectOf(projectPath),
   }));
@@ -371,4 +467,5 @@ function registerIpc(ipcMain) {
 module.exports = {
   init, registerIpc, getResourceInventory, RESOURCE_VIEWS, _collect: collect,
   readResourceItem, saveResourceItem, deleteResourceItem, getResourcePlaces, createResourceItem,
+  matchResourceContent, CONTENT_LIMITS, _matchFiles: matchFiles, _memoSize: () => contentMemo.size,
 };

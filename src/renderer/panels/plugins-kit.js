@@ -15,6 +15,11 @@
 // A view may also hand a `rowGroups(row)` hook (with a `filterKey`): the kit then draws a row of toggle chips, one
 // per group (a CLI), with counts, ANDed with the text filter and kept per view across a re-mount (#824, below).
 //
+// A view may also hand an async `rowMatch(query) -> Promise<Set|Array of row keys>` (#823 T4): the rows whose CONTENT
+// holds the text, decided by the view (in main; the window never gets file text). A row then passes the filter when its
+// name matches OR its key is in the answer. The kit calls it only for a non-empty filter of two or more characters,
+// 200 ms after the last keystroke, and draws an answer only if it is still the latest and for the text now typed.
+//
 // Every string goes in with textContent (catalog and registry text is external input). Each row is a
 // `.settings-field`, so the settings search sees it. The kit knows no view, no backend and no IPC: a view hands
 // it rows and three callbacks. Loaded in settings.html, before the views that use it; UMD so jsdom tests can
@@ -71,6 +76,10 @@
   // by the spec's `filterKey` (fallback: its title); a Set of group keys. Not persisted beyond the window.
   const chipSelections = new Map();
 
+  // How long the filter text rests before the view's `rowMatch` is asked (#823 T4), and the shortest text it is asked for.
+  const CONTENT_DEBOUNCE_MS = 200;
+  const CONTENT_MIN_QUERY = 2;
+
   /**
    * Mount one view into `host` (its previous content is replaced).
    *
@@ -82,6 +91,7 @@
    *   rowSwitch(row)? -> { checked, disabled?, label, onChange(checked) } | null
    *   rowDisabled(row)? -> reason string | null,
    *   match(row, query)?,                                     // filter; default: label + meta
+   *   rowMatch(query)? -> Promise<Set|Array>,                 // keys of the rows whose content holds `query` (#823 T4)
    *   rowGroups(row)? -> [{ key, label }],                    // chips (#824): the groups a row belongs to, e.g. its CLI
    *   filterKey?,                                             // names the view in the chip store (default: title)
    *   renderDetail(row, container, back),                     // fills the detail page
@@ -105,6 +115,11 @@
     let lastFocusKey = null;
     // The settings-wide search looks over every row, so while it runs the chips narrow nothing (#824).
     let groupsSuspended = false;
+    // The answer of `rowMatch` for the text it was asked about: { query, keys: Set } or null. A token makes a stale
+    // answer draw nothing; the timer is the debounce.
+    let contentHit = null;
+    let contentToken = 0;
+    let contentTimer = null;
     const selKey = () => String(current.filterKey || current.title || '');
     const selection = () => {
       const k = selKey();
@@ -260,9 +275,37 @@
       return item;
     }
 
+    function cancelContent() {
+      contentToken += 1;
+      if (contentTimer) { clearTimeout(contentTimer); contentTimer = null; }
+    }
+    function dropContent() {
+      cancelContent();
+      contentHit = null;
+    }
+
+    // Ask the view which rows hold the text, once the typing rests. Never for an empty or one-character filter. The
+    // previous answer stays applied while the next is on its way (no flicker); it goes on clear or below two characters.
+    function scheduleContent() {
+      cancelContent();
+      const query = filterText.trim().toLowerCase();
+      if (typeof current.rowMatch !== 'function' || query.length < CONTENT_MIN_QUERY) { contentHit = null; return; }
+      const token = contentToken;
+      contentTimer = setTimeout(async () => {
+        contentTimer = null;
+        let keys = null;
+        try { keys = await current.rowMatch(query); } catch { keys = null; }
+        if (token !== contentToken || !rootEl.isConnected) return;
+        contentHit = { query, keys: new Set(keys ? [...keys].map(String) : []) };
+        if (!detailKey) drawList();
+      }, CONTENT_DEBOUNCE_MS);
+    }
+
     function drawList() {
       const query = filterText.trim().toLowerCase();
-      const match = current.match || defaultMatch;
+      const byName = current.match || defaultMatch;
+      const byContent = contentHit && query ? contentHit.keys : null;
+      const match = (r, q, v) => byName(r, q, v) || !!(byContent && byContent.has(String(current.rowKey(r))));
       body.replaceChildren();
       const groups = groupList();
       // Only keys that are still a chip count; with fewer than two groups there is no chip row and no filter.
@@ -347,7 +390,7 @@
       back.focus();
     }
 
-    filter.addEventListener('input', () => { filterText = filter.value; drawList(); });
+    filter.addEventListener('input', () => { filterText = filter.value; scheduleContent(); drawList(); });
 
     body.addEventListener('keydown', (e) => {
       const buttons = rowButtons();
@@ -393,6 +436,7 @@
         if (!filterText) return;
         filterText = '';
         filter.value = '';
+        dropContent();
         if (!detailKey) drawList();
       },
       openDetail,
@@ -403,6 +447,8 @@
       refresh(nextView) {
         current = nextView || current;
         drawHead();
+        // The rows may have changed (a new item, a deleted one): what the content answer said is asked again.
+        if (contentHit || contentTimer) scheduleContent();
         if (detailKey) {
           if (allRows().some(r => String(current.rowKey(r)) === detailKey)) return;
           // The row is gone. A page holding unsaved work stays, and its view says what happened.

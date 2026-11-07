@@ -52,6 +52,7 @@
         readError: `The ${v.plural} could not be read.`,
         filterPlaceholder: `Filter ${v.plural}`,
         filterKey: `resources-${view}`,
+        contentView: view,
         emptyText: `No ${v.plural} found for any CLI here.`,
         read: async () => {
           let res = null;

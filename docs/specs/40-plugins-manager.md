@@ -147,7 +147,7 @@ E1 to E10 were put to the owner with options; every one was answered as recommen
 | E14 | (2026-11-03) A `skillsDir` at, inside or above a backend's own directory is **refused** for editing — those files belong to that CLI and its own door decides. Also refused, for the editor and the picker's walk alike, on the real path: a network path, a filesystem root (a junction to one included), the home directory and anything above it. |
 | E15 | (2026-11-03) E12 takes out of the sidebar what the Skills view replaces, and nothing more: the `skill` kind. Commands, agents, rules and Hermes' skill bundles stay in Agent Files, because no view here lists them. First the Skills view gets "New skill" (the sidebar's only way to create one), then the sidebar drops skills. |
 | E16 | (2026-11-03) The Skills page also gets **Delete**, which the sidebar offered: for a CLI's skill where Edit is offered, after a confirmation. The app's own skills are not deleted here, and neither is a plugin's (O5, 2026-11-03): a backend marks a listed folder a plugin installed and keeps with `fromPlugin` (Claude, Codex), and no Delete is offered there, because the plugin's next update would bring a deleted skill back. |
-| E17 | (2026-11-03) Accepted: with skills gone from Agent Files, the app search no longer finds text inside a skill. The Skills view's filter matches name and source only. |
+| E17 | (2026-11-03) Accepted: with skills gone from Agent Files, the app search no longer finds text inside a skill. The Skills view's filter matches name and source only. **Superseded 2026-11-07 (#823 P5, T4):** the Skills filter matches name and source OR file content, the same hook as Agents, Commands and Rules (see "Content filter" below). |
 | E6 | Plugin state is read-only; Switchboard does not write a CLI's plugin settings. |
 | E7 | Five nav items under a "Plugins" head, not a tab strip. |
 | E8 | The global window's MCPs view explains the per-project list and offers a project picker. |
@@ -263,14 +263,46 @@ the doors are spec 44's; this section is the page.
   text refuses Cancel, Save, Apply and the settings search as it does on the Skills page.
 - **A redraw starts from the rows on screen**, never from the first read: the New probe resolves after the list is drawn
   and must not bring back a row deleted or created in between.
-- **Not here yet.** The filter matches name and source only; matching file content is #823 T4.
+- **Content filter (#823 T4).** See the section "Content filter" below; it covers these three views and Skills.
+
+## Content filter (#823 T4)
+
+The filter box of Skills, Agents, Commands and Rules matches a row's name and source (as before) OR the text inside its
+file. Main does the matching; the window never receives file text.
+
+- **Kit hook** (`plugins-kit.js`): optional async `rowMatch(query) -> Promise<Set|Array of row keys>`. A row passes when
+  its name/source matches or its key is in the answer. The kit asks only for a non-empty filter of two or more characters,
+  200 ms after the last keystroke (a new keystroke replaces the timer), never at mount, and draws an answer only when it is
+  still the latest and for the text now typed (a token); a rejected call leaves the name matches alone. `clearFilter`
+  and `refresh` drop or re-ask the answer, so a created or deleted item is not judged by an old set.
+- **Main** (`match-resource-content(view, projectPath, query)` in `src/app/resource-inventory.js`, preload
+  `matchResourceContent`): `view` is `agents`, `commands`, `rules` or `skills`; the project must be on the register. The files
+  come from a fresh listing only (skills through `skills.skillFiles`, the others the rows a listing reaches), so an id
+  nobody listed matches nothing. Answer `{ ok, ids }`: ids and nothing else.
+- **Bounds** (`CONTENT_LIMITS`): the first 256 KB of a file, text extensions only, at most 600 files per call, 8 reads at
+  a time, a query of at least two characters (cut at 200). Files are read asynchronously (`fs.promises`).
+- **Memo**: lowercased text by real-path key + mtime + size, in an LRU of at most 8 MB, so a longer query rereads nothing and
+  a changed file is read again. Each call still lists the view and stats each file (no text read); the listing is not memoised.
+  Measured (Windows, generated store of 300 Markdown files of about 9 KB, one call, event-loop delay sampled at 1 ms): cold
+  about 0.6-0.8 s wall, warm (memo) about 0.36 s wall, the main thread held for at most about 3.4 ms in the worst run. The
+  wall time is asynchronous file system work (the stat per file and the listing), not a blocked loop. A match reads no
+  file text for a longer query, but still pays the listing and the stats.
+- **Skills** are matched only for files the Skills read door admits (`skills.skillFiles` uses `doorCheck`), so the filter
+  never answers about a file the door refuses. A file with a NUL byte in its first 256 KB is binary: never matched.
+  Extensionless files (and dotfiles such as `.cursorrules`, whose `extname` is empty) are read, guarded by that NUL check.
+- **No flicker while typing**: the previous content answer stays applied until the next arrives; it is dropped on clear
+  and when the text falls below two characters.
+- **The settings-wide search does not use it.** That search (#824) only shows or hides rows already drawn, matching their
+  text synchronously, with the views' own filters cleared and the chips suspended. Asking main for file content on every
+  keystroke of a screen-wide search, across four views, would put file reads behind a search box that is not about files; the
+  views' own filters are where content is found.
 
 ## Known gaps
 
 - **E12 is narrowed by E15.** The sidebar's Agent Files no longer lists skills, but still lists commands, agents,
   rules and Hermes' skill bundles: no view of the Plugins manager lists those.
-- **The app search does not find text inside a skill** (E17, accepted). Agent Files indexed it; the Skills view's
-  filter matches name and source only.
+- **The app search does not find text inside a skill** (E17, accepted; the Skills view's own filter does since #823 T4,
+  see "Content filter"). Agent Files indexed it for the main window's search; that search still does not.
 - **The window's title-bar X does not ask.** It hides the settings window, and unsaved skill text is lost. The same is
   true of any unsaved setting there; it predates this spec.
 - **The two hand-offs to a project's window have no panel test** of the refusal; Cancel, Save, Apply, Hide, Remove

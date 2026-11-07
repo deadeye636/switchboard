@@ -49,7 +49,7 @@ asker per CLI, no backend id in an answer. `open-plugin` takes a row's id and op
 each descriptor's `listResources`/`expandResource`, one asker per CLI, `RESOURCE_VIEWS` is the one kind-to-view table, a CLI
 with nothing for a view lands in `declines`; no path and no backend id field leave it, the owner CLI is an opaque `cli.key`.
 It is also the doors for those rows: `read-resource-item` / `save-resource-item` / `delete-resource-item` / `create-resource-item`
-take an inventory id, re-list on every call and delegate to `backend-resources.js`; a hook is read-only, a plugin's file never deleted),
+take an inventory id, re-list on every call and delegate to `backend-resources.js`; a hook is read-only, a plugin's file never deleted; `match-resource-content` answers which items of those views and of Skills hold a text, reading the listed files bounded and memoised, and returns ids only — #823 T4),
 `forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the

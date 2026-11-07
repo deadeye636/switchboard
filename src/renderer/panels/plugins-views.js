@@ -414,7 +414,8 @@
   // One list-to-detail page over an editable item: the Skills page and the Agents, Commands and Rules pages are the
   // same page with another door. `cfg` = { io, reading, readError, filterPlaceholder, filterKey, emptyText,
   // read() -> { rows, declines? } | null, sections(list), renderFacts(row, container), readOnlyText(row),
-  // deleteDetails(row), probeCreate()? -> Promise<boolean> } (without `probeCreate`, New is always offered).
+  // deleteDetails(row), probeCreate()? -> Promise<boolean>, contentView? } (without `probeCreate`, New is always offered).
+  // `contentView` names the view main matches file content for (#823 T4): the filter then matches name OR content.
   async function mountItemView(host, ctx, cfg) {
     const io = cfg.io;
     host.textContent = '';
@@ -474,6 +475,11 @@
       filterKey: cfg.filterKey,
       // An item file can be reported by several CLIs (`clis`), so it sits under each of their chips.
       rowGroups: (r) => (Array.isArray(r.clis) ? r.clis : []),
+      // Asked by the kit only for a typed filter, debounced; main reads the files, the window gets ids.
+      rowMatch: cfg.contentView ? async (q) => {
+        const res = await api().matchResourceContent(cfg.contentView, ctx.projectPath || null, q);
+        return res && res.ok && Array.isArray(res.ids) ? res.ids : [];
+      } : undefined,
       emptyText: cfg.emptyText,
       actions: canCreate ? [{ label: `New ${io.noun}`, onClick: () => newItemForm(host, ctx, afterCreate, io) }] : [],
       sections: cfg.sections(list),
@@ -558,6 +564,7 @@
       readError: 'The skills could not be read.',
       filterPlaceholder: 'Filter skills',
       filterKey: 'skills',
+      contentView: 'skills',
       emptyText: 'No skills found for any CLI here.',
       read: async () => {
         const rows = await readSkillRows(ctx);
