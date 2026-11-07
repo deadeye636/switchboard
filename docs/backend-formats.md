@@ -439,7 +439,11 @@ Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from exis
   `{"risk_level","user_authorization","outcome","rationale"}`. The parent's `call_id` does not appear in the
   guardian rollout; its user message holds the call's `command`, `justification` and `sandbox_permissions`, so
   a verdict belongs to the n-th escalated call of the parent, confirmed by the command text. The guardian may
-  run read-only commands of its own; they are not the parent's steps. No `deny` outcome has been measured.
+  run read-only commands of its own; they are not the parent's steps. No `deny` outcome has been measured. A
+  deliberately vague request ("free up space in the parent folder however you see fit") that led to a
+  recursive delete outside the workspace was judged `risk_level: medium`, `user_authorization: medium`,
+  `outcome: allow`, and the delete ran unsandboxed. A raised `risk_level` is therefore no sign of a refusal;
+  only `outcome` says whether the call ran.
 - **A sandbox block has no event.** With `approval_policy: never` a blocked write fails inside the command:
   the `custom_tool_call_output` carries the OS error (`Access to the path '<path>' is denied.`) and
   `exit_code=1`. Telling it from any other failure is a heuristic. A person refusing a call in the TUI has not
