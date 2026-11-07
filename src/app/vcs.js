@@ -330,6 +330,36 @@ function readConfig() {
   return { enabled, pollMs: pollSeconds * 1000, countUntracked: g.vcsCountUntracked !== false };
 }
 
+// Where a session runs, for the session sidebar's Repository group (#821, spec 43): the repository, the branch and,
+// in a linked worktree, the worktree. The place comes from the provider's `describeRepo` (filesystem only). The branch
+// comes from the poller's cache when it holds this cwd, else from one status run now: the group reads only when it is
+// open and in view, so that is one spawn per open or reload, and it runs whether or not the chip polls (owner
+// decision, 2026-11-07). `fresh` (the group's reload button) skips the cache. A directory under no VCS answers
+// `vcs: null`, and the group leaves its rows out.
+async function describeCwd(cwd, { fresh = false } = {}) {
+  if (typeof cwd !== 'string' || !cwd) return { ok: false };
+  const provider = vcs.detect(cwd);
+  if (!provider) return { ok: true, vcs: null };
+  let where = null;
+  try { where = typeof provider.describeRepo === 'function' ? provider.describeRepo(cwd) : null; } catch { where = null; }
+  let summary = !fresh && scheduler ? scheduler.getCached(cwd) : null;
+  if (!summary && !stopped) {
+    summary = await runStatusReal(provider, cwd, { cap: PARSE_CAP, countUntracked: readConfig().countUntracked });
+  }
+  const repoRoot = where ? (where.mainRoot || where.root) : null;
+  return {
+    ok: true,
+    vcs: provider.label,
+    // A repository at a drive root has no folder name; the path stands in.
+    repo: repoRoot ? { name: path.basename(repoRoot) || repoRoot, path: repoRoot } : null,
+    worktree: where && where.mainRoot ? { name: path.basename(where.root) || where.root, path: where.root } : null,
+    branch: summary ? summary.branch : null,
+    state: summary ? summary.state : null,
+    ahead: summary ? summary.ahead : null,
+    behind: summary ? summary.behind : null,
+  };
+}
+
 function pushStatus(cwd, summary) {
   const w = ctx && ctx.getMainWindow && ctx.getMainWindow();
   if (w && !w.isDestroyed()) w.webContents.send('vcs-status-changed', { cwd, summary });
@@ -508,6 +538,8 @@ function registerIpc(ipc) {
   });
 
   ipc.handle('vcs-status', (_event, cwd) => (scheduler ? scheduler.getCached(cwd) : null));
+
+  ipc.handle('vcs-describe', (_event, cwd, opts) => describeCwd(cwd, { fresh: !!(opts && opts.fresh === true) }));
 
   ipc.handle('vcs-refresh', (_event, cwd) => {
     if (scheduler && typeof cwd === 'string' && cwd) scheduler.refresh(cwd);

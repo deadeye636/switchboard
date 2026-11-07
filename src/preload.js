@@ -335,6 +335,8 @@ contextBridge.exposeInMainWorld('api', {
   // VCS chip (#277): the renderer reports which repo cwds are on screen; main pushes status back.
   vcsWatch: (cwds) => ipcRenderer.send('vcs-watch', cwds),
   vcsStatus: (cwd) => ipcRenderer.invoke('vcs-status', cwd),
+  // The session sidebar's Repository group (#821): repository, branch and worktree of one cwd.
+  vcsDescribe: (cwd, opts) => ipcRenderer.invoke('vcs-describe', cwd, opts),
   vcsRefresh: (cwd) => ipcRenderer.invoke('vcs-refresh', cwd),
   onVcsStatusChanged: (cb) => ipcRenderer.on('vcs-status-changed', (_e, payload) => cb(payload)),
   openChangesWindow: (cwd, label) => ipcRenderer.send('open-changes-window', { cwd, label }),

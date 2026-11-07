@@ -49,6 +49,24 @@ function detect(cwd) {
   return findRepo(cwd) != null;
 }
 
+// Where a working directory sits (#821): the checkout's root, and the main repository's root when that checkout is a
+// linked worktree, else null. Filesystem only, no spawn. A linked worktree's gitdir holds a `commondir` file naming the
+// main repository's git directory (relative to the gitdir); a submodule's gitdir has none, so it is no worktree.
+function describeRepo(cwd) {
+  const repo = findRepo(cwd);
+  if (!repo) return null;
+  let mainRoot = null;
+  try {
+    const common = fs.readFileSync(path.join(repo.gitDir, 'commondir'), 'utf8').trim();
+    if (common) {
+      const commonDir = path.resolve(repo.gitDir, common);
+      // A bare main repository has no working tree to name; the worktree is then the only checkout there is.
+      if (path.basename(commonDir) === '.git') mainRoot = path.dirname(commonDir);
+    }
+  } catch { /* no commondir: a plain checkout or a submodule */ }
+  return { root: repo.root, mainRoot };
+}
+
 // In-progress operation from `.git/` markers — filesystem only, no spawn.
 function detectState(cwd) {
   const repo = findRepo(cwd);
@@ -256,6 +274,7 @@ module.exports = {
   netFree: true,               // the status path never touches the network (parity-asserted)
   detect,
   findRepo,
+  describeRepo,
   detectState,
   statusArgs,
   worktreeStatusArgs,

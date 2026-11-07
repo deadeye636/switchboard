@@ -632,7 +632,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   installed. *Instructions* is a category of its own in both settings windows: the global window shows the
   instruction, memory and settings files that apply everywhere, a project window the project's, each page
   pointing to the other; a project's work files are a section there. The filter of these views and of Skills
-  matches the name or the file content, decided in the main process. The session sidebar gets an
+  matches the name or the file content, decided in the main process. The Instructions page narrows by CLI and,
+  in a second row of chips, by kind. The session sidebar gets an
   Instructions group with what applies to that session; a click opens the file read-only, its Edit button opens
   the file's page in Settings. Handoff packets stay in the handoff picker. Spec:
   [`specs/44-instructions.md`](specs/44-instructions.md).
@@ -966,8 +967,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   terminal (right-click / shortcut). Jump to the transcript source, or open/start the live
   session from a task. Opened from the project header or per-session from the terminal toolbar;
   session cards show an open-task count badge and the project task icon highlights on open tasks.
-- **Session sidebar** (#817, spec 43) — one per session or pane, collapsible, with Tasks & notes, Handoffs, Context and
-  Connectors as groups that collapse on their own. Its state survives a restart. On a Claude session driven over a pipe,
+- **Session sidebar** (#817, spec 43) — one per session or pane, collapsible, with Repository (repository, branch with
+  ahead/behind, worktree; #821), Tasks & notes, Handoffs, Instructions, Context and Connectors as groups that collapse on
+  their own. Its state survives a restart. On a Claude session driven over a pipe,
   Context breaks the fill down by category, memory file, skill, custom agent and MCP tool (#758). One row pattern (#822):
   a click inserts into the session's prompt through the pickers' own path (Shift leaves the template out), hover buttons
   open, copy or edit, a memory file opens read-only and an MCP server opens the server manager.

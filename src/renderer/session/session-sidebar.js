@@ -21,7 +21,8 @@ const SESSION_SIDEBAR_KEY = 'sessionSidebar';
 const SESSION_SIDEBAR_WIDTH = { min: 200, default: 280, max: 560 };
 const SESSION_SIDEBAR_KEEP = 300;
 // What a session shows before anyone has chosen: the cheap ones. Handoffs, instructions and connectors each read something.
-const SESSION_SIDEBAR_OPEN_GROUPS = ['tasks', 'context'];
+// The repository costs a filesystem walk and, when the poller does not hold the directory, one status run (#821).
+const SESSION_SIDEBAR_OPEN_GROUPS = ['repository', 'tasks', 'context'];
 const SESSION_SIDEBAR_ROWS = 30;
 
 // --- The stored state: pure, and exported at the end for the tests. ---
@@ -232,10 +233,32 @@ function sidebarItemHtml(model) {
   return `<div class="ssb-item">${row}<span class="ssb-acts">${buttons}</span></div>`;
 }
 
+// The Repository group's rows (#821, spec 43), from main's `vcsDescribe` answer: the repository, the branch with what
+// it is ahead or behind, and the worktree when the session runs in one. Null for a directory under no VCS: the group
+// then says so instead of drawing rows. Each row is `{ main, meta, title }`.
+function repositoryRows(answer) {
+  if (!answer || !answer.ok || !answer.vcs) return null;
+  const rows = [];
+  if (answer.repo) rows.push({ main: answer.repo.name, meta: 'repository', title: answer.repo.path });
+  const counts = [answer.ahead > 0 ? `↑${answer.ahead}` : '', answer.behind > 0 ? `↓${answer.behind}` : ''].filter(Boolean).join(' ');
+  const busy = answer.state && answer.state !== 'detached' ? answer.state : '';
+  if (answer.branch) rows.push({ main: answer.branch, meta: [counts, busy].filter(Boolean).join(' · ') || 'branch', title: `${answer.vcs} branch` });
+  // A rebase detaches HEAD, so it arrives with no branch and the state `rebasing`; a plain detached HEAD says `detached`.
+  else if (answer.state) rows.push({ main: 'detached HEAD', meta: busy || 'branch', title: `${answer.vcs}: no branch is checked out` });
+  if (answer.worktree) rows.push({ main: answer.worktree.name, meta: 'worktree', title: answer.worktree.path });
+  return rows;
+}
+
+// A row that shows and does nothing: not a button, so its tooltip shows (a disabled button's would not).
+function repositoryRowHtml(row) {
+  return `<div class="ssb-row ssb-row-info" title="${escapeHtml(row.title || '')}"><span class="ssb-row-main">${escapeHtml(row.main)}</span>`
+    + `<span class="ssb-row-meta">${escapeHtml(row.meta || '')}</span></div>`;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
-    instructionGroups, instructionRow,
+    instructionGroups, instructionRow, repositoryRows, repositoryRowHtml,
     sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
@@ -395,6 +418,21 @@ async function sessionSidebarOpenServers(entry) {
 // Each group reads when it is open and in view, and answers markup. All of it is escaped: a task title, an issue and
 // a skill name are all text somebody else may have written.
 const SESSION_SIDEBAR_GROUPS = [
+  {
+    // First, as the owner decided (#821): where the session runs. Read from the poller's cache, else one status run.
+    id: 'repository',
+    label: 'Repository',
+    async load(entry, draw, force) {
+      const cwd = sidebarSessionOf(entry).projectPath;
+      if (!cwd) return sidebarNote('This session has no project.');
+      // The reload button reads the status afresh; an open reads the poller's cache when it has one.
+      const answer = await window.api.vcsDescribe(cwd, { fresh: force === true });
+      if (!answer || !answer.ok) return sidebarNote('The repository could not be read.');
+      const rows = repositoryRows(answer);
+      if (!rows) return sidebarNote('This project is not under version control.');
+      return rows.length ? rows.map(repositoryRowHtml).join('') : sidebarNote('Nothing to show.');
+    },
+  },
   {
     id: 'tasks',
     label: 'Tasks & notes',

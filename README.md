@@ -243,7 +243,8 @@ chart rather than a row of zeroes.
 - **Instructions, agents, commands and rules** — what each CLI reads, in Settings. *Instructions* (global and per
   project) lists the instruction files, memory and settings files, with the work files of a project under them;
   *Plugins → Agents / Commands / Rules* list the rest (skills are in *Plugins → Skills*). Rows carry a chip per CLI that
-  actually reads them, and the filter matches a name or what is inside the file. Editing one saves it back: the format
+  actually reads them, the Instructions page also has a chip per kind, and the filter matches a name or what is inside
+  the file. Editing one saves it back: the format
   is checked first, the file's own line endings survive, and a save built on a version something else has changed since
   is refused rather than winning. Commands, rules and agents can be created from a template and deleted. A session's
   sidebar has an Instructions group with what applies to it. → [spec 44](docs/specs/44-instructions.md),
@@ -337,8 +338,8 @@ jumps back to it.
 A project can also list its open GitHub or GitLab issues there, read-only, through the `gh` or `glab` CLI. This is
 off until you turn it on in Settings.
 
-Each session also has a collapsible sidebar with its project's tasks and notes, its handoffs, its context fill and its
-connectors, opened from the session's toolbar. On a Claude session driven over a
+Each session also has a collapsible sidebar with its repository, branch and worktree, its project's tasks and notes, its
+handoffs, its context fill and its connectors, opened from the session's toolbar. On a Claude session driven over a
 pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool. A click on a
 task, issue, handoff or skill puts it into the session's prompt; small buttons on hover open it, copy it or edit it.
 

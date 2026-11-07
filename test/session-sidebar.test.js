@@ -6,12 +6,30 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
-  sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
+  sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails, repositoryRows,
   SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
 } = require('../src/renderer/session/session-sidebar');
 
 test('a session nobody chose for is closed, at the default width, with the cheap groups open', () => {
-  assert.deepEqual(sidebarStateOf({}, 's1'), { open: false, width: SESSION_SIDEBAR_WIDTH.default, groups: ['tasks', 'context'] });
+  assert.deepEqual(sidebarStateOf({}, 's1'), { open: false, width: SESSION_SIDEBAR_WIDTH.default, groups: ['repository', 'tasks', 'context'] });
+});
+
+test('repository rows (#821): repository, branch with ahead/behind and state, worktree; none for a directory under no VCS', () => {
+  assert.equal(repositoryRows({ ok: true, vcs: null }), null);
+  assert.equal(repositoryRows({ ok: false }), null);
+  const plain = repositoryRows({ ok: true, vcs: 'Git', repo: { name: 'app', path: '/r/app' }, worktree: null, branch: 'main', state: null, ahead: 0, behind: 0 });
+  assert.deepEqual(plain.map(r => [r.main, r.meta]), [['app', 'repository'], ['main', 'branch']]);
+  assert.equal(plain[0].title, '/r/app');
+  const wt = repositoryRows({ ok: true, vcs: 'Git', repo: { name: 'app', path: '/r/app' }, worktree: { name: 'fix-1', path: '/r/app-wt/fix-1' },
+    branch: 'fix-1', state: 'merging', ahead: 2, behind: 1 });
+  assert.deepEqual(wt.map(r => [r.main, r.meta]), [['app', 'repository'], ['fix-1', '↑2 ↓1 · merging'], ['fix-1', 'worktree']]);
+  // A rebase detaches HEAD: the parser answers no branch, the `.git` markers the state.
+  const rebase = repositoryRows({ ok: true, vcs: 'Git', repo: { name: 'app', path: '/r/app' }, branch: null, state: 'rebasing' });
+  assert.deepEqual(rebase.map(r => [r.main, r.meta]), [['app', 'repository'], ['detached HEAD', 'rebasing']]);
+  const detached = repositoryRows({ ok: true, vcs: 'Git', repo: { name: 'app', path: '/r/app' }, branch: null, state: 'detached' });
+  assert.deepEqual(detached.map(r => r.main), ['app', 'detached HEAD']);
+  const noStatus = repositoryRows({ ok: true, vcs: 'Git', repo: { name: 'app', path: '/r/app' }, branch: null, state: null });
+  assert.deepEqual(noStatus.map(r => r.main), ['app'], 'a status that could not be read leaves the branch row out');
 });
 
 test('each session keeps its own state', () => {

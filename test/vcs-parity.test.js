@@ -98,6 +98,34 @@ test('git: detect() finds a repo via a .git FILE (worktree), not just a dir', ()
   }
 });
 
+test('git: describeRepo names the checkout root, and the main repository only for a linked worktree (#821)', () => {
+  const git = vcs.get('git');
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'vcs-describe-'));
+  try {
+    // The main checkout: a .git directory, no commondir.
+    const main = path.join(base, 'app');
+    fs.mkdirSync(path.join(main, '.git', 'worktrees', 'fix-1'), { recursive: true });
+    fs.mkdirSync(path.join(main, 'src'));
+    assert.deepStrictEqual(git.describeRepo(path.join(main, 'src')), { root: main, mainRoot: null });
+    // A linked worktree: a .git file to `<main>/.git/worktrees/<name>`, whose commondir points back at `<main>/.git`.
+    const wt = path.join(base, 'app-wt', 'fix-1');
+    fs.mkdirSync(wt, { recursive: true });
+    fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(main, '.git', 'worktrees', 'fix-1')}\n`);
+    fs.writeFileSync(path.join(main, '.git', 'worktrees', 'fix-1', 'commondir'), '../..\n');
+    assert.deepStrictEqual(git.describeRepo(wt), { root: wt, mainRoot: main });
+    // A submodule: a .git file to a gitdir without commondir is no worktree.
+    const sub = path.join(main, 'lib');
+    fs.mkdirSync(path.join(main, '.git', 'modules', 'lib'), { recursive: true });
+    fs.mkdirSync(sub);
+    fs.writeFileSync(path.join(sub, '.git'), `gitdir: ../.git/modules/lib\n`);
+    assert.deepStrictEqual(git.describeRepo(sub), { root: sub, mainRoot: null });
+    // Not a repository at all.
+    assert.strictEqual(git.describeRepo(path.join(base, 'app-wt')), null);
+  } finally {
+    fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('git: --no-optional-locks off adds -uno for git specifically', () => {
   const git = vcs.get('git');
   assert.ok(git.statusArgs({ countUntracked: false }).includes('-uno'));

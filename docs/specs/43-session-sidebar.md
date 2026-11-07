@@ -5,13 +5,14 @@ Issue #817. Status: **built**. The code is `src/renderer/session/session-sidebar
 ## What it does
 
 Each session has a collapsible sidebar on its right, opened from the session's toolbar. Its groups collapse one by
-one: Tasks & notes (with a project's forge issues when spec 42 is on), Handoffs, Context and Connectors.
+one: Repository (#821), Tasks & notes (with a project's forge issues when spec 42 is on), Handoffs, Instructions (#823),
+Context and Connectors.
 
 ## Decided by the owner (2026-11-06)
 
 - **E1:** one per session or pane, not one per window. A user has it open in one pane and closed in another.
-- **E4:** those four groups first. The breakdown by category came with #758, repository, branch and worktree are #821, and
-  changes, background tasks, the plan and bookmarks are candidates for later.
+- **E4:** those four groups first. The breakdown by category came with #758, repository, branch and worktree with #821
+  (see "The Repository group"), and changes, background tasks, the plan and bookmarks are candidates for later.
 - **E6:** a new session starts collapsed.
 - **E7, E8:** open or closed, which groups are open and the width are per session and survive a restart.
 - **E9:** no sidebar in a grid card.
@@ -122,7 +123,33 @@ no CLI. A CLI with none shows its sentence as a note.
   session. Groups drawn closed now start marked (`sidebarToggleAction`); a group drawn open still reads nothing on the one
   toggle it fires by itself.
 
+## The Repository group (#821)
+
+Where the session runs: the repository, the branch and, when the session's directory is a linked worktree, the worktree.
+
+- **Owner decisions (2026-11-07):** a group of its own, at the top of the sidebar. The figures come from a new IPC,
+  cache first. It is open by default for a session with no stored state; a session that has a stored set of open groups
+  keeps it, so the group starts closed there.
+- **Main answers** (`vcs-describe` in `src/app/vcs.js`, `window.api.vcsDescribe`): the provider's `describeRepo(cwd)`
+  names the checkout root and, for a linked worktree, the main repository's root (filesystem only: git's `commondir`).
+  The branch, its state and ahead/behind come from the poller's cache when it holds that directory, else from one
+  status run with the poller's own flags; the sidebar's reload button asks with `fresh` and always runs it. That run happens whether or not the version-control chip polls, because the
+  group reads only when it is open and in view (E10): one spawn per open or reload at most. The answer carries names and
+  paths, no backend id and no VCS name beyond the provider's label.
+- **Rows:** the repository's folder name, the branch with `↑n ↓m` and an in-progress state (merging, cherry-picking), or
+  "detached HEAD" with the state beside it (a rebase detaches HEAD, so it shows as "detached HEAD · rebasing"), and the
+  worktree's folder name. Each row's tooltip is its path. A row only shows; it is a `div`, not a
+  disabled button, so its tooltip appears (Chromium shows none on a disabled button).
+- **No VCS:** "This project is not under version control." A status that could not be read leaves the branch row out.
+- **Repository name in a worktree** is the MAIN repository's folder, not the worktree's: the worktree has a row of its own.
+  A bare main repository has no folder to name, so there the worktree itself is the repository.
+
 ## Known gaps
+
+- The Repository group does not follow the poller: it shows what it read at open or reload. A branch switch while it is
+  open shows after the reload button, which skips the poller's cache and runs the status afresh.
+- A main repository whose git directory is not a `.git` folder in its working tree (`--separate-git-dir`) looks bare to
+  `describeRepo`: a linked worktree of it is named as the repository and gets no worktree row.
 
 - A backend that measures no context fill shows "No figure for this session yet." rather than leaving the group out, as
   does a session that has not reported yet. A projected capability could tell the two apart; nothing does yet.

@@ -3088,6 +3088,9 @@ body.restoring-sessions #restore-progress { display: flex; }
 }
 .ssb-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
 .ssb-row:disabled { cursor: default; color: inherit; }
+/* A row that only shows something (#821): no pointer, no hover. */
+.ssb-row-info { cursor: default; }
+.ssb-row-info:hover:not(:disabled) { background: transparent; }
 .ssb-item { position: relative; }
 /* The buttons appear on hover or when focus is anywhere in the row, so the keyboard reaches them (#822). */
 .ssb-acts { display: none; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); gap: 2px; }
