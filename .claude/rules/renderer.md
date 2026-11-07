@@ -424,6 +424,8 @@ noticing.
   (Marketplace, the #790 id kept), and for MCPs `mcp` in a project window, `plugins-mcps` in the global one. A deep link
   `{ cat }` must name one of `SETTINGS_SEED_CATS` in `src/app/windows.js`; `test/settings-plugins.test.js` compares that
   list with the renderer's both ways, so a new view id goes in both.
+  - **Instructions (#823, `instructions`) is NOT in this group**: its own nav item and `panels/settings-instructions.js`, the same
+    `mountItemView` with the instruction doors (spec 44). The id is in `SEED_CATS` like the others.
   - **The views read on their first `settings-cat-shown`, never at bind** (`pluginsViews.bindLazy`). Their nav badge
     is `data-count-own`, the view's row count once it has read; a new view follows both rules.
   - **A view can hold unsaved work, so anything that drops the screen asks `pluginsMayLeave` first** — Cancel, Save,

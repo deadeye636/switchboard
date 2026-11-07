@@ -160,6 +160,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/panels/plugins-views.js': [],
   'src/renderer/panels/plugins-resources.js': [],
   // #803 T10 — the Plugins group of the settings screen: nav, sections, wiring; names no backend.
+  'src/renderer/panels/settings-instructions.js': [],
   'src/renderer/panels/settings-plugins.js': [],
   'src/renderer/panels/settings-global-html.js': [],
   'src/renderer/shell/session-restore.js': [],

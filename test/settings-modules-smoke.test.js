@@ -87,7 +87,7 @@ function setup() {
   }
   // The modules under test.
   for (const rel of ['panels/settings-tags.js', 'panels/settings-maintenance.js', 'panels/settings-shortcuts.js',
-                     'panels/settings-project-tags.js', 'panels/settings-plugins.js', 'panels/settings-global-html.js']) {
+                     'panels/settings-project-tags.js', 'panels/settings-instructions.js', 'panels/settings-plugins.js', 'panels/settings-global-html.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
   const inCtx = (code) => vm.runInContext(code, ctx);

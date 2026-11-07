@@ -94,6 +94,7 @@
           <button class="settings-nav-item" data-cat="launchers">Custom launchers</button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
           ${window.settingsPlugins.navHtml('global')}
+          ${window.settingsInstructions.navHtml()}
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">App</div>
           <button class="settings-nav-item" data-cat="maintenance">Maintenance <span class="settings-nav-count"></span></button>
@@ -1171,6 +1172,7 @@
               <div id="sv-mcp-addons"></div>
             </section>
 ${window.settingsPlugins.sectionsHtml('global')}
+${window.settingsInstructions.sectionHtml('global')}
 
             <!-- ===== Tags (#138) ===== -->
             <section class="settings-cat" data-cat="tags">

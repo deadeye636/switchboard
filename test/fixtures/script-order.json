@@ -168,6 +168,7 @@
     "plugins-views.js",
     "plugins-resources.js",
     "settings-external-mcp.js",
+    "settings-instructions.js",
     "settings-plugins.js",
     "settings-global-html.js",
     "settings-panel.js",

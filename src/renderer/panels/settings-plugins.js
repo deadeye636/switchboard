@@ -34,7 +34,8 @@
     marketplace: 'mcp-addons',
   };
   // The categories a deep link may land on (`openSettingsWindow(scope, path, { cat })`); main validates the same list.
-  const SEED_CATS = [CATS.plugins, CATS.apps, CATS.skills, CATS.agents, CATS.commands, CATS.rules, CATS.globalMcps, CATS.projectMcps, CATS.marketplace];
+  // `instructions` is panels/settings-instructions.js (#823 T6): its own nav item, not part of this group.
+  const SEED_CATS = [CATS.plugins, CATS.apps, CATS.skills, CATS.agents, CATS.commands, CATS.rules, CATS.globalMcps, CATS.projectMcps, CATS.marketplace, 'instructions'];
 
   function navHtml(scope) {
     const mcps = scope === 'project' ? CATS.projectMcps : CATS.globalMcps;
@@ -164,6 +165,13 @@
       if (window.pluginsResources) {
         for (const view of ['agents', 'commands', 'rules']) lazy(CATS[view], window.pluginsResources.mountResourceView(view));
       }
+    }
+
+    // Instructions (#823 T6): its own nav item, mounted over the same kit; its badge is written through `setCount`.
+    if (window.settingsInstructions) {
+      window.settingsInstructions.bind(body, signal, {
+        scope, projectPath, setCount: (cat, n) => setCount(body, cat, n), mayLeave: () => ctl.leave(),
+      });
     }
 
     // Marketplace: the catalog is drawn at once; its badge is the catalog's rows (registry hits are not counted).

@@ -149,9 +149,16 @@ sourceLabel, editable }`, with no path and no backend id.
   no delete. `locate-instruction(path, projectPath)` answers `{ id, scope, projectPath }` for a path that is a listed file
   (equality on the real path), else null. `match-instruction-content(scope, query)` runs T4's matcher over the scope's files.
 
+### The Instructions category (T6, `panels/settings-instructions.js`)
+
+- Its own nav item (`instructions`, P1) in both windows, after the Plugins group, with its own section; it is in `SETTINGS_SEED_CATS` (main) and in `settingsPlugins.SEED_CATS` (renderer), which a test compares both ways.
+- One kit view over `pluginsViews.mountItemView` (new optional `matchContent` in its cfg for the content filter), sections Instructions, Memory, Settings files, Output styles, Resources (a section only when it has rows), chips by CLI, the `declines` lines, the editor with the conflict UI for an editable row and the read-only viewer for any other. No New and no Delete (`probeCreate` answers false, no row is `deletable`). A save refused by format validation shows main's reason where the editor shows any refusal.
+- Scope (P9): the global window asks `getInstructionInventory('global')`, a project window its project path. A line above the list points to the other scope: a project window has "Open the global instructions", the global window a project picker and "Open its instructions". Either replaces the window, so `leave()` is asked first and a dialog warns, as in the MCPs hand-off.
+- Read on the first `settings-cat-shown`, never at bind; the nav badge is the row count (`data-count-own`). It joins `leave()` through `pluginsKit.viewsIn`, so Cancel, Save, Apply and the settings search ask it too. `settingsPlugins.bind` calls `settingsInstructions.bind`.
+
 ## Known gaps
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The Instructions category (the window), the deep link, the sidebar group, and removing the Agent
+- The deep link to a file, the sidebar group, and removing the Agent
   Files tab are later steps of the plan and are not built.

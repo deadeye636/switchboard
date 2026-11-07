@@ -101,7 +101,7 @@ function settingsQuery(scope, projectPath, seed) {
 
 // The categories a deep link may name — a copy of `SEED_CATS` in src/renderer/panels/settings-plugins.js (the two are
 // compared by test/settings-plugins.test.js). `mcp` exists only in a project window, `plugins-mcps` only in the global.
-const SETTINGS_SEED_CATS = ['plugins-plugins', 'plugins-apps', 'plugins-skills', 'plugins-agents', 'plugins-commands', 'plugins-rules', 'plugins-mcps', 'mcp', 'mcp-addons'];
+const SETTINGS_SEED_CATS = ['plugins-plugins', 'plugins-apps', 'plugins-skills', 'plugins-agents', 'plugins-commands', 'plugins-rules', 'plugins-mcps', 'mcp', 'mcp-addons', 'instructions'];
 
 function loadSettings(win, query) {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'), { query });

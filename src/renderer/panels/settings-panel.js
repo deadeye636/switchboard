@@ -666,6 +666,7 @@
           <div class="settings-nav-head">Extensions</div>
           <button class="settings-nav-item" data-cat="launchers">Terminal tools</button>
           ${window.settingsPlugins.navHtml('project')}
+          ${window.settingsInstructions.navHtml()}
           <div class="settings-nav-sep" id="sv-nav-backends-sep" hidden></div>
           <div class="settings-nav-head" id="sv-nav-backends-head" hidden>Backends</div>
           <div id="sv-nav-backends"></div>
@@ -919,6 +920,7 @@
         </section>
 ${window.settingsExternalMcp.sectionHtml(current[window.settingsExternalMcp.SETTING_KEY], current[window.settingsExternalMcp.PRUNE_KEY])}
 ${window.settingsPlugins.sectionsHtml('project')}
+${window.settingsInstructions.sectionHtml('project')}
 
         <!-- Per-backend launch defaults (T-2.6) + that backend's resources (#490). One SECTION per
              backend, appended by backends-panel.js once main has answered which backends there are —
