@@ -153,8 +153,13 @@ sourceLabel, editable }`, with no path and no backend id.
 
 ### The Instructions category (T6, `panels/settings-instructions.js`)
 
+The kind chips are the kit's `chipSets` (`panels/plugins-kit.js`): `mountItemView` always passes the CLI set first and
+appends a page's own `cfg.chipSets`. Sets AND with each other, chips within a set OR, and each set keeps its own choice
+(the first under the view's old store key, so a CLI choice made before stays). A row in a section this build does not
+know counts under "Other", the section it is drawn in.
+
 - Its own nav item (`instructions`, P1) in both windows, after the Plugins group, with its own section; it is in `SETTINGS_SEED_CATS` (main) and in `settingsPlugins.SEED_CATS` (renderer), which a test compares both ways.
-- One kit view over `pluginsViews.mountItemView` (new optional `matchContent` in its cfg for the content filter), sections Instructions, Memory, Settings files, Output styles, Resources (a section only when it has rows), chips by CLI, the `declines` lines, the editor with the conflict UI for an editable row and the read-only viewer for any other. No New and no Delete (`probeCreate` answers false, no row is `deletable`). A save refused by format validation shows main's reason where the editor shows any refusal.
+- One kit view over `pluginsViews.mountItemView` (new optional `matchContent` in its cfg for the content filter), sections Instructions, Memory, Settings files, Output styles, Resources (a section only when it has rows), chips by CLI and, in a second row, chips by kind (one per section, with its count; owner decision 2026-11-07), the `declines` lines, the editor with the conflict UI for an editable row and the read-only viewer for any other. No New and no Delete (`probeCreate` answers false, no row is `deletable`). A save refused by format validation shows main's reason where the editor shows any refusal.
 - Scope (P9): the global window asks `getInstructionInventory('global')`, a project window its project path. A line above the list points to the other scope: a project window has "Open the global instructions", the global window a project picker and "Open its instructions". Either replaces the window, so `leave()` is asked first and a dialog warns, as in the MCPs hand-off.
 - Read on the first `settings-cat-shown`, never at bind; the nav badge is the row count (`data-count-own`). It joins `leave()` through `pluginsKit.viewsIn`, so Cancel, Save, Apply and the settings search ask it too. `settingsPlugins.bind` calls `settingsInstructions.bind`.
 - Work files (T10, P6), project window only: a section under the list for `<project>/.work-files/**`, which Agent Files was the only surface for. `get-instruction-work-files` / `read-instruction-work-file` / `delete-instruction-work-file` (in `instruction-files.js`) take a registered project's path and an id (sha of the real path), re-walk with `plans-memory.js`'s walk and cap (200, header says `n of total`), and accept an id only from that fresh listing and only if `.work-files` and the file are really inside the project and `.work-files` on real paths (a `.work-files` that is a link out of the project lists nothing; a linked file is not read). Open shows read-only text (2 MB, text only, as before); Delete asks first and removes one listed file. Cost: each call re-walks the folder, up to the walk's own limits, on the main thread. The older path-based `read-work-file` / `delete-work-file` went with the tab (T12).
@@ -180,7 +185,8 @@ The ids are those of the Skills, Agents, Commands, Rules and Instructions invent
   search types `memory` and `work-file` are deleted at start; the schema did not change. What the removed code is
   named after is kept in this record only.
 - **Handoff packets have no Settings page** (P7). They open and delete from the resume and handoff pickers.
-- **The tab's "by type" filter has no successor** as a control: each kind is its own page, and the chips narrow by CLI.
+- **The tab's "by type" filter** came back as the kind chips of the Instructions page (see "The Instructions
+  category"). Agents, Commands and Rules need none: each is its own page.
 - **Who else deletes (plan T0b, checked at T9).** Handoff packets: `deleteHandoff` is also called by the handoff picker
   (`src/renderer/handoff/handoff.js`), so removing Agent Files lost no delete there. Work files had one delete, in the
   tab's work-file viewer; the Work files section of the project Instructions page (T10) replaced it before the tab went.

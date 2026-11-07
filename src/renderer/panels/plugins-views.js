@@ -414,7 +414,8 @@
   // One list-to-detail page over an editable item: the Skills page and the Agents, Commands and Rules pages are the
   // same page with another door. `cfg` = { io, reading, readError, filterPlaceholder, filterKey, emptyText,
   // read() -> { rows, declines? } | null, sections(list), renderFacts(row, container), readOnlyText(row),
-  // deleteDetails(row), probeCreate()? -> Promise<boolean>, contentView? } (without `probeCreate`, New is always offered).
+  // deleteDetails(row), probeCreate()? -> Promise<boolean>, contentView?, chipSets? } (without `probeCreate`, New is
+  // always offered; `chipSets` are drawn after the CLI chips, see the kit).
   // `contentView` names the view main matches file content for (#823 T4): the filter then matches name OR content.
   // `matchContent(query) -> Promise<ids>` replaces it for a page with a door of its own (Instructions, #823 T6).
   async function mountItemView(host, ctx, cfg) {
@@ -474,8 +475,12 @@
     const spec = (list) => ({
       filterPlaceholder: cfg.filterPlaceholder,
       filterKey: cfg.filterKey,
-      // An item file can be reported by several CLIs (`clis`), so it sits under each of their chips.
-      rowGroups: (r) => (Array.isArray(r.clis) ? r.clis : []),
+      // An item file can be reported by several CLIs (`clis`), so it sits under each of their chips. A page may add
+      // chip sets of its own after the CLI one (`cfg.chipSets`, the Instructions page's kinds).
+      chipSets: [
+        { id: 'cli', label: 'Filter by CLI', rowGroups: (r) => (Array.isArray(r.clis) ? r.clis : []) },
+        ...(Array.isArray(cfg.chipSets) ? cfg.chipSets : []),
+      ],
       // Asked by the kit only for a typed filter, debounced; main reads the files, the window gets ids.
       rowMatch: cfg.matchContent ? cfg.matchContent : cfg.contentView ? async (q) => {
         const res = await api().matchResourceContent(cfg.contentView, ctx.projectPath || null, q);

@@ -378,7 +378,8 @@ test('chips: fewer than two groups draw no chip row and apply no stored choice',
   assert.equal(h.querySelectorAll('.plugins-row').length, 2);
   const { host: h2 } = host();
   kit.mountView(h2, view());
-  assert.equal(h2.querySelector('.plugins-chip-row').hidden, true, 'a view without rowGroups has none');
+  const none = h2.querySelector('.plugins-chip-row');
+  assert.ok(!none || none.hidden, 'a view without rowGroups has none');
 });
 
 test('chips: clearFilter drops the text and leaves the chips; refresh keeps them', () => {
@@ -406,6 +407,89 @@ test('chips: suspendGroups lifts the narrowing for the settings search and resto
   v.suspendGroups(false);
   assert.equal(h.querySelectorAll('.plugins-row').length, 3);
   assert.equal(chips(h)[0].getAttribute('aria-pressed'), 'true');
+});
+
+// --- Several chip sets (spec 44): one row per set, ANDed with each other, each with its own stored choice ---
+
+function twoSets(extra = {}) {
+  const A = { key: 'a', label: 'Alpha' };
+  const B = { key: 'b', label: 'Beta' };
+  const M = { key: 'm', label: 'Memory' };
+  const S = { key: 's', label: 'Settings' };
+  const rows = [
+    { id: '1', name: 'one', g: [A], k: [M] },
+    { id: '2', name: 'two', g: [B], k: [M] },
+    { id: '3', name: 'three', g: [A], k: [S] },
+    { id: '4', name: 'four', g: [B], k: [S] },
+  ];
+  return view({
+    title: 'Two sets', sections: [{ title: '', rows }],
+    chipSets: [{ id: 'cli', label: 'Filter by CLI', rowGroups: r => r.g }, { id: 'kind', label: 'Filter by kind', rowGroups: r => r.k }],
+    ...extra,
+  });
+}
+const chipRowsOf = (h) => [...h.querySelectorAll('.plugins-chip-row')];
+const chipsIn = (row) => [...row.querySelectorAll('.sv-mcp-chip')];
+
+test('chip sets: one labelled row per set, in order, each counted over all rows', () => {
+  const { host: h } = host();
+  kit.mountView(h, twoSets({ filterKey: 'sets-basic' }));
+  const rows = chipRowsOf(h);
+  assert.deepEqual(rows.map(r => r.getAttribute('aria-label')), ['Filter by CLI', 'Filter by kind']);
+  assert.deepEqual(rows.map(r => r.dataset.chipSet), ['cli', 'kind'], 'each row carries its declared id');
+  assert.deepEqual(chipsIn(rows[0]).map(c => c.textContent), ['Alpha 2', 'Beta 2']);
+  assert.deepEqual(chipsIn(rows[1]).map(c => c.textContent), ['Memory 2', 'Settings 2']);
+});
+
+test('chip sets: a chip on in each set ANDs the two; within a set it stays OR', () => {
+  const { host: h } = host();
+  kit.mountView(h, twoSets({ filterKey: 'sets-and' }));
+  chipsIn(chipRowsOf(h)[0])[0].click();
+  assert.deepEqual(names(h).sort(), ['one', 'three']);
+  chipsIn(chipRowsOf(h)[1])[0].click();
+  assert.deepEqual(names(h), ['one']);
+  assert.equal(h.querySelector('.plugins-count').textContent, '1 of 4');
+  chipsIn(chipRowsOf(h)[0])[1].click();
+  assert.deepEqual(names(h).sort(), ['one', 'two']);
+});
+
+test('chip sets: each set keeps its own choice across a re-mount, and the first set keeps the old store key', () => {
+  const { host: h } = host();
+  kit.mountView(h, twoSets({ filterKey: 'sets-keep' }));
+  chipsIn(chipRowsOf(h)[1])[1].click();
+  kit.mountView(h, twoSets({ filterKey: 'sets-keep' }));
+  assert.equal(chipsIn(chipRowsOf(h)[0])[0].getAttribute('aria-pressed'), 'false');
+  assert.equal(chipsIn(chipRowsOf(h)[1])[1].getAttribute('aria-pressed'), 'true');
+  // A choice made under `rowGroups` alone applies to the first set of the same view.
+  kit.mountView(h, grouped({ filterKey: 'sets-old' }));
+  chips(h)[0].click();
+  kit.mountView(h, twoSets({ filterKey: 'sets-old' }));
+  assert.equal(chipsIn(chipRowsOf(h)[0])[0].getAttribute('aria-pressed'), 'true');
+  assert.equal(chipsIn(chipRowsOf(h)[1])[0].getAttribute('aria-pressed'), 'false');
+});
+
+test('chip sets: an id used twice gets two rows, and a skipped first set leaves the old store key unused', () => {
+  const { host: h } = host();
+  const base = twoSets();
+  const kind = base.chipSets[1];
+  kit.mountView(h, twoSets({ filterKey: 'sets-dup', chipSets: [base.chipSets[0], kind, { ...kind }] }));
+  assert.equal(chipRowsOf(h).length, 3);
+  // A choice under the bare key (the old CLI store) must not land on a kind set when the first set is not a set.
+  kit.mountView(h, grouped({ filterKey: 'sets-skip' }));
+  chips(h)[0].click();
+  kit.mountView(h, twoSets({ filterKey: 'sets-skip', chipSets: [{ id: 'cli' }, kind] }));
+  assert.ok(chipsIn(chipRowsOf(h)[0]).every(c => c.getAttribute('aria-pressed') === 'false'));
+});
+
+test('chip sets: suspendGroups lifts every set', () => {
+  const { host: h } = host();
+  const v = kit.mountView(h, twoSets({ filterKey: 'sets-suspend' }));
+  chipsIn(chipRowsOf(h)[0])[0].click();
+  chipsIn(chipRowsOf(h)[1])[0].click();
+  v.suspendGroups(true);
+  assert.equal(h.querySelectorAll('.plugins-row').length, 4);
+  v.suspendGroups(false);
+  assert.deepEqual(names(h), ['one']);
 });
 
 // --- Content filter (#823 T4): `rowMatch`, debounced, tokened, never at mount ---

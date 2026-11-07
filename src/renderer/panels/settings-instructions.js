@@ -26,6 +26,8 @@
 
   // The sections in the order main groups them; `section` on a row is already the name shown. One without rows is left out.
   const SECTIONS = ['Instructions', 'Memory', 'Settings files', 'Output styles', 'Resources'];
+  // The section a row is shown under, and the kind chip it counts for: a section this build does not know is "Other".
+  const sectionOf = (r) => (SECTIONS.includes(r.section) ? r.section : 'Other');
 
   function navHtml() {
     return `
@@ -123,6 +125,8 @@
       readError: 'The instruction files could not be read.',
       filterPlaceholder: 'Filter instruction files',
       filterKey: 'instructions',
+      // The Agent Files tab's "by type" filter, as chips (spec 44): one per section a row is in, after the CLI chips.
+      chipSets: [{ id: 'kind', label: 'Filter by kind', rowGroups: (r) => [{ key: sectionOf(r), label: sectionOf(r) }] }],
       matchContent: async (q) => {
         const res = await api().matchInstructionContent(scope, q);
         return res && res.ok && Array.isArray(res.ids) ? res.ids : [];
@@ -137,10 +141,8 @@
       // Nothing is created here: the kit offers no New.
       probeCreate: async () => false,
       sections: (list) => {
-        const out = SECTIONS.map(title => ({ title, rows: list.filter(r => r.section === title) }));
-        // A section this build does not know still shows its rows.
-        const other = list.filter(r => !SECTIONS.includes(r.section));
-        if (other.length) out.push({ title: 'Other', rows: other });
+        const out = SECTIONS.map(title => ({ title, rows: list.filter(r => sectionOf(r) === title) }));
+        out.push({ title: 'Other', rows: list.filter(r => sectionOf(r) === 'Other') });
         return out.filter(s => s.rows.length);
       },
       renderFacts: (r, c) => {

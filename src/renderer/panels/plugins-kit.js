@@ -14,6 +14,7 @@
 //
 // A view may also hand a `rowGroups(row)` hook (with a `filterKey`): the kit then draws a row of toggle chips, one
 // per group (a CLI), with counts, ANDed with the text filter and kept per view across a re-mount (#824, below).
+// `chipSets` draws several such rows, ANDed with each other (the Instructions page: CLI and kind, spec 44).
 //
 // A view may also hand an async `rowMatch(query) -> Promise<Set|Array of row keys>` (#823 T4): the rows whose CONTENT
 // holds the text, decided by the view (in main; the window never gets file text). A row then passes the filter when its
@@ -93,6 +94,7 @@
    *   match(row, query)?,                                     // filter; default: label + meta
    *   rowMatch(query)? -> Promise<Set|Array>,                 // keys of the rows whose content holds `query` (#823 T4)
    *   rowGroups(row)? -> [{ key, label }],                    // chips (#824): the groups a row belongs to, e.g. its CLI
+   *   chipSets?: [{ id, label, rowGroups(row) }],             // several chip rows instead (spec 44): e.g. CLI, then kind
    *   filterKey?,                                             // names the view in the chip store (default: title)
    *   renderDetail(row, container, back),                     // fills the detail page
    * }
@@ -105,6 +107,9 @@
    * a re-mount restores it; a chip whose group is gone is ignored (kept in the store, not applied). `clearFilter`
    * clears the text only. The settings search, which looks over every row, calls `suspendGroups(true)` instead:
    * the chips narrow nothing while it runs, and the stored choice applies again on `suspendGroups(false)`. The kit never interprets a key or a label.
+   * `chipSets` draws one such row per set, in its order, each with its own label (the row's aria-label) and its own
+   * stored choice; `rowGroups` alone is the one-set case. The sets AND with each other: a row must pass every set that
+   * has a chip on. The first set keeps the view's old store key, a later one is stored under `filterKey:id`.
    * Returns { refresh(nextView), showList(), openDetail(key), root }.
    */
   function mountView(host, view) {
@@ -120,9 +125,10 @@
     let contentHit = null;
     let contentToken = 0;
     let contentTimer = null;
-    const selKey = () => String(current.filterKey || current.title || '');
-    const selection = () => {
-      const k = selKey();
+    // The first set keeps the store key a view had before there were several sets, so a choice made then still applies.
+    const selKey = (set) => String(current.filterKey || current.title || '') + (set.store ? `:${set.store}` : '');
+    const selection = (set) => {
+      const k = selKey(set);
       if (!chipSelections.has(k)) chipSelections.set(k, new Set());
       return chipSelections.get(k);
     };
@@ -150,13 +156,24 @@
     countEl.setAttribute('aria-live', 'polite');
     filterRow.append(filter, countEl);
 
-    const chipRow = el(doc, 'div', 'sv-mcp-chips plugins-chip-row');
-    chipRow.setAttribute('role', 'group');
-    chipRow.setAttribute('aria-label', 'Filter by group');
-    chipRow.hidden = true;
+    // One chip row per chip set, made on first use and kept in the order the view names its sets.
+    const chipBox = el(doc, 'div', 'plugins-chip-sets');
+    const chipRows = new Map();
+    function chipRowFor(set) {
+      let row = chipRows.get(set.id);
+      if (!row) {
+        row = el(doc, 'div', 'sv-mcp-chips plugins-chip-row');
+        row.setAttribute('role', 'group');
+        row.dataset.chipSet = set.id;
+        row.hidden = true;
+        chipRows.set(set.id, row);
+      }
+      row.setAttribute('aria-label', set.label || 'Filter by group');
+      return row;
+    }
 
     const body = el(doc, 'div', 'plugins-sections');
-    listPage.append(head, filterRow, chipRow, body);
+    listPage.append(head, filterRow, chipBox, body);
 
     function sectionsOf(v) {
       if (Array.isArray(v.sections)) return v.sections;
@@ -188,18 +205,36 @@
       filter.setAttribute('aria-label', current.filterPlaceholder || 'Filter');
     }
 
-    function groupsOf(row) {
-      if (typeof current.rowGroups !== 'function') return [];
-      const g = current.rowGroups(row);
+    // The view's chip sets: `chipSets`, or `rowGroups` alone as the one set it was before (#824).
+    function chipSets() {
+      // By declared position, before anything is skipped: only the set declared first takes the old store key. An id
+      // used twice is made unique, so two sets never share a row or a stored choice.
+      if (Array.isArray(current.chipSets)) {
+        const seen = new Set();
+        const out = [];
+        current.chipSets.forEach((s, i) => {
+          if (!s || typeof s.rowGroups !== 'function') return;
+          let id = String(s.id || i);
+          if (seen.has(id)) id = `${id}-${i}`;
+          seen.add(id);
+          out.push({ id, store: i === 0 ? '' : id, label: s.label || '', rowGroups: s.rowGroups });
+        });
+        return out;
+      }
+      return typeof current.rowGroups === 'function' ? [{ id: '', store: '', label: '', rowGroups: current.rowGroups }] : [];
+    }
+
+    function groupsOf(set, row) {
+      const g = set.rowGroups(row);
       return Array.isArray(g) ? g.filter(x => x && x.key != null) : [];
     }
 
-    // The distinct groups over every row, in first-seen order, with their counts. Fewer than two: no chips.
-    function groupList() {
+    // The distinct groups of one set over every row, in first-seen order, with their counts. Fewer than two: no chips.
+    function groupList(set) {
       const seen = new Map();
       for (const row of allRows()) {
         const own = new Set();
-        for (const g of groupsOf(row)) {
+        for (const g of groupsOf(set, row)) {
           const key = String(g.key);
           if (own.has(key)) continue;
           own.add(key);
@@ -211,11 +246,12 @@
       return [...seen.values()];
     }
 
-    function drawChips(groups) {
+    function drawChips(set, groups) {
+      const chipRow = chipRowFor(set);
       chipRow.replaceChildren();
       chipRow.hidden = groups.length < 2;
-      if (chipRow.hidden) return;
-      const sel = selection();
+      if (chipRow.hidden) return chipRow;
+      const sel = selection(set);
       for (const g of groups) {
         const on = sel.has(g.key);
         const chip = el(doc, 'button', 'settings-action-btn sv-mcp-chip' + (on ? ' active' : ''), `${g.label} ${g.count}`);
@@ -231,6 +267,7 @@
         });
         chipRow.appendChild(chip);
       }
+      return chipRow;
     }
 
     function drawRow(row) {
@@ -307,20 +344,24 @@
       const byContent = contentHit && query ? contentHit.keys : null;
       const match = (r, q, v) => byName(r, q, v) || !!(byContent && byContent.has(String(current.rowKey(r))));
       body.replaceChildren();
-      const groups = groupList();
-      // Only keys that are still a chip count; with fewer than two groups there is no chip row and no filter.
-      const active = new Set(groupsSuspended || groups.length < 2 ? [] : groups.filter(g => selection().has(g.key)).map(g => g.key));
-      const inGroup = (r) => {
-        if (!active.size) return true;
-        const g = groupsOf(r);
+      // Per set, only keys that are still a chip count; with fewer than two groups a set has no chip row and no filter.
+      const sets = chipSets().map((set) => {
+        const groups = groupList(set);
+        const active = new Set(groupsSuspended || groups.length < 2 ? [] : groups.filter(g => selection(set).has(g.key)).map(g => g.key));
+        return { set, groups, active };
+      });
+      const narrowing = sets.filter(s => s.active.size);
+      // Every set with a choice must agree (AND); within a set, any of its chips will do (OR).
+      const inGroup = (r) => narrowing.every(({ set, active }) => {
+        const g = groupsOf(set, r);
         return !g.length || g.some(x => active.has(String(x.key)));
-      };
+      });
       let total = 0;
       let shown = 0;
       for (const section of sectionsOf(current)) {
         const rows = section.rows || [];
         total += rows.length;
-        const visible = (query || active.size)
+        const visible = (query || narrowing.length)
           ? rows.filter(r => inGroup(r) && (!query || match(r, query, current)))
           : rows;
         shown += visible.length;
@@ -334,9 +375,9 @@
         block.appendChild(list);
         body.appendChild(block);
       }
-      const narrowed = !!query || active.size > 0;
+      const narrowed = !!query || narrowing.length > 0;
       countEl.textContent = narrowed ? `${shown} of ${total}` : String(total);
-      drawChips(groups);
+      chipBox.replaceChildren(...sets.map(({ set, groups }) => drawChips(set, groups)));
       if (!shown) {
         body.appendChild(el(doc, 'div', 'plugins-empty settings-description',
           narrowed ? 'Nothing matches the filter.' : (current.emptyText || 'Nothing here yet.')));

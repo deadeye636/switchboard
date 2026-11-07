@@ -67,8 +67,12 @@ test('nothing is read at bind; the first settings-cat-shown reads the scope of t
     body.querySelector('.settings-cat').dispatchEvent(new dom.window.CustomEvent('settings-cat-shown'));
     await tick(); await tick();
     assert.deepEqual(asked, ['/p/one']);
-    const text = body.textContent;
+    // The list alone: the kind chips above it name the sections too.
+    const text = body.querySelector('.plugins-sections').textContent;
     assert.ok(text.indexOf('Memory') > text.indexOf('CLAUDE.md'), 'Instructions section before Memory');
+    const kinds = [...body.querySelectorAll('.plugins-chip-row[data-chip-set="kind"] .sv-mcp-chip')].map(c => c.textContent);
+    assert.ok(body.querySelector('.plugins-chip-row[data-chip-set="cli"]'), 'the CLI row comes first, under its own id');
+    assert.deepEqual(kinds, ['Instructions 1', 'Memory 1'], 'a kind chip per section, after the CLI chips');
     assert.match(body.querySelector('.plugins-declines').textContent, /Hermes keeps no instructions here\./);
     assert.deepEqual(counts[counts.length - 1], ['instructions', 2]);
     assert.equal(btn(body, 'New file'), undefined, 'no New');
