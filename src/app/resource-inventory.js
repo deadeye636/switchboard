@@ -468,4 +468,7 @@ module.exports = {
   init, registerIpc, getResourceInventory, RESOURCE_VIEWS, _collect: collect,
   readResourceItem, saveResourceItem, deleteResourceItem, getResourcePlaces, createResourceItem,
   matchResourceContent, CONTENT_LIMITS, _matchFiles: matchFiles, _memoSize: () => contentMemo.size,
+  // The listing seam, for the instruction inventory (`instruction-files.js`, #823 T5): the same asker per CLI, the same
+  // owner stamp and the same expansion, so the two inventories cannot read a backend differently.
+  _shared: { inventoryBackends, backendById, cliOf, backendFiles },
 };

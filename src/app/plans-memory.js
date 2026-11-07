@@ -17,7 +17,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const projectRegistry = require('../projects/project-registry');
 const { encodeProjectPath } = require('../session/encode-project-path');
 const { projectShortName } = require('../session/derive-project-path');
 // A write that fails must not answer with the errno's own words: they name the file's full path, and
@@ -37,6 +36,15 @@ const { isDeletableKind } = require('./backend-resources');
 const handoffs = require('./handoffs');
 // Where a project keeps its plans — the one answer, shared with the plan prompt (CLAUDE.md reflex 12).
 const { conventionDirs } = require('./convention-dirs');
+// Which backends are asked, the project list behind the tab and the instruction-file scan moved out as they were
+// (#823 T5): the Instructions inventory asks the same questions, and a second copy would answer differently.
+const instructionFiles = require('./instruction-files');
+const { claim, collectSource } = instructionFiles;
+// …and the three that read the registry or the db are asked with THIS module's ctx (its tests and main.js wire it), so
+// the tab does not depend on `instruction-files.js` having been initialised.
+const memoryBackends = () => instructionFiles.memoryBackends(ctx);
+const visibleProjectPaths = () => instructionFiles.visibleProjectPaths(ctx);
+const storeFoldersFor = (projectPath) => instructionFiles.storeFoldersFor(projectPath, ctx);
 
 let ctx = null;
 
@@ -192,46 +200,6 @@ function stopWatchingPlansDirs() {
   plansWatchedKey = null;
 }
 
-// The backends whose plans + instruction files this tab surfaces: every installed (ready) backend, not
-// only the launchable ones — a project's CLAUDE.md / AGENTS.md is on disk whether or not its backend is
-// enabled, and the tab has always shown those files unconditionally. Profiles are skipped (they forward a
-// base's dirs, which would only duplicate — dedupe by path handles the rest).
-//
-// And one entry per CLI (#683): a driver (`transcriptsOf`, the native GUI backends) forwards its owner's
-// resources, so it showed up as a group of its own and claimed the owner's files under its own name — the
-// same CLI twice, named the way the sidebar no longer names it. `oneAskerPerCli` keeps the owner and lets a
-// driver answer only when its owner is not listed.
-function memoryBackends() {
-  try {
-    const ready = ctx.backends.list().filter(b => !b.isProfile && b.status === 'ready');
-    return typeof ctx.backends.oneAskerPerCli === 'function' ? ctx.backends.oneAskerPerCli(ready) : ready;
-  } catch { return []; }
-}
-
-// The projects the register says are visible — every backend's, not one store's (#227). This is the same
-// rule the sidebar uses, so a tab can no longer show a project the sidebar hides, or hide one it shows.
-function visibleProjectPaths() {
-  const set = new Set();
-  try {
-    for (const [projectPath, state] of ctx.db.getProjectStates()) {
-      if (projectRegistry.isVisible(state)) set.add(projectPath);
-    }
-  } catch { /* an empty set would blank every view — better to show than to vanish */ }
-  return set;
-}
-
-// The store folders attributed to one project (a backend can own several — Claude's folder encoding has
-// changed over time). A backend's memorySources uses these to find its store-side files for the project.
-function storeFoldersFor(projectPath) {
-  const folders = [];
-  try {
-    for (const [folder, meta] of ctx.db.getAllFolderMeta()) {
-      if (meta && meta.projectPath === projectPath) folders.push(folder);
-    }
-  } catch { /* the backend adds its own canonical encoded name anyway */ }
-  return folders;
-}
-
 // ---------------------------------------------------------------------------
 // FTS dirty-flag: skip a full reindex when the file set has not changed. Each tab computes a cheap
 // signature (sorted filePath + mtimeMs + size) and compares it to the last-indexed one; equal means the
@@ -260,73 +228,7 @@ function invalidateFtsSignature(type) {
 }
 
 // --- shared scanning helpers ---
-
-/** Scan a directory for .md files (non-recursive). Emptiness judged by stat.size (no content read). */
-function scanMdFiles(dir) {
-  const results = [];
-  try {
-    if (!fs.existsSync(dir)) return results;
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.isFile() && e.name.endsWith('.md')) {
-        const fp = path.join(dir, e.name);
-        try {
-          const stat = fs.statSync(fp);
-          if (stat.size > 0) {
-            results.push({ filename: e.name, filePath: fp, modified: stat.mtime.toISOString(), size: stat.size });
-          }
-        } catch {}
-      }
-    }
-  } catch {}
-  return results;
-}
-
-// Turn one declared memory Source into file entries, appended to `out` and deduped by path via `seen`.
-// Every row in this tab carries a `kind`, because the type filter (#447) is built from them and a row
-// with none would be filterable by nothing and reachable only by clearing the filter. An instruction
-// file has no kind of its own — `memorySources` describes WHERE it is, not what it is — so it gets one
-// here. `s.kind` on the source says dir-or-file, which is a different question.
-const INSTRUCTION_KIND = 'instructions';
-
-// A file can belong to SEVERAL backends, and the dedupe used to hide that. Codex and Pi both declare
-// `AGENTS.md`; Claude and Pi both declare `CLAUDE.md` (Claude .claude/CLAUDE.md or AGENTS.md instead, in a project without one, #777, #785). Listing it twice would be wrong — it is one
-// file — but so is attributing it to whichever backend happened to be asked first. So the second claim
-// is recorded on the row that is already there, and a row carries a LIST of backends (#447 follow-up).
-//
-// `seen` is a Map now, path -> the row, because adding to a row means finding it again.
-function claim(seen, filePath, backendId) {
-  const row = seen.get(filePath);
-  if (row && backendId && !row.backendIds.includes(backendId)) row.backendIds.push(backendId);
-  return !!row;
-}
-
-function collectSource(s, out, seen, backendId) {
-  if (!s || !s.path) return;
-  if (s.kind === 'dir') {
-    for (const f of scanMdFiles(s.path)) {
-      if (claim(seen, f.filePath, backendId)) continue;
-      const row = { ...f, displayPath: s.displayPath, source: s.source, kind: INSTRUCTION_KIND, backendIds: backendId ? [backendId] : [] };
-      out.push(row);
-      seen.set(f.filePath, row);
-    }
-  } else if (s.kind === 'file') {
-    try {
-      if (!fs.existsSync(s.path)) return;
-      if (claim(seen, s.path, backendId)) return;
-      const stat = fs.statSync(s.path);
-      if (stat.size > 0) {
-        const row = {
-          filename: path.basename(s.path), filePath: s.path,
-          modified: stat.mtime.toISOString(), size: stat.size,
-          displayPath: s.displayPath, source: s.source, kind: INSTRUCTION_KIND,
-          backendIds: backendId ? [backendId] : [],
-        };
-        out.push(row);
-        seen.set(s.path, row);
-      }
-    } catch {}
-  }
-}
+// (`scanMdFiles`, `claim` and `collectSource` live in `instruction-files.js` since #823 T5.)
 
 // --- The type filter's chips (#447) ---
 //

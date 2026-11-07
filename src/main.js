@@ -667,6 +667,11 @@ const resourceInventory = require('./app/resource-inventory');
 resourceInventory.init({ backends, log });
 resourceInventory.registerIpc(ipcMain);
 
+// The instruction files, memory and settings files of one scope (#823 T5, spec 44).
+const instructionFiles = require('./app/instruction-files');
+instructionFiles.init({ backends, log, db: { getProjectStates, getAllFolderMeta } });
+instructionFiles.registerIpc(ipcMain);
+
 // --- IPC: delete-worktree ---
 // The layout the path has to match is `shared/worktree-path.js` (#582) — the same one the sidebar nests
 // by, so a worktree can no longer be deletable as one without being displayed as one.

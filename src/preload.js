@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('api', {
   getResourcePlaces: (view, projectPath) => ipcRenderer.invoke('get-resource-places', view, projectPath),
   createResourceItem: (view, placeId, name, projectPath) => ipcRenderer.invoke('create-resource-item', view, placeId, name, projectPath),
   matchResourceContent: (view, projectPath, query) => ipcRenderer.invoke('match-resource-content', view, projectPath, query),
+  // #823 T5: the Instructions inventory — `scope` is 'global' or a registered project's path; a file is named by its id.
+  getInstructionInventory: (scope) => ipcRenderer.invoke('get-instruction-inventory', scope),
+  readInstruction: (id, scope) => ipcRenderer.invoke('read-instruction', id, scope),
+  saveInstruction: (id, scope, content, baseline) => ipcRenderer.invoke('save-instruction', id, scope, content, baseline ?? null),
+  locateInstruction: (filePath, projectPath) => ipcRenderer.invoke('locate-instruction', filePath, projectPath ?? null),
+  matchInstructionContent: (scope, query) => ipcRenderer.invoke('match-instruction-content', scope, query),
   // #803 T5: a skill's text for the editor on its detail page, and its save — named by inventory id, never a path.
   readSkill: (id, projectPath) => ipcRenderer.invoke('read-skill', id, projectPath),
   saveSkill: (id, projectPath, content, baseline) => ipcRenderer.invoke('save-skill', id, projectPath, content, baseline ?? null),

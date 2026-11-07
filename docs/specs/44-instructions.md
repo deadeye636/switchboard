@@ -121,9 +121,37 @@ main by `match-resource-content(view, projectPath, query)` (`matchResourceConten
 ("Content filter") has the bounds, the memo and the kit hook. The settings-wide search does not use it. The Instructions
 view (T6) will pass the same hook with its own view name.
 
+**The instruction inventory (main, T5).** `src/app/instruction-files.js`. The scan helpers the Agent Files tab used
+(`memoryBackends`, `visibleProjectPaths`, `storeFoldersFor`, `scanMdFiles`, `claim`, `collectSource`) moved there
+unchanged; `plans-memory.js` requires them (the three that read the registry or the db take the caller's ctx), so the tab and
+the inventory cannot answer differently until the tab goes. The module has its own `init`, called in `main.js`. `get-instruction-inventory(scope)` takes `'global'` or a registered project's path (an unregistered
+path is refused) and answers `{ ok, rows, declines }`; a row is `{ id, name, kind, section, scope, ext, cli, clis,
+sourceLabel, editable }`, with no path and no backend id.
+
+- Sources, in this order so a file is claimed by its real kind first: the listing kinds `memory` (an instruction file,
+  row kind `instructions`), `settings` (files only), `memory-store` (expanded, row kind `memory`), `output-style` and
+  `resource` (expanded), through the same listing seam as the Plugins views; then every descriptor's `memorySources(scope)`
+  with the store folders from the db, for what the listing did not name (Claude's `.claude/*.md`, Hermes' five names). A
+  directory source outside the project is the CLI's own store for it (Claude's auto memory) and files under it are
+  Memory; this is decided by where the source is, never by a backend id.
+- One row per real path; every CLI that names a file is in `clis` (Pi lists `AGENTS.md` and `CLAUDE.md` with Codex and
+  Claude). A file an agent, command or rule row owns is left out, which fixes the Agent Files defect where
+  `.claude/commands/*.md` showed up as instructions. The Codex global `AGENTS.md` and the agy global `GEMINI.md`, which
+  Agent Files dropped, are listed.
+- Every listed file is a row, as in Agent Files. `editable` is true only for `.md .markdown .json .toml .yaml .yml` and
+  `.cursorrules` (under 1 MB); any other row (agy's built-in resource files) can be read when it is text and is never
+  saved. The sections are Instructions, Memory, Settings files, Output styles, and Resources. **Decision (owner-confirmed
+  deviation from the plan):** Resources is a fifth section, for agy's built-in and implicit files; the plan had none. A CLI with no row and no listed source for the scope lands in `declines` ("<CLI> keeps no instructions here.").
+- Doors: `read-instruction(id, scope)` and `save-instruction(id, scope, content, baseline)` re-list on every call and take
+  a row only by equality of its id (a global id is not found in a project scope). The save needs a baseline and goes
+  through `safe-write.js` (stale baseline answers `{ ok: false, conflict: true, diskContent }` and writes nothing, the
+  file's EOL and BOM kept) with `format-validate.js`; a file over 1 MB or with a NUL byte is refused, and so is content with a NUL byte. There is no create and
+  no delete. `locate-instruction(path, projectPath)` answers `{ id, scope, projectPath }` for a path that is a listed file
+  (equality on the real path), else null. `match-instruction-content(scope, query)` runs T4's matcher over the scope's files.
+
 ## Known gaps
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The Instructions inventory and category, the deep link, the sidebar group, and removing the Agent
+- The Instructions category (the window), the deep link, the sidebar group, and removing the Agent
   Files tab are later steps of the plan and are not built.

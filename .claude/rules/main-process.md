@@ -50,6 +50,7 @@ each descriptor's `listResources`/`expandResource`, one asker per CLI, `RESOURCE
 with nothing for a view lands in `declines`; no path and no backend id field leave it, the owner CLI is an opaque `cli.key`.
 It is also the doors for those rows: `read-resource-item` / `save-resource-item` / `delete-resource-item` / `create-resource-item`
 take an inventory id, re-list on every call and delegate to `backend-resources.js`; a hook is read-only, a plugin's file never deleted; `match-resource-content` answers which items of those views and of Skills hold a text, reading the listed files bounded and memoised, and returns ids only — #823 T4),
+`instruction-files.js` (the files that steer a CLI, one scope at a time — #823 T5, spec 44; the scan helpers `plans-memory.js` used (`memoryBackends`, `visibleProjectPaths`, `storeFoldersFor`, `scanMdFiles`, `claim`, `collectSource`) live here and the Agent Files tab requires them, so the tab and the Instructions inventory cannot answer differently. `get-instruction-inventory(scope)` — `'global'` or a registered project's path — lists listing kinds `memory`, `settings`, `memory-store`, `output-style`, `resource` first and then `memorySources` for what they add, one row per real path, every CLI that names it in `clis`, a file a command, agent or rule row owns left out. `read-instruction` / `save-instruction` take an inventory id and re-list on every call (equality, never a path); the save is `safe-write.js` with the editor's baseline and `format-validate.js`. No create, no delete. `locate-instruction` answers which listed file a real path is, for the sidebar's Edit button; `match-instruction-content` is T4's matcher over the scope's files),
 `forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
@@ -592,6 +593,7 @@ line there, in the same commit.
 | What a running session can be asked to run, and the neutral skill inventory of the Plugins manager (#803) | `src/app/skills.js` |
 | The installed plugins and reported apps the Plugins manager lists (#803) | `src/app/plugins-inventory.js` |
 | The agents, commands and rules the Plugins manager lists (#823) | `src/app/resource-inventory.js` |
+| The instruction, memory and settings files of one scope, and their read/save doors (#823) | `src/app/instruction-files.js` |
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
 | Which of another backend's skills, commands, agents and MCP servers a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |
