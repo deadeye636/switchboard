@@ -175,7 +175,8 @@ test('filtering is on when any one filter is', () => {
 // --- the wiring no behavioural test can see ------------------------------------------------------
 
 test('instruction files are given a kind and their backends by the core', () => {
-  const src = read('src/app/plans-memory.js');
+  // The scanning helpers moved out of plans-memory.js into instruction-files.js (#823 T5).
+  const src = read('src/app/instruction-files.js');
   assert.match(src, /INSTRUCTION_KIND = 'instructions'/);
   assert.equal((src.match(/kind: INSTRUCTION_KIND/g) || []).length, 2,
     'both collection paths (a directory scan and a single file) must stamp the kind');
