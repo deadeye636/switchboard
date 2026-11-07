@@ -10,7 +10,8 @@
 //
 // Free globals it reads at CALL time: escapeHtml, formatDate (lib/utils.js), openSessions, sessionMap (app.js),
 // fitAndScroll (terminal/terminal-manager.js), insertResolvedText (terminal/terminal-context-menu.js),
-// openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), window.api.
+// openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), openFileInPanel
+// (views/file-panel.js), window.api.
 //
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
@@ -19,7 +20,7 @@
 const SESSION_SIDEBAR_KEY = 'sessionSidebar';
 const SESSION_SIDEBAR_WIDTH = { min: 200, default: 280, max: 560 };
 const SESSION_SIDEBAR_KEEP = 300;
-// What a session shows before anyone has chosen: the cheap ones. Handoffs and connectors each read something.
+// What a session shows before anyone has chosen: the cheap ones. Handoffs, instructions and connectors each read something.
 const SESSION_SIDEBAR_OPEN_GROUPS = ['tasks', 'context'];
 const SESSION_SIDEBAR_ROWS = 30;
 
@@ -56,6 +57,15 @@ function rekeySidebarState(map, oldId, newId) {
   const next = { ...map, [newId]: map[newId] || map[oldId] };
   delete next[oldId];
   return next;
+}
+
+// What a group's `toggle` means. A group drawn OPEN fires one toggle by itself, and `showSidebar` has already read it, so
+// that one reads nothing. A group drawn CLOSED has never been closed by anybody, yet its first real open must read: it
+// starts with `closedOnce` set (`buildSidebar`), so its first open is a load.
+function sidebarToggleAction({ open, closedOnce, inView }) {
+  if (!open) return 'closed';
+  if (!closedOnce) return 'none';
+  return inView ? 'load' : 'stale';
 }
 
 function openTaskRows(tasks) {
@@ -106,6 +116,22 @@ function sidebarBarSegments(breakdown, window) {
     .map((c) => ({ ...c, width: Math.min(100, (c.tokens / window) * 100) }));
 }
 
+// The Instructions group's rows (#823, spec 44): the files that apply to this session, global and project, for its
+// CLI. Main answers `{ rows: [{ id, label, scope, section, path }], declined }`; a row is opened read-only in the
+// preview panel. Split by scope, in the order main sent them; `declined` is the sentence for a CLI with none.
+function instructionGroups(answer) {
+  const rows = answer && answer.ok && Array.isArray(answer.rows) ? answer.rows.filter((r) => r && typeof r.path === 'string' && r.path) : [];
+  return [['global', 'Global'], ['project', 'Project']]
+    .map(([scope, label]) => ({ scope, label, rows: rows.filter((r) => r.scope === scope) }))
+    .filter((g) => g.rows.length);
+}
+
+// One file row. Shared with #822's Context group, whose memory files open the same way: `data-ssb="open-file"` and the
+// path in `data-path`, all of it escaped. `meta` is optional (a size, a section).
+function instructionRow(row, meta = '') {
+  return sidebarRow(row.label || row.name || '', meta, `data-ssb="open-file" data-path="${escapeHtml(row.path)}" title="Open read-only"`);
+}
+
 const CONTEXT_BASELINE_NOTE = 'Nothing has been sent yet. This is about what the first request will carry.';
 const CONTEXT_LINE_FILES = 3;
 
@@ -129,7 +155,8 @@ function contextLineDetails(context) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+    sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+    instructionGroups, instructionRow,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
   };
@@ -202,6 +229,16 @@ function sidebarBreakdownHtml(entry, breakdown, window) {
   return `<div class="ssb-stack">${bar}</div><div class="ssb-cats">${rows}</div>${lists}`;
 }
 
+// A click on a file row: the file opens read-only in the session's preview panel, whose Edit button leads to its page
+// in Settings. The sidebar keeps no path of its own beyond what the row carries, and the caret goes back to the session.
+async function sessionSidebarOpenInstruction(entry, row) {
+  if (!entry || !row || !row.path || typeof openFileInPanel !== 'function') return;
+  const projectPath = sidebarSessionOf(entry).projectPath || null;
+  try {
+    await openFileInPanel(entry.session.sessionId, row.path, { readOnly: true, editInSettings: { projectPath } });
+  } finally { sidebarSessionFocus(entry); }
+}
+
 // Each group reads when it is open and in view, and answers markup. All of it is escaped: a task title, an issue and
 // a skill name are all text somebody else may have written.
 const SESSION_SIDEBAR_GROUPS = [
@@ -242,6 +279,20 @@ const SESSION_SIDEBAR_GROUPS = [
         const meta = when && typeof formatDate === 'function' ? formatDate(new Date(when)) : '';
         return sidebarRow(h.title || h.label || h.filename, meta, `data-ssb="insert" data-text="${escapeHtml(h.filePath || '')}" title="Insert the path"`);
       }).join('');
+    },
+  },
+  {
+    id: 'instructions',
+    label: 'Instructions',
+    async load(entry) {
+      const session = sidebarSessionOf(entry);
+      const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(session) : null;
+      const answer = await window.api.getSessionInstructions(session.projectPath || null, backendId);
+      if (!answer || !answer.ok) return sidebarNote('The instruction files could not be read.');
+      const groups = instructionGroups(answer);
+      if (!groups.length) return sidebarNote(answer.declined || 'No instruction files apply here.');
+      return groups.map((g) => `<div class="ssb-subhead">${escapeHtml(g.label)}</div>`
+        + g.rows.slice(0, SESSION_SIDEBAR_ROWS).map((r) => instructionRow(r)).join('')).join('');
     },
   },
   {
@@ -359,11 +410,13 @@ function buildSidebar(entry) {
     const open = [...root.querySelectorAll('.ssb-group')].filter((s) => s.open).map((s) => s.dataset.group);
     writeSidebarState(sessionId(), { groups: open });
     // A group drawn open fires this once by itself, and `showSidebar` has already read it.
-    if (!section.open) section._closedOnce = true;
-    else if (section._closedOnce && sidebarInView(entry)) {
-      loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group), section);
-    } else if (section._closedOnce) section._stale = true;
+    const action = sidebarToggleAction({ open: section.open, closedOnce: !!section._closedOnce, inView: sidebarInView(entry) });
+    if (action === 'closed') section._closedOnce = true;
+    else if (action === 'load') loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group), section);
+    else if (action === 'stale') section._stale = true;
   }, true);
+  // Drawn closed: its first open is a real one and reads (a group drawn open fires one toggle that reads nothing).
+  for (const section of root.querySelectorAll('.ssb-group')) if (!section.open) section._closedOnce = true;
 
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-ssb]');
@@ -378,6 +431,9 @@ function buildSidebar(entry) {
       case 'url': window.api.openExternal(el.dataset.url); break;
       case 'tasks':
         if (typeof openTasksView === 'function') openTasksView({ projectPath: session.projectPath }, 'Session project');
+        break;
+      case 'open-file':
+        sessionSidebarOpenInstruction(entry, { path: el.dataset.path });
         break;
       case 'insert':
         if (el.dataset.text && typeof insertResolvedText === 'function') {

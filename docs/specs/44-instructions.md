@@ -173,3 +173,9 @@ The ids are those of the Skills, Agents, Commands, Rules and Instructions invent
   declines until it does, unless it declares a scaffold.
 - The sidebar group and removing the Agent
   Files tab are later steps of the plan and are not built.
+
+**The session sidebar group (T8).** `get-session-instructions(projectPath, backendId)` answers `{ ok, rows: [{ id, label, scope,
+section, path }], declined }` for the owner CLI of that backend (`cliOf`), global scope plus a registered project, kinds
+instruction, memory and settings. The path is for the read-only preview, the id for Edit. Spec 43 has the group; the
+preview's Edit button goes through `locate-instruction` and the `{ cat: 'instructions', item }` link; it is shown for every
+file and a path main does not list gets a toast instead of a hidden button (spec 43).

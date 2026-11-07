@@ -381,6 +381,29 @@ function locateInstruction({ path: filePath, projectPath = null } = {}) {
   return null;
 }
 
+/**
+ * What applies to one session: the instruction, memory and settings files of the session's backend's owner CLI, in
+ * the global scope and (a registered project) the project's. `{ ok, rows: [{ id, label, scope, section, path }],
+ * declined }`. The path is for the read-only preview, the id for the Edit link; a CLI with none answers a sentence.
+ */
+function getSessionInstructions({ projectPath = null, backendId = '' } = {}) {
+  const shared = resourceInventory._shared;
+  const descriptor = typeof backendId === 'string' && backendId ? shared.backendById(backendId) : null;
+  if (!descriptor) return { ok: true, rows: [], declined: 'The CLI of this session keeps no instruction files.' };
+  const cli = shared.cliOf(descriptor);
+  const scopes = [null];
+  if (projectPath && skills.projectAllowed(projectPath)) scopes.push(projectPath);
+  const rows = [];
+  for (const p of scopes) {
+    for (const r of collect(p).rows) {
+      if (!SESSION_KINDS.has(r.kind) || !r.owners.some(o => o.cli.key === cli.key)) continue;
+      rows.push({ id: r.id, label: r.name, scope: r.scope, section: r.section, path: r.filePath });
+    }
+  }
+  return { ok: true, rows, declined: rows.length ? null : `${cli.label} keeps no instructions here.` };
+}
+const SESSION_KINDS = new Set(['instructions', 'memory', 'settings']);
+
 /** The ids of the files of one scope whose text holds `query` (T4's matcher, bounded and memoised): `{ ok, ids }`. */
 async function matchInstructionContent({ scope, query } = {}) {
   const asked = scopeProject(scope);
@@ -400,6 +423,9 @@ function registerIpc(ipcMain) {
   ipcMain.handle('locate-instruction', (_e, filePath, projectPath) => locateInstruction({
     path: typeof filePath === 'string' ? filePath : '', projectPath: typeof projectPath === 'string' && projectPath ? projectPath : null,
   }));
+  ipcMain.handle('get-session-instructions', (_e, projectPath, backendId) => getSessionInstructions({
+    projectPath: typeof projectPath === 'string' && projectPath ? projectPath : null, backendId: typeof backendId === 'string' ? backendId : '',
+  }));
   ipcMain.handle('match-instruction-content', (_e, scope, query) => matchInstructionContent({
     scope: scopeOf(scope), query: typeof query === 'string' ? query : '',
   }));
@@ -409,6 +435,6 @@ module.exports = {
   init, registerIpc,
   // what plans-memory.js asks, unchanged
   memoryBackends, visibleProjectPaths, storeFoldersFor, scanMdFiles, claim, collectSource, INSTRUCTION_KIND,
-  getInstructionInventory, readInstruction, saveInstruction, locateInstruction, matchInstructionContent,
+  getInstructionInventory, readInstruction, saveInstruction, locateInstruction, matchInstructionContent, getSessionInstructions,
   _collect: collect,
 };

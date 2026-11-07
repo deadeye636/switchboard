@@ -68,6 +68,32 @@ before: a terminal session, and pi-native, whose stats name no categories.
   markup and 8 ms to build and parse, so the rows are drawn with the group rather than on opening a list.
 - **A group out of view marks itself stale** on a `context` op and redraws when it comes into view (E10).
 
+## The Instructions group (#823)
+
+Between Handoffs and Context; closed by default, because it reads the files of two scopes (E10: only when open and in
+view, marked stale otherwise). It lists what applies to this session: the instruction, memory and settings files of the
+session's CLI, under the subheads Global and Project. A driver backend answers as its owner CLI; main decides that
+(`get-session-instructions`, `src/app/instruction-files.js`), the window sends the session's backend and project and names
+no CLI. A CLI with none shows its sentence as a note.
+
+- **A click opens the file read-only in the preview panel** (`openFileInPanel(sessionId, path, { readOnly: true,
+  editInSettings })`) and the caret returns to the session. The preview has no Save and no editing.
+- **The preview's Edit button** asks main which listed file the path is (`locate-instruction`) and opens Settings on that
+  file's page (`openSettingsWindow(scope, projectPath, { cat: 'instructions', item: id })`). No listed file, no navigation.
+- **The path is the one place a path reaches the window**: the preview panel is path-based (label, language, watcher), so
+  main sends it with the row. The id stays for Settings.
+- **Edit without a located file**: the plan said no Edit button when `locate-instruction` answers null. The button is
+  shown for every file opened this way and answers with a toast when main does not list the path, which saves a locate
+  call per open. Read-only also stops typing (the editor is reconfigured, any file kind), and opening the same path again
+  in the other mode reopens the viewer.
+- **For #822 to reuse**: `instructionRow(row, meta)` draws a file row (`data-ssb="open-file"`, escaped) and
+  `sessionSidebarOpenInstruction(entry, row)` opens it and returns the caret to the session once the panel has opened;
+  the Context group's memory files call the same two.
+- **A group drawn closed reads on its first real open.** The toggle handler only loaded a group that had been closed
+  once, which a group drawn closed never was, so Handoffs and Instructions stayed empty on the first open of a fresh
+  session. Groups drawn closed now start marked (`sidebarToggleAction`); a group drawn open still reads nothing on the one
+  toggle it fires by itself.
+
 ## Known gaps
 
 - A backend that measures no context fill shows "No figure for this session yet." rather than leaving the group out, as

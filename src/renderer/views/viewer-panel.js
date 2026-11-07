@@ -434,6 +434,13 @@ class ViewerPanel {
         });
       }
 
+      // Typing stops with the Save button: a file opened read-only is not editable in any kind (#823).
+      if (this.editorView && this.editorView._readOnlyCompartment) {
+        this.editorView.dispatch({
+          effects: this.editorView._readOnlyCompartment.reconfigure(this.editorView._readOnlyExtensions(this.readOnly)),
+        });
+      }
+
       // Set wrap default based on file type
       this.wrapMode = md;
       this.toolbar.setWrapMode(this.wrapMode);
@@ -560,7 +567,7 @@ class ViewerPanel {
   _createEditor(content, filePath) {
     if (this.opts.language === 'auto') {
       this.editorView = window.createEditableViewer(
-        this.editorEl, content, filePath, { wrap: this.wrapMode },
+        this.editorEl, content, filePath, { wrap: this.wrapMode, readOnly: this.readOnly },
       );
     } else {
       this.editorView = window.createPlanEditor(this.editorEl);

@@ -94,6 +94,7 @@ function createPanelInstance(parent, hooks = {}) {
   viewerContainer.style.display = 'none';
   root.appendChild(viewerContainer);
 
+  let openedTab = null;
   const viewerPanel = new ViewerPanel(viewerContainer, {
     language: 'auto',
     onSave: (filePath, content, baseline) => window.api.saveFileForPanel(filePath, content, baseline),
@@ -101,6 +102,17 @@ function createPanelInstance(parent, hooks = {}) {
     // Open the current file in the external editor, then close the panel (#69).
     onExternalOpen: (filePath) => { window.api.openInEditor(filePath); hooks.onClose?.(); },
   });
+
+  // A read-only instruction file (#823) offers one way on: the file's page in Settings. Shown per tab.
+  const editBtn = document.createElement('button');
+  editBtn.type = 'button';
+  editBtn.className = 'fp-toolbar-btn';
+  editBtn.textContent = 'Edit';
+  editBtn.title = 'Edit this file in Settings';
+  editBtn.style.display = 'none';
+  const viewerControls = viewerPanel.toolbar && viewerPanel.toolbar.el.querySelector('.viewer-toolbar-controls');
+  if (viewerControls) viewerControls.insertBefore(editBtn, viewerControls.firstChild);
+  editBtn.addEventListener('click', () => hooks.onEditInSettings?.());
 
   const diffContainer = document.createElement('div');
   diffContainer.className = 'fp-diff';
@@ -237,7 +249,10 @@ function createPanelInstance(parent, hooks = {}) {
         // glance at another session threw away whatever had been typed since, along with the caret.
         // Measured in the running app: an edit made without saving was gone after one switch away and
         // back. What is safe to repeat is the reveal, not the open.
-        if (viewerPanel.filePath !== tab.filePath) viewerPanel.open(tab.label, tab.filePath, tab.content);
+        editBtn.style.display = tab.editInSettings ? '' : 'none';
+        // The tab OBJECT decides too: a reopen of the same path replaces it (new mode, new content) and tore the
+        // viewer down on the way, while a plain re-render keeps the same object and so keeps the edits (#458).
+        if (viewerPanel.filePath !== tab.filePath || openedTab !== tab) { openedTab = tab; viewerPanel.open(tab.label, tab.filePath, tab.content, tab.readOnly ? { readOnly: true } : {}); }
       } else {
         viewerContainer.style.display = 'none';
         diffContainer.style.display = 'flex';
@@ -520,6 +535,7 @@ function upsertPanelTab(sessionId, kind, what, tab) {
     onToggleDiffMode: handleDiffModeToggle,
     onDiffAction: (_sid, _tab, action) => handleDiffAction(entry, action),
     onPageReview: (direction) => pageReview(entry, direction),
+    onEditInSettings: () => editInSettings(entry),
   });
   panelTabs.set(key, entry);
   return entry;
@@ -761,6 +777,8 @@ function openFileTab(sessionId, data) {
     label: basename(data.filePath),
     filePath: data.filePath,
     content: data.content,
+    readOnly: !!data.readOnly,
+    editInSettings: data.editInSettings || null,
   });
   revealEntry(state, sessionId, entry);
 }
@@ -793,7 +811,20 @@ function revealEntry(state, sessionId, entry) {
   }
 }
 
-async function openFileInPanel(sessionId, filePath) {
+// The Edit button of a read-only instruction file (#823, spec 44): which listed file this path is, asked of main, and
+// then that file's page in Settings. No answer, no navigation: a path the inventory does not list has nowhere to go.
+async function editInSettings(entry) {
+  const hint = entry.tab && entry.tab.editInSettings;
+  if (!hint || !entry.tab.filePath) return;
+  const found = await window.api.locateInstruction(entry.tab.filePath, hint.projectPath || null);
+  if (!found) {
+    window.showControlToast?.({ message: 'This file is not listed in Settings.', timeoutMs: 3000 });
+    return;
+  }
+  window.api.openSettingsWindow(found.scope === 'project' ? 'project' : 'global', found.projectPath || null, { cat: 'instructions', item: found.id });
+}
+
+async function openFileInPanel(sessionId, filePath, options = {}) {
   // Images and PDFs are binary — read them as a data URL instead of UTF-8 text (#49, #465). Reading a
   // PDF as text is what put its bytes in the editor, with a Save button over them.
   const binaryKind = typeof previewKindForExt === 'function' ? previewKindForExt(extOf(filePath)) : 'text';
@@ -805,7 +836,7 @@ async function openFileInPanel(sessionId, filePath) {
       });
       return;
     }
-    openFileTab(sessionId, { filePath, content: res.dataUrl });
+    openFileTab(sessionId, { filePath, content: res.dataUrl, readOnly: !!options.readOnly, editInSettings: options.editInSettings });
     return;
   }
   const result = await window.api.readFileForPanel(filePath);
@@ -814,7 +845,7 @@ async function openFileInPanel(sessionId, filePath) {
     window.showControlToast?.({ message: (result && result.error) || 'Cannot open this file', timeoutMs: 3000 });
     return;
   }
-  openFileTab(sessionId, { filePath, content: result.content });
+  openFileTab(sessionId, { filePath, content: result.content, readOnly: !!options.readOnly, editInSettings: options.editInSettings });
 }
 
 function closeAllDiffs(sessionId) {

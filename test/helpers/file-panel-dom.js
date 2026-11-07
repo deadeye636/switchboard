@@ -54,6 +54,7 @@ function setupFilePanelDom(opts = {}) {
     openedInEditor: [],
     mergeViewers: [],    // { mode, filePath, oldContent, newContent }
     viewerOpens: [],     // [label, filePath]
+    viewerOptions: [],   // the options each open() was given (#823: readOnly)
     viewerDestroys: 0,
     openViewTab: [],     // [kind, options]
     closeViewTab: [],
@@ -228,9 +229,10 @@ function setupFilePanelDom(opts = {}) {
   const proto = window.ViewerPanel.prototype;
   const realOpen = proto.open;
   const realDestroy = proto.destroy;
-  proto.open = function (label, filePath, content) {
+  proto.open = function (label, filePath, content, options) {
     calls.viewerOpens.push([label, filePath]);
-    return realOpen.call(this, label, filePath, content);
+    calls.viewerOptions.push(options || {});
+    return realOpen.call(this, label, filePath, content, options);
   };
   proto.destroy = function () {
     calls.viewerDestroys++;
@@ -253,8 +255,8 @@ function setupFilePanelDom(opts = {}) {
     // the tests drive the same entry points app.js does, rather than a re-implementation.
     init: () => inCtx('initFilePanel()'),
     switchPanel: (sessionId) => inCtx(`switchPanel(${JSON.stringify(sessionId)})`),
-    openFileInPanel: (sessionId, filePath) =>
-      inCtx(`openFileInPanel(${JSON.stringify(sessionId)}, ${JSON.stringify(filePath)})`),
+    openFileInPanel: (sessionId, filePath, options) =>
+      inCtx(`openFileInPanel(${JSON.stringify(sessionId)}, ${JSON.stringify(filePath)}${options ? ', ' + JSON.stringify(options) : ''})`),
     state: (sessionId) => inCtx(`filePanelState.get(${JSON.stringify(sessionId)})`),
     // How an instanced view is addressed since #619: the session, then the file path or the diff id.
     // Built here rather than imported so the tests pin the SHAPE — a change to it has to be made twice,

@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('api', {
   readInstruction: (id, scope) => ipcRenderer.invoke('read-instruction', id, scope),
   saveInstruction: (id, scope, content, baseline) => ipcRenderer.invoke('save-instruction', id, scope, content, baseline ?? null),
   locateInstruction: (filePath, projectPath) => ipcRenderer.invoke('locate-instruction', filePath, projectPath ?? null),
+  getSessionInstructions: (projectPath, backendId) => ipcRenderer.invoke('get-session-instructions', projectPath ?? null, backendId ?? ''),
   matchInstructionContent: (scope, query) => ipcRenderer.invoke('match-instruction-content', scope, query),
   // #803 T5: a skill's text for the editor on its detail page, and its save — named by inventory id, never a path.
   readSkill: (id, projectPath) => ipcRenderer.invoke('read-skill', id, projectPath),

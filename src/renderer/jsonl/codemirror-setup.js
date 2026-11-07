@@ -432,10 +432,14 @@ function createReadOnlyViewer(parent, content, filename) {
 
 // ── Editable File Viewer (for file panel) ───────────────────────────
 
-function createEditableViewer(parent, content, filename, { wrap = false, live = null, imageBase = '' } = {}) {
+const readOnlyExtensions = (on) => (on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []);
+
+function createEditableViewer(parent, content, filename, { wrap = false, live = null, imageBase = '', readOnly = false } = {}) {
   const langExt = getLanguageExt(filename);
   const wrapCompartment = new Compartment();
   const liveCompartment = new Compartment();
+  // A file the panel was told not to edit (#823): in a compartment so a reopen can switch it either way.
+  const readOnlyCompartment = new Compartment();
 
   const state = EditorState.create({
     doc: content,
@@ -466,12 +470,15 @@ function createEditableViewer(parent, content, filename, { wrap = false, live = 
       appThemePatch,
       wrapCompartment.of(wrap ? EditorView.lineWrapping : []),
       liveCompartment.of(livePreviewFor(live, imageBase)),
+      readOnlyCompartment.of(readOnlyExtensions(readOnly)),
     ],
   });
 
   const view = new EditorView({ state, parent });
   view._wrapCompartment = wrapCompartment;
   view._liveCompartment = liveCompartment;
+  view._readOnlyCompartment = readOnlyCompartment;
+  view._readOnlyExtensions = readOnlyExtensions;
   return view;
 }
 
