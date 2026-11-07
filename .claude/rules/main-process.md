@@ -45,6 +45,9 @@ lists — #803; a descriptor that states on/off answers `listPlugins`, one that 
 `listResources` plugin rows with the state "not reported"; `listApps` is optional and nobody answers it yet. One
 asker per CLI, no backend id in an answer. `open-plugin` takes a row's id and opens its folder through
 `backend-resources.js`'s `openResource`, so it reaches only what that backend's listing reaches),
+`resource-inventory.js` (the agents, commands and rules the Plugins manager lists — #823, spec 44; one row per file from
+each descriptor's `listResources`/`expandResource`, one asker per CLI, `RESOURCE_VIEWS` is the one kind-to-view table, a CLI
+with nothing for a view lands in `declines`; no path and no backend id field leave it, the owner CLI is an opaque `cli.key`),
 `forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
@@ -586,6 +589,7 @@ line there, in the same commit.
 | Where a project keeps its handoffs and its plans | `src/app/convention-dirs.js` |
 | What a running session can be asked to run, and the neutral skill inventory of the Plugins manager (#803) | `src/app/skills.js` |
 | The installed plugins and reported apps the Plugins manager lists (#803) | `src/app/plugins-inventory.js` |
+| The agents, commands and rules the Plugins manager lists (#823) | `src/app/resource-inventory.js` |
 | Images pasted or dropped into a terminal | `src/app/terminal/images.js` |
 | A session driven over a runtime protocol instead of a terminal — its pipe, its conversation, its questions | `src/app/agent-rpc.js` |
 | Which of another backend's skills, commands, agents and MCP servers a session takes over ("Resources from"), and the settings screen's preview of it | `src/app/resource-sources.js` |

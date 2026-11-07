@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('api', {
   getAppInventory: (projectPath) => ipcRenderer.invoke('get-app-inventory', projectPath),
   // #803 T9: open a plugin's folder, named by its inventory id; main checks it through the backend's own door.
   openPlugin: (id, projectPath) => ipcRenderer.invoke('open-plugin', id, projectPath),
+  // #823: the agents, commands or rules of one project (view = 'agents' | 'commands' | 'rules'), one neutral row per file.
+  getResourceInventory: (view, projectPath) => ipcRenderer.invoke('get-resource-inventory', view, projectPath),
   // #803 T5: a skill's text for the editor on its detail page, and its save — named by inventory id, never a path.
   readSkill: (id, projectPath) => ipcRenderer.invoke('read-skill', id, projectPath),
   saveSkill: (id, projectPath, content, baseline) => ipcRenderer.invoke('save-skill', id, projectPath, content, baseline ?? null),

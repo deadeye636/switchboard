@@ -662,6 +662,11 @@ const pluginsInventory = require('./app/plugins-inventory');
 pluginsInventory.init({ backends, log });
 pluginsInventory.registerIpc(ipcMain);
 
+// The agents, commands and rules the Plugins manager lists (#823, spec 44) — the same seam, one row per file.
+const resourceInventory = require('./app/resource-inventory');
+resourceInventory.init({ backends, log });
+resourceInventory.registerIpc(ipcMain);
+
 // --- IPC: delete-worktree ---
 // The layout the path has to match is `shared/worktree-path.js` (#582) — the same one the sidebar nests
 // by, so a worktree can no longer be deletable as one without being displayed as one.
