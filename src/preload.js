@@ -19,6 +19,13 @@ contextBridge.exposeInMainWorld('api', {
   openPlugin: (id, projectPath) => ipcRenderer.invoke('open-plugin', id, projectPath),
   // #823: the agents, commands or rules of one project (view = 'agents' | 'commands' | 'rules'), one neutral row per file.
   getResourceInventory: (view, projectPath) => ipcRenderer.invoke('get-resource-inventory', view, projectPath),
+  // #823 T2: the doors of those rows, by inventory id (never a path); places are opaque ids from main, as for a skill.
+  // `view` is optional: with it main lists only that view, without it all three.
+  readResourceItem: (id, projectPath, view) => ipcRenderer.invoke('read-resource-item', id, projectPath, view ?? null),
+  saveResourceItem: (id, projectPath, content, baseline, view) => ipcRenderer.invoke('save-resource-item', id, projectPath, content, baseline ?? null, view ?? null),
+  deleteResourceItem: (id, projectPath, view) => ipcRenderer.invoke('delete-resource-item', id, projectPath, view ?? null),
+  getResourcePlaces: (view, projectPath) => ipcRenderer.invoke('get-resource-places', view, projectPath),
+  createResourceItem: (view, placeId, name, projectPath) => ipcRenderer.invoke('create-resource-item', view, placeId, name, projectPath),
   // #803 T5: a skill's text for the editor on its detail page, and its save — named by inventory id, never a path.
   readSkill: (id, projectPath) => ipcRenderer.invoke('read-skill', id, projectPath),
   saveSkill: (id, projectPath, content, baseline) => ipcRenderer.invoke('save-skill', id, projectPath, content, baseline ?? null),

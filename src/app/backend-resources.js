@@ -405,7 +405,8 @@ async function deleteResource(backendId, resourcePath, projectPath = null) {
     }
 
     // A skill is its folder; everything else is the file itself.
-    const target = path.basename(resourcePath).toLowerCase() === 'skill.md'
+    // Only a skill is a folder; a command or agent that happens to be named SKILL.md is deleted alone.
+    const target = entry.kind === 'skill' && path.basename(resourcePath).toLowerCase() === 'skill.md'
       ? path.dirname(resourcePath)
       : resourcePath;
     if (target !== resourcePath) {

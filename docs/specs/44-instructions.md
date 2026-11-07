@@ -91,9 +91,28 @@ fromPlugin, creatable }`:
 A hook that throws is skipped and logged at debug level; the other backends still answer. The listing is synchronous: an
 `expandResource` that answers a promise counts as a failure, is logged, and does not mark the source as listed. No setting was added.
 
+**The doors (same module).** `read-resource-item(id, projectPath)`, `save-resource-item(id, projectPath, content,
+baseline)`, `delete-resource-item(id, projectPath)`, `get-resource-places(view, projectPath)` and
+`create-resource-item(view, placeId, name, projectPath)`; each has a `window.api` binding in `src/preload.js`. They name
+an item by its inventory id only. Every call checks the project against the register (`skills.projectAllowed`, a
+worktree through its project). Read, save and delete take an optional trailing `view` and list only that view (all three
+when none is given), then take a row only by equality of its id; an id that is no longer listed is refused. Places and
+create list the one view they are given. A file two backends list under different kinds is read-only for all of them
+when either kind is read-only (a hook). The work is `backend-resources.js`'s: `readResource`, `writeResource` (the `safe-write.js`
+baseline, line endings and BOM kept, format check), `createResource` and `deleteResource`, each through the first owner
+that qualifies, with the project passed only for a project-scope row.
+
+- Read needs an owner whose listing reaches the file (a hook can be read). Save needs a baseline string and an owner
+  with the `editable` predicate; a stale baseline answers `{ ok: false, conflict: true, diskContent }` and writes nothing.
+- Delete takes the row's `deletable` flag: a hook, a kind without a lifecycle (a Hermes bundle) and anything a plugin
+  installed (`fromPlugin` on any owner) is refused with a sentence.
+- A new item goes into a place: a listed directory of the view's kind, under a source that backend's scaffold claims, that
+  exists. The window gets `{ id, label, scope, kind }`: no path field and no backend id (the label shows the folder). The answer carries the new row's
+  id (null when the fresh listing does not show it).
+
 ## Known gaps
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The reading and writing door by id, the three views, the content filter, the Instructions inventory and category, the
+- The three views, the content filter, the Instructions inventory and category, the
   deep link, the sidebar group, and removing the Agent Files tab are later steps of the plan and are not built.

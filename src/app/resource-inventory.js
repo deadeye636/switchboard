@@ -15,9 +15,11 @@
 // id travels only as the opaque `cli.key` of the #824 stamps (spec 40), which a window uses to filter and never
 // to decide anything.
 //
-// The door that reads, writes, creates and deletes by id is the next step (spec 44); this module only
-// lists, and decides `editable` / `deletable` / `creatable` with the same predicates that door will use, so
-// nothing is offered that the door would then refuse.
+// The doors (#823 T2) read, save, create and delete BY THAT ID, never by a path: every call lists the views
+// again and takes a row only by equality of its id, so an id that is no longer listed is refused. The work is
+// `backend-resources.js`'s (its own re-listing, containment on real paths, `safe-write.js` with the baseline);
+// `editable` / `deletable` / `creatable` on a row are the predicates the doors use, so nothing is offered that
+// a door then refuses. A hook is listed and may be read, never saved or deleted; a plugin's file is never deleted.
 'use strict';
 
 const crypto = require('crypto');
@@ -25,7 +27,8 @@ const fs = require('fs');
 const path = require('path');
 
 const backendResources = require('./backend-resources');
-const { pathKey } = require('./path-containment');
+const skills = require('./skills');
+const { pathKey, samePath } = require('./path-containment');
 
 let ctx = null;
 
@@ -148,14 +151,14 @@ function collect(view, projectPath) {
     for (const scope of projectPath ? ['global', 'project'] : ['global']) {
       for (const f of backendFiles(descriptor, kinds, projectPath, scope, facts)) {
         facts.rows += 1;
+        const reach = backendResources._reachable(descriptor, f.resources, f.filePath);
         const owner = {
           backendId: descriptor.id,
           cli,
           fromPlugin: !!f.entry.fromPlugin,
+          reach,
           // A hook is a script: read-only whatever its extension, so an `.md` hook is never offered an Edit.
-          door: !READ_ONLY_KINDS.includes(f.kind)
-            && backendResources._editableHere(descriptor, f.filePath)
-            && backendResources._reachable(descriptor, f.resources, f.filePath),
+          door: !READ_ONLY_KINDS.includes(f.kind) && reach && backendResources._editableHere(descriptor, f.filePath),
           creatable: !!scaffoldFor(descriptor, f.kind),
         };
         const key = pathKey(f.filePath);
@@ -170,9 +173,12 @@ function collect(view, projectPath) {
         } else if (!kept.owners.some(o => o.cli.key === owner.cli.key && o.backendId === owner.backendId)) {
           kept.owners.push(owner);
         }
+        // One file two backends list under different kinds: if either calls it a hook, it is read-only for all.
+        if (READ_ONLY_KINDS.includes(f.kind)) byKey.get(key).readOnly = true;
       }
     }
   }
+  for (const r of byKey.values()) if (r.readOnly) for (const o of r.owners) o.door = false;
   const rows = [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name) || a.sourceLabel.localeCompare(b.sourceLabel));
   return { rows, perCli };
 }
@@ -189,19 +195,25 @@ function distinctClis(owners) {
  * creatable }`. `deletable` follows the skills rule (spec 40 E16): the kind has a lifecycle, a backend's door
  * admits Edit, and nothing a plugin installed — a second CLI listing the same folder unmarked does not open it.
  */
+function flagsOf(r) {
+  const fromPlugin = r.owners.some(o => o.fromPlugin);
+  const editable = r.owners.some(o => o.door);
+  return {
+    editable,
+    deletable: editable && backendResources.isDeletableKind(r.kind) && !fromPlugin,
+    fromPlugin,
+    creatable: r.owners.some(o => o.creatable),
+  };
+}
+
 function getResourceInventory({ view, projectPath = null } = {}) {
   if (!Object.prototype.hasOwnProperty.call(RESOURCE_VIEWS, view)) return { ok: false, reason: 'Unknown view.' };
   const { rows, perCli } = collect(view, projectPath);
   const out = rows.map(r => {
     const clis = distinctClis(r.owners);
-    const fromPlugin = r.owners.some(o => o.fromPlugin);
-    const editable = r.owners.some(o => o.door);
     return {
       id: r.id, name: r.name, kind: r.kind, scope: r.scope, sourceLabel: r.sourceLabel, originLabel: r.originLabel,
-      cli: clis[0], clis, editable,
-      deletable: editable && backendResources.isDeletableKind(r.kind) && !fromPlugin,
-      fromPlugin,
-      creatable: r.owners.some(o => o.creatable),
+      cli: clis[0], clis, ...flagsOf(r),
     };
   });
   const declines = [];
@@ -213,12 +225,148 @@ function getResourceInventory({ view, projectPath = null } = {}) {
   return { ok: true, rows: out, declines };
 }
 
+// --- The doors (#823 T2) ---------------------------------------------------------------------------------
+
+/** The project a backend call is made for: a row's own scope decides, as the listing it came from did. */
+function scopedProject(row, projectPath) {
+  return row.scope === 'project' ? projectPath : null;
+}
+
+/**
+ * The listed row an id names, from a fresh listing of the named view (all three when none is named): `{ row }` or
+ * `{ error }`. A project the
+ * register does not hold is refused first (it would choose where a project scope resolves).
+ */
+function rowFor(id, projectPath, onlyView = null) {
+  if (!skills.projectAllowed(projectPath)) return { error: 'That project is not on the list.' };
+  if (typeof id !== 'string' || !id) return { error: 'That item is no longer listed.' };
+  if (onlyView && !Object.prototype.hasOwnProperty.call(RESOURCE_VIEWS, onlyView)) return { error: 'Unknown view.' };
+  for (const view of onlyView ? [onlyView] : Object.keys(RESOURCE_VIEWS)) {
+    const row = collect(view, projectPath).rows.find(r => r.id === id);
+    if (row) return { row };
+  }
+  return { error: 'That item is no longer listed.' };
+}
+
+/** The text of one item: `{ ok, content, mtimeMs, size }` or `{ ok: false, reason }`. A hook may be read. */
+async function readResourceItem({ id, projectPath = null, view = null } = {}) {
+  const found = rowFor(id, projectPath, view);
+  if (found.error) return { ok: false, reason: found.error };
+  const owner = found.row.owners.find(o => o.reach);
+  if (!owner) return { ok: false, reason: 'This item cannot be opened here.' };
+  return backendResources.readResource(owner.backendId, found.row.filePath, scopedProject(found.row, projectPath));
+}
+
+/**
+ * Save one item: `{ ok, content }`, `{ ok: false, conflict: true, diskContent, reason }` when the file moved under
+ * the editor, or `{ ok: false, reason }`. A baseline is required, as for a skill: the editor only saves what it read.
+ */
+async function saveResourceItem({ id, projectPath = null, content, baseline = null, view = null } = {}) {
+  if (typeof content !== 'string') return { ok: false, reason: 'Nothing to save.' };
+  if (typeof baseline !== 'string') return { ok: false, reason: 'Open the item again before saving it.' };
+  const found = rowFor(id, projectPath, view);
+  if (found.error) return { ok: false, reason: found.error };
+  const owner = found.row.owners.find(o => o.door);
+  if (!owner) return { ok: false, reason: 'This item cannot be edited here.' };
+  return backendResources.writeResource(owner.backendId, found.row.filePath, content, scopedProject(found.row, projectPath), baseline);
+}
+
+/** Delete one item: `{ ok }` or `{ ok: false, reason }`. Never a hook, never a plugin's file, only a kind with a lifecycle. */
+async function deleteResourceItem({ id, projectPath = null, view = null } = {}) {
+  const found = rowFor(id, projectPath, view);
+  if (found.error) return { ok: false, reason: found.error };
+  const { row } = found;
+  const flags = flagsOf(row);
+  if (flags.fromPlugin) return { ok: false, reason: 'This item was installed with something else, such as a plugin; remove it there.' };
+  if (!flags.deletable) return { ok: false, reason: 'Switchboard does not delete this item.' };
+  const owner = row.owners.find(o => o.door);
+  return backendResources.deleteResource(owner.backendId, row.filePath, scopedProject(row, projectPath));
+}
+
+/**
+ * Every place a new item of the view may go: a listed directory of a kind the backend's scaffold claims, under a
+ * source it names, that exists. `[{ id, label, scope, kind, backendId, dir }]`; the window gets `id`, `label`,
+ * `scope` and `kind`: no path field and no backend id (the label does show the folder, the user's own).
+ */
+function collectPlaces(view, projectPath) {
+  const kinds = RESOURCE_VIEWS[view].filter(k => !READ_ONLY_KINDS.includes(k));
+  const places = [];
+  for (const b of inventoryBackends()) {
+    const d = backendById(b.id);
+    // `expandResource` too: an item the inventory cannot list could be created but never opened.
+    if (!d || typeof d.listResources !== 'function' || typeof d.expandResource !== 'function') continue;
+    for (const scope of projectPath ? ['project', 'global'] : ['global']) {
+      let listed = null;
+      try { listed = d.listResources({ projectPath: scope === 'project' ? projectPath : null }); } catch { continue; }
+      if (!listed || listed.ok === false || !Array.isArray(listed.resources)) continue;
+      for (const kind of kinds) {
+        const scaffold = scaffoldFor(d, kind);
+        if (!scaffold || !Array.isArray(scaffold.sources)) continue;
+        for (const entry of listed.resources) {
+          if (!entry || entry.kind !== kind || !entry.path) continue;
+          if ((entry.scope || 'global') !== scope || !scaffold.sources.includes(entry.source)) continue;
+          try { if (!fs.statSync(entry.path).isDirectory()) continue; } catch { continue; }
+          if (places.some(p => p.backendId === d.id && p.kind === kind && samePath(p.dir, entry.path))) continue;
+          places.push({
+            id: crypto.createHash('sha1').update(`${d.id}\0${kind}\0${scope}\0${entry.path}`).digest('hex').slice(0, 16),
+            label: `${d.label || d.id} · ${scope} — ${entry.path}`,
+            scope, kind, backendId: d.id, dir: entry.path,
+          });
+        }
+      }
+    }
+  }
+  return places;
+}
+
+/** The places for the window: `{ ok, places: [{ id, label, scope, kind }] }`. */
+function getResourcePlaces({ view, projectPath = null } = {}) {
+  if (!Object.prototype.hasOwnProperty.call(RESOURCE_VIEWS, view)) return { ok: false, reason: 'Unknown view.' };
+  if (!skills.projectAllowed(projectPath)) return { ok: false, reason: 'That project is not on the list.' };
+  return { ok: true, places: collectPlaces(view, projectPath).map(({ id, label, scope, kind }) => ({ id, label, scope, kind })) };
+}
+
+/** Create one item from its backend's scaffold: `{ ok, id }` (the new row's id, null if not listed) or `{ ok: false, reason }`. */
+async function createResourceItem({ view, placeId, name, projectPath = null } = {}) {
+  if (!Object.prototype.hasOwnProperty.call(RESOURCE_VIEWS, view)) return { ok: false, reason: 'Unknown view.' };
+  if (!skills.projectAllowed(projectPath)) return { ok: false, reason: 'That project is not on the list.' };
+  const place = collectPlaces(view, projectPath).find(p => p.id === placeId);
+  if (!place) return { ok: false, reason: 'That folder is no longer offered for a new item.' };
+  const created = await backendResources.createResource(place.backendId, {
+    kind: place.kind, name: typeof name === 'string' ? name.trim() : '', parentDir: place.dir,
+    projectPath: place.scope === 'project' ? projectPath : null,
+  });
+  if (!created || !created.ok) return { ok: false, reason: (created && created.reason) || 'The item could not be created.' };
+  const row = collect(view, projectPath).rows.find(r => samePath(r.filePath, created.path));
+  return { ok: true, id: row ? row.id : null };
+}
+
 /** Wire the IPC surface. main.js hands in ipcMain; this file never requires electron. */
 function registerIpc(ipcMain) {
+  const idOf = (id) => (typeof id === 'string' ? id : '');
+  const projectOf = (p) => (typeof p === 'string' && p ? p : null);
+  const viewOf = (v) => (typeof v === 'string' ? v : '');
   ipcMain.handle('get-resource-inventory', (_e, view, projectPath) => getResourceInventory({
-    view: typeof view === 'string' ? view : '',
-    projectPath: typeof projectPath === 'string' && projectPath ? projectPath : null,
+    view: viewOf(view), projectPath: projectOf(projectPath),
+  }));
+  const optView = (v) => (typeof v === 'string' && v ? v : null);
+  ipcMain.handle('read-resource-item', (_e, id, projectPath, view) => readResourceItem({
+    id: idOf(id), projectPath: projectOf(projectPath), view: optView(view),
+  }));
+  ipcMain.handle('save-resource-item', (_e, id, projectPath, content, baseline, view) => saveResourceItem({
+    id: idOf(id), projectPath: projectOf(projectPath), content, baseline: typeof baseline === 'string' ? baseline : null,
+    view: optView(view),
+  }));
+  ipcMain.handle('delete-resource-item', (_e, id, projectPath, view) => deleteResourceItem({
+    id: idOf(id), projectPath: projectOf(projectPath), view: optView(view),
+  }));
+  ipcMain.handle('get-resource-places', (_e, view, projectPath) => getResourcePlaces({ view: viewOf(view), projectPath: projectOf(projectPath) }));
+  ipcMain.handle('create-resource-item', (_e, view, placeId, name, projectPath) => createResourceItem({
+    view: viewOf(view), placeId: idOf(placeId), name: typeof name === 'string' ? name : '', projectPath: projectOf(projectPath),
   }));
 }
 
-module.exports = { init, registerIpc, getResourceInventory, RESOURCE_VIEWS, _collect: collect };
+module.exports = {
+  init, registerIpc, getResourceInventory, RESOURCE_VIEWS, _collect: collect,
+  readResourceItem, saveResourceItem, deleteResourceItem, getResourcePlaces, createResourceItem,
+};

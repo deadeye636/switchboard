@@ -691,6 +691,6 @@ function registerIpc(ipcMain) {
 
 module.exports = {
   init, registerIpc, getSkills, getSkillInventory, getSkillDetail, switchboardSkillFiles, readSkill, saveSkill,
-  getSkillPlaces, createSkill, deleteSkill,
+  getSkillPlaces, createSkill, deleteSkill, projectAllowed,
   _collectSkillInventory: collectSkillInventory, _switchboardSkillsDir: switchboardSkillsDir,
 };
