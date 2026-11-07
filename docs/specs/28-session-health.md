@@ -79,6 +79,18 @@ plus a baseline (route B) was rejected for the spread above. Taking the runtime'
 session (route C) may follow. Codex and Pi do not write the mark: whether they have the same gap has not been
 measured.
 
+What Codex's rollout records at a compaction, measured on cli 0.166.0 (`codex exec`, gpt-5.6-luna, an
+automatic compaction forced with `-c model_auto_compact_token_limit=25000`; #826, #703): a top-level line
+`type: "compacted"`, after the last `token_count` of the old window and before a new `world_state` and
+`turn_context`. Its payload carries `window_number` (1 after the first compaction), `window_id`,
+`previous_window_id`, `first_window_id`, `compaction_response_id`, `replacement_history`,
+`retained_context` and `latest_token_usage_record`. That record's `usage` is the summarising call (27 343
+input here), not the fill, the same rule as Pi's `compaction.usage`. The next `token_count` reports
+`input_tokens: 0`, and only the one after it carries the new window's figure (18 318 before, 20 588 after).
+So the transcript has the same gap as Claude's: between the `compacted` line and the next non-zero
+`token_count`, the last usage record is the pre-compaction one. Whether the sidebar shows that figure in the
+gap, and Pi's half of the question, are still #703's.
+
 | Backend | Numerator | Where it is read |
 |---|---|---|
 | Claude | `input_tokens + cache_read_input_tokens + cache_creation_input_tokens` of the last assistant turn; `<synthetic>` messages are skipped | `src/backends/claude/session-reader.js` |

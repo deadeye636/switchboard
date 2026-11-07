@@ -218,6 +218,24 @@ Measured on Claude Code 2.1.310 and 2.1.311 (Haiku), in a terminal session and i
   cycle once auto is the default. Not measured: whether an edit's `--ide` diff review then needs a session
   started in another mode.
 
+### Steps, instruction files and permissions in the transcript (#826)
+Read from existing transcripts, structure only (2026-11-07). The session flow diagram of #826 is built on these.
+
+- **Instruction files, one by one.** An `attachment` with `type: "instructions"` holds `files[]`, each with
+  `path` and `content`: CLAUDE.md, the rule files and the other memory files loaded at start. A subagent's own
+  transcript carries its own `instructions` attachment. The token share per file is only an estimate from the
+  characters; the measured total is the first request's `usage`.
+- **Permission mode.** `permissionMode` sits on every user line (`auto` in the sample); a `type: "mode"` line
+  carries `mode`.
+- **Blocked and denied calls.** A `tool_result` with `is_error` and the text `PreToolUse:<Tool> hook error:
+  BLOCKED: …` is a hook block; `Permission for this action was denied …` is a denial. An `attachment` of type
+  `hook_cancelled` marks a cancelled hook; `hook_success`, `hook_additional_context` and
+  `hook_non_blocking_error` are the other hook outcomes.
+- **Tools a skill grants.** An `attachment` of type `command_permissions` with `allowedTools: [...]` directly
+  follows a skill load (49 of 53 in the sample): the skill's `allowed-tools` taking effect without a prompt.
+- **Subagents.** Each has its own file `<session-id>/subagents/agent-<id>.jsonl` plus a `.meta.json`; the
+  parent's `tool_result` names it by `agentId`. Its lines carry `isSidechain: true`.
+
 ## Codex — file, JSONL (date-bucketed)
 
 ```
@@ -401,6 +419,35 @@ Measured on Codex CLI 0.160.1, in a Codex home of its own, without Switchboard.
   with the token itself in the child's environment, never in argv. The `-c key="value"` quoting survives
   ConPTY on Windows. `$CODEX_HOME/config.toml` stayed byte-unchanged. Confirmed in an interactive session
   (model gpt-6.1-sol): Codex lists the `switchboard` server and calls `openDiff`.
+
+### Agents, approvals and compaction in the rollout (#826)
+Measured on cli 0.166.0 with `codex exec` (gpt-5.6-luna) and read back from existing rollouts (2026-11-07).
+
+- **Instruction files.** AGENTS.md arrives as one `response_item` message, role `user`, headed
+  `# AGENTS.md instructions for <dir>`; the files inside it are not listed one by one.
+- **A spawned agent** writes its own rollout. Its header says so: `source.subagent.thread_spawn` with
+  `parent_thread_id`, `depth`, `agent_path` (`/root/<task>`) and `agent_nickname`. The parent's side is
+  `function_call` `spawn_agent`, `wait_agent`, `wait` and `send_message`; an `inter_agent_communication_metadata`
+  line with `trigger_turn` marks a turn another agent started. The shell is `custom_tool_call` `exec`.
+- **Permissions per turn.** `turn_context` carries `approval_policy`, `approvals_reviewer` (`auto_review`),
+  `sandbox_policy`, `permission_profile` and `active_permission_profile`.
+- **Escalation is in the call.** A call that wants out of the sandbox carries `sandbox_permissions:
+  "require_escalated"` and a `justification` in its `exec` input.
+- **The guardian's verdict.** With `approvals_reviewer: auto_review`, each escalated call is judged by the
+  guardian (see the trap above): one guardian rollout per session, one turn per escalated call. Its last
+  assistant message is JSON, either the short `{"outcome":"allow"}` or the full
+  `{"risk_level","user_authorization","outcome","rationale"}`. The parent's `call_id` does not appear in the
+  guardian rollout; its user message holds the call's `command`, `justification` and `sandbox_permissions`, so
+  a verdict belongs to the n-th escalated call of the parent, confirmed by the command text. The guardian may
+  run read-only commands of its own; they are not the parent's steps. No `deny` outcome has been measured.
+- **A sandbox block has no event.** With `approval_policy: never` a blocked write fails inside the command:
+  the `custom_tool_call_output` carries the OS error (`Access to the path '<path>' is denied.`) and
+  `exit_code=1`. Telling it from any other failure is a heuristic. A person refusing a call in the TUI has not
+  been measured.
+- **Interrupt.** `event_msg` `turn_aborted` with `turn_id`, `reason` (`interrupted`), `started_at`,
+  `completed_at`, `duration_ms`.
+- **Compaction.** A top-level `type: "compacted"` line, then a `token_count` with input 0; details and numbers
+  in `docs/specs/28-session-health.md`.
 
 ## Hermes — SQLite
 
@@ -698,6 +745,24 @@ Measured on Pi 0.85.1.
 - **Launch spelling.** `--model <provider>/<id>`, `--model <id>` and `--provider P --model <id>` are all accepted;
   `provider/id` is self-contained. A plain resume restores the last model on its own, so the app's own `--model`
   setting is what outranks it.
+
+### Instruction files, refusals, subagents and compaction (#826)
+Measured on Pi 1.1.0 with `pi -p` (`openai-codex`, gpt-5.6-luna) and read back from existing sessions (2026-11-07).
+
+- **The system prompt is stored with its parts.** A `message` with role `system` carries `sections`
+  (`preamble`, `tools`, `rules`, `docs`, `project_context`, `skills`, `cwd`, `mcp_servers`) and `toolsAdded`,
+  next to the first assistant message's `usage`. Older sessions in the same store, also with header
+  `version: 3`, have no system message at all, so it depends on the Pi version, not on the file format.
+- **Instruction files, one by one.** `sections.project_context` wraps each file in
+  `<project_instructions path="…">…</project_instructions>`, inside `<project_context>`.
+- **A refusal by a `tool_call` handler** (the pi-native approval gate, spec 30) is in the file: a `toolResult`
+  with `isError: true` and the handler's `reason` as its text, after the model's unchanged tool call. An allowed
+  call leaves no trace, and no custom entry is written. Measured with a one-line extension returning the
+  gate's own refusal shape.
+- **The app's `subagent` tool** (#634) runs the child with `--no-session`: there is no child session file,
+  only the cost line in the tool result (`src/backends/pi/subagent-tool.js`).
+- **Compaction.** A `compaction` entry with `summary`, `firstKeptEntryId`, `tokensBefore`, `details`, `usage`
+  (the summarising call) and `fromHook`.
 
 ## agy (Antigravity CLI) — file, per-conversation SQLite (reconned from a real install, v1.1.1)
 
