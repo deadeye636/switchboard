@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('api', {
   locateInstruction: (filePath, projectPath) => ipcRenderer.invoke('locate-instruction', filePath, projectPath ?? null),
   getSessionInstructions: (projectPath, backendId) => ipcRenderer.invoke('get-session-instructions', projectPath ?? null, backendId ?? ''),
   matchInstructionContent: (scope, query) => ipcRenderer.invoke('match-instruction-content', scope, query),
+  // #823 T10: a project's `.work-files/` on the Instructions page, by id (read-only; Delete is the only write).
+  getInstructionWorkFiles: (scope) => ipcRenderer.invoke('get-instruction-work-files', scope),
+  readInstructionWorkFile: (id, scope) => ipcRenderer.invoke('read-instruction-work-file', id, scope),
+  deleteInstructionWorkFile: (id, scope) => ipcRenderer.invoke('delete-instruction-work-file', id, scope),
   // #803 T5: a skill's text for the editor on its detail page, and its save — named by inventory id, never a path.
   readSkill: (id, projectPath) => ipcRenderer.invoke('read-skill', id, projectPath),
   saveSkill: (id, projectPath, content, baseline) => ipcRenderer.invoke('save-skill', id, projectPath, content, baseline ?? null),

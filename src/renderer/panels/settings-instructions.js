@@ -39,8 +39,71 @@
         <section class="settings-cat" data-cat="${CAT}">
           <div class="settings-cat-head"><h2>Instructions</h2><p>The instruction, memory and settings files each CLI reads ${where}, with an editor.</p></div>
           <div class="sv-instr-pointer"></div>
-          <div class="sv-plugins-host" data-view="instructions"></div>
+          <div class="sv-plugins-host" data-view="instructions"></div>${scope === 'project' ? `
+          <div class="sv-instr-workfiles"></div>` : ''}
         </section>`;
+  }
+
+  /**
+   * The "Work files" section of the project page (T10, plan P6): `<project>/.work-files/**`, which Agent Files was the
+   * only surface for. Listed by id, read in a read-only box, deleted after a confirmation. Capped as before: the
+   * header says `shown of total` when the cap bites.
+   */
+  async function renderWorkFiles(box, projectPath, signal) {
+    const make = (tag, cls, text) => {
+      const n = document.createElement(tag);
+      if (cls) n.className = cls;
+      if (text) n.textContent = text;
+      return n;
+    };
+    const res = await (async () => {
+      try { return await api().getInstructionWorkFiles(projectPath); } catch { return null; }
+    })();
+    if (signal.aborted) return;
+    box.replaceChildren();
+    if (!res || res.ok === false || !Array.isArray(res.rows)) {
+      box.appendChild(make('p', 'settings-hint', 'The work files could not be read.'));
+      return;
+    }
+    if (!res.rows.length) return;
+    const head = make('h3', null, res.total > res.rows.length ? `Work files (${res.rows.length} of ${res.total})` : `Work files (${res.rows.length})`);
+    box.append(head, make('p', 'settings-hint', 'Files in this project\'s .work-files folder. Open shows the text; Delete removes the file from disk.'));
+    const msg = make('div', 'settings-hint');
+    const view = make('pre', 'sv-instr-workfile-text');
+    view.hidden = true;
+    for (const r of res.rows) {
+      const row = make('div', 'sv-instr-workfile');
+      const name = make('span', null, r.relativePath);
+      const open = make('button', 'settings-action-btn', 'Open');
+      open.type = 'button';
+      const del = make('button', 'settings-action-btn', 'Delete');
+      del.type = 'button';
+      open.addEventListener('click', async () => {
+        msg.textContent = '';
+        let out = null;
+        try { out = await api().readInstructionWorkFile(r.id, projectPath); } catch { out = null; }
+        if (signal.aborted) return;
+        if (!out || !out.ok) { view.hidden = true; msg.textContent = (out && out.reason) || 'That file could not be read.'; return; }
+        view.textContent = out.content;
+        view.hidden = false;
+      }, { signal });
+      del.addEventListener('click', async () => {
+        msg.textContent = '';
+        const ok = typeof showControlDialog === 'function' ? await showControlDialog({
+          title: 'Delete work file', message: 'Delete this file from disk? This cannot be undone.', confirmLabel: 'Delete',
+          tone: 'warning', details: { File: r.relativePath },
+        }) : false;
+        if (!ok || signal.aborted) return;
+        let out = null;
+        try { out = await api().deleteInstructionWorkFile(r.id, projectPath); } catch { out = null; }
+        if (signal.aborted) return;
+        if (!out || !out.ok) { msg.textContent = (out && out.reason) || 'That file could not be deleted.'; return; }
+        renderWorkFiles(box, projectPath, signal);
+      }, { signal });
+      row.append(name, open, del);
+      box.appendChild(row);
+    }
+    box.append(msg, view);
   }
 
   /** -> mount(host, ctx) for the Instructions page. */
@@ -157,6 +220,8 @@
     const ctx = { projectPath: scope === 'project' ? projectPath : null };
     window.pluginsViews.bindLazy(sectionEl, async () => {
       if (loadProjects) loadProjects();
+      const workBox = sectionEl.querySelector('.sv-instr-workfiles');
+      if (workBox && ctx.projectPath) renderWorkFiles(workBox, ctx.projectPath, signal);
       await mountInstructions(host, { ...ctx, onCount: (n) => { if (!signal.aborted) setCount(CAT, n); } });
       if (signal.aborted) return;
       setCount(CAT, host.querySelectorAll('.plugins-list-page .plugins-row').length);

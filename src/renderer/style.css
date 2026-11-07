@@ -12539,6 +12539,10 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 /* The Instructions page's line to the other scope (#823 T6): hint, picker and button in one row. */
 .sv-instr-pointer { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 10px; }
 .sv-instr-pointer .sv-mcp-form-msg { flex-basis: 100%; }
+.sv-instr-workfiles { margin-top: 18px; }
+.sv-instr-workfile { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+.sv-instr-workfile span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sv-instr-workfile-text { max-height: 320px; overflow: auto; margin-top: 8px; padding: 8px; border: 1px solid #4a4a5a; border-radius: 4px; white-space: pre-wrap; font-size: 12px; }
 .sv-mcp-form-msg { white-space: pre-wrap; }
 .sv-mcp-form-actions { display: flex; gap: 10px; }
 /* Backends chips (#789 slice B): read-only on a card, toggle buttons (.settings-action-btn) in the form. */

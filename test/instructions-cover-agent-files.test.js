@@ -9,8 +9,9 @@
 //   - the instruction inventory,
 // or be a kind that is deliberately elsewhere:
 //   - `handoff` groups stay where handoffs are (plan P7: the sidebar group, the picker, `src/app/handoffs.js`),
-//   - `work-file` has no home until T10 (plan P6). PENDING_T10 below is the explicit list; it is checked both
-//     ways: a pending kind that DOES have a home fails as stale, so T10 cannot land without updating this list.
+//   - work files are found in the project Instructions page's "Work files" listing (T10, plan P6). PENDING_T10 below
+//     is the explicit list of kinds without a home; it is checked both ways: a pending kind that DOES have a home
+//     fails as stale.
 // A row with no home fails by name and kind. The inventories are asked through their `_collect` seams because
 // the public answers carry no path by design.
 const test = require('node:test');
@@ -137,6 +138,8 @@ function homeKeys() {
     for (const r of skills._collectSkillInventory({ projectPath })) keys.add(pathKey(r.filePath));
     for (const r of instructions._collect(projectPath).rows) keys.add(pathKey(r.filePath));
   }
+  // The project Instructions page's "Work files" section (T10): listed through the same door the page uses.
+  for (const f of instructions._workFilesOf(project).files) keys.add(pathKey(f.filePath));
   return keys;
 }
 
@@ -145,10 +148,8 @@ function homeKeys() {
 const ELSEWHERE = {
   handoff: 'handoff packets stay in the sidebar Handoffs group, the picker and src/app/handoffs.js (plan P7)',
 };
-// No home until T10 adds the "Work files" section (plan P6). Remove the entry in the commit that builds T10.
-const PENDING_T10 = {
-  'work-file': 'work files get their section on the project Instructions page in T10',
-};
+// Kinds still waiting for a home. Empty since T10 gave work files their section (plan P6); the stale check stays.
+const PENDING_T10 = {};
 
 test('every Agent Files row has a new home, matched by real path', () => {
   wire();
@@ -190,4 +191,39 @@ test('the exemption lists are not stale', () => {
     assert.deepEqual(housed.map(r => path.basename(r.filePath)), [],
       `${kind} rows are in an inventory now: delete the ${kind} entry from ELSEWHERE`);
   }
+});
+
+test('work files: listed by id, read-only text, deleted only when listed (T10)', () => {
+  wire();
+  const list = instructions.getWorkFileList({ scope: project });
+  assert.equal(list.ok, true);
+  const row = list.rows.find(r => r.name === 'scratch.txt');
+  assert.ok(row && !('filePath' in row), 'a row by id, no path');
+  assert.equal(instructions.readWorkFileById({ id: row.id, scope: project }).content, 'scratch\n');
+  assert.equal(instructions.getWorkFileList({ scope: 'global' }).ok, false, 'work files belong to a project');
+  assert.equal(instructions.getWorkFileList({ scope: path.join(root, 'elsewhere') }).ok, false, 'an unregistered project is refused');
+  assert.equal(instructions.deleteWorkFileById({ id: '../x', scope: project }).ok, false, 'an unlisted id is refused');
+  const doomed = path.join(project, '.work-files', 'doomed.txt');
+  write(doomed);
+  const id = instructions.getWorkFileList({ scope: project }).rows.find(r => r.name === 'doomed.txt').id;
+  assert.equal(instructions.deleteWorkFileById({ id, scope: project }).ok, true);
+  assert.equal(fs.existsSync(doomed), false);
+});
+
+test('work files: a .work-files that is a link out of the project lists nothing; a linked file is not read', (t) => {
+  wire();
+  const other = path.join(root, 'linked-project');
+  const outside = path.join(root, 'outside-dir');
+  write(path.join(outside, 'secret.txt'), 'secret\n');
+  fs.mkdirSync(other, { recursive: true });
+  try { fs.symlinkSync(outside, path.join(other, '.work-files'), 'junction'); } catch (err) {
+    t.skip('cannot create a directory link here: ' + err.code);
+    return;
+  }
+  const states2 = () => new Map([[project, { registered: true }], [other, { registered: true }]]);
+  instructions.init({ backends, log: noLog, db: { getProjectStates: states2, getAllFolderMeta: () => new Map() } });
+  skills.init({ backends, log: noLog, dataDir: path.join(root, 'data'), effectiveSettings: () => ({}), projectStates: states2 });
+  const listed = instructions.getWorkFileList({ scope: other });
+  assert.deepEqual(listed.rows || [], [], 'a link out of the project lists nothing');
+  assert.equal(listed.total, 0);
 });

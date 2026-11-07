@@ -1542,6 +1542,8 @@ module.exports = {
   getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,
   planConventionPreview, planConventionApply,
   getWorkFiles, readWorkFile, deleteWorkFile,
+  // …and what the project Instructions page walks for its "Work files" section (#823 T10): the same walk and cap.
+  walkWorkFiles, WORK_FILES_CAP,
   // The plans-directory watch (#452) — started by init, stopped by the ordered teardown.
   stopWatchingPlansDirs,
 };

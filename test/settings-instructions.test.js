@@ -183,3 +183,43 @@ test('the global window\'s picker: no project says so and opens nothing; a chose
     assert.deepEqual(JSON.parse(JSON.stringify(opened)), [['project', '/p/one', { cat: 'instructions' }]]);
   } finally { dom.window.close(); }
 });
+
+test('work files (T10): header with n of total, open shows text, delete asks, cancel keeps, confirm deletes and refreshes', async () => {
+  let rows = [{ id: 'w1', name: 'a.txt', relativePath: 'a.txt', size: 3 }, { id: 'w2', name: 'b.txt', relativePath: 'sub/b.txt', size: 3 }];
+  let total = 5;
+  const { dom, si, body, calls } = setup({
+    getInstructionInventory: () => ({ ok: true, rows: [], declines: [] }),
+    getInstructionWorkFiles: () => ({ ok: true, rows, total }),
+    readInstructionWorkFile: (id) => ({ ok: true, content: 'text of ' + id }),
+    deleteInstructionWorkFile: (id) => { rows = rows.filter(r => r.id !== id); total -= 1; return { ok: true }; },
+  });
+  try {
+    assert.doesNotMatch(si.sectionHtml('global'), /sv-instr-workfiles/, 'no section in the global window');
+    body.innerHTML = si.sectionHtml('project');
+    si.bind(body, new dom.window.AbortController().signal, { scope: 'project', projectPath: '/p/one', setCount() {}, mayLeave: () => true });
+    body.querySelector('.settings-cat').dispatchEvent(new dom.window.CustomEvent('settings-cat-shown'));
+    await tick(); await tick();
+    const box = body.querySelector('.sv-instr-workfiles');
+    assert.match(box.querySelector('h3').textContent, /Work files \(2 of 5\)/);
+    assert.equal(box.querySelectorAll('.sv-instr-workfile').length, 2);
+    // Open
+    btn(box.querySelectorAll('.sv-instr-workfile')[1], 'Open').click();
+    await tick();
+    assert.equal(box.querySelector('pre').textContent, 'text of w2');
+    assert.deepEqual(calls.find(c => c[0] === 'readInstructionWorkFile'), ['readInstructionWorkFile', 'w2', '/p/one']);
+    // Delete: cancel keeps
+    let asked = 0; let answer = false;
+    dom.window.showControlDialog = async () => { asked += 1; return answer; };
+    btn(box.querySelector('.sv-instr-workfile'), 'Delete').click();
+    await tick(); await tick();
+    assert.equal(asked, 1);
+    assert.ok(!calls.some(c => c[0] === 'deleteInstructionWorkFile'), 'cancel deletes nothing');
+    // Delete: confirm deletes and refreshes
+    answer = true;
+    btn(box.querySelector('.sv-instr-workfile'), 'Delete').click();
+    await tick(); await tick(); await tick();
+    assert.deepEqual(calls.find(c => c[0] === 'deleteInstructionWorkFile'), ['deleteInstructionWorkFile', 'w1', '/p/one']);
+    assert.equal(box.querySelectorAll('.sv-instr-workfile').length, 1, 'the list is read again');
+    assert.match(box.querySelector('h3').textContent, /Work files \(1 of 4\)/);
+  } finally { dom.window.close(); }
+});

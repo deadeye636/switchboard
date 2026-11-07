@@ -412,6 +412,76 @@ async function matchInstructionContent({ scope, query } = {}) {
   return { ok: true, ids: await resourceInventory._matchFiles(files, query) };
 }
 
+// --- Work files (T10, plan P6): `<project>/.work-files/**`, listed per registered project, named by id ---
+//
+// Agent Files was the only surface for these, with open and Delete; they move here unchanged in capability. Read-only
+// (there never was a save), delete only a file the fresh listing holds. The walk, its exclusions and its cap are
+// `plans-memory.js`'s, required lazily because that module requires this one.
+
+/** The project's listed work files, with their paths kept in main: `{ projectPath, dir, files, total }` or `{ error }`. */
+function workFilesOf(scope) {
+  const asked = scopeProject(scope);
+  if (asked.error) return { error: asked.error };
+  if (!asked.projectPath) return { error: 'Work files belong to a project.' };
+  const pm = require('./plans-memory');
+  const dir = path.join(asked.projectPath, '.work-files');
+  // The directory itself must be inside the project on REAL paths: a `.work-files` that is a link out lists nothing.
+  if (!isInside(dir, asked.projectPath)) return { projectPath: asked.projectPath, dir, files: [], total: 0 };
+  const all = [];
+  pm.walkWorkFiles(dir, dir, all);
+  all.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+  // Each file must also be inside the real work-files directory: a link out of it is not a work file.
+  const files = all.slice(0, pm.WORK_FILES_CAP).filter(f => isInside(f.filePath, dir))
+    .map(f => ({ ...f, id: fileId(f.filePath) }));
+  return { projectPath: asked.projectPath, dir, files, total: all.length };
+}
+
+/** The work files of one project: `{ ok, rows: [{ id, name, relativePath, modified, size }], total }`. No path leaves main. */
+function getWorkFileList({ scope } = {}) {
+  const found = workFilesOf(scope);
+  if (found.error) return { ok: false, reason: found.error };
+  return {
+    ok: true, total: found.total,
+    rows: found.files.map(f => ({ id: f.id, name: f.filename, relativePath: f.relativePath, modified: f.modified, size: f.size })),
+  };
+}
+
+function workFileFor(id, scope) {
+  const found = workFilesOf(scope);
+  if (found.error) return { error: found.error };
+  const file = typeof id === 'string' && id ? found.files.find(f => f.id === id) : null;
+  return file ? { file } : { error: 'That file is no longer listed.' };
+}
+
+/** The text of one work file: `{ ok, content }` or `{ ok: false, reason }`. Same limits as before: 2 MB, text only. */
+function readWorkFileById({ id, scope } = {}) {
+  const found = workFileFor(id, scope);
+  if (found.error) return { ok: false, reason: found.error };
+  try {
+    const st = fs.lstatSync(found.file.filePath);
+    if (!st.isFile()) return { ok: false, reason: 'That is not a file.' };
+    if (st.size > 2 * 1024 * 1024) return { ok: false, reason: 'That file is too large to show here.' };
+    const buf = fs.readFileSync(found.file.filePath);
+    if (buf.includes(0)) return { ok: false, reason: 'That file is not text.' };
+    return { ok: true, content: buf.toString('utf8') };
+  } catch (err) {
+    return { ok: false, reason: readableError(err, 'Could not read that file.', ctx && ctx.log) };
+  }
+}
+
+/** Delete one listed work file: `{ ok }` or `{ ok: false, reason }`. Never a directory, never an unlisted path. */
+function deleteWorkFileById({ id, scope } = {}) {
+  const found = workFileFor(id, scope);
+  if (found.error) return { ok: false, reason: found.error };
+  try {
+    fs.unlinkSync(found.file.filePath);
+    require('./plans-memory').invalidateFtsSignature('work-file');
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: readableError(err, 'Could not delete that file.', ctx && ctx.log) };
+  }
+}
+
 /** Wire the IPC surface. main.js hands in ipcMain; this file never requires electron. */
 function registerIpc(ipcMain) {
   const scopeOf = (s) => (typeof s === 'string' && s ? s : 'global');
@@ -429,6 +499,9 @@ function registerIpc(ipcMain) {
   ipcMain.handle('match-instruction-content', (_e, scope, query) => matchInstructionContent({
     scope: scopeOf(scope), query: typeof query === 'string' ? query : '',
   }));
+  ipcMain.handle('get-instruction-work-files', (_e, scope) => getWorkFileList({ scope: scopeOf(scope) }));
+  ipcMain.handle('read-instruction-work-file', (_e, id, scope) => readWorkFileById({ id: typeof id === 'string' ? id : '', scope: scopeOf(scope) }));
+  ipcMain.handle('delete-instruction-work-file', (_e, id, scope) => deleteWorkFileById({ id: typeof id === 'string' ? id : '', scope: scopeOf(scope) }));
 }
 
 module.exports = {
@@ -436,5 +509,6 @@ module.exports = {
   // what plans-memory.js asks, unchanged
   memoryBackends, visibleProjectPaths, storeFoldersFor, scanMdFiles, claim, collectSource, INSTRUCTION_KIND,
   getInstructionInventory, readInstruction, saveInstruction, locateInstruction, matchInstructionContent, getSessionInstructions,
-  _collect: collect,
+  getWorkFileList, readWorkFileById, deleteWorkFileById,
+  _collect: collect, _workFilesOf: workFilesOf,
 };
