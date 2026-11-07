@@ -529,7 +529,8 @@
         q = (q || '').trim().toLowerCase();
         if (!q) {
           settingsViewerBody.querySelectorAll('.settings-cat .settings-field').forEach(f => { f.style.display = ''; });
-          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv, .plugins-section, .plugins-filter-row').forEach(e => { e.style.display = ''; });
+          settingsViewerBody.querySelectorAll('.settings-cat-head, .settings-section, .settings-hint, details.settings-adv, .plugins-section, .plugins-filter-row, .plugins-chip-row').forEach(e => { e.style.display = ''; });
+          if (pluginsCtl && typeof pluginsCtl.resume === 'function') pluginsCtl.resume();
           // A search force-opens every disclosure so a hit inside one is visible. Leaving the search must
           // put the EXPLAINERS back — they are prose that defaults to collapsed, and without this one
           // search left them open for the rest of the session. An Advanced block is a settings surface the
@@ -549,7 +550,7 @@
         // Search across all categories at once.
         cats().forEach(c => c.classList.add('active'));
         // A view's own filter box and count have nothing to do with this search.
-        settingsViewerBody.querySelectorAll('.plugins-filter-row').forEach(e => { e.style.display = 'none'; });
+        settingsViewerBody.querySelectorAll('.plugins-filter-row, .plugins-chip-row').forEach(e => { e.style.display = 'none'; });
         settingsViewerBody.querySelectorAll('.settings-cat-head').forEach(e => e.style.display = 'none');
         settingsViewerBody.querySelectorAll('details.settings-adv').forEach(d => {
           d.style.display = '';

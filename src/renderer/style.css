@@ -12552,6 +12552,8 @@ details.settings-adv.backend-env-adv #lc-env-add { margin: 4px 16px 14px; }
 .plugins-head-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .plugins-filter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .plugins-filter { max-width: 280px; }
+.plugins-chip-row { margin: -6px 0 16px; }
+.plugins-chip-row[hidden] { display: none; }
 .plugins-count { margin-top: 0; white-space: nowrap; }
 .plugins-section { margin-bottom: 18px; }
 .plugins-rows { border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06); }

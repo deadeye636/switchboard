@@ -988,3 +988,72 @@ test('settings-external-mcp: facts wording for a default, no redraw while typing
     assert.strictEqual(again().disabled, false);
   } finally { dom.window.close(); }
 });
+
+// #824: the MCP list's CLI chips come from each entry's `backends`, a driver folded into its owner through the served
+// list's `transcriptsOf`; an entry without `backends` serves every CLI and sits under no chip.
+test('settings-external-mcp: CLI chips group entries by the CLI their backends belong to', async () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    window.api = { backends: { list: async () => ({ backends: [
+      { id: 'alpha', label: 'Alpha CLI', enabled: true },
+      { id: 'alpha-gui', label: 'Alpha GUI', enabled: true, transcriptsOf: 'alpha' },
+      { id: 'beta', label: 'Beta CLI', enabled: true },
+    ] }) } };
+    const body = window.document.getElementById('body');
+    body.innerHTML = window.settingsExternalMcp.sectionHtml([
+      { name: 'one', transport: 'stdio', command: 'x', backends: ['alpha-gui'] },
+      { name: 'two', transport: 'stdio', command: 'x', backends: ['beta'] },
+      { name: 'three', transport: 'stdio', command: 'x' },
+    ]);
+    window.settingsExternalMcp.bind(body, new window.AbortController().signal);
+    await new Promise(r => setTimeout(r, 0));
+    const chips = () => Array.from(body.querySelectorAll('.plugins-chip-row .sv-mcp-chip'));
+    const names = () => Array.from(body.querySelectorAll('#sv-external-mcp-cards .plugins-row-name')).map(n => n.textContent);
+    assert.deepStrictEqual(chips().map(c => c.textContent), ['Alpha CLI 1', 'Beta CLI 1']);
+    chips()[1].click();
+    assert.deepStrictEqual(names().sort(), ['three', 'two']);
+    chips()[0].click();
+    assert.deepStrictEqual(names().sort(), ['one', 'three', 'two']);
+  } finally { dom.window.close(); }
+});
+
+// #824: `backends: []` applies to no backend at launch, so it is a group of its own; no chips before the list resolves.
+test('settings-external-mcp: an empty backends list is its own group, and no chip is drawn before the list resolves', async () => {
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>',
+    { url: 'http://localhost/', runScripts: 'outside-only' });
+  try {
+    const ctx = dom.getInternalVMContext();
+    for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', 'panels/plugins-kit.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
+      vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
+    }
+    const { window } = dom;
+    window.api = { backends: { list: async () => ({ backends: [
+      { id: 'alpha', label: 'Alpha CLI', enabled: true },
+      { id: 'beta', label: 'Beta CLI', enabled: true },
+    ] }) } };
+    const body = window.document.getElementById('body');
+    body.innerHTML = window.settingsExternalMcp.sectionHtml([
+      { name: 'one', transport: 'stdio', command: 'x', backends: ['alpha'] },
+      { name: 'two', transport: 'stdio', command: 'x', backends: ['beta'] },
+      { name: 'none', transport: 'stdio', command: 'x', backends: [] },
+      { name: 'all', transport: 'stdio', command: 'x' },
+    ]);
+    window.settingsExternalMcp.bind(body, new window.AbortController().signal);
+    const chips = () => Array.from(body.querySelectorAll('.plugins-chip-row .sv-mcp-chip'));
+    const names = () => Array.from(body.querySelectorAll('#sv-external-mcp-cards .plugins-row-name')).map(n => n.textContent);
+    assert.strictEqual(chips().length, 0, 'no chip before the backend list has loaded');
+    await new Promise(r => setTimeout(r, 0));
+    assert.deepStrictEqual(chips().map(c => c.textContent), ['Alpha CLI 1', 'Beta CLI 1', 'No backend 1']);
+    chips()[0].click();
+    assert.deepStrictEqual(names().sort(), ['all', 'one']);
+    chips()[0].click();
+    chips()[2].click();
+    assert.deepStrictEqual(names().sort(), ['all', 'none']);
+  } finally { dom.window.close(); }
+});

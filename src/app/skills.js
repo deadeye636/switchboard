@@ -301,6 +301,8 @@ function inventoryBackends() {
   } catch { return []; }
 }
 
+const SWITCHBOARD_CLI_KEY = 'switchboard';
+
 /** A stable id for one skill file, decided here so the renderer never builds one from a path. */
 function skillId(filePath) {
   return crypto.createHash('sha1').update(filePath.toLowerCase()).digest('hex').slice(0, 16);
@@ -345,6 +347,26 @@ function collectSkillInventory({ projectPath = null } = {}) {
 }
 
 /**
+ * The CLIs a skill row belongs to, for the manager's filter chips (#824): `[{ key, label }]`, one per CLI that
+ * reported the file (a driver folds into its owner, `cliOwnerIdOf`). A file can be reported by several CLIs, so
+ * this is a list, not one value. The app's own skills belong to no CLI and answer one neutral `switchboard`
+ * entry — a key no backend id can take, since the registry never uses it as an id.
+ */
+function cliChipsOf(row) {
+  if (!row.owners.length) return [{ key: SWITCHBOARD_CLI_KEY, label: 'Switchboard' }];
+  const out = [];
+  for (const o of row.owners) {
+    const d = backendById(o.backendId);
+    if (!d) continue;
+    const key = cliOwnerIdOf(d);
+    if (out.some(c => c.key === key)) continue;
+    const owner = backendById(key) || d;
+    out.push({ key, label: owner.label || owner.id });
+  }
+  return out;
+}
+
+/**
  * The neutral skill inventory the Plugins manager lists (#803, spec 40 D4): one row per skill file, its
  * source label and scope, and every OTHER file of the same name (`alsoNamed`, one entry per file — two
  * files under one label are two places, not one). No backend id, no invocation and no listing source
@@ -366,6 +388,7 @@ function getSkillInventory({ projectPath = null } = {}) {
     scope: r.scope,
     sourceLabel: r.origin,
     filePath: r.filePath,
+    clis: cliChipsOf(r),
     alsoNamed: byName.get(r.name.toLowerCase())
       .filter(o => o !== r)
       .map(o => ({ sourceLabel: o.origin, filePath: o.filePath })),

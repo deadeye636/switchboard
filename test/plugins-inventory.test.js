@@ -101,7 +101,7 @@ test('a backend that declines is shown from its listing rows, one per plugin, st
 test('no row carries a backend id', () => {
   setup([stating, listingBackend(tmpdir('plugins'))]);
   for (const r of inventory.getPluginInventory({}).plugins) {
-    assert.deepEqual(Object.keys(r).sort(), ['backendLabel', 'brings', 'id', 'kind', 'name', 'path', 'scope', 'state']);
+    assert.deepEqual(Object.keys(r).sort(), ['backendLabel', 'brings', 'cli', 'id', 'kind', 'name', 'path', 'scope', 'state']);
   }
 });
 
@@ -293,4 +293,29 @@ test('open-plugin opens a row by id through the backend\'s own door, and refuses
   assert.match((await inventory.openPlugin({ id: rows['no-folder'].id })).reason, /no folder/);
   assert.match((await inventory.openPlugin({ id: '0000000000000000' })).reason, /no longer listed/);
   assert.deepEqual(opened, [inside], 'nothing else was opened');
+});
+
+test('each row names its CLI (#824); a driver is its owner\'s chip', () => {
+  const owner = { id: 'owner', label: 'Owner CLI', listPlugins: stating.listPlugins, listApps: () => ({ ok: true, apps: [{ name: 'app', state: 'enabled' }] }) };
+  const driver = { id: 'driver', label: 'Driver GUI', transcriptsOf: 'owner', listPlugins: stating.listPlugins, listApps: owner.listApps };
+  const all = [owner, driver];
+  inventory.init({
+    backends: {
+      list: () => all.map(b => ({ id: b.id, isProfile: false, status: 'ready' })),
+      get: (id) => all.find(b => b.id === id) || null,
+      cliOwnerOf: (b) => (b.transcriptsOf ? all.find(x => x.id === b.transcriptsOf) : b),
+    },
+    log: { warn() {}, error() {}, info() {} },
+  });
+  const plugins = inventory.getPluginInventory({}).plugins;
+  const byLabel = new Map(plugins.map(r => [r.backendLabel, r.cli]));
+  assert.deepEqual(byLabel.get('Owner CLI'), { key: 'owner', label: 'Owner CLI' });
+  assert.deepEqual(byLabel.get('Driver GUI'), { key: 'owner', label: 'Owner CLI' }, 'the driver folds into its owner');
+  const apps = inventory.getAppInventory({}).apps;
+  assert.deepEqual(apps.map(a => a.cli), [{ key: 'owner', label: 'Owner CLI' }, { key: 'owner', label: 'Owner CLI' }]);
+});
+
+test('without a registry rule a row is its own descriptor\'s CLI', () => {
+  setup([stating]);
+  for (const r of inventory.getPluginInventory({}).plugins) assert.deepEqual(r.cli, { key: 'stating', label: 'Stating' });
 });

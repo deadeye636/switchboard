@@ -55,6 +55,19 @@ function inventoryBackends() {
   } catch { return []; }
 }
 
+/**
+ * The CLI a row belongs to, for the manager's filter chips (#824): `{ key, label }`, the owner's id and label.
+ * A driver of a CLI is that CLI (the registry's `cliOwnerOf`), so one CLI is one chip however many backends
+ * serve it. The key is an opaque string to the window.
+ */
+function cliOf(descriptor) {
+  let owner = descriptor;
+  try {
+    if (typeof ctx.backends.cliOwnerOf === 'function') owner = ctx.backends.cliOwnerOf(descriptor) || descriptor;
+  } catch { owner = descriptor; }
+  return { key: owner.id, label: owner.label || owner.id };
+}
+
 function rowId(parts) {
   return crypto.createHash('sha1').update(parts.map(p => String(p == null ? '' : p).toLowerCase()).join('\0')).digest('hex').slice(0, 16);
 }
@@ -142,11 +155,12 @@ function collectPlugins(projectPath) {
     const descriptor = backendById(b.id);
     if (!descriptor) continue;
     const label = descriptor.label || descriptor.id;
+    const cli = cliOf(descriptor);
     const rows = typeof descriptor.listPlugins === 'function'
       ? fromHook(descriptor, projectPath)
       : fromListing(descriptor, projectPath);
     for (const r of rows) {
-      plugins.push({ id: rowId([descriptor.id, r.kind, r.scope, r.name, r.path]), backendLabel: label, ...r, _backendId: descriptor.id });
+      plugins.push({ id: rowId([descriptor.id, r.kind, r.scope, r.name, r.path]), backendLabel: label, cli, ...r, _backendId: descriptor.id });
     }
   }
   plugins.sort((a, b) => a.name.localeCompare(b.name) || a.backendLabel.localeCompare(b.backendLabel));
@@ -155,7 +169,7 @@ function collectPlugins(projectPath) {
 
 /**
  * Every installed plugin, package and extension for one project: `{ plugins: [{ id, kind, name,
- * backendLabel, scope, state, path, brings }] }`, sorted by name. A backend that throws is skipped and
+ * backendLabel, cli, scope, state, path, brings }] }`, sorted by name. A backend that throws is skipped and
  * the others still answer.
  */
 function getPluginInventory({ projectPath = null } = {}) {
@@ -174,7 +188,7 @@ async function openPlugin({ id, projectPath = null } = {}) {
   return backendResources.openResource(row._backendId, row.path, projectPath);
 }
 
-/** Every app a backend reports: `{ apps: [{ id, name, backendLabel, state }] }`. Empty while none answers. */
+/** Every app a backend reports: `{ apps: [{ id, name, backendLabel, cli, state }] }`. Empty while none answers. */
 function getAppInventory({ projectPath = null } = {}) {
   const apps = [];
   for (const b of inventoryBackends()) {
@@ -184,10 +198,11 @@ function getAppInventory({ projectPath = null } = {}) {
     try { answer = descriptor.listApps({ projectPath: projectPath || null }); } catch (err) { debug(descriptor, 'listApps', err); continue; }
     if (!answer || answer.ok === false || !Array.isArray(answer.apps)) continue;
     const label = descriptor.label || descriptor.id;
+    const cli = cliOf(descriptor);
     for (const a of answer.apps) {
       const name = a && str(a.name);
       if (!name) continue;
-      apps.push({ id: rowId([descriptor.id, 'app', name]), name, backendLabel: label, state: STATES.has(a.state) ? a.state : 'not reported' });
+      apps.push({ id: rowId([descriptor.id, 'app', name]), name, backendLabel: label, cli, state: STATES.has(a.state) ? a.state : 'not reported' });
     }
   }
   apps.sort((a, b) => a.name.localeCompare(b.name) || a.backendLabel.localeCompare(b.backendLabel));

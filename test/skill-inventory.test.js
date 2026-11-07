@@ -103,7 +103,7 @@ test('no row carries a backend id, an invocation or the listing source', () => {
   const rows = skills.getSkillInventory({}).skills;
   assert.equal(rows.length, 2);
   for (const row of rows) {
-    assert.deepEqual(Object.keys(row).sort(), ['alsoNamed', 'deletable', 'editable', 'filePath', 'id', 'name', 'scope', 'sourceLabel']);
+    assert.deepEqual(Object.keys(row).sort(), ['alsoNamed', 'clis', 'deletable', 'editable', 'filePath', 'id', 'name', 'scope', 'sourceLabel']);
   }
 });
 
@@ -266,4 +266,29 @@ test('the picker rows are unchanged: no listing source reaches them', () => {
   setup({ backends: [backend] });
   const [row] = skills.getSkills({ backendId: 'one' }).skills;
   assert.deepEqual(Object.keys(row).sort(), ['backendId', 'filePath', 'invocation', 'name', 'origin', 'scope']);
+});
+
+test('each row names the CLIs that reported it (#824): a driver folds into its owner, the app\'s own skill is neutral', () => {
+  const shared = tmpdir('shared');
+  writeSkill(shared, 'release');
+  const data = tmpdir('data');
+  writeSkill(path.join(data, 'skills'), 'house-style');
+  const owner = stubBackend({ id: 'owner', label: 'Owner CLI', globalDir: shared });
+  const driver = { ...stubBackend({ id: 'driver', label: 'Driver GUI', globalDir: shared }), transcriptsOf: 'owner' };
+  const other = stubBackend({ id: 'other', label: 'Other CLI', globalDir: shared });
+  const all = [owner, driver, other];
+  skills.init({
+    backends: {
+      list: () => all.map(b => ({ id: b.id, isProfile: false, status: 'ready' })),
+      get: (id) => all.find(b => b.id === id) || null,
+      cliOwnerOf: (b) => (b.transcriptsOf ? all.find(x => x.id === b.transcriptsOf) : b),
+    },
+    log: { warn() {}, error() {}, info() {} },
+    dataDir: data,
+    effectiveSettings: () => ({}),
+  });
+  const rows = skills.getSkillInventory({}).skills;
+  const release = rows.find(r => r.name === 'release');
+  assert.deepEqual(release.clis, [{ key: 'owner', label: 'Owner CLI' }, { key: 'other', label: 'Other CLI' }]);
+  assert.deepEqual(rows.find(r => r.name === 'house-style').clis, [{ key: 'switchboard', label: 'Switchboard' }]);
 });

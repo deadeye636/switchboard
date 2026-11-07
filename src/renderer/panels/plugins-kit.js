@@ -12,6 +12,9 @@
 // holding unsaved work answers `canLeave()` and can refuse (an answer only — `onLeave()` releases the page once it
 // really goes); a refresh never redraws an open detail page or moves focus. A row may be disabled with a reason; the reason is its meta text and its title.
 //
+// A view may also hand a `rowGroups(row)` hook (with a `filterKey`): the kit then draws a row of toggle chips, one
+// per group (a CLI), with counts, ANDed with the text filter and kept per view across a re-mount (#824, below).
+//
 // Every string goes in with textContent (catalog and registry text is external input). Each row is a
 // `.settings-field`, so the settings search sees it. The kit knows no view, no backend and no IPC: a view hands
 // it rows and three callbacks. Loaded in settings.html, before the views that use it; UMD so jsdom tests can
@@ -63,6 +66,11 @@
     return hay.includes(query);
   }
 
+  // The chip choice per view (#824), outside any mount: a view that re-mounts (the settings screen rebuilds its
+  // views after Apply, a category can be drawn again) keeps what the user picked while the window is open. Keyed
+  // by the spec's `filterKey` (fallback: its title); a Set of group keys. Not persisted beyond the window.
+  const chipSelections = new Map();
+
   /**
    * Mount one view into `host` (its previous content is replaced).
    *
@@ -74,8 +82,19 @@
    *   rowSwitch(row)? -> { checked, disabled?, label, onChange(checked) } | null
    *   rowDisabled(row)? -> reason string | null,
    *   match(row, query)?,                                     // filter; default: label + meta
+   *   rowGroups(row)? -> [{ key, label }],                    // chips (#824): the groups a row belongs to, e.g. its CLI
+   *   filterKey?,                                             // names the view in the chip store (default: title)
    *   renderDetail(row, container, back),                     // fills the detail page
    * }
+   *
+   * Group chips (#824), only when the view has `rowGroups`: one chip per distinct key over all rows, labelled
+   * with the first label seen and counted over all rows (not narrowed by the text). Several chips may be on; none
+   * on means every row; the chips AND with the text filter, and a row matches when ANY of its groups is on. A row
+   * whose `rowGroups` is empty applies to every group: it passes whatever is on and is counted under no chip. The
+   * chip row exists only while there are two or more groups. The choice lives in a store keyed by `filterKey`, so
+   * a re-mount restores it; a chip whose group is gone is ignored (kept in the store, not applied). `clearFilter`
+   * clears the text only. The settings search, which looks over every row, calls `suspendGroups(true)` instead:
+   * the chips narrow nothing while it runs, and the stored choice applies again on `suspendGroups(false)`. The kit never interprets a key or a label.
    * Returns { refresh(nextView), showList(), openDetail(key), root }.
    */
   function mountView(host, view) {
@@ -84,6 +103,14 @@
     let detailKey = null;
     let filterText = '';
     let lastFocusKey = null;
+    // The settings-wide search looks over every row, so while it runs the chips narrow nothing (#824).
+    let groupsSuspended = false;
+    const selKey = () => String(current.filterKey || current.title || '');
+    const selection = () => {
+      const k = selKey();
+      if (!chipSelections.has(k)) chipSelections.set(k, new Set());
+      return chipSelections.get(k);
+    };
 
     const rootEl = el(doc, 'div', 'plugins-view');
     host.replaceChildren(rootEl);
@@ -108,8 +135,13 @@
     countEl.setAttribute('aria-live', 'polite');
     filterRow.append(filter, countEl);
 
+    const chipRow = el(doc, 'div', 'sv-mcp-chips plugins-chip-row');
+    chipRow.setAttribute('role', 'group');
+    chipRow.setAttribute('aria-label', 'Filter by group');
+    chipRow.hidden = true;
+
     const body = el(doc, 'div', 'plugins-sections');
-    listPage.append(head, filterRow, body);
+    listPage.append(head, filterRow, chipRow, body);
 
     function sectionsOf(v) {
       if (Array.isArray(v.sections)) return v.sections;
@@ -139,6 +171,51 @@
       head.hidden = !current.title && !current.subtitle && !(current.actions || []).length;
       filter.placeholder = current.filterPlaceholder || 'Filter';
       filter.setAttribute('aria-label', current.filterPlaceholder || 'Filter');
+    }
+
+    function groupsOf(row) {
+      if (typeof current.rowGroups !== 'function') return [];
+      const g = current.rowGroups(row);
+      return Array.isArray(g) ? g.filter(x => x && x.key != null) : [];
+    }
+
+    // The distinct groups over every row, in first-seen order, with their counts. Fewer than two: no chips.
+    function groupList() {
+      const seen = new Map();
+      for (const row of allRows()) {
+        const own = new Set();
+        for (const g of groupsOf(row)) {
+          const key = String(g.key);
+          if (own.has(key)) continue;
+          own.add(key);
+          const at = seen.get(key);
+          if (at) at.count += 1;
+          else seen.set(key, { key, label: String(g.label != null ? g.label : g.key), count: 1 });
+        }
+      }
+      return [...seen.values()];
+    }
+
+    function drawChips(groups) {
+      chipRow.replaceChildren();
+      chipRow.hidden = groups.length < 2;
+      if (chipRow.hidden) return;
+      const sel = selection();
+      for (const g of groups) {
+        const on = sel.has(g.key);
+        const chip = el(doc, 'button', 'settings-action-btn sv-mcp-chip' + (on ? ' active' : ''), `${g.label} ${g.count}`);
+        chip.type = 'button';
+        chip.dataset.group = g.key;
+        chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+        chip.addEventListener('click', () => {
+          if (sel.has(g.key)) sel.delete(g.key); else sel.add(g.key);
+          drawList();
+          // The chips are redrawn with the list: the keyboard user stays on the chip just toggled.
+          const again = [...chipRow.querySelectorAll('.sv-mcp-chip')].find(c => c.dataset.group === g.key);
+          if (again) again.focus();
+        });
+        chipRow.appendChild(chip);
+      }
     }
 
     function drawRow(row) {
@@ -187,12 +264,22 @@
       const query = filterText.trim().toLowerCase();
       const match = current.match || defaultMatch;
       body.replaceChildren();
+      const groups = groupList();
+      // Only keys that are still a chip count; with fewer than two groups there is no chip row and no filter.
+      const active = new Set(groupsSuspended || groups.length < 2 ? [] : groups.filter(g => selection().has(g.key)).map(g => g.key));
+      const inGroup = (r) => {
+        if (!active.size) return true;
+        const g = groupsOf(r);
+        return !g.length || g.some(x => active.has(String(x.key)));
+      };
       let total = 0;
       let shown = 0;
       for (const section of sectionsOf(current)) {
         const rows = section.rows || [];
         total += rows.length;
-        const visible = query ? rows.filter(r => match(r, query, current)) : rows;
+        const visible = (query || active.size)
+          ? rows.filter(r => inGroup(r) && (!query || match(r, query, current)))
+          : rows;
         shown += visible.length;
         if (!visible.length) continue;
         const block = el(doc, 'div', 'plugins-section');
@@ -204,10 +291,12 @@
         block.appendChild(list);
         body.appendChild(block);
       }
-      countEl.textContent = query ? `${shown} of ${total}` : String(total);
+      const narrowed = !!query || active.size > 0;
+      countEl.textContent = narrowed ? `${shown} of ${total}` : String(total);
+      drawChips(groups);
       if (!shown) {
         body.appendChild(el(doc, 'div', 'plugins-empty settings-description',
-          query ? 'Nothing matches the filter.' : (current.emptyText || 'Nothing here yet.')));
+          narrowed ? 'Nothing matches the filter.' : (current.emptyText || 'Nothing here yet.')));
       }
     }
 
@@ -293,6 +382,12 @@
       canLeave: () => !detailKey || !current.canLeave || current.canLeave() !== false,
       // Back to the list from a detail page; on the list already, nothing moves. -> false while the page refuses.
       showList: (opts) => (detailKey ? leaveDetail(opts) : true),
+      // The settings search is on (or over): the chips stop narrowing the list while it runs; the stored choice stays.
+      suspendGroups(on) {
+        if (groupsSuspended === !!on) return;
+        groupsSuspended = !!on;
+        if (!detailKey) drawList();
+      },
       // Drop the view's own filter text (the settings search runs over every row, not the filtered few).
       clearFilter() {
         if (!filterText) return;

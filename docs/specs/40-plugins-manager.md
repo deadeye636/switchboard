@@ -204,6 +204,37 @@ What differs from the design above, and why:
   search also sends every view back to its list and clears its own filter, without taking the caret from the search.
 - **An unknown `cat` in a deep link is ignored**, in main and in the renderer.
 
+## Backend filter (#824)
+
+A row of chips above each list (Plugins, Apps, MCPs, Skills; not the Marketplace), one per CLI that has rows there, each
+with its count. Several chips can be on; none on means all; the chips AND with the text filter. The row shows only when
+there are two or more CLIs.
+
+- **A group is a CLI, not a backend id.** A driver (the native GUI backends) is its owner's chip; the one answer is
+  `cliOwnerOf` in `src/backends/index.js`. Main stamps a neutral `cli: { key, label }` (owner id as an opaque key, the
+  owner's label) on each plugin row (`src/app/plugins-inventory.js`) and app row. The window never reads the key's
+  meaning.
+- **Skills carry `clis: [{ key, label }]`** (`src/app/skills.js`): one skill file can be reported by several CLIs, so it
+  sits under each of their chips (`alsoNamed` lists other *files* of the same name and is not used for grouping). The
+  app's own skills answer the neutral key `switchboard` (label "Switchboard"), which is no backend id.
+- **MCPs** target backends through `raw.backends`. The renderer maps each id to its CLI from the same
+  `window.api.backends.list()` it already reads (owner = `transcriptsOf || id`, label from the owner's entry); an id the
+  list does not know is its own chip, and a template's id shows as its own label there (known gap). An entry without
+  `backends` serves every CLI: no group, passes any selection, counted under no chip. `backends: []` is not "all": the
+  launch (`entryAppliesTo`) applies it to no backend, so the view gives it a group of its own, "No backend", shown only
+  with no chip on or that chip on. No chips are drawn until the backend list has resolved.
+- **Kit hook** (`src/renderer/panels/plugins-kit.js`): optional `rowGroups(row) -> [{ key, label }]` and `filterKey`.
+  The selection lives in a module-level Map keyed by `filterKey` (fallback: the view's title), so a view that re-mounts
+  keeps the choice while the window is open; it is not stored on disk. A stored key whose group is gone, or fewer than
+  two groups, applies no filter. A row matches when any of its groups is on; a row with no groups always matches.
+- **Counts** are over all rows, not narrowed by the text; the list count reads `n of m` while a text or a chip narrows.
+- **`clearFilter` clears the text only; the settings search suspends the chips.** That search shows and hides rows that
+  are drawn, so a row a chip excluded would never be found. While it runs the views get `suspendGroups(true)` (from
+  `settingsPlugins.leave({ clearFilter: true })`): the chips narrow nothing and the chip row is hidden beside the filter
+  row. The stored choice is kept and applies again when the search is cleared (`resume()`).
+- **Styling** reuses the toggle chips of the MCP form (`settings-action-btn sv-mcp-chip`, `.active`, `aria-pressed`);
+  `.plugins-chip-row` only places the row.
+
 ## Known gaps
 
 - **E12 is narrowed by E15.** The sidebar's Agent Files no longer lists skills, but still lists commands, agents,

@@ -79,6 +79,8 @@
     }
     return window.pluginsKit.mountView(host, {
       filterPlaceholder: 'Filter plugins',
+      filterKey: 'plugins',
+      rowGroups: cliGroups,
       emptyText: 'No plugins installed for any CLI here.',
       sections: KIND_SECTIONS.map(([kind, title]) => ({ title, rows: rows.filter(r => r.kind === kind) })),
       rowKey: (r) => r.id,
@@ -106,6 +108,11 @@
     });
   }
 
+  // The chip groups of a plugin or an app row (#824): main stamps `cli: { key, label }` — one chip per CLI.
+  function cliGroups(r) {
+    return r && r.cli && r.cli.key != null ? [r.cli] : [];
+  }
+
   // ---- Apps -------------------------------------------------------------------------------------------------
 
   async function mountApps(host, ctx) {
@@ -119,6 +126,8 @@
     }
     return window.pluginsKit.mountView(host, {
       filterPlaceholder: 'Filter apps',
+      filterKey: 'apps',
+      rowGroups: cliGroups,
       emptyText: 'No installed CLI reports apps yet.',
       sections: [{ title: '', rows }],
       rowKey: (r) => r.id,
@@ -403,6 +412,9 @@
     };
     const spec = (list) => ({
       filterPlaceholder: 'Filter skills',
+      filterKey: 'skills',
+      // A skill file can be reported by several CLIs (`clis`), so it sits under each of their chips.
+      rowGroups: (r) => (Array.isArray(r.clis) ? r.clis : []),
       emptyText: 'No skills found for any CLI here.',
       actions: [{ label: 'New skill', onClick: () => newSkillForm(host, ctx, afterCreate) }],
       sections: [

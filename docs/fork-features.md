@@ -526,7 +526,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Plugins group, in both settings windows.
 - **Plugins manager (#803)** — a *Plugins* group in the nav of both settings windows (and *Open Plugins* in the
   command palette) with five views: *Plugins*, *Apps*, *MCPs*, *Skills* and *Marketplace*. Every view is a compact
-  list with a filter and a count, and a row opens its own detail page with Back and keyboard navigation. *Plugins*
+  list with a filter and a count, and a row opens its own detail page with Back and keyboard navigation. Above the list, a chip per CLI with its count narrows it to one or several CLIs (#824); a CLI driven over a pipe is part of its CLI's chip. *Plugins*
   lists what each CLI has installed: Claude and Codex say whether a plugin is on (shown, never changed), the others
   are listed from their folders as "not reported". *Apps* is empty until a CLI reports apps. *Skills* lists each skill
   file once with its source and scope, says per CLI whether the skill is native there, shared to it, handed over as

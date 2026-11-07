@@ -56,6 +56,9 @@
 
   // The backends the app serves, [{ id, label }], or null while unresolved / after a failed call.
   let choices = null;
+  // Backend id -> the CLI it belongs to, { key, label } (#824): a driver is its owner's chip. Built from the same
+  // list as `choices` (`transcriptsOf` names the owner); empty until it resolves.
+  let cliByBackend = new Map();
   // Redraws the chips of the open form once the list resolves (null while no form is open).
   let formChipsRefresh = null;
   // What each served backend answers for the `mcpPrune` capability, [{ label, state, note }], or null while unresolved.
@@ -388,6 +391,22 @@
     }));
     const model = {
       filterPlaceholder: 'Filter servers',
+      filterKey: 'mcps',
+      // The CLIs an entry targets (#824); an entry without `backends` serves every CLI and sits under no chip.
+      // `backends: []` is not "all": the launch applies it to no backend (`entryAppliesTo`), so it is a group of its
+      // own. No chips until the backend list has resolved: before that a chip could only be labelled by a raw id.
+      rowGroups: (r) => {
+        if (!cliByBackend.size || !isPlainObject(r.raw) || !Array.isArray(r.raw.backends)) return [];
+        if (!r.raw.backends.length) return [{ key: ' none', label: 'No backend' }];
+        const ids = r.raw.backends;
+        const out = [];
+        for (const id of ids) {
+          if (typeof id !== 'string') continue;
+          const cli = cliByBackend.get(id) || { key: id, label: id };
+          if (!out.some(c => c.key === cli.key)) out.push(cli);
+        }
+        return out;
+      },
       emptyText: 'No servers yet.',
       sections: [{ title: '', rows }],   // one section: the category's own heading names it
       rowKey: (r) => r.key,
@@ -673,6 +692,12 @@
       const served = ((res && res.backends) || [])
         .filter(b => b && b.enabled && !b.isProfile && typeof b.id === 'string');
       choices = served.map(b => ({ id: b.id, label: String(b.label || b.id) }));
+      const all = ((res && res.backends) || []).filter(b => b && !b.isProfile && typeof b.id === 'string');
+      const byId = new Map(all.map(b => [b.id, b]));
+      cliByBackend = new Map(all.map((b) => {
+        const owner = (b.transcriptsOf && byId.get(b.transcriptsOf)) || b;
+        return [b.id, { key: owner.id, label: String(owner.label || owner.id) }];
+      }));
       pruneRows = served.map(b => {
         const a = b.capabilities && b.capabilities.mcpPrune;
         return a && typeof a.state === 'string'
@@ -707,6 +732,7 @@
     const again = body.querySelector('#' + CHECK_ID);
     if (again) again.addEventListener('click', () => runCheck(body, signal), { signal });
     choices = null;
+    cliByBackend = new Map();
     run();
     loadChoices(body, signal).then(() => runCheck(body, signal));
   }

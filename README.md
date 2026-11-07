@@ -178,8 +178,8 @@ chart rather than a row of zeroes.
   Unverified and are text to copy.
   → [`docs/specs/38-mcp-addon-catalog.md`](docs/specs/38-mcp-addon-catalog.md)
 - **Plugins manager** — a *Plugins* group in both settings windows, also reached from the command palette, with
-  five views: Plugins, Apps, MCPs, Skills and Marketplace. Each is a short list with a filter and a count; a row opens
-  its own page. Plugins shows what each CLI has installed and, where the CLI says, whether it is on (read only). Skills lists every skill
+  five views: Plugins, Apps, MCPs, Skills and Marketplace. Each is a short list with a filter and a count, and chips
+  that narrow it to one or several CLIs; a row opens its own page. Plugins shows what each CLI has installed and, where the CLI says, whether it is on (read only). Skills lists every skill
   file once, whichever CLI reported it, says what each CLI makes of it, has an editor on its page, creates a new one in a CLI's skills folder and
   deletes a CLI's skill after asking. MCPs and
   Marketplace are the two entries above. Nothing is read until you open a view.

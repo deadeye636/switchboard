@@ -186,11 +186,16 @@
         }
         for (const v of views) {
           v.showList({ focus: false });
-          if (opts && opts.clearFilter) v.clearFilter();
+          if (opts && opts.clearFilter) { v.clearFilter(); v.suspendGroups(true); }
         }
         // A half-filled "New skill" form holds nothing that is not retyped in a second; it goes with the rest.
         body.querySelectorAll('.plugins-new-skill').forEach(f => f.remove());
         return true;
+      },
+      // The settings search ended: the views' chips narrow their lists again.
+      resume() {
+        const kit = window.pluginsKit;
+        if (kit && typeof kit.viewsIn === 'function') for (const v of kit.viewsIn(body)) v.suspendGroups(false);
       },
     };
 
