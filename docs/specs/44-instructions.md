@@ -173,6 +173,13 @@ The ids are those of the Skills, Agents, Commands, Rules and Instructions invent
   declines until it does, unless it declares a scaffold.
 - The sidebar group and removing the Agent
   Files tab are later steps of the plan and are not built.
+- **Who else deletes (plan T0b, checked at T9).** Handoff packets: `deleteHandoff` is also called by the handoff picker
+  (`src/renderer/handoff/handoff.js`), so removing Agent Files loses no delete there. Work files: `deleteWorkFile`
+  is reached only from the Agent Files work-file viewer (`workFilesPanel.onDelete` in `src/renderer/app.js`), so until
+  the "Work files" section of T10 exists, removing the tab would remove the only delete for them. T10 must land before T11.
+- **Cover guard.** `test/instructions-cover-agent-files.test.js` matches every row of `getMemories()` by real path against
+  the resource, skills and instruction inventories; `handoff` (stays with handoffs) and `work-file` (pending T10) are its
+  two named exceptions, and each fails as stale once it has a home.
 
 **The session sidebar group (T8).** `get-session-instructions(projectPath, backendId)` answers `{ ok, rows: [{ id, label, scope,
 section, path }], declined }` for the owner CLI of that backend (`cliOf`), global scope plus a registered project, kinds
