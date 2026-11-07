@@ -968,7 +968,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   session cards show an open-task count badge and the project task icon highlights on open tasks.
 - **Session sidebar** (#817, spec 43) — one per session or pane, collapsible, with Tasks & notes, Handoffs, Context and
   Connectors as groups that collapse on their own. Its state survives a restart. On a Claude session driven over a pipe,
-  Context breaks the fill down by category, memory file, skill, custom agent and MCP tool (#758).
+  Context breaks the fill down by category, memory file, skill, custom agent and MCP tool (#758). One row pattern (#822):
+  a click inserts into the session's prompt through the pickers' own path (Shift leaves the template out), hover buttons
+  open, copy or edit, a memory file opens read-only and an MCP server opens the server manager.
 - **Context baseline** (#758) — before the first turn, the session line draws the fill dimmed and says that nothing has
   been sent yet. Its tooltip names the categories and the largest memory files.
 - **Forge issues in Tasks & notes** (#816, spec 42) — a project's open GitHub or GitLab issues, read-only, in a group of

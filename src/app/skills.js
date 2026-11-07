@@ -77,6 +77,8 @@ function switchboardSkillsDir(projectPath) {
 function skillRow({ name, filePath, origin, scope, backendId, invocation, source, fromPlugin }) {
   return {
     name, filePath, origin, scope, backendId: backendId || null, invocation: invocation || null,
+    // The inventory id Settings opens a skill's page by (#822): decided here, never built from a path in the window.
+    id: filePath ? skillId(filePath) : null,
     source: source || null,
     // The listing marked the directory as one a plugin installed and keeps (#803 O5: no Delete there).
     fromPlugin: !!fromPlugin,

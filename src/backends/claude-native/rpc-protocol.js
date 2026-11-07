@@ -1100,7 +1100,7 @@ function contextBreakdown(d) {
   };
   const lists = [
     list('memory', 'Memory files', d.memoryFiles, (f) => ({
-      name: String(f.path || '').split(/[\\/]/).pop(), tokens: count(f.tokens), title: String(f.path || ''),
+      name: String(f.path || '').split(/[\\/]/).pop(), tokens: count(f.tokens), title: String(f.path || ''), path: String(f.path || ''),
     })),
     list('skills', 'Skills', d.skills && d.skills.skillFrontmatter, (s) => ({ name: String(s.name || ''), tokens: count(s.tokens) })),
     list('agents', 'Custom agents', d.agents, (a) => ({ name: String(a.agentType || ''), tokens: count(a.tokens) })),

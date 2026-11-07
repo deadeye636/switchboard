@@ -11,7 +11,7 @@
 // Free globals it reads at CALL time: escapeHtml, formatDate (lib/utils.js), openSessions, sessionMap (app.js),
 // fitAndScroll (terminal/terminal-manager.js), insertResolvedText (terminal/terminal-context-menu.js),
 // openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), openFileInPanel
-// (views/file-panel.js), window.api.
+// (views/file-panel.js), openSessionServers (session/servers-dialog.js), skillInsertText (the skill picker), window.showControlToast, window.api.
 //
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
@@ -153,10 +153,90 @@ function contextLineDetails(context) {
   return lines;
 }
 
+// --- One row pattern (#822, spec 43): a click inserts into the session's prompt, hover buttons do the rest. ---
+//
+// What a row offers is decided by its kind and nothing else. `open` and `copy` and `edit` are the only buttons, and
+// a row gets only those it can honour (an issue without a url has no `open`, a skill without an id has no `edit`).
+const SIDEBAR_ROW_ACTIONS = { task: ['open', 'copy'], issue: ['open', 'copy'], handoff: ['open', 'copy'], skill: ['edit'] };
+const SIDEBAR_ACTION_FACE = { open: ['↗', 'Open'], copy: ['⧉', 'Copy'], edit: ['✎', 'Edit'] };
+
+const SIDEBAR_KIND_GROUP = { task: 'tasks', issue: 'tasks', handoff: 'handoffs', skill: 'connectors' };
+
+function sidebarRowActions(kind, src) {
+  const s = src || {};
+  return (SIDEBAR_ROW_ACTIONS[kind] || []).filter((a) => {
+    if (kind === 'issue' && a === 'open') return !!s.url;
+    if (kind === 'handoff') return !!s.filePath;
+    if (kind === 'skill' && a === 'edit') return !!s.id;
+    return true;
+  });
+}
+
+// A local task is inserted as its title and a reference the agent can quote back. There is no task picker (and so no
+// template setting) yet; Shift inserts the bare title.
+function taskInsertText(task, plain = false) {
+  const title = String((task && task.title) || '').trim();
+  if (!title || plain) return title;
+  return task.id != null ? `${title} (task #${task.id})` : title;
+}
+
+// What the row inserts. A handoff is its path (no template on a click, owner decision on #822); the skill text is the
+// skill picker's own function, template included, and that picker has no plain form, so Shift changes nothing there.
+function sidebarInsertText(kind, src, { plain = false, template = '', helpers = {} } = {}) {
+  if (!src) return '';
+  const h = {
+    skillInsertText: typeof skillInsertText === 'function' ? skillInsertText : undefined,
+    ...helpers,
+  };
+  switch (kind) {
+    case 'task': return taskInsertText(src, plain);
+    case 'issue': return src.number != null ? `#${src.number}` : '';
+    case 'handoff': return src.filePath || '';
+    case 'skill': return h.skillInsertText ? h.skillInsertText(src, template) : (src.invocation || '');
+    default: return '';
+  }
+}
+
+// What the copy button puts on the clipboard: the bare thing, never a template.
+function sidebarCopyText(kind, src) {
+  if (!src) return '';
+  switch (kind) {
+    case 'task': return taskInsertText(src, true);
+    case 'issue': return src.number != null ? `#${src.number}` : '';
+    case 'handoff': return src.filePath || '';
+    default: return '';
+  }
+}
+
+// The row as data: the key it is found under at click time, its two texts, a tooltip and the buttons it offers.
+function sidebarRowModel(kind, src, meta = '', index = 0) {
+  const s = src || {};
+  switch (kind) {
+    case 'task': return { kind, key: `task:${s.id}`, main: s.title || '', meta: meta || (s.status === 'in_progress' ? 'In progress' : ''), tip: 'Insert the title and a task reference', actions: sidebarRowActions(kind, s) };
+    case 'issue': return { kind, key: `issue:${s.number}`, main: `#${s.number} ${s.title || ''}`, meta, tip: 'Insert the issue id', actions: sidebarRowActions(kind, s) };
+    case 'handoff': return { kind, key: `handoff:${s.filePath || ''}`, main: s.title || s.label || s.filename || '', meta, tip: 'Insert the path', actions: sidebarRowActions(kind, s) };
+    case 'skill': return { kind, key: `skill:${s.filePath || `#${index}`}`, main: s.name || '', meta, tip: 'Insert the skill', actions: sidebarRowActions(kind, s) };
+    default: return null;
+  }
+}
+
+// The markup of a row with its buttons. Every value is escaped; the buttons are siblings of the row button, never inside it.
+function sidebarItemHtml(model) {
+  const row = sidebarRow(model.main, model.meta, `data-ssb="row" data-key="${escapeHtml(model.key)}" title="${escapeHtml(model.tip)}"`);
+  if (!model.actions.length) return row;
+  const buttons = model.actions.map((a) => {
+    const [glyph, label] = SIDEBAR_ACTION_FACE[a];
+    return `<button type="button" class="ssb-head-btn ssb-act" data-ssb="act" data-act="${a}" data-key="${escapeHtml(model.key)}" `
+      + `title="${label}" aria-label="${escapeHtml(`${label} ${model.main}`)}">${glyph}</button>`;
+  }).join('');
+  return `<div class="ssb-item">${row}<span class="ssb-acts">${buttons}</span></div>`;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
     instructionGroups, instructionRow,
+    sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
   };
@@ -205,6 +285,14 @@ function sidebarRow(main, meta, attrs = '') {
   return `<button type="button" class="ssb-row" ${attrs}><span class="ssb-row-main">${escapeHtml(main)}</span>`
     + `${meta ? `<span class="ssb-row-meta">${escapeHtml(meta)}</span>` : ''}</button>`;
 }
+// A row of one of the kinds that insert: remembered under its key, so a click finds the object without the markup
+// carrying it. Keys are per kind and id, so groups drawn at different times do not collide.
+function sidebarItem(entry, kind, src, meta = '', index = 0) {
+  const model = sidebarRowModel(kind, src, meta, index);
+  if (!entry.sidebarRows) entry.sidebarRows = new Map();
+  entry.sidebarRows.set(model.key, { kind, src });
+  return sidebarItemHtml(model);
+}
 const sidebarNote = (text) => `<div class="ssb-note">${escapeHtml(text)}</div>`;
 
 // The breakdown under the Context group's figures (#758, spec 43): one bar, a row per category, then the lists a
@@ -223,8 +311,12 @@ function sidebarBreakdownHtml(entry, breakdown, window) {
     + `<span class="ssb-cat-share">${escapeHtml(sidebarCategoryShare(c, window))}</span></div>`).join('');
   const lists = breakdown.lists.map((l) => `<details class="ssb-sublist" data-list="${escapeHtml(l.id)}"${open.has(l.id) ? ' open' : ''}>`
     + `<summary><span class="ssb-row-main">${escapeHtml(l.label)}</span><span class="ssb-row-meta">${l.rows.length}</span></summary>`
-    + l.rows.map((r) => sidebarRow(r.name, `${sidebarTokens(r.tokens)}${r.deferred ? ' · deferred' : ''}`,
-      `disabled${r.title ? ` title="${escapeHtml(r.title)}"` : ''}`)).join('')
+    + l.rows.map((r) => {
+      const meta = `${sidebarTokens(r.tokens)}${r.deferred ? ' · deferred' : ''}`;
+      // A memory file carries its neutral `path` (the backend's answer); `title` stays the tooltip. It opens read-only (#822).
+      if (l.id === 'memory' && typeof r.path === 'string' && r.path) return instructionRow({ name: r.name, path: r.path }, meta);
+      return sidebarRow(r.name, meta, `disabled${r.title ? ` title="${escapeHtml(r.title)}"` : ''}`);
+    }).join('')
     + '</details>').join('');
   return `<div class="ssb-stack">${bar}</div><div class="ssb-cats">${rows}</div>${lists}`;
 }
@@ -239,6 +331,67 @@ async function sessionSidebarOpenInstruction(entry, row) {
   } finally { sidebarSessionFocus(entry); }
 }
 
+// One way to put text in the prompt, the pickers' own (`insertResolvedText`), and the caret goes back to the session so
+// Enter, meant for it, does not press this row again (requirement 8).
+function sidebarInsert(entry, text, opts) {
+  const done = typeof insertResolvedText === 'function' && text
+    ? insertResolvedText(entry.terminal, entry.session.sessionId, text, { trailing: ' ', ...opts }) : false;
+  sidebarSessionFocus(entry);
+  return done;
+}
+
+// A click on a row of an inserting kind. The templates are settings, read when the click comes; Shift leaves them out.
+async function sessionSidebarRowClick(entry, key, plain) {
+  const held = entry.sidebarRows && entry.sidebarRows.get(key);
+  if (!held) return;
+  const { kind, src } = held;
+  let settings = null;
+  if (kind === 'skill') {
+    try { settings = await window.api.getEffectiveSettings(sidebarSessionOf(entry).projectPath || null); } catch { settings = null; }
+  }
+  const template = kind === 'skill' ? settings && settings.skillInsertTemplate : '';
+  const text = sidebarInsertText(kind, src, { plain, template });
+  if (kind === 'skill') {
+    // As the skill picker: it is asked to run unless the setting says otherwise, and a text insert says so.
+    const submit = !(settings && settings.submitSkillOnPick === false);
+    sidebarInsert(entry, text, { trailing: submit ? '' : ' ', submit });
+    if (!src.invocation) window.showControlToast?.({ message: `\u201C${src.name}\u201D inserted as text \u2014 this CLI has no skill command`, timeoutMs: 3000 });
+    return;
+  }
+  sidebarInsert(entry, text);
+}
+
+// A hover button. Open leads out of the sidebar to the kind's own view; none of these touch the prompt.
+async function sessionSidebarRowAct(entry, key, act) {
+  const held = entry.sidebarRows && entry.sidebarRows.get(key);
+  if (!held) return;
+  const { kind, src } = held;
+  const session = sidebarSessionOf(entry);
+  if (act === 'copy') {
+    const text = sidebarCopyText(kind, src);
+    if (!text) return;
+    try { await window.api.writeClipboard(text); window.showControlToast?.({ message: 'Copied.', timeoutMs: 1500 }); } catch { /* nothing to copy into */ }
+    return;
+  }
+  if (act === 'open') {
+    if (kind === 'task') { if (typeof openTasksView === 'function') openTasksView({ projectPath: session.projectPath }, 'Session project'); }
+    else if (kind === 'issue') window.api.openExternal(src.url);
+    else if (kind === 'handoff' && typeof openFileInPanel === 'function') openFileInPanel(entry.session.sessionId, src.filePath);
+    return;
+  }
+  if (act === 'edit' && kind === 'skill') {
+    const projectPath = session.projectPath || null;
+    const project = src.scope === 'project' && projectPath;
+    window.api.openSettingsWindow(project ? 'project' : 'global', project ? projectPath : null, { cat: 'plugins-skills', item: src.id });
+  }
+}
+
+// A click on an MCP server row: the server manager, as `/mcp` opens it in the conversation view.
+async function sessionSidebarOpenServers(entry) {
+  if (!entry.conversation || entry.conversation.exited?.() || typeof openSessionServers !== 'function') return;
+  await openSessionServers(entry.session.sessionId, { onClose: () => sidebarSessionFocus(entry) });
+}
+
 // Each group reads when it is open and in view, and answers markup. All of it is escaped: a task title, an issue and
 // a skill name are all text somebody else may have written.
 const SESSION_SIDEBAR_GROUPS = [
@@ -251,7 +404,7 @@ const SESSION_SIDEBAR_GROUPS = [
       const res = await window.api.taskList({ projectPath });
       const rows = openTaskRows(res && res.tasks);
       let html = rows.length
-        ? rows.slice(0, SESSION_SIDEBAR_ROWS).map((t) => sidebarRow(t.title, t.status === 'in_progress' ? 'In progress' : '', 'data-ssb="tasks"')).join('')
+        ? rows.slice(0, SESSION_SIDEBAR_ROWS).map((t) => sidebarItem(entry, 'task', t)).join('')
         : sidebarNote('No open tasks.');
       const settings = await window.api.getEffectiveSettings(projectPath);
       if (settings && settings.forgeIssuesEnabled === true) {
@@ -261,7 +414,7 @@ const SESSION_SIDEBAR_GROUPS = [
         const issues = await sidebarIssuesFor(projectPath, force);
         if (!issues || !issues.ok) html += sidebarNote((issues && issues.message) || 'The issues could not be read.');
         else if (!issues.issues.length) html += sidebarNote('No open issues.');
-        else html += issues.issues.slice(0, SESSION_SIDEBAR_ROWS).map((i) => sidebarRow(`#${i.number} ${i.title}`, '', i.url ? `data-ssb="url" data-url="${escapeHtml(i.url)}"` : 'disabled')).join('');
+        else html += issues.issues.slice(0, SESSION_SIDEBAR_ROWS).map((i) => sidebarItem(entry, 'issue', i)).join('');
       }
       return html;
     },
@@ -277,7 +430,7 @@ const SESSION_SIDEBAR_GROUPS = [
       return rows.slice(0, SESSION_SIDEBAR_ROWS).map((h) => {
         const when = h.modified || h.createdAt;
         const meta = when && typeof formatDate === 'function' ? formatDate(new Date(when)) : '';
-        return sidebarRow(h.title || h.label || h.filename, meta, `data-ssb="insert" data-text="${escapeHtml(h.filePath || '')}" title="Insert the path"`);
+        return sidebarItem(entry, 'handoff', h, meta);
       }).join('');
     },
   },
@@ -327,7 +480,7 @@ const SESSION_SIDEBAR_GROUPS = [
         if (rows) {
           html += `<div class="ssb-subhead">MCP servers</div>`;
           html += rows.length
-            ? rows.map((s) => sidebarRow(s.name, s.state || '', `disabled data-tone="${escapeHtml(s.tone || '')}"`)).join('')
+            ? rows.map((s) => sidebarRow(s.name, s.state || '', `data-ssb="servers" title="Manage the MCP servers" data-tone="${escapeHtml(s.tone || '')}"`)).join('')
             : sidebarNote('None.');
         }
       }
@@ -336,7 +489,7 @@ const SESSION_SIDEBAR_GROUPS = [
       const skills = (res && res.skills) || [];
       html += `<div class="ssb-subhead">Skills</div>`;
       html += skills.length
-        ? skills.slice(0, SESSION_SIDEBAR_ROWS).map((s) => sidebarRow(s.name, '', 'disabled')).join('')
+        ? skills.slice(0, SESSION_SIDEBAR_ROWS).map((s, i) => sidebarItem(entry, 'skill', s, '', i)).join('')
         : sidebarNote('None.');
       return html;
     },
@@ -345,6 +498,8 @@ const SESSION_SIDEBAR_GROUPS = [
 
 // The group's own dirty mark and a token, so a late answer for a closed sidebar or an older read draws nothing.
 function loadSidebarGroup(entry, group, section, force = false) {
+  // The rows a group drew before go with its redraw, so the registry holds what is on screen (a kind has one group).
+  if (entry.sidebarRows) for (const [k, v] of entry.sidebarRows) if (SIDEBAR_KIND_GROUP[v.kind] === group.id) entry.sidebarRows.delete(k);
   const body = section.querySelector('.ssb-group-body');
   const token = (section._token || 0) + 1;
   section._token = token;
@@ -421,26 +576,17 @@ function buildSidebar(entry) {
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-ssb]');
     if (!el) return;
-    const session = sidebarSessionOf(entry);
     switch (el.dataset.ssb) {
       case 'close':
         sessionSidebarToggle(sessionId());
         sidebarSessionFocus(entry);
         break;
       case 'refresh': loadOpenSidebarGroups(entry, true); break;
-      case 'url': window.api.openExternal(el.dataset.url); break;
-      case 'tasks':
-        if (typeof openTasksView === 'function') openTasksView({ projectPath: session.projectPath }, 'Session project');
-        break;
+      case 'row': sessionSidebarRowClick(entry, el.dataset.key, e.shiftKey === true); break;
+      case 'act': sessionSidebarRowAct(entry, el.dataset.key, el.dataset.act); break;
+      case 'servers': sessionSidebarOpenServers(entry); break;
       case 'open-file':
         sessionSidebarOpenInstruction(entry, { path: el.dataset.path });
-        break;
-      case 'insert':
-        if (el.dataset.text && typeof insertResolvedText === 'function') {
-          insertResolvedText(entry.terminal, sessionId(), el.dataset.text, { trailing: ' ' });
-          // Or Enter, meant for the session, presses this row again.
-          sidebarSessionFocus(entry);
-        }
         break;
       default:
     }

@@ -45,8 +45,36 @@ by another window in the same moment, which costs a remembered width.
 - **Focus returns to the session** after a handoff insert and after closing, or Enter would press the row again.
 - **The sidebar is out of the container's handlers:** its right click, mouse release and wheel do nothing to the session.
 - **All text is escaped.** A task title, an issue and a skill name can be someone else's.
-- **Clicks:** a task opens the project's Tasks view, an issue opens in the browser, a handoff inserts its path into the
-  session.
+- **Clicks:** see "The row pattern" below.
+
+## The row pattern (#822)
+
+Owner decisions: E1 one pattern for every group, a click inserts into the session's prompt and hover buttons offer the
+rest; E2 a local task inserts its title plus a task reference.
+
+| Row | Click | Shift+click | Hover buttons |
+|---|---|---|---|
+| Local task | title and `(task #id)` | the title | open in the Tasks view, copy the title |
+| Forge issue | `#number` | same | open in the browser (when it has a url), copy `#number` |
+| Handoff | the path, with no template (requirement 4) | same | open in the preview (editable), copy the path |
+| Skill | the invocation from the backend's `skillInvocation` hook, through `skillInsertText` (template only for a skill with none), submitted unless `submitSkillOnPick` is off | same | edit: Settings → Plugins → Skills on that skill |
+| Instruction file, memory file | opens read-only in the preview (#823) | same | none |
+| MCP server | opens the server manager, as `/mcp` does | same | none |
+
+- **One way to insert.** Every insert goes through `sidebarInsert` to `insertResolvedText`, with the pickers' text
+  functions (`handoffInsertText`, `skillInsertText`); the caret returns to the session afterwards (requirement 8). A
+  conversation view takes the text into its input, a terminal pastes it.
+- **Gap: no task picker exists**, so a task has no template setting and `Title (task #id)` is fixed in
+  `taskInsertText`. It stays until a task picker with a template exists.
+- **A handoff's Open leaves the file editable**: handoffs are working documents, not configuration, so unlike an
+  instruction file it opens in the ordinary preview, not read-only.
+- **A memory file's row reads the neutral `path`** that the backend puts on the memory row (`title` stays the tooltip).
+- **The server manager** is `openSessionServers` in `servers-dialog.js`, shared by `/mcp` and the server rows.
+- **A row has only the buttons it can honour:** `sidebarRowActions`. The buttons are siblings of the row button (never
+  nested in it), shown on hover and when focus is anywhere in the row, so the keyboard reaches them.
+- **The row finds its object by key** (`entry.sidebarRows`), the markup carries no payload but the key. Skill rows carry
+  `id`, the inventory id main computes (`skillId`), so Edit opens that skill's page without the window building an id.
+- Pure parts: `sidebarRowModel`, `sidebarInsertText`, `sidebarCopyText`, `sidebarItemHtml` (`test/session-sidebar-rows.test.js`).
 
 ## The context breakdown (#758)
 

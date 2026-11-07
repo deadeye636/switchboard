@@ -1212,8 +1212,8 @@ test('a context answer projects its lists: largest first, a file by its name, a 
   const { breakdown } = protocol.contextFromResponse({ success: true, data: USAGE });
   const of = (id) => breakdown.lists.find((l) => l.id === id).rows;
   assert.deepEqual(of('memory'), [
-    { name: 'CLAUDE.md', tokens: 300, title: '<project>/CLAUDE.md' },
-    { name: 'small.md', tokens: 10, title: '<home>\\.claude\\small.md' },
+    { name: 'CLAUDE.md', tokens: 300, title: '<project>/CLAUDE.md', path: '<project>/CLAUDE.md' },
+    { name: 'small.md', tokens: 10, title: '<home>\\.claude\\small.md', path: '<home>\\.claude\\small.md' },
   ]);
   assert.deepEqual(of('skills').map((r) => r.name), ['two', 'one']);
   assert.deepEqual(of('agents').map((r) => r.name), ['b-agent', 'a-agent']);

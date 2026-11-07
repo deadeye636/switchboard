@@ -265,7 +265,8 @@ test('the picker rows are unchanged: no listing source reaches them', () => {
   const backend = stubBackend({ id: 'one', label: 'One', globalDir: dir });
   setup({ backends: [backend] });
   const [row] = skills.getSkills({ backendId: 'one' }).skills;
-  assert.deepEqual(Object.keys(row).sort(), ['backendId', 'filePath', 'invocation', 'name', 'origin', 'scope']);
+  assert.deepEqual(Object.keys(row).sort(), ['backendId', 'filePath', 'id', 'invocation', 'name', 'origin', 'scope']);
+  // `id` is the inventory id main computes from the path (#822), so the session sidebar can open a skill's Settings page without building one.
 });
 
 test('each row names the CLIs that reported it (#824): a driver folds into its owner, the app\'s own skill is neutral', () => {

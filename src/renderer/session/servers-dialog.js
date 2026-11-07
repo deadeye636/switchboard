@@ -14,7 +14,8 @@
 // The state is read again after every action and while a server is still connecting — the runtime pushes no
 // change on its own — and a sign-in is followed until the server has one, then reconnected (owner decision O3).
 //
-// Free globals read at call time: trapControlDialogFocus, controlDialogId (dialogs/control-dialogs.js).
+// Free globals read at call time: trapControlDialogFocus, controlDialogId (dialogs/control-dialogs.js), window.showControlToast.
+// Callers: `openSessionServers`, which the conversation view's `/mcp` and the session sidebar's server rows share (#822).
 
 // How often the list is read again while something is expected to move, and for how long a sign-in in the
 // browser is waited on before the dialog stops asking.
@@ -461,4 +462,33 @@ function showServersDialog({ list, load, act, openUrl, onClose } = {}) {
   render();
   schedulePoll();
   return { close };
+}
+
+/**
+ * `/mcp` and the session sidebar's server rows open the manager the same way (#822): the list and every action go to
+ * the session, named by server and by the backend's own action word. With `list` (one the caller already holds) it
+ * opens at once; without, it asks first and says so when the session does not answer.
+ */
+async function openSessionServers(sessionId, { list, onClose } = {}) {
+  const ask = async () => {
+    try { return await window.api.agent.servers(sessionId); } catch { return { ok: false, error: 'The session did not list its MCP servers.' }; }
+  };
+  let first = list;
+  if (!first) {
+    const answer = await ask();
+    if (!answer || !answer.ok) {
+      window.showControlToast?.({ message: (answer && answer.error) || 'The session did not list its MCP servers.', timeoutMs: 4000 });
+      return null;
+    }
+    first = answer.list;
+  }
+  return showServersDialog({
+    list: first,
+    load: ask,
+    act: async (name, action, extra) => {
+      try { return await window.api.agent.serverAction(sessionId, name, action, extra); } catch { return { ok: false, error: 'The session did not answer.' }; }
+    },
+    openUrl: (url) => { if (/^https?:\/\//i.test(url) && window.api.openExternal) window.api.openExternal(url); },
+    onClose,
+  });
 }

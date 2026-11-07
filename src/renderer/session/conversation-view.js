@@ -27,7 +27,7 @@
 // four palette openers (terminal/*-palette.js), createComposerCompletion (session/composer-completion.js,
 // read when a view is built), composerPathToken (session/composer-completion.js, #699 — how a pasted or
 // dropped file is named), richPasteSegments / richPasteImageBytes / MAX_RICH_IMAGES (lib/rich-paste.js,
-// #779 — a pasted mail with its pictures), showBranchTreeDialog (session/branch-tree-dialog.js, #646), showServersDialog
+// #779 — a pasted mail with its pictures), showBranchTreeDialog (session/branch-tree-dialog.js, #646), openSessionServers
 // (session/servers-dialog.js, #728),
 // clearTerminalAttentionNotice (terminal/terminal-attention-notice.js, #666), terminalRightClickMode
 // (terminal/terminal-context-menu.js, #690), sessionHealthOptions (app.js, #691 — the handoff threshold
@@ -2543,19 +2543,8 @@ function createConversationView(getSession, container) {
   // `/mcp` (#728): the session's MCP servers as a manager. The list and every action go through main, named by
   // server and by the backend's own action word; the view opens a sign-in page as it opens any link.
   function openServers(op) {
-    if (view.exited || typeof showServersDialog !== 'function') return;
-    const id = () => view.session.sessionId;
-    showServersDialog({
-      list: op.list,
-      load: async () => {
-        try { return await window.api.agent.servers(id()); } catch { return { ok: false, error: 'The session did not list its MCP servers.' }; }
-      },
-      act: async (name, action, extra) => {
-        try { return await window.api.agent.serverAction(id(), name, action, extra); } catch { return { ok: false, error: 'The session did not answer.' }; }
-      },
-      openUrl: (url) => { if (/^https?:\/\//i.test(url) && window.api.openExternal) window.api.openExternal(url); },
-      onClose: () => { if (!view.exited) input.focus(); },
-    });
+    if (view.exited || typeof openSessionServers !== 'function') return;
+    openSessionServers(view.session.sessionId, { list: op.list, onClose: () => { if (!view.exited) input.focus(); } });
   }
 
   // The session's branch tree (#646). The rows are the backend's; the move is asked of main, and what it

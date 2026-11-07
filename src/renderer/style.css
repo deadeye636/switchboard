@@ -3088,6 +3088,12 @@ body.restoring-sessions #restore-progress { display: flex; }
 }
 .ssb-row:hover:not(:disabled) { background: rgba(255, 255, 255, 0.06); }
 .ssb-row:disabled { cursor: default; color: inherit; }
+.ssb-item { position: relative; }
+/* The buttons appear on hover or when focus is anywhere in the row, so the keyboard reaches them (#822). */
+.ssb-acts { display: none; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); gap: 2px; }
+.ssb-item:hover .ssb-acts, .ssb-item:focus-within .ssb-acts { display: flex; }
+.ssb-item:hover > .ssb-row, .ssb-item:focus-within > .ssb-row { padding-right: 56px; }
+.ssb-item:hover .ssb-row-meta, .ssb-item:focus-within .ssb-row-meta { visibility: hidden; }
 .ssb-row-main { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ssb-row-meta { flex-shrink: 0; font-size: 10px; color: #7a7a90; }
 .ssb-row[data-tone="failed"] .ssb-row-meta { color: #e06c75; }

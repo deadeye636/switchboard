@@ -339,7 +339,8 @@ off until you turn it on in Settings.
 
 Each session also has a collapsible sidebar with its project's tasks and notes, its handoffs, its context fill and its
 connectors, opened from the session's toolbar. On a Claude session driven over a
-pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool.
+pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool. A click on a
+task, issue, handoff or skill puts it into the session's prompt; small buttons on hover open it, copy it or edit it.
 
 ## Writing a prompt
 
