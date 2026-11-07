@@ -13,7 +13,6 @@ const { isInside: isReallyInside } = require('./path-containment');
 let backends = null;
 let shell = null;
 let log = null;
-let invalidateFts = null;
 
 function init(ctx) {
   backends = ctx && ctx.backends;
@@ -21,9 +20,6 @@ function init(ctx) {
   // Optional: the detail dropped from a user-facing reason is written here instead, so an error whose
   // code we cannot translate is still diagnosable from the log rather than nowhere at all.
   log = (ctx && ctx.log) || null;
-  // A written resource is a searchable document (#440 put skills in the index), so the tab's search has
-  // to be told the same way a saved instruction file tells it.
-  invalidateFts = (ctx && typeof ctx.invalidateFts === 'function') ? ctx.invalidateFts : null;
 }
 
 const readableError = (err, fallback) => toReadable(err, fallback, log);
@@ -252,7 +248,6 @@ async function writeResource(backendId, resourcePath, content, projectPath, base
     }
     return { ok: false, reason: result.error, error: result.error };
   }
-  if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
   // Whether the format could be checked at all travels with the answer: a backend may declare an
   // extension this app has no parser for, and "saved without a check" is a different promise from
   // "checked and fine". The panel says which one happened. Read off the write's own verdict: parsing the
@@ -342,7 +337,6 @@ async function createResource(backendId, { kind, name, parentDir, projectPath = 
     if (err && err.code === 'EEXIST') return { ok: false, reason: 'There is already one with that name.' };
     return { ok: false, reason: readableError(err, 'That file could not be created.') };
   }
-  if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
   // Handed back in the namespace it was ASKED about, not the one it was written in (#544). The listing is
   // the allow-list every read consults, and it is spelled the way the project was opened; a path derived
   // from `realpathSync` is spelled the way the disk holds it. On a project reached through a junction or
@@ -422,7 +416,6 @@ async function deleteResource(backendId, resourcePath, projectPath = null) {
     } catch (err) {
       return { ok: false, reason: readableError(err, 'That could not be deleted.') };
     }
-    if (invalidateFts) { try { invalidateFts('memory'); } catch { /* the index heals on its next scan */ } }
     return { ok: true, deleted: target };
   }
   return { ok: false, reason: 'That path is not something this backend lists as deletable.' };

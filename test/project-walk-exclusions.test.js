@@ -121,16 +121,14 @@ function projectWithWorkFiles() {
     activeSessions: new Map(),
     dataDir: projectPath,
   });
-  plansMemory.invalidateFtsSignature('work-file');
   return projectPath;
 }
 
 test('the work-files walk lists the documents and skips what a workspace collects', () => {
-  projectWithWorkFiles();
-  const { projects } = plansMemory.getWorkFiles();
-  assert.equal(projects.length, 1);
-  const listed = projects[0].files.map(f => f.relativePath.split(path.sep).join('/')).sort();
+  const work = path.join(projectWithWorkFiles(), '.work-files');
+  const found = [];
+  plansMemory.walkWorkFiles(work, work, found);
+  const listed = found.map(f => f.relativePath.split(path.sep).join('/')).sort();
 
   assert.deepEqual(listed, ['notes.md', 'sub/deeper.md']);
-  assert.equal(projects[0].totalCount, 2, 'the count the group header shows is the walked set');
 });

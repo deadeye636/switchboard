@@ -50,16 +50,9 @@ contextBridge.exposeInMainWorld('api', {
   getStatsFromDb: (backendId) => ipcRenderer.invoke('get-stats-from-db', backendId),
   refreshStats: (backendId) => ipcRenderer.invoke('refresh-stats', backendId),
   getUsage: () => ipcRenderer.invoke('get-usage'),
-  getMemories: () => ipcRenderer.invoke('get-memories'),
-  readMemory: (filePath) => ipcRenderer.invoke('read-memory', filePath),
-  saveMemory: (filePath, content, baseline) => ipcRenderer.invoke('save-memory', filePath, content, baseline ?? null),
-  // `getWorkFiles` was here. Work files come with `getMemories` since #448 — they are one group in the
-  // Agent Files list now, and a separate way to ask for them could answer differently.
   // #450: what pointing a project's CLIs at its plans directory would write, and writing it.
   planConventionPreview: (projectPath, options) => ipcRenderer.invoke('plan-convention-preview', projectPath, options),
   planConventionApply: (projectPath, options) => ipcRenderer.invoke('plan-convention-apply', projectPath, options),
-  readWorkFile: (filePath) => ipcRenderer.invoke('read-work-file', filePath),
-  deleteWorkFile: (filePath) => ipcRenderer.invoke('delete-work-file', filePath),
   getProjects: (showArchived) => ipcRenderer.invoke('get-projects', showArchived),
   rebuildCache: () => ipcRenderer.invoke('rebuild-cache'),
   indexWorkerStatus: () => ipcRenderer.invoke('index-worker-status'),

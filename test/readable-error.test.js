@@ -112,38 +112,12 @@ test('a plan that cannot be saved says so without the path', () => {
   } finally { box.cleanup(); }
 });
 
-test('an instruction file that cannot be saved says so without the path', () => {
-  const box = sandbox();
-  try {
-    const res = plansMemory.saveMemory(dirNamed(box.project, 'CLAUDE.md'), 'text');
-    assert.equal(res.ok, false);
-    assert.match(res.error, /^Could not save that file\./);
-    assert.ok(!res.error.includes(box.project));
-  } finally { box.cleanup(); }
-});
-
-test('a work file that cannot be deleted says so without the path', () => {
-  const box = sandbox();
-  try {
-    // A directory inside .work-files: it exists, it is reachable, and `unlink` refuses it.
-    const target = dirNamed(path.join(box.project, '.work-files'), 'stuck');
-    const res = plansMemory.deleteWorkFile(target);
-    assert.equal(res.ok, false);
-    assert.match(res.error, /^Could not delete that file\./);
-    assert.ok(!res.error.includes(box.project));
-  } finally { box.cleanup(); }
-});
-
 test('the refusals a module AUTHORED are left alone', () => {
   const box = sandbox();
   try {
     // These are written for a reader already, and translating them would be a downgrade.
     assert.equal(plansMemory.savePlan(path.join(os.tmpdir(), 'elsewhere.md'), 'x').error,
       'path outside a plans directory');
-    assert.equal(plansMemory.saveMemory(path.join(box.project, 'notes.bin'), 'x').error,
-      'not an instruction file');
-    assert.equal(plansMemory.deleteWorkFile(path.join(box.project, 'plain.md')).error,
-      'access denied');
   } finally { box.cleanup(); }
 });
 

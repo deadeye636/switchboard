@@ -1,13 +1,14 @@
-// Plans, Memory and Work-Files tabs — out of main.js (#227).
+// Plans (and the work-file walk the Instructions page reuses) — out of main.js (#227). The Memory and Work-Files tabs
+// this file once served are gone (#823); their scan lives in `instruction-files.js`.
 //
-// These three tabs used to be pinned to Claude's home: PLANS_DIR = ~/.claude/plans, and the Memory tab
+// The Plans, Memory and Work-Files tabs used to be pinned to Claude's home: PLANS_DIR = ~/.claude/plans, and the Memory tab
 // enumerated its projects out of ~/.claude/projects — Claude's store — so a project that only ever ran
 // Codex or Pi never appeared, and a backend that keeps its plans or instruction files somewhere else had
-// no way to show them. The app runs several coding CLIs; these tabs behaved as though it ran one.
+// no way to show them. The app runs several coding CLIs; those tabs behaved as though it ran one.
 //
 // So WHERE a backend keeps its plans and its memory/instruction files is now DECLARED on the descriptor
 // (plansDir + memorySources), the way discovery/watching/the launch menu already are, and the project
-// list behind Memory/Work-Files comes from the INDEXED projects (the register, fed by every backend's
+// list behind the plans comes from the INDEXED projects (the register, fed by every backend's
 // provenance) instead of one backend's store directory. This module names no backend and hardcodes no
 // per-backend path — `test/backend-path-neutrality.test.js` is the guard that keeps it that way.
 //
@@ -17,7 +18,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { encodeProjectPath } = require('../session/encode-project-path');
 const { projectShortName } = require('../session/derive-project-path');
 // A write that fails must not answer with the errno's own words: they name the file's full path, and
 // the viewer puts that answer in a dialog. Why the message is dropped rather than trimmed, and where
@@ -30,21 +30,15 @@ const { isVersioned, isIgnored } = require('./vcs-ignore');
 const { isAtOrInside, isInside, samePath, pathKey, realPathish } = require('./path-containment');
 // What a walk over a project must not enter, and the one file kind it must not stat (#483).
 const { isBuildDir, isAsarArchive } = require('./build-dirs');
-const { isDeletableKind } = require('./backend-resources');
-// Handoff packets are files in the project since #468, and their own module owns where those live. This
-// tab only shows them, beside the project's other agent files.
-const handoffs = require('./handoffs');
 // Where a project keeps its plans — the one answer, shared with the plan prompt (CLAUDE.md reflex 12).
 const { conventionDirs } = require('./convention-dirs');
-// Which backends are asked, the project list behind the tab and the instruction-file scan moved out as they were
+// Which backends are asked and the project list behind the plans moved out as they were
 // (#823 T5): the Instructions inventory asks the same questions, and a second copy would answer differently.
 const instructionFiles = require('./instruction-files');
-const { claim, collectSource } = instructionFiles;
-// …and the three that read the registry or the db are asked with THIS module's ctx (its tests and main.js wire it), so
-// the tab does not depend on `instruction-files.js` having been initialised.
+// …and the two that read the registry or the db are asked with THIS module's ctx (its tests and main.js wire it), so
+// the plans list does not depend on `instruction-files.js` having been initialised.
 const memoryBackends = () => instructionFiles.memoryBackends(ctx);
 const visibleProjectPaths = () => instructionFiles.visibleProjectPaths(ctx);
-const storeFoldersFor = (projectPath) => instructionFiles.storeFoldersFor(projectPath, ctx);
 
 let ctx = null;
 
@@ -58,8 +52,19 @@ let ctx = null;
  */
 function init(context) {
   ctx = context;
+  dropRetiredSearchTypes();
   recursiveWatchFailed.clear();
   watchPlansDirs();
+}
+
+// The Agent Files tab indexed its files under the FTS types 'memory' and 'work-file' (gone with #823 T12; no
+// query asks for either any more). Rows left by an older version are deleted at start: no schema change, so no
+// migration, and the delete is idempotent. Best effort, because the index is only search.
+function dropRetiredSearchTypes() {
+  if (!ctx || !ctx.db || typeof ctx.db.deleteSearchType !== 'function') return;
+  for (const type of ['memory', 'work-file']) {
+    try { ctx.db.deleteSearchType(type); } catch { /* the rows only waste space */ }
+  }
 }
 
 // --- The plans list, kept live (#452) ---------------------------------------------------------------
@@ -201,12 +206,12 @@ function stopWatchingPlansDirs() {
 }
 
 // ---------------------------------------------------------------------------
-// FTS dirty-flag: skip a full reindex when the file set has not changed. Each tab computes a cheap
+// FTS dirty-flag: skip a full reindex when the file set has not changed. The plans list computes a cheap
 // signature (sorted filePath + mtimeMs + size) and compares it to the last-indexed one; equal means the
 // expensive deleteSearchType + upsertSearchEntries block (and the per-file reads it does) is skipped.
 // The result payload returned to the UI is built unconditionally — only the FTS side-effect is gated.
-// save-plan / save-memory / delete-work-file clear the stored signature so the next open reindexes even
-// when a sub-second write left the mtime unchanged. save-file-for-panel (main.js) calls invalidate too.
+// save-plan clears the stored signature so the next open reindexes even
+// when a sub-second write left the mtime unchanged.
 // ---------------------------------------------------------------------------
 
 /** @type {Map<string, string>} type -> last-indexed signature */
@@ -225,216 +230,6 @@ function shouldReindex(type, sig) {
 
 function invalidateFtsSignature(type) {
   _ftsIndexSignature.delete(type);
-}
-
-// --- shared scanning helpers ---
-// (`scanMdFiles`, `claim` and `collectSource` live in `instruction-files.js` since #823 T5.)
-
-// --- The type filter's chips (#447) ---
-//
-// Derived from the `kind` the rows already carry, never from a list — a list in the core would go stale
-// the day a backend names a directory nothing had named before, and a list in the RENDERER is the
-// per-backend table the rules forbid outright. A type with no rows produces no chip, so the bar shows
-// what is actually there rather than what could be.
-//
-// The label is made from the id: hyphens become spaces, and it is pluralised, because a chip reads
-// "Skills 79" and not "Skill 79". Three endings cover every kind in play and the rule degrades
-// harmlessly for one it has not seen.
-function typeLabel(kind) {
-  const words = String(kind).replace(/-/g, ' ');
-  const plural = /s$/i.test(words) ? words
-    : /[^aeiou]y$/i.test(words) ? words.replace(/y$/i, 'ies')
-      : words + 's';
-  return plural.charAt(0).toUpperCase() + plural.slice(1);
-}
-
-// The bucket for a row whose kind nothing set. It is stamped ONTO the row rather than only counted,
-// so the renderer compares against what it was given instead of keeping its own copy of this word.
-const FALLBACK_KIND = 'other';
-
-// One chip per backend that actually owns a row here. A file claimed by two backends counts for both,
-// because filtering to Pi has to show the AGENTS.md Pi really reads.
-function backendCounts(files, backendsList) {
-  const labels = new Map(backendsList.map(b => [b.id, b.label || b.id]));
-  const counts = new Map();
-  for (const f of files) {
-    for (const id of (f && f.backendIds) || []) counts.set(id, (counts.get(id) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([id, count]) => ({ id, label: labels.get(id) || id, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-}
-
-function typeCounts(files) {
-  const counts = new Map();
-  for (const f of files) {
-    if (f && !f.kind) f.kind = FALLBACK_KIND;
-    const kind = (f && f.kind) || FALLBACK_KIND;
-    counts.set(kind, (counts.get(kind) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([id, count]) => ({ id, label: typeLabel(id), count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-}
-
-// --- Backend resource groups (#440) ---
-//
-// The customization directories a backend keeps — skills, rules, commands, agents — shown in this tab
-// beside the instruction files it already lists. They arrive as GROUPS rather than as loose files,
-// because a flat list of 500 skills is what this replaced: the directory is the row, its entries are
-// what the row opens.
-//
-// One level is read here rather than on demand. The tab needs the count for its header and the search
-// index needs the text, so a lazy load would have to run anyway before either could be right — and the
-// walk is the same capped one the settings panel used to run on every open.
-
-// What this TAB shows, which is narrower than what a backend lists. Two kinds are deliberately absent
-// and both were visible mistakes before they were rules:
-//
-//   plan-store  the Plans tab already shows exactly these files, in a tab named for them.
-//   plugin / package / theme / extension
-//               a plugin is a directory, and a directory opened in a text editor is a dead end. They
-//               stay in the Backends settings list, where "Open" hands them to the system.
-//
-// And one kind that is not a directory at all: a backend's own SETTINGS file (#441). It is grouped
-// separately below rather than through the walk above, because there is nothing to walk — Claude's
-// `settings.json`, Codex' `config.toml` and Hermes' `config.yaml` are single files, and until this tab
-// showed them the app could validate TOML and YAML for a file nobody could open. `model-catalog` stays
-// out: it is a cache the CLI rewrites, and editing one is a trap rather than a feature.
-//
-// This is a property of the tab, not of any backend — it names kinds, which are the shared vocabulary,
-// and no backend id appears here.
-//
-// `skill` left with #803 (owner decisions E12, E15): skills are listed, edited, created and deleted on the
-// Skills page of Settings → Plugins, so the tab no longer lists them — nor indexes their text for the app
-// search (E17, accepted). A Hermes `skill-bundle` is not a skill and stays; so do commands and agents, which no
-// view there lists.
-const TAB_KINDS = new Set([
-  'skill-bundle', 'rule', 'command', 'agent', 'prompt-template',
-  'output-style', 'workflow', 'memory-store', 'memory', 'hook', 'resource',
-]);
-
-/** Is this listing entry a directory this backend can read into? */
-function isExpandableDir(entry) {
-  if (!entry || !entry.path) return false;
-  try { if (!fs.statSync(entry.path).isDirectory()) return false; } catch { return false; }
-  return true;
-}
-
-/** A resource entry in the shape the memory list renders. */
-function resourceFile(entry, rootPath) {
-  let stat = null;
-  try { stat = fs.statSync(entry.path); } catch { return null; }
-  const rel = path.relative(rootPath, entry.path);
-  return {
-    filename: entry.name || path.basename(entry.path),
-    filePath: entry.path,
-    modified: stat.mtime.toISOString(),
-    size: stat.size,
-    displayPath: rel && !rel.startsWith('..') ? rel : path.basename(entry.path),
-    source: entry.source || null,
-    kind: entry.kind || null,
-  };
-}
-
-/**
- * The resource groups for one scope. `seen` is shared with the instruction files so a file that is both
- * (Claude's CLAUDE.md is listed by memorySources AND by listResources) appears once.
- */
-function resourceGroups(projectPath, seen) {
-  // `seen` is the same Map the instruction files filled, so a resource that is also an instruction file
-  // adds its backend to that row rather than appearing twice.
-  const groups = [];
-  for (const b of memoryBackends()) {
-    if (typeof b.listResources !== 'function' || typeof b.expandResource !== 'function') continue;
-    let listed = null;
-    try { listed = b.listResources({ projectPath: projectPath || null }); } catch { continue; }
-    if (!listed || listed.ok === false || !Array.isArray(listed.resources)) continue;
-
-    for (const entry of listed.resources) {
-      const wantScope = projectPath ? 'project' : 'global';
-      if ((entry.scope || 'global') !== wantScope) continue;
-      if (!TAB_KINDS.has(entry.kind)) continue;
-      if (!isExpandableDir(entry)) continue;
-
-      let expanded = null;
-      try { expanded = b.expandResource({ path: entry.path, source: entry.source, scope: entry.scope, projectPath: projectPath || null }); }
-      catch { expanded = null; }
-      // An EMPTY directory is kept when something can be created in it (#441). It used to be dropped, and
-      // that is precisely the case where the tab has to offer a "New": a project whose skills folder
-      // exists and holds nothing rendered no group at all, so the one place a first skill belongs was
-      // the one place with nowhere to put it.
-      const creatable = Array.isArray(b.resourceScaffolds)
-        && b.resourceScaffolds.some(sc => sc && Array.isArray(sc.sources) && sc.sources.includes(entry.source));
-      if (!expanded || expanded.ok === false || !Array.isArray(expanded.entries)) continue;
-      if (!expanded.entries.length && !creatable) continue;
-
-      const files = [];
-      for (const child of expanded.entries) {
-        if (!child || !child.path) continue;
-        if (claim(seen, child.path, b.id)) continue;
-        // One level is what this reads, so a child that is itself a directory has nothing to open —
-        // it would sit in the list and answer a click with "that is a directory".
-        try { if (fs.statSync(child.path).isDirectory()) continue; } catch { continue; }
-        const file = resourceFile(child, entry.path);
-        if (!file) continue;
-        file.backendIds = [b.id];
-        // Whether this row may be deleted is the core's answer (#441), stamped here so the tab offers a
-        // Delete only where main would act — the renderer names no kind of its own.
-        file.deletable = isDeletableKind(child.kind);
-        seen.set(child.path, file);
-        files.push(file);
-      }
-      if (!files.length && !creatable) continue;
-
-      groups.push({
-        id: b.id + ':' + entry.path,
-        backendId: b.id,
-        backendLabel: b.label || b.id,
-        label: entry.name || path.basename(entry.path),
-        kind: entry.kind || 'resource',
-        path: entry.path,
-        truncated: !!expanded.truncated,
-        // What may be made here, so the tab can offer it without knowing one backend from another.
-        creatableKinds: (Array.isArray(b.resourceScaffolds) ? b.resourceScaffolds : [])
-          .filter(sc => sc && Array.isArray(sc.sources) && sc.sources.includes(entry.source))
-          .map(sc => sc.kind),
-        source: entry.source,
-        files,
-      });
-    }
-
-    // The settings files, as one group per backend (#441). Not a directory walk: these are the listed
-    // files themselves, and the group exists so they sit in the tab with the same open-and-save
-    // affordance as everything else rather than only behind the OS Open button.
-    const settingsFiles = [];
-    for (const entry of listed.resources) {
-      if (!entry || entry.kind !== 'settings' || !entry.path) continue;
-      if ((entry.scope || 'global') !== (projectPath ? 'project' : 'global')) continue;
-      try { if (!fs.statSync(entry.path).isFile()) continue; } catch { continue; }
-      if (claim(seen, entry.path, b.id)) continue;
-      const file = resourceFile(entry, path.dirname(entry.path));
-      if (!file) continue;
-      file.backendIds = [b.id];
-      file.kind = 'settings';
-      seen.set(entry.path, file);
-      settingsFiles.push(file);
-    }
-    if (settingsFiles.length) {
-      groups.push({
-        id: b.id + ':settings:' + (projectPath ? 'project' : 'global'),
-        backendId: b.id,
-        backendLabel: b.label || b.id,
-        label: 'settings',
-        kind: 'settings',
-        // The directory the files sit in, for the relative display path. Nothing is created here —
-        // a settings file is one the CLI owns and this app edits, never one it invents.
-        path: path.dirname(settingsFiles[0].filePath),
-        files: settingsFiles,
-      });
-    }
-  }
-  return groups;
 }
 
 // --- Plans ---
@@ -998,195 +793,10 @@ function savePlan(filePath, content, baseline = null) {
   }
 }
 
-// --- Memory ---
-
-function getMemories() {
-  const visible = visibleProjectPaths();
-  const displayNames = ctx.db.getProjectDisplayNames();
-  const backendsList = memoryBackends();
-
-  // Global files: the union of every backend's home-level instruction files (Claude's ~/.claude).
-  const globalFiles = [];
-  const globalSeen = new Map();
-  for (const b of backendsList) {
-    let sources = [];
-    try { sources = b.memorySources({ projectPath: null, storeFolders: [] }) || []; } catch { sources = []; }
-    for (const s of sources) collectSource(s, globalFiles, globalSeen, b.id);
-  }
-  const globalGroups = resourceGroups(null, globalSeen);
-
-  // Work files (#448). Asked once for every project rather than once per project: `getWorkFiles` walks
-  // the whole register and reindexes for search in the same pass, so a call inside the loop below would
-  // walk every project's tree once per project.
-  const workFilesByProject = new Map();
-  try {
-    for (const p of (getWorkFiles().projects || [])) workFilesByProject.set(p.projectPath, p);
-  } catch {}
-
-  // Per-project files: from the register (every backend's provenance), not one store directory.
-  const projects = [];
-  for (const projectPath of visible) {
-    const storeFolders = storeFoldersFor(projectPath);
-    const short = projectShortName(projectPath);
-    const files = [];
-    const seen = new Map();
-    for (const b of backendsList) {
-      let sources = [];
-      try { sources = b.memorySources({ projectPath, storeFolders }) || []; } catch { sources = []; }
-      for (const s of sources) collectSource(s, files, seen, b.id);
-    }
-    const groups = resourceGroups(projectPath, seen);
-    const workFiles = workFilesByProject.get(projectPath);
-    if (workFiles) groups.push(workFilesGroup(workFiles));
-    // A handoff directory is a group like any other: rows open in the same editor, through the same
-    // memory read/save path, because a packet is markdown inside a registered project.
-    try { for (const group of handoffs.handoffGroups(projectPath)) groups.push(group); } catch {}
-    if (files.length || groups.length) {
-      const displayName = displayNames.get(projectPath) || '';
-      projects.push({
-        folder: storeFolders[0] || encodeProjectPath(projectPath),
-        projectPath, shortName: short, displayName, files, groups,
-      });
-    }
-  }
-
-  // A project can now have groups and no loose files (#440), so the newest of EVERYTHING it holds
-  // decides the order — `Math.max()` of nothing is -Infinity, which would sink such a project.
-  const newestOf = (p) => {
-    const times = [...p.files, ...p.groups.flatMap(g => g.files)].map(f => new Date(f.modified).getTime());
-    return times.length ? Math.max(...times) : 0;
-  };
-  projects.sort((a, b) => newestOf(b) - newestOf(a));
-
-  const everyFile = [
-    ...globalFiles, ...globalGroups.flatMap(g => g.files),
-    ...projects.flatMap(p => [...p.files, ...p.groups.flatMap(g => g.files)]),
-  ];
-  const result = {
-    global: { files: globalFiles, groups: globalGroups },
-    projects,
-    types: typeCounts(everyFile),
-    backends: backendCounts(everyFile, backendsList),
-  };
-
-  try {
-    // Group files are indexed too (#440) — a skill the tab shows but search cannot find reads as a bug.
-    //
-    // Work files are the exception, and they are excluded HERE rather than left out of the list above:
-    // they are in this payload since #448, but `getWorkFiles` has already indexed them under their own
-    // type, with the rules they need — a `.jsonl` and anything past 64 KB is listed and not read. This
-    // loop reads every entry whole and as UTF-8, so including them would mean pulling a project's entire
-    // `.work-files/` tree into memory, indexing each file twice, and losing the whole memory index to
-    // the first read that throws.
-    const forMemoryIndex = (files) => files.filter(f => f.kind !== WORK_FILE_KIND);
-    const allFiles = [
-      ...forMemoryIndex(globalFiles).map(f => ({ ...f, label: 'Global' })),
-      ...globalGroups.flatMap(g => forMemoryIndex(g.files).map(f => ({ ...f, label: 'Global' }))),
-      ...projects.flatMap(p => forMemoryIndex([...p.files, ...p.groups.flatMap(g => g.files)])
-        .map(f => ({ ...f, label: p.displayName || p.shortName }))),
-    ];
-    const sig = computeIndexSignature(allFiles.map(f => ({
-      filePath: f.filePath, mtimeMs: new Date(f.modified).getTime(), size: f.size || 0,
-    })));
-    if (shouldReindex('memory', sig)) {
-      ctx.db.deleteSearchType('memory');
-      ctx.db.upsertSearchEntries(allFiles.map(f => ({
-        id: f.filePath, type: 'memory', folder: null,
-        title: f.label + ' ' + f.filename, body: fs.readFileSync(f.filePath, 'utf8'),
-      })));
-    }
-  } catch {}
-
-  return result;
-}
-
-// The roots a memory file may live under: every backend's home-level memory dirs (Claude's ~/.claude) and
-// every registered project root — plus any active session's project dir. The Memory tab surfaces files for
-// EVERY visible project, not just ones with a live session, so the allowlist has to cover the register.
-function allowedMemoryRoots() {
-  const roots = new Set();
-  for (const b of memoryBackends()) {
-    try {
-      for (const s of (b.memorySources({ projectPath: null, storeFolders: [] }) || [])) {
-        if (s && s.path) roots.add(path.resolve(s.path));
-      }
-    } catch {}
-  }
-  try {
-    for (const [projectPath, state] of ctx.db.getProjectStates()) {
-      if (state && state.registered) roots.add(path.resolve(projectPath));
-    }
-  } catch {}
-  return roots;
-}
-
-function isAllowedMemoryPath(resolved) {
-  for (const r of allowedMemoryRoots()) {
-    if (isAtOrInside(resolved, r)) return true;
-  }
-  for (const [, session] of ctx.activeSessions) {
-    if (session.projectPath && isInside(resolved, session.projectPath)) return true;
-  }
-  return false;
-}
-
-// An instruction file the tab may open and save. Markdown, or one of the handful of agent-instruction
-// files that carry no extension at all (#451 — Hermes reads `.cursorrules` beside `AGENTS.md`).
-//
-// The real protection is the containment check beside this one: a path has to sit under a backend's own
-// memory root or a registered project. This narrowing is about not opening arbitrary file types in a
-// markdown editor, so a NAMED file is as safe as a `.md` — and listing a file the viewer then answers
-// with an empty editor is the worse failure.
-const EXTENSIONLESS_INSTRUCTION_FILES = new Set(['.cursorrules']);
-
-function isInstructionFile(resolved) {
-  if (resolved.endsWith('.md')) return true;
-  return EXTENSIONLESS_INSTRUCTION_FILES.has(path.basename(resolved));
-}
-
-function readMemory(filePath) {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!isInstructionFile(resolved)) return '';
-    if (!isAllowedMemoryPath(resolved)) return '';
-    return fs.readFileSync(resolved, 'utf8');
-  } catch (err) {
-    ctx.log.error('Error reading memory file:', err && err.message);
-    return '';
-  }
-}
-
-/**
- * Save an instruction file.
- *
- * The guards above it are this function's own — what counts as an instruction file, and which roots it
- * may sit under. What happens to the BYTES is `safe-write.js`'s (#441): the baseline compare that keeps a
- * stale editor from overwriting an agent's work, the atomic rename, and the file's own line endings and
- * BOM. `baseline` is what the editor believed the file to hold; it arrives from the panel, and a caller
- * with none passes null and gets the old unconditional behaviour.
- */
-function saveMemory(filePath, content, baseline = null) {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!isInstructionFile(resolved)) return { ok: false, error: 'not an instruction file' };
-    if (!isAllowedMemoryPath(resolved)) return { ok: false, error: 'path not allowed' };
-    const result = writeTextFile(resolved, content, { expectPrevious: baseline, mustExist: true });
-    if (!result.ok) return writeFailure(result, 'Could not save that file.');
-    invalidateFtsSignature('memory');
-    return { ok: true, content: result.content };
-  } catch (err) {
-    ctx.log.error('Error saving memory file:', err && err.message);
-    return { ok: false, error: readableError(err, 'Could not save that file.') };
-  }
-}
-
 // --- Work-Files ---
-// <projectPath>/.work-files/ is project-relative, so it was already backend-neutral — the only Claude-ism
-// was deciding which projects to walk (out of Claude's store). That now comes from the register too.
+// Only the walk is left here (#823 T12): the project Instructions page lists <project>/.work-files/ through
+// `instruction-files.js`, which asks for this walk and this cap.
 const WORK_FILES_CAP = 200;
-
-// The kind a work file carries into the Agent Files list, and the id of its chip in the type filter.
-const WORK_FILE_KIND = 'work-file';
 
 // A workspace is scratch space, so what lands in it is a checkout, a venv, an install — the shapes that
 // hold a hundred thousand files and not one document (#483). Two exclusions, and the second is not about
@@ -1211,124 +821,6 @@ function walkWorkFiles(dir, baseDir, results) {
         });
       } catch {}
     }
-  }
-}
-
-function getWorkFiles() {
-  const visible = visibleProjectPaths();
-  const displayNames = ctx.db.getProjectDisplayNames();
-  const projects = [];
-
-  for (const projectPath of visible) {
-    const workFilesDir = path.join(projectPath, '.work-files');
-    if (!fs.existsSync(workFilesDir)) continue;
-    const short = projectShortName(projectPath);
-    const allFiles = [];
-    walkWorkFiles(workFilesDir, workFilesDir, allFiles);
-    allFiles.sort((a, b) => new Date(b.modified) - new Date(a.modified));
-    const totalCount = allFiles.length;
-    const files = allFiles.slice(0, WORK_FILES_CAP);
-    if (files.length > 0) {
-      const displayName = displayNames.get(projectPath) || '';
-      projects.push({ projectPath, shortName: short, displayName, files, totalCount });
-    }
-  }
-
-  projects.sort((a, b) => {
-    const aMax = a.files.length > 0 ? new Date(a.files[0].modified).getTime() : 0;
-    const bMax = b.files.length > 0 ? new Date(b.files[0].modified).getTime() : 0;
-    return bMax - aMax;
-  });
-
-  try {
-    const allFiles = projects.flatMap(proj => proj.files.map(f => ({ ...f, proj })));
-    const sig = computeIndexSignature(allFiles.map(f => ({ filePath: f.filePath, mtimeMs: new Date(f.modified).getTime(), size: f.size })));
-    if (shouldReindex('work-file', sig)) {
-      ctx.db.deleteSearchType('work-file');
-      const TEXT_MAX = 64 * 1024;
-      ctx.db.upsertSearchEntries(allFiles.map(f => {
-        let body = '';
-        if (!f.relativePath.endsWith('.jsonl') && f.size <= TEXT_MAX) {
-          try { body = fs.readFileSync(f.filePath, 'utf8'); } catch {}
-        }
-        return { id: f.filePath, type: 'work-file', folder: null, title: (f.proj.displayName || f.proj.shortName) + ' ' + f.relativePath, body };
-      }));
-    }
-  } catch {}
-
-  return { projects };
-}
-
-/**
- * One project's work files, shaped as a group in the Agent Files payload (#448).
- *
- * A group and not loose rows, for two reasons the tab it replaces already had: `.work-files/` is a
- * directory and reads as one, and the cap really bites (a project can hold tens of thousands of files).
- * The group header is the only place that cap is ever admitted to, as `shown/total`.
- *
- * `backendId` is null because no CLI owns `.work-files/` — the project does. Everything downstream that
- * draws a backend has to cope with that; naming one here would be the `|| 'claude'` the rules forbid.
- */
-function workFilesGroup(proj) {
-  return {
-    id: 'work-files:' + proj.projectPath,
-    backendId: null,
-    backendLabel: null,
-    label: '.work-files',
-    kind: WORK_FILE_KIND,
-    path: path.join(proj.projectPath, '.work-files'),
-    total: proj.totalCount,
-    // `displayPath` rather than the bare filename: work files nest, and two `notes.md` in different
-    // subdirectories are told apart by nothing else. Same field the instruction rows use, so the row
-    // builder needs no branch for it.
-    files: proj.files.map(f => ({ ...f, displayPath: f.relativePath, kind: WORK_FILE_KIND, backendIds: [] })),
-  };
-}
-
-// A work-file path is allowed only inside the .work-files dir of a REGISTERED project (or a live session's
-// dir) — otherwise a compromised renderer could read/delete arbitrary .work-files dirs anywhere (#77).
-function isAllowedWorkFilePath(resolved) {
-  const m = resolved.match(/[\\/]\.work-files[\\/]/);
-  if (!m) return false;
-  const projectRoot = path.resolve(resolved.slice(0, m.index));
-  try {
-    for (const [projectPath, state] of ctx.db.getProjectStates()) {
-      if (state && state.registered && path.resolve(projectPath) === projectRoot) return true;
-    }
-  } catch {}
-  for (const [, session] of ctx.activeSessions) {
-    if (session.projectPath && path.resolve(session.projectPath) === projectRoot) return true;
-  }
-  return false;
-}
-
-function readWorkFile(filePath) {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!isAllowedWorkFilePath(resolved)) return '[access denied]';
-    if (!fs.existsSync(resolved)) return '';
-    const stat = fs.statSync(resolved);
-    if (stat.size > 2 * 1024 * 1024) return '[file too large to display]';
-    const buf = fs.readFileSync(resolved);
-    if (buf.includes(0)) return '[binary file]';
-    return buf.toString('utf8');
-  } catch (err) {
-    ctx.log.error('Error reading work file:', err && err.message);
-    return '';
-  }
-}
-
-function deleteWorkFile(filePath) {
-  try {
-    const resolved = path.resolve(filePath);
-    if (!isAllowedWorkFilePath(resolved)) return { ok: false, error: 'access denied' };
-    if (!fs.existsSync(resolved)) return { ok: false, error: 'not found' };
-    fs.unlinkSync(resolved);
-    invalidateFtsSignature('work-file');
-    return { ok: true };
-  } catch (err) {
-    ctx.log.error('Error deleting work file:', err && err.message);
-    return { ok: false, error: readableError(err, 'Could not delete that file.') };
   }
 }
 
@@ -1504,13 +996,6 @@ function registerIpc(ipcMain) {
   ipcMain.handle('get-plans', () => getPlans());
   ipcMain.handle('read-plan', (_e, filePath) => readPlan(filePath));
   ipcMain.handle('save-plan', (_e, filePath, content, baseline) => savePlan(filePath, content, baseline ?? null));
-  ipcMain.handle('get-memories', () => getMemories());
-  ipcMain.handle('read-memory', (_e, filePath) => readMemory(filePath));
-  ipcMain.handle('save-memory', (_e, filePath, content, baseline) => saveMemory(filePath, content, baseline ?? null));
-  // No `get-work-files` handler: work files arrive with `get-memories` since #448, and a second way to
-  // ask for them is a second answer that can disagree with the list the user is looking at.
-  ipcMain.handle('read-work-file', (_e, filePath) => readWorkFile(filePath));
-  ipcMain.handle('delete-work-file', (_e, filePath) => deleteWorkFile(filePath));
   // #450: what pointing this project's CLIs at its plans directory would do, and doing it. Two calls,
   // because a preview the user approved and a write that does something else is the failure to avoid.
   ipcMain.handle('plan-convention-preview', (_e, projectPath, options) => planConventionPreview(projectPath, options));
@@ -1520,14 +1005,7 @@ function registerIpc(ipcMain) {
 module.exports = {
   init,
   registerIpc,
-  // exported for the tests: the label rule and the counting are pure
-  _typeLabel: typeLabel, _typeCounts: typeCounts, _backendCounts: backendCounts,
-  // …and the group builder, which decides what the tab may create and delete (#441). It is not pure —
-  // it stats the filesystem — but it is the wiring behind every affordance in that tab, and clicking
-  // was the only thing exercising it.
-  _resourceGroups: resourceGroups,
-  _isInstructionFile: isInstructionFile,
-  // …and where the Plans list looks, which is a setting a project may override (#470). The override was
+  // exported for the tests: where the Plans list looks, which is a setting a project may override (#470). The override was
   // saved and then ignored for as long as the candidates were read once against the global settings, and
   // nothing could see it: the tab renders the same either way unless a project actually has a directory
   // of its own.
@@ -1537,11 +1015,10 @@ module.exports = {
   _walkPlanFiles: walkPlanFiles, _planTitle: planTitle, _unfulfilledPlanDirs: unfulfilledPlanDirs,
   _planRelPathAllowed: planRelPathAllowed, _planWatchEventRelevant: planWatchEventRelevant,
   _recursiveWatchFailed: recursiveWatchFailed, _watchPlansDir: watchPlansDir,
-  // exported for main.js (save-file-for-panel invalidates the FTS signature) and for tests
+  // exported for the tests (`test/fts-dirty-flag.test.js`)
   invalidateFtsSignature,
-  getPlans, readPlan, savePlan, getMemories, readMemory, saveMemory,
+  getPlans, readPlan, savePlan,
   planConventionPreview, planConventionApply,
-  getWorkFiles, readWorkFile, deleteWorkFile,
   // …and what the project Instructions page walks for its "Work files" section (#823 T10): the same walk and cap.
   walkWorkFiles, WORK_FILES_CAP,
   // The plans-directory watch (#452) — started by init, stopped by the ordered teardown.

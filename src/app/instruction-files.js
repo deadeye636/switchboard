@@ -475,7 +475,6 @@ function deleteWorkFileById({ id, scope } = {}) {
   if (found.error) return { ok: false, reason: found.error };
   try {
     fs.unlinkSync(found.file.filePath);
-    require('./plans-memory').invalidateFtsSignature('work-file');
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: readableError(err, 'Could not delete that file.', ctx && ctx.log) };

@@ -11,7 +11,6 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 
 const hermes = require('../src/backends/hermes/index');
-const plansMemory = require('../src/app/plans-memory');
 
 const namesOf = (sources) => sources.map(s => path.basename(s.path)).sort();
 
@@ -34,14 +33,4 @@ test('and for the home scope, where the same set is read', () => {
 test('a scope of nothing does not throw', () => {
   assert.ok(Array.isArray(hermes.memorySources(null)));
   assert.ok(Array.isArray(hermes.memorySources(undefined)));
-});
-
-test('an instruction file without an extension can still be opened', () => {
-  const isInstruction = plansMemory._isInstructionFile;
-  // The whole point of declaring `.cursorrules`: a row the list shows and the viewer answers with an
-  // empty editor is worse than a row that is not there.
-  assert.equal(isInstruction(path.join('D:', 'p', '.cursorrules')), true);
-  assert.equal(isInstruction(path.join('D:', 'p', 'AGENTS.md')), true);
-  assert.equal(isInstruction(path.join('D:', 'p', 'secrets.env')), false);
-  assert.equal(isInstruction(path.join('D:', 'p', 'id_rsa')), false);
 });

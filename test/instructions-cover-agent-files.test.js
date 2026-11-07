@@ -1,17 +1,16 @@
 'use strict';
 // #823 T9 — every row the Agent Files tab shows today has a new home (spec 44, plan T9).
 //
-// Agent Files is removed in T11. Until then it is the baseline: `getMemories()` over fixture homes of all five
-// CLIs, global and one project. Each row it lists must be found, BY REAL PATH KEY (`pathKey`, never a name), in
-// one of the new homes:
+// The Agent Files tab is gone (T11, T12), so its answer is RECORDED below instead of computed: `RECORDED_ROWS` is what the
+// removed `getMemories()` listed over exactly this fixture (all five CLIs, global and one project), captured from the
+// last commit that still had it (31c920ae). The old function cannot stay in the tree just to be the baseline. Each
+// recorded row must be found, BY REAL PATH KEY (`pathKey`, never a name), in one of the new homes:
 //   - the resource inventory (agents, commands, rules),
 //   - the skills inventory,
 //   - the instruction inventory,
-// or be a kind that is deliberately elsewhere:
-//   - `handoff` groups stay where handoffs are (plan P7: the sidebar group, the picker, `src/app/handoffs.js`),
-//   - work files are found in the project Instructions page's "Work files" listing (T10, plan P6). PENDING_T10 below
-//     is the explicit list of kinds without a home; it is checked both ways: a pending kind that DOES have a home
-//     fails as stale.
+//   - the project Instructions page's "Work files" listing (T10, plan P6),
+// or be a kind that is deliberately elsewhere (`handoff` groups stay where handoffs are, plan P7).
+// If the fixture changes, the recorded list changes with it: add the row you made, with the kind Agent Files gave it.
 // A row with no home fails by name and kind. The inventories are asked through their `_collect` seams because
 // the public answers carry no path by design.
 const test = require('node:test');
@@ -35,11 +34,9 @@ const inventory = require('../src/app/resource-inventory');
 const instructions = require('../src/app/instruction-files');
 const backendResources = require('../src/app/backend-resources');
 const skills = require('../src/app/skills');
-const plansMemory = require('../src/app/plans-memory');
 const { pathKey } = require('../src/app/path-containment');
 
 test.after(() => {
-  try { plansMemory.stopWatchingPlansDirs(); } catch {}
   fs.rmSync(root, { recursive: true, force: true });
 });
 
@@ -94,37 +91,47 @@ function wire() {
     backends, log: noLog,
     db: { getProjectStates: states, getAllFolderMeta: () => new Map([[STORE_FOLDER, { projectPath: project }]]) },
   });
-  plansMemory.init({
-    backends, log: noLog, activeSessions: new Map(), dataDir: path.join(root, 'data'),
-    db: {
-      getProjectStates: states, getProjectDisplayNames: () => new Map(),
-      getAllFolderMeta: () => new Map([[STORE_FOLDER, { projectPath: project }]]),
-      deleteSearchType() {}, upsertSearchEntries() {},
-    },
+}
+
+// What Agent Files listed for this fixture: [path below the temp root, kind]. Recorded, not computed (see the header).
+const RECORDED_ROWS = [
+  ['claude/CLAUDE.md', 'instructions'],
+  ['claude/agents/reviewer.md', 'agent'],
+  ['claude/commands/ship.md', 'command'],
+  ['claude/notes.md', 'instructions'],
+  ['claude/output-styles/terse.md', 'output-style'],
+  ['claude/settings.json', 'settings'],
+  ['claude/store/folder-for-project/memory/MEMORY.md', 'instructions'],
+  ['codex/config.toml', 'settings'],
+  ['codex/memories/remember.md', 'memory-store'],
+  ['codex/rules/default.md', 'rule'],
+  ['hermes/store/AGENTS.md', 'instructions'],
+  ['hermes/store/SOUL.md', 'instructions'],
+  ['hermes/store/config.yaml', 'settings'],
+  ['pi/pi-agent/settings.json', 'settings'],
+  ['project/.claude/agents/local-agent.md', 'agent'],
+  ['project/.claude/commands/local.md', 'instructions'],
+  ['project/.claude/extra.md', 'instructions'],
+  ['project/.claude/settings.json', 'settings'],
+  ['project/.codex/config.toml', 'settings'],
+  ['project/.pi/settings.json', 'settings'],
+  ['project/.work-files/scratch.txt', 'work-file'],
+  ['project/AGENTS.md', 'instructions'],
+  ['project/CLAUDE.md', 'instructions'],
+  ['project/GEMINI.md', 'instructions'],
+];
+
+function agentFilesRows() {
+  return RECORDED_ROWS.map(([rel, kind]) => {
+    const filePath = path.join(root, ...rel.split('/'));
+    return { key: pathKey(filePath), filePath, kind, where: rel.startsWith('project/') ? 'project' : 'global', group: null };
   });
 }
 
-// What Agent Files showed, flattened: { key, filePath, kind, where }.
-function agentFilesRows() {
-  const mem = plansMemory.getMemories ? plansMemory.getMemories() : null;
-  assert.ok(mem, 'plans-memory exports getMemories');
-  const rows = [];
-  const take = (files, where, group) => {
-    for (const f of files) {
-      rows.push({
-        key: pathKey(f.filePath), filePath: f.filePath, kind: f.kind || (group && group.kind) || 'unknown',
-        where, group: group ? group.kind : null,
-      });
-    }
-  };
-  take(mem.global.files, 'global');
-  for (const g of mem.global.groups) take(g.files, 'global', g);
-  for (const p of mem.projects) {
-    take(p.files, 'project');
-    for (const g of p.groups) take(g.files, 'project', g);
-  }
-  return rows;
-}
+// The recorded rows are real files of this fixture, or the list has drifted from it.
+test('the recorded Agent Files rows exist in the fixture', () => {
+  for (const r of agentFilesRows()) assert.ok(fs.existsSync(r.filePath), 'fixture file missing: ' + r.filePath);
+});
 
 // The new homes, by real path key.
 function homeKeys() {

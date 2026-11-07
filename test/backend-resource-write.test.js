@@ -57,7 +57,6 @@ function setup({ editing = { extensions: ['.md', '.json'] }, invalidated = [] } 
   backendResources.init({
     backends: { get: (id) => (id === 'stub' ? backend : null) },
     log: { warn() {}, error() {}, info() {} },
-    invalidateFts: (kind) => invalidated.push(kind),
   });
   return { home, skillsDir, skillFile, settings, secret, backend, invalidated };
 }
@@ -67,7 +66,6 @@ test('a listed file inside a listed directory can be written', async () => {
   const res = await backendResources.writeResource('stub', box.skillFile, '---\nname: do-a-thing\n---\n\nnew body\n', null, null);
   assert.equal(res.ok, true);
   assert.match(read(box.skillFile), /new body/);
-  assert.deepEqual(box.invalidated, ['memory'], 'the tab\'s search is told, the way a saved instruction file tells it');
 });
 
 test('a path that is not a discovered resource is refused', async () => {

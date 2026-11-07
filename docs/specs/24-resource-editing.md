@@ -141,6 +141,6 @@ Tracked in #708.
 `test/safe-write.test.js` (encoding round-trip, the conflict refusal, the rename retry and its cleanup),
 `test/format-validate.test.js` (each format, and the honest "unchecked" answer),
 `test/backend-resource-write.test.js` (every guard, plus create and delete),
-`test/plans-memory-resource-groups.test.js` (which groups appear, which rows may be deleted, which may be
-created in). What none of them can prove is the click: the conflict bar rendering, the New dialog, the
+`test/resource-inventory.test.js` (which rows appear, which may be deleted, which may be created in; the Agent Files
+group builder it replaced is gone, #823 T12). What none of them can prove is the click: the conflict bar rendering, the New dialog, the
 delete confirmation — `node scripts/drive-app.js` is what covered those.

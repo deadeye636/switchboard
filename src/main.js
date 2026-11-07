@@ -621,9 +621,8 @@ projects.init({
 });
 projects.registerIpc(ipcMain);
 
-// Plans, Memory and Work-Files tabs (#227) — the 9 handlers that used to live here, now behind the
-// descriptor's plansDir/memorySources so the core hardcodes no ~/.claude path. Wired before
-// save-file-for-panel below, which invalidates its FTS signature after a panel write.
+// The Plans tab and the plan convention (#227, #450) — behind the descriptor's plansDir so the core hardcodes no
+// ~/.claude path. The Agent Files handlers that once lived here are gone (#823 T12).
 const plansMemory = require('./app/plans-memory');
 plansMemory.init({
   backends,
@@ -1079,12 +1078,6 @@ ipcMain.handle('save-file-for-panel', async (_event, filePath, content, baseline
       }
       return { ok: false, error: written.error || 'That file could not be saved.' };
     }
-    // Close the sub-second window between save and search: if the saved file
-    // belongs to a type that the FTS index tracks, invalidate its signature so
-    // the next get-memories call triggers a full reindex
-    // (matching the explicit invalidation in save-memory / delete-work-file).
-    if (resolved.includes('/.work-files/') || resolved.includes('\\.work-files\\')) plansMemory.invalidateFtsSignature('work-file');
-    if (resolved.endsWith('.md')) plansMemory.invalidateFtsSignature('memory');
     return { ok: true };
   } catch (err) {
     return { ok: false, error: readableError(err, 'That file could not be saved.', log) };
@@ -1394,9 +1387,7 @@ ipcMain.handle('get-usage', async () => {
   }
 });
 
-// (FTS dirty-flag block + get-memories/read-memory/save-memory + read-work-file/delete-work-file
-// moved to src/app/plans-memory.js — #227. `get-work-files` is gone entirely: work files come with
-// get-memories since #448.)
+// (The plans handlers moved to src/app/plans-memory.js - #227. The Agent Files handlers are gone, #823.)
 // --- IPC: search ---
 // Routed through the search-query worker so that slow FTS5 phrase queries
 // (e.g. a 60-char pasted URL) do not block the Electron main event loop.
@@ -2251,9 +2242,6 @@ backendModels.registerIpc(ipcMain);
 const backendResources = require('./app/backend-resources');
 backendResources.init({
   backends, shell, log,
-  // A written resource is a document the Agent Files search covers (#440/#441), so the writer tells the
-  // index the same way a saved instruction file does.
-  invalidateFts: (kind) => plansMemory.invalidateFtsSignature(kind),
 });
 backendResources.registerIpc(ipcMain);
 // #632: which of another backend's resources a session takes over — the choices of "Resources from" (read

@@ -53,7 +53,6 @@ function load({ session = null, settings = {}, dirs = null, running = true } = {
     getSetting: async () => settings,
     projectConventionDirs: async (p) => (dirs === null ? null : { ...dirs, asked: p }),
     getPlans: async () => ({ plans: [], hasStore: true }),
-    getMemories: async () => ({}),
   };
   // The prompt helpers are a UMD module in the real renderer; here they are put into the shared scope the
   // same way the <script> tag does.

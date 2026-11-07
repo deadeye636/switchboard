@@ -575,7 +575,7 @@ module.exports = {
   // Pi keeps no plans store (#227).
   plansDir: () => null,
   // Pi reads AGENTS.md AND CLAUDE.md as its context files (the `noContextFiles` toggle turns both off),
-  // so both are its per-project instruction files (#227). get-memories dedupes by path, so declaring
+  // so both are its per-project instruction files (#227). the instruction inventory dedupes by path, so declaring
   // CLAUDE.md here does not double it with Claude's own.
   memorySources: (scope) => {
     if (!scope || !scope.projectPath) return [];

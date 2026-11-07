@@ -30,8 +30,7 @@ a registered project or none. The app's own skill is admitted by EQUALITY with `
 expander named, real path inside `skillsDir`; a network path, a filesystem root, the home directory or above, and a
 backend's own directory are refused) and written through `safe-write.js`; a backend's skill goes through
 `backend-resources.js` for the first owner whose `resourceEditing` takes it. `editable` on a row is the same
-predicate. The sidebar's Agent Files is not this door and, since #803 E15, lists no skills at all (`skill` is out of
-`TAB_KINDS` in `plans-memory.js`). `delete-skill` (E16) deletes a CLI's skill through `deleteResource` where the door
+predicate. The Agent Files tab (removed, #823) was not this door. `delete-skill` (E16) deletes a CLI's skill through `deleteResource` where the door
 admits Edit and the listing does not mark the folder `fromPlugin` (`deletable` on a row, `fromPlugin` on an owner);
 the app's own skills and a plugin's are never deleted here. Since #803 T12a it also
 creates one: `get-skill-places` answers opaque place ids for the skills directories a backend's `skill` scaffold
@@ -50,7 +49,7 @@ each descriptor's `listResources`/`expandResource`, one asker per CLI, `RESOURCE
 with nothing for a view lands in `declines`; no path and no backend id field leave it, the owner CLI is an opaque `cli.key`.
 It is also the doors for those rows: `read-resource-item` / `save-resource-item` / `delete-resource-item` / `create-resource-item`
 take an inventory id, re-list on every call and delegate to `backend-resources.js`; a hook is read-only, a plugin's file never deleted; `match-resource-content` answers which items of those views and of Skills hold a text, reading the listed files bounded and memoised, and returns ids only — #823 T4),
-`instruction-files.js` (the files that steer a CLI, one scope at a time — #823 T5, spec 44; the scan helpers `plans-memory.js` used (`memoryBackends`, `visibleProjectPaths`, `storeFoldersFor`, `scanMdFiles`, `claim`, `collectSource`) live here and the Agent Files tab requires them, so the tab and the Instructions inventory cannot answer differently. `get-instruction-inventory(scope)` — `'global'` or a registered project's path — lists listing kinds `memory`, `settings`, `memory-store`, `output-style`, `resource` first and then `memorySources` for what they add, one row per real path, every CLI that names it in `clis`, a file a command, agent or rule row owns left out. `read-instruction` / `save-instruction` take an inventory id and re-list on every call (equality, never a path); the save is `safe-write.js` with the editor's baseline and `format-validate.js`. No create, no delete for instruction files. Work files of a registered project (`<project>/.work-files/**`, T10) have their own three id doors: `get-instruction-work-files`, `read-instruction-work-file` and `delete-instruction-work-file` (Delete is the only write; the old path-based `read-work-file` / `delete-work-file` stay until the tab goes). `locate-instruction` answers which listed file a real path is, for the sidebar's Edit button; `match-instruction-content` is T4's matcher over the scope's files; `get-session-instructions(projectPath, backendId)` is the session sidebar's list, the owner CLI's global and project files with the path for the read-only preview),
+`instruction-files.js` (the files that steer a CLI, one scope at a time — #823 T5, spec 44; the scan helpers `plans-memory.js` used (`memoryBackends`, `visibleProjectPaths`, `storeFoldersFor`, `scanMdFiles`, `claim`, `collectSource`) live here, and `plans-memory.js` still asks `memoryBackends` and `visibleProjectPaths` for the plans list. The Agent Files tab that shared them is gone (#823 T12). `get-instruction-inventory(scope)` — `'global'` or a registered project's path — lists listing kinds `memory`, `settings`, `memory-store`, `output-style`, `resource` first and then `memorySources` for what they add, one row per real path, every CLI that names it in `clis`, a file a command, agent or rule row owns left out. `read-instruction` / `save-instruction` take an inventory id and re-list on every call (equality, never a path); the save is `safe-write.js` with the editor's baseline and `format-validate.js`. No create, no delete for instruction files. Work files of a registered project (`<project>/.work-files/**`, T10) have their own three id doors: `get-instruction-work-files`, `read-instruction-work-file` and `delete-instruction-work-file` (Delete is the only write; the old path-based `read-work-file` / `delete-work-file` went with the tab, #823 T12; `plans-memory.js` keeps only `walkWorkFiles` and `WORK_FILES_CAP`, which these doors use). `locate-instruction` answers which listed file a real path is, for the sidebar's Edit button; `match-instruction-content` is T4's matcher over the scope's files; `get-session-instructions(projectPath, backendId)` is the session sidebar's list, the owner CLI's global and project files with the path for the read-only preview),
 `forge-issues.js` (a project's GitHub or GitLab issues, read-only, #816, spec 42: nothing stored, no timer, no token),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
@@ -99,8 +98,10 @@ working),
 shown — decided in `src/watch/adopt.js`),
 `settings-transfer.js`, `backend-models.js` + `backend-resources.js` (backend-owned model and
 resource discovery — the core asks the descriptor, each backend owns how it shells out and fails),
-`plans-memory.js` (the Plans and Agent Files tabs — #227; work files lost their own tab in #448 and
-are one group in Agent Files, and #450 put the plan convention here too),
+`plans-memory.js` (the Plans tab — #227, and #450 put the plan convention here too; the Agent Files tab and its
+`get-memories` / `read-memory` / `save-memory` / `read-work-file` / `delete-work-file` handlers are gone, #823 T12. What is left
+besides plans is the work-file walk the project Instructions page reuses. At start `init` deletes the rows an older version
+indexed under the FTS types `memory` and `work-file`; nothing indexes them any more and no schema changed),
 `handoffs.js` (where a handoff packet lives — #468; the directories it is read from and written to, the file format, and the one-time export of the rows it used to be),
 `file-watch.js` (keeping an open document live while something else rewrites it — #452; the watch
 moved out of main.js because it only ever told the main window and kept no refcount),
@@ -391,7 +392,7 @@ each parser has a ceiling (`CHECK_CEILING`, #610): above it the save goes ahead 
 never refused, and `writeTextFile` hands back its validator's `verdict` so a caller reports the check
 without parsing the text a second time.
 
-Every writer goes through it — `saveMemory`, `savePlan`, `saveHandoff` (#468), `save-file-for-panel`, the
+Every writer goes through it — `saveInstruction`, `savePlan`, `saveHandoff` (#468), `save-file-for-panel`, the
 resource writer in `backend-resources.js`, the attention hook's settings writes, `planConventionApply`, and
 the three backend config writers (`claude/config.js`, `codex/trust.js`, `pi/trust.js`).
 Grep for `writeTextFile` rather than trusting this list. A new writer that does not use it is a second set
@@ -577,7 +578,7 @@ line there, in the same commit.
 | Opening a terminal | `src/app/terminal/spawn.js` |
 | Terminal input/resize/redraw/flow control | `src/app/terminal/io.js` |
 | Stopping a running session on purpose (the user's Stop, the review runner) | `src/app/terminal/stop-session.js` (the `stop-session` handler stays in `main.js` and calls it) |
-| The Plans and Agent Files tabs, and the memory files | `src/app/plans-memory.js` |
+| The Plans tab and the plan convention | `src/app/plans-memory.js` |
 | Handoff packets — listing, saving, deleting | `src/app/handoffs.js` |
 | Version-control status, the changes/diff windows | `src/app/vcs.js` (the seam it drives is `src/vcs/`) |
 | Detached session windows, which window a session renders in, moving one between windows | `src/app/detach.js` |
