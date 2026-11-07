@@ -91,6 +91,14 @@ const PARTIAL_INTERVAL_MS = 60;
 // finished entry schedules one ask at most this long after it, so a burst of entries costs one request.
 const CONTEXT_FOLLOW_MS = 1500;
 
+// The first ask of the fill comes before a runtime's servers have connected, so its answer lacks them (#758, measured:
+// 31.5 s and 37 s until the last of one machine's servers settled). A half that declares `serversSettled` is asked about its
+// servers at these growing gaps, 62 s in all, and the fill is asked once more when they have settled or the tries
+// have run out. A server answer costs little, a fill answer more, which is why this does not simply ask the fill.
+const CONTEXT_SETTLE_MS = 2000;
+const CONTEXT_SETTLE_MAX_MS = 16000;
+const CONTEXT_SETTLE_TRIES = 6;
+
 // How many finished entries are kept for an attach that reads the conversation from the transcript file
 // (see `attach`). The file can lag the stream by the entry being written, never by a whole turn, so this
 // is a bound on a window of milliseconds rather than a second log of the session.
@@ -296,6 +304,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     stateModel: null,        // the model the runtime's state names, where the fill's answer names none (#692)
     mode: null,              // the permission mode the runtime last named, in the backend's words (#696)
     contextTimer: null,      // an ask of the fill scheduled during a turn (#697)
+    contextSettleTimer: null, // the next look at the servers, for the fill they add (#758)
     contextAsked: 0,         // the number of the last ask of the fill sent, and of the last one applied —
     contextApplied: 0,       //   an answer older than one already drawn is dropped
     // Prompts sent while a turn runs, held here rather than written to the runtime (#702), so each can still be
@@ -314,6 +323,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   const responseMs = (timeouts && timeouts.responseMs) || RESPONSE_TIMEOUT_MS;
   const startupMs = (timeouts && timeouts.startupMs) || STARTUP_TIMEOUT_MS;
   const contextFollowMs = (timeouts && timeouts.contextFollowMs) || CONTEXT_FOLLOW_MS;
+  const contextSettleMs = (timeouts && timeouts.contextSettleMs) || CONTEXT_SETTLE_MS;
 
   // Both streamed things at once: the assistant turn being written, and any shell line writing beside it.
   // They are separate streams and can run together, but they share ONE order in the view, so whatever
@@ -514,6 +524,27 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     // A mode known at once is known before the session is registered, when no view can hear an op and a
     // numbered op would only leave a gap in the sequence; the attach carries `state.mode` instead.
     if (findSession(tag)) sendOp(state, { op: 'mode', mode });
+  }
+
+  // One more ask of the fill once the servers have settled (#758). A turn does not end the wait: one that ran before
+  // the servers connected asked too early as well. While a turn runs the look waits, and if the servers settle during
+  // one, the ask that turn makes when it settles already has them, so nothing more is asked. `serversSettled` answers
+  // true, false while one is still connecting, or null when there is nothing to wait for (or no answer), which ends
+  // this without an ask. The tries run out after about a minute, and then the fill is asked anyway.
+  function followContextSettled(delay, triesLeft) {
+    state.contextSettleTimer = setTimeout(async () => {
+      state.contextSettleTimer = null;
+      if (state.exited) return;
+      if (state.busy) { followContextSettled(delay, triesLeft); return; }
+      const res = await request(rpc.serversCommand);
+      if (state.exited) return;
+      let settled = null;
+      try { settled = rpc.serversSettled(res); } catch { settled = null; }
+      if (settled === null) return;
+      if (settled === true || triesLeft <= 1) { if (!state.busy) followContext(); return; }
+      followContextSettled(Math.min(delay * 2, CONTEXT_SETTLE_MAX_MS), triesLeft - 1);
+    }, delay);
+    if (typeof state.contextSettleTimer.unref === 'function') state.contextSettleTimer.unref();
   }
 
   // One ask of the fill, CONTEXT_FOLLOW_MS after the entry that scheduled it, while a turn runs. Only for a
@@ -1089,6 +1120,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     state.exited = true;
     flushPartial();
     if (state.contextTimer) { clearTimeout(state.contextTimer); state.contextTimer = null; }
+    if (state.contextSettleTimer) { clearTimeout(state.contextSettleTimer); state.contextSettleTimer = null; }
     dropAsks();
     // Held prompts never reached the runtime: each goes back to the input rather than vanishing with the process.
     // With their images, through the view's own take-back — they were never offered to the session, so the
@@ -1277,6 +1309,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
 
   followIdentity();
   followStartMode(followContext());
+  if (typeof rpc.contextCommand === 'function' && typeof rpc.serversCommand === 'function' && typeof rpc.serversSettled === 'function') {
+    followContextSettled(contextSettleMs, CONTEXT_SETTLE_TRIES);
+  }
 
   return {
     pid: child.pid,

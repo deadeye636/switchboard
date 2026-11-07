@@ -485,6 +485,68 @@ test('the context is asked again during a turn only where the half declares that
   assert.equal(ops(settledOnly).filter((o) => o.op === 'context').length, 1, 'no ask inside the turn without the declaration');
 });
 
+// #758: the first ask comes before the servers have connected, so a half that can say when they have is asked again.
+function settleRpc(answers) {
+  const looks = { count: 0 };
+  return { looks, rpc: {
+    contextCommand: (id) => ({ type: 'ctl', request_id: id, what: 'ctx' }),
+    contextFromResponse: () => ({ percent: 10 }),
+    serversCommand: (id) => ({ type: 'ctl', request_id: id, what: 'servers' }),
+    serversSettled: () => { const a = answers[Math.min(looks.count, answers.length - 1)]; looks.count += 1; return a; },
+  } };
+}
+const fillAsks = (h) => ops(h).filter((o) => o.op === 'context').length;
+
+test('the fill is asked once more when the servers have settled, and not again after that', async (t) => {
+  const { looks, rpc } = settleRpc([false, false, true]);
+  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 10 } });
+  t.after(() => stopped(h));
+  await until(() => fillAsks(h) >= 2);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(looks.count, 3, 'it stops looking once they have settled');
+  assert.equal(fillAsks(h), 2);
+});
+
+test('nothing to wait for asks the fill no second time', async (t) => {
+  const { looks, rpc } = settleRpc([null]);
+  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 10 } });
+  t.after(() => stopped(h));
+  await until(() => looks.count >= 1);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(looks.count, 1);
+  assert.equal(fillAsks(h), 1);
+});
+
+test('a server that never settles still gets the fill asked once, when the tries run out', async (t) => {
+  const { looks, rpc } = settleRpc([false]);
+  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 1 } });
+  t.after(() => stopped(h));
+  await until(() => fillAsks(h) >= 2, 2000);
+  assert.equal(looks.count, 6);
+});
+
+test('a look waits while a turn runs, and the wait goes on after it', async (t) => {
+  const { looks, rpc } = settleRpc([true]);
+  // The first look is well after the turn starts, so a loaded machine cannot slip it in before.
+  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 400 } });
+  t.after(() => stopped(h));
+  await until(() => fillAsks(h) >= 1);
+  await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });   // a turn that stays open
+  await new Promise((r) => setTimeout(r, 900));
+  assert.equal(looks.count, 0, 'no look while the turn runs');
+});
+
+test('a turn that ended before the servers settled does not end the wait', async (t) => {
+  const { looks, rpc } = settleRpc([false, true]);
+  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 150 } });
+  t.after(() => stopped(h));
+  await until(() => fillAsks(h) >= 1);
+  await agentRpc.sendTurn('launch-id', { text: 'hello', mode: 'prompt' });
+  await until(() => h.signals.some((s) => s.kind === 'idle'));
+  const afterTurn = fillAsks(h);
+  await until(() => looks.count >= 2 && fillAsks(h) > afterTurn, 4000);
+});
+
 test('a runtime that cannot stop a single task says so, and one that reads no context is not asked', async (t) => {
   const h = streamHarness(t);
   t.after(() => stopped(h));

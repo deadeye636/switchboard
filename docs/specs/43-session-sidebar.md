@@ -74,5 +74,6 @@ before: a terminal session, and pi-native, whose stats name no categories.
   does a session that has not reported yet. A projected capability could tell the two apart; nothing does yet.
 - MCP status exists only for a session driven over a pipe. A terminal session leaves that row out.
 - The Context group in a terminal session updates when the group is reloaded, not live.
-- MCP is missing from the breakdown until the first turn. The app asks at the start, before the servers have connected,
-  and only a turn asks again (spec 32). So the fill before that turn is low by that amount, and the MCP list is absent.
+- MCP is missing from the breakdown until the servers have settled, up to a minute after the start (spec 32). The core
+  then asks the fill once more and the group redraws. While a turn runs it waits, and a turn that ends after they
+  settled brings them itself. A server answer that does not come ends the wait without that ask.

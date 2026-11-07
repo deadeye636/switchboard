@@ -1230,12 +1230,22 @@ test('an empty list is left out, and an answer without categories has no breakdo
   assert.equal('breakdown' in protocol.contextFromResponse({ success: true, data: { ...USAGE, categories: [] } }), false);
 });
 
+test('the servers have settled once none is pending and one connected, and otherwise there is nothing to wait for', () => {
+  const answer = (...status) => ({ success: true, data: { mcpServers: status.map((s, i) => ({ name: `s${i}`, status: s })) } });
+  assert.equal(protocol.serversSettled(answer('connected', 'pending')), false);
+  assert.equal(protocol.serversSettled(answer('connected', 'failed', 'needs-auth')), true);
+  assert.equal(protocol.serversSettled(answer('failed', 'disabled')), null);
+  assert.equal(protocol.serversSettled(answer()), null);
+  assert.equal(protocol.serversSettled({ success: false }), null);
+});
+
 test('the fill is a baseline only until a turn has run, and a resumed session is none', () => {
   const baseline = (data) => protocol.contextFromResponse({ success: true, data }).baseline;
   assert.equal(baseline(USAGE), true);
   assert.equal(baseline({ ...USAGE, apiUsage: { input_tokens: 2 } }), undefined);
   // Measured on a resumed session: `apiUsage` is still null, only the tokens tell it apart.
   assert.equal(baseline({ ...USAGE, apiUsage: null, messageBreakdown: { userMessageTokens: 8, assistantMessageTokens: 24 } }), undefined);
+  assert.equal(baseline({ ...USAGE, apiUsage: null, messageBreakdown: { userMessageTokens: 87, assistantMessageTokens: 0 } }), undefined, 'measured after /clear');
   assert.equal(baseline({ totalTokens: 1 }), undefined, 'an answer without the fields is not called one');
 });
 

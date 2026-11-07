@@ -282,6 +282,8 @@ module.exports = {
     appCommandOp: protocol.appCommandOp,
     serversCommand: protocol.serversCommand,
     serverList: protocol.serverList,
+    // The fill is asked once more when the servers have settled (#758).
+    serversSettled: protocol.serversSettled,
     serverActionCommand: protocol.serverActionCommand,
     serverActionResult: protocol.serverActionResult,
     // A `!` line is the app's too (#786): the protocol has no shell command, so the core runs it in the project's

@@ -736,16 +736,18 @@ calls and one background agent. What the stream carries, all as `system` lines t
   all. The first `/v1/messages` went out only when a prompt was sent. So the fill a new session shows before
   its first turn is not context already spent, and a session opened and closed without input bills nothing.
   **It is an estimate of the first request, and a low one** (2.1.318, Haiku, this repository): the answer
-  before the prompt said 59,827 and the first turn wrote 80,373 to the cache. An answer right after the start also
-  lacks MCP: `mcp_tools`, `mcp_instructions`, their deferred category and `mcpTools` appeared only once the
-  servers had connected (asked again after 30 s). `scripts/measure-claude-context-usage.js` repeats this.
+  before the prompt said 59,827 and the first turn wrote 80,373 to the cache; with the servers connected, 63,095 against
+  89,476 (the first turn's `apiUsage`, as `scripts/measure-claude-mcp-settle.js` prints it). An answer right after the start also lacks MCP: `mcp_tools`, `mcp_instructions`, their deferred category and
+  `mcpTools` appear only once the servers have connected, which took 31.5 s and 37 s for the last of them in two runs on one
+  machine (`mcp_status` then names none `pending`). So `serversSettled` lets the core ask the fill once more at that
+  point (#758). `scripts/measure-claude-context-usage.js` and `scripts/measure-claude-mcp-settle.js` repeat this.
 - **What the answer holds beside the total** (#758, measured on 2.1.318): `categories` as
   `{ id, name, tokens, kind }` with `kind` `used`, `deferred`, `buffer` or `free`; `tokens` per entry in
   `memoryFiles` (`path`), `agents` (`agentType`), `skills.skillFrontmatter` (`name`) and `mcpTools` (`name`,
   `serverName`, `isLoaded`). `apiUsage` is null and `messageBreakdown` names no user or assistant tokens until a
   first turn has run, so `contextFromResponse` calls that state `baseline`. A resumed session also answers a null
-  `apiUsage`, but names those tokens, so it is none. A turn that failed on auth ended it as well. What `/clear`
-  answers was not measured. It projects all of this as `breakdown: { categories, lists }`: the session line
+  `apiUsage`, but names those tokens, so it is none. `/clear` answers a null `apiUsage` with 87 user tokens, so it is none
+  either. A turn that failed on auth ended it as well. It projects all of this as `breakdown: { categories, lists }`: the session line
   draws a baseline dimmed and names the categories and largest files in its tooltip, spec 43 draws the rest.
 
 - **An agent task names its subagent** (#695): the `task_id` of a `local_agent` task is the `agentId` of its

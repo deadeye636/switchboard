@@ -1078,7 +1078,7 @@ function modelLabel(model) {
 // The breakdown of a `get_context_usage` answer in the neutral `context` shape (#758), measured on 2.1.318:
 // `categories` is `{ id, name, tokens, kind }` with `kind` used, deferred, buffer or free; `memoryFiles`, `agents`,
 // `skills.skillFrontmatter` and `mcpTools` each name their tokens per entry. MCP's categories and `mcpTools` stay
-// empty until the servers have connected, so an answer right after the start can lack them.
+// empty until the servers have connected, so an answer right after the start lacks them (`serversSettled`).
 //
 // `slot` is the fixed colour place of a category: a category keeps its colour when another one comes or goes.
 // A category this table does not know is drawn without one. The CLI's own `color` is a name from its TUI theme.
@@ -1118,8 +1118,9 @@ function contextBreakdown(d) {
 
 // Before the first turn the fill is a baseline (#758). Measured on 2.1.318: `apiUsage` is null and the message
 // breakdown names no user or assistant tokens until the first turn has run, and both change with it. A resumed
-// session also answers a null `apiUsage` but names those tokens, so the tokens are what tell the two apart. An answer
-// without these fields is not called one either. What `/clear` answers was not measured.
+// session also answers a null `apiUsage` but names those tokens, so the tokens are what tell the two apart. `/clear`
+// answers the same way (a null `apiUsage`, 87 user tokens for its own line), so it is none either. An answer without
+// these fields is not called one.
 function contextIsBaseline(d) {
   const m = d.messageBreakdown;
   return d.apiUsage === null && !!m && typeof m === 'object' && !m.userMessageTokens && !m.assistantMessageTokens;
@@ -1257,6 +1258,15 @@ function serverActions(s, status, toolCount) {
   if (status === 'connected' && remote) out.push({ id: 'signOut', label: 'Sign out' });
   out.push(disable);
   return out;
+}
+
+// Whether the fill can be asked again for what the servers add (#758): true once none is `pending` and one has
+// connected, false while one is pending, null without a connected one, as nothing would change.
+function serversSettled(response) {
+  const list = response && response.success !== false && response.data && response.data.mcpServers;
+  if (!Array.isArray(list)) return null;
+  if (list.some((s) => s && s.status === 'pending')) return false;
+  return list.some((s) => s && s.status === 'connected') ? true : null;
 }
 
 function serverList(response) {
@@ -1548,6 +1558,7 @@ module.exports = {
   carriesShellLines,
   serversCommand,
   serverList,
+  serversSettled,
   serverActionCommand,
   serverActionResult,
   answerCommand,

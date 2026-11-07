@@ -527,7 +527,10 @@ answers instead of the core learning its format:
   may add `baseline: true` (nothing has been sent yet) and `breakdown: { categories: [{ label, tokens, kind, slot }],
   lists: [{ id, label, rows: [{ name, tokens, title?, deferred? }] }] }` (#758); `kind` is `used`, `buffer`, `free` or
   `deferred`, and `slot` a fixed colour place or null. A list with the id `memory` also feeds the session line's tooltip.
-  claude-native answers both, pi-native neither.
+  claude-native answers both, pi-native neither. `serversSettled(response)` is optional, beside `serversCommand` (#758):
+  true once the servers have settled, false while one is connecting, null with nothing to wait for or no answer. The core
+  asks the fill once more when they have settled, or anyway after about a minute; it does not look while a turn runs, and
+  a turn that ends after they settled has already asked, so then it asks nothing more.
   claude-native asks `get_context_usage`, pi-native reads its `get_session_stats`. A runtime whose fill answer
   names no model but whose state does declares `modelFromState(response)` (#692): the core reads it from the
   `stateCommand` answer it asks anyway and puts it into the context (pi-native: `get_state`'s `model.name`, else
