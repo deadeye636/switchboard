@@ -29,7 +29,7 @@ session being open.
 5. The result appeared in the sidebar as an ordinary session, grouped with the task's earlier runs through
    its `slug`.
 
-A **"Run now"** play button in the Agent Files tab did steps 4–5 on demand, and a clock button on every
+A **"Run now"** play button in the (since removed) Agent Files tab did steps 4–5 on demand, and a clock button on every
 project header launched a *session* that helped the user write a schedule file (`launchScheduleCreator`).
 
 ## The file format — the one contract that outlives the code

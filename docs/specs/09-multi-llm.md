@@ -667,7 +667,7 @@ row, and `expandResource` reads one level into it when the user opens it.
   directory read as empty with nothing to see. `statSync` answers instead.
 - **Containment uses `realpath`.** Lexical containment passes a symlink out of the tree, and a skills
   directory is exactly where symlinks live.
-- **The Agent Files tab is where this surfaces**, beside the instruction files it already showed — the
+- **The Agent Files tab was where this surfaced** (replaced by Settings pages, #823), beside the instruction files it already showed — the
   main window, next to the sessions, rather than two windows away in settings. The Backends settings
   page keeps the inventory and its Open / Copy path buttons. What the tab shows is narrower than what a
   backend lists: plan documents have their own tab, and a plugin directory opened in a text editor is a
@@ -687,9 +687,9 @@ Two defects in the same listing, both about what the row says rather than what i
   **moved, not lost**: the code and the raw message go to the log, because a failure nobody can explain
   from the screen and nobody can look up either is the worse end of the trade.
 - **Reading a resource and writing one are the same surface**, and the first pass fixed only the reading
-  half. The Agent Files tab opens a discovered resource through the sanitised path and used to save it
-  through one that answered with the errno's own words, in a dialog. `savePlan`, `saveMemory`,
-  `deleteWorkFile` and the plan-convention writer in `src/app/plans-memory.js` go through the same helper
+  half. The Agent Files tab (gone, #823) opened a discovered resource through the sanitised path and used to save it
+  through one that answered with the errno's own words, in a dialog. `savePlan`, the memory and
+  work-file writers of that time and the plan-convention writer in `src/app/plans-memory.js` go through the same helper
   now — which is why it is its own module rather than a private function of the listing. An adversarial
   review found that half; the tests did not, because there were none over those four paths.
 - **The failure goes into the row, not into the button.** "Open failed" was written into the label of
@@ -829,7 +829,7 @@ live status from the heuristic. That is a real difference in precision, not a ga
 Two deliberate #227 behaviour changes, recorded so they are not mistaken for regressions: (1) the instruction
 file is declared with its **canonical** spelling (`AGENTS.md`, `GEMINI.md`), so a project carrying a *lowercase*
 `agents.md` on a case-sensitive filesystem is no longer surfaced — uppercase is the convention, and on Windows
-it never mattered; (2) the Agent Files project list comes from the **register**, so a store folder whose
+it never mattered; (2) the Agent Files project list (the tab is gone, #823; the Instructions pages take the register the same way) comes from the **register**, so a store folder whose
 project path cannot be derived (an undecodable legacy name with no `cwd` on disk) no longer appears as its own
 group — it is not in the sidebar either, which is the whole point of "one visibility rule for every view".
 

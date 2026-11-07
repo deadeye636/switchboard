@@ -153,7 +153,7 @@ appended per session, with the header untouched since the first write. Ordered b
 somebody worked in this morning sinks below one started last week and never opened again.
 
 **Every handoff surface now orders by, and shows, the file's mtime** — the resume picker, the palette and
-the Agent Files group. The old sort had a second defect that alone would settle it: `created:` is optional
+the Agent Files group (the tab is gone, #823; two surfaces remain). The old sort had a second defect that alone would settle it: `created:` is optional
 by design, so a file with a header sorted by when the work was handed over and a file without one by when
 it was last written, in the same list. Measured in one project's directory, 7 of 31 files carried a header.
 One clock now, for every row.

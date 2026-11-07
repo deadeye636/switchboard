@@ -240,12 +240,14 @@ chart rather than a row of zeroes.
 - **Skills** — a shortcut hands the CLI in the terminal one of its own skills, or one you keep in
   Switchboard for every CLI. A CLI that can run a skill from its prompt gets its own command; the rest
   get a reference to the document. → [spec 21](docs/specs/21-skills.md)
-- **Agent files** — every instruction file, rule, command, agent and settings file each backend reads (skills are
-  in Settings → Plugins → Skills),
-  filtered by type and by backend, with each row saying which CLIs actually read it. Editing one saves it
-  back: the format is checked first, the file's own line endings survive, and a save built on a version
-  something else has changed since is refused rather than winning. Commands, rules and agents can be
-  created from a template and deleted. → [spec 24](docs/specs/24-resource-editing.md)
+- **Instructions, agents, commands and rules** — what each CLI reads, in Settings. *Instructions* (global and per
+  project) lists the instruction files, memory and settings files, with the work files of a project under them;
+  *Plugins → Agents / Commands / Rules* list the rest (skills are in *Plugins → Skills*). Rows carry a chip per CLI that
+  actually reads them, and the filter matches a name or what is inside the file. Editing one saves it back: the format
+  is checked first, the file's own line endings survive, and a save built on a version something else has changed since
+  is refused rather than winning. Commands, rules and agents can be created from a template and deleted. A session's
+  sidebar has an Instructions group with what applies to it. → [spec 44](docs/specs/44-instructions.md),
+  [spec 24](docs/specs/24-resource-editing.md)
 - **Command palette** — F1 over your sessions, your projects and the app's own commands, under
   headings. It opens on what the app can do rather than on where you were, answers from the first
   keystroke, and each row says which key does the same thing. Commands that act on the session you are

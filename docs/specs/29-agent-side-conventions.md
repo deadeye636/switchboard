@@ -65,7 +65,7 @@ global scope, `<project>/.pi/prompts/` for a project that overrides the director
 hard about this feature came from that decision: an ownership marker in the frontmatter so the app
 could tell its own file from an edited one, a digest so a settings change and a user edit were
 distinguishable, a conflict flow that stops maintaining an adopted file and offers to replace it,
-install and remove actions, a state to show in Agent Files, and the fact that a project-scoped
+install and remove actions, a state to show (Agent Files was the surface when this was written; it is replaced by #823), and the fact that a project-scoped
 template does nothing at all until the project is trusted.
 
 Pi takes `--prompt-template <path>`, a file or a directory, repeatable. So none of that is necessary.

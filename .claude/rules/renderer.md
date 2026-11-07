@@ -457,7 +457,7 @@ In `sessionDisplayMode: panes`, a tab whose kind is not `terminal` does not buil
 `views/panes-view.js` is the list; read it there rather than from here. **Two flavours, and mixing them up
 is how the app loses its only preview panel:**
 
-- **Singleton kinds** (`jsonl`, `plan`, `stats`, `memory`, `projects`, `variables`, …) — the tab **moves
+- **Singleton kinds** (`jsonl`, `plan`, `stats`, `projects`, `variables`, …) — the tab **moves
   the app's single existing element** into the pane and hands it back to the exact slot it came from on
   close. Those MUST be parked at home before a rebuild, or `replaceChildren` destroys them.
 - **Instanced kinds** (`preview`, `diff`, since #311) — one instance per thing shown, built by

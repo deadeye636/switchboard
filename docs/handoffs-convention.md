@@ -80,7 +80,7 @@ picker preselects. Both are optional. A packet a skill wrote knowing nothing abo
 handoff, and then neither line has an answer — which is the honest result rather than a guess.
 
 `created` does not order anything and is not shown on a row. **Every list of handoffs — the resume picker,
-the handoff picker on the hotkey, and the handoff groups in Agent Files — is newest first by the file's own
+the handoff picker on the hotkey, and (until the Agent Files tab went, #823) its handoff groups — is newest first by the file's own
 last-modified time, and shows that same date.** A handoff is a running log in practice: an update appended
 per session, with the header left as it was written. Ordered by the header, the packet you worked in this
 morning sinks below one started last week and never opened since. The file's timestamp answers "which of
@@ -105,8 +105,8 @@ session happened to be looking at.
 - **Hand it to a session you are already in** — the handoff picker (Ctrl/Cmd+Shift+H) inserts a reference
   at the cursor. A reference, not the packet: it runs to hundreds of lines and belongs in the agent's
   context through the agent's own file tools.
-- **Read and edit it** — handoff directories appear in Agent Files like any other group, and a packet can
-  be deleted from there as well as from the resume picker.
+- **Read and delete it** — a packet opens and is deleted from the resume picker and the handoff picker. The
+  Agent Files tab that also listed handoff directories is gone (#823) and handoffs have no Settings page.
 
 ## Coming from an older version
 

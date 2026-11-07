@@ -1,7 +1,9 @@
 # 44 — Instructions, Agents, Commands and Rules in Settings
 
-Issue #823. Status: **in progress** (the neutral inventory of agents, commands and rules is built; the rest is planned).
-The code so far is `src/app/resource-inventory.js`.
+Issue #823. Status: **built**. The Agent Files tab is gone. The code is `src/app/resource-inventory.js` and
+`src/app/instruction-files.js` in main, `panels/plugins-resources.js` and `panels/settings-instructions.js` in the
+renderer, and the Instructions group of the session sidebar (spec 43). No setting, environment variable or script was
+added or changed, so `docs/settings-reference.md` is unchanged.
 
 ## What it does
 
@@ -34,8 +36,8 @@ must have a new home before the tab goes. Built on #824 (CLI chips and filters i
 - **P4:** a content filter is matched in main; the window never receives file text. Bounded and lazy.
 - **P5:** Skills gets the content filter too (this reverses spec 40, E17).
 - **P6:** work files get a small section on the project-scope Instructions page.
-- **P7:** handoff groups vanish with the tab and get no new home. Known gap: if Agent Files was the only surface with
-  Delete for a packet, that is lost (to verify when the tab goes).
+- **P7:** handoff groups vanish with the tab and get no new home. Checked at T9: the handoff picker still deletes a
+  packet, so no delete was lost (see Known gaps).
 - **P8:** the door for the new pages names a file by an opaque inventory id (a hash of the real path), re-derived on
   every call from the current listing, through `safe-write.js` with the baseline.
 - **P9:** no cross-listing. The global window shows global-scope files, the project window project-scope files, each with
@@ -155,7 +157,7 @@ sourceLabel, editable }`, with no path and no backend id.
 - One kit view over `pluginsViews.mountItemView` (new optional `matchContent` in its cfg for the content filter), sections Instructions, Memory, Settings files, Output styles, Resources (a section only when it has rows), chips by CLI, the `declines` lines, the editor with the conflict UI for an editable row and the read-only viewer for any other. No New and no Delete (`probeCreate` answers false, no row is `deletable`). A save refused by format validation shows main's reason where the editor shows any refusal.
 - Scope (P9): the global window asks `getInstructionInventory('global')`, a project window its project path. A line above the list points to the other scope: a project window has "Open the global instructions", the global window a project picker and "Open its instructions". Either replaces the window, so `leave()` is asked first and a dialog warns, as in the MCPs hand-off.
 - Read on the first `settings-cat-shown`, never at bind; the nav badge is the row count (`data-count-own`). It joins `leave()` through `pluginsKit.viewsIn`, so Cancel, Save, Apply and the settings search ask it too. `settingsPlugins.bind` calls `settingsInstructions.bind`.
-- Work files (T10, P6), project window only: a section under the list for `<project>/.work-files/**`, which Agent Files was the only surface for. `get-instruction-work-files` / `read-instruction-work-file` / `delete-instruction-work-file` (in `instruction-files.js`) take a registered project's path and an id (sha of the real path), re-walk with `plans-memory.js`'s walk and cap (200, header says `n of total`), and accept an id only from that fresh listing and only if `.work-files` and the file are really inside the project and `.work-files` on real paths (a `.work-files` that is a link out of the project lists nothing; a linked file is not read). Open shows read-only text (2 MB, text only, as before); Delete asks first and removes one listed file. Cost: each call re-walks the folder, up to the walk's own limits, on the main thread. The older `read-work-file` / `delete-work-file` stay until the tab goes (T11).
+- Work files (T10, P6), project window only: a section under the list for `<project>/.work-files/**`, which Agent Files was the only surface for. `get-instruction-work-files` / `read-instruction-work-file` / `delete-instruction-work-file` (in `instruction-files.js`) take a registered project's path and an id (sha of the real path), re-walk with `plans-memory.js`'s walk and cap (200, header says `n of total`), and accept an id only from that fresh listing and only if `.work-files` and the file are really inside the project and `.work-files` on real paths (a `.work-files` that is a link out of the project lists nothing; a linked file is not read). Open shows read-only text (2 MB, text only, as before); Delete asks first and removes one listed file. Cost: each call re-walks the folder, up to the walk's own limits, on the main thread. The older path-based `read-work-file` / `delete-work-file` went with the tab (T12).
 
 ## Deep link to an item (#823 T7)
 
@@ -172,15 +174,19 @@ The ids are those of the Skills, Agents, Commands, Rules and Instructions invent
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The sidebar group and removing the Agent
-  Files tab are later steps of the plan and are not built.
+- **Removed with the tab (T11, T12).** Its viewers, type filter and chips, its search mode and pane kinds, and in main
+  `get-memories`, `read-memory`, `save-memory` and the path-based work-file handlers with their preload bindings. A
+  saved pane layout that still holds one of the removed tabs drops it on load. Rows an older version indexed under the
+  search types `memory` and `work-file` are deleted at start; the schema did not change. What the removed code is
+  named after is kept in this record only.
+- **Handoff packets have no Settings page** (P7). They open and delete from the resume and handoff pickers.
+- **The tab's "by type" filter has no successor** as a control: each kind is its own page, and the chips narrow by CLI.
 - **Who else deletes (plan T0b, checked at T9).** Handoff packets: `deleteHandoff` is also called by the handoff picker
-  (`src/renderer/handoff/handoff.js`), so removing Agent Files loses no delete there. Work files: `deleteWorkFile`
-  is reached only from the Agent Files work-file viewer (`workFilesPanel.onDelete` in `src/renderer/app.js`), so until
-  the "Work files" section of T10 exists, removing the tab would remove the only delete for them. T10 must land before T11.
-- **Cover guard.** `test/instructions-cover-agent-files.test.js` matches every row of `getMemories()` by real path against
-  the resource, skills and instruction inventories; `handoff` (stays with handoffs) and `work-file` (pending T10) are its
-  two named exceptions, and each fails as stale once it has a home.
+  (`src/renderer/handoff/handoff.js`), so removing Agent Files lost no delete there. Work files had one delete, in the
+  tab's work-file viewer; the Work files section of the project Instructions page (T10) replaced it before the tab went.
+- **Cover guard.** `test/instructions-cover-agent-files.test.js` matches every row of a recorded copy of what the old
+  listing returned (the function is gone) by real path against the resource, skills and instruction inventories and the
+  work-files listing; `handoff` (stays with handoffs) is its one named exception.
 
 **The session sidebar group (T8).** `get-session-instructions(projectPath, backendId)` answers `{ ok, rows: [{ id, label, scope,
 section, path }], declined }` for the owner CLI of that backend (`cliOf`), global scope plus a registered project, kinds

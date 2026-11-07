@@ -1,8 +1,9 @@
 # Editing a backend's own files
 
-Issues: #440 (read), #441 (write, create, delete). Built: the Agent Files tab shows what each CLI reads
-its behaviour from, and can now change it. Since #803 skills are not in that tab: they are listed, edited,
-created and deleted on the Skills page of Settings → Plugins ([spec 40](40-plugins-manager.md), E15 to E17).
+Issues: #440 (read), #441 (write, create, delete). Built: the app shows what each CLI reads its
+behaviour from, and can change it. It was the sidebar's Agent Files tab; #823 replaced the tab with Settings pages
+([spec 44](44-instructions.md)): Plugins → Agents, Commands, Rules and Skills, and the Instructions category. The
+write core below is unchanged. Skills have been on their own page since #803 ([spec 40](40-plugins-manager.md), E15 to E17).
 
 ## Two halves, and the second is where the rules are
 
@@ -32,7 +33,7 @@ write, which would reintroduce exactly what the atomicity is for.
 **It must not rewrite what nobody touched.** CodeMirror hands back LF with no BOM, so the first save of a
 CRLF file would rewrite every line of it and a BOM'd `settings.json` would lose its BOM.
 
-Every writer uses it: `saveMemory`, `savePlan`, `save-file-for-panel` — the last of which every preview
+Every writer uses it: the memory writer (gone with the tab, #823; `save-instruction` took its place), `savePlan`, `save-file-for-panel` — the last of which every preview
 tab uses and which had none of the three, not even a baseline argument — plus the resource writer this
 spec adds, the one that saves a handoff packet into its project (#468), Claude's own `~/.claude.json`
 (#533), the attention hook's writes into `~/.claude/settings.json`, the plan convention pointing a

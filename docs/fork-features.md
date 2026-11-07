@@ -532,7 +532,7 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   file once with its source and scope, says per CLI whether the skill is native there, shared to it, handed over as
   text, declined or not offered, edits the file on its page with a conflict check against the disk, and creates a new
   skill from a CLI's own template in a skills folder that CLI declares, or deletes a CLI's skill after asking
-  (#803, E15, E16). The sidebar's Agent Files no longer lists skills. *MCPs* is the
+  (#803, E15, E16). *MCPs* is the
   project's server list as one-line rows (the global window explains it is per project and opens a project's), and
   *Marketplace* is the catalog above, adding straight to the project in a project window. The views read only when
   first shown, and leaving a skill page with unsaved text is refused. Spec:
@@ -614,20 +614,28 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   descriptor, so a new backend fills its column without a renderer change. Where a capability is missing
   the app says so rather than going quiet — a session whose backend cannot fork keeps the Fork button,
   greyed, and it names the backend that cannot do it.
-- **Its skills, rules and commands, in the app** — the Agent Files tab lists what each CLI reads its own
-  behaviour from, beside the instruction files it already showed. A customization directory is one row
-  that opens into its entries, and an entry opens in the built-in viewer instead of being handed to the
-  system. Since #803 skills are listed, edited, created and deleted in Settings → Plugins → Skills instead,
-  and the tab no longer lists them or indexes their text for the search; rules, commands, agents and Hermes'
-  skill bundles stay here.
-- **And they can be changed there** — a rule, a command or a CLI's settings file is saved back
-  from the same panel. The format is checked before anything is written (JSON, TOML, YAML, a skill's
+- **Its skills, rules and commands, in the app** (#440; the sidebar's Agent Files tab that showed them was
+  replaced by #823, see *Instructions, agents, commands and rules* below) — what each CLI reads its own
+  behaviour from, listed per CLI. Since #803 skills are listed, edited, created and deleted in Settings →
+  Plugins → Skills; since #823 agents, commands and rules (with Hermes' skill bundles) are Plugins views too.
+- **And they can be changed there** (#441) — a rule, a command or a CLI's settings file is saved back
+  from its Settings page. The format is checked before anything is written (JSON, TOML, YAML, a skill's
   frontmatter), the file's own line endings and BOM survive the round trip, the write is atomic so a CLI
   reading its config mid-save never sees half of one, and a save built on a version something else has
   changed since is refused with the same conflict bar an external change raises. Which files a CLI lets
   the app touch is that CLI's own declaration, so nothing executable is on the list. Commands, rules and
   agents can also be created from a per-backend template and deleted, the deletion asking a narrower
   question than the reading did. (Skills did the same here until #803 moved them to Settings → Plugins.)
+- **Instructions, agents, commands and rules in Settings (#823)** — replaces the sidebar's Agent Files tab,
+  which is gone. *Agents*, *Commands* and *Rules* are views of the Plugins group, listed and edited like Skills:
+  New, Edit and Delete where a CLI's descriptor allows it, Delete asking first and never for something a plugin
+  installed. *Instructions* is a category of its own in both settings windows: the global window shows the
+  instruction, memory and settings files that apply everywhere, a project window the project's, each page
+  pointing to the other; a project's work files are a section there. The filter of these views and of Skills
+  matches the name or the file content, decided in the main process. The session sidebar gets an
+  Instructions group with what applies to that session; a click opens the file read-only, its Edit button opens
+  the file's page in Settings. Handoff packets stay in the handoff picker. Spec:
+  [`specs/44-instructions.md`](specs/44-instructions.md).
 - **A command palette** — F1 over sessions, projects and the app's own commands, matching from
   the first keystroke rather than the third. It opens on the **commands**, under a heading of their own,
   with the jump targets below: an empty palette is being asked what the app can do, and where you were is
@@ -644,8 +652,9 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Hermes'; `CLAUDE.md` is Claude's, Pi's and Hermes'. Hermes had declared no per-project instruction
   files at all while its own launch option offered to skip them, so a Hermes-only project showed nothing;
   its own source settles the set, and files without an extension (`.cursorrules`) open like the rest.
-- **Filtered by type and by backend** — the Agent Files tab filters by what a file IS (rules, commands,
-  agents, instructions) and by which CLI reads it, both at once, alongside the search. A file two
+- **Filtered by type and by backend** (#447; the tab is gone, #823 keeps the by-CLI chips from #824 and gives
+  each kind its own page, so "by type" is the page you are on) — a row can be narrowed by which CLI reads it,
+  alongside the search. A file two
   backends declare — `AGENTS.md` belongs to Codex and Pi, `CLAUDE.md` to Claude and Pi — wears both
   badges and answers to both filters, rather than being attributed to whichever was asked first.
 - **A document stays live while an agent rewrites it** — the viewer already reloaded a file that changed

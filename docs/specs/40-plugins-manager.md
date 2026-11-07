@@ -145,7 +145,7 @@ E1 to E10 were put to the owner with options; every one was answered as recommen
 | E12 | (2026-11-03) Once the Plugins manager is built, the sidebar's Agent Files **stops listing skills and plugins**; it keeps instruction files, settings files and handoffs. A step of its own (T12). |
 | E13 | (2026-11-03) The sidebar gets **no** "Switchboard skills" group; the memory door is not widened. |
 | E14 | (2026-11-03) A `skillsDir` at, inside or above a backend's own directory is **refused** for editing — those files belong to that CLI and its own door decides. Also refused, for the editor and the picker's walk alike, on the real path: a network path, a filesystem root (a junction to one included), the home directory and anything above it. |
-| E15 | (2026-11-03) E12 takes out of the sidebar what the Skills view replaces, and nothing more: the `skill` kind. Commands, agents, rules and Hermes' skill bundles stay in Agent Files, because no view here lists them. First the Skills view gets "New skill" (the sidebar's only way to create one), then the sidebar drops skills. |
+| E15 | (2026-11-03) E12 takes out of the sidebar what the Skills view replaces, and nothing more: the `skill` kind. Commands, agents, rules and Hermes' skill bundles stay in Agent Files, because no view here lists them. **Superseded by #823 (T3, T12):** Agents, Commands and Rules are Plugins views and the tab is gone. First the Skills view gets "New skill" (the sidebar's only way to create one), then the sidebar drops skills. |
 | E16 | (2026-11-03) The Skills page also gets **Delete**, which the sidebar offered: for a CLI's skill where Edit is offered, after a confirmation. The app's own skills are not deleted here, and neither is a plugin's (O5, 2026-11-03): a backend marks a listed folder a plugin installed and keeps with `fromPlugin` (Claude, Codex), and no Delete is offered there, because the plugin's next update would bring a deleted skill back. |
 | E17 | (2026-11-03) Accepted: with skills gone from Agent Files, the app search no longer finds text inside a skill. The Skills view's filter matches name and source only. **Superseded 2026-11-07 (#823 P5, T4):** the Skills filter matches name and source OR file content, the same hook as Agents, Commands and Rules (see "Content filter" below). |
 | E6 | Plugin state is read-only; Switchboard does not write a CLI's plugin settings. |
@@ -299,10 +299,10 @@ file. Main does the matching; the window never receives file text.
 
 ## Known gaps
 
-- **E12 is narrowed by E15.** The sidebar's Agent Files no longer lists skills, but still lists commands, agents,
-  rules and Hermes' skill bundles: no view of the Plugins manager lists those.
+- **E12 was narrowed by E15, and both are history.** #823 removed the Agent Files tab; commands, agents, rules and
+  Hermes' skill bundles are now Plugins views (spec 44).
 - **The app search does not find text inside a skill** (E17, accepted; the Skills view's own filter does since #823 T4,
-  see "Content filter"). Agent Files indexed it for the main window's search; that search still does not.
+  see "Content filter"). The tab that indexed it for the main window's search is gone; the settings-wide search does not read file text.
 - **The window's title-bar X does not ask.** It hides the settings window, and unsaved skill text is lost. The same is
   true of any unsaved setting there; it predates this spec.
 - **The two hand-offs to a project's window have no panel test** of the refusal; Cancel, Save, Apply, Hide, Remove
