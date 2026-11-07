@@ -538,6 +538,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       if (state.busy) { followContextSettled(delay, triesLeft); return; }
       const res = await request(rpc.serversCommand);
       if (state.exited) return;
+      // An answer that arrives while a turn runs is not read: that turn asks the fill itself when it settles.
+      if (state.busy) { followContextSettled(delay, triesLeft); return; }
       let settled = null;
       try { settled = rpc.serversSettled(res); } catch { settled = null; }
       if (settled === null) return;
