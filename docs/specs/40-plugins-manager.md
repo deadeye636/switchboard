@@ -235,6 +235,36 @@ there are two or more CLIs.
 - **Styling** reuses the toggle chips of the MCP form (`settings-action-btn sv-mcp-chip`, `.active`, `aria-pressed`);
   `.plugins-chip-row` only places the row.
 
+## Agents, Commands, Rules (#823)
+
+Three more items under the Plugins head, in both windows: `plugins-agents`, `plugins-commands`, `plugins-rules` (in
+`SETTINGS_SEED_CATS` and in the renderer's list, compared both ways by `test/settings-plugins.test.js`). The inventory and
+the doors are spec 44's; this section is the page.
+
+- **One builder.** `panels/plugins-resources.js` (`window.pluginsResources.mountResourceView(view)`) hands
+  `pluginsViews.mountItemView` its door and its sentences. `mountItemView`, `itemEditor` and `newItemForm` in
+  `panels/plugins-views.js` are the Skills page's list, detail page, editor, conflict UI, New form and Delete confirmation,
+  extracted and parametrised with a noun and a door (`io`); Skills uses the same functions, so nothing is copied.
+- **Rows** come from `getResourceInventory(view, projectPath)`, grouped "This project" / "Global", with the #824 CLI chips
+  from `clis` (filter key `resources-<view>`). A file two CLIs name sits under both chips. The detail page shows Source,
+  From (when the origin differs) and Kind; main sends no path.
+- **Edit** where the row is `editable` (the same editor, read and saved by id with the view named, baseline compare,
+  conflict answer as for a skill). A row that is not editable (a hook, a kind the CLI does not let Switchboard edit) shows a
+  sentence and its text in the same CodeMirror setup, read-only (no Save, no Discard; this holds for a Skills page too),
+  and one that came with a plugin says to change it there. The syntax comes from the row's `ext` (main sends the
+  extension, never the path).
+- **Delete** where the row is `deletable`, after a confirmation naming the item and its source; never a plugin's item,
+  never a hook (main decides, the button follows the flag). **New** shows where `getResourcePlaces` offers at least one
+  place (probed after the list is drawn, so an empty folder still offers it); the form is the Skills form with the places
+  main offers.
+- **Declines.** A line per CLI main reports in `declines` ("Codex keeps no agents here.") sits under the list.
+- **Lazy and counted.** The first read is the category's first `settings-cat-shown`, never bind; the nav badge is the row
+  count (`data-count-own`); `leave()` and `pluginsMayLeave` reach these pages through `pluginsKit.viewsIn`, so unsaved
+  text refuses Cancel, Save, Apply and the settings search as it does on the Skills page.
+- **A redraw starts from the rows on screen**, never from the first read: the New probe resolves after the list is drawn
+  and must not bring back a row deleted or created in between.
+- **Not here yet.** The filter matches name and source only; matching file content is #823 T4.
+
 ## Known gaps
 
 - **E12 is narrowed by E15.** The sidebar's Agent Files no longer lists skills, but still lists commands, agents,

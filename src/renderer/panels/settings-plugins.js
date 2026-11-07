@@ -1,11 +1,12 @@
 // settings-plugins.js — the Plugins group of the settings screen (#803 T10, spec 40 D7, E1, E7, E8, E9).
 //
-// One "Plugins" head in the nav with five items — Plugins, Apps, MCPs, Skills, Marketplace — in both windows (E1: a
+// One "Plugins" head in the nav with eight items — Plugins, Apps, MCPs, Skills, Agents, Commands, Rules, Marketplace — in both windows (E1: a
 // group in the existing Settings window; E7: nav items, not a tab strip). This file holds the group's nav markup, the
 // sections the views draw into, and the wiring; the views themselves are panels/plugins-views.js (Plugins, Apps,
-// Skills) and panels/settings-external-mcp.js (MCPs, Marketplace).
+// Skills), panels/plugins-resources.js (Agents, Commands, Rules; #823) and panels/settings-external-mcp.js (MCPs,
+// Marketplace).
 //
-//   - Plugins, Apps, Skills read on their category's first `settings-cat-shown` (`pluginsViews.bindLazy`), never at
+//   - Plugins, Apps, Skills, Agents, Commands, Rules read on their category's first `settings-cat-shown` (`pluginsViews.bindLazy`), never at
 //     bind; their nav badge is the row count, written once the view has read (`data-count-own`).
 //   - MCPs: in a project window the existing project MCP category (`mcp`, staged until Save); in the global window
 //     there is no machine-wide list (spec 36 D-B4), so the view explains that and offers a project picker that
@@ -25,12 +26,15 @@
     plugins: 'plugins-plugins',
     apps: 'plugins-apps',
     skills: 'plugins-skills',
+    agents: 'plugins-agents',
+    commands: 'plugins-commands',
+    rules: 'plugins-rules',
     globalMcps: 'plugins-mcps',
     projectMcps: 'mcp',
     marketplace: 'mcp-addons',
   };
   // The categories a deep link may land on (`openSettingsWindow(scope, path, { cat })`); main validates the same list.
-  const SEED_CATS = [CATS.plugins, CATS.apps, CATS.skills, CATS.globalMcps, CATS.projectMcps, CATS.marketplace];
+  const SEED_CATS = [CATS.plugins, CATS.apps, CATS.skills, CATS.agents, CATS.commands, CATS.rules, CATS.globalMcps, CATS.projectMcps, CATS.marketplace];
 
   function navHtml(scope) {
     const mcps = scope === 'project' ? CATS.projectMcps : CATS.globalMcps;
@@ -42,6 +46,9 @@
           ${item(CATS.apps, 'Apps')}
           ${item(mcps, 'MCPs')}
           ${item(CATS.skills, 'Skills')}
+          ${item(CATS.agents, 'Agents')}
+          ${item(CATS.commands, 'Commands')}
+          ${item(CATS.rules, 'Rules')}
           ${item(CATS.marketplace, 'Marketplace')}`;
   }
 
@@ -58,7 +65,10 @@
     const where = scope === 'project' ? 'for this project' : 'on this machine';
     let html = section(CATS.plugins, 'Plugins', `What each CLI has installed ${where}, and whether it is switched on.`, '<div class="sv-plugins-host" data-view="plugins"></div>')
       + section(CATS.apps, 'Apps', 'Apps a CLI reports.', '<div class="sv-plugins-host" data-view="apps"></div>')
-      + section(CATS.skills, 'Skills', `Every skill file ${where}, what each CLI makes of it, and its editor.`, '<div class="sv-plugins-host" data-view="skills"></div>');
+      + section(CATS.skills, 'Skills', `Every skill file ${where}, what each CLI makes of it, and its editor.`, '<div class="sv-plugins-host" data-view="skills"></div>')
+      + section(CATS.agents, 'Agents', `Every agent file ${where}, with its editor.`, '<div class="sv-plugins-host" data-view="agents"></div>')
+      + section(CATS.commands, 'Commands', `Every command file ${where}, with its editor.`, '<div class="sv-plugins-host" data-view="commands"></div>')
+      + section(CATS.rules, 'Rules', `Every rule file ${where}, with its editor.`, '<div class="sv-plugins-host" data-view="rules"></div>');
     if (scope === 'project') {
       html += section(CATS.marketplace, 'Marketplace', 'A short, reviewed list of external MCP servers and the official registry. Add one to this project; it is stored when you press Save.', '<div id="sv-mcp-addons"></div>');
     } else {
@@ -151,6 +161,9 @@
       lazy(CATS.plugins, window.pluginsViews.mountPlugins);
       lazy(CATS.apps, window.pluginsViews.mountApps);
       lazy(CATS.skills, window.pluginsViews.mountSkills);
+      if (window.pluginsResources) {
+        for (const view of ['agents', 'commands', 'rules']) lazy(CATS[view], window.pluginsResources.mountResourceView(view));
+      }
     }
 
     // Marketplace: the catalog is drawn at once; its badge is the catalog's rows (registry hits are not counted).

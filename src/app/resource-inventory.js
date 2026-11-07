@@ -191,7 +191,7 @@ function distinctClis(owners) {
 
 /**
  * The neutral inventory of one view: `{ ok, rows, declines }`.
- * A row is `{ id, name, kind, scope, sourceLabel, originLabel, cli, clis, editable, deletable, fromPlugin,
+ * A row is `{ id, name, kind, scope, sourceLabel, originLabel, ext, cli, clis, editable, deletable, fromPlugin,
  * creatable }`. `deletable` follows the skills rule (spec 40 E16): the kind has a lifecycle, a backend's door
  * admits Edit, and nothing a plugin installed — a second CLI listing the same folder unmarked does not open it.
  */
@@ -213,6 +213,8 @@ function getResourceInventory({ view, projectPath = null } = {}) {
     const clis = distinctClis(r.owners);
     return {
       id: r.id, name: r.name, kind: r.kind, scope: r.scope, sourceLabel: r.sourceLabel, originLabel: r.originLabel,
+      // Only the extension, so the editor picks its syntax; the path stays here.
+      ext: path.extname(r.filePath).toLowerCase(),
       cli: clis[0], clis, ...flagsOf(r),
     };
   });

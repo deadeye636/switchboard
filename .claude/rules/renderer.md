@@ -418,7 +418,9 @@ noticing.
 - **The Plugins group is one module in both windows (#803, spec 40).** `panels/settings-plugins.js` writes its nav
   head, its sections and its wiring; `panels/plugins-views.js` draws Plugins, Apps and Skills, and
   `panels/settings-external-mcp.js` the MCPs and the Marketplace, all over `panels/plugins-kit.js` so the list-to-detail
-  behaviour cannot drift. Category ids: `plugins-plugins`, `plugins-apps`, `plugins-skills`, `mcp-addons`
+  behaviour cannot drift. Agents, Commands and Rules (#823, `plugins-agents`, `plugins-commands`, `plugins-rules`) are
+  `panels/plugins-resources.js` over `pluginsViews.mountItemView`, the Skills page's own builder with another door, so the
+  editor, the conflict UI, New and Delete exist once. Category ids: `plugins-plugins`, `plugins-apps`, `plugins-skills`, `mcp-addons`
   (Marketplace, the #790 id kept), and for MCPs `mcp` in a project window, `plugins-mcps` in the global one. A deep link
   `{ cat }` must name one of `SETTINGS_SEED_CATS` in `src/app/windows.js`; `test/settings-plugins.test.js` compares that
   list with the renderer's both ways, so a new view id goes in both.

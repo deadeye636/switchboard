@@ -17,7 +17,7 @@ function load(api = {}) {
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="body"></div></body></html>', { url: 'http://localhost/', runScripts: 'outside-only' });
   const ctx = dom.getInternalVMContext();
   for (const rel of ['lib/utils.js', '../shared/external-mcp-validate.js', '../shared/external-mcp-form.js', '../shared/mcp-addon-catalog.js',
-    'panels/plugins-kit.js', 'panels/plugins-views.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
+    'panels/plugins-kit.js', 'panels/plugins-views.js', 'panels/plugins-resources.js', 'panels/settings-external-mcp.js', 'panels/settings-plugins.js']) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
   dom.window.api = api;
@@ -35,7 +35,7 @@ test('every nav item of the group has its section, in both windows', () => {
     for (const [scope, sections] of [['global', globalHtml], ['project', projectHtml]]) {
       const have = navCats(sections);
       const nav = navCats(sp.navHtml(scope));
-      assert.equal(nav.length, 5, scope + ': five items (E7)');
+      assert.equal(nav.length, 8, scope + ': five items (E7) and Agents, Commands, Rules (#823)');
       for (const cat of nav) assert.ok(have.includes(cat), `${scope}: ${cat} has a section`);
     }
     assert.ok(navCats(sp.navHtml('project')).includes('mcp'), 'the project MCPs item is the existing project MCP category');
@@ -94,6 +94,32 @@ test('the views read on their first show, once, and the badge is their row count
     assert.equal(badge('plugins-plugins').hidden, true, 'an unread view counts nothing');
     assert.equal(badge('mcp-addons').textContent, String(window.MCP_ADDON_CATALOG.length), 'catalog rows, not registry hits');
   } finally { dom.window.close(); }
+});
+
+test('Agents, Commands and Rules read on their first show, once, in both windows, and count their rows (#823)', async () => {
+  for (const scope of ['global', 'project']) {
+    const asked = [];
+    const dom = load({
+      getResourceInventory: async (view, pp) => { asked.push([view, pp]); return { ok: true, rows: view === 'rules' ? [] : [{ id: view, name: view, scope: 'global', sourceLabel: 'X', clis: [], editable: false }], declines: [] }; },
+      getResourcePlaces: async () => ({ ok: true, places: [] }),
+    });
+    try {
+      const { window } = dom;
+      const body = mountBody(dom, scope);
+      window.settingsPlugins.bind(body, new window.AbortController().signal, { scope, projectPath: scope === 'project' ? '/work/p' : null });
+      await tick();
+      assert.deepEqual(asked, [], scope + ': nothing read at bind');
+      const show = (cat) => body.querySelector(`section[data-cat="${cat}"]`).dispatchEvent(new window.CustomEvent('settings-cat-shown'));
+      show('plugins-agents'); show('plugins-agents'); show('plugins-commands');
+      await tick(); await tick();
+      const pp = scope === 'project' ? '/work/p' : null;
+      assert.deepEqual(asked, [['agents', pp], ['commands', pp]]);
+      const badge = (cat) => body.querySelector(`.settings-nav-item[data-cat="${cat}"] .settings-nav-count`);
+      assert.equal(badge('plugins-agents').textContent, '1');
+      assert.equal(badge('plugins-rules').hidden, true, 'an unread view counts nothing');
+      assert.ok(body.querySelector('.settings-nav-item[data-cat="plugins-rules"]').hasAttribute('data-count-own'));
+    } finally { dom.window.close(); }
+  }
 });
 
 test('the global MCPs view opens a chosen project on its MCP servers after the warning (E8)', async () => {

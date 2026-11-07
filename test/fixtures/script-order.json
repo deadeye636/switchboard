@@ -166,6 +166,7 @@
     "mcp-addon-catalog.js",
     "plugins-kit.js",
     "plugins-views.js",
+    "plugins-resources.js",
     "settings-external-mcp.js",
     "settings-plugins.js",
     "settings-global-html.js",

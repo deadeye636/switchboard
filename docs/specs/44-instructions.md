@@ -74,11 +74,12 @@ must have a new home before the tab goes. Built on #824 (CLI chips and filters i
 `{ ok, rows, declines }` for `agents`, `commands` or `rules`. It asks each ready, non-profile backend (one per CLI) for
 `listResources` in the global scope and, with a project, in the project scope, reads each listed directory through the
 descriptor's own `expandResource` (a listed file is one row itself), and keeps the entries whose kind belongs to the
-view. One row per real path. A row is `{ id, name, kind, scope, sourceLabel, originLabel, cli, clis, editable, deletable,
+view. One row per real path. A row is `{ id, name, kind, scope, sourceLabel, originLabel, ext, cli, clis, editable, deletable,
 fromPlugin, creatable }`:
 
 - `id` is a hash of the path's `pathKey`; no path and no backend id field leave main. The owner CLI's id travels only
   as the opaque `cli.key` of the #824 stamps (spec 40).
+- `ext` is the file's lowercase extension (`.md`, `.toml`), nothing of the path: the editor picks its syntax from it.
 - `cli` and `clis` are the #824 stamps; a driver folds into its owner CLI. A file named by several CLIs carries all of
   them in `clis`.
 - `editable` is the Skills door's predicate: some owner's `resourceEditing` takes the extension and that owner's listing
@@ -110,9 +111,14 @@ that qualifies, with the project passed only for a project-scope row.
   exists. The window gets `{ id, label, scope, kind }`: no path field and no backend id (the label shows the folder). The answer carries the new row's
   id (null when the fresh listing does not show it).
 
+**The three views (renderer, T3).** Settings, Plugins, Agents / Commands / Rules, in the global and the project window,
+are `src/renderer/panels/plugins-resources.js` over the Skills page's builder; spec 40 ("Agents, Commands, Rules (#823)")
+has the page. The window calls `get-resource-inventory` with the view name, reads and saves through the id doors passing
+the view, and draws `declines` as one line per CLI. No new setting.
+
 ## Known gaps
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The three views, the content filter, the Instructions inventory and category, the
-  deep link, the sidebar group, and removing the Agent Files tab are later steps of the plan and are not built.
+- The content filter, the Instructions inventory and category, the deep link, the sidebar group, and removing the Agent
+  Files tab are later steps of the plan and are not built.

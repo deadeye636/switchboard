@@ -156,18 +156,23 @@
   }
 
   /** -> { getText(), setText(text), onSave(cb), destroy() } over the shared CodeMirror editor. */
-  async function codeMirrorEditor(parent, text) {
+  async function codeMirrorEditor(parent, text, fileHint, readOnly) {
     await loadEditorBundle();
-    const view = window.createEditableViewer(parent, text, 'SKILL.md', { wrap: true });
+    const view = readOnly
+      ? window.createReadOnlyViewer(parent, text, fileHint || 'SKILL.md')
+      : window.createEditableViewer(parent, text, fileHint || 'SKILL.md', { wrap: true });
     return {
       getText: () => view.state.doc.toString(),
       setText: (t) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: t } }),
-      onSave: (cb) => view.dom.addEventListener('cm-save', cb),
+      onSave: (cb) => { if (!readOnly) view.dom.addEventListener('cm-save', cb); },
       destroy: () => view.destroy(),
     };
   }
 
-  function skillEditor(container, row, ctx, state) {
+  // The editor and the New form below serve the Skills page and the Agents, Commands and Rules pages
+  // (panels/plugins-resources.js). `io` is the page's door: { noun, fileHint(row), read(id), save(id, text, baseline),
+  // places(), create(placeId, name), del(id), noPlaces } — the same sentences with another noun.
+  function itemEditor(container, row, ctx, state, io) {
     const box = node('div', 'plugins-skill-edit');
     const head = node('div', 'settings-section-title', 'Edit');
     const area = node('div', 'plugins-skill-editor');
@@ -179,7 +184,7 @@
     const actions = node('div', 'sv-mcp-card-actions');
     box.append(head, area, actions, msg, leaveNote);
     container.appendChild(box);
-    area.appendChild(node('div', 'settings-hint', 'Opening the skill…'));
+    area.appendChild(node('div', 'settings-hint', `Opening the ${io.noun}…`));
 
     // The disk version a conflicting save met, shown read-only so it can be compared before anything is chosen.
     const conflictBox = node('div', 'plugins-skill-conflict');
@@ -192,7 +197,7 @@
     const dirty = () => !!editor && baseline !== null && editor.getText() !== baseline;
     state.canLeave = () => {
       if (!dirty()) { leaveNote.textContent = ''; return true; }
-      leaveNote.textContent = 'This skill has unsaved changes. Save them or press Discard first.';
+      leaveNote.textContent = `This ${io.noun} has unsaved changes. Save them or press Discard first.`;
       return false;
     };
 
@@ -225,7 +230,7 @@
       saving = true;
       msg.textContent = 'Saving…';
       let res = null;
-      try { res = await api().saveSkill(row.id, ctx.projectPath || null, editor.getText(), baseline); } catch { res = null; }
+      try { res = await io.save(row.id, editor.getText(), baseline); } catch { res = null; }
       saving = false;
       if (state.dead) return;
       if (res && res.ok) {
@@ -240,7 +245,7 @@
         showConflict(typeof res.diskContent === 'string' ? res.diskContent : '');
         return;
       }
-      msg.textContent = (res && res.reason) || 'The skill could not be saved.';
+      msg.textContent = (res && res.reason) || `The ${io.noun} could not be saved.`;
     }
     const saveBtn = button('Save', save);
     const discardBtn = button('Discard', () => {
@@ -257,16 +262,16 @@
 
     (async () => {
       let res = null;
-      try { res = await api().readSkill(row.id, ctx.projectPath || null); } catch { res = null; }
+      try { res = await io.read(row.id); } catch { res = null; }
       if (state.dead) return;
       area.textContent = '';
       if (!res || res.ok === false) {
-        msg.textContent = (res && res.reason) || 'The skill could not be read.';
+        msg.textContent = (res && res.reason) || `The ${io.noun} could not be read.`;
         return;
       }
       let made = null;
       try {
-        made = await (ctx.createEditor || codeMirrorEditor)(area, res.content);
+        made = await (ctx.createEditor || codeMirrorEditor)(area, res.content, io.fileHint(row));
       } catch {
         if (!state.dead) msg.textContent = 'The editor could not be loaded.';
         return;
@@ -279,6 +284,34 @@
       saveBtn.disabled = false;
       discardBtn.disabled = false;
       state.destroy = () => { try { editor.destroy(); } catch {} };
+    })();
+  }
+
+  // A row that cannot be edited still shows its text, read-only, in the same CodeMirror setup (no Save, no Discard).
+  function itemViewer(container, row, ctx, state, io) {
+    const box = node('div', 'plugins-skill-edit');
+    const area = node('div', 'plugins-skill-editor');
+    const msg = node('div', 'settings-hint sv-mcp-form-msg');
+    msg.setAttribute('aria-live', 'polite');
+    box.append(node('div', 'settings-section-title', 'Content'), area, msg);
+    container.appendChild(box);
+    area.appendChild(node('div', 'settings-hint', `Opening the ${io.noun}…`));
+    (async () => {
+      let res = null;
+      try { res = await io.read(row.id); } catch { res = null; }
+      if (state.dead) return;
+      area.textContent = '';
+      if (!res || res.ok === false || typeof res.content !== 'string') {
+        msg.textContent = (res && res.reason) || `The ${io.noun} could not be read.`;
+        return;
+      }
+      let made = null;
+      try { made = await (ctx.createEditor || codeMirrorEditor)(area, res.content, io.fileHint(row), true); } catch {
+        if (!state.dead) msg.textContent = 'The viewer could not be loaded.';
+        return;
+      }
+      if (state.dead) { try { made.destroy(); } catch {} return; }
+      state.destroy = () => { try { made.destroy(); } catch {} };
     })();
   }
 
@@ -314,20 +347,20 @@
 
   // "New skill" (#803 T12a, E15): a small form above the list. The places are main's answer — a label and an opaque
   // id each, read when the form opens; the file comes from the backend's own scaffold, and its page opens after.
-  function newSkillForm(anchor, ctx, onCreated) {
+  function newItemForm(anchor, ctx, onCreated, io) {
     const existing = anchor.parentNode && anchor.parentNode.querySelector(':scope > .plugins-new-skill');
     if (existing) { const input = existing.querySelector('input'); if (input) input.focus(); return; }
     const form = node('div', 'sv-mcp-form plugins-new-skill');
-    form.appendChild(node('div', 'settings-section-title', 'New skill'));
+    form.appendChild(node('div', 'settings-section-title', `New ${io.noun}`));
     const place = document.createElement('select');
     place.className = 'settings-select';
-    place.setAttribute('aria-label', 'Folder for the new skill');
+    place.setAttribute('aria-label', `Folder for the new ${io.noun}`);
     const name = document.createElement('input');
     name.type = 'text';
     name.className = 'settings-input';
     name.spellcheck = false;
-    name.placeholder = 'skill-name';
-    name.setAttribute('aria-label', 'Name of the new skill');
+    name.placeholder = `${io.noun}-name`;
+    name.setAttribute('aria-label', `Name of the new ${io.noun}`);
     const msg = node('div', 'sv-mcp-problem sv-mcp-form-msg');
     msg.setAttribute('aria-live', 'polite');
     const fieldOf = (label, control) => {
@@ -344,9 +377,9 @@
       if (!place.value) { msg.textContent = 'There is no folder to create it in.'; return; }
       create.disabled = true;
       let out = null;
-      try { out = await api().createSkill(place.value, name.value, ctx.projectPath || null); } catch { out = null; }
+      try { out = await io.create(place.value, name.value); } catch { out = null; }
       create.disabled = false;
-      if (!out || !out.ok) { msg.textContent = (out && out.reason) || 'The skill could not be created.'; return; }
+      if (!out || !out.ok) { msg.textContent = (out && out.reason) || `The ${io.noun} could not be created.`; return; }
       // A skill page opened while the create was out closed the form: the user went elsewhere, so the new skill
       // joins the list without pulling them off that page.
       const stillHere = form.isConnected;
@@ -363,10 +396,10 @@
     create.disabled = true;
     (async () => {
       let res = null;
-      try { res = await api().getSkillPlaces(ctx.projectPath || null); } catch { res = null; }
+      try { res = await io.places(); } catch { res = null; }
       const places = res && res.ok && Array.isArray(res.places) ? res.places : null;
       if (!places) { msg.textContent = (res && res.reason) || 'The folders could not be read.'; return; }
-      if (!places.length) { msg.textContent = 'No CLI here has a skills folder to create a skill in.'; return; }
+      if (!places.length) { msg.textContent = io.noPlaces; return; }
       for (const p of places) {
         const o = document.createElement('option');
         o.value = p.id;
@@ -378,13 +411,18 @@
     })();
   }
 
-  async function mountSkills(host, ctx) {
+  // One list-to-detail page over an editable item: the Skills page and the Agents, Commands and Rules pages are the
+  // same page with another door. `cfg` = { io, reading, readError, filterPlaceholder, filterKey, emptyText,
+  // read() -> { rows, declines? } | null, sections(list), renderFacts(row, container), readOnlyText(row),
+  // deleteDetails(row), probeCreate()? -> Promise<boolean> } (without `probeCreate`, New is always offered).
+  async function mountItemView(host, ctx, cfg) {
+    const io = cfg.io;
     host.textContent = '';
-    host.appendChild(node('div', 'settings-hint', 'Reading the skills…'));
-    const rows = await readSkillRows(ctx);
-    if (!rows) {
+    host.appendChild(node('div', 'settings-hint', cfg.reading));
+    const first = await cfg.read();
+    if (!first) {
       host.textContent = '';
-      host.appendChild(node('div', 'sv-mcp-problem', 'The skills could not be read.'));
+      host.appendChild(node('div', 'sv-mcp-problem', cfg.readError));
       return null;
     }
     // One editor page at a time: what it may refuse (unsaved text) and what it must release (the editor). A page
@@ -396,31 +434,49 @@
       page = {};
     };
     let view = null;
-    // The form belongs to the list: a skill page that opens closes it, so a create never lands on top of a page
-    // holding unsaved text. The new skill's page opens only when the list is what is on screen.
+    let canCreate = !cfg.probeCreate;
+    let declines = first.declines || [];
+    // The rows on screen now: every redraw (the New probe included) starts from these, never from the first read.
+    let rows = first.rows;
+    // The form belongs to the list: an item page that opens closes it, so a create never lands on top of a page
+    // holding unsaved text. The new item's page opens only when the list is what is on screen.
     const closeForm = () => {
       const form = host.parentNode && host.parentNode.querySelector(':scope > .plugins-new-skill');
       if (form) form.remove();
     };
-    const afterCreate = async (id, navigate) => {
-      const next = await readSkillRows(ctx);
-      if (!next || !view) return;
-      view.refresh(spec(next));
+    // A line per CLI that keeps nothing of this kind here, under the list.
+    const drawDeclines = () => {
+      const listPage = view && view.root.querySelector('.plugins-list-page');
+      if (!listPage) return;
+      let box = listPage.querySelector(':scope > .plugins-declines');
+      // The host's own document: this runs after a read, when the page may already be gone.
+      const make = (cls, text) => { const n = host.ownerDocument.createElement('div'); n.className = cls; if (text) n.textContent = text; return n; };
+      if (!box) { box = make('plugins-declines'); listPage.appendChild(box); }
+      box.textContent = '';
+      for (const d of declines) box.appendChild(make('settings-hint', d.sentence));
+    };
+    const apply = (next) => {
+      declines = next.declines || [];
+      rows = next.rows;
+      view.refresh(spec(rows));
+      drawDeclines();
       // From the rows, not the DOM: a refresh under an open page redraws no list until Back.
-      if (typeof ctx.onCount === 'function') ctx.onCount(next.length);
+      if (typeof ctx.onCount === 'function') ctx.onCount(next.rows.length);
+    };
+    const afterCreate = async (id, navigate) => {
+      const next = await cfg.read();
+      if (!next || !view) return;
+      apply(next);
       if (id && navigate && view.showList({ focus: false }) !== false) view.openDetail(id);
     };
     const spec = (list) => ({
-      filterPlaceholder: 'Filter skills',
-      filterKey: 'skills',
-      // A skill file can be reported by several CLIs (`clis`), so it sits under each of their chips.
+      filterPlaceholder: cfg.filterPlaceholder,
+      filterKey: cfg.filterKey,
+      // An item file can be reported by several CLIs (`clis`), so it sits under each of their chips.
       rowGroups: (r) => (Array.isArray(r.clis) ? r.clis : []),
-      emptyText: 'No skills found for any CLI here.',
-      actions: [{ label: 'New skill', onClick: () => newSkillForm(host, ctx, afterCreate) }],
-      sections: [
-        { title: 'This project', rows: list.filter(r => r.scope === 'project') },
-        { title: 'Global', rows: list.filter(r => r.scope !== 'project') },
-      ],
+      emptyText: cfg.emptyText,
+      actions: canCreate ? [{ label: `New ${io.noun}`, onClick: () => newItemForm(host, ctx, afterCreate, io) }] : [],
+      sections: cfg.sections(list),
       rowKey: (r) => r.id,
       rowLabel: (r) => r.name,
       rowMeta: (r) => r.sourceLabel,
@@ -431,50 +487,96 @@
       renderDetail: (r, c) => {
         releasePage();
         closeForm();
-        c.appendChild(line('Source', r.sourceLabel));
-        c.appendChild(line('File', r.filePath));
-        for (const o of r.alsoNamed || []) c.appendChild(line('Also named in', `${o.sourceLabel} — ${o.filePath}`));
-        deliveryTable(c, r, ctx);
-        if (r.editable) skillEditor(c, r, ctx, page);
-        else c.appendChild(node('div', 'settings-hint', 'This skill is read-only here: the CLI it belongs to does not let Switchboard edit it.'));
+        cfg.renderFacts(r, c);
+        if (r.editable) itemEditor(c, r, ctx, page, io);
+        else {
+          c.appendChild(node('div', 'settings-hint', cfg.readOnlyText(r)));
+          itemViewer(c, r, ctx, page, io);
+        }
         if (r.deletable) deleteControl(c, r);
       },
     });
     // Delete (E16): asked first, then main deletes through the CLI's own listing. The editor's text goes with the
-    // skill, so the page is released before the list is redrawn without the row.
+    // item, so the page is released before the list is redrawn without the row.
     const deleteControl = (c, r) => {
       const msg = node('div', 'settings-hint sv-mcp-form-msg');
       msg.setAttribute('aria-live', 'polite');
       const actions = node('div', 'sv-mcp-card-actions');
-      actions.appendChild(button('Delete skill', async () => {
+      actions.appendChild(button(`Delete ${io.noun}`, async () => {
         msg.textContent = '';
         const unsaved = !!(page.canLeave && !page.canLeave());
         const ok = typeof showControlDialog === 'function' ? await showControlDialog({
-          title: 'Delete skill',
-          message: 'The skill is deleted from disk, with its folder and everything in it. This cannot be undone.'
-            + (unsaved ? ' Unsaved changes in the editor are discarded.' : ''),
-          confirmLabel: 'Delete skill',
+          title: `Delete ${io.noun}`,
+          message: io.deleteMessage + (unsaved ? ' Unsaved changes in the editor are discarded.' : ''),
+          confirmLabel: `Delete ${io.noun}`,
           tone: 'danger',
-          details: { Skill: r.name, File: r.filePath },
+          details: { [io.nounTitle]: r.name, ...cfg.deleteDetails(r) },
         }) : false;
         if (!ok) return;
         let out = null;
-        try { out = await api().deleteSkill(r.id, ctx.projectPath || null); } catch { out = null; }
-        if (!out || !out.ok) { msg.textContent = (out && out.reason) || 'The skill could not be deleted.'; return; }
-        // The skill is gone either way: its editor goes now, and the page with it.
+        try { out = await io.del(r.id); } catch { out = null; }
+        if (!out || !out.ok) { msg.textContent = (out && out.reason) || `The ${io.noun} could not be deleted.`; return; }
+        // The item is gone either way: its editor goes now, and the page with it.
         releasePage();
-        const next = await readSkillRows(ctx);
+        const next = await cfg.read();
         if (!view) return;
         if (!next) { view.showList({ focus: false }); return; }
-        view.refresh(spec(next));
-        if (typeof ctx.onCount === 'function') ctx.onCount(next.length);
+        apply(next);
       }, { danger: true }));
       c.appendChild(actions);
       c.appendChild(msg);
     };
-    view = window.pluginsKit.mountView(host, spec(rows));
+    view = window.pluginsKit.mountView(host, spec(first.rows));
+    drawDeclines();
+    if (cfg.probeCreate) {
+      // New is offered where some CLI has a place to put one (an empty folder has no row to say so).
+      cfg.probeCreate().then((yes) => {
+        if (!yes || !view || !view.root.isConnected) return;
+        canCreate = true;
+        view.refresh(spec(rows));
+      }).catch(() => {});
+    }
     return view;
   }
 
-  window.pluginsViews = { bindLazy, mountPlugins, mountApps, mountSkills };
+  async function mountSkills(host, ctx) {
+    const pp = ctx.projectPath || null;
+    return mountItemView(host, ctx, {
+      io: {
+        noun: 'skill',
+        nounTitle: 'Skill',
+        fileHint: () => 'SKILL.md',
+        read: (id) => api().readSkill(id, pp),
+        save: (id, text, baseline) => api().saveSkill(id, pp, text, baseline),
+        places: () => api().getSkillPlaces(pp),
+        create: (place, name) => api().createSkill(place, name, pp),
+        del: (id) => api().deleteSkill(id, pp),
+        noPlaces: 'No CLI here has a skills folder to create a skill in.',
+        deleteMessage: 'The skill is deleted from disk, with its folder and everything in it. This cannot be undone.',
+      },
+      reading: 'Reading the skills…',
+      readError: 'The skills could not be read.',
+      filterPlaceholder: 'Filter skills',
+      filterKey: 'skills',
+      emptyText: 'No skills found for any CLI here.',
+      read: async () => {
+        const rows = await readSkillRows(ctx);
+        return rows ? { rows } : null;
+      },
+      sections: (list) => [
+        { title: 'This project', rows: list.filter(r => r.scope === 'project') },
+        { title: 'Global', rows: list.filter(r => r.scope !== 'project') },
+      ],
+      renderFacts: (r, c) => {
+        c.appendChild(line('Source', r.sourceLabel));
+        c.appendChild(line('File', r.filePath));
+        for (const o of r.alsoNamed || []) c.appendChild(line('Also named in', `${o.sourceLabel} — ${o.filePath}`));
+        deliveryTable(c, r, ctx);
+      },
+      readOnlyText: () => 'This skill is read-only here: the CLI it belongs to does not let Switchboard edit it.',
+      deleteDetails: (r) => ({ File: r.filePath }),
+    });
+  }
+
+  window.pluginsViews = { bindLazy, mountPlugins, mountApps, mountSkills, mountItemView, node, button, line };
 })();

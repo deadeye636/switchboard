@@ -121,7 +121,7 @@ test('no row carries a backend id or a path', () => {
     const answer = inventory.getResourceInventory({ view, projectPath: project });
     for (const r of answer.rows) {
       assert.deepEqual(Object.keys(r).sort(), [
-        'cli', 'clis', 'creatable', 'deletable', 'editable', 'fromPlugin', 'id', 'kind', 'name', 'originLabel', 'scope', 'sourceLabel',
+        'cli', 'clis', 'creatable', 'deletable', 'editable', 'ext', 'fromPlugin', 'id', 'kind', 'name', 'originLabel', 'scope', 'sourceLabel',
       ]);
       assert.match(r.id, /^[0-9a-f]{16}$/);
       assert.equal(JSON.stringify(r).includes(root.replace(/\\/g, '\\\\')), false, 'no fixture path inside the row');
