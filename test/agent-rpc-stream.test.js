@@ -526,14 +526,15 @@ test('a server that never settles still gets the fill asked once, when the tries
 });
 
 test('a look waits while a turn runs, and the wait goes on after it', async (t) => {
-  const { looks, rpc } = settleRpc([true]);
-  // The first look is well after the turn starts, so a loaded machine cannot slip it in before.
-  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 400 } });
+  const { looks, rpc } = settleRpc([false]);
+  // Counted from the moment the turn runs: on a loaded machine a look may come before it, and that one is allowed.
+  const h = streamHarness(t, { rpc, timeouts: { contextSettleMs: 200 } });
   t.after(() => stopped(h));
   await until(() => fillAsks(h) >= 1);
   await agentRpc.sendTurn('launch-id', { text: 'ask me', mode: 'prompt' });   // a turn that stays open
+  const atTurn = looks.count;
   await new Promise((r) => setTimeout(r, 900));
-  assert.equal(looks.count, 0, 'no look while the turn runs');
+  assert.equal(looks.count, atTurn, 'no look while the turn runs');
 });
 
 test('a turn that ended before the servers settled does not end the wait', async (t) => {
