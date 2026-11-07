@@ -35,7 +35,7 @@ jobs:
           # for the first target type — the second target type reuses whatever
           # was last compiled, which can be the wrong arch. See doctly/switchboard#18.
           all='[
-            {"os":"macos-14","platform":"mac"},
+            {"os":"macos-15","platform":"mac"},
             {"os":"windows-2022","platform":"win"},
             {"os":"ubuntu-latest","platform":"linux","arch":"x64"},
             {"os":"ubuntu-24.04-arm","platform":"linux","arch":"arm64"}
