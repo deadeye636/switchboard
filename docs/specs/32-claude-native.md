@@ -741,6 +741,15 @@ calls and one background agent. What the stream carries, all as `system` lines t
   `mcpTools` appear only once the servers have connected, which took 31.5 s and 37 s for the last of them in two runs on one
   machine (`mcp_status` then names none `pending`). So `serversSettled` lets the core ask the fill once more at that
   point (#758). `scripts/measure-claude-context-usage.js` and `scripts/measure-claude-mcp-settle.js` repeat this.
+- **The first turn waits for a server that is still connecting** (2.1.318, Haiku, 2026-11-07,
+  `scripts/measure-claude-mcp-first-turn.js`: one stdio server that holds its `initialize` answer back, the prompt sent
+  at once). `system/init` comes only after the server has connected, and the turn runs after that, with the tool in the
+  list. Delay 0: result at 4.8 s. Delay 20 s: connected at 22.1 s, result at 24.6 s. Delay 45 s: connected at 46.8 s,
+  result at 49.2 s. **The wait has a ceiling:** with a delay of 100 s, `mcp_status` turned `failed` at 88.8 s, about
+  87 s after the server was asked, and the turn ran without the tool. So a prompt sent while servers connect is held,
+  not answered without them; only a server past that ceiling is dropped. `mcp_status` is answered during the wait
+  (the script asks nothing else). What this means for the session line and the first fill is
+  unchanged: the core already asks the fill again once the servers have settled.
 - **What the answer holds beside the total** (#758, measured on 2.1.318): `categories` as
   `{ id, name, tokens, kind }` with `kind` `used`, `deferred`, `buffer` or `free`; `tokens` per entry in
   `memoryFiles` (`path`), `agents` (`agentType`), `skills.skillFrontmatter` (`name`) and `mcpTools` (`name`,
