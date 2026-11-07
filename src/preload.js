@@ -222,6 +222,8 @@ contextBridge.exposeInMainWorld('api', {
   onDetachedSessionRekeyed: (cb) => ipcRenderer.on('detached-session-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
   onSessionDetachRekeyed: (cb) => ipcRenderer.on('session-detach-rekeyed', (_e, fromId, toId) => cb(fromId, toId)),
   notifySettingsChanged: () => ipcRenderer.send('settings-changed'),
+  // #823 T7: a deep link to an already open settings window ({ cat, item }) — the window navigates itself.
+  onSettingsGoto: (cb) => ipcRenderer.on('settings-goto', (_e, goto) => cb(goto)),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
   // #816: a project's forge issues, and whether the saved CLI path answers.
   forgeIssuesList: (projectPath) => ipcRenderer.invoke('forge-issues-list', projectPath),

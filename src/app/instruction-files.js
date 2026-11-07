@@ -338,7 +338,7 @@ function saveInstruction({ id, scope, content, baseline = null } = {}) {
   if (typeof content !== 'string') return { ok: false, reason: 'Nothing to save.' };
   if (typeof baseline !== 'string') return { ok: false, reason: 'Open the file again before saving it.' };
   if (Buffer.byteLength(content, 'utf8') > MAX_EDIT_BYTES) return { ok: false, reason: 'That text is too large to save here.' };
-  if (content.includes(' ')) return { ok: false, reason: 'That text contains a NUL byte and cannot be saved as a text file.' };
+  if (content.includes('\0')) return { ok: false, reason: 'That text contains a NUL byte and cannot be saved as a text file.' };
   const found = rowFor(id, scope);
   if (found.error) return { ok: false, reason: found.error };
   if (!editableName(found.row.filePath)) return { ok: false, reason: 'Switchboard does not edit this kind of file.' };

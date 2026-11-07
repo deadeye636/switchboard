@@ -25,7 +25,9 @@ if (typeof window.openSettingsViewer === 'function') {
     }
     // #803: a category of the Plugins group to land on, in either scope. Main sends only an id from its fixed list.
     const cat = params.get('cat');
-    if (cat) window.__SETTINGS_SEED__ = { ...(window.__SETTINGS_SEED__ || {}), cat };
+    // #823 T7: `item` is an opaque inventory id; main sends it only beside a category.
+    const item = params.get('item');
+    if (cat) window.__SETTINGS_SEED__ = { ...(window.__SETTINGS_SEED__ || {}), cat, ...(item ? { item } : {}) };
   } catch { /* no query: the global settings are the sane default */ }
   window.openSettingsViewer(scope, projectPath);
 }

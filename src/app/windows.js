@@ -95,13 +95,22 @@ function settingsQuery(scope, projectPath, seed) {
   // #803: land on a category of the Plugins group. Only an id from this fixed list rides along; anything else is
   // dropped and the window opens where it always does. The list is `SEED_CATS` in panels/settings-plugins.js.
   const cat = seed && typeof seed === 'object' ? seed.cat : undefined;
-  if (typeof cat === 'string' && SETTINGS_SEED_CATS.includes(cat)) query.cat = cat;
+  if (typeof cat === 'string' && SETTINGS_SEED_CATS.includes(cat)) {
+    query.cat = cat;
+    // #823 T7: the item to land on in that category — an opaque inventory id (lowercase hex), never a path. Only
+    // with a category; anything else is dropped here, so no text from a renderer reaches the page through the URL.
+    const item = seed.item;
+    if (typeof item === 'string' && SETTINGS_SEED_ITEM.test(item)) query.item = item;
+  }
   return query;
 }
 
 // The categories a deep link may name — a copy of `SEED_CATS` in src/renderer/panels/settings-plugins.js (the two are
 // compared by test/settings-plugins.test.js). `mcp` exists only in a project window, `plugins-mcps` only in the global.
 const SETTINGS_SEED_CATS = ['plugins-plugins', 'plugins-apps', 'plugins-skills', 'plugins-agents', 'plugins-commands', 'plugins-rules', 'plugins-mcps', 'mcp', 'mcp-addons', 'instructions'];
+
+// The shape of an inventory id (a sha1 hex, cut to 16 characters — resource-inventory.js, instruction-files.js, skills.js).
+const SETTINGS_SEED_ITEM = /^[0-9a-f]{16}$/;
 
 function loadSettings(win, query) {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'settings.html'), { query });
@@ -111,8 +120,16 @@ function loadSettings(win, query) {
 // (#790). A seeded open still differs from what is shown and loads; a later plain open of the same project then
 // only raises the window instead of reloading it over the form the seed opened.
 function shownQueryKey(query) {
-  const { addon, cat, ...about } = query;
+  const { addon, cat, item, ...about } = query;
   return JSON.stringify(about);
+}
+
+// Deliver a goto to a window that already shows the right settings. One still loading gets it when it has loaded.
+function sendSettingsGoto(win, goto) {
+  const wc = win.webContents;
+  const send = () => { if (!win.isDestroyed()) wc.send('settings-goto', goto); };
+  if (wc.isLoading()) wc.once('did-finish-load', send);
+  else send();
 }
 
 function openSettingsWindow(scope, projectPath, seed) {
@@ -124,7 +141,13 @@ function openSettingsWindow(scope, projectPath, seed) {
     // A category to land on (`cat`, #803) does not make it a different thing: the window is raised as it is, edits
     // kept, rather than reloaded onto that category. A catalog hand-off (`addon`) still reloads — it has a form to fill.
     const sameThing = win.isVisible() && !query.addon && win.__settingsQuery === shownQueryKey(query);
-    if (sameThing) { win.focus(); return; }
+    if (sameThing) {
+      win.focus();
+      // #823 T7 (spec 40's recorded gap): a deep link used to only raise the window. It now also tells the window
+      // to go to the category (and item). The window asks its pages before it moves, so unsaved work stays.
+      if (query.cat) sendSettingsGoto(win, { cat: query.cat, item: query.item || null });
+      return;
+    }
     win.__settingsQuery = shownQueryKey(query);
     win.webContents.once('did-finish-load', () => {
       if (win.isDestroyed()) return;
@@ -529,6 +552,7 @@ module.exports = {
   settingsQuery,
   // Pure, for the same reason: whether an open only raises the window that already shows it (#790).
   shownQueryKey,
+  sendSettingsGoto,
   createWindow,
   buildMenu,
   openSettingsWindow,

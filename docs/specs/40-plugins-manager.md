@@ -309,8 +309,9 @@ file. Main does the matching; the window never receives file text.
   and the search do (`test/settings-plugins-panel.test.js`).
 - **One inventory call lists each backend up to three times**, and each skill read or save rebuilds the inventory. Both
   run only on a click; share the listings if it shows.
-- **A deep link with `cat` to a settings window of the same scope that is already open only raises it**; the category
-  does not change.
+- ~~A deep link with `cat` to a settings window of the same scope that is already open only raises it.~~ Fixed by #823 T7:
+  main sends that window `settings-goto { cat, item }` (`sendSettingsGoto` in `src/app/windows.js`, bound in the renderer
+  as `window.api.onSettingsGoto`). The window asks `pluginsMayLeave` first; a page with unsaved work stays and a dialog says so.
 - **Apps is empty for every backend** until one answers `listApps` (E3).
 - **Plugin state is read-only** (E6), and a skill has no on/off (E10).
 - **The CodeMirror loader exists three times** (`src/renderer/panels/plugins-views.js`, `src/renderer/views/viewer-panel.js`, `src/renderer/diff-window.js`).

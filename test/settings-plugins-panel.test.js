@@ -48,6 +48,7 @@ function makeApi(record) {
     hideProject: async (p) => { record.hide.push(p); return { ok: true }; },
     removeProject: async (p) => { record.remove.push(p); return { ok: true }; },
     hideSettingsWindow: () => { record.windowHidden += 1; },
+    onSettingsGoto: (cb) => { record.goto = cb; },
     getSkillInventory: async () => ({ skills: [SKILL] }),
     getSkillDetail: async () => ({ ok: true, targets: [] }),
     readSkill: async () => ({ ok: true, content: 'x\n' }),
@@ -60,8 +61,8 @@ function makeApi(record) {
   return new Proxy(target, { get: (t, p) => (p in t ? t[p] : (p === 'then' ? undefined : anyCall())) });
 }
 
-async function openSettings(scope, seed) {
-  const record = { hide: [], remove: [], windowHidden: 0 };
+async function openSettings(scope, seed, beforeOpen) {
+  const record = { hide: [], remove: [], windowHidden: 0, messages: [], goto: null };
   const dom = new JSDOM(DOM_FIXTURE, { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
   window.api = makeApi(record);
@@ -71,7 +72,7 @@ async function openSettings(scope, seed) {
     vm.runInContext(fs.readFileSync(path.join(REN, rel), 'utf8'), ctx, { filename: rel });
   }
   window.showControlDialog = async () => true;
-  window.showControlMessage = async () => true;
+  window.showControlMessage = async (o) => { record.messages.push(o); return true; };
   // The editor: CodeMirror cannot load in jsdom, so a stand-in with the same surface the adapter reads.
   window.createEditableViewer = (parent, text) => {
     const view = { value: text, state: null, dom: parent, dispatch(tr) { view.value = tr.changes.insert; }, destroy() {} };
@@ -80,6 +81,7 @@ async function openSettings(scope, seed) {
     return view;
   };
   if (seed) window.__SETTINGS_SEED__ = seed;
+  if (beforeOpen) beforeOpen(record);
   await window.openSettingsViewer(scope, scope === 'project' ? PROJECT_PATH : null);
   return { window, record, doc: window.document, destroy: () => window.close() };
 }
@@ -231,5 +233,54 @@ test('a deep-link category is taken once; one this window does not have is ignor
     assert.notEqual(first, 'mcp');
     nav(env.doc, 'terminal').click();
     assert.equal(activeCat(env.doc), 'terminal');
+  } finally { env.destroy(); }
+});
+
+// #823 T7 — a goto from main to this open window (`settings-goto { cat, item }`).
+test('a goto to the open window switches category and opens the item page', async () => {
+  const env = await openSettings('global');
+  try {
+    assert.notEqual(activeCat(env.doc), 'plugins-skills');
+    env.record.goto({ cat: 'plugins-skills', item: 'sk1' });
+    await tick(); await tick(); await tick();
+    assert.equal(activeCat(env.doc), 'plugins-skills');
+    assert.equal(env.doc.querySelector('section[data-cat="plugins-skills"] .plugins-detail-page').hidden, false, 'the item page is open');
+  } finally { env.destroy(); }
+});
+
+test('a goto naming a category this window does not have, or nothing, is ignored', async () => {
+  const env = await openSettings('global');
+  try {
+    const before = activeCat(env.doc);
+    env.record.goto({ cat: 'mcp', item: 'sk1' });
+    env.record.goto({ cat: 'no-such-cat' });
+    env.record.goto(null);
+    env.record.goto({ item: 'sk1' });
+    await tick();
+    assert.equal(activeCat(env.doc), before);
+    assert.equal(env.record.messages.length, 0);
+  } finally { env.destroy(); }
+});
+
+test('a goto while a page holds unsaved text stays on that page and says so', async () => {
+  const env = await openSettings('global');
+  try {
+    await dirtySkill(env.window, env.doc);
+    nav(env.doc, 'terminal').click();
+    env.record.goto({ cat: 'plugins-agents', item: 'a1' });
+    await tick();
+    assert.equal(activeCat(env.doc), 'plugins-skills', 'the refusing page is shown');
+    assert.equal(env.record.messages.length, 1);
+    assert.match(env.record.messages[0].message, /unsaved/i);
+    assert.equal(env.window.__editor.value, 'changed\n', 'the text is kept');
+  } finally { env.destroy(); }
+});
+
+test('a goto that arrives before the render owns a handler is taken once the render is done', async () => {
+  const env = await openSettings('global', null, (record) => record.goto({ cat: 'plugins-skills', item: 'sk1' }));
+  try {
+    await tick(); await tick(); await tick();
+    assert.equal(activeCat(env.doc), 'plugins-skills');
+    assert.equal(env.doc.querySelector('section[data-cat="plugins-skills"] .plugins-detail-page').hidden, false);
   } finally { env.destroy(); }
 });

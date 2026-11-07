@@ -535,6 +535,8 @@
     };
     view = window.pluginsKit.mountView(host, spec(first.rows));
     drawDeclines();
+    // #823 T7: a deep link that arrived before the first read waits for this, to open its item page.
+    host.dispatchEvent(new CustomEvent('plugins-view-mounted', { bubbles: true }));
     if (cfg.probeCreate) {
       // New is offered where some CLI has a place to put one (an empty folder has no row to say so).
       cfg.probeCreate().then((yes) => {

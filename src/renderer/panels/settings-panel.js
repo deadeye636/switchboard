@@ -29,6 +29,25 @@
     pendingCatRestore = null;
   }
 
+  // #823 T7: a deep link to this window while it is open ({ cat, item }, from main). The handler belongs to the render
+  // on screen (an Apply rebuild replaces it); the listener is bound once.
+  // A goto that arrives while no render owns a handler (the window is loading or rebuilding) is kept in
+  // `pendingGoto` and taken by the render once its handler is set (`takePendingGoto`); the last one wins.
+  let settingsGotoHandler = null;
+  let pendingGoto = null;
+  function takePendingGoto() {
+    if (!pendingGoto || !settingsGotoHandler) return;
+    const goto = pendingGoto;
+    pendingGoto = null;
+    settingsGotoHandler(goto);
+  }
+  if (window.api && typeof window.api.onSettingsGoto === 'function') {
+    window.api.onSettingsGoto((goto) => {
+      if (settingsGotoHandler) settingsGotoHandler(goto);
+      else pendingGoto = goto;
+    });
+  }
+
   function closeSettingsViewer() {
     viewerGeneration++;
     viewerListeners.abort();   // nothing of the closed panel keeps listening (see openSettingsViewer)
@@ -42,6 +61,7 @@
   }
 
   async function openSettingsViewer(scope, projectPath) {
+    settingsGotoHandler = null;   // the previous render's handler addresses a body that is being replaced
     viewerGeneration++;
     // Every render of the panel binds a few listeners to `document` (the click-away that
     // commits a colour). They outlive the DOM they were bound for — their closures keep the
@@ -463,6 +483,18 @@
     // The Plugins group of this render (#803): asked before a search, Cancel, Save or Apply drops a page's work.
     let pluginsCtl = null;
     const pluginsMayLeave = (opts) => !pluginsCtl || pluginsCtl.leave(opts);
+    // A link to this open window: the pages are asked first, so one with unsaved work stays and says so.
+    settingsGotoHandler = (goto) => {
+      if (!goto || typeof goto.cat !== 'string' || !navHasCat(goto.cat)) return;
+      if (!pluginsMayLeave()) {
+        if (typeof showControlMessage === 'function') {
+          showControlMessage({ title: 'Unsaved changes', message: 'This page has unsaved changes. Save or discard them, then open the link again.', confirmLabel: 'OK', tone: 'warning' });
+        }
+        return;
+      }
+      restoreCat(goto.cat);
+      if (goto.item && pluginsCtl) pluginsCtl.openItem(goto.cat, goto.item);
+    };
     // A deep link names a category of either window; one this window does not have is ignored, not left pending.
     const navHasCat = (cat) => !!settingsViewerBody.querySelector(`.settings-nav-item[data-cat="${CSS.escape(cat)}"]`);
     function wireTwoPane() {
@@ -940,7 +972,11 @@ ${window.settingsInstructions.sectionHtml('project')}
       const addonSeed = window.__SETTINGS_SEED__;
       window.__SETTINGS_SEED__ = null;
       if (addonSeed && addonSeed.addon && window.settingsExternalMcp.openSeeded(settingsViewerBody, listenerSignal, addonSeed.addon)) restoreCat('mcp');
-      else if (addonSeed && addonSeed.cat && navHasCat(addonSeed.cat)) restoreCat(addonSeed.cat);
+      else if (addonSeed && addonSeed.cat && navHasCat(addonSeed.cat)) {
+        restoreCat(addonSeed.cat);
+        if (addonSeed.item) pluginsCtl.openItem(addonSeed.cat, addonSeed.item);
+      }
+      takePendingGoto();
     } else {
       // ---- Global scope: two-pane layout (nav + category panes) ----
       settingsViewerBody.classList.add('sv-two-pane');
@@ -1048,7 +1084,11 @@ ${window.settingsInstructions.sectionHtml('project')}
       pluginsCtl = window.settingsPlugins.bind(settingsViewerBody, listenerSignal, { scope, projectPath: null, restoreCat });
       const globalSeed = window.__SETTINGS_SEED__;
       window.__SETTINGS_SEED__ = null;
-      if (globalSeed && globalSeed.cat && navHasCat(globalSeed.cat)) restoreCat(globalSeed.cat);
+      if (globalSeed && globalSeed.cat && navHasCat(globalSeed.cat)) {
+        restoreCat(globalSeed.cat);
+        if (globalSeed.item) pluginsCtl.openItem(globalSeed.cat, globalSeed.item);
+      }
+      takePendingGoto();
     }
 
     // --- Backends (T-2.3/T-2.6): backends-panel.js owns the section's DOM. Global scope gets the

@@ -186,7 +186,38 @@
     }
     setCount(body, CATS.marketplace, body.querySelectorAll('.sv-addon-catalog .plugins-row').length);
 
+    // Deep link to an item (#823 T7): open its page in the category's view. A view that has not read yet is opened
+    // when it announces itself (`plugins-view-mounted`); an id the view does not hold leaves it on its list.
+    const pendingItem = {};
+    const openIn = (sectionEl, id) => {
+      const kit = window.pluginsKit;
+      const v = kit && typeof kit.viewsIn === 'function' ? kit.viewsIn(sectionEl)[0] : null;
+      if (!v) return false;
+      v.showList({ focus: false });
+      v.openDetail(id);
+      return true;
+    };
+    for (const cat of SEED_CATS) {
+      const sectionEl = body.querySelector(`.settings-cat[data-cat="${cat}"]`);
+      if (!sectionEl) continue;
+      // A category shown drops what another category had queued (the user moved on).
+      sectionEl.addEventListener('settings-cat-shown', () => {
+        for (const k of Object.keys(pendingItem)) if (k !== cat) delete pendingItem[k];
+      }, { signal });
+      sectionEl.addEventListener('plugins-view-mounted', () => {
+        const id = pendingItem[cat];
+        delete pendingItem[cat];
+        if (id) openIn(sectionEl, id);
+      }, { signal });
+    }
+
     const ctl = {
+      openItem(cat, id) {
+        const sectionEl = body.querySelector(`.settings-cat[data-cat="${cat}"]`);
+        for (const k of Object.keys(pendingItem)) delete pendingItem[k];
+        if (!sectionEl || typeof id !== 'string' || !id) return;
+        if (!openIn(sectionEl, id)) pendingItem[cat] = id;
+      },
       /**
        * Every mounted view on this body — the lazy ones, the project MCP list, the Marketplace catalog and its registry
        * results — back to its list, without moving focus (the user may be typing into the settings search). A view

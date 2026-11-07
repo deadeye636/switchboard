@@ -156,9 +156,20 @@ sourceLabel, editable }`, with no path and no backend id.
 - Scope (P9): the global window asks `getInstructionInventory('global')`, a project window its project path. A line above the list points to the other scope: a project window has "Open the global instructions", the global window a project picker and "Open its instructions". Either replaces the window, so `leave()` is asked first and a dialog warns, as in the MCPs hand-off.
 - Read on the first `settings-cat-shown`, never at bind; the nav badge is the row count (`data-count-own`). It joins `leave()` through `pluginsKit.viewsIn`, so Cancel, Save, Apply and the settings search ask it too. `settingsPlugins.bind` calls `settingsInstructions.bind`.
 
+## Deep link to an item (#823 T7)
+
+`openSettingsWindow(scope, projectPath, { cat, item })`. `cat` must be in `SETTINGS_SEED_CATS`; `item` is accepted only
+beside a valid `cat` and only as a 16-character lowercase hex inventory id (never a path), otherwise dropped in
+`settingsQuery`. A closed or differently scoped window gets `cat`/`item` in its URL; `settings-window.js` turns them into
+`window.__SETTINGS_SEED__`, which `settings-panel.js` takes once. A window already showing that scope and project is raised
+and sent `settings-goto { cat, item }`; the window runs `pluginsMayLeave()` first. Both routes end in
+`pluginsCtl.openItem(cat, id)`: it opens the item's page when the view has read, or after the view's
+`plugins-view-mounted` event (fired by `mountItemView`) when it has not. An id the view does not hold leaves the list.
+The ids are those of the Skills, Agents, Commands, Rules and Instructions inventories.
+
 ## Known gaps
 
 - A CLI's listing only includes a directory that exists, so a CLI whose commands directory has not been created yet
   declines until it does, unless it declares a scaffold.
-- The deep link to a file, the sidebar group, and removing the Agent
+- The sidebar group and removing the Agent
   Files tab are later steps of the plan and are not built.
