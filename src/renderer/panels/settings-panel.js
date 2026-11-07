@@ -156,7 +156,7 @@
 
     // Show settings viewer, hide others. Null-safe: the standalone settings
     // window (settings.html) has none of these main-app elements.
-    ['placeholder', 'terminal-area', 'plan-viewer', 'stats-viewer', 'memory-viewer', 'jsonl-viewer'].forEach(id => {
+    ['placeholder', 'terminal-area', 'plan-viewer', 'stats-viewer', 'jsonl-viewer'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });

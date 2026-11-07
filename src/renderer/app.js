@@ -37,50 +37,12 @@ const planPanel = new ViewerPanel(planViewer, {
 const sessionFilters = document.getElementById('session-filters');
 const searchBar = document.getElementById('search-bar');
 const statsContent = document.getElementById('stats-content');
-const memoryContent = document.getElementById('memory-content');
 const statsViewer = document.getElementById('stats-viewer');
 const statsViewerBody = document.getElementById('stats-viewer-body');
-const memoryViewer = document.getElementById('memory-viewer');
-const memoryPanel = new ViewerPanel(memoryViewer, {
-  copyPath: true, copyContent: true,
-  language: 'markdown', storageKey: 'markdownPreviewMode',
-  // Agent Files holds two kinds of row and they are written through different doors (#441) — the routing
-  // lives with the tab that knows which row is open, in plans-memory-view.js.
-  onSave: (filePath, content, baseline) => (typeof saveOpenAgentFile === 'function'
-    ? saveOpenAgentFile(filePath, content, baseline)
-    : window.api.saveMemory(filePath, content, baseline)),
-  // Delete is offered only for a backend's own skill, command, agent or rule (#441) — never for an
-  // instruction file, which is the project's, and never for a settings file, which main refuses anyway.
-  // The button is BUILT here because the toolbar decides that at construction; which rows may use it is
-  // decided per open, in plans-memory-view.js.
-  onDelete: (filePath) => (typeof deleteOpenAgentFile === 'function'
-    ? deleteOpenAgentFile(filePath)
-    : Promise.resolve({ ok: false, error: 'This file cannot be deleted from here.' })),
-});
-const workFilesViewer = document.getElementById('work-files-viewer');
 const projectsViewer = document.getElementById('projects-viewer');
 const tasksViewer = document.getElementById('tasks-viewer');
 const bookmarksViewer = document.getElementById('bookmarks-viewer');
 const variablesAdminContent = document.getElementById('variables-admin-content');
-const workFilesPanel = new ViewerPanel(workFilesViewer, {
-  copyPath: true, copyContent: true,
-  language: 'auto', storageKey: 'workFilesPreviewMode',
-  format: true,
-  onDelete: async (filePath) => {
-    const result = await window.api.deleteWorkFile(filePath);
-    if (result && result.ok) {
-      // Hide the panel and surgically remove the entry from the cached list.
-      // We avoid reloading because the full disk re-scan can freeze the UI on
-      // projects with large .work-files/ trees (measured: ~39k files).
-      workFilesViewer.style.display = 'none';
-      if (typeof removeWorkFileFromCache === 'function') removeWorkFileFromCache(filePath);
-    }
-    return result;
-  },
-  onClose: () => {
-    workFilesViewer.style.display = 'none';
-  },
-});
 const terminalArea = document.getElementById('terminal-area');
 // `settingsViewer` was here. The overlay is gone (#365) — this page has no `#settings-viewer`, so the
 // const would be null and every `.style.display` on it a TypeError.
@@ -2225,20 +2187,17 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
     if (unlistedNotice) unlistedNotice.style.display = 'none';
     plansContent.style.display = 'none';
     statsContent.style.display = 'none';
-    memoryContent.style.display = 'none';
     projectsViewer.style.display = 'none';
     variablesAdminContent.style.display = 'none';
     // statsViewer is the third main-area admin overlay (position:absolute; inset:0). It was omitted here and
     // only hidden by hideAllViewers() in the sessions/stats/projects/variables branches — so switching to a
-    // sidebar-list tab (plans/memory/work-files) left it covering the workspace. Closing Stats via × routes
+    // sidebar-list tab (plans) left it covering the workspace. Closing Stats via × routes
     // through exactly that path, so hide it unconditionally like its two siblings (#300).
     statsViewer.style.display = 'none';
     sessionFilters.style.display = 'none';
     searchBar.style.display = 'none';
     // applyProjectTagFilterVisibility is in shell/sidebar-filters.js (loads after app.js, #228).
     if (typeof applyProjectTagFilterVisibility === 'function') applyProjectTagFilterVisibility(); // #133 — chips belong to Sessions only
-    // ...and the Agent Files type chips belong to that tab alone (#447), same reason.
-    if (typeof applyAgentFileTypeFilterVisibility === 'function') applyAgentFileTypeFilterVisibility(tabName);
 
     if (tabName === 'sessions') {
       sessionFilters.style.display = '';
@@ -2269,12 +2228,6 @@ document.querySelectorAll('.sidebar-tab').forEach(tab => {
       terminalArea.style.display = 'none';
       statsViewer.style.display = 'flex';
       loadStats();
-    } else if (tabName === 'memory') {
-      restoreMainArea();   // #301 — see the plans branch
-      searchBar.style.display = '';
-      searchInput.placeholder = 'Search agent files...';
-      memoryContent.style.display = '';
-      loadMemories();
     } else if (tabName === 'projects') {
       // Big-viewport admin list in the main area (its own filter, no sidebar content).
       hideAllViewers();
@@ -2306,7 +2259,7 @@ initGridObservers();
 
 // Stats view (loadStats, buildUsageSection, buildDailyBarChart, buildHeatmap, calculateStreak, buildStatsSummary) → stats-view.js
 
-// Memory viewer → plans-memory-view.js
+// Plan viewer → plans-memory-view.js
 
 
 // Dialogs (resolveDefaultSessionOptions, forkSession, showNewSessionPopover,
@@ -2386,7 +2339,7 @@ function returnToTerminal() {
 }
 
 // Restore the main area to its terminal state — grid, the active single session, or the placeholder. Split out
-// of returnToTerminal (#301) so the sidebar-list tabs (Plans/Memory/Work-files) can reuse it: those branches
+// of returnToTerminal (#301) so the sidebar-list tabs (Plans) can reuse it: those branches
 // only fill the sidebar and assume the main area already shows the terminal, so entering one from a takeover
 // admin view (Variables/Projects/Stats, which hid the terminal) left the main area blank. Unlike
 // returnToTerminal this skips the tasks/bookmarks return-target hop — a tab switch is not a viewer close.

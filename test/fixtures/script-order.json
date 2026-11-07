@@ -18,7 +18,6 @@
     "format-toolbar.js",
     "viewer-toolbar.js",
     "viewer-panel.js",
-    "agent-file-filter.js",
     "plan-groups.js",
     "text-sync.js",
     "file-panel.js",

@@ -37,8 +37,8 @@
   // panes-view.js (#342 added the remaining main-area surfaces); a kind in one and not the other is
   // not an error today, because a view tab is never restored from the store, but it is a trap.
   const TAB_KINDS = [
-    'terminal', 'preview', 'diff', 'plan', 'stats', 'memory', 'jsonl',
-    'projects', 'variables', 'workFiles', 'settings', 'tasks', 'bookmarks', 'timeline',
+    'terminal', 'preview', 'diff', 'plan', 'stats', 'jsonl',
+    'projects', 'variables', 'settings', 'tasks', 'bookmarks', 'timeline',
   ];
 
   // Smallest share of its parent a pane may be squeezed to by a sash drag. Below

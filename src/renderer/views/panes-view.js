@@ -116,12 +116,8 @@ window.__sessionDragId = null;
     jsonl: { hostId: 'jsonl-viewer', title: 'Messages', watched: true },
     plan: { hostId: 'plan-viewer', title: 'Plan', watched: true, load: 'loadPlans' },
     stats: { hostId: 'stats-viewer', title: 'Activity', watched: true, close: 'admin', load: 'loadStats' },
-    memory: { hostId: 'memory-viewer', title: 'Memory', watched: true, load: 'loadMemories' },
     projects: { hostId: 'projects-viewer', title: 'Projects', watched: true, close: 'admin', load: 'loadProjectsAdmin' },
     variables: { hostId: 'variables-admin-content', title: 'Variables', watched: true, close: 'admin', load: 'loadVariablesAdmin' },
-    // The viewer survived the tab (#448): a work file still opens in its own panel, the one that can
-    // delete. Its loader is the Agent Files one, because that is the list work files are drawn in now.
-    workFiles: { hostId: 'work-files-viewer', title: 'Work files', watched: true, load: 'loadMemories' },
     // `settings` was here. It hosted the overlay element, and the overlay is gone (#365): settings
     // open in a window of their own, which is not a surface a pane can adopt.
     tasks: { hostId: 'tasks-viewer', title: 'Tasks', watched: true },
@@ -2850,8 +2846,8 @@ window.__sessionDragId = null;
    */
   async function moveViewToWindow(leafId, tab, windowId, at = null) {
     if (typeof window.api?.openViewInWindow !== 'function') return;
-    // The open FILE travels too (#364). A singleton kind has no ref to carry it in, so a moved Memory
-    // or Plan would arrive showing an empty editor — the move would look half done, which is exactly
+    // The open FILE travels too (#364). A singleton kind has no ref to carry it in, so a moved view
+    // such as Plan would arrive showing an empty editor — the move would look half done, which is exactly
     // what it felt like before this was added.
     const file = (typeof currentViewFilePayload === 'function') ? currentViewFilePayload(tab.kind) : null;
     let res = null;

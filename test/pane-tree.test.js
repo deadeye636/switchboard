@@ -569,3 +569,25 @@ test('#376: a call it cannot honour changes nothing', () => {
   assert.deepEqual(serialize(splitRoot(row, 'sideways', { newLeafId: 'p3' })), serialize(row));
   assert.deepEqual(serialize(splitRoot(row, 'down', {})), serialize(row), 'no id, no pane');
 });
+
+test('a saved layout holding the removed memory and workFiles kinds loads without them (#823)', () => {
+  // Agent Files is gone; layouts stored before that still name its two pane kinds. They are dropped on
+  // load, the rest of the arrangement survives, and a leaf left empty is a valid pane.
+  const stored = {
+    type: 'branch',
+    orientation: 'row',
+    children: [
+      {
+        type: 'leaf', id: 'p1', activeTabId: 'v1', size: 0.5,
+        tabs: [{ id: 'v1', kind: 'memory', ref: null }, term('t1'), { id: 'v2', kind: 'plan', ref: null }],
+      },
+      { type: 'leaf', id: 'p2', activeTabId: 'v3', size: 0.5, tabs: [{ id: 'v3', kind: 'workFiles', ref: null }] },
+    ],
+  };
+  const tree = deserialize(stored);
+  const kinds = leaves(tree).flatMap((l) => l.tabs.map((t) => t.kind));
+  assert.deepEqual(kinds, ['terminal', 'plan']);
+  const p1 = leaves(tree).find((l) => l.id === 'p1');
+  assert.equal(p1.activeTabId, 't1', 'the active tab falls back to one that survived');
+  assert.deepEqual(deserialize({ type: 'leaf', id: 'p1', tabs: [{ id: 'v1', kind: 'memory', ref: null }] }).tabs, []);
+});

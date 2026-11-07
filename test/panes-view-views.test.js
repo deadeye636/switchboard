@@ -30,7 +30,6 @@ const MAIN_AREA_SURFACES = [
   ['projects', 'projects-viewer', 'Projects', 'admin'],
   ['variables', 'variables-admin-content', 'Variables', 'admin'],
   ['stats', 'stats-viewer', 'Activity', 'admin'],
-  ['workFiles', 'work-files-viewer', 'Work files', 'viewer'],
   // Settings was in this list. It is not a main-area surface any more (#365): it opens in a window of
   // its own, and this page carries neither the element nor the scripts that filled it.
   ['tasks', 'tasks-viewer', 'Tasks', 'viewer'],
@@ -38,7 +37,6 @@ const MAIN_AREA_SURFACES = [
   ['timeline', 'timeline-viewer', 'Timeline', 'viewer'],
   ['jsonl', 'jsonl-viewer', 'Messages', 'viewer'],
   ['plan', 'plan-viewer', 'Plan', 'viewer'],
-  ['memory', 'memory-viewer', 'Memory', 'viewer'],
 ];
 
 for (const [kind, hostId, title, route] of MAIN_AREA_SURFACES) {
@@ -781,7 +779,7 @@ test('a view dropped on another window opens there and closes here (#364)', asyn
   try {
     h.enable();
     await h.open('a');
-    h.panes.openViewTab('memory');
+    h.panes.openViewTab('plan');
     await h.settle();
     windowBox(h);
     const sent = [];
@@ -800,8 +798,8 @@ test('a view dropped on another window opens there and closes here (#364)', asyn
     await h.settle();
 
     assert.equal(sent.length, 1);
-    assert.deepEqual([...sent[0]], ['2', 'memory', null], 'the kind travels, not the element');
-    assert.equal(h.panes.hasViewTab('memory'), false, 'and this window lets go of its own');
+    assert.deepEqual([...sent[0]], ['2', 'plan', null], 'the kind travels, not the element');
+    assert.equal(h.panes.hasViewTab('plan'), false, 'and this window lets go of its own');
   } finally { h.destroy(); }
 });
 
@@ -810,7 +808,7 @@ test('a view that failed to arrive is not closed here (#364)', async () => {
   try {
     h.enable();
     await h.open('a');
-    h.panes.openViewTab('memory');
+    h.panes.openViewTab('plan');
     await h.settle();
     windowBox(h);
     h.window.api.openViewInWindow = () => Promise.resolve({ ok: false, error: 'no such window' });
@@ -826,7 +824,7 @@ test('a view that failed to arrive is not closed here (#364)', async () => {
 
     // Closing it anyway would be a view the user has to go and find again, after a failure they
     // never saw.
-    assert.ok(h.panes.hasViewTab('memory'), 'it stays where it is');
+    assert.ok(h.panes.hasViewTab('plan'), 'it stays where it is');
     assert.equal(h.calls.toasts.length, 1);
     assert.match(h.calls.toasts[0].message, /Could not move/);
   } finally { h.destroy(); }
@@ -853,7 +851,7 @@ test('a sidebar-steered view may leave the window too (#364)', async () => {
   try {
     h.enable();
     await h.open('a');
-    h.panes.openViewTab('memory');
+    h.panes.openViewTab('plan');
     await h.settle();
     windowBox(h);
     const sent = [];
@@ -875,9 +873,23 @@ test('a sidebar-steered view may leave the window too (#364)', async () => {
     // windowId, kind, ref, and the open file — a singleton has no ref to carry its file in, so the
     // file travels beside it or the view arrives blank.
     assert.equal(sent[0][0], '2');
-    assert.equal(sent[0][1], 'memory');
+    assert.equal(sent[0][1], 'plan');
     assert.equal(sent[0][2], null);
-    assert.equal(h.panes.hasViewTab('memory'), false);
+    assert.equal(h.panes.hasViewTab('plan'), false);
+  } finally { h.destroy(); }
+});
+
+test('the removed Agent Files view kinds open nothing, so a restored window drops them (#823)', async () => {
+  const h = setupPanesDom();
+  try {
+    h.enable();
+    await h.open('a');
+    await h.settle();
+    for (const kind of ['memory', 'workFiles']) {
+      assert.equal(h.panes.openViewTab(kind), false, `${kind} is no longer a view kind`);
+      assert.equal(h.panes.hasViewTab(kind), false);
+      assert.equal(h.panes.viewKindTitle(kind), null);
+    }
   } finally { h.destroy(); }
 });
 
@@ -891,7 +903,7 @@ test('only a view another window could fill may leave (#364)', async () => {
     // The rule is derived, not listed: a singleton that names a loader can be filled on arrival, so
     // it travels. An instanced kind's host is looked up and never created, and a per-session view has
     // no zero-argument loader that could say what to show — both would arrive blank or not at all.
-    for (const kind of ['memory', 'plan', 'workFiles', 'stats', 'projects', 'variables']) {
+    for (const kind of ['plan', 'stats', 'projects', 'variables']) {
       assert.equal(h.panes.viewCanLeaveWindow(kind), true, `${kind} names a loader, so it can travel`);
     }
     for (const kind of ['jsonl', 'settings', 'tasks', 'bookmarks', 'timeline']) {

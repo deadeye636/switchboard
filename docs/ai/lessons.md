@@ -394,7 +394,7 @@ A reviewer found it by reading; the repro is four seconds in the app (search Age
 that matches nothing). Six source-string assertions in that file, and not one of them could have.
 
 The fix was not a better assertion. The decisions moved out of the view into
-`src/renderer/views/agent-file-filter.js` — pure functions, `require`-able — so a test can hand them
+the Agent Files filter module (`agent-file-filter.js`, removed with the tab in #823) — pure functions, `require`-able — so a test can hand them
 data and check the answer. `agentFileSections(data, filters)` returns `shown`, counted from what
 survived, and the test asserts `shown === 0` *and* the message for that case. Same shape as
 `src/backends/capabilities.js` and `backend-capabilities.js` (#439): the renderer keeps the DOM, the

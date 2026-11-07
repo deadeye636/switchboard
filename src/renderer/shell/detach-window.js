@@ -701,7 +701,7 @@ if (isOwnWindow) document.body.classList.add('detached-window');
   // sidebar of its own — spec 17 puts it in the main window on purpose — so this is how these three
   // views are steered at all once they have been moved. The opener is the same function the sidebar
   // calls locally; nothing about showing the file differs, only who asked.
-  const VIEW_FILE_OPENERS = { memory: 'openMemory', plan: 'openPlan', workFiles: 'openWorkFile' };
+  const VIEW_FILE_OPENERS = { plan: 'openPlan' };
   window.api.onOpenViewFile((kind, payload) => {
     const name = VIEW_FILE_OPENERS[kind];
     const open = name && window[name];

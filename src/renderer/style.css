@@ -5074,18 +5074,6 @@ html body .terminal-container.conversation-container:not(.visible) {
   letter-spacing: 0.04em;
 }
 
-/* ========== MEMORY VIEWER ========== */
-#memory-viewer {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: #111118;
-}
-
-/* Memory CodeMirror editor */
-/* memory-viewer-editor uses .viewer-panel-editor */
-
 /* ========== MARKDOWN PREVIEW ========== */
 /* Opaque, and that is not decoration (#388): nothing else in the chain paints one — `.fp-viewer`,
    `.fp-content` and `.pane-body` are all transparent — so the rendered markdown was drawn straight
@@ -5991,17 +5979,6 @@ mark.jsonl-search-hit-active {
   background: rgba(64,200,200,0.1);
 }
 
-/* Memory sidebar content */
-#memory-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0 16px;
-}
-
-#memory-content::-webkit-scrollbar { width: 5px; }
-#memory-content::-webkit-scrollbar-track { background: transparent; }
-#memory-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 3px; }
-
 /* Stats sidebar content */
 #stats-content {
   flex: 1;
@@ -6009,7 +5986,7 @@ mark.jsonl-search-hit-active {
   padding: 4px 0 16px;
 }
 
-/* Memory sidebar styles */
+/* Plan group badges (shared names from the former Agent Files list) */
 
 .memory-file-count {
   font-size: 10px;
@@ -6019,88 +5996,12 @@ mark.jsonl-search-hit-active {
   border-radius: 8px;
   margin-left: 4px;
 }
-
-/* "New" on a resource group's header (#441). Quiet until the header is hovered, like every other action
-   that lives on a row rather than in a toolbar. */
-.memory-group-new-btn {
-  margin-left: auto;
-  background: transparent;
-  border: 1px solid #555570;
-  color: #808098;
-  width: 20px;
-  height: 20px;
-  line-height: 1;
-  border-radius: 5px;
-  cursor: pointer;
-  padding: 0;
-  flex-shrink: 0;
-  opacity: 0;
-  transition: all 0.15s;
-}
-
-.project-header:hover .memory-group-new-btn,
-.memory-group-new-btn:focus-visible {
-  opacity: 1;
-}
-
-.memory-group-new-btn:hover {
-  background: rgba(120,130,255,0.1);
-  color: #8088ff;
-}
-
-/* A backend's own customization directory, nested inside a memory group (#440). Indented and quieter
-   than its parent so the instruction files above it stay the primary reading. */
-.memory-resource-group {
-  margin-left: 10px;
-  border-left: 1px solid rgba(255,255,255,0.07);
-}
-.memory-resource-header .project-name {
-  font-weight: 500;
-  color: #b0b0c4;
-}
 .memory-resource-backend {
   font-size: 10px;
   color: #7a7a90;
   margin-left: 2px;
 }
-/* In a group header the badge introduces the label, so it sits tight against it. */
-.memory-resource-header .memory-backend-badge { margin-left: auto; margin-right: 4px; }
-.memory-resource-note {
-  padding: 4px 10px;
-  font-size: 10.5px;
-  color: #7a7a90;
-}
 
-.memory-source-badge {
-  display: inline-block;
-  font-size: 9px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 6px;
-  border-radius: 4px;
-  line-height: 1;
-  vertical-align: middle;
-  margin-right: 6px;
-}
-
-.memory-source-badge.source-claude-home {
-  background: rgba(128,136,255,0.15);
-  color: #8088ff;
-}
-
-.memory-source-badge.source-project {
-  background: rgba(62,207,90,0.12);
-  color: #3ecf5a;
-}
-
-/* Collapse/expand for memory groups */
-#memory-content .project-group.collapsed .project-sessions {
-  display: none;
-}
-#memory-content .project-group.collapsed .arrow {
-  transform: rotate(-90deg);
-}
 
 /* Collapse/expand for plan groups (#449) — the plans list groups by the project its session belonged to. */
 #plans-content .project-group.collapsed .project-sessions {
@@ -6132,26 +6033,6 @@ mark.jsonl-search-hit-active {
   opacity: 0.75;
 }
 
-/* ========== WORK FILES VIEWER ========== */
-/* The tab is gone (#448) — its rows are in the Agent Files list. The viewer stayed: it is the panel
-   that can delete, which is how deleting remains bound to work files alone. */
-
-#work-files-viewer {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: #111118;
-}
-
-/* Marks the .work-files group in the Agent Files list, where every other group opens with a
-   backend monogram and this one has no backend to name. */
-.work-file-icon {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  color: #7a9aaa;
-}
 
 /* ========== ADD PROJECT BUTTON ========== */
 #grid-toggle-btn,
@@ -9512,89 +9393,6 @@ body.grid-dragging .grid-card-header {
 /* What KIND of tag a chip is (#164). The two are not the same thing — a project chip drops whole
    projects, a session chip drops session rows — and the same word can be both, so position alone must
    not carry the distinction. Quiet enough that the tag's colour is still what you read first. */
-/* Agent Files type filter (#447) — the same chip as the project tag bar, without a tag colour: these
-   are kinds, not user-chosen labels, so they take the neutral border and let the count carry the
-   weight. */
-#agent-file-type-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 0 10px 6px;
-}
-.agent-type-chip { color: #b0b0c4; background: rgba(255,255,255,0.04); }
-.agent-type-chip.active {
-  color: #d8d8e8;
-  border-color: #6a6a8a;
-  background: rgba(255,255,255,0.1);
-}
-/* The count is a badge, not a second word. It used to be loose text after the label, which read as part
-   of the name and left the chips looking ragged; enclosing it gives every chip the same right edge. */
-.agent-type-count {
-  margin-left: 6px;
-  padding: 0 5px;
-  border-radius: 7px;
-  background: rgba(255,255,255,0.07);
-  font-size: 10px;
-  line-height: 1.4;
-  color: #8f8fa8;
-}
-.agent-type-chip.active .agent-type-count { background: rgba(255,255,255,0.16); color: #d8d8e8; }
-/* The heading over the bar, and the way out of a filter. Both are quiet — they label the chips, they
-   are not among them. "Show all" lives here so switching a filter on cannot move the chips. */
-.agent-chip-head {
-  flex-basis: 100%;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #62627a;
-}
-.agent-type-clear {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 11px;
-  color: #7a7a90;
-  cursor: pointer;
-}
-.agent-type-clear:hover { color: #d8d8e8; }
-/* A backend chip is the badge and the number, and nothing else — the name is in the tooltip. It is a
-   narrowing by origin rather than by kind, so it stays quieter than the type chips above it, and the
-   coloured badge is the same one every row of the list wears. */
-.agent-backend-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px 2px 3px;
-  border: 1px solid transparent;
-  border-radius: 11px;
-  background: rgba(255,255,255,0.03);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.agent-backend-chip:hover { filter: brightness(1.15); }
-.agent-backend-chip.active {
-  border-color: #6a6a8a;
-  background: rgba(255,255,255,0.1);
-}
-/* The badge's row spacing would double up with the chip's own gap. */
-.agent-backend-chip .memory-backend-badge { margin-right: 0; }
-.agent-backend-chip .agent-type-count { margin-left: 0; background: none; padding: 0; }
-.agent-backend-chip.active .agent-type-count { color: #d8d8e8; }
-/* Divides the two kinds of chip by BREAKING the line, not by drawing between them: in a wrapping bar a
-   1px rule lands wherever the wrap happens to leave it, and at sidebar widths that was usually
-   mid-group. Types on their line, backends on theirs, at every width. */
-.agent-chip-separator {
-  flex-basis: 100%;
-  height: 0;
-}
-/* The badge on a row: which CLIs read this file. The session row's own chip, spaced off the icon. */
-.memory-backend-badge { margin-right: 5px; }
 
 .tag-chip-glyph { flex-shrink: 0; opacity: 0.75; }
 .tag-chip-hash { font-weight: 700; font-size: 10px; line-height: 1; }

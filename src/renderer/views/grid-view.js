@@ -4,7 +4,7 @@
 //
 // Depends on globals from app.js: openSessions, activeSessionId, sessionMap, activePtyIds,
 // sortedOrder, sidebarContent, terminalsEl, gridViewActive, gridViewer, gridViewerCount,
-// placeholder, terminalHeader, planViewer, statsViewer, memoryViewer,
+// placeholder, terminalHeader, planViewer, statsViewer,
 // jsonlViewer, terminalArea, cachedProjects, isMac
 // Depends on: cleanDisplayName, formatDate (utils.js), fitAndScroll, showSession (terminal-manager.js)
 
@@ -591,7 +591,6 @@ function showGridView(opts) {
   // Hide other viewers but keep terminal-area visible
   planViewer.style.display = 'none';
   statsViewer.style.display = 'none';
-  memoryViewer.style.display = 'none';
   jsonlViewer.style.display = 'none';
   timelineViewer.style.display = 'none'; // was missing → timeline overlapped the grid
   terminalArea.style.display = '';

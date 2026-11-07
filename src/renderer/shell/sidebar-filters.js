@@ -122,7 +122,7 @@ async function _refreshProjectTagFilter() {
 window._refreshProjectTagFilter = _refreshProjectTagFilter;
 
 // The chips filter the project list, so they belong to the Sessions tab only —
-// they were left standing over Plans / Memory / Work files, where nothing they
+// they were left standing over Plans, where nothing they
 // filter is even on screen (#133). Sole owner of the bar's display state: the
 // renderer above and the tab switcher both defer to it.
 function applyProjectTagFilterVisibility() {

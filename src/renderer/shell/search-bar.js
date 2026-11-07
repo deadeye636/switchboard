@@ -1,7 +1,7 @@
 // --- The sidebar search bar (debounced, per-tab FTS) (#218, #228) ---
 //
 // The search-as-you-type box above the sidebar: the debounce, the 3-char floor, the per-tab dispatch
-// (sessions / plans / agent files), and the Enter/refresh reindex. Came out of app.js.
+// (sessions / plans), and the Enter/refresh reindex. Came out of app.js.
 //
 // A PLAIN CLASSIC SCRIPT — no IIFE, no UMD factory — that reads app.js's bindings at call time through the
 // shared global scope. Two of them it WRITES: `searchMatchIds` and `searchMatchProjectPaths` (declared at
@@ -25,7 +25,7 @@
 //   app.js                     searchInput, searchBar (DOM handles), activeTab, cachedAllProjects,
 //                              cachedPlans, refreshSidebar, and it WRITES searchMatchIds /
 //                              searchMatchProjectPaths
-//   views/plans-memory-view.js  renderPlans, renderMemories
+//   views/plans-memory-view.js  renderPlans
 
 // --- Search (debounced, per-tab FTS) ---
 // Trigram tokenizer makes 1-2 char queries the most expensive (they match
@@ -70,8 +70,6 @@ function clearSearch() {
     refreshSidebar({ resort: true });
   } else if (activeTab === 'plans') {
     renderPlans(cachedPlans);
-  } else if (activeTab === 'memory') {
-    renderMemories();
   }
 }
 
@@ -88,8 +86,6 @@ function resetSearchFilter() {
     refreshSidebar({ resort: true });
   } else if (activeTab === 'plans') {
     renderPlans(cachedPlans);
-  } else if (activeTab === 'memory') {
-    renderMemories();
   }
 }
 
@@ -136,20 +132,8 @@ async function runSearchQuery() {
       const results = await window.api.search('plan', query, searchTitlesOnly);
       const matchIds = new Set(results.map(r => r.id));
       // FTS ids for plans are the full filePath now (#227 — plans span every backend's plans dir, so a
-      // bare filename is no longer unique), matching how the agent files list already filters.
+      // bare filename is no longer unique), the same key the list is filtered by.
       renderPlans(cachedPlans.filter(p => matchIds.has(p.filePath)));
-    } else if (activeTab === 'memory') {
-      // TWO search types, one list (#448). Work files keep their own FTS type because they are indexed
-      // under different rules — a `.jsonl` and anything past 64 KB is listed but not read — and folding
-      // them into the memory type would mean reading every one of them as text. So the tab asks for both
-      // and unions the answers; asking only for `memory` would show work-file rows that no query can
-      // ever reach.
-      const [memoryHits, workFileHits] = await Promise.all([
-        window.api.search('memory', query, searchTitlesOnly),
-        window.api.search('work-file', query, searchTitlesOnly),
-      ]);
-      const matchIds = new Set([...memoryHits, ...workFileHits].map(r => r.id));
-      renderMemories(matchIds);
     }
   } catch {
     if (activeTab === 'sessions') {
@@ -164,7 +148,7 @@ async function runSearchQuery() {
  * Put the live query back over a list that has just rebuilt itself from disk.
  *
  * A reload calls its renderer with no arguments, and "no arguments" means "no filter" — so a plan
- * written by an agent, or a skill created from the Agent Files tab, replaced the results someone was
+ * written by an agent replaced the results someone was
  * reading with the whole list while their query still sat in the box. The list a tab shows has to be
  * the list that goes with the text in the search field.
  *

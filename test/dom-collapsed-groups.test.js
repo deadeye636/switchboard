@@ -1,12 +1,12 @@
 'use strict';
-// The collapsed default in the Plans and Agent Files lists (#481, #482).
+// The collapsed default in the Plans list (#481, #482). The Agent Files cases left with that tab (#823).
 //
 // WHY A FILE OF ITS OWN, AND WHY IT READS A CSS CLASS. jsdom does not gate `querySelector` or `.click()`
 // on a class or on `display`, so the DOM tests that already touch these lists find and click rows inside
 // a collapsed group and pass exactly as they did before the default changed — green either way. The only
 // way a test can tell is to read `collapsed` itself, which is what every assertion here does.
 //
-// Strategy is the one dom-work-files-in-agent-files.test.js uses: load the view into a jsdom window with
+// Strategy: load the view into a jsdom window with
 // the globals app.js would have set, hand it a payload, read the DOM back.
 
 const test = require('node:test');
@@ -22,12 +22,8 @@ const INDEX_HTML = `<!DOCTYPE html>
 <html>
   <body>
     <div id="plans-content"></div>
-    <div id="agent-file-type-filters"></div>
-    <div id="memory-content"></div>
     <div id="placeholder"></div>
     <div id="plan-viewer"></div>
-    <div id="memory-viewer"></div>
-    <div id="work-files-viewer"></div>
     <div id="stats-viewer"></div>
     <div id="jsonl-viewer"></div>
     <div id="timeline-viewer"></div>
@@ -51,30 +47,6 @@ function plans() {
   ];
 }
 
-/** A global group and one project group, with the type chips the filter bar draws from. */
-function memories() {
-  const file = (over) => ({
-    filename: 'CLAUDE.md', filePath: '/g/CLAUDE.md', displayPath: 'CLAUDE.md', kind: 'instructions',
-    backendIds: ['claude'], modified: T(0), size: 64, ...over,
-  });
-  return {
-    global: { files: [file(), file({ filename: 'SKILL.md', filePath: '/g/skills/a/SKILL.md', kind: 'skill' })],
-      groups: [] },
-    projects: [{
-      folder: 'f-one', projectPath: '/p/one', shortName: 'work/one', displayName: 'One',
-      files: [file({ filePath: '/p/one/CLAUDE.md' })], groups: [],
-    }, {
-      folder: 'f-two', projectPath: '/p/two', shortName: 'work/two', displayName: 'Two',
-      files: [file({ filePath: '/p/two/CLAUDE.md' })], groups: [],
-    }],
-    types: [
-      { id: 'instructions', label: 'Instructions', count: 3 },
-      { id: 'skill', label: 'Skills', count: 1 },
-    ],
-    backends: [{ id: 'claude', label: 'Claude', count: 4 }],
-  };
-}
-
 function setupDom() {
   const dom = new JSDOM(INDEX_HTML, { url: 'http://localhost/', runScripts: 'outside-only', pretendToBeVisual: true });
   const { window } = dom;
@@ -92,28 +64,19 @@ function setupDom() {
 
   window.api = {
     getPlans: () => Promise.resolve({ plans: plans(), hasStore: true, unfulfilled: [] }),
-    getMemories: () => Promise.resolve(memories()),
-    readMemory: () => Promise.resolve(''),
-    readWorkFile: () => Promise.resolve(''),
   };
 
   const panelStub = { open: () => {}, close: () => {} };
   const stubGlobals = {
     plansContent:   window.document.getElementById('plans-content'),
-    memoryContent:  window.document.getElementById('memory-content'),
     placeholder:    window.document.getElementById('placeholder'),
     planViewer:     window.document.getElementById('plan-viewer'),
-    memoryViewer:   window.document.getElementById('memory-viewer'),
-    workFilesViewer: window.document.getElementById('work-files-viewer'),
     statsViewer:    window.document.getElementById('stats-viewer'),
     jsonlViewer:    window.document.getElementById('jsonl-viewer'),
     timelineViewer: window.document.getElementById('timeline-viewer'),
     terminalArea:   window.document.getElementById('terminal-area'),
     planPanel:      panelStub,
-    memoryPanel:    panelStub,
-    workFilesPanel: panelStub,
     cachedPlans:    [],
-    cachedMemoryData: { global: { files: [], groups: [] }, projects: [] },
     activeTab:      'plans',
     reapplyActiveSearch: () => { reapplied.push(true); },
     routeFileToViewWindow: () => Promise.resolve(false),
@@ -126,7 +89,6 @@ function setupDom() {
   evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'lib', 'icons.js'));
   evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'lib', 'project-name.js'));
   evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'plan-groups.js'));
-  evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'agent-file-filter.js'));
   evalInWindow(dom, path.join(SRC_DIR, 'renderer', 'views', 'plans-memory-view.js'));
 
   const state = (selector) => [...window.document.querySelectorAll(selector)]
@@ -138,7 +100,6 @@ function setupDom() {
     document: window.document,
     reapplied,
     planGroups: () => state('#plans-content .plan-group'),
-    memoryGroups: () => state('#memory-content > .project-group'),
     destroy() { window.close(); },
   };
 }
@@ -150,15 +111,6 @@ test('a plans project group starts collapsed', async () => {
   try {
     await ctx.window.loadPlans();
     assert.deepEqual(ctx.planGroups(), ['One:collapsed', 'Two:collapsed']);
-  } finally { ctx.destroy(); }
-});
-
-test('the agent files projects start collapsed and Global stays open', async () => {
-  const ctx = setupDom();
-  try {
-    ctx.window.activeTab = 'memory';
-    await ctx.window.loadMemories();
-    assert.deepEqual(ctx.memoryGroups(), ['Global:open', 'One:collapsed', 'Two:collapsed']);
   } finally { ctx.destroy(); }
 });
 
@@ -174,16 +126,6 @@ test('a plans search opens the groups holding its matches', async () => {
   } finally { ctx.destroy(); }
 });
 
-test('a type filter opens the agent files projects', async () => {
-  const ctx = setupDom();
-  try {
-    ctx.window.activeTab = 'memory';
-    await ctx.window.loadMemories();
-    ctx.document.querySelector('#agent-file-type-filters .agent-type-chip[data-value="instructions"]').click();
-    assert.deepEqual(ctx.memoryGroups(), ['Global:open', 'One:open', 'Two:open']);
-  } finally { ctx.destroy(); }
-});
-
 // --- what the user opens, stays open ---------------------------------------------------------------
 
 test('a plans group opened by hand is still open after the list rebuilds', async () => {
@@ -194,20 +136,6 @@ test('a plans group opened by hand is still open after the list rebuilds', async
     assert.deepEqual(ctx.planGroups(), ['One:open', 'Two:collapsed']);
     await ctx.window.loadPlans();
     assert.deepEqual(ctx.planGroups(), ['One:open', 'Two:collapsed'], 'the reload must not close it again');
-  } finally { ctx.destroy(); }
-});
-
-test('an agent files project opened by hand is still open after the list rebuilds', async () => {
-  const ctx = setupDom();
-  try {
-    ctx.window.activeTab = 'memory';
-    await ctx.window.loadMemories();
-    const one = [...ctx.document.querySelectorAll('#memory-content > .project-group .project-header')]
-      .find(h => h.querySelector('.project-name').textContent === 'One');
-    one.click();
-    assert.deepEqual(ctx.memoryGroups(), ['Global:open', 'One:open', 'Two:collapsed']);
-    await ctx.window.loadMemories();
-    assert.deepEqual(ctx.memoryGroups(), ['Global:open', 'One:open', 'Two:collapsed']);
   } finally { ctx.destroy(); }
 });
 
@@ -227,22 +155,6 @@ test('collapsing a plans group during a search does not survive the search', asy
   } finally { ctx.destroy(); }
 });
 
-test('collapsing an agent files project during a filter does not survive the filter', async () => {
-  const ctx = setupDom();
-  try {
-    ctx.window.activeTab = 'memory';
-    await ctx.window.loadMemories();
-    const headerFor = (name) => [...ctx.document.querySelectorAll('#memory-content > .project-group .project-header')]
-      .find(h => h.querySelector('.project-name').textContent === name);
-    headerFor('One').click();                                                            // One: open
-    ctx.document.querySelector('#agent-file-type-filters .agent-type-chip[data-value="instructions"]').click();
-    headerFor('One').click();                                                            // shut it, mid-filter
-    assert.deepEqual(ctx.memoryGroups(), ['Global:open', 'One:collapsed', 'Two:open']);
-    ctx.document.querySelector('#agent-file-type-filters .agent-type-clear').click();     // Show all
-    assert.deepEqual(ctx.memoryGroups(), ['Global:open', 'One:open', 'Two:collapsed']);
-  } finally { ctx.destroy(); }
-});
-
 // --- a reload puts the live query back --------------------------------------------------------------
 
 test('a plans reload re-runs the live query, and only for the tab on screen', async () => {
@@ -250,20 +162,9 @@ test('a plans reload re-runs the live query, and only for the tab on screen', as
   try {
     await ctx.window.loadPlans();
     assert.equal(ctx.reapplied.length, 1, 'the plans tab is the one on screen');
-    ctx.window.activeTab = 'memory';
+    ctx.window.activeTab = 'sessions';
     await ctx.window.loadPlans();
     assert.equal(ctx.reapplied.length, 1, 'a reload for a tab nobody is looking at must not search');
   } finally { ctx.destroy(); }
 });
 
-test('an agent files reload re-runs the live query, and only for the tab on screen', async () => {
-  const ctx = setupDom();
-  try {
-    ctx.window.activeTab = 'memory';
-    await ctx.window.loadMemories();
-    assert.equal(ctx.reapplied.length, 1);
-    ctx.window.activeTab = 'plans';
-    await ctx.window.loadMemories();
-    assert.equal(ctx.reapplied.length, 1);
-  } finally { ctx.destroy(); }
-});

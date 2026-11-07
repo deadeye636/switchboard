@@ -39,8 +39,6 @@ function makeSearchState() {
     // Spies
     refreshSidebarCalls: [],
     renderPlansCalls: [],
-    renderMemoriesCalls: [],
-    renderWorkFilesCalls: [],
     apiSearchCalls: [],
   };
 
@@ -55,12 +53,6 @@ function makeSearchState() {
   function renderPlans(plans) {
     state.renderPlansCalls.push(plans);
   }
-  function renderMemories(ids) {
-    state.renderMemoriesCalls.push(ids);
-  }
-  function renderWorkFiles(ids) {
-    state.renderWorkFilesCalls.push(ids);
-  }
 
   // Mirrors clearSearch() in shell/search-bar.js.
   function clearSearch() {
@@ -72,10 +64,6 @@ function makeSearchState() {
       refreshSidebar({ resort: true }); // resort:true required — sortedOrder is stale after search
     } else if (state.activeTab === 'plans') {
       renderPlans(state.cachedPlans);
-    } else if (state.activeTab === 'memory') {
-      renderMemories();
-    } else if (state.activeTab === 'work-files') {
-      renderWorkFiles();
     }
   }
 
@@ -87,10 +75,6 @@ function makeSearchState() {
       refreshSidebar({ resort: true }); // resort:true required — same stale-sortedOrder reason
     } else if (state.activeTab === 'plans') {
       renderPlans(state.cachedPlans);
-    } else if (state.activeTab === 'memory') {
-      renderMemories();
-    } else if (state.activeTab === 'work-files') {
-      renderWorkFiles();
     }
   }
 

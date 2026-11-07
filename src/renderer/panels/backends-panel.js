@@ -213,11 +213,11 @@
     return parts[parts.length - 1] || String(projectPath || '');
   }
 
-  // The census of what a backend discovers — and it is not the Agent Files tab written twice (#472).
+  // The census of what a backend discovers (#472).
   //
-  // Agent Files shows the kinds that can be EDITED and deliberately leaves out plan stores (the Plans tab
-  // owns those) and plugins, packages, themes and extensions, because a directory opened in a text editor
-  // is a dead end. Those exist only here, where "Open" hands one to the system. The old hint said what
+  // The editable kinds live in Settings (Instructions, Plugins); plan stores belong to the Plans tab.
+  // Plugins, packages, themes and extensions are directories, and a directory opened in a text editor
+  // is a dead end: those exist only here, where "Open" hands one to the system. The old hint said what
   // this list cannot do and never where it could be done, which is what made it read as the worse copy.
   //
   // Closed by default since #472: it answers "does this CLI see my skills?", which is a question asked
@@ -232,7 +232,7 @@
     return `
       <details class="settings-adv backend-resources" data-lazy="1" data-resources-for="${esc(backend.id)}">
         <summary><svg class="settings-adv-chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 6l6 6-6 6"/></svg>${esc(title || 'Resources')}</summary>
-        <div class="backend-env-hint">Everything this backend discovers, read-only. Skills, rules and commands are edited in <b>Agent Files</b>; plugins, packages and themes are listed only here, because no text editor opens a directory — <b>Open</b> hands one to the system.</div>
+        <div class="backend-env-hint">Everything this backend discovers, read-only. Skills, rules and commands are edited in <b>Settings</b> (Instructions and Plugins); plugins, packages and themes are listed only here, because no text editor opens a directory — <b>Open</b> hands one to the system.</div>
         ${projectPath ? `<div class="backend-env-hint backend-resources-project">Project-scoped rows come from <code>${esc(projectPath)}</code>.</div>` : ''}
         <div class="backend-resource-list" data-resource-list="${esc(backend.id)}"><div class="settings-hint">Loading resources…</div></div>
       </details>`;

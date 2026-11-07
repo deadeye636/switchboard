@@ -108,7 +108,7 @@ test('a pane holding a view tab moves the view too, and asks nothing (#340, #364
     await h.open('b');
     // A kind that may travel: singleton and it names a loader. Messages does not — it is per-session,
     // so a zero-argument loader cannot say what it should show.
-    h.panes.openViewTab('memory', { nearSessionId: 'a' });
+    h.panes.openViewTab('plan', { nearSessionId: 'a' });
     await h.settle();
     const calls = stubWindowMoves(h);
     const views = [];
@@ -126,9 +126,9 @@ test('a pane holding a view tab moves the view too, and asks nothing (#340, #364
     assert.deepEqual(calls.detached, ['a']);
     assert.deepEqual(calls.moved, [['b', '7']]);
     assert.equal(views.length, 1, 'the view followed the sessions');
-    assert.equal(views[0][1], 'memory');
+    assert.equal(views[0][1], 'plan');
     assert.equal(views[0][0], '7', 'into the window the first session made');
-    assert.equal(h.panes.hasViewTab('memory'), false, 'and this window let go of it');
+    assert.equal(h.panes.hasViewTab('plan'), false, 'and this window let go of it');
   } finally { h.destroy(); }
 });
 

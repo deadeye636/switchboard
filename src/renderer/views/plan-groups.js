@@ -1,6 +1,6 @@
 // views/plan-groups.js — how the Plans list is divided into projects (#449), as pure functions.
 //
-// WHY THIS IS ITS OWN FILE. The same reason agent-file-filter.js is one: grouping decided inline in the
+// WHY THIS IS ITS OWN FILE. Grouping decided inline in the
 // view can only be tested by asserting that certain source strings exist, and that is the shape of test
 // that once passed while the thing it "covered" was unreachable. These decisions are handed data and
 // asked for an answer.

@@ -244,7 +244,6 @@ const ALLOWED_BINDINGS = {
   // #440 — the Agent Files tab renders backend resource groups. It carries a backendId through to the
   // read call, which is data from main, never a literal it decides on.
   'src/renderer/views/plans-memory-view.js': [],
-  'src/renderer/views/agent-file-filter.js': [],
   'src/renderer/views/plan-groups.js': [],
   'src/renderer/views/text-sync.js': [],
   // #439 — the capability matrix. It renders the catalog and the answers main sent it, so it names no
