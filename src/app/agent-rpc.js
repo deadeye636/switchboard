@@ -1291,7 +1291,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     if (state.observer) return false;
     if (state.heldPaused || state.heldInFlight || state.held.length || state.asks.size) return false;
     if (rpc.sendAcknowledged === false && state.owed > 0) return false;
-    return !state.shellRuns.size && !state.localCommands.size && !state.shellCarry.length;
+    return !state.draft && !state.shellRuns.size && !state.localCommands.size && !state.shellCarry.length;
   }
   state.maintenanceOpen = maintenanceOpen;
 
@@ -1675,6 +1675,12 @@ function imagesFor(rpc, raw) {
     images.push({ mimeType, data });
   }
   return { images };
+}
+
+// What the composer holds, on the edge (spec 45). With no view mounted nothing has said so, and nothing can be typed either.
+function noteDraft(sessionId, hasDraft) {
+  const state = stateFor(sessionId);
+  if (state) state.draft = hasDraft === true;
 }
 
 async function sendTurn(sessionId, payload) {
@@ -2070,6 +2076,7 @@ function registerIpc(ipc) {
   ipc.handle('agent-task-output', (_event, sessionId, taskId) => taskOutput(sessionId, taskId));
   ipc.handle('agent-attach', (_event, sessionId) => attach(sessionId));
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
+  ipc.handle('agent-draft', (_event, sessionId, hasDraft) => noteDraft(sessionId, hasDraft));
   ipc.handle('agent-abort', (_event, sessionId) => abortTurn(sessionId));
   ipc.handle('agent-held', (_event, sessionId, action, id) => heldAction(sessionId, action, id));
   ipc.handle('agent-answer', (_event, sessionId, requestId, answer) => answerAsk(sessionId, requestId, answer));
@@ -2097,7 +2104,7 @@ module.exports = {
     return Boolean(state) && state.maintenanceOpen();
   },
   // For the tests, which drive a fake child through the same functions the IPC calls.
-  attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
+  attach, sendTurn, noteDraft, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
 };

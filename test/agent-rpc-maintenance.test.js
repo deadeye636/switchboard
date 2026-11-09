@@ -184,6 +184,17 @@ test('a warm turn that asks the user something raises attention and stops being 
   assert.equal(h.signals.find((s) => s.kind === 'waiting').quiet, undefined);
 });
 
+test('a draft in the composer keeps the gate closed until it is gone', async (t) => {
+  const h = await started(t);
+  assert.equal(agentRpc.maintenanceOpen(sid(h)), true, 'no view has said anything, and nothing can be typed without one');
+  agentRpc.noteDraft(sid(h), true);
+  assert.equal(agentRpc.maintenanceOpen(sid(h)), false);
+  assert.deepEqual(await agentRpc.maintain(sid(h), { action: 'warm' }), { ok: false, reason: 'blocked' });
+  agentRpc.noteDraft(sid(h), false);
+  assert.equal(agentRpc.maintenanceOpen(sid(h)), true);
+  assert.doesNotThrow(() => agentRpc.noteDraft('no-such-session', true));
+});
+
 test('a refused compaction draws neither its error nor its start', async (t) => {
   const h = await started(t);
   await agentRpc.maintain(sid(h), { action: 'compact' });

@@ -110,8 +110,9 @@ to a user send, never the reverse.
 ### The draft signal
 
 One-way, view to main, on the empty/non-empty edge of the composer, handled in `agent-rpc.js`
-(`registerIpc`, no new handler in `main.js`), bound in `src/preload.js`. State is cleared on teardown and re-key and
-fails towards not sending: an unknown draft state blocks. No mounted view means no draft (nothing can be typed). The
+(`registerIpc`, no new handler in `main.js`), bound in `src/preload.js`. The view clears it on teardown; a re-key keeps it,
+because the session and its composer are the same. A window that dies holding a draft leaves it set, which only stops
+maintenance for that session. No mounted view means no draft (nothing can be typed), so main starts from none. The
 signal cannot close the submit race (same path as the send); the main-side `turnInFlight` and the held queue do.
 
 ### One maintenance flag (E8)

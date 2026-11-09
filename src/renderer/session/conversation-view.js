@@ -875,7 +875,17 @@ function createConversationView(getSession, container) {
     try { clearTerminalAttentionNotice(view.session.sessionId); } catch { /* never worth an answer */ }
   }
 
+  // Whether the composer holds something, told to main on the edge (spec 45): idle maintenance does not start over a draft.
+  // A window that dies still holding one leaves main believing it, which only stops maintenance for that session.
+  let draftReported = false;
+  function reportDraft(hasDraft = !!input.value.trim() || view.attachments.length > 0) {
+    if (hasDraft === draftReported || !view.session) return;
+    draftReported = hasDraft;
+    Promise.resolve(window.api.agent.draft?.(view.session.sessionId, hasDraft)).catch(() => { /* the session has ended */ });
+  }
+
   function renderComposer() {
+    reportDraft();
     const off = view.exited;
     input.disabled = off;
     sendBtn.disabled = off || sending;
@@ -1088,6 +1098,7 @@ function createConversationView(getSession, container) {
     input.style.height = `${content + input.offsetHeight - input.clientHeight}px`;
   }
   input.addEventListener('input', fitInput);
+  input.addEventListener('input', () => reportDraft());
   if (typeof ResizeObserver === 'function') {
     let fittedWidth = 0;
     new ResizeObserver(() => {
@@ -2661,6 +2672,7 @@ function createConversationView(getSession, container) {
       renderJump();
     },
     dispose: () => {
+      reportDraft(false);
       document.removeEventListener('visibilitychange', onWindowVisibility);
       // A viewer still open over the view goes with it, so an agent's tail stops now rather than at its end (#787).
       const viewer = container.querySelector(':scope > .document-viewer');

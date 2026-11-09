@@ -370,6 +370,7 @@ contextBridge.exposeInMainWorld('api', {
   agent: {
     attach: (id) => ipcRenderer.invoke('agent-attach', id),
     send: (id, payload) => ipcRenderer.invoke('agent-send', id, payload),
+    draft: (id, hasDraft) => ipcRenderer.invoke('agent-draft', id, hasDraft),
     abort: (id) => ipcRenderer.invoke('agent-abort', id),
     // A prompt held while a turn runs (#702): 'withdraw' takes it back (its text and images), 'send' sends it next.
     held: (id, action, heldId) => ipcRenderer.invoke('agent-held', id, action, heldId),
