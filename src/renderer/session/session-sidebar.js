@@ -12,7 +12,10 @@
 // fitAndScroll (terminal/terminal-manager.js), insertResolvedText (terminal/terminal-context-menu.js),
 // openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), openFileInPanel
 // (views/file-panel.js), openSessionServers (session/servers-dialog.js), skillInsertText (the skill picker), window.showControlToast, window.api,
-// appGlobalSettings (app.js), moveVariableInOrder, stepVariableInOrder, sameVariableOrder (lib/variable-order.js).
+// appGlobalSettings (app.js), moveVariableInOrder, stepVariableInOrder, sameVariableOrder (lib/variable-order.js),
+// and for the issue filters (#830) settingsOwnerPath (shared/worktree-path.js), filterIssues, normalizeIssueFilter,
+// issueQueryOf, issueLabels, issueCountLabel, readIssueFilter, patchIssueFilter, ISSUE_FILTER_EVENT (views/tasks-logic.js,
+// loaded after this file: every reference is inside a function; the window listener spells the event name itself).
 //
 // Read from outside: `SESSION_SIDEBAR_GROUP_MIME` by `isPaneTabDrag` (terminal/terminal-manager.js).
 //
@@ -304,17 +307,147 @@ function sidebarInView(entry) {
   return entry.element.classList.contains('visible') && !entry.element.classList.contains('grid-mode');
 }
 
-// One CLI start per project at a time, and for a short while after. Several panes can show one project, and this
-// starts a process that talks to a server. The reload button asks again.
-const SIDEBAR_ISSUES_MS = 30000;
-const sidebarIssues = new Map();
-function sidebarIssuesFor(projectPath, force) {
-  const held = sidebarIssues.get(projectPath);
-  if (held && !force && Date.now() - held.at < SIDEBAR_ISSUES_MS) return held.answer;
-  // Main holds an answer of its own for a while (#830), so the reload button tells it to ask again too.
-  const answer = window.api.forgeIssuesList(projectPath, undefined, { force: force === true });
-  sidebarIssues.set(projectPath, { at: Date.now(), answer });
-  return answer;
+// --- The issue filters (#830, spec 42). ---
+// Main holds one answer per project and query for a while, shared by every pane and window, so this asks it directly;
+// the reload button passes `force`. The stored half of the filter (state, the two toggles, the label) is the project's
+// row `forgeIssueFilter:<owner>`, shared with the Tasks view; the text is this sidebar's own and never stored. Per entry:
+// `sidebarIssueOwner`, `sidebarIssueFilter`, `sidebarIssueAnswer`, `sidebarIssueText`, `sidebarIssuePopOpen`.
+const SIDEBAR_ISSUE_STATES = [['open', 'Open'], ['closed', 'Closed'], ['all', 'Open and closed']];
+
+function sidebarIssueOwner(projectPath) {
+  return typeof settingsOwnerPath === 'function' ? settingsOwnerPath(projectPath) : projectPath;
+}
+
+function sidebarIssueQueryMoved(a, b) {
+  const x = issueQueryOf(a);
+  const y = issueQueryOf(b);
+  return x.state !== y.state || x.assignee !== y.assignee || x.author !== y.author;
+}
+
+// The rows and the count; a keystroke in the text field redraws only these.
+function sidebarIssueListParts(entry) {
+  const answer = entry.sidebarIssueAnswer;
+  const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
+  if (!answer) return { count: '', list: sidebarNote('Loading…') };
+  if (!answer.ok) return { count: '', list: sidebarNote(answer.message || 'The issues could not be read.') };
+  const rows = filterIssues(answer.issues, { text: entry.sidebarIssueText || '', label: filter.label });
+  const word = filter.state === 'all' ? '' : ` ${filter.state}`;
+  const count = issueCountLabel(rows.length, answer.issues.length, answer.limit) + word;
+  const none = filter.state === 'closed' ? 'No closed issues.' : filter.state === 'all' ? 'No issues.' : 'No open issues.';
+  const list = rows.length
+    ? rows.slice(0, SESSION_SIDEBAR_ROWS).map((i) => sidebarItem(entry, 'issue', i, i.state === 'closed' && filter.state !== 'open' ? 'closed' : '')).join('')
+    : sidebarNote(answer.issues.length ? 'No issues match the filter.' : none);
+  return { count, list };
+}
+
+// The text field, the Filter button and its popover. A toggle the provider cannot answer is not drawn.
+function sidebarIssueBarHtml(entry) {
+  const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
+  const answer = entry.sidebarIssueAnswer;
+  const supports = (answer && answer.ok && answer.supports) || entry.sidebarIssueSupports || {};
+  const labels = issueLabels(answer && answer.ok ? answer.issues : [], filter.label);
+  const active = (filter.state !== 'open' ? 1 : 0) + (filter.assignee ? 1 : 0) + (filter.author ? 1 : 0) + (filter.label ? 1 : 0);
+  const open = entry.sidebarIssuePopOpen === true;
+  // A stored "on" the provider can no longer answer stays visible, so it can be seen and switched off.
+  const toggle = (field, label) => (supports[field] === true || filter[field]
+    ? `<button type="button" class="ssb-head-btn ssb-issue-toggle" data-ssb="issue-toggle" data-field="${field}" data-ssb-focus="issue-${field}" aria-pressed="${filter[field] ? 'true' : 'false'}"${supports[field] === true ? '' : ' title="The provider cannot tell this right now, so the list is not filtered by it. Click to switch it off."'}>${label}</button>`
+    : '');
+  return `
+    <div class="ssb-issue-bar">
+      <input type="text" class="ssb-issue-search" data-ssb-focus="issue-search" placeholder="Filter issues…" aria-label="Filter issues" value="${escapeHtml(entry.sidebarIssueText || '')}">
+      <button type="button" class="ssb-head-btn ssb-issue-filter-btn" data-ssb="issue-filter" data-ssb-focus="issue-filter" aria-haspopup="true" aria-expanded="${open ? 'true' : 'false'}" title="State, label and the issues that are yours">Filter${active ? ` · ${active}` : ''}</button>
+      <div class="ssb-issue-pop"${open ? '' : ' hidden'}>
+        <select class="ssb-issue-state" data-ssb-focus="issue-state" aria-label="Issue state">${SIDEBAR_ISSUE_STATES.map(([v, l]) => `<option value="${v}"${v === filter.state ? ' selected' : ''}>${l}</option>`).join('')}</select>
+        <select class="ssb-issue-label" data-ssb-focus="issue-label" aria-label="Label"><option value="">All labels</option>${labels.map((l) => `<option value="${escapeHtml(l)}"${l === filter.label ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
+        ${toggle('assignee', 'Assigned to me')}
+        ${toggle('author', 'Opened by me')}
+      </div>
+    </div>`;
+}
+
+function sidebarIssuesBlockHtml(entry) {
+  const parts = sidebarIssueListParts(entry);
+  return `<div class="ssb-subhead ssb-issue-head"><span>Issues · read-only</span><span class="ssb-issue-count">${escapeHtml(parts.count)}</span></div>`
+    + sidebarIssueBarHtml(entry)
+    + `<div class="ssb-issue-list">${parts.list}</div>`;
+}
+
+function sidebarRedrawIssueList(entry) {
+  const root = entry.sidebar;
+  const list = root && root.querySelector('.ssb-issue-list');
+  if (!list) return;
+  const parts = sidebarIssueListParts(entry);
+  list.innerHTML = parts.list;
+  const count = root.querySelector('.ssb-issue-count');
+  if (count) count.textContent = parts.count;
+}
+
+function sidebarReloadTasksGroup(entry) {
+  const root = entry.sidebar;
+  const section = root && root.querySelector('.ssb-group[data-group="tasks"]');
+  if (!section || !section.open) return;
+  if (!sidebarInView(entry)) { section._stale = true; return; }
+  loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === 'tasks'), section);
+}
+
+// A filter change in this sidebar: stored, told to the rest of this window, and read again when the CLI half moved.
+async function sidebarChangeIssueFilter(entry, patch) {
+  const before = entry.sidebarIssueFilter || normalizeIssueFilter(null);
+  const owner = entry.sidebarIssueOwner;
+  let next = normalizeIssueFilter({ ...before, ...patch });
+  entry.sidebarIssueFilter = next;
+  let saved = false;
+  try {
+    // Only the changed field is written, merged in main: another window's change to another field survives.
+    next = await patchIssueFilter(window.api, owner, patch);
+    saved = true;
+  } catch {
+    if (window.showControlToast) window.showControlToast({ message: 'The issue filter could not be saved.' });
+  }
+  if (entry.sidebarIssueOwner !== owner) return; // the session moved to another project meanwhile
+  entry.sidebarIssueFilter = next;
+  // Only a stored change is announced: the other view must not show what the row does not hold.
+  if (saved) window.dispatchEvent(new CustomEvent(ISSUE_FILTER_EVENT, { detail: { owner, filter: next, from: 'sidebar', sessionId: entry.session.sessionId } }));
+  if (sidebarIssueQueryMoved(before, next)) sidebarReloadTasksGroup(entry);
+  else {
+    const bar = entry.sidebar && entry.sidebar.querySelector('.ssb-issue-bar');
+    if (bar) bar.outerHTML = sidebarIssueBarHtml(entry);
+    sidebarRedrawIssueList(entry);
+    sidebarRestoreFocus(entry.sidebar, patch.label !== undefined ? 'issue-label' : null);
+  }
+}
+
+// Another view in this window changed the filter: every sidebar on that project follows. Not under node: the tests
+// require this file for its pure half. The event name is spelled here, not read from tasks-logic.js, because that
+// file loads after this one and this line runs at parse time; `test/tasks-logic.test.js` checks the two agree.
+if (typeof window !== 'undefined') window.addEventListener('switchboard:issue-filter', (e) => {
+  const d = e.detail || {};
+  if (typeof openSessions === 'undefined') return;
+  for (const entry of openSessions.values()) {
+    if (!entry.sidebar || entry.sidebarIssueOwner !== d.owner) continue;
+    if (d.from === 'sidebar' && d.sessionId === entry.session.sessionId) continue;
+    const before = entry.sidebarIssueFilter || normalizeIssueFilter(null);
+    entry.sidebarIssueFilter = normalizeIssueFilter(d.filter);
+    if (sidebarIssueQueryMoved(before, entry.sidebarIssueFilter)) { sidebarReloadTasksGroup(entry); continue; }
+    const bar = entry.sidebar.querySelector('.ssb-issue-bar');
+    if (bar) bar.outerHTML = sidebarIssueBarHtml(entry);
+    sidebarRedrawIssueList(entry);
+  }
+});
+
+// A redraw takes the caret with it; the control marked `data-ssb-focus` that had it gets it back, with its selection.
+function sidebarFocusMark(root) {
+  const active = document.activeElement;
+  if (!root || !active || !root.contains(active) || !active.dataset || !active.dataset.ssbFocus) return null;
+  return { id: active.dataset.ssbFocus, sel: typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd] : null };
+}
+function sidebarRestoreFocus(root, markOrId) {
+  if (!root || !markOrId) return;
+  const mark = typeof markOrId === 'string' ? { id: markOrId, sel: null } : markOrId;
+  const el = root.querySelector(`[data-ssb-focus="${mark.id}"]`);
+  if (!el) return;
+  el.focus();
+  if (mark.sel) { try { el.setSelectionRange(mark.sel[0], mark.sel[1]); } catch { /* not a text field */ } }
 }
 
 function sidebarSessionFocus(entry) {
@@ -459,7 +592,9 @@ const SESSION_SIDEBAR_GROUPS = [
   {
     id: 'tasks',
     label: 'Tasks & notes',
-    async load(entry, draw, force) {
+    // `current()` says whether this read is still the group's latest: an older one must not write the entry's issue
+    // state, or a later keystroke would redraw its stale answer (#830).
+    async load(entry, draw, force, current = () => true) {
       const projectPath = sidebarSessionOf(entry).projectPath;
       if (!projectPath) return sidebarNote('This session has no project.');
       const res = await window.api.taskList({ projectPath });
@@ -469,13 +604,29 @@ const SESSION_SIDEBAR_GROUPS = [
         : sidebarNote('No open tasks.');
       const settings = await window.api.getEffectiveSettings(projectPath);
       if (settings && settings.forgeIssuesEnabled === true) {
-        html += `<div class="ssb-subhead">Issues · read-only</div>`;
+        if (!current()) return html;
+        const owner = sidebarIssueOwner(projectPath);
+        if (entry.sidebarIssueOwner !== owner) {
+          entry.sidebarIssueOwner = owner;
+          entry.sidebarIssueText = '';
+          entry.sidebarIssueSupports = null;
+        }
+        const stored = await readIssueFilter(window.api, owner);
+        if (!current()) return html;
+        entry.sidebarIssueFilter = stored;
+        if (entry.sidebarIssueAnswer && entry.sidebarIssueAnswer.ok && entry.sidebarIssueAnswer.supports) entry.sidebarIssueSupports = entry.sidebarIssueAnswer.supports;
+        entry.sidebarIssueAnswer = null;
         // The tasks are local and the CLI can take its timeout, so they do not wait for it.
-        draw(html + sidebarNote('Loading…'));
-        const issues = await sidebarIssuesFor(projectPath, force);
-        if (!issues || !issues.ok) html += sidebarNote((issues && issues.message) || 'The issues could not be read.');
-        else if (!issues.issues.length) html += sidebarNote('No open issues.');
-        else html += issues.issues.slice(0, SESSION_SIDEBAR_ROWS).map((i) => sidebarItem(entry, 'issue', i)).join('');
+        draw(html + sidebarIssuesBlockHtml(entry));
+        let issues;
+        try {
+          issues = await window.api.forgeIssuesList(projectPath, issueQueryOf(entry.sidebarIssueFilter), { force: force === true });
+        } catch (err) {
+          issues = { enabled: true, ok: false, message: 'The issues could not be read.' };
+        }
+        if (!current()) return html;
+        entry.sidebarIssueAnswer = issues && issues.enabled ? issues : { ok: false, message: 'The issues could not be read.' };
+        html += sidebarIssuesBlockHtml(entry);
       }
       return html;
     },
@@ -566,9 +717,18 @@ function loadSidebarGroup(entry, group, section, force = false) {
   section._token = token;
   section._stale = false;
   if (!body.firstChild) body.innerHTML = sidebarNote('Loading…');
-  const draw = (html) => { if (section._token === token) body.innerHTML = html; };
-  Promise.resolve().then(() => group.load(entry, draw, force)).then((html) => {
-    if (section._token === token) body.innerHTML = html;
+  // A control with the caret keeps it across a redraw (#830: the issue filter's own controls reload this group). The
+  // mark is taken at each redraw, not at the start: the answer can come seconds later, after the user moved on, and
+  // only a caret this redraw takes away is given back.
+  const put = (html) => {
+    const mark = sidebarFocusMark(body);
+    body.innerHTML = html;
+    if (mark) sidebarRestoreFocus(body, mark);
+  };
+  const draw = (html) => { if (section._token === token) put(html); };
+  const current = () => section._token === token;
+  Promise.resolve().then(() => group.load(entry, draw, force, current)).then((html) => {
+    if (section._token === token) put(html);
   }).catch(() => {
     if (section._token === token) body.innerHTML = sidebarNote('Could not be read.');
   });
@@ -815,8 +975,45 @@ function buildSidebar(entry) {
       case 'open-file':
         sessionSidebarOpenInstruction(entry, { path: el.dataset.path });
         break;
+      case 'issue-filter': {
+        entry.sidebarIssuePopOpen = entry.sidebarIssuePopOpen !== true;
+        const pop = root.querySelector('.ssb-issue-pop');
+        if (pop) pop.hidden = !entry.sidebarIssuePopOpen;
+        el.setAttribute('aria-expanded', entry.sidebarIssuePopOpen ? 'true' : 'false');
+        if (entry.sidebarIssuePopOpen && pop) { const first = pop.querySelector('select, button'); if (first) first.focus(); }
+        break;
+      }
+      case 'issue-toggle': {
+        const field = el.dataset.field;
+        const filter = entry.sidebarIssueFilter || normalizeIssueFilter(null);
+        if (field === 'assignee' || field === 'author') sidebarChangeIssueFilter(entry, { [field]: !filter[field] });
+        break;
+      }
       default:
     }
+  });
+  // The issue filters (#830): the text redraws the rows only; state and label are stored.
+  root.addEventListener('input', (e) => {
+    if (!e.target.classList || !e.target.classList.contains('ssb-issue-search')) return;
+    entry.sidebarIssueText = e.target.value;
+    sidebarRedrawIssueList(entry);
+  });
+  root.addEventListener('change', (e) => {
+    const t = e.target;
+    if (!t.classList) return;
+    if (t.classList.contains('ssb-issue-state')) sidebarChangeIssueFilter(entry, { state: t.value });
+    else if (t.classList.contains('ssb-issue-label')) sidebarChangeIssueFilter(entry, { label: t.value });
+  });
+  // Escape closes the popover and hands the caret back to its button; it never reaches the session.
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !entry.sidebarIssuePopOpen || !e.target.closest || !e.target.closest('.ssb-issue-bar')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    entry.sidebarIssuePopOpen = false;
+    const pop = root.querySelector('.ssb-issue-pop');
+    if (pop) pop.hidden = true;
+    const btn = root.querySelector('.ssb-issue-filter-btn');
+    if (btn) { btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
   });
 
   const handle = root.querySelector('.ssb-resize');
@@ -879,6 +1076,7 @@ function hideSidebar(entry) {
   entry.sidebarResizeObserver = null;
   if (entry.sidebar) entry.sidebar.remove();
   entry.sidebar = null;
+  entry.sidebarIssuePopOpen = false;
   refitForSidebar(entry);
 }
 

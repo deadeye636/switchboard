@@ -129,3 +129,71 @@ test('tasks-store guards absent BEFORE it looks at the number', () => {
   assert.match(src, /rawEntryIndex == null \|\| rawEntryIndex === ''/,
     'tasks-store.js must reject an absent entryIndex before coercing it to a number');
 });
+
+// #830: the issue filters' pure half.
+const logic = require('../src/renderer/views/tasks-logic.js');
+
+test('issue filter: text and label combine, and the old string form still works', () => {
+  const rows = [
+    { number: 1, title: 'Crash on start', labels: ['bug', 'P1'] },
+    { number: 2, title: 'Crash on quit', labels: ['bug'] },
+    { number: 3, title: 'Idea', labels: ['feature'] },
+  ];
+  assert.deepStrictEqual(logic.filterIssues(rows, 'crash').map((r) => r.number), [1, 2]);
+  assert.deepStrictEqual(logic.filterIssues(rows, { label: 'bug' }).map((r) => r.number), [1, 2]);
+  assert.deepStrictEqual(logic.filterIssues(rows, { text: 'start', label: 'bug' }).map((r) => r.number), [1]);
+  assert.deepStrictEqual(logic.filterIssues(rows, { label: 'bu' }), [], 'a label is matched whole');
+  assert.strictEqual(logic.filterIssues(rows, {}), rows);
+});
+
+test('issue filter: the stored shape is cut down to what it may hold', () => {
+  assert.deepStrictEqual(logic.normalizeIssueFilter(null), { state: 'open', assignee: false, author: false, label: '' });
+  assert.deepStrictEqual(logic.normalizeIssueFilter({ state: 'x', assignee: 1, author: 'true', label: 5, text: 'kept?' }),
+    { state: 'open', assignee: false, author: false, label: '' }, 'no text is ever part of it');
+  assert.deepStrictEqual(logic.normalizeIssueFilter({ state: 'closed', assignee: true, author: true, label: 'bug' }),
+    { state: 'closed', assignee: true, author: true, label: 'bug' });
+  assert.strictEqual(logic.normalizeIssueFilter({ label: 'x'.repeat(255) }).label.length, 255, 'a GitLab-long label is kept whole');
+  assert.strictEqual(logic.normalizeIssueFilter({ label: 'x'.repeat(5000) }).label, '', 'an oversized label is dropped, not cut');
+  assert.deepStrictEqual(logic.issueQueryOf({ state: 'all', author: true, label: 'bug' }), { state: 'all', assignee: false, author: true });
+});
+
+test('issue filter: its own settings row, keyed by the owner path', () => {
+  assert.strictEqual(logic.issueFilterKey('<project>'), 'forgeIssueFilter:<project>');
+  assert.strictEqual(logic.issueFilterKey(''), '');
+  assert.strictEqual(logic.issueFilterKey(undefined), '');
+  assert.ok(!logic.issueFilterKey('<project>').startsWith('project:'), 'never inside the project blob the settings window replaces');
+});
+
+test('issue filter: labels offered, and "N of M" with the cap', () => {
+  const rows = [{ labels: ['b', 'a'] }, { labels: ['a'] }, { labels: [] }, {}];
+  assert.deepStrictEqual(logic.issueLabels(rows), ['a', 'b']);
+  assert.deepStrictEqual(logic.issueLabels(rows, 'gone'), ['gone', 'a', 'b'], 'the chosen label stays on offer');
+  assert.deepStrictEqual(logic.issueLabels(rows, 'a'), ['a', 'b']);
+  assert.strictEqual(logic.issueCountLabel(3, 12, 100), '3 of 12');
+  assert.strictEqual(logic.issueCountLabel(30, 100, 100), '30 of 100+');
+  assert.strictEqual(logic.issueCountLabel(0, 0), '0 of 0');
+  assert.strictEqual(logic.issueCountLabel(0, 0, 0), '0 of 0', 'no cap, no plus');
+});
+
+test('issue filter: read and write go through the row, and a failing read is the default', async () => {
+  const store = new Map();
+  // merge-setting as main does it: the patch over what is stored.
+  const api = { getSetting: async (k) => store.get(k), mergeSetting: async (k, p) => { store.set(k, { ...(store.get(k) || {}), ...p }); } };
+  const saved = await logic.patchIssueFilter(api, '<project>', { state: 'all', label: 'bug', text: 'never' });
+  assert.deepStrictEqual(store.get('forgeIssueFilter:<project>'), { state: 'all', label: 'bug' }, 'only the named fields, never the text');
+  assert.deepStrictEqual(saved, { state: 'all', assignee: false, author: false, label: 'bug' });
+  // Another window, holding an older copy, changes one toggle: the state set here survives.
+  const after = await logic.patchIssueFilter(api, '<project>', { assignee: true });
+  assert.deepStrictEqual(after, { state: 'all', assignee: true, author: false, label: 'bug' });
+  assert.deepStrictEqual(logic.issueFilterPatch({ state: '--x', author: 'yes' }), { state: 'open', author: false });
+  assert.deepStrictEqual(await logic.readIssueFilter(api, '<project>'), after);
+  const broken = { getSetting: async () => { throw new Error('gone'); } };
+  assert.deepStrictEqual(await logic.readIssueFilter(broken, '<project>'), logic.normalizeIssueFilter(null));
+  assert.deepStrictEqual(await logic.readIssueFilter(api, ''), logic.normalizeIssueFilter(null));
+});
+
+// session-sidebar.js loads before tasks-logic.js and listens at parse time, so it spells the event name itself.
+test('issue filter: the sidebar listens for the event name tasks-logic sends', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'renderer', 'session', 'session-sidebar.js'), 'utf8');
+  assert.ok(src.includes(`'${logic.ISSUE_FILTER_EVENT}'`), 'session-sidebar.js must listen for ISSUE_FILTER_EVENT');
+});

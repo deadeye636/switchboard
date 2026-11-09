@@ -298,6 +298,16 @@ Issues in Tasks & notes (#816, spec 42). The binary paths belong to the machine,
 | `forgeGhPath` | Path to gh | an absolute path to the executable, or a bare name; empty looks it up on `PATH`; `.cmd` and `.bat` are refused; dropped on a settings import | empty | global |
 | `forgeGlabPath` | Path to glab | the same | empty | global |
 
+The issue filter (#830) is not one of those settings. It is view state, kept per project in a settings row of its own,
+written by the issue list in Tasks & notes and in the session sidebar, with no control on the settings screen:
+
+| Key | Holds | Default |
+|---|---|---|
+| `forgeIssueFilter:<project>` | `{ state: open \| closed \| all, assignee: bool, author: bool, label: string }`. `<project>` is the owner path (`settingsOwnerPath`), so a worktree shares its project's filter. The free text is never stored. Not part of a settings export. | absent = open issues, no toggles, no label |
+
+It sits outside the `project:<path>` blob on purpose: the project settings window replaces that blob on Save, so a
+key it does not show would be erased, and every write to it rebuilds the project list.
+
 | Key | Label | Values | Default | Scope |
 |---|---|---|---|---|
 | `projectSortMode` | Project order. `activity` and `alpha` move missing and empty projects to the end; `manual` follows the drag order alone, and only favorites stay pinned on top while `favoritesOwnList` is off (#772) | `activity` \| `alpha` \| `manual` | `activity` | global |

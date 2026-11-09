@@ -7,8 +7,9 @@
 // Depends on globals: escapeHtml, formatDate (utils.js), hideAllViewers,
 // returnToTerminal (app.js), showControlToast (control-dialogs.js),
 // filterTasks, filterIssues, sortTasks, nextTaskStatus, taskStatusLabel, taskScopeLabel,
-// TASK_STATUS_ORDER (tasks-logic.js), window.bookmarksTags.openSessionAt
-// (bookmarks-tags.js), window.api (preload).
+// TASK_STATUS_ORDER, and for the issue filters (#830) normalizeIssueFilter, issueQueryOf, issueLabels,
+// issueCountLabel, readIssueFilter, patchIssueFilter, ISSUE_FILTER_EVENT (tasks-logic.js), settingsOwnerPath
+// (shared/worktree-path.js), window.bookmarksTags.openSessionAt (bookmarks-tags.js), window.api (preload).
 
 (function () {
   const viewer = document.getElementById('tasks-viewer');
@@ -25,6 +26,12 @@
   let issues = null;
   let issuesAsked = 0;
   let issuesOpen = true;
+  // The issue filters (#830, spec 42): the stored half (state, the two "me" toggles, the label) is the project's row
+  // `forgeIssueFilter:<owner>`, shared with the session sidebar; the text is this view's alone and never stored.
+  // `issueSupports` is the last answer's, so the toggles stay put while the next answer loads.
+  let issueFilter = normalizeIssueFilter(null);
+  let issueText = '';
+  let issueSupports = null;
 
   // Open task counts (open + in_progress) for the sidebar: per session (card
   // badge) and per project (project-header icon highlight).
@@ -237,8 +244,11 @@
   // can make the app fetch from another host.
   function issueCardHtml(i) {
     const meta = [i.author ? escapeHtml(i.author) : '', i.updatedAt ? 'Updated ' + escapeHtml(fmtDate(i.updatedAt)) : ''].filter(Boolean).join(' · ');
+    // A closed issue says so whenever the list can hold one (E17); an open-only list needs no badge on every card.
+    const closed = i.state === 'closed' && issueFilter.state !== 'open';
     return `
-      <div class="tv-card tv-issue">
+      <div class="tv-card tv-issue"${closed ? ' data-status="dropped"' : ''}>
+        ${closed ? '<div class="tv-statuscol"><span class="tv-status tv-status-dropped">Closed</span></div>' : ''}
         <div class="tv-main">
           <div class="tv-title">#${escapeHtml(String(i.number))} ${escapeHtml(i.title)}</div>
           ${i.labels.length ? `<div class="tv-issue-labels">${i.labels.map((l) => `<span class="tv-issue-label">${escapeHtml(l)}</span>`).join('')}</div>` : ''}
@@ -251,45 +261,112 @@
       </div>`;
   }
 
+  const ISSUE_STATE_WORDS = { open: 'open', closed: 'closed', all: '' };
+
+  function issueOwner() {
+    const p = scopeFilter.projectPath;
+    return p && typeof settingsOwnerPath === 'function' ? settingsOwnerPath(p) : (p || '');
+  }
+
+  // The cards and the count, which a keystroke in the issue filter redraws without touching the filter row.
+  function issueListParts() {
+    if (!issues || issues.loading) return { count: '', list: '<div class="tv-empty">Loading issues…</div>' };
+    if (!issues.ok) return { count: '', list: `<div class="tv-empty">${escapeHtml(issues.message || 'The issues could not be read.')}</div>` };
+    const rows = filterIssues(issues.issues, { text: issueText, label: issueFilter.label });
+    const word = ISSUE_STATE_WORDS[issueFilter.state] || '';
+    const count = issueCountLabel(rows.length, issues.issues.length, issues.limit) + (word ? ` ${word}` : '');
+    const none = issueFilter.state === 'closed' ? 'No closed issues.' : issueFilter.state === 'all' ? 'No issues.' : 'No open issues.';
+    const list = rows.length ? rows.map(issueCardHtml).join('')
+      : `<div class="tv-empty">${issues.issues.length ? 'No issues match the filter.' : none}</div>`;
+    return { count, list };
+  }
+
+  // State and the two toggles go to the CLI; a toggle the provider cannot answer is not drawn (#830).
+  function issueFiltersHtml() {
+    const supports = (issues && issues.ok && issues.supports) || issueSupports || {};
+    const labels = issueLabels(issues && issues.ok ? issues.issues : [], issueFilter.label);
+    const states = [['open', 'Open'], ['closed', 'Closed'], ['all', 'Open and closed']];
+    // A stored "on" the provider can no longer answer stays visible, so it can be seen and switched off.
+    const toggle = (field, label) => (supports[field] === true || issueFilter[field]
+      ? `<button type="button" class="tv-refresh tv-issues-toggle" data-action="issue-toggle" data-field="${field}" aria-pressed="${issueFilter[field] ? 'true' : 'false'}"${supports[field] === true ? '' : ' title="The provider cannot tell this right now, so the list is not filtered by it. Click to switch it off."'}>${label}</button>`
+      : '');
+    return `
+      <div class="tv-issues-filters">
+        <input type="text" class="tv-search tv-issues-search" placeholder="Filter issues…" value="${escapeHtml(issueText)}">
+        <select class="tv-issues-state" title="Issue state">${states.map(([v, l]) => `<option value="${v}"${v === issueFilter.state ? ' selected' : ''}>${l}</option>`).join('')}</select>
+        <select class="tv-issues-label" title="Label"><option value="">All labels</option>${labels.map((l) => `<option value="${escapeHtml(l)}"${l === issueFilter.label ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('')}</select>
+        ${toggle('assignee', 'Assigned to me')}
+        ${toggle('author', 'Opened by me')}
+      </div>`;
+  }
+
   function issuesHtml() {
     if (!issues) return '';
-    let heading = 'Issues';
-    let inner;
-    if (issues.loading) {
-      inner = '<div class="tv-empty">Loading issues…</div>';
-    } else if (!issues.ok) {
-      inner = `<div class="tv-empty">${escapeHtml(issues.message || 'The issues could not be read.')}</div>`;
-    } else {
-      heading = `${issues.provider} issues · ${escapeHtml(issues.repo)} · ${issues.issues.length}${issues.issues.length >= issues.limit ? '+' : ''} open`;
-      const rows = filterIssues(issues.issues, textFilter);
-      inner = rows.length ? rows.map(issueCardHtml).join('')
-        : `<div class="tv-empty">${issues.issues.length ? 'No issues match the filter.' : 'No open issues.'}</div>`;
-    }
+    const heading = issues.ok ? `${escapeHtml(issues.provider)} issues · ${escapeHtml(issues.repo)}` : 'Issues';
+    const parts = issueListParts();
     return `
       <details class="tv-issues"${issuesOpen ? ' open' : ''}>
-        <summary class="tv-issues-head"><span>${heading}</span><span class="tv-issues-readonly">Read-only</span></summary>
-        ${inner}
+        <summary class="tv-issues-head"><span>${heading}</span><span class="tv-issues-count">${escapeHtml(parts.count)}</span><span class="tv-issues-readonly">Read-only</span></summary>
+        ${issueFiltersHtml()}
+        <div class="tv-issues-list">${parts.list}</div>
       </details>`;
   }
 
-  // `force` is the reload button: main holds an answer of its own for a while (#830).
-  async function loadIssues(force) {
+  function refreshIssueList() {
+    const list = viewer.querySelector('.tv-issues-list');
+    if (!list) { refreshBody(); return; }
+    const parts = issueListParts();
+    list.innerHTML = parts.list;
+    const count = viewer.querySelector('.tv-issues-count');
+    if (count) count.textContent = parts.count;
+  }
+
+  // Stored, then told to this window's session sidebar; a change of what the CLI is asked reads again.
+  async function changeIssueFilter(patch) {
+    const before = issueQueryOf(issueFilter);
+    issueFilter = normalizeIssueFilter({ ...issueFilter, ...patch });
+    const owner = issueOwner();
+    try {
+      // Only the changed field is written, merged in main: another window's change to another field survives.
+      const stored = await patchIssueFilter(window.api, owner, patch);
+      if (issueOwner() !== owner) return; // the view moved to another project meanwhile
+      issueFilter = stored;
+    } catch (err) {
+      toast('The issue filter could not be saved.');
+    }
+    if (issueOwner() !== owner) return;
+    window.dispatchEvent(new CustomEvent(ISSUE_FILTER_EVENT, { detail: { owner, filter: issueFilter, from: 'tasks-view' } }));
+    const after = issueQueryOf(issueFilter);
+    if (before.state !== after.state || before.assignee !== after.assignee || before.author !== after.author) loadIssues(false, true);
+    else refreshIssueList();
+  }
+
+  // `force` is the reload button: main holds an answer of its own for a while (#830). `keepFilter` skips re-reading
+  // the stored filter when this view has just written it.
+  async function loadIssues(force, keepFilter) {
     const projectPath = scopeFilter.projectPath;
     const asked = ++issuesAsked;
-    issues = null;
-    if (!projectPath || !window.api.forgeIssuesList) return;
+    if (!keepFilter) issues = null;
+    if (!projectPath || !window.api.forgeIssuesList) { issues = null; return; }
     let answer = null;
     try {
       const effective = await window.api.getEffectiveSettings(projectPath);
-      if (asked !== issuesAsked || !effective || effective.forgeIssuesEnabled !== true) return;
+      if (asked !== issuesAsked) return;
+      if (!effective || effective.forgeIssuesEnabled !== true) { issues = null; refreshBody(); return; }
+      if (!keepFilter) {
+        const stored = await readIssueFilter(window.api, issueOwner());
+        if (asked !== issuesAsked) return;
+        issueFilter = stored;
+      }
       issues = { loading: true };
       refreshBody();
-      answer = await window.api.forgeIssuesList(projectPath, undefined, { force: force === true });
+      answer = await window.api.forgeIssuesList(projectPath, issueQueryOf(issueFilter), { force: force === true });
     } catch (err) {
       answer = { enabled: true, ok: false, message: err.message };
     }
     if (asked !== issuesAsked) return;
     issues = answer && answer.enabled ? answer : null;
+    if (issues && issues.ok && issues.supports) issueSupports = issues.supports;
     refreshBody();
   }
 
@@ -340,9 +417,21 @@
     if (sortSel) sortSel.addEventListener('change', () => { sortMode = sortSel.value; refreshBody(); });
   }
 
+  // The issue controls live inside the body, so a redraw (an answer arriving, a task filter keystroke) would take
+  // the caret out of them. The control that had it gets it back, with its selection.
+  const ISSUE_CONTROLS = ['.tv-issues-search', '.tv-issues-state', '.tv-issues-label', '.tv-issues-toggle[data-field="assignee"]', '.tv-issues-toggle[data-field="author"]'];
   function refreshBody() {
     const body = viewer.querySelector('.tv-body');
-    if (body) body.innerHTML = bodyHtml();
+    if (!body) return;
+    const active = document.activeElement;
+    const had = active && body.contains(active) ? ISSUE_CONTROLS.find((sel) => active.matches(sel)) : null;
+    const caret = had && typeof active.selectionStart === 'number' ? [active.selectionStart, active.selectionEnd] : null;
+    body.innerHTML = bodyHtml();
+    if (!had) return;
+    const again = body.querySelector(had);
+    if (!again) return;
+    again.focus();
+    if (caret) { try { again.setSelectionRange(caret[0], caret[1]); } catch { /* not a text field */ } }
   }
 
   async function load(force) {
@@ -450,11 +539,38 @@
     if (e.target.classList && e.target.classList.contains('tv-issues')) issuesOpen = e.target.open;
   }, true);
 
+  // The issue filters (#830). Delegated, because the row is redrawn with every answer.
+  viewer.addEventListener('input', (e) => {
+    if (!e.target.matches || !e.target.matches('.tv-issues-search')) return;
+    issueText = e.target.value;
+    refreshIssueList();
+  });
+  viewer.addEventListener('change', (e) => {
+    if (!e.target.matches) return;
+    if (e.target.matches('.tv-issues-state')) changeIssueFilter({ state: e.target.value });
+    else if (e.target.matches('.tv-issues-label')) changeIssueFilter({ label: e.target.value });
+  });
+  // The sidebar in this window changed it: follow, and ask main again only when the CLI half moved.
+  window.addEventListener(ISSUE_FILTER_EVENT, (e) => {
+    const d = e.detail || {};
+    if (d.from === 'tasks-view' || !scopeFilter.projectPath || d.owner !== issueOwner() || viewer.style.display === 'none') return;
+    const before = issueQueryOf(issueFilter);
+    issueFilter = normalizeIssueFilter(d.filter);
+    const after = issueQueryOf(issueFilter);
+    if (before.state !== after.state || before.assignee !== after.assignee || before.author !== after.author) loadIssues(false, true);
+    else refreshBody();
+  });
+
   viewer.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     const action = btn.dataset.action;
     if (action === 'open-issue') { window.api.openExternal(btn.dataset.url); return; }
+    if (action === 'issue-toggle') {
+      const field = btn.dataset.field;
+      if (field === 'assignee' || field === 'author') changeIssueFilter({ [field]: !issueFilter[field] });
+      return;
+    }
     const card = btn.closest('.tv-card');
     const id = card ? card.dataset.id : null;
     handleAction(action, id, card);
@@ -471,6 +587,8 @@
     statusFilter = 'all';
     textFilter = '';
     sortMode = 'newest';
+    issueText = '';
+    issueSupports = null;
     if (typeof hideAllViewers === 'function') hideAllViewers();
     // hideAllViewers restores terminalArea; hide it (and the placeholder) so this
     // overlay isn't covered by the later-in-DOM #terminal-area, which would also

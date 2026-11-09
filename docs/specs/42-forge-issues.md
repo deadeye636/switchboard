@@ -1,13 +1,16 @@
 # 42 — A project's GitHub and GitLab issues in Tasks & notes
 
-Issue #816. Status: **built**. The code is `src/app/forge-issues.js`; the view is `src/renderer/views/tasks-view.js`.
+Issues #816 and #830 (the filters). Status: **built**. The code is `src/app/forge-issues.js`; the views are
+`src/renderer/views/tasks-view.js` and `src/renderer/session/session-sidebar.js`, with their shared pure half in
+`src/renderer/views/tasks-logic.js`.
 
 ## What it does
 
-A project's Tasks & notes view lists the project's open issues in a group of their own, marked read-only. The group
-appears only in the project scope of that view, because a session's view is about that session. The session sidebar
-(spec 43) lists them too, under its Tasks & notes group, and holds its own answer for 30 seconds per project. Nothing is written back to the
-forge and nothing goes into the tasks table. A list stays in memory until the view next loads and is never stored.
+A project's Tasks & notes view lists the project's issues in a group of their own, marked read-only, open ones unless
+the filter says otherwise. The group appears only in the project scope of that view, because a session's view is about
+that session. The session sidebar (spec 43) lists them too, under its Tasks & notes group. Main holds one answer per
+project and query for 30 seconds, shared by both views and every window. Nothing is written back to the forge and
+nothing goes into the tasks table. A list stays in memory and is never stored; the filter is (see "Filters").
 
 ## Decided by the owner (2026-11-06)
 
@@ -46,7 +49,41 @@ parse.
 - **The description is plain text.** Issue text is foreign. Rendering it as Markdown would also let an image in an issue
   make the app fetch from another host. A link in an issue is opened only through the card's own button, and only an
   http or https URL gets one.
-- **Open issues only, at most 100.** The heading shows `100+` when the limit was reached.
+- **At most 100 per query.** The count shows `N of 100+` when the limit was reached. Until #830 the list held open
+  issues only; the state is now a filter (below).
+
+## Filters (#830)
+
+Decisions are on the issue (three comments of 2026-11-09). What was built:
+
+- **Hybrid.** The state (open, closed, all) and the two toggles "Assigned to me" and "Opened by me" go to the CLI as
+  arguments, because the list is capped and a closed issue or someone else's would never reach a local filter. The
+  free text and the label filter what was read, in the window.
+- **Each toggle is one argument.** gh takes `--assignee @me` and `--author @me`. glab takes `--assignee=@me`, but its
+  `--author` documents a user name only, so "Opened by me" first reads the name with `glab api user --hostname
+  <host>`, once per binary and host. Without a name the answer says `supports.author: false`, no `--author` is sent,
+  and the toggle is not drawn; a toggle stored as on stays visible, pressed, so it can be switched off. The reload
+  button reads the name again, which picks up a login or an account switch made in a terminal.
+- **One cache, in main.** `listIssues(projectPath, query, { force })` holds one answer per project, query, remote,
+  provider and binary path for 30 seconds. A failed answer is held only while it is in flight. The sidebar's own
+  renderer-side cache went away.
+- **The filter is stored per project, in a row of its own**: `forgeIssueFilter:<owner>`, `<owner>` being
+  `settingsOwnerPath`, so a worktree shares its project's filter. It holds state, the two toggles and the label; the
+  free text is never stored. It is not in the `project:<path>` blob, because the project settings window replaces that
+  blob on Save and would erase a key it does not show, and every write there rebuilds the project list.
+  `docs/settings-reference.md` has the shape.
+- **A change writes only the changed field**, merged in main (`merge-setting`), so a window holding an older copy
+  cannot write it back over another window's change.
+- **Both views in one window follow each other** through a window event. Another window reads the row the next time its
+  list loads; there is no live push across windows, because the only broadcast there is reruns every window's global
+  settings for a click on a filter.
+- **The count reads "N of M"**: how many match out of how many were read, with a `+` when the read hit the cap. A
+  closed issue carries a "Closed" mark whenever the list can hold one.
+- **The label choice** offers the labels of the issues that were read; a stored label the list no longer carries stays
+  on offer so it can be taken back.
+- **In the sidebar** a text field and a "Filter" button hold the row; the button opens a popover with the state, the
+  label and the toggles, and Escape closes it. The project view shows all of them in one row, with a text field of its
+  own (the tasks' field filters the tasks only).
 
 ## Measured
 
@@ -58,7 +95,13 @@ measured.
 `FORGES.gitlab.fromRow` reads. Its failure text can start with the bare word `ERROR`, so the reason is taken from the
 next line. A self-hosted GitLab was not measured.
 
+For #830, against this repository through the app (2026-11-09): `gh --json …,state` answers `OPEN` / `CLOSED`;
+`--state closed`, `--state all` and `--author @me` filter as documented. A second ask inside the cache window answered
+in about 3 ms against about 0.9 s for a CLI start. The flags of both CLIs were read from their local `--help`.
+
 ## Known gaps
 
 - `forge-issues-list` takes a project path from the window and does not check it is a registered project. It refuses a
   foreign network path, and a local one only ever reaches `git -C` and a read.
+- A filter change in one window shows in another window only when that window's list next loads (see "Filters").
+- `glab api user --hostname` with a host that carries a port was not measured.

@@ -3133,6 +3133,32 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-row[data-tone="failed"] .ssb-row-meta { color: #e06c75; }
 .ssb-row[data-tone="ok"] .ssb-row-meta { color: #3ecf5a; }
 .ssb-note { font-size: 11px; color: #7a7a90; padding: 2px 4px; }
+/* #830: the issue filters. The field and the selects take the Tasks view's look; the popover is a row under the bar. */
+.ssb-issue-head { display: flex; align-items: baseline; gap: 6px; }
+.ssb-issue-head > span:first-child { flex: 1; }
+.ssb-issue-count { font-size: 10px; color: #7a7a90; }
+.ssb-issue-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 2px 0 4px; }
+.ssb-issue-search,
+.ssb-issue-pop select {
+  height: 22px;
+  min-width: 0;
+  background: #23232c;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #d0d0e0;
+  font-size: 11px;
+  padding: 0 6px;
+}
+.ssb-issue-search { flex: 1; }
+.ssb-issue-search:focus,
+.ssb-issue-pop select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
+.ssb-issue-filter-btn { font-size: 11px; white-space: nowrap; }
+.ssb-issue-filter-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); color: #e0e0ec; }
+.ssb-issue-pop { display: flex; flex-wrap: wrap; gap: 4px; width: 100%; padding: 4px; background: #1b1b24; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; }
+.ssb-issue-pop[hidden] { display: none; }
+.ssb-issue-pop select { flex: 1 1 120px; }
+.ssb-issue-toggle { font-size: 11px; border: 1px solid rgba(255, 255, 255, 0.1); }
+.ssb-issue-toggle[aria-pressed="true"] { background: rgba(97, 175, 239, 0.15); color: #61afef; border-color: rgba(97, 175, 239, 0.35); }
 .ssb-meter { height: 5px; margin: 2px 4px 5px; background: rgba(255, 255, 255, 0.08); border-radius: 3px; overflow: hidden; }
 .ssb-meter > i { display: block; height: 100%; background: var(--status-running); }
 .ssb-figure { padding: 0 4px; }
@@ -11315,6 +11341,7 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   max-width: 40%;
 }
 .tv-header select,
+.tv-issues-filters select,
 .tv-search {
   height: 26px;
   background: #23232c;
@@ -11326,7 +11353,8 @@ body.pane-sashing .terminal-container { pointer-events: none; }
 }
 .tv-search { flex: 1; min-width: 120px; }
 .tv-search:focus,
-.tv-header select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
+.tv-header select:focus,
+.tv-issues-filters select:focus { outline: none; border-color: rgba(120, 160, 230, 0.6); }
 .tv-new {
   height: 26px;
   padding: 0 12px;
@@ -11404,6 +11432,12 @@ body.pane-sashing .terminal-container { pointer-events: none; }
   border-radius: 3px;
   padding: 0 5px;
 }
+.tv-issues-count { font-size: 11px; color: #7a7a90; }
+/* #830: the issue filters, one row. The toggles are .tv-refresh widened to their text, lit while on. */
+.tv-issues-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tv-issues-filters .tv-issues-search { max-width: 280px; }
+.tv-issues-toggle { width: auto; padding: 0 10px; font-size: 12px; }
+.tv-issues-toggle[aria-pressed="true"] { background: rgba(97, 175, 239, 0.15); color: #61afef; border-color: rgba(97, 175, 239, 0.35); }
 .tv-issues .tv-card { margin-bottom: 8px; padding-bottom: 10px; }
 .tv-issue-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .tv-issue-label {

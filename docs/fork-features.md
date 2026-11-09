@@ -978,7 +978,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   been sent yet. Its tooltip names the categories and the largest memory files.
 - **Forge issues in Tasks & notes** (#816, spec 42) — a project's open GitHub or GitLab issues, read-only, in a group of
   their own. Read through the `gh` or `glab` CLI when the view opens. Off by default; provider and remote per project,
-  binary paths global.
+  binary paths global. Filters (#830): text, state (open, closed, all), label, "Assigned to me" and "Opened by me",
+  the state and the two toggles asked of the CLI; all but the text are kept per project.
 - **Spell check in the composer** (#815, spec 32) — marks words in text fields and offers corrections, Add to dictionary
   and the edit actions on a right click. On by default, `de-DE, en-US` unless set. A language the Windows spell checker holds gets
   its corrections from that checker, through one PowerShell started on first use and ended when idle (#818).
