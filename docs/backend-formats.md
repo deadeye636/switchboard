@@ -1111,12 +1111,50 @@ previous turn's prompt (input + read + write): T2 read 83% of it and T3 99.9%. O
 the wait was still a hit. Pi wrote nothing in that class (`cacheWrite1h` was 0) and the wait was a full miss: `cacheRead`
 fell to 0 and the turn cost about nine times T2 (0.0055 against 0.0006 in Pi's own `cost.total`). A refresh every 50
 minutes would therefore arrive cold on this Pi setup. Whether another model, an account, or a Claude or Pi setting changes the
-class was not measured, and neither was how long Pi's cache lives: a turn about a second later was a hit, and one at
-6.5 minutes a miss.
+class was not measured. How long Pi's cache lives has a section of its own below.
 
 **The usage figures and the lines logged name no expiry time**, only the class of what was written. The rest of each
 stream was not inspected. A miss on Claude was not measured: it needs a
 wait of over an hour, and the shared part above may well still be read.
+
+---
+
+## How long Pi's cache holds (#827)
+
+Measured on 2026-11-09 with `scripts/measure-pi-cache-bound.js`: Pi 1.1.0 on Haiku 4.5 with its default thinking setting,
+13 turns in three parallel sessions over about 15 minutes, then 6 turns in two sessions run alone. "Ratio" is the cache read
+against the previous turn's prompt (input + read + write).
+
+| Gap before the turn | Hits (ratio) | Misses (read 0) |
+|---|---|---|
+| 1 s | 1 (0.998) | |
+| 60 s | 2 (1.014, 0.998) | 2 |
+| 180 s | 1 (0.998) | |
+| 240 s | 1 (0.998) | 1 |
+| 270 s | 1 (0.998) | |
+| 285 s | 1 (0.998) | |
+| 300 s | 1 (0.998) | 1 |
+| 315 s | | 1 |
+| 330 s | | 1 |
+
+**A hit and a miss are easy to tell apart on these prompts.** Every ratio was at least 0.998 or exactly 0, so any threshold
+between them gives the same verdict. On this small prompt a miss cost about eight times a hit, 0.0054 to 0.0067 against 0.0006
+to 0.0011. A partial read on a larger prompt was not tested.
+
+**One jump in the prompt lines up with all four early misses.** Ordinary turns grew the prompt by 14 to 18 tokens. Each session
+had exactly one turn that grew it by 64 to 68, always the first turn sent 60 seconds or more after the process started. The
+misses at 60, 60, 240 and 300 seconds were all such turns, and the sixth jump turn was the 1.014 hit below. After the jump, all
+six turns at gaps up to 300 seconds hit, and both turns past 300 seconds missed. So the sample fits a one-off change to the
+prompt per process, plus a bound between 300 and 315 seconds. It is a correlation from six sessions: what the extra tokens
+are was not found.
+
+**Identical text can share a cache across processes.** A new process's first turn read 4,136 tokens, a few minutes after an
+earlier process sent the same text. So the parallel samples are not independent, and a real conversation, whose text differs,
+may behave differently. Another turn read 4,202 against a previous prompt of 4,146, more than that session had sent. A parallel
+session's turn with the same prompt (session A, gap 60) had written exactly 4,202, but over 14 minutes earlier and last read
+over six minutes earlier, which is past the bound above. Where that read came from is unresolved.
+
+Pi's source also reads `PI_CACHE_RETENTION=long` for a longer cache lifetime, which was not tested.
 
 ---
 

@@ -22,15 +22,17 @@ Both spend real tokens unprompted. That is the cost of the feature and the UI ha
 | E2 | Terminal backends decline for now, Hermes included (`/compress` would need the PTY path this issue rules out). Narrows the Hermes note on the issue. |
 | E3 | No before-known-expiry mode until a backend supplies an expiry. Measured: a lifetime class, no expiry time. |
 | E4 | The running-session override is in the first stage. |
-| E6 | The backend answers its lifetime class; an interval that would arrive cold is refused. Pi's bound is not measured yet: a hit about a second later, a miss at 6.5 minutes (plan T2). |
+| E6 | The backend answers its lifetime class; an interval that would arrive cold is refused. Measured on Pi: a bound between 300 and 315 seconds, from one sample with six sessions (`docs/backend-formats.md`, "How long Pi's cache holds"). |
 | E7 | A maintenance turn is recognised after a restart through a record in the app's database keyed on the entry, never a marker in the prompt text. Measured: a key at send time on Claude, none on Pi, which takes the named fallback (see "E7" below). |
 | E8 | A per-turn flag in `src/app/agent-rpc.js` silences attention and keeps pending shell lines. Usage, cost and stats keep counting. Last activity moves (it comes from the CLI's own file). |
+| E14 | The first refresh also falls within `maxRefreshMs` of the last turn; the idle time applies to compaction only. On Pi, three refreshes extend the cache by about 13.5 minutes. |
+| E15 | Build without first measuring a real Pi conversation or the jump in its prompt. Pi stays `limited` and shows best effort. |
 
 First-stage modes: **Off, Keep warm, Compact only, Warm then compact**, a finite **refresh limit** and a **hard ceiling**.
 
 ## What was measured (do not re-derive)
 
-`docs/backend-formats.md`, "What a turn says about the prompt cache". One run per backend, so no threshold yet.
+`docs/backend-formats.md`, "What a turn says about the prompt cache" and "How long Pi's cache holds". Claude has one run and no threshold.
 
 - `cache_read > 0` is not proof of a warm cache. Compare read against the previous turn's prompt
   (input + read + write). Claude T2 83 %, T3 99.9 %.
@@ -73,14 +75,16 @@ First-stage modes: **Off, Keep warm, Compact only, Warm then compact**, a finite
 
 One descriptor hook, `idleMaintenance(options)`, answered by every backend (`null` = decline, with a comment naming why):
 `{ cacheClass, maxRefreshMs, warm, compact }`. `cacheClass` is the backend's lifetime class for what it writes (from
-`usage`, measured); `maxRefreshMs` is the longest interval that still arrives warm for that class. The core never
+`usage`, measured); `maxRefreshMs` is the longest gap the scheduler may leave before a refresh, and it promises no hit. Pi: 270
+seconds, measured hits up to 300 and a miss at 315, less a margin. Claude: 50 minutes, inferred from the 1-hour class and not
+measured (O3). The core never
 spells a slash command or a prompt: the action is the `rpc` half's `maintenanceCommand({ id, action, instructions })`
 (`action` is `warm` or `compact`), each worded in its own folder. pi-native's compact is the RPC `compact`, not its `/compact`
 extension command: the extension handler is `detached` and does not await `ctx.compact`
 (`src/backends/pi-native/session-commands.js:458`), so its answer would not carry the outcome. claude-native's is a
 `/compact` line. The answer also says how the action ends, `endsBy: 'idle'` or `'answer'` (see "One maintenance flag").
 Capability row `idleMaintenance` (group `live`): terminals `no`; claude-native `limited` ("cache hit not verified");
-pi-native `yes` once the hit check below is measured, else `limited`. A template does not inherit it (`NOT_INHERITED`:
+pi-native `limited` ("verdict measured on small prompts only") until a real conversation is measured. A template does not inherit it (`NOT_INHERITED`:
 the consumer asks the live pipe-driven session, and a template is never one).
 
 ### The turn gate (new, in `agent-rpc.js`)
@@ -151,11 +155,12 @@ answer, or the session line stays stale. And `get_state` answers `autoCompaction
 
 Per live pipe-driven session in a mode other than Off, with a timer owned by main:
 
-1. Idle for `idleMinutes` since the user's last turn or the last non-maintenance busy edge.
-2. Keep warm: warm every `refreshEveryMinutes`, clamped to the backend's `maxRefreshMs`. A configured interval that would
-   arrive cold is refused with a stated reason, not silently shortened.
-3. Compact only: one compaction after the idle time.
-4. Warm then compact: warm up to the refresh limit, then one compaction.
+1. The clock starts at the user's last turn or the last non-maintenance busy edge. `idleMinutes` applies to compaction only
+   (E14).
+2. Keep warm: warm every `refreshEveryMinutes`, starting one interval after the clock starts, so no refresh falls past the
+   backend's `maxRefreshMs`. A configured interval above that bound is refused with a stated reason, not silently shortened.
+3. Compact only: one compaction after `idleMinutes`.
+4. Warm then compact: warm up to the refresh limit, then one compaction right after the last refresh's verdict.
 5. Stop at the **refresh limit** (count of warms) or the **hard ceiling** (time since the last user turn), whichever comes
    first. After that nothing runs until the user sends again, which restarts the clock.
 6. Every tick checks `maintenanceGate`; a blocked tick is skipped and retried at the next one, not queued.
@@ -165,7 +170,8 @@ Per live pipe-driven session in a mode other than Off, with a timer owned by mai
 ### Settings (cascade, then the running session)
 
 Keys in the settings blob, global and per project: `idleMaintenanceMode` (`off`), `idleMaintenanceIdleMinutes`,
-`idleMaintenanceRefreshMinutes`, `idleMaintenanceRefreshLimit`, `idleMaintenanceCeilingMinutes`. The project value goes
+`idleMaintenanceRefreshMinutes`, `idleMaintenanceRefreshLimit`, `idleMaintenanceCeilingMinutes`,
+`idleMaintenanceBestEffortCompact`. The project value goes
 through `settingsOwnerPath` (reflex 17), never `'project:' + path` by hand. The running-session override is a third,
 runtime-only level held by main per live session; it never writes the defaults and is not persisted (O2). Default is Off.
 All keys are added to `docs/settings-reference.md` with their real code defaults.
@@ -173,8 +179,15 @@ All keys are added to `docs/settings-reference.md` with their real code defaults
 ### Hit check (best effort)
 
 After a warm turn the decoder's `usage` yields a verdict `warm` / `cold` / `unknown` by comparing `cacheRead` with the
-previous turn's prompt (input + read + write). The threshold is a measured plan step (T2); one run gives none. Pi has a
-measured miss; a Claude miss is not, so the Claude verdict stays labelled "best effort" in the UI and the capability note.
+previous turn's prompt (input + read + write). On Pi the measured ratios on small prompts were at least 0.998 or exactly 0: a
+ratio of 0.9 or more is `warm`, a read of 0 is `cold`, anything between is `unknown`. Claude has no measured miss and warm
+reads from 83%, so it answers `warm` above 0.9 and otherwise `unknown`, never `cold`, labelled "best effort" in the UI.
+
+Every refresh is judged afterwards, and the UI promises no warm cache. Pi's four misses inside its bound lined up with a one-off
+jump in the prompt per process, which is not established as the cause. **A `cold` verdict on any refresh ends keep-alive for that
+idle period.** That goes further than the issue, which names only the final refresh, because the issue also forbids rebuilding a
+cold cache. Compaction after it is skipped unless the new setting `idleMaintenanceBestEffortCompact` allows it (default off, the
+issue's "explicitly allow best-effort compaction"). `unknown` ends nothing, and the compaction it leads to is labelled best effort.
 
 ## New flow (flagged under the issue-is-not-law rule)
 
@@ -215,14 +228,14 @@ All eight decided by the owner on 2026-11-09, each as recommended below.
 - [x] **O6** Duplicate compaction when the CLI auto-compacts (issue note). Recommendation: where a launch option shows
   the CLI's own threshold compaction on, the compact modes are shown disabled with the reason; where the backend cannot
   say, a note.
-- [x] **O7** Defaults. Recommendation: Off; idle 10 minutes; refresh limit 3; ceiling 3 hours; refresh interval the class bound
+- [x] **O7** Defaults. Recommendation: Off; idle 10 minutes, for compaction only (E14); refresh limit 3; ceiling 3 hours; refresh interval the class bound
   minus a margin, never above it.
 - [x] **O8** Does the timeline record maintenance turns? Recommendation: yes, as one labelled kind, record-only (E8 silences
   attention, not history).
 
 ## Known gaps (before any build)
 
-Still open after T1:
+Still open after T1 and T2:
 
 - Pi's `/compact` through its runtime extension: not measured, and not used here. T5 checks that an extension command answers
   `handled`, because `turnInFlight` depends on it.
@@ -232,6 +245,8 @@ Still open after T1:
 - Tying a Claude `compact_boundary` to its record: the `/compact` line was sent without a `uuid`.
 - What a pi-native attach's `get_messages` holds for a warm turn and a compaction (T8).
 - What each decoder passes on of `usage`, and the stream lines not inspected (T11). No decoder op carries a figure of its own today.
-- Pi's cache bound and hit threshold (T2), and how long a compaction of a larger session takes on either backend.
+- What Pi's one-off jump in the prompt is, and whether it causes the early misses. How Pi behaves in a real conversation: the
+  measurement used small prompts with identical text, at Pi's default thinking setting.
+- How long a compaction of a larger session takes on either backend.
 
 Everything measured is in `docs/backend-formats.md`.
