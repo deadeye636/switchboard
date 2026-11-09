@@ -233,11 +233,10 @@ All eight decided by the owner on 2026-11-09, each as recommended below.
   not clear the suggestion or the notices.
 - [x] **O5** Who words the warm prompt and how it is drawn. Recommendation: the backend's `maintenanceCommand`, one short fixed
   sentence, shown as a collapsed "Maintenance" entry.
-- [ ] **O6** Duplicate compaction when the CLI auto-compacts (issue note). Recommended and taken: where a launch option shows
-  the CLI's own threshold compaction on, the compact modes are shown disabled with the reason; where the backend cannot
-  say, a note. **Not built, and back with the owner:** Pi answers `autoCompactionEnabled`, and both CLIs compact by themselves
-  unless told otherwise, so taken literally the rule disables the compact modes for nearly everyone. A threshold compaction
-  also runs at a full context, not while idle, so the two do not necessarily duplicate each other.
+- [x] **O6** Duplicate compaction when the CLI auto-compacts (issue note). First taken as "disable the compact modes where the
+  CLI's own threshold compaction is on". Revised by the owner on 2026-11-09: both CLIs compact by themselves unless told
+  otherwise, so that rule would disable the modes for nearly everyone, and a threshold compaction runs at a full context, not
+  while idle. Built instead: a note beside the mode setting saying the CLI's own compaction is separate and unchanged.
 - [x] **O7** Defaults. Recommendation: Off; idle 10 minutes, for compaction only (E14); refresh limit 3; ceiling 3 hours; refresh interval the class bound
   minus a margin, never above it.
 - [x] **O8** Does the timeline record maintenance turns? Recommendation: yes, as one labelled kind, record-only (E8 silences
@@ -251,14 +250,14 @@ during the compaction was held and went out afterwards. An earlier Pi run went t
 ran two short turns on `claude-opus-4-8`: a refresh, read cold on a process under two minutes old, which is the jump in its prompt
 in `docs/backend-formats.md`. No attention was raised, and the console stayed clean.
 
-Not run for real: an app restart, a `/` line on Pi that a command takes, a Claude prompt during a warm turn. Those paths are
-covered against the stand-ins only.
+A second round the same day, on Haiku: a Claude prompt sent during a warm turn was held and ran next as an ordinary turn; after an
+app restart the warm turn's prompt was still marked when the conversation was read back (the folded drawing was not counted, the
+window stayed hidden to the renderer); and on Pi a prompt right after `/session` went out within a second, so the command answers
+`handled`. A turn that failed to authenticate (a `<synthetic>` reply) started no idle period, as intended.
 
 ## Known gaps
 
-- O6 above.
-- Pi's `/compact` through its runtime extension: not measured, and not used here. That an extension command answers `handled` is
-  read in Pi's source; a wrong answer costs a 5-second hold.
+- Pi's `/compact` through its runtime extension: not measured, and not used here.
 - Whether Pi's `abort` stops a running compaction, and whether the view offers Stop during one (its `busy` is false then).
 - A Claude `ai-title` written later, in a longer session, or under claude-native's entrypoint (none in about 20 seconds).
 - A user's own earlier `/compact` can be drawn as the app's after a re-attach, because the match by words has no time compare. A

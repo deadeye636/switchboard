@@ -197,7 +197,7 @@
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <div class="settings-field-header"><span class="settings-label">Maintenance while idle</span>${useGlobalCheckbox('idleMaintenanceMode')}</div>
-                    <div class="settings-description">For a session driven over a pipe: keep its prompt cache warm, compact its context, or both, while it sits idle. Each refresh and compaction is a real model turn that counts against your plan or your API bill. Compaction can lose detail and cannot be undone.</div>
+                    <div class="settings-description">For a session driven over a pipe: keep its prompt cache warm, compact its context, or both, while it sits idle. Each refresh and compaction is a real model turn that counts against your plan or your API bill. Compaction can lose detail and cannot be undone. The CLI's own automatic compaction is separate and stays as it is: it runs when the context is full, not while the session is idle.</div>
                   </div>
                   <div class="settings-field-control">
                     <select id="sv-idle-maintenance-mode" class="settings-select" ${fieldDisabled('idleMaintenanceMode')}>
