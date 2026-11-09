@@ -1120,6 +1120,48 @@ wait of over an hour, and the shared part above may well still be read.
 
 ---
 
+## What idle maintenance can rely on (#827)
+
+Measured on 2026-11-09 with `scripts/measure-idle-maintenance.js` in an empty directory. Claude Code 2.1.318 on Haiku 5.5
+with claude-native's stream flags, without `--prompt-suggestions`, user settings or MCP servers, and without claude-native's
+`CLAUDE_CODE_ENTRYPOINT`. Pi 1.1.0 on Haiku 4.5 over `--mode rpc`, without pi-native's runtime extension. Two Claude runs and
+four Pi runs while the script took shape, the last of each on its final form. Stream lines that carry partial output (`stream_event`, `message_update`,
+`turn_end`) were not inspected.
+
+| Question | Claude | Pi |
+|---|---|---|
+| A key known when the turn is sent | Yes. A `uuid` on the input line came back on the replay and stayed on the transcript line. | No. The user message on `message_end` has `role`, `content` and `timestamp`. The file's entry `id` exists only afterwards. |
+| How a compaction runs | `/compact` as a user line: `system/status` (`compacting`), `system/status`, `system/init`, `system/compact_boundary`, the summary's `user` line, a replayed `user` line, `result`. 9 to 12 s on these tiny sessions. | RPC `compact`: `compaction_start`, `compaction_end`, `response`, which comes only when the compaction is over. 3 to 5 s on a session of one large turn. |
+| A turn's edges around it | Ends in `result`, like a turn. | No `agent_start` and no `agent_settled`. A reader of those edges sees idle throughout. |
+| What confirms it | `system/compact_boundary`. | `success: true` on the response, with a `result` on `compaction_end`. |
+| What it leaves in the file | `compact_boundary`, a line with `isCompactSummary`, one with `isMeta`, one with command markup, one with `local-command-stdout`, and attachment lines. | A `compaction` entry. |
+| Where `usage` lands on the raw lines | `message.usage` on `assistant`, `usage` on `result`. | `message.usage` on the assistant's `message_start` and `message_end`, inside `messages` on `agent_end`, and for a compaction `result.usage` and `data.usage` on the response. |
+
+**A refused compaction still announces itself on Pi.** On a session too small for one, `compaction_start` and
+`compaction_end` both arrived, with `aborted: false` and no `result`, and the response said `success: false` with
+"Nothing to compact (session too small)". `compaction_end` confirms a compaction only together with its `result`.
+
+**Pi answers a prompt before its turn starts, and refuses a second one rather than queueing it.** The answer to a plain
+prompt carries `data.disposition: "started"`, written ahead of `agent_start` (`rpc-mode.js` in Pi's own source; both arrived
+within the 0.1 s the log prints). So a success answer does not mean a turn is over or that none began. A second prompt, in
+the same tick or on the first one's answer, came back with "Agent is already processing. Specify streamingBehavior ('steer'
+or 'followUp') to queue the message." Only the same-tick prompt was certainly written before `agent_start` reached the
+reader. Pi's source also names the dispositions `queued` and `handled`; those two were not observed.
+
+**Pi also refuses a prompt during a compaction:** "Cannot submit a prompt while compaction is in progress. Wait for
+compaction to finish and retry." The compaction carried on and succeeded. With no turn edges, nothing in the busy state
+warns a sender.
+
+**Pi's file held the turn three seconds after the run ended,** the only time checked. `agent_settled` follows
+`agent_end` in plain `--mode rpc`. `get_state` answers `autoCompactionEnabled`, `isCompacting`, `pendingMessageCount` and
+`messageCount`.
+
+**Claude's file gained no `ai-title` line in this session of about 20 seconds**, so a title written later or in a longer
+session is not ruled out. Its `last-prompt` lines repeat as the session moves. Not measured: pi-native's own `/compact`,
+which goes through its runtime extension.
+
+---
+
 ## What each CLI lets the app edit and create (#441)
 
 Declared on the descriptor (`resourceEditing`, `resourceScaffolds`), because the layouts differ and the

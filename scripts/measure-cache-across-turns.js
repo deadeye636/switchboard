@@ -48,7 +48,7 @@ const BACKENDS = [
         const u = msg.message.usage || {};
         say({ model: msg.message.model, read: u.cacheRead, write: u.cacheWrite, write1h: u.cacheWrite1h, input: u.input, cost: u.cost && u.cost.total, stopReason: msg.message.stopReason });
       }
-      return msg.type === 'agent_end';
+      return msg.type === 'agent_settled'; // not `agent_end`: a retry or a compaction can follow that one
     },
   },
 ];

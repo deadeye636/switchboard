@@ -23,7 +23,7 @@ Both spend real tokens unprompted. That is the cost of the feature and the UI ha
 | E3 | No before-known-expiry mode until a backend supplies an expiry. Measured: a lifetime class, no expiry time. |
 | E4 | The running-session override is in the first stage. |
 | E6 | The backend answers its lifetime class; an interval that would arrive cold is refused. Pi's bound is not measured yet: a hit about a second later, a miss at 6.5 minutes (plan T2). |
-| E7 | A maintenance turn is recognised after a restart through a record in the app's database keyed on the entry, never a marker in the prompt text. Whether both backends expose a stable key at send time is NOT established: first measuring step. |
+| E7 | A maintenance turn is recognised after a restart through a record in the app's database keyed on the entry, never a marker in the prompt text. Measured: a key at send time on Claude, none on Pi, which takes the named fallback (see "E7" below). |
 | E8 | A per-turn flag in `src/app/agent-rpc.js` silences attention and keeps pending shell lines. Usage, cost and stats keep counting. Last activity moves (it comes from the CLI's own file). |
 
 First-stage modes: **Off, Keep warm, Compact only, Warm then compact**, a finite **refresh limit** and a **hard ceiling**.
@@ -44,8 +44,8 @@ First-stage modes: **Off, Keep warm, Compact only, Warm then compact**, a finite
 - `deliverShellCarry` (`:664`) already gates on the right set of conditions (exited, busy, paused queue, in flight, open
   asks, held prompts, owed turn). The maintenance gate is that set plus a draft check.
 - `sendTurn` does not look at `heldInFlight` (set only by `flushHeld`, `:1250`). On a runtime that acknowledges its
-  turns (pi-native) busy begins only at `agent_start`, so a user send in the gap is written into Pi while it may
-  already stream. On claude-native (`sendAcknowledged: false`) the write is the busy edge (`:1198`), so a later send is
+  turns (pi-native) busy begins only at `agent_start`, so a user send in the gap is written into Pi. Measured: Pi refuses
+  such a prompt rather than queueing it. On claude-native (`sendAcknowledged: false`) the write is the busy edge (`:1198`), so a later send is
   held and runs next.
 - The attention path is `report('idle')` (`:801`) -> `hooks.deliverBindSignal`; the busy edge also clears the
   suggestion and start notices (`:793`, `:796`) and unread ready state; a turn takes the pending shell lines
@@ -53,8 +53,9 @@ First-stage modes: **Off, Keep warm, Compact only, Warm then compact**, a finite
   per-turn seam.
 - `/compact` is not an ordinary prompt on either pipe. Claude: a local command, never played back; the decoder draws a
   `/` line itself from `noteSent`, the transcript keeps `<command-name>` markup (spec 32, "Slash commands"). Pi: an
-  extension command registered by the runtime extension, refused while a turn runs (spec 30, "Pi's own commands").
-  Whether it raises a busy edge on either is unmeasured (plan T1). A warm turn, by contrast, reads back as a user
+  extension command registered by the runtime extension, refused while a turn runs (spec 30, "Pi's own commands"). Pi
+  also takes an RPC `compact`, measured with no `agent_start` and no `agent_settled`; Claude's ends in `result`
+  (`docs/backend-formats.md`, "What idle maintenance can rely on"). A warm turn, by contrast, reads back as a user
   prompt on both (`src/backends/claude-native/rpc-protocol.js`, `src/backends/pi-native/rpc-protocol.js`).
 - Settings: `effectiveSettings` (`src/app/settings.js:467`) has two levels (global, project through
   `settingsOwnerPath`, `src/shared/worktree-path.js`) and cascades backend defaults per option. A running-session level
@@ -74,23 +75,30 @@ One descriptor hook, `idleMaintenance(options)`, answered by every backend (`nul
 `{ cacheClass, maxRefreshMs, warm, compact }`. `cacheClass` is the backend's lifetime class for what it writes (from
 `usage`, measured); `maxRefreshMs` is the longest interval that still arrives warm for that class. The core never
 spells a slash command or a prompt: the action is the `rpc` half's `maintenanceCommand({ id, action, instructions })`
-(`action` is `warm` or `compact`), so Pi maps to its compaction and Claude to its own, each worded in its own folder.
+(`action` is `warm` or `compact`), each worded in its own folder. pi-native's compact is the RPC `compact`, not its `/compact`
+extension command: the extension handler is `detached` and does not await `ctx.compact`
+(`src/backends/pi-native/session-commands.js:458`), so its answer would not carry the outcome. claude-native's is a
+`/compact` line. The answer also says how the action ends, `endsBy: 'idle'` or `'answer'` (see "One maintenance flag").
 Capability row `idleMaintenance` (group `live`): terminals `no`; claude-native `limited` ("cache hit not verified");
 pi-native `yes` once the hit check below is measured, else `limited`. A template does not inherit it (`NOT_INHERITED`:
 the consumer asks the live pipe-driven session, and a template is never one).
 
 ### The turn gate (new, in `agent-rpc.js`)
 
-`maintenanceGate(state)` is true only when `deliverShellCarry`'s conditions hold, the session has no `maintenanceInFlight`,
-no shell run is active, and the view's draft is empty. A maintenance turn never goes through `sendTurn` and is never
+`maintenanceGate(state)` is true only when `deliverShellCarry`'s conditions hold, `turnInFlight` and `state.maintenance`
+are empty, no shell run is active, and the view's draft is empty. A maintenance turn never goes through `sendTurn` and is never
 held. It is written through `send` with a `maintenance` marker.
 
 ### Closing the Pi gap in main
 
-A runtime that acknowledges its turns gets `turnInFlight`: set when any prompt is written, cleared by the next busy edge
-or a refusal answer. `sendTurn` treats it like `busy` (the prompt is held and flushed at the next idle), so a user send
-inside the gap is no longer written into a streaming Pi. This also protects the maintenance turn: it yields to a user
-send, never the reverse.
+A runtime that acknowledges its turns gets `turnInFlight`, beside `heldInFlight`, which only `flushHeld` sets. It is set when
+any prompt is written, and cleared by the next busy edge, a refusal answer, the process's exit, a re-key, or an answer that
+says no turn will follow. That last case needs the runtime's word: a plain success answer cannot clear it, because Pi
+answers before its turn starts (measured, `data.disposition: "started"`). An extension command is meant to answer `handled`
+(read in Pi's source, not observed), and without that clear the next prompt would be held with nothing to flush it. An
+optional `rpc` hook reads the disposition, so the core names no format. `sendTurn` treats `turnInFlight` and `state.maintenance` like `busy`: the prompt is held and flushed when they clear, so a
+user send inside the gap or during a compaction is not refused by Pi. This also protects the maintenance turn: it yields
+to a user send, never the reverse.
 
 ### The draft signal
 
@@ -99,9 +107,13 @@ One-way, view to main, on the empty/non-empty edge of the composer, handled in `
 fails towards not sending: an unknown draft state blocks. No mounted view means no draft (nothing can be typed). The
 signal cannot close the submit race (same path as the send); the main-side `turnInFlight` and the held queue do.
 
-### The per-turn flag (E8)
+### One maintenance flag (E8)
 
-`send({ maintenance: true })` sets `state.turnKind = 'maintenance'` until the matching idle edge. While it is set:
+`state.maintenance` holds the running action, `{ action, endsBy }`, from the write until it ends, and it is the only such
+flag. `endsBy: 'idle'` (a warm turn on either backend, Claude's compaction) clears it at the matching idle edge.
+`endsBy: 'answer'` (Pi's RPC compact, which has no turn edges) clears it at the command's answer, and an idle edge cannot
+clear it there. A refusal, a re-key and the process's exit clear it in every case. Clearing it flushes held prompts,
+because Pi's answer brings no idle edge that would. While it is set:
 `report()` adds `quiet: true`, and `hooks.deliverBindSignal` raises no response-ready, no attention, and the busy edge
 clears no unread ready state; `carryFor` is skipped, so pending shell lines stay for the next user turn. Usage, cost,
 stats and the timeline keep counting. Last activity moves (read from the CLI's own file). The scheduler therefore keeps
@@ -110,12 +122,30 @@ after every refresh.
 
 ### E7: recognising a maintenance turn after a restart
 
-A table `maintenance_turn (session_id, entry_key, kind, sent_at)`, one append-only migration, written when the turn is
-sent and keyed on the entry's stable key. The attach stamps matching entries `maintenance: true` and the view draws them
-as a dim, collapsed "Maintenance" entry. **Whether Claude and Pi expose a stable key at send time is the first measuring
-step (T1).** Fallback if one does not: key on `(session_id, sent_at, exact text)` and claim the first user entry at or
-after `sent_at` whose text equals the recorded text, once per record; the text is the backend-worded warm prompt, never
-a marker added for recognition. A compaction is recognised by the CLI's own compact boundary entry instead of a prompt.
+A table `maintenance_turn (session_id, entry_key, entry_text, kind, sent_at)`, one append-only migration, written when the
+turn is sent. `entry_key` is the stable key where a backend has one and null otherwise; `entry_text` is the warm prompt for
+the fallback. A record whose action was refused is dropped, so a later entry cannot be claimed by it. The attach stamps matching entries `maintenance: true` and the view draws them
+as a dim, collapsed "Maintenance" entry. **Measured key at send time: Claude yes, Pi no.** claude-native sets a `uuid` on
+the input line, which comes back on the replay and stays on the transcript line. Pi's user message carries no id, so
+pi-native takes the fallback: key on `(session_id, sent_at, exact text)` and claim the first user entry at or after
+`sent_at` whose text equals the recorded text, once per record; the text is the backend-worded warm prompt, never a
+marker added for recognition. A compaction is matched to the first entry of the CLI's own at or after `sent_at`, once per
+record: `compact_boundary` on Claude, a `compaction` entry in Pi's file. T8 has to check this against what the attach
+actually reads: a pi-native attach reads `get_messages`, not the file, so neither Pi shape above is established there, and
+older warm entries may be gone from that answer after a compaction.
+
+### Pi's RPC compact has no turn edges
+
+Pi's RPC `compact` raises no `agent_start` and no `agent_settled`, so the busy state stays idle while it runs, and Pi refuses
+a prompt in that time (measured). Hence `endsBy: 'answer'` and the hold in `sendTurn` above. That answer comes only when the compaction is over, so the command
+is requested with `timeoutMs: 0`, as a shell line is (`src/app/agent-rpc.js:940`), not under the 20-second default: on a
+timeout the flag would clear and flush prompts into a running compaction, and the real answer would be lost. `no answer` is
+never a refusal. The process's exit bounds the wait. Confirmation is that answer's
+`success: true`; `compaction_end` confirms only together with its `result`, because a refused compaction sends both events.
+Three things follow for this path. The decoder raises an error notice for a refused compaction
+(`src/backends/pi-native/rpc-protocol.js:201`), which from an idle timer would appear with nobody asking, so the flag has to
+quiet it and the outcome goes to the timeline. No settled run follows, so the core asks the context and state again on the
+answer, or the session line stays stale. And `get_state` answers `autoCompactionEnabled`, which is what O6 can read on Pi.
 
 ### The scheduler (a new module under `src/app/`)
 
@@ -192,6 +222,16 @@ All eight decided by the owner on 2026-11-09, each as recommended below.
 
 ## Known gaps (before any build)
 
-E7's stable key, `/compact`'s busy edges on both pipes, Pi's refusal inside the prompt-to-`agent_start` gap, and whether
-Claude writes a new `ai-title` after a maintenance turn are all unmeasured; T1 settles them and this file is corrected at
-the line, not appended to.
+Still open after T1:
+
+- Pi's `/compact` through its runtime extension: not measured, and not used here. T5 checks that an extension command answers
+  `handled`, because `turnInFlight` depends on it.
+- A Pi compaction that hangs holds the user's prompts until the process exits, with no bound of its own. T5 names the way out
+  (Stop or a bounded abort).
+- A Claude `ai-title` written later, in a longer session, or under claude-native's entrypoint (none in about 20 seconds).
+- Tying a Claude `compact_boundary` to its record: the `/compact` line was sent without a `uuid`.
+- What a pi-native attach's `get_messages` holds for a warm turn and a compaction (T8).
+- What each decoder passes on of `usage`, and the stream lines not inspected (T11). No decoder op carries a figure of its own today.
+- Pi's cache bound and hit threshold (T2), and how long a compaction of a larger session takes on either backend.
+
+Everything measured is in `docs/backend-formats.md`.
