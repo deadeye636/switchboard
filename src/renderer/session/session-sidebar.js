@@ -899,7 +899,11 @@ function sessionSidebarToggle(sessionId) {
   const open = !sessionSidebarIsOpen(sessionId);
   writeSidebarState(sessionId, { open });
   if (open) showSidebar(entry, sidebarStateOf(readSidebarStates(), sessionId).width);
-  else hideSidebar(entry);
+  else {
+    hideSidebar(entry);
+    // The caret goes back to the session, as the head's Close did before the toolbar button became the only way to close.
+    sidebarSessionFocus(entry);
+  }
   for (const btn of document.querySelectorAll(`[data-sidebar-session="${CSS.escape(sessionId)}"]`)) btn.classList.toggle('active', open);
   return open;
 }
