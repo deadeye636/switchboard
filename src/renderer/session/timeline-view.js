@@ -84,6 +84,7 @@ function renderTimelineFilters(events) {
     idle: 'Idle',
     'needs-attention': 'Needs attention',
     'response-ready': 'Ready',
+    maintenance: 'Maintenance',
     exited: 'Exited',
     stopped: 'Stopped',
     forked: 'Forked',

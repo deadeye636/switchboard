@@ -252,6 +252,7 @@ module.exports = {
     // A turn line is never answered (point 1 in `./rpc-protocol.js`): the write is the send.
     sendAcknowledged: false,
     sendCommand: protocol.sendCommand,
+    maintenanceCommand: protocol.maintenanceCommand,
     // A turn may carry images, as content blocks beside its text (#662).
     imageInput: protocol.IMAGE_INPUT,
     abortCommand: protocol.abortCommand,

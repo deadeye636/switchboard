@@ -312,7 +312,8 @@ function deliverBindSignal(sessionId, hook) {
         // of a UI prompt too (#529), and taking that as a started turn would release a hold that
         // was right — so the extension says which one this is rather than the kind being read for
         // something it does not mean.
-        turnStart: hook.turn_start === true,
+        // Nor does a maintenance turn (spec 45): it is not the prompt a hold is waiting for.
+        turnStart: hook.turn_start === true && hook.quiet !== true,
       });
     } catch (err) {
       ctx.log.warn(`[session-bind] queue state not recorded: ${err.message}`);
@@ -352,8 +353,10 @@ function deliverBindSignal(sessionId, hook) {
       // A session a review started (spec 39) raises nothing: no busy edge and no attention signal reach the window,
       // so no notification, inbox entry, chime or badge. The timeline below still records the edge. Keyed on the
       // session's flag, never on a backend. The cost, accepted: the review row shows no busy indicator.
-      if (isReviewSession(sessionId)) {
-        if (typeof ctx.log.debug === 'function') ctx.log.debug(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} held back: a review session`);
+      // A maintenance turn (spec 45, E8) is the same for its length: nobody is waiting for it, and a busy edge reaching the
+      // window would clear a Ready the user has not read yet.
+      if (isReviewSession(sessionId) || hook.quiet === true) {
+        if (typeof ctx.log.debug === 'function') ctx.log.debug(`[attention-bind] session=${sessionId} kind=${bindSignal.kind} held back: ${hook.quiet === true ? 'maintenance' : 'a review session'}`);
       } else if (mainWindow && !mainWindow.isDestroyed()) {
         // Third arg = exact backend lifecycle edge. Renderer keeps OSC/store guesses from clearing a
         // Ready row, but a terminal-bound lifecycle hook is the user's new turn and must clear it.
@@ -380,9 +383,16 @@ function deliverBindSignal(sessionId, hook) {
           source: bindSignal.source,
           reason: bindSignal.reason,
           ...(typeof bindSignal.busy === 'boolean' ? { busy: bindSignal.busy } : {}),
+          ...(hook.quiet === true ? { maintenance: true } : {}),
         });
       }
     };
+
+    // A maintenance edge neither waits on the turn-hold nor cancels a "finished" the hold has for the user's own turn.
+    if (hook.quiet === true) {
+      deliver();
+      return;
+    }
 
     // An `idle` edge is this backend saying "the agent finished", and it is exactly as untrustworthy
     // as Claude's `Stop` (#495): a prompt queued mid-turn is not announced again, so delivering it

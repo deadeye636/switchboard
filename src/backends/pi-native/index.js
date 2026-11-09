@@ -127,6 +127,8 @@ module.exports = {
     // The text of an assistant entry, for a core observer such as the review runner (spec 39).
     assistantTextOf: protocol.assistantTextOf,
     sendCommand: protocol.sendCommand,
+    maintenanceCommand: protocol.maintenanceCommand,
+    answerStartsTurn: protocol.answerStartsTurn,
     // A turn may carry images (#656), in Pi's `images` field; the limits are the shared ones in
     // `../rpc-shared.js`, since Pi hands the image to whichever provider the session uses.
     imageInput: require('../rpc-shared').IMAGE_INPUT,

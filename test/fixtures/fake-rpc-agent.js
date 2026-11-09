@@ -13,6 +13,7 @@ let runningBash = null;   // { id, printed } of a shell line waiting to be stopp
 function out(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
 
 let waitingForStop = false;
+let compacting = false;
 
 function turn(text) {
   const user = { role: 'user', content: [{ type: 'text', text }], timestamp: 1 };
@@ -54,7 +55,24 @@ process.stdin.on('data', (chunk) => {
           { name: 'skill:search', description: 'Search the web', source: 'skill' },
         ] } });
         break;
+      case 'compact':
+        // As measured on Pi 1.1.0: no turn edges, the answer comes when it is over, and a refused one still sends both events.
+        out({ type: 'compaction_start' });
+        if (!messages.length) {
+          out({ type: 'compaction_end', aborted: false, willRetry: false });
+          out({ id: cmd.id, type: 'response', command: 'compact', success: false, error: 'Nothing to compact (session too small)' });
+          break;
+        }
+        compacting = true;
+        setTimeout(() => {
+          compacting = false;
+          const result = { summary: 'short', firstKeptEntryId: 'x', tokensBefore: 10, estimatedTokensAfter: 5 };
+          out({ type: 'compaction_end', aborted: false, willRetry: false, result });
+          out({ id: cmd.id, type: 'response', command: 'compact', success: true, data: result });
+        }, 150);
+        break;
       case 'prompt':
+        if (compacting) { out({ id: cmd.id, type: 'response', command: 'prompt', success: false, error: 'Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.' }); break; }
         // A submit the runtime refuses (#648): nothing runs, and only the response says so.
         if (cmd.message === 'refuse me') { out({ id: cmd.id, type: 'response', command: 'prompt', success: false, error: 'not now' }); break; }
         if (cmd.message.startsWith('/' + NAVIGATE_COMMAND + ' ')) {
@@ -81,8 +99,13 @@ process.stdin.on('data', (chunk) => {
           out({ id: cmd.id, type: 'response', command: 'prompt', success: true });
           break;
         }
-        out({ id: cmd.id, type: 'response', command: 'prompt', success: true });
-        if (cmd.message === 'ask me') {
+        out({ id: cmd.id, type: 'response', command: 'prompt', success: true, data: { disposition: cmd.message === 'handled line' || cmd.message === 'command ask' || cmd.message.startsWith('/') ? 'handled' : 'started' } });
+        if (cmd.message === 'handled line' || cmd.message === 'no turn') {
+          // A command took the line, or a turn was promised and never begins.
+        } else if (cmd.message === 'slow start') {
+          // The gap the core has to hold a prompt across: the answer is out, and the turn has not begun.
+          setTimeout(() => turn(cmd.message), 150);
+        } else if (cmd.message === 'ask me') {
           out({ type: 'extension_ui_request', id: 'q1', method: 'select', title: 'Allow bash?', options: ['Allow once', 'Refuse'] });
         } else if (cmd.message === 'command ask') {
           // A question one of pi-native's own commands asks (#642): outside any run, and marked as such.

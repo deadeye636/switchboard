@@ -992,6 +992,18 @@ function sendCommand({ text, mode, images, shellLines } = {}) {
   return line;
 }
 
+// Idle maintenance (spec 45). Both end in a `result`, so both are ended by the idle edge. A warm turn carries the id as
+// its `uuid`, which stays on the replay and the transcript line (measured), so it can be told apart after a restart.
+const WARM_PROMPT = 'This is an automatic keep-alive from Switchboard. Reply with only the word: ok';
+function maintenanceCommand({ id, action, instructions } = {}) {
+  if (action === 'warm') return { line: { ...sendCommand({ text: WARM_PROMPT }), uuid: id }, endsBy: 'idle', key: id, text: WARM_PROMPT };
+  if (action === 'compact') {
+    const focus = String(instructions || '').replace(/\s+/g, ' ').trim();
+    return { line: sendCommand({ text: focus ? `/compact ${focus}` : '/compact' }), endsBy: 'idle', key: null, text: null };
+  }
+  return null;
+}
+
 const control = (id, request) => ({ type: 'control_request', request_id: String(id), request });
 
 // Stop is a control request, not a signal: the turn ends and the process stays.
@@ -1541,6 +1553,7 @@ module.exports = {
   responseOf,
   assistantTextOf,
   sendCommand,
+  maintenanceCommand,
   abortCommand,
   stopTaskCommand,
   contextCommand,

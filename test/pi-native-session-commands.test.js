@@ -410,10 +410,10 @@ test('the command list leaves out the internal command and says which ones take 
 test('a failed compaction is said once, in Pi\'s words when Pi already said it', () => {
   const d = protocol.createDecoder();
   assert.deepEqual(d.decode({ type: 'compaction_end', errorMessage: 'Compaction failed: Nothing to compact (session too small)' }),
-    [{ op: 'notice', level: 'error', text: 'Compaction failed: Nothing to compact (session too small)' }]);
+    [{ op: 'notice', level: 'error', text: 'Compaction failed: Nothing to compact (session too small)', about: 'compaction' }]);
   assert.deepEqual(d.decode({ type: 'compaction_end', errorMessage: 'model refused' }),
-    [{ op: 'notice', level: 'error', text: 'Compaction failed: model refused' }]);
-  assert.deepEqual(d.decode({ type: 'compaction_end' }), [{ op: 'notice', level: 'error', text: 'Compaction failed.' }]);
+    [{ op: 'notice', level: 'error', text: 'Compaction failed: model refused', about: 'compaction' }]);
+  assert.deepEqual(d.decode({ type: 'compaction_end' }), [{ op: 'notice', level: 'error', text: 'Compaction failed.', about: 'compaction' }]);
 });
 
 // #643 (W3) — the command is Pi's to resolve, the figures are the app's to fetch. The handler must carry

@@ -2457,7 +2457,8 @@ function createConversationView(getSession, container) {
           if (typeof sessionSidebarContextChanged === 'function') sessionSidebarContextChanged(view.session.sessionId);
         }
         view.busy = !!op.busy;
-        if (view.busy && view.suggestion) setSuggestion(null);
+        // A maintenance turn leaves the suggestion where it is, as main does (spec 45, O4).
+        if (view.busy && view.suggestion && !op.maintenance) setSuggestion(null);
         if (!view.busy) { view.busySince = null; view.tools.clear(); renderActivity(); }
         renderStatus();
         break;

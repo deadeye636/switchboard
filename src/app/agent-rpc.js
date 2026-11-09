@@ -67,6 +67,8 @@ function init(context) {
 // asked, and it is asked when a tab mounts — long enough not to fail a big transcript, short enough that a
 // wedged child does not leave a view waiting forever.
 const RESPONSE_TIMEOUT_MS = 20000;
+const TURN_START_WAIT_MS = 5000; // how long a prompt the runtime took may leave the next one held before its turn begins
+const ANSWER_ENDED_WAIT_MS = 10 * 60 * 1000; // how long a maintenance action that ends with its answer may hold prompts
 
 // How long a runtime may take to answer ANYTHING after it was started (#647). A request written before the
 // runtime reads its input waits in the pipe and is answered once it does — Pi attaches its reader only after
@@ -279,6 +281,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     navigations: new Set(),  // moves in the branch tree this process asked for and has not heard back on
     queue: { steering: [], followUp: [] },
     busy: false,
+    // A prompt written to a runtime that acknowledges its turns, whose turn has not begun: it refuses a second one in
+    // that gap (measured, spec 45). The next busy edge or an answer saying no turn follows clears it.
+    turnInFlight: false,
+    turnStartTimer: null,    // how long `turnInFlight` may wait for its turn — see `settleTurnGap`
+    maintenance: null,      // the running idle-maintenance action, { action, endsBy } — see `maintain`
     typed: '',               // what `write()` has collected towards the next carriage return
     partialTimer: null,
     partialOp: null,
@@ -433,6 +440,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       const moved = ctx.adoptSessionId(tag, String(id));
       if (moved && moved.from && moved.to) {
         ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
+        clearTurnGap();
+        if (state.maintenance) endMaintenance();
         // The first id the runtime names is the conversation the app launched, so what the user allowed for it
         // moves along (#731). A later move is a new conversation or a fork, and starts empty.
         if (!state.identitySettled && ctx.approvalMemory && state.backendId) {
@@ -664,6 +673,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   function deliverShellCarry() {
     if (!state.shellCarry.length) return;
     if (state.exited || state.busy || state.heldPaused || state.heldInFlight || state.asks.size || state.held.length) return;
+    if (state.turnInFlight || state.maintenance) return;
     if (rpc.sendAcknowledged === false && state.owed > 0) return;
     send({ text: '', mode: 'prompt', carryOnly: true }).then((res) => {
       if (state.exited || (res && res.success !== false)) return;
@@ -677,7 +687,10 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     const found = findSession(tag);
     if (!found || typeof ctx.deliverBindSignal !== 'function') return;
     const pending = state.queue.steering.length + state.queue.followUp.length > 0;
-    try { ctx.deliverBindSignal(found.id, { kind, pending, ...(extra || {}) }); } catch (err) {
+    // A maintenance turn is nobody's work to come back to (spec 45, E8): the delivery raises no attention for it. A question
+    // still does, because a session blocked on one holds the user's prompts behind it.
+    const quiet = state.maintenance && kind !== 'waiting' ? { quiet: true } : {};
+    try { ctx.deliverBindSignal(found.id, { kind, pending, ...quiet, ...(extra || {}) }); } catch (err) {
       ctx.log.warn(`[agent-rpc] state not delivered: ${err.message}`);
     }
   }
@@ -758,6 +771,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   state.autoAnswer = autoAnswer;
 
   function handleOp(op) {
+    // A compaction the idle timer started: nobody asked, so its notices stay out of the view, a refusal's error above all.
+    // The answer to the command carries the outcome to whoever started it (`maintain`).
+    if (op.op === 'notice' && op.about === 'compaction' && state.maintenance && state.maintenance.endsBy === 'answer') return;
     switch (op.op) {
       case 'partial':
         // Coalesced: only the newest partial matters, and the timer bounds how long it may wait.
@@ -790,10 +806,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (state.busy === op.busy) return;
         state.busy = op.busy;
         if (state.observer) notifyObserver(state, 'onBusy', op.busy, op.busy ? null : (op.outcome || null));
-        if (op.busy) state.suggestion = null;
+        // A maintenance turn leaves both in place (spec 45, O4): nothing the user sees has moved on.
+        if (op.busy && !state.maintenance) state.suggestion = null;
         // What the start said is about the start: once a turn runs, a later attach would draw it under turns it
         // no longer belongs to (#754 verifier F4).
-        if (op.busy) state.startNotices = [];
+        if (op.busy && !state.maintenance) state.startNotices = [];
         noteTurnEdge(op.busy);
         ctx.log.info(`[agent-rpc] session=${(findSession(tag) || {}).id || tag.slice(0, 8)} → ${op.busy ? 'BUSY' : 'IDLE'}`);
         // `turn_start` because an RPC `agent_start` IS a turn beginning — the one fact that releases a
@@ -805,9 +822,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
           const open = state.asks.values().next().value;
           if (open) report('waiting', { prompt_kind: open.method });
         }
-        sendOp(state, op);
+        sendOp(state, state.maintenance ? { ...op, maintenance: true } : op);
         // Either edge ends a held prompt's flight: it started, or the turn it would have started is over.
         state.heldInFlight = false;
+        clearTurnGap();
+        if (!op.busy && state.maintenance && state.maintenance.endsBy === 'idle') state.maintenance = null;
         // A paused queue that has run empty has nothing left to pause.
         if (!op.busy && !state.held.length && state.heldPaused) { state.heldPaused = false; tellHeld(); }
         if (!op.busy) { followIdentity(); followContext(); flushHeld(); deliverShellCarry(); }
@@ -860,6 +879,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (autoAnswer(op.request)) return;
         state.asks.set(op.request.id, op.request);
         flushPartial();
+        takeOverWarmTurn();
         // A session blocked on a question is waiting on the user, which the inbox has to hear about —
         // the same edge a terminal's binding posts for an extension's prompt (#529).
         report('waiting', { prompt_kind: op.request.method });
@@ -1130,6 +1150,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     const back = state.held.splice(0).map(h => ({ text: h.text, images: h.images || [] }));
     state.heldPaused = false;
     state.heldInFlight = false;
+    clearTurnGap();
+    state.maintenance = null;
     if (back.length) sendOp(state, { op: 'held-back', items: back });
     sendOp(state, { op: 'held', items: [], paused: false });
     // A background task does not outlive the process that ran it; the sidebar stops counting it (#691).
@@ -1182,6 +1204,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   // is written — or, for a runtime that answers, once it took it. `carryOnly` is the turn that carries nothing
   // else (`deliverShellCarry`, #788).
   function send({ text, mode, images, carryOnly }) {
+    // A line from anyone else entering a warm turn (a steer, a trigger) makes the turn theirs, so it is no longer quiet.
+    takeOverWarmTurn();
     const shellLines = carryOnly ? (state.shellCarry.length ? state.shellCarry.slice() : null) : carryFor(text, mode);
     if (carryOnly && !shellLines) return Promise.resolve({ success: false, error: 'nothing to carry' });
     const spend = () => { if (shellLines) state.shellCarry = state.shellCarry.filter(l => !shellLines.includes(l)); };
@@ -1198,11 +1222,121 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       if (!wasBusy) handleOp({ op: 'busy', busy: true });
       return Promise.resolve({ success: true });
     }
+    // Only the line that opened the gap settles it: a steer's answer says nothing about a prompt's turn.
+    const gap = !state.busy && !state.turnInFlight && mode === 'prompt' ? openTurnGap() : null;
     return request((id) => rpc.sendCommand({ id, text, mode, busy: state.busy, images, ...carried })).then((res) => {
       if (res && res.success !== false) spend();
+      if (gap) settleTurnGap(res, gap);
       return res;
     });
   }
+
+  // Someone else's line entered a warm turn, or the turn has asked the user something: it is no longer nobody's work, so it
+  // stops being quiet, and what a turn normally clears at its start is cleared now.
+  function takeOverWarmTurn() {
+    if (!state.maintenance || state.maintenance.endsBy !== 'idle') return;
+    state.maintenance = null;
+    state.suggestion = null;
+    state.startNotices = [];
+    if (state.busy) report('busy', { turn_start: true });
+  }
+
+  function openTurnGap() {
+    state.turnInFlight = true;
+    state.turnGap = (state.turnGap || 0) + 1;
+    return state.turnGap;
+  }
+
+  function clearTurnGap() {
+    if (state.turnStartTimer) { clearTimeout(state.turnStartTimer); state.turnStartTimer = null; }
+    state.turnInFlight = false;
+  }
+
+  // No turn came for the line in the gap: everything waiting on one moves on.
+  function noTurnCame() {
+    clearTurnGap();
+    state.heldInFlight = false;
+    if (state.maintenance && state.maintenance.endsBy === 'idle' && !state.busy) { endMaintenance(); return; }
+    flushHeld();
+    deliverShellCarry();
+  }
+
+  // What the answer to the line in the gap means. A refusal, or a runtime that does not say, goes back to writing the next
+  // prompt: at worst the runtime refuses that one. A turn on its way (`answerStartsTurn` true) gets a bounded wait, as does
+  // a line with no answer yet, which is still in the pipe, and a maintenance turn on a runtime that does not say: a turn
+  // that never begins must not hold the user's prompts for good.
+  function settleTurnGap(res, gap) {
+    if (!state.turnInFlight || gap !== state.turnGap) return;
+    const answered = res && res.success !== false;
+    const unanswered = res && (res.error === 'no answer' || res.error === 'not started');
+    const starts = answered && typeof rpc.answerStartsTurn === 'function' ? rpc.answerStartsTurn(res) : null;
+    if (starts === false) { noTurnCame(); return; }
+    if (starts === true || unanswered || (answered && state.maintenance)) {
+      if (state.turnStartTimer) clearTimeout(state.turnStartTimer);
+      state.turnStartTimer = setTimeout(() => { if (!state.exited) noTurnCame(); }, TURN_START_WAIT_MS);
+      if (typeof state.turnStartTimer.unref === 'function') state.turnStartTimer.unref();
+      return;
+    }
+    clearTurnGap();
+    flushHeld();
+    deliverShellCarry();
+  }
+
+  // IDLE MAINTENANCE (spec 45). A turn or a compaction the app starts by itself, only when nothing else is going on. It
+  // never goes through `sendTurn` or `send`: it must not be held and sent later as if the user had typed it, and it must
+  // not take the user's finished shell lines with it. What the action is, and how it ends, is the backend's answer.
+  function maintenanceOpen() {
+    if (state.exited || state.stopping || state.busy || state.maintenance || state.turnInFlight) return false;
+    // A review follows its one turn through the edges (spec 39), and a warm turn's edge would end the review.
+    if (state.observer) return false;
+    if (state.heldPaused || state.heldInFlight || state.held.length || state.asks.size) return false;
+    if (rpc.sendAcknowledged === false && state.owed > 0) return false;
+    return !state.shellRuns.size && !state.localCommands.size && !state.shellCarry.length;
+  }
+  state.maintenanceOpen = maintenanceOpen;
+
+  function endMaintenance() {
+    state.maintenance = null;
+    flushHeld();
+    deliverShellCarry();
+  }
+
+  function maintain({ action, instructions } = {}) {
+    if (typeof rpc.maintenanceCommand !== 'function') return Promise.resolve({ ok: false, reason: 'declined' });
+    if (!maintenanceOpen()) return Promise.resolve({ ok: false, reason: 'blocked' });
+    const id = crypto.randomUUID();
+    const built = rpc.maintenanceCommand({ id, action, instructions });
+    if (!built || !built.line) return Promise.resolve({ ok: false, reason: 'declined' });
+    const { line, endsBy, key = null, text = null } = built;
+    state.maintenance = { action, endsBy };
+    if (rpc.sendAcknowledged === false) {
+      if (!write(line)) { endMaintenance(); return Promise.resolve({ ok: false, reason: 'not running' }); }
+      handleOp({ op: 'busy', busy: true });
+      return Promise.resolve({ ok: true, key, text });
+    }
+    const gap = endsBy === 'answer' ? null : openTurnGap();
+    // An action that ends with its answer waits far longer than a request: Pi answers a compaction only when it is over, and
+    // releasing held prompts sooner would send them into a compaction still running. One that hangs is told to stop (not
+    // measured), and the user's prompts go on after that: at worst the runtime refuses them, which they can see.
+    const waitMs = endsBy === 'answer' ? { timeoutMs: ANSWER_ENDED_WAIT_MS } : {};
+    return request(() => line, { id, ...waitMs }).then((res) => {
+      const ok = Boolean(res) && res.success !== false;
+      const unanswered = Boolean(res) && (res.error === 'no answer' || res.error === 'not started');
+      if (endsBy === 'answer') {
+        if (ok) { followIdentity(); followContext(); }
+        if (unanswered && typeof rpc.abortCommand === 'function') request(rpc.abortCommand);
+        if (state.maintenance) endMaintenance();
+      } else {
+        settleTurnGap(res, gap);
+        // Refused: no turn is coming, so no idle edge will end this one. Unanswered: the line is in the pipe, and the gap's
+        // wait decides.
+        if (!ok && !unanswered && state.maintenance) endMaintenance();
+      }
+      if (ok) return { ok: true, key, text, data: res.data };
+      return { ok: false, reason: (res && res.error) || 'refused', inPipe: unanswered };
+    });
+  }
+  state.maintain = maintain;
 
   // A turn written as keys — the seed prompt, the trigger watcher, a launcher — has nobody waiting on its
   // answer, so a refusal used to vanish (#648). The composer's own send reports back to the view that sent
@@ -1245,6 +1379,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   //     instead of the rest sitting there with nothing to move them.
   function flushHeld() {
     if (state.exited || state.busy || state.heldPaused || state.heldInFlight || state.asks.size || !state.held.length) return;
+    if (state.turnInFlight || state.maintenance) return;
     if (rpc.sendAcknowledged === false && state.owed > 0) return;
     const item = state.held.shift();
     state.heldInFlight = true;
@@ -1562,7 +1697,8 @@ async function sendTurn(sessionId, payload) {
   // A prompt while a turn runs is held (#702) — and so is one behind prompts already waiting, so they keep their
   // order. A queue paused by a Stop does not hold a new one: sending while idle means "now". A shell line is not
   // a turn and runs beside one, so it is never held.
-  if (mode === 'prompt' && !/^\s*!/.test(text) && (state.busy || (state.held.length && !state.heldPaused))) {
+  // The same for a prompt in the gap before a turn begins, and during maintenance: Pi refuses both (spec 45).
+  if (mode === 'prompt' && !/^\s*!/.test(text) && (state.busy || state.turnInFlight || state.maintenance || (state.held.length && !state.heldPaused))) {
     const item = { id: crypto.randomUUID(), text, images: images.length ? images : null, at: Date.now() };
     state.held.push(item);
     state.tellHeld();
@@ -1951,6 +2087,15 @@ module.exports = {
   turnQueueOf,
   // The registry `app/documents.js` asks (#755).
   documentRegistryOf,
+  // What the idle scheduler asks and does (spec 45).
+  maintain: (sessionId, request) => {
+    const state = stateFor(sessionId);
+    return state ? state.maintain(request) : Promise.resolve({ ok: false, reason: 'not running' });
+  },
+  maintenanceOpen: (sessionId) => {
+    const state = stateFor(sessionId);
+    return Boolean(state) && state.maintenanceOpen();
+  },
   // For the tests, which drive a fake child through the same functions the IPC calls.
   attach, sendTurn, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,

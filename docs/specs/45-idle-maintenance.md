@@ -89,9 +89,11 @@ the consumer asks the live pipe-driven session, and a template is never one).
 
 ### The turn gate (new, in `agent-rpc.js`)
 
-`maintenanceGate(state)` is true only when `deliverShellCarry`'s conditions hold, `turnInFlight` and `state.maintenance`
-are empty, no shell run is active, and the view's draft is empty. A maintenance turn never goes through `sendTurn` and is never
-held. It is written through `send` with a `maintenance` marker.
+`maintenanceOpen()` is true only when `deliverShellCarry`'s conditions hold, `turnInFlight` and `state.maintenance`
+are empty, no shell run is active, no observer follows the session (a warm turn's edge would end a review), and the view's
+draft is empty. A maintenance turn never goes through `sendTurn` and is never
+held. `maintain` writes it directly, outside `send`, so it takes no shell lines with it. A line from anyone else that enters a
+warm turn (a steer, a trigger) makes the turn theirs: the flag clears and its end is loud.
 
 ### Closing the Pi gap in main
 
@@ -99,7 +101,8 @@ A runtime that acknowledges its turns gets `turnInFlight`, beside `heldInFlight`
 any prompt is written, and cleared by the next busy edge, a refusal answer, the process's exit, a re-key, or an answer that
 says no turn will follow. That last case needs the runtime's word: a plain success answer cannot clear it, because Pi
 answers before its turn starts (measured, `data.disposition: "started"`). An extension command is meant to answer `handled`
-(read in Pi's source, not observed), and without that clear the next prompt would be held with nothing to flush it. An
+(read in Pi's source, not observed). A turn that was promised and never begins lets go after `TURN_START_WAIT_MS`, 5 seconds,
+and a runtime that names nothing goes back to writing the next prompt, so neither holds the user's prompts for good. An
 optional `rpc` hook reads the disposition, so the core names no format. `sendTurn` treats `turnInFlight` and `state.maintenance` like `busy`: the prompt is held and flushed when they clear, so a
 user send inside the gap or during a compaction is not refused by Pi. This also protects the maintenance turn: it yields
 to a user send, never the reverse.
@@ -142,9 +145,10 @@ older warm entries may be gone from that answer after a compaction.
 
 Pi's RPC `compact` raises no `agent_start` and no `agent_settled`, so the busy state stays idle while it runs, and Pi refuses
 a prompt in that time (measured). Hence `endsBy: 'answer'` and the hold in `sendTurn` above. That answer comes only when the compaction is over, so the command
-is requested with `timeoutMs: 0`, as a shell line is (`src/app/agent-rpc.js:940`), not under the 20-second default: on a
-timeout the flag would clear and flush prompts into a running compaction, and the real answer would be lost. `no answer` is
-never a refusal. The process's exit bounds the wait. Confirmation is that answer's
+is requested with a 10-minute wait, `ANSWER_ENDED_WAIT_MS`, not the 20-second default: on that timeout the flag would clear
+and flush prompts into a running compaction. One still unanswered after 10 minutes is told to stop with Pi's `abort`, and the
+user's prompts go on, which at worst Pi refuses where they can see it. That `abort` stops a compaction is not measured.
+Confirmation is that answer's
 `success: true`; `compaction_end` confirms only together with its `result`, because a refused compaction sends both events.
 Three things follow for this path. The decoder raises an error notice for a refused compaction
 (`src/backends/pi-native/rpc-protocol.js:201`), which from an idle timer would appear with nobody asking, so the flag has to
@@ -163,7 +167,7 @@ Per live pipe-driven session in a mode other than Off, with a timer owned by mai
 4. Warm then compact: warm up to the refresh limit, then one compaction right after the last refresh's verdict.
 5. Stop at the **refresh limit** (count of warms) or the **hard ceiling** (time since the last user turn), whichever comes
    first. After that nothing runs until the user sends again, which restarts the clock.
-6. Every tick checks `maintenanceGate`; a blocked tick is skipped and retried at the next one, not queued.
+6. Every tick checks `maintenanceOpen`; a blocked tick is skipped and retried at the next one, not queued.
 7. The timer is cleared on session end, re-key, app quit (the cancel flag is set synchronously, `main-process.md`, #76)
    and mode change.
 
@@ -237,10 +241,9 @@ All eight decided by the owner on 2026-11-09, each as recommended below.
 
 Still open after T1 and T2:
 
-- Pi's `/compact` through its runtime extension: not measured, and not used here. T5 checks that an extension command answers
-  `handled`, because `turnInFlight` depends on it.
-- A Pi compaction that hangs holds the user's prompts until the process exits, with no bound of its own. T5 names the way out
-  (Stop or a bounded abort).
+- Pi's `/compact` through its runtime extension: not measured, and not used here. That an extension command answers `handled` is
+  to be seen in the end-to-end run (T13); until then a wrong answer costs a 5-second hold.
+- Whether Pi's `abort` stops a running compaction, and whether the view offers Stop during one (its `busy` is false then).
 - A Claude `ai-title` written later, in a longer session, or under claude-native's entrypoint (none in about 20 seconds).
 - Tying a Claude `compact_boundary` to its record: the `/compact` line was sent without a `uuid`.
 - What a pi-native attach's `get_messages` holds for a warm turn and a compaction (T8).

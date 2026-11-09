@@ -195,15 +195,15 @@ function createDecoder({ cwd } = {}) {
       case 'queue_update':
         return [{ op: 'queue', steering: Array.isArray(msg.steering) ? msg.steering : [], followUp: Array.isArray(msg.followUp) ? msg.followUp : [] }];
       case 'compaction_start':
-        return [{ op: 'notice', level: 'info', text: NOTICES.compacting }];
+        return [{ op: 'notice', level: 'info', text: NOTICES.compacting, about: 'compaction' }];
       case 'compaction_end':
-        if (msg.aborted) return [{ op: 'notice', level: 'info', text: 'Compaction stopped.' }];
+        if (msg.aborted) return [{ op: 'notice', level: 'info', text: 'Compaction stopped.', about: 'compaction' }];
         if (!msg.result) {
           // Pi's own message already says so ("Compaction failed: Nothing to compact…"), measured on 0.84.4.
           const why = String(msg.errorMessage || '');
-          return [{ op: 'notice', level: 'error', text: !why ? 'Compaction failed.' : /^compaction failed/i.test(why) ? why : `Compaction failed: ${why}` }];
+          return [{ op: 'notice', level: 'error', text: !why ? 'Compaction failed.' : /^compaction failed/i.test(why) ? why : `Compaction failed: ${why}`, about: 'compaction' }];
         }
-        return [{ op: 'notice', level: 'info', text: NOTICES.compacted }];
+        return [{ op: 'notice', level: 'info', text: NOTICES.compacted, about: 'compaction' }];
       case 'auto_retry_start':
         return [{ op: 'notice', level: 'warning', text: `Retrying (${msg.attempt}/${msg.maxAttempts}) after: ${msg.errorMessage || 'an error'}` }];
       case 'auto_retry_end':
@@ -736,6 +736,28 @@ function responseOf(msg) {
   return msg && msg.type === 'response' ? { id: msg.id, payload: msg } : null;
 }
 
+// Idle maintenance (spec 45). A warm turn is a prompt, ended by its idle edge. A compaction is the RPC `compact`, not the
+// `/compact` extension command: that one is detached and its answer does not carry the outcome. It raises no turn edges
+// and answers only when it is over, so its answer ends it (measured on Pi 1.1.0, docs/backend-formats.md).
+const WARM_PROMPT = 'This is an automatic keep-alive from Switchboard. Reply with only the word: ok';
+function maintenanceCommand({ id, action, instructions } = {}) {
+  if (action === 'warm') return { line: { id, type: 'prompt', message: WARM_PROMPT }, endsBy: 'idle', key: null, text: WARM_PROMPT };
+  if (action === 'compact') {
+    const line = { id, type: 'compact', ...(instructions ? { customInstructions: String(instructions) } : {}) };
+    return { line, endsBy: 'answer', key: null, text: null };
+  }
+  return null;
+}
+
+// Pi answers a plain prompt before its turn begins, naming what it did: `started` or `queued` means a turn is coming,
+// and `handled` that a command took the line and none will (Pi's source; `started` measured on 1.1.0). An older Pi names
+// nothing, and the answer is then null: not known.
+function answerStartsTurn(res) {
+  const disposition = res && res.data && res.data.disposition;
+  if (disposition === 'started' || disposition === 'queued') return true;
+  return disposition === 'handled' ? false : null;
+}
+
 // What a `get_state` response says about identity.
 function sessionIdFromState(response) {
   const data = response && response.data;
@@ -777,6 +799,8 @@ module.exports = {
   assistantTextOf,
   responseOf,
   sendCommand,
+  maintenanceCommand,
+  answerStartsTurn,
   abortCommand,
   commandsCommand,
   commandsFromResponse,

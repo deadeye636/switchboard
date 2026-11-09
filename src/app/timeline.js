@@ -62,6 +62,7 @@ const LABELS = {
   idle: ['idle', 'Agent idle', 'Claude activity stopped.'],
   ready: ['response-ready', 'Ready for review', 'Agent stopped producing output.'],
   attention: ['needs-attention', 'Needs human attention', ''],
+  maintenance: ['maintenance', 'Maintenance turn', 'Sent by Switchboard while the session was idle.'],
 };
 
 function init(context) {
@@ -192,6 +193,13 @@ function endTurn(sessionId) {
 function recordSignal(sessionId, signal) {
   if (!sessionId || !signal || !signal.kind) return;
   const { kind, reason } = signal;
+
+  // A maintenance turn is one labelled event (spec 45, O8). It is nobody's work: it starts no turn in the latch, so its end
+  // writes no "Ready for review", and the recap does not count it as something the agent finished.
+  if (signal.maintenance === true) {
+    if (kind === 'busy') write(sessionId, LABELS.maintenance);
+    return;
+  }
 
   if (kind === 'busy') {
     startTurn(sessionId);
