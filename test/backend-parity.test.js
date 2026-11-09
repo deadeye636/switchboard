@@ -324,8 +324,8 @@ test('every backend answers the idle maintenance hook — a decline is () => nul
 test('only the pipe drivers offer idle maintenance, with their measured bounds', () => {
   const answers = Object.fromEntries(READY.map(b => [b.id, b.idleMaintenance()]));
   const { 'claude-native': claude, 'pi-native': pi, ...rest } = answers;
-  assert.deepEqual(claude, { cacheClass: '1h', maxRefreshMs: 50 * 60 * 1000, warm: true, compact: true });
-  assert.deepEqual(pi, { cacheClass: '5m', maxRefreshMs: 270 * 1000, warm: true, compact: true });
+  assert.deepEqual(claude, { cacheClass: '1h', maxRefreshMs: 50 * 60 * 1000, warm: true, compact: true, callsCold: false });
+  assert.deepEqual(pi, { cacheClass: '5m', maxRefreshMs: 270 * 1000, warm: true, compact: true, callsCold: true });
   for (const [id, answer] of Object.entries(rest)) assert.equal(answer, null, id);
 });
 

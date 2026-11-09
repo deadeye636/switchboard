@@ -53,7 +53,7 @@
       paneCloseEmptyValue, paneBackgroundScrollbackValue,
       externalEditorValue, planInsertTemplateValue, planDirValue, planDirNamesValue, skillInsertTemplateValue, skillsDirValue, submitSkillOnPickValue,
       handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue, fileClickTargetValue, markdownDefaultViewValue, editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
-      favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
+      favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue, idleMaintenanceFields,
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
@@ -151,7 +151,7 @@
                       <option value="steer" ${conversationEnterWhileBusyValue === 'steer' ? 'selected' : ''}>Steer</option>
                     </select>
                   </div>
-                </div>
+                </div>${idleMaintenanceFields}
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Check spelling</span>

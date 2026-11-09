@@ -129,6 +129,7 @@ module.exports = {
     sendCommand: protocol.sendCommand,
     maintenanceCommand: protocol.maintenanceCommand,
     answerStartsTurn: protocol.answerStartsTurn,
+    usageOf: protocol.usageOf,
     // A turn may carry images (#656), in Pi's `images` field; the limits are the shared ones in
     // `../rpc-shared.js`, since Pi hands the image to whichever provider the session uses.
     imageInput: require('../rpc-shared').IMAGE_INPUT,
@@ -224,7 +225,7 @@ module.exports = {
   taskProfile: () => ({ options: { approvalGate: true } }),
   // Idle maintenance (spec 45). Measured on Pi 1.1.0: hits up to 300 s after a turn, a miss at 315 s; 270 s leaves a margin.
   // The bound promises no hit (docs/backend-formats.md, "How long Pi's cache holds").
-  idleMaintenance: () => ({ cacheClass: '5m', maxRefreshMs: 270000, warm: true, compact: true }),
+  idleMaintenance: () => ({ cacheClass: '5m', maxRefreshMs: 270000, warm: true, compact: true, callsCold: true }),
   // External MCP servers (spec 36): Pi's resources-extension section, so Pi's answer.
   externalMcpTakes: pi.externalMcpTakes,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.

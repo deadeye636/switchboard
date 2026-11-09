@@ -442,6 +442,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
         clearTurnGap();
         if (state.maintenance) endMaintenance();
+        if (state.identitySettled) maintenanceEdge('rekey');
         // The first id the runtime names is the conversation the app launched, so what the user allowed for it
         // moves along (#731). A later move is a new conversation or a fork, and starts empty.
         if (!state.identitySettled && ctx.approvalMemory && state.backendId) {
@@ -816,6 +817,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // `turn_start` because an RPC `agent_start` IS a turn beginning — the one fact that releases a
         // held "finished" (#495) — and only the start says so, never the settle.
         report(op.busy ? 'busy' : 'idle', op.busy ? { turn_start: true } : undefined);
+        const quietEdge = Boolean(state.maintenance);
         if (!op.busy) {
           dropAsks({ keepLasting: true });
           // Still waiting on a question that outlived the run: the session is waiting on the user, not idle.
@@ -829,6 +831,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (!op.busy && state.maintenance && state.maintenance.endsBy === 'idle') state.maintenance = null;
         // A paused queue that has run empty has nothing left to pause.
         if (!op.busy && !state.held.length && state.heldPaused) { state.heldPaused = false; tellHeld(); }
+        // Before anything held goes out: a held prompt's own busy edge must not reach the idle schedule ahead of the end of
+        // the turn it follows.
+        maintenanceEdge(op.busy ? 'busy' : 'idle', quietEdge);
         if (!op.busy) { followIdentity(); followContext(); flushHeld(); deliverShellCarry(); }
         return;
       case 'suggestion':
@@ -1124,6 +1129,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         }
         continue;
       }
+      // The figures of the last model call, which is all the idle schedule asks of a turn (spec 45, "Hit check").
+      if (typeof rpc.usageOf === 'function') {
+        const usage = rpc.usageOf(msg);
+        if (usage) state.lastUsage = usage;
+      }
       let ops = [];
       try { ops = state.decoder.decode(msg) || []; } catch (err) { ctx.log.warn(`[agent-rpc] decode failed: ${err.message}`); }
       for (const op of ops) handleOp(op);
@@ -1140,6 +1150,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   child.on('exit', (code, signal) => {
     if (state.exited) return;
     state.exited = true;
+    maintenanceEdge('exit');
     flushPartial();
     if (state.contextTimer) { clearTimeout(state.contextTimer); state.contextTimer = null; }
     if (state.contextSettleTimer) { clearTimeout(state.contextSettleTimer); state.contextSettleTimer = null; }
@@ -1206,6 +1217,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   function send({ text, mode, images, carryOnly }) {
     // A line from anyone else entering a warm turn (a steer, a trigger) makes the turn theirs, so it is no longer quiet.
     takeOverWarmTurn();
+    state.linesSent = (state.linesSent || 0) + 1;
     const shellLines = carryOnly ? (state.shellCarry.length ? state.shellCarry.slice() : null) : carryFor(text, mode);
     if (carryOnly && !shellLines) return Promise.resolve({ success: false, error: 'nothing to carry' });
     const spend = () => { if (shellLines) state.shellCarry = state.shellCarry.filter(l => !shellLines.includes(l)); };
@@ -1297,8 +1309,18 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
 
   function endMaintenance() {
     state.maintenance = null;
+    maintenanceEdge('maintenance-ended');
     flushHeld();
     deliverShellCarry();
+  }
+
+  // What the idle schedule hears. A throw there must not take the pipe's reader with it.
+  function maintenanceEdge(edge, quiet = false) {
+    // Node can report the exit before the last of stdout is read, and a late line is no edge of a live session.
+    if (!ctx.onMaintenanceEdge || (state.exited && edge !== 'exit')) return;
+    try { ctx.onMaintenanceEdge({ edge, handle: state.handle, quiet }); } catch (err) {
+      ctx.log.warn(`[agent-rpc] the idle schedule did not take an edge: ${err.message}`);
+    }
   }
 
   function maintain({ action, instructions } = {}) {
@@ -1312,7 +1334,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     if (rpc.sendAcknowledged === false) {
       if (!write(line)) { endMaintenance(); return Promise.resolve({ ok: false, reason: 'not running' }); }
       handleOp({ op: 'busy', busy: true });
-      return Promise.resolve({ ok: true, key, text });
+      return Promise.resolve({ ok: true, key, text, endsBy });
     }
     const gap = endsBy === 'answer' ? null : openTurnGap();
     // An action that ends with its answer waits far longer than a request: Pi answers a compaction only when it is over, and
@@ -1332,11 +1354,24 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // wait decides.
         if (!ok && !unanswered && state.maintenance) endMaintenance();
       }
-      if (ok) return { ok: true, key, text, data: res.data };
-      return { ok: false, reason: (res && res.error) || 'refused', inPipe: unanswered };
+      if (ok) return { ok: true, key, text, endsBy, data: res.data };
+      return { ok: false, reason: (res && res.error) || 'refused', inPipe: unanswered, endsBy };
     });
   }
   state.maintain = maintain;
+  // What the idle schedule holds of this session. The tag stays through a re-key; the id does not.
+  state.handle = {
+    tag,
+    backendId,
+    projectPath: cwd,
+    sessionId: () => { const found = findSession(tag); return found ? found.id : null; },
+    open: maintenanceOpen,
+    maintain,
+    usage: () => state.lastUsage || null,
+    busy: () => state.busy,
+    linesSent: () => state.linesSent || 0,
+  };
+  maintenanceEdge('start');
 
   // A turn written as keys — the seed prompt, the trigger watcher, a launcher — has nobody waiting on its
   // answer, so a refusal used to vanish (#648). The composer's own send reports back to the view that sent

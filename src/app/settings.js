@@ -75,6 +75,14 @@ const SETTING_DEFAULTS = {
   // read it. Correcting the dead value to what actually applies keeps every existing sidebar as it is;
   // choosing 5 would have shortened everyone's session list without them touching anything.
   visibleSessionCount: 10,
+  // Idle maintenance (spec 45). Off until someone asks for it, because each action is a real model turn. A refresh interval
+  // of 0 means the backend's own bound; a limit and a ceiling above the scheduler's hard caps are cut down there.
+  idleMaintenanceMode: 'off',
+  idleMaintenanceIdleMinutes: 10,
+  idleMaintenanceRefreshMinutes: 0,
+  idleMaintenanceRefreshLimit: 3,
+  idleMaintenanceCeilingMinutes: 180,
+  idleMaintenanceBestEffortCompact: false,
   // A project's GitHub or GitLab issues in Tasks & notes (#816): off until someone asks for them, because it
   // starts a CLI that talks to a server. The binary paths are not here: they are global only, see forge-issues.js.
   forgeIssuesEnabled: false,

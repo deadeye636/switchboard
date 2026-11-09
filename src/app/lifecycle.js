@@ -285,6 +285,7 @@ function registerQuitHandlers(ctx) {
     // The VCS heartbeat (#797) reads the settings on every tick. Unref'd as well, but a tick that fired after
     // `will-quit` closed the database threw "The database connection is not open" — the #76 class.
     try { ctx.stopVcsPoll?.(); } catch { /* best effort */ }
+    try { ctx.stopIdleMaintenance?.(); } catch { /* best effort */ }
 
     // Close filesystem watchers
     ctx.stopProjectsWatcher();

@@ -1004,6 +1004,17 @@ function maintenanceCommand({ id, action, instructions } = {}) {
   return null;
 }
 
+// The figures of a finished model call, in neutral words (spec 45, "Hit check"). The `assistant` line's, because `result`
+// adds up every call of its turn.
+function usageOf(msg) {
+  // A compaction writes no usage line of its own, and it is still a turn that reached the model.
+  if (msg && msg.type === 'system' && msg.subtype === 'compact_boundary') return { input: 0, read: 0, write: 0 };
+  // A local command's answer (`<synthetic>`, point 6) reached no model, and a subagent's call is not the session's prompt.
+  const own = msg && msg.type === 'assistant' && msg.message && msg.message.model !== '<synthetic>' && !ofSubagent(msg);
+  const u = own ? msg.message.usage : null;
+  return u ? { input: u.input_tokens || 0, read: u.cache_read_input_tokens || 0, write: u.cache_creation_input_tokens || 0 } : null;
+}
+
 const control = (id, request) => ({ type: 'control_request', request_id: String(id), request });
 
 // Stop is a control request, not a signal: the turn ends and the process stays.
@@ -1554,6 +1565,7 @@ module.exports = {
   assistantTextOf,
   sendCommand,
   maintenanceCommand,
+  usageOf,
   abortCommand,
   stopTaskCommand,
   contextCommand,

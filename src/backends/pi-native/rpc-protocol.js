@@ -758,6 +758,12 @@ function answerStartsTurn(res) {
   return disposition === 'handled' ? false : null;
 }
 
+// The figures of a finished model call, in neutral words (spec 45, "Hit check").
+function usageOf(msg) {
+  const u = msg && msg.type === 'message_end' && msg.message && msg.message.role === 'assistant' ? msg.message.usage : null;
+  return u ? { input: u.input || 0, read: u.cacheRead || 0, write: u.cacheWrite || 0 } : null;
+}
+
 // What a `get_state` response says about identity.
 function sessionIdFromState(response) {
   const data = response && response.data;
@@ -801,6 +807,7 @@ module.exports = {
   sendCommand,
   maintenanceCommand,
   answerStartsTurn,
+  usageOf,
   abortCommand,
   commandsCommand,
   commandsFromResponse,

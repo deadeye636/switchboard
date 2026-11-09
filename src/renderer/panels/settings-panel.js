@@ -180,6 +180,57 @@
       return (current[fieldName] === undefined || current[fieldName] === null) ? 'disabled' : '';
     }
 
+    // Idle maintenance (spec 45): the same fields in both windows, so they are written once. Defaults as in SETTING_DEFAULTS.
+    const idleModeValue = fieldValue('idleMaintenanceMode', 'off');
+    const idleModeOption = (value, label) => `<option value="${value}" ${idleModeValue === value ? 'selected' : ''}>${label}</option>`;
+    const idleNumberField = (field, id, label, description, fallback, min, max) => `
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">${label}</span>${useGlobalCheckbox(field)}</div>
+                    <div class="settings-description">${description}</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <input type="number" class="settings-input" id="${id}" min="${min}" max="${max}" value="${escapeHtml(String(fieldValue(field, fallback)))}" ${fieldDisabled(field)}>
+                  </div>
+                </div>`;
+    const idleMaintenanceFields = `
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Maintenance while idle</span>${useGlobalCheckbox('idleMaintenanceMode')}</div>
+                    <div class="settings-description">For a session driven over a pipe: keep its prompt cache warm, compact its context, or both, while it sits idle. Each refresh and compaction is a real model turn that counts against your plan or your API bill. Compaction can lose detail and cannot be undone.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <select id="sv-idle-maintenance-mode" class="settings-select" ${fieldDisabled('idleMaintenanceMode')}>
+                      ${idleModeOption('off', 'Off')}${idleModeOption('warm', 'Keep warm')}${idleModeOption('compact', 'Compact only')}${idleModeOption('warm-compact', 'Warm then compact')}
+                    </select>
+                  </div>
+                </div>${idleNumberField('idleMaintenanceRefreshMinutes', 'sv-idle-refresh-minutes', 'Minutes between refreshes', 'Measured from the last turn. 0 uses the longest the CLI allows; a longer one than that is refused, because the cache would already be cold.', 0, 0, 60)}${idleNumberField('idleMaintenanceRefreshLimit', 'sv-idle-refresh-limit', 'Refreshes per idle period', 'A real turn of yours starts a new period; a refresh does not.', 3, 1, 10)}${idleNumberField('idleMaintenanceIdleMinutes', 'sv-idle-minutes', 'Minutes idle before Compact only', 'How long the session sits idle before it is compacted.', 10, 1, 1440)}${idleNumberField('idleMaintenanceCeilingMinutes', 'sv-idle-ceiling-minutes', 'Stop after minutes', 'No maintenance runs later than this after your last turn.', 180, 1, 1440)}
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <div class="settings-field-header"><span class="settings-label">Compact after a cold refresh</span>${useGlobalCheckbox('idleMaintenanceBestEffortCompact')}</div>
+                    <div class="settings-description">When a refresh finds the cache cold, keeping it warm stops. Off also skips the compaction, which would read the whole context at full price.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <label class="settings-toggle"><input type="checkbox" id="sv-idle-best-effort" ${fieldValue('idleMaintenanceBestEffortCompact', false) ? 'checked' : ''} ${fieldDisabled('idleMaintenanceBestEffortCompact')}><span class="settings-toggle-slider"></span></label>
+                  </div>
+                </div>`;
+
+    // What the fields above hold, each cut to its range; a field left empty takes its default.
+    function idleMaintenanceReaders() {
+      const number = (id, fallback, min, max) => () => {
+        const n = Math.round(Number(settingsViewerBody.querySelector('#' + id)?.value));
+        return settingsViewerBody.querySelector('#' + id)?.value === '' || !Number.isFinite(n) ? fallback : Math.min(max, Math.max(min, n));
+      };
+      return {
+        idleMaintenanceMode: () => settingsViewerBody.querySelector('#sv-idle-maintenance-mode')?.value || 'off',
+        idleMaintenanceRefreshMinutes: number('sv-idle-refresh-minutes', 0, 0, 60),
+        idleMaintenanceRefreshLimit: number('sv-idle-refresh-limit', 3, 1, 10),
+        idleMaintenanceIdleMinutes: number('sv-idle-minutes', 10, 1, 1440),
+        idleMaintenanceCeilingMinutes: number('sv-idle-ceiling-minutes', 180, 1, 1440),
+        idleMaintenanceBestEffortCompact: () => !!settingsViewerBody.querySelector('#sv-idle-best-effort')?.checked,
+      };
+    }
+
     const displayNameValue = isProject && typeof current.displayName === 'string' ? current.displayName : '';
     // #450 where this project keeps its plans. In the cascade, so a project that keeps them somewhere
     // else says so; the default has to match SETTING_DEFAULTS in src/app/settings.js.
@@ -689,6 +740,7 @@
           <div class="settings-nav-head">Project</div>
           <button class="settings-nav-item active" data-cat="project">Project <span class="settings-nav-count"></span></button>
           <button class="settings-nav-item" data-cat="shells">Shells <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="idle-maintenance">Idle maintenance <span class="settings-nav-count"></span></button>
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">Documents</div>
           <button class="settings-nav-item" data-cat="plans">Plans <span class="settings-nav-count"></span></button>
@@ -900,6 +952,13 @@
 
         </section>
 
+        <section class="settings-cat" data-cat="idle-maintenance">
+        <div class="settings-cat-head"><h2>Idle maintenance</h2><p>What happens to this project's pipe-driven sessions while they sit idle.</p></div>
+        <div class="settings-section">
+          <div class="settings-section-title">Idle maintenance</div>${idleMaintenanceFields}
+        </div>
+        </section>
+
         <section class="settings-cat" data-cat="shells">
         <div class="settings-cat-head"><h2>Shells</h2><p>What hosts a CLI here, and what hosts a plain terminal.</p></div>
         <div class="settings-section">
@@ -994,7 +1053,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         handoffDirValue, handoffDirNamesValue, handoffInsertTemplateValue,
         submitSkillOnPickValue, fileClickTargetValue, markdownDefaultViewValue,
         editorToolbarModeValue, editorToolbarHtmlTagsValue, editorToolbarPlacementValue, editorToolbarVisibilityValue,
-        favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue,
+        favoritesOwnListValue, gpuAccelValue, handoffPromptValue, planPromptValue, idleMaintenanceFields,
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
@@ -1150,6 +1209,12 @@ ${window.settingsInstructions.sectionHtml('project')}
           forgeIssuesEnabled: 'sv-forge-enabled',
           forgeProvider: 'sv-forge-provider',
           forgeRemote: 'sv-forge-remote',
+          idleMaintenanceMode: 'sv-idle-maintenance-mode',
+          idleMaintenanceRefreshMinutes: 'sv-idle-refresh-minutes',
+          idleMaintenanceRefreshLimit: 'sv-idle-refresh-limit',
+          idleMaintenanceIdleMinutes: 'sv-idle-minutes',
+          idleMaintenanceCeilingMinutes: 'sv-idle-ceiling-minutes',
+          idleMaintenanceBestEffortCompact: 'sv-idle-best-effort',
           planDir: 'sv-plan-dir',
           planDirNames: 'sv-plan-dir-names',
           skillsDir: 'sv-skills-dir',
@@ -1343,6 +1408,7 @@ ${window.settingsInstructions.sectionHtml('project')}
               forgeIssuesEnabled: () => settingsViewerBody.querySelector('#sv-forge-enabled').checked,
               forgeProvider: () => settingsViewerBody.querySelector('#sv-forge-provider').value || 'auto',
               forgeRemote: () => (settingsViewerBody.querySelector('#sv-forge-remote')?.value || '').trim() || 'origin',
+              ...idleMaintenanceReaders(),
               planDir: () => (settingsViewerBody.querySelector('#sv-plan-dir')?.value || '').trim() || '.plans',
               planDirNames: () => readPlanDirNames(),
               handoffDir: () => (settingsViewerBody.querySelector('#sv-handoff-dir')?.value || '').trim() || '.handoffs',
@@ -1456,6 +1522,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         // Empty means "use the default", so it is stored as an empty string rather than as the default
         // text — otherwise changing the default later would not reach anyone who had ever opened Settings.
         settings.planInsertTemplate = (settingsViewerBody.querySelector('#sv-plan-insert-template')?.value || '').trim();
+        for (const [field, read] of Object.entries(idleMaintenanceReaders())) settings[field] = read();
         const svPlanDir = settingsViewerBody.querySelector('#sv-plan-dir');
         if (svPlanDir) settings.planDir = (svPlanDir.value || '').trim() || '.plans';
         if (settingsViewerBody.querySelector('#sv-plan-dir-names')) settings.planDirNames = readPlanDirNames();

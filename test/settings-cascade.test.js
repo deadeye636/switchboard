@@ -55,6 +55,22 @@ test('effectiveSettings cascades backendDefaults (not just the SETTING_DEFAULTS 
   assert.equal(eff.terminalTheme, 'switchboard', 'and an unset one falls back to its default');
 });
 
+// Idle maintenance (spec 45): off unless asked, each field overridden on its own, and a worktree under its project's rules.
+test('idle maintenance cascades per field, and a worktree reads its project', () => {
+  const defaults = withSettings({})('/y');
+  assert.deepEqual(
+    [defaults.idleMaintenanceMode, defaults.idleMaintenanceRefreshMinutes, defaults.idleMaintenanceRefreshLimit, defaults.idleMaintenanceIdleMinutes, defaults.idleMaintenanceCeilingMinutes, defaults.idleMaintenanceBestEffortCompact],
+    ['off', 0, 3, 10, 180, false]);
+  const again = withSettings({
+    global: { idleMaintenanceMode: 'warm', idleMaintenanceRefreshLimit: 5 },
+    'project:/x': { idleMaintenanceMode: 'compact' },
+  });
+  const eff = again('/x');
+  assert.equal(eff.idleMaintenanceMode, 'compact');
+  assert.equal(eff.idleMaintenanceRefreshLimit, 5, 'the field the project left alone comes from global');
+  assert.equal(again('/x/.claude/worktrees/agent-a').idleMaintenanceMode, 'compact');
+});
+
 // A worktree is a sub-unit of its project and carries no settings of its own, so the cascade resolves
 // the owner and stays TWO levels. It used to look under the worktree's own path, find nothing and fall
 // back to global — an agent working two directories below the project ran under different rules, and

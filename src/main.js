@@ -2337,8 +2337,22 @@ approvalMemory.init({
   broadcastSettingsChanged: () => broadcastSettingsChanged(),
   log,
 });
+// Idle maintenance (spec 45): what a pipe-driven session does while it sits idle. Before the module that reports to it.
+const idleMaintenance = require('./app/idle-maintenance');
+idleMaintenance.init({
+  effectiveSettings: (projectPath) => settings.effectiveSettings(projectPath),
+  capabilityOf: (handle) => {
+    const descriptor = backends.get(handle.backendId);
+    return descriptor && typeof descriptor.idleMaintenance === 'function' ? descriptor.idleMaintenance() : null;
+  },
+  recordLifecycle: (id, kind, label, detail) => timeline.recordLifecycle(id, kind, label, detail),
+  log,
+});
+idleMaintenance.registerIpc(ipcMain);
+
 const agentRpc = require('./app/agent-rpc');
 agentRpc.init({
+  onMaintenanceEdge: (report) => idleMaintenance.track(report),
   approvalMemory,
   getMainWindow: () => mainWindow,
   windowForSession: (sessionId) => detach.windowForSession(sessionId),
@@ -2569,6 +2583,7 @@ const lifecycleCtx = {
   destroyTray: () => notifications.destroyTray(),
   stopPresencePoll: () => presence.stopSystemIdlePoll(),
   stopVcsPoll: () => vcsPoll.stop(),
+  stopIdleMaintenance: () => idleMaintenance.stop(),
   stopProjectsWatcher,
   stopBackendWatchers,
   flushSessionBackends: () => sessionBackends.flushNow(),

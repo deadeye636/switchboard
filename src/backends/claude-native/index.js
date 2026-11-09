@@ -253,6 +253,7 @@ module.exports = {
     sendAcknowledged: false,
     sendCommand: protocol.sendCommand,
     maintenanceCommand: protocol.maintenanceCommand,
+    usageOf: protocol.usageOf,
     // A turn may carry images, as content blocks beside its text (#662).
     imageInput: protocol.IMAGE_INPUT,
     abortCommand: protocol.abortCommand,
@@ -326,7 +327,7 @@ module.exports = {
   taskProfile: () => ({ options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true } }),
   // Idle maintenance (spec 45). Every write measured here was in the 1-hour class, with a hit after 6.5 minutes; 50 minutes is
   // inferred from the class and not measured, and it promises no hit (docs/backend-formats.md).
-  idleMaintenance: () => ({ cacheClass: '1h', maxRefreshMs: 3000000, warm: true, compact: true }),
+  idleMaintenance: () => ({ cacheClass: '1h', maxRefreshMs: 3000000, warm: true, compact: true, callsCold: false }),
   buildMcpPrune: claude.buildMcpPrune,
   // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
   externalMcpTakes: claude.externalMcpTakes,
