@@ -223,8 +223,9 @@ contextBridge.exposeInMainWorld('api', {
   // #823 T7: a deep link to an already open settings window ({ cat, item }) — the window navigates itself.
   onSettingsGoto: (cb) => ipcRenderer.on('settings-goto', (_e, goto) => cb(goto)),
   onSettingsChanged: (cb) => ipcRenderer.on('settings-changed', () => cb()),
-  // #816: a project's forge issues, and whether the saved CLI path answers.
-  forgeIssuesList: (projectPath) => ipcRenderer.invoke('forge-issues-list', projectPath),
+  // #816: a project's forge issues, and whether the saved CLI path answers. #830: `query` is { state, assignee,
+  // author }, `options.force` skips main's short cache.
+  forgeIssuesList: (projectPath, query, options) => ipcRenderer.invoke('forge-issues-list', projectPath, query, options),
   forgeCliCheck: (providerId) => ipcRenderer.invoke('forge-cli-check', providerId),
   // #815: the languages the spell check would use for the field's text, and what a right click in a text field was.
   spellCheckLanguages: (stored) => ipcRenderer.invoke('spell-check-languages', stored),

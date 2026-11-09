@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const forgeIssues = require('../src/app/forge-issues');
-const { parseRemoteUrl, providerForHost, normalizeRows, resolveBinary, classifyFailure, FORGES } = forgeIssues;
+const { parseRemoteUrl, providerForHost, normalizeRows, normalizeQuery, resolveBinary, classifyFailure, FORGES } = forgeIssues;
 
 test('a remote URL gives host and path, in every shape git writes', () => {
   const want = { host: 'github.com', path: 'owner/repo' };
@@ -54,22 +54,50 @@ test('gh names a host only where it is not github.com, and takes OWNER/REPO alon
   assert.equal(FORGES.gitlab.repoArg({ host: 'gitlab.com', path: 'a/b/c' }), 'https://gitlab.com/a/b/c');
 });
 
-test('both CLIs read open issues only and carry no write verb', () => {
+test('both CLIs read open issues by default and carry no write verb', () => {
   for (const forge of Object.values(FORGES)) {
-    const args = forge.listArgs('o/r');
-    assert.deepEqual(args.slice(0, 2), ['issue', 'list']);
-    assert.ok(!/create|close|edit|delete|comment/.test(args.join(' ')));
+    for (const state of ['open', 'closed', 'all']) {
+      const args = forge.listArgs('o/r', normalizeQuery({ state, assignee: true, author: true }), 'me');
+      assert.deepEqual(args.slice(0, 2), ['issue', 'list']);
+      assert.ok(!/create|\bclose\b|edit|delete|comment/.test(args.join(' ')), args.join(' '));
+    }
   }
   assert.ok(FORGES.github.listArgs('o/r').includes('open'));
   assert.ok(!FORGES.gitlab.listArgs('o/r').some((a) => /closed|--all/.test(a)), 'glab lists open issues unless told otherwise');
 });
 
+// #830: the state and the two toggles are CLI arguments, one each.
+test('each provider spells the state and the two toggles its own way', () => {
+  const gh = (q) => FORGES.github.listArgs('o/r', normalizeQuery(q)).join(' ');
+  assert.match(gh({ state: 'closed' }), /--state closed/);
+  assert.match(gh({ state: 'all' }), /--state all/);
+  assert.match(gh({ assignee: true }), /--assignee @me/);
+  assert.match(gh({ author: true }), /--author @me/);
+  assert.doesNotMatch(gh({}), /--assignee|--author/);
+  assert.match(gh({}), /--json \S*\bstate\b/);
+  const gl = (q, me) => FORGES.gitlab.listArgs('o/r', normalizeQuery(q), me);
+  assert.ok(gl({ state: 'closed' }).includes('--closed'));
+  assert.ok(gl({ state: 'all' }).includes('--all'));
+  assert.ok(gl({ assignee: true }).includes('--assignee=@me'));
+  assert.ok(gl({ author: true }, 'someone').includes('--author=someone'));
+  assert.ok(!gl({ author: true }, '').some((a) => a.startsWith('--author')), 'no name, no author filter');
+  assert.ok(!gl({ author: true }, '-x').some((a) => a.startsWith('--author')), 'a name that reads as a flag is no name');
+});
+
+test('a query the window sends is cut down to what the CLI may get', () => {
+  assert.deepEqual(normalizeQuery(), { state: 'open', assignee: false, author: false });
+  assert.deepEqual(normalizeQuery({ state: '--evil', assignee: 'yes', author: 1 }), { state: 'open', assignee: false, author: false });
+  assert.deepEqual(normalizeQuery({ state: 'all', assignee: true, author: true }), { state: 'all', assignee: true, author: true });
+});
+
 test('a row of either CLI becomes the same issue', () => {
   const when = '2026-11-06T10:22:19Z';
-  const gh = normalizeRows(FORGES.github, [{ number: 7, title: 'T', labels: [{ name: 'bug' }], author: { login: 'a' }, updatedAt: when, url: 'https://x/7', body: 'B' }]);
-  const gl = normalizeRows(FORGES.gitlab, [{ iid: 7, title: 'T', labels: ['bug'], author: { username: 'a' }, updated_at: when, web_url: 'https://x/7', description: 'B' }]);
+  const gh = normalizeRows(FORGES.github, [{ number: 7, title: 'T', labels: [{ name: 'bug' }], author: { login: 'a' }, updatedAt: when, url: 'https://x/7', body: 'B', state: 'OPEN' }]);
+  const gl = normalizeRows(FORGES.gitlab, [{ iid: 7, title: 'T', labels: ['bug'], author: { username: 'a' }, updated_at: when, web_url: 'https://x/7', description: 'B', state: 'opened' }]);
   assert.deepEqual(gh, gl);
-  assert.deepEqual(gh[0], { number: 7, title: 'T', labels: ['bug'], author: 'a', updatedAt: Date.parse(when), url: 'https://x/7', body: 'B' });
+  assert.deepEqual(gh[0], { number: 7, title: 'T', labels: ['bug'], author: 'a', updatedAt: Date.parse(when), url: 'https://x/7', body: 'B', state: 'open' });
+  assert.equal(normalizeRows(FORGES.gitlab, [{ iid: 1, title: 'T', state: 'closed' }])[0].state, 'closed');
+  assert.equal(normalizeRows(FORGES.github, [{ number: 1, title: 'T', state: 'merged?' }])[0].state, '', 'an unknown state is none');
 });
 
 test('a foreign row cannot carry a link that is not web, and a broken row is dropped', () => {
@@ -132,7 +160,7 @@ function fake({ settings = {}, global = {}, remote = 'https://github.com/o/r.git
     execFile: (file, args, options, cb) => {
       calls.push({ file, args, options });
       if (file === 'git') { setImmediate(() => cb(remote ? null : new Error('no'), `${remote}\n`, '')); return {}; }
-      const a = answers[file] || { stdout: '[]' };
+      const a = (args[0] === 'api' ? answers[`${file} api`] : answers[file]) || { stdout: '[]' };
       setImmediate(() => cb(a.err || null, a.stdout || '', a.stderr || ''));
       return {};
     },
@@ -214,6 +242,88 @@ test('no remote, an unknown host, a bad remote name and bad output each say so',
   assert.deepEqual(calls, [], 'a remote name that reads as a flag reaches no process');
   fake({ answers: { gh: { stdout: 'not json' } } });
   assert.equal((await forgeIssues.listIssues('<project>')).reason, 'failed');
+});
+
+// #830: one CLI start per project and query, shared by every caller.
+test('the same project and query read once, another query or a reload read again', async () => {
+  const calls = fake({ answers: { gh: { stdout: JSON.stringify([{ number: 1, title: 'T', state: 'OPEN' }]) } } });
+  const lists = () => calls.filter((c) => c.file === 'gh').length;
+  const [a, b] = await Promise.all([forgeIssues.listIssues('<project>'), forgeIssues.listIssues('<project>', { state: 'open' })]);
+  assert.equal(a, b, 'two callers share one answer');
+  assert.equal(lists(), 1);
+  await forgeIssues.listIssues('<project>', { state: 'closed' });
+  assert.equal(lists(), 2);
+  await forgeIssues.listIssues('<project>', {}, { force: true });
+  assert.equal(lists(), 3);
+  const res = await forgeIssues.listIssues('<project>', { assignee: true });
+  assert.deepEqual(res.query, { state: 'open', assignee: true, author: false });
+  assert.deepEqual(res.supports, { state: true, assignee: true, author: true });
+  assert.equal(res.issues[0].state, 'open');
+});
+
+test('a failed answer is not held, so the next open asks again', async () => {
+  const calls = fake({ answers: { gh: { err: { code: 1 }, stderr: 'HTTP 401: Bad credentials' } } });
+  assert.equal((await forgeIssues.listIssues('<project>')).reason, 'login');
+  await forgeIssues.listIssues('<project>');
+  assert.equal(calls.filter((c) => c.file === 'gh').length, 2);
+});
+
+test('GitLab asks for the user name once and filters by it', async () => {
+  const calls = fake({
+    settings: { forgeProvider: 'gitlab' }, remote: 'https://gitlab.example.org/g/r.git',
+    answers: { 'glab api': { stdout: JSON.stringify({ username: 'someone' }) }, glab: { stdout: '[]' } },
+  });
+  const res = await forgeIssues.listIssues('<project>', { author: true });
+  assert.equal(res.supports.author, true);
+  assert.deepEqual(calls[1].args, ['api', 'user', '--hostname', 'gitlab.example.org']);
+  assert.ok(calls[2].args.includes('--author=someone'));
+  await forgeIssues.listIssues('<project>', { author: true, state: 'all' });
+  assert.equal(calls.filter((c) => c.args[0] === 'api').length, 1, 'the name is read once');
+});
+
+test('a reload asks GitLab for the name again, so a login made meanwhile counts', async () => {
+  const calls = fake({
+    settings: { forgeProvider: 'gitlab' }, remote: 'https://gitlab.example.org/g/r.git',
+    answers: { 'glab api': { err: { code: 1 }, stderr: 'not logged in' }, glab: { stdout: '[]' } },
+  });
+  assert.equal((await forgeIssues.listIssues('<project>')).supports.author, false);
+  await forgeIssues.listIssues('<project>', { state: 'all' });
+  assert.equal(calls.filter((c) => c.args[0] === 'api').length, 1, 'a failure is believed for a while');
+  await forgeIssues.listIssues('<project>', {}, { force: true });
+  assert.equal(calls.filter((c) => c.args[0] === 'api').length, 2);
+});
+
+test('a changed binary path or remote is a different answer, and failing callers share one start', async () => {
+  let global = {};
+  const calls = [];
+  forgeIssues.init({
+    effectiveSettings: () => ({ forgeIssuesEnabled: true }),
+    getSetting: () => global,
+    execFile: (file, args, options, cb) => {
+      calls.push({ file, args });
+      if (file === 'git') setImmediate(() => cb(null, 'https://github.com/o/r\n', ''));
+      else setImmediate(() => cb(file === 'gh' ? { code: 1 } : null, '[]', file === 'gh' ? 'HTTP 401' : ''));
+      return {};
+    },
+  });
+  const [a, b] = await Promise.all([forgeIssues.listIssues('<project>'), forgeIssues.listIssues('<project>')]);
+  assert.equal(a, b);
+  assert.equal(calls.filter((c) => c.file === 'gh').length, 1, 'one start while it is in flight');
+  global = { forgeGhPath: '/opt/gh' };
+  assert.equal((await forgeIssues.listIssues('<project>')).ok, true);
+  assert.equal(calls.filter((c) => c.file === '/opt/gh').length, 1);
+});
+
+test('GitLab without a readable name leaves "opened by me" out', async () => {
+  const calls = fake({
+    settings: { forgeProvider: 'gitlab' }, remote: 'https://gitlab.example.org/g/r.git',
+    answers: { 'glab api': { err: { code: 1 }, stderr: '404' }, glab: { stdout: '[]' } },
+  });
+  const res = await forgeIssues.listIssues('<project>', { author: true });
+  assert.equal(res.ok, true);
+  assert.equal(res.supports.author, false);
+  assert.equal(res.query.author, false);
+  assert.ok(!calls.some((c) => c.args.some((a) => a.startsWith('--author'))));
 });
 
 test('the test control runs the saved binary and takes no path', async () => {

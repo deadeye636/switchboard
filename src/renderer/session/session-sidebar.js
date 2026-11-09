@@ -311,7 +311,8 @@ const sidebarIssues = new Map();
 function sidebarIssuesFor(projectPath, force) {
   const held = sidebarIssues.get(projectPath);
   if (held && !force && Date.now() - held.at < SIDEBAR_ISSUES_MS) return held.answer;
-  const answer = window.api.forgeIssuesList(projectPath);
+  // Main holds an answer of its own for a while (#830), so the reload button tells it to ask again too.
+  const answer = window.api.forgeIssuesList(projectPath, undefined, { force: force === true });
   sidebarIssues.set(projectPath, { at: Date.now(), answer });
   return answer;
 }

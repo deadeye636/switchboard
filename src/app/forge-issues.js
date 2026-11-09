@@ -11,6 +11,10 @@
 // **A CLI is started WITHOUT the project as its working directory, and that is a security property.** On Windows the
 // search for a bare `gh` looks in the child's cwd before PATH, so a repository holding its own `gh.exe` would have
 // it run as soon as Tasks & notes opens. Measured under node and Electron. `-R` names the repository instead.
+//
+// The filters (#830): the state and the two "me" toggles go to the CLI, because the list is capped and a closed issue
+// or someone else's never reaches a local filter. One answer per project and query is held for a short while here,
+// so the sidebar, the Tasks view and every window share one CLI start. The text and the label filter in the window.
 'use strict';
 
 const { execFile } = require('child_process');
@@ -22,10 +26,34 @@ const BODY_LIMIT = 64 * 1024;
 const CLI_TIMEOUT_MS = 20000;
 const GIT_TIMEOUT_MS = 5000;
 const MAX_OUTPUT = 32 * 1024 * 1024;
+// How long one answer per project and query is held, and how long a failed "who am I" is believed.
+const CACHE_MS = 30000;
+const ME_RETRY_MS = 5 * 60 * 1000;
 
 const stringOr = (v) => (typeof v === 'string' ? v : '');
 const httpUrl = (v) => (typeof v === 'string' && /^https?:\/\//i.test(v) ? v : '');
 const timeOf = (v) => { const t = Date.parse(v); return Number.isFinite(t) ? t : null; };
+// A user name goes into an argument, so one that could read as a flag is no name.
+const userName = (v) => (typeof v === 'string' && /^[\w.][\w.-]*$/.test(v) ? v : '');
+
+const STATES = ['open', 'closed', 'all'];
+// What the window may ask for. Anything else is the default, so a stale or foreign value never reaches an argument.
+function normalizeQuery(query) {
+  const q = query && typeof query === 'object' ? query : {};
+  return {
+    state: STATES.includes(q.state) ? q.state : 'open',
+    assignee: q.assignee === true,
+    author: q.author === true,
+  };
+}
+
+// An issue's state in the app's words; GitLab says `opened`, gh says `OPEN`.
+function stateOf(v) {
+  const s = stringOr(v).toLowerCase();
+  if (s === 'open' || s === 'opened') return 'open';
+  if (s === 'closed') return 'closed';
+  return '';
+}
 
 const FORGES = {
   github: {
@@ -35,7 +63,14 @@ const FORGES = {
     login: 'gh auth login',
     // gh takes exactly OWNER/REPO, with the host in front for anything but github.com.
     repoArg: ({ host, path: repo }) => (repo.split('/').length !== 2 ? null : host === 'github.com' ? repo : `${host}/${repo}`),
-    listArgs: (repo) => ['issue', 'list', '-R', repo, '--state', 'open', '-L', String(LIST_LIMIT), '--json', 'number,title,labels,author,updatedAt,url,body'],
+    // gh answers `@me` for both toggles itself, so it needs no name.
+    needsMe: false,
+    listArgs: (repo, query = normalizeQuery()) => [
+      'issue', 'list', '-R', repo, '--state', query.state, '-L', String(LIST_LIMIT),
+      ...(query.assignee ? ['--assignee', '@me'] : []),
+      ...(query.author ? ['--author', '@me'] : []),
+      '--json', 'number,title,labels,author,updatedAt,url,body,state',
+    ],
     fromRow: (row) => ({
       number: row.number,
       title: row.title,
@@ -44,6 +79,7 @@ const FORGES = {
       updatedAt: row.updatedAt,
       url: row.url,
       body: row.body,
+      state: row.state,
     }),
   },
   gitlab: {
@@ -53,7 +89,17 @@ const FORGES = {
     login: 'glab auth login',
     // glab takes a full URL, which is also what names a self-hosted instance and a nested group.
     repoArg: ({ host, path: repo, http }) => `${http ? 'http' : 'https'}://${host}/${repo}`,
-    listArgs: (repo) => ['issue', 'list', '-R', repo, '--output', 'json', '--per-page', String(LIST_LIMIT)],
+    // glab's `--author` takes a user name and documents no `@me` (`--assignee` does), so "opened by me" needs the
+    // name first. Without one the toggle is left out.
+    needsMe: true,
+    meArgs: (host) => ['api', 'user', '--hostname', host],
+    meFrom: (stdout) => { try { return userName(JSON.parse(stdout).username); } catch { return ''; } },
+    listArgs: (repo, query = normalizeQuery(), me = '') => [
+      'issue', 'list', '-R', repo, '--output', 'json', '--per-page', String(LIST_LIMIT),
+      ...(query.state === 'closed' ? ['--closed'] : query.state === 'all' ? ['--all'] : []),
+      ...(query.assignee ? ['--assignee=@me'] : []),
+      ...(query.author && userName(me) ? [`--author=${me}`] : []),
+    ],
     fromRow: (row) => ({
       number: row.iid,
       title: row.title,
@@ -62,6 +108,7 @@ const FORGES = {
       updatedAt: row.updated_at,
       url: row.web_url,
       body: row.description,
+      state: row.state,
     }),
   },
 };
@@ -115,6 +162,7 @@ function normalizeRows(forge, rows) {
       updatedAt: timeOf(i.updatedAt),
       url: httpUrl(i.url),
       body: stringOr(i.body).slice(0, BODY_LIMIT),
+      state: stateOf(i.state),
     };
   }).filter((i) => i.number != null && i.title);
 }
@@ -157,7 +205,10 @@ function classifyFailure(forge, err, stderr) {
 }
 
 let ctx;
-function init(context) { ctx = context; }
+// Project and query to { at, promise }; a host's user name to { at, promise, name }. Both start empty with every init.
+const answers = new Map();
+const names = new Map();
+function init(context) { ctx = context; answers.clear(); names.clear(); }
 
 // execFile as a promise, its stdin closed (#541). Never with a `cwd`: see the header.
 function run(file, args, timeout) {
@@ -178,13 +229,47 @@ function binaryFor(forge, globalSettings) {
   return binary;
 }
 
-async function listIssues(projectPath) {
+// The user name glab's `--author` needs, once per binary and host. A failure is believed for a while, so a project
+// whose server cannot say is not asked again on every list; a name, once read, is kept. The reload button (`force`)
+// asks again, which is what picks up a login or an account switch made in a terminal.
+function nameFor(forge, file, host, force) {
+  const key = `${file}\0${host}`;
+  const held = names.get(key);
+  if (held && !force && (held.name || Date.now() - held.at < ME_RETRY_MS)) return held.promise;
+  const entry = { at: Date.now(), name: '' };
+  entry.promise = run(file, forge.meArgs(host), CLI_TIMEOUT_MS).then((res) => {
+    entry.name = res.err ? '' : forge.meFrom(res.stdout);
+    return entry.name;
+  });
+  names.set(key, entry);
+  return entry.promise;
+}
+
+// One answer per project and query for CACHE_MS, shared by every caller; `force` (the reload button) asks again. A
+// failed answer is held only while it is in flight, so a login fixed in a terminal shows at the next open.
+async function listIssues(projectPath, query, options) {
   const settings = ctx.effectiveSettings(projectPath);
   if (!projectPath || settings.forgeIssuesEnabled !== true) return { enabled: false };
+  const q = normalizeQuery(query);
+  // Read now: the await below can outlast the database at quit.
+  const globalSettings = ctx.getSetting('global') || {};
+  const key = JSON.stringify([projectPath, settings.forgeRemote, settings.forgeProvider,
+    globalSettings.forgeGhPath, globalSettings.forgeGlabPath, q.state, q.assignee, q.author]);
+  const now = Date.now();
+  const held = answers.get(key);
+  if (held && !(options && options.force === true) && now - held.at < CACHE_MS) return held.promise;
+  for (const [k, v] of answers) if (now - v.at >= CACHE_MS) answers.delete(k);
+  const force = !!(options && options.force === true);
+  const promise = readIssues(projectPath, settings, globalSettings, q, force);
+  answers.set(key, { at: now, promise });
+  const drop = () => { if (answers.get(key) && answers.get(key).promise === promise) answers.delete(key); };
+  promise.then((answer) => { if (!answer.ok) drop(); }, drop);
+  return promise;
+}
+
+async function readIssues(projectPath, settings, globalSettings, query, force) {
   const refuse = (reason, message) => ({ enabled: true, ok: false, reason, message });
   if (ctx.isForeignNetworkFile && ctx.isForeignNetworkFile(projectPath)) return refuse('no-remote', 'This project is on a network share this app has no project on.');
-  // Read now: the await below can outlast the database at quit.
-  const globalSettings = ctx.getSetting('global');
 
   const remote = stringOr(settings.forgeRemote).trim() || 'origin';
   if (!/^[\w][\w./-]*$/.test(remote)) return refuse('no-remote', `"${remote}" is not a remote name.`);
@@ -203,11 +288,27 @@ async function listIssues(projectPath) {
 
   const binary = binaryFor(forge, globalSettings);
   if (!binary.file) return refuse(binary.reason, binary.message);
-  const res = await run(binary.file, forge.listArgs(repo), CLI_TIMEOUT_MS);
+  // The name is needed BEFORE the list only when the list filters by it; otherwise both run at once, so a slow
+  // "who am I" does not hold up a list that does not use it.
+  const naming = forge.needsMe ? nameFor(forge, binary.file, parsed.host, force) : Promise.resolve('');
+  let me = '';
+  let res;
+  if (query.author) {
+    me = await naming;
+    res = await run(binary.file, forge.listArgs(repo, me || !forge.needsMe ? query : { ...query, author: false }, me), CLI_TIMEOUT_MS);
+  } else {
+    [me, res] = await Promise.all([naming, run(binary.file, forge.listArgs(repo, query, ''), CLI_TIMEOUT_MS)]);
+  }
+  // What this provider can filter on; a toggle it cannot answer is left out of the window and out of the argv.
+  const supports = { state: true, assignee: true, author: !forge.needsMe || !!me };
+  const asked = supports.author ? query : { ...query, author: false };
   if (res.err) return { enabled: true, ok: false, ...classifyFailure(forge, res.err, res.stderr) };
   let rows;
   try { rows = JSON.parse(res.stdout || '[]'); } catch { return refuse('failed', `${forge.cli} answered with something that is not a list of issues.`); }
-  return { enabled: true, ok: true, provider: forge.label, repo: parsed.path, issues: normalizeRows(forge, rows), limit: LIST_LIMIT };
+  return {
+    enabled: true, ok: true, provider: forge.label, repo: parsed.path, issues: normalizeRows(forge, rows),
+    limit: LIST_LIMIT, query: asked, supports,
+  };
 }
 
 // The test control in Settings. It runs the SAVED path and takes no path from the window, so this handler cannot
@@ -223,11 +324,11 @@ async function checkCli(providerId) {
 }
 
 function registerIpc(ipc) {
-  ipc.handle('forge-issues-list', (_event, projectPath) => listIssues(projectPath));
+  ipc.handle('forge-issues-list', (_event, projectPath, query, options) => listIssues(projectPath, query, options));
   ipc.handle('forge-cli-check', (_event, providerId) => checkCli(providerId));
 }
 
 module.exports = {
   init, registerIpc, listIssues, checkCli,
-  parseRemoteUrl, providerForHost, normalizeRows, resolveBinary, classifyFailure, FORGES,
+  parseRemoteUrl, providerForHost, normalizeRows, normalizeQuery, resolveBinary, classifyFailure, FORGES,
 };

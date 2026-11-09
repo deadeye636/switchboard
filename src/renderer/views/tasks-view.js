@@ -272,7 +272,8 @@
       </details>`;
   }
 
-  async function loadIssues() {
+  // `force` is the reload button: main holds an answer of its own for a while (#830).
+  async function loadIssues(force) {
     const projectPath = scopeFilter.projectPath;
     const asked = ++issuesAsked;
     issues = null;
@@ -283,7 +284,7 @@
       if (asked !== issuesAsked || !effective || effective.forgeIssuesEnabled !== true) return;
       issues = { loading: true };
       refreshBody();
-      answer = await window.api.forgeIssuesList(projectPath);
+      answer = await window.api.forgeIssuesList(projectPath, undefined, { force: force === true });
     } catch (err) {
       answer = { enabled: true, ok: false, message: err.message };
     }
@@ -344,7 +345,7 @@
     if (body) body.innerHTML = bodyHtml();
   }
 
-  async function load() {
+  async function load(force) {
     viewer.innerHTML = '<div class="tv-loading">Loading tasks…</div>';
     try {
       const res = await window.api.taskList(scopeFilter);
@@ -355,7 +356,7 @@
       data = res.tasks || [];
       issues = null; // another project's answer must not be drawn for this one
       render();
-      loadIssues();
+      loadIssues(force);
     } catch (err) {
       viewer.innerHTML = `<div class="tv-loading">Error: ${escapeHtml(err.message)}</div>`;
     }
@@ -388,7 +389,7 @@
         if (res && res.task) { data.unshift(res.task); refreshBody(); loadTaskCounts(); }
         return;
       }
-      if (action === 'refresh') { load(); return; }
+      if (action === 'refresh') { load(true); return; }
       if (!task) return;
       if (action === 'status-menu') {
         const anchor = card && card.querySelector('.tv-status');
