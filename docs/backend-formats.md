@@ -1085,6 +1085,41 @@ is `docs/specs/28-session-health.md`.
 
 ---
 
+## What a turn says about the prompt cache (#827)
+
+Measured on 2026-11-09 in an empty directory, one run per backend: three one-word turns in one process, the third
+6.5 minutes after the second. Claude Code 2.1.318 on Haiku 5.5, without user settings or MCP servers, and Pi 1.1.0 on
+Haiku 4.5. `scripts/measure-cache-across-turns.js` repeats these command lines; run it from an empty directory too,
+because a project's own settings change the prompt.
+
+| Turn | Claude read | Claude write | Pi read | Pi write |
+|---|---|---|---|---|
+| T1 | 16,564 | 7,203 | 0 | 4,136 |
+| T2 | 19,630 | 4,175 | 4,136 | 14 |
+| T3, after the wait | 23,780 | 63 | 0 | 4,214 |
+
+Where the figures are: Claude's `usage` on the `assistant` message and on `result`, with `cache_read_input_tokens`,
+`cache_creation_input_tokens` and `cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`. Pi's `usage`
+on `message_end`, with `cacheRead`, `cacheWrite`, `cacheWrite1h` and a `cost` breakdown.
+
+**`cache_read > 0` does not mean the session's cache was warm.** Claude's first turn in a new process read 16,564 tokens,
+so part of its prompt is cached across sessions. A Claude repeat within three minutes read 23,767 on its first turn and
+wrote nothing: the shared part plus the 7,203 the earlier process had written. The useful comparison is against the
+previous turn's prompt (input + read + write): T2 read 83% of it and T3 99.9%. One run does not give a threshold.
+
+**In this setup the lifetime class differs, and it decides the refresh interval.** Every Claude write here was in the 1-hour class, and
+the wait was still a hit. Pi wrote nothing in that class (`cacheWrite1h` was 0) and the wait was a full miss: `cacheRead`
+fell to 0 and the turn cost about nine times T2 (0.0055 against 0.0006 in Pi's own `cost.total`). A refresh every 50
+minutes would therefore arrive cold on this Pi setup. Whether another model, an account, or a Claude or Pi setting changes the
+class was not measured, and neither was how long Pi's cache lives: a turn about a second later was a hit, and one at
+6.5 minutes a miss.
+
+**The usage figures and the lines logged name no expiry time**, only the class of what was written. The rest of each
+stream was not inspected. A miss on Claude was not measured: it needs a
+wait of over an hour, and the shared part above may well still be read.
+
+---
+
 ## What each CLI lets the app edit and create (#441)
 
 Declared on the descriptor (`resourceEditing`, `resourceScaffolds`), because the layouts differ and the
