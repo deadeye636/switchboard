@@ -41,7 +41,7 @@ function init(context) {
 
 // Pop the settings panel out into its own window (Phase 2 — multi-window POC).
 // Loads a minimal settings.html that reuses settings-panel.js. Changes saved
-// there broadcast back to the main window via the 'settings-changed' IPC.
+// there reach every other window via the 'settings-changed' IPC (`broadcastSettingsChanged`).
 //
 // Two things it must not do (#175):
 //  - show an unpainted window. Without a backgroundColor and a deferred show, the
@@ -193,9 +193,14 @@ function openSettingsWindow(scope, projectPath, seed) {
  * applied the change itself (that is the renderer-initiated save path, issue #76). A change
  * made in MAIN — the settings import — passes nothing and reaches every window, including
  * the one that triggered it: nobody has applied it yet.
+ *
+ * Every window of the app, not a list of them (#829): a detached session window loads the main shell and
+ * listens, and while this sent to the main and the settings window only, a detached window took a global
+ * setting (the theme, the font, the sidebar's section order) at its next start. A window whose page has no
+ * listener (the changes and diff windows) drops the message.
  */
 function broadcastSettingsChanged(except) {
-  for (const w of [ctx.getMainWindow(), settingsWindow]) {
+  for (const w of BrowserWindow.getAllWindows()) {
     if (w && !w.isDestroyed() && w.webContents !== except) {
       w.webContents.send('settings-changed');
     }

@@ -1100,6 +1100,23 @@ ${window.settingsInstructions.sectionHtml('project')}
       const tourBtn = settingsViewerBody.querySelector('#sv-show-welcome-tour');
       if (tourBtn) tourBtn.addEventListener('click', () => window.api.showWelcomeTour?.());
 
+      // #829: the session sidebar's section order back to the default. Written at once, not on Save: the order is
+      // not a form key, so Save neither holds nor overwrites it. The windows with sidebars apply it from the broadcast;
+      // this window has none, and the broadcast skips it.
+      const orderResetBtn = settingsViewerBody.querySelector('#sv-sidebar-order-reset');
+      if (orderResetBtn) orderResetBtn.addEventListener('click', async () => {
+        const label = orderResetBtn.textContent;
+        orderResetBtn.disabled = true;
+        try {
+          await window.api.mergeSetting('global', { sessionSidebarOrder: null });
+          window.api.notifySettingsChanged?.();
+          orderResetBtn.textContent = 'Done';
+        } catch {
+          orderResetBtn.textContent = 'Not saved';
+        }
+        setTimeout(() => { orderResetBtn.textContent = label; orderResetBtn.disabled = false; }, 1500);
+      }, listenerSignal ? { signal: listenerSignal } : undefined);
+
       // #790: the MCP servers catalog. Bound before the nav wiring, so its rows exist and its `settings-cat-shown`
       // listener is in place before anything can show the category (the PATH check waits for that first show).
       // Its nav entry has no count badge.

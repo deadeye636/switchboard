@@ -375,11 +375,15 @@ change is the one window that does not hear about it — the settings screen has
 save locally, and it looked like belt and braces until a second writer appeared. The welcome tour calls
 `reapplyGlobalSettings()` after every write for that reason; without it the display mode, the sidebar
 numbers, the close behaviours and the shortcuts are written correctly and appear to do nothing until the
-next launch. `notifySettingsChanged()` beside it is for the OTHER windows — a detached window loads this
-same shell (#390) and does listen.
+next launch. `notifySettingsChanged()` beside it is for the OTHER windows. Since #829 the broadcast goes to
+every window of the app but the sender, so a detached window, which loads this same shell (#390), runs the
+whole `reapplyGlobalSettings` live. Before #829 it listened and was never sent anything, and took a global
+setting at its next start. **So `reapplyGlobalSettings` runs on every global write anywhere** — a section moved
+in a session sidebar included — and a step in it that is expensive must run only when its value changed
+(the GPU switch does).
 
-**The settings window never re-reads.** It is seeded from the blob when it opens, and the renderer's only
-`onSettingsChanged` registration is in `app.js`, which `settings.html` does not load. So it holds a
+**The settings window never re-reads.** It is seeded from the blob when it opens, and the renderer's
+`onSettingsChanged` registrations are in `app.js` and the welcome tour, neither of which `settings.html` loads. So it holds a
 snapshot for as long as it is open, and its Save writes that snapshot back over anything another writer
 changed in the meantime. That is why the tour closes when Settings opens rather than sitting beside it —
 and why a third writer has to answer the same question before it exists.

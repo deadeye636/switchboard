@@ -11,11 +11,15 @@
 // Free globals it reads at CALL time: escapeHtml, formatDate (lib/utils.js), openSessions, sessionMap (app.js),
 // fitAndScroll (terminal/terminal-manager.js), insertResolvedText (terminal/terminal-context-menu.js),
 // openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), openFileInPanel
-// (views/file-panel.js), openSessionServers (session/servers-dialog.js), skillInsertText (the skill picker), window.showControlToast, window.api.
+// (views/file-panel.js), openSessionServers (session/servers-dialog.js), skillInsertText (the skill picker), window.showControlToast, window.api,
+// appGlobalSettings (app.js), moveVariableInOrder, stepVariableInOrder, sameVariableOrder (lib/variable-order.js).
+//
+// Read from outside: `SESSION_SIDEBAR_GROUP_MIME` by `isPaneTabDrag` (terminal/terminal-manager.js).
 //
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
-// view's `context` op (`sessionSidebarContextChanged`) and its session line's tooltip (`contextLineDetails`).
+// view's `context` op (`sessionSidebarContextChanged`), its session line's tooltip (`contextLineDetails`) and
+// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829).
 
 const SESSION_SIDEBAR_KEY = 'sessionSidebar';
 const SESSION_SIDEBAR_WIDTH = { min: 200, default: 280, max: 560 };
@@ -58,6 +62,24 @@ function rekeySidebarState(map, oldId, newId) {
   const next = { ...map, [newId]: map[newId] || map[oldId] };
   delete next[oldId];
   return next;
+}
+
+// The groups' order (#829): one global setting, `sessionSidebarOrder`, a list of group ids. An id this version does not
+// know is dropped, a repeat counts once, and a group the saved list does not name (one added in a later version) goes in
+// at its default place: right after the nearest group that comes before it by default, or first when none does.
+// Anything that is not a list is the default.
+function orderSidebarGroups(defaultIds, savedIds) {
+  const known = new Set(defaultIds);
+  const order = [];
+  for (const id of Array.isArray(savedIds) ? savedIds : []) {
+    if (known.has(id) && !order.includes(id)) order.push(id);
+  }
+  defaultIds.forEach((id, i) => {
+    if (order.includes(id)) return;
+    const before = defaultIds.slice(0, i).reverse().find((prev) => order.includes(prev));
+    order.splice(before === undefined ? 0 : order.indexOf(before) + 1, 0, id);
+  });
+  return order;
 }
 
 // What a group's `toggle` means. A group drawn OPEN fires one toggle by itself, and `showSidebar` has already read it, so
@@ -257,7 +279,7 @@ function repositoryRowHtml(row) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+    sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
     instructionGroups, instructionRow, repositoryRows, repositoryRowHtml,
     sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
@@ -577,6 +599,170 @@ function refitForSidebar(entry) {
   if (entry.terminal && typeof fitAndScroll === 'function') fitAndScroll(entry);
 }
 
+// --- The groups' order (#829). One global setting; every sidebar in every window shows the same order. ---
+
+// What a drag of a group carries. The terminal container under the sidebar lets it through (`isPaneTabDrag`,
+// terminal-manager.js), or a group dropped on the terminal would be claimed as a drop to insert.
+const SESSION_SIDEBAR_GROUP_MIME = 'application/x-switchboard-sidebar-group';
+// The variables manager's grip (#676), so one gesture looks one way.
+const SESSION_SIDEBAR_GRIP = '<svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="3" r="1.3"/><circle cx="8.5" cy="3" r="1.3"/><circle cx="3.5" cy="7" r="1.3"/><circle cx="8.5" cy="7" r="1.3"/><circle cx="3.5" cy="11" r="1.3"/><circle cx="8.5" cy="11" r="1.3"/></svg>';
+
+// The ids in the order to draw, from the cached global settings (app.js keeps `appGlobalSettings` current).
+function sessionSidebarGroupOrder() {
+  const saved = typeof appGlobalSettings !== 'undefined' && appGlobalSettings ? appGlobalSettings.sessionSidebarOrder : undefined;
+  return orderSidebarGroups(SESSION_SIDEBAR_GROUPS.map((g) => g.id), saved);
+}
+
+function sidebarSlotIds(root) {
+  return [...root.querySelectorAll('.ssb-slot')].map((slot) => slot.dataset.groupSlot);
+}
+
+// Moves the slots, never rebuilds them: a group keeps what it has read, whether it is open, and its marks.
+function applySidebarGroupOrder(root, ids) {
+  const body = root && root.querySelector('.ssb-body');
+  if (!body) return;
+  for (const id of ids) {
+    const slot = body.querySelector(`.ssb-slot[data-group-slot="${id}"]`);
+    if (slot) body.appendChild(slot);
+  }
+}
+
+// Every sidebar this window holds. A closed one has no element and is drawn in the new order when it opens. Apply
+// only: a settings change from another window lands here too, and must not write the setting back.
+function sessionSidebarSetOrder(ids) {
+  for (const entry of openSessions.values()) {
+    if (entry && entry.sidebar) applySidebarGroupOrder(entry.sidebar, ids);
+  }
+}
+
+// A settings change from another window: `reapplyGlobalSettings` (app.js) has just refreshed the cache this reads.
+function sessionSidebarOrderChanged() {
+  sessionSidebarSetOrder(sessionSidebarGroupOrder());
+}
+
+// A user's move, by drag or by key: the one place both gestures go through. This window applies it itself and updates
+// its own cache, because `broadcastSettingsChanged` skips the sender (renderer.md, #146), and a sidebar opened before
+// the write lands reads that cache. A key-scoped merge, so nothing else in the blob is touched, and the settings
+// screen's Save re-reads the blob before it writes, so it does not put an old order back.
+// A write that fails puts the order back, so this window does not show what no other window and no restart will.
+function commitSidebarGroupOrder(ids) {
+  const cache = typeof appGlobalSettings !== 'undefined' && appGlobalSettings ? appGlobalSettings : null;
+  const previous = cache ? cache.sessionSidebarOrder : undefined;
+  sessionSidebarSetOrder(ids);
+  if (cache) cache.sessionSidebarOrder = ids.slice();
+  const api = window.api;
+  if (!api || typeof api.mergeSetting !== 'function') return;
+  Promise.resolve(api.mergeSetting('global', { sessionSidebarOrder: ids.slice() }))
+    .then(() => { if (typeof api.notifySettingsChanged === 'function') api.notifySettingsChanged(); })
+    .catch(() => {
+      if (cache) cache.sessionSidebarOrder = previous;
+      sessionSidebarSetOrder(sessionSidebarGroupOrder());
+      window.showControlToast?.('The order of the sections could not be saved.');
+    });
+}
+
+// The drag and the keys. The grip sits beside the `<details>`, not in its `<summary>`, so neither a press nor Space
+// on it opens or closes the group. The list helpers are the variables manager's (#676, lib/variable-order.js): they
+// work on any list of ids, and the names are theirs.
+function wireSidebarGroupOrder(root) {
+  const body = root.querySelector('.ssb-body');
+  let armed = null;
+  let dragId = null;
+  const slotOf = (target) => (target && target.closest ? target.closest('.ssb-slot') : null);
+  const placeOf = (slot, y) => {
+    const r = slot.getBoundingClientRect();
+    return y < r.top + r.height / 2 ? 'before' : 'after';
+  };
+  const clearMarks = () => {
+    for (const el of body.querySelectorAll('.ssb-drop-before, .ssb-drop-after')) el.classList.remove('ssb-drop-before', 'ssb-drop-after');
+  };
+  const disarm = () => {
+    if (armed) armed.removeAttribute('draggable');
+    armed = null;
+  };
+
+  // Only the grip starts a drag: the slot is draggable while the pointer is down on its grip, so a press anywhere else
+  // selects text as before, and a text drag out of the sidebar is not this one.
+  body.addEventListener('pointerdown', (e) => {
+    disarm();
+    if (e.button !== 0) return;
+    const grip = e.target.closest && e.target.closest('.ssb-grip');
+    const slot = grip ? slotOf(grip) : null;
+    if (!slot) return;
+    slot.setAttribute('draggable', 'true');
+    armed = slot;
+    window.addEventListener('pointerup', disarm, { once: true });
+  });
+
+  body.addEventListener('dragstart', (e) => {
+    const slot = slotOf(e.target);
+    if (!slot || slot !== armed) return;
+    e.stopPropagation();
+    dragId = slot.dataset.groupSlot;
+    slot.classList.add('dragging');
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(SESSION_SIDEBAR_GROUP_MIME, dragId);
+    } catch { /* the drag still runs on `dragId` */ }
+  });
+
+  // While a group is in flight none of these reach the terminal container, which would mark itself as a drop target.
+  body.addEventListener('dragenter', (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  body.addEventListener('dragover', (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { e.dataTransfer.dropEffect = 'move'; } catch { /* nothing to set */ }
+    clearMarks();
+    const slot = slotOf(e.target);
+    if (!slot || slot.dataset.groupSlot === dragId) return;
+    slot.classList.add(placeOf(slot, e.clientY) === 'before' ? 'ssb-drop-before' : 'ssb-drop-after');
+  });
+  body.addEventListener('dragleave', (e) => {
+    if (!dragId) return;
+    e.stopPropagation();
+    if (!body.contains(e.relatedTarget)) clearMarks();
+  });
+  body.addEventListener('drop', (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const moved = dragId;
+    const slot = slotOf(e.target);
+    clearMarks();
+    if (!slot) return;
+    const before = sidebarSlotIds(root);
+    const next = moveVariableInOrder(before, moved, slot.dataset.groupSlot, placeOf(slot, e.clientY));
+    if (!sameVariableOrder(before, next)) commitSidebarGroupOrder(next);
+  });
+  body.addEventListener('dragend', () => {
+    dragId = null;
+    disarm();
+    clearMarks();
+    for (const el of body.querySelectorAll('.ssb-slot.dragging')) el.classList.remove('dragging');
+  });
+
+  // Alt+ArrowUp / Alt+ArrowDown on a grip moves its group one place, and the focus stays on the grip.
+  body.addEventListener('keydown', (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    const grip = e.target.closest && e.target.closest('.ssb-grip');
+    const slot = grip ? slotOf(grip) : null;
+    if (!slot) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ids = sidebarSlotIds(root);
+    const next = stepVariableInOrder(ids, ids, slot.dataset.groupSlot, e.key === 'ArrowUp' ? -1 : 1);
+    if (!next || sameVariableOrder(ids, next)) return;
+    commitSidebarGroupOrder(next);
+    grip.focus();
+  });
+}
+
 function buildSidebar(entry) {
   const sessionId = () => entry.session.sessionId;
   const state = sidebarStateOf(readSidebarStates(), sessionId());
@@ -590,11 +776,15 @@ function buildSidebar(entry) {
       <button type="button" class="ssb-head-btn" data-ssb="refresh" title="Reload" aria-label="Reload">⟳</button>
       <button type="button" class="ssb-head-btn" data-ssb="close" title="Close" aria-label="Close">&times;</button>
     </div>
-    <div class="ssb-body">${SESSION_SIDEBAR_GROUPS.map((g) => `
-      <details class="ssb-group" data-group="${g.id}"${state.groups.includes(g.id) ? ' open' : ''}>
-        <summary>${escapeHtml(g.label)}</summary>
-        <div class="ssb-group-body"></div>
-      </details>`).join('')}
+    <div class="ssb-body">${sessionSidebarGroupOrder().map((id) => SESSION_SIDEBAR_GROUPS.find((g) => g.id === id)).map((g) => `
+      <div class="ssb-slot" data-group-slot="${g.id}">
+        <details class="ssb-group" data-group="${g.id}"${state.groups.includes(g.id) ? ' open' : ''}>
+          <summary>${escapeHtml(g.label)}</summary>
+          <div class="ssb-group-body"></div>
+        </details>
+        <button type="button" class="ssb-grip" title="Drag to reorder (Alt+Up / Alt+Down)" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+          aria-label="Move the ${escapeHtml(g.label)} section (Alt+Up / Alt+Down)">${SESSION_SIDEBAR_GRIP}</button>
+      </div>`).join('')}
     </div>`;
 
   root.addEventListener('toggle', (e) => {
@@ -654,6 +844,8 @@ function buildSidebar(entry) {
     handle.addEventListener('pointerup', up);
     handle.addEventListener('pointercancel', up);
   });
+
+  wireSidebarGroupOrder(root);
 
   entry.element.appendChild(root);
   entry.sidebar = root;

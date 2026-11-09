@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+  sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
   sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails, repositoryRows,
   SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
 } = require('../src/renderer/session/session-sidebar');
@@ -56,6 +56,51 @@ test('a re-key moves the state and leaves a session without one alone', () => {
   const map = { old: { open: true } };
   assert.deepEqual(rekeySidebarState(map, 'old', 'new'), { new: { open: true } });
   assert.equal(rekeySidebarState(map, 'other', 'new'), map, 'same object: nothing to write');
+});
+
+// #829: the groups' order is one global setting.
+const GROUP_IDS = ['repository', 'tasks', 'handoffs', 'instructions', 'context', 'connectors'];
+
+test('no saved order, or one that is not a list, is the default order', () => {
+  assert.deepEqual(orderSidebarGroups(GROUP_IDS, undefined), GROUP_IDS);
+  assert.deepEqual(orderSidebarGroups(GROUP_IDS, null), GROUP_IDS);
+  assert.deepEqual(orderSidebarGroups(GROUP_IDS, 'context'), GROUP_IDS);
+  assert.deepEqual(orderSidebarGroups(GROUP_IDS, []), GROUP_IDS);
+});
+
+test('a full saved order is kept as it is', () => {
+  const saved = ['context', 'tasks', 'repository', 'connectors', 'handoffs', 'instructions'];
+  assert.deepEqual(orderSidebarGroups(GROUP_IDS, saved), saved);
+});
+
+test('an unknown id is dropped and a repeat counts once', () => {
+  assert.deepEqual(
+    orderSidebarGroups(GROUP_IDS, ['context', 'gone', 'context', 42, 'repository', 'tasks', 'handoffs', 'instructions', 'connectors']),
+    ['context', 'repository', 'tasks', 'handoffs', 'instructions', 'connectors'],
+  );
+});
+
+test('a group the saved order does not name goes in after its default predecessor', () => {
+  // `instructions` came in a later version: by default it follows `handoffs`, wherever the user put that.
+  const saved = ['context', 'handoffs', 'repository', 'tasks', 'connectors'];
+  assert.deepEqual(orderSidebarGroups(GROUP_IDS, saved), ['context', 'handoffs', 'instructions', 'repository', 'tasks', 'connectors']);
+});
+
+test('a missing first group goes first, and several missing ones keep their default order', () => {
+  assert.deepEqual(
+    orderSidebarGroups(GROUP_IDS, ['connectors', 'context', 'tasks', 'handoffs']),
+    ['repository', 'connectors', 'context', 'tasks', 'handoffs', 'instructions'],
+  );
+});
+
+test('the order is a new list, and neither input is changed', () => {
+  const ids = Object.freeze(GROUP_IDS.slice());
+  const saved = Object.freeze(['context', 'tasks']);
+  const order = orderSidebarGroups(ids, saved);
+  order.reverse();
+  assert.deepEqual(ids, GROUP_IDS);
+  assert.deepEqual(saved, ['context', 'tasks']);
+  assert.notEqual(orderSidebarGroups(ids, undefined), ids);
 });
 
 test('only tasks still to do are listed', () => {
@@ -134,6 +179,51 @@ test('the terminal makes room through the padding FitAddon subtracts, and a grid
   const css = read('src', 'renderer', 'style.css');
   assert.match(css, /\.terminal-container\.sidebar-open:not\(\.grid-mode\) \.xterm \{\s*padding-right: var\(--session-sidebar-width\)/);
   assert.match(css, /\.terminal-container\.grid-mode \.session-sidebar \{\s*display: none/);
+});
+
+// #829. A source check, because the drag is the click test's: what it pins is the two halves that make a stray drop
+// harmless — the drag carries its own type, and the terminal container under the sidebar lets that type through.
+test('a group drag carries its own type, and the terminal container does not claim it', () => {
+  const sidebar = read('src', 'renderer', 'session', 'session-sidebar.js');
+  assert.match(sidebar, /setData\(SESSION_SIDEBAR_GROUP_MIME, dragId\)/);
+  const manager = read('src', 'renderer', 'terminal', 'terminal-manager.js');
+  const isPaneTabDrag = manager.slice(manager.indexOf('function isPaneTabDrag('), manager.indexOf('function setupDragAndDrop('));
+  assert.match(isPaneTabDrag, /SESSION_SIDEBAR_GROUP_MIME/);
+});
+
+test('a move is stored key-scoped and told to the other windows, which apply it from their settings reload', () => {
+  const sidebar = read('src', 'renderer', 'session', 'session-sidebar.js');
+  const commit = sidebar.slice(sidebar.indexOf('function commitSidebarGroupOrder('), sidebar.indexOf('function wireSidebarGroupOrder('));
+  assert.match(commit, /mergeSetting\('global', \{ sessionSidebarOrder: /);
+  assert.match(commit, /notifySettingsChanged\(\)/);
+  assert.match(commit, /const cache = [^;]*appGlobalSettings/, 'the sender is skipped by the broadcast, so it updates its own cache');
+  assert.match(commit, /if \(cache\) cache\.sessionSidebarOrder = ids\.slice\(\)/);
+  assert.match(commit, /\.catch\([\s\S]*cache\.sessionSidebarOrder = previous[\s\S]*sessionSidebarSetOrder\(sessionSidebarGroupOrder\(\)\)/, 'a failed write puts the order back');
+  const app = read('src', 'renderer', 'app.js');
+  const reapply = app.slice(app.indexOf('async function reapplyGlobalSettings('), app.indexOf('\n}\n', app.indexOf('async function reapplyGlobalSettings(')));
+  assert.match(reapply, /sessionSidebarOrderChanged\(\)/);
+});
+
+test('a settings change reaches every window, detached session windows included', () => {
+  // #829: the broadcast named the main and the settings window, so a detached window never re-applied a global
+  // setting. A source check: `windows.js` needs Electron at load.
+  const windows = read('src', 'app', 'windows.js');
+  const broadcast = windows.slice(windows.indexOf('function broadcastSettingsChanged('), windows.indexOf('\n}\n', windows.indexOf('function broadcastSettingsChanged(')));
+  assert.match(broadcast, /BrowserWindow\.getAllWindows\(\)/);
+  assert.match(broadcast, /webContents !== except/, 'the sender still applies its own change and is skipped');
+});
+
+test('a settings reload switches the GPU renderer only when the setting changed', () => {
+  // #829: every global write now reaches every window, and `_setGpuAcceleration` reloads WebGL into every open
+  // terminal past the per-mode policy. An unchanged value must not do that.
+  const app = read('src', 'renderer', 'app.js');
+  const reapply = app.slice(app.indexOf('async function reapplyGlobalSettings('), app.indexOf('\n}\n', app.indexOf('async function reapplyGlobalSettings(')));
+  assert.match(reapply, /_getGpuAcceleration\(\) !== gpuMode[\s\S]{0,80}_setGpuAcceleration\?\.\(gpuMode\)/);
+});
+
+test('the grip sits beside the group, never inside its summary', () => {
+  const sidebar = read('src', 'renderer', 'session', 'session-sidebar.js');
+  assert.match(sidebar, /<\/details>\s*<button type="button" class="ssb-grip"/);
 });
 
 test('both surfaces mount it, the re-key moves it, and both toolbars offer it', () => {

@@ -229,6 +229,15 @@
                     </select>
                   </div>
                 </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Order of the session sidebar's sections</span>
+                    <div class="settings-description">Drag a section by the grip at the right of its heading, or press Alt+Up or Alt+Down on the grip. One order for every session sidebar. This button puts the default order back at once, without Save.</div>
+                  </div>
+                  <div class="settings-field-control">
+                    <button type="button" class="settings-action-btn" id="sv-sidebar-order-reset">Reset order</button>
+                  </div>
+                </div>
               </div>
 
 

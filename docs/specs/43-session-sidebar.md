@@ -6,7 +6,7 @@ Issue #817. Status: **built**. The code is `src/renderer/session/session-sidebar
 
 Each session has a collapsible sidebar on its right, opened from the session's toolbar. Its groups collapse one by
 one: Repository (#821), Tasks & notes (with a project's forge issues when spec 42 is on), Handoffs, Instructions (#823),
-Context and Connectors.
+Context and Connectors. That is the default order; a user can change it (see "The section order").
 
 ## Decided by the owner (2026-11-06)
 
@@ -127,7 +127,7 @@ no CLI. A CLI with none shows its sentence as a note.
 
 Where the session runs: the repository, the branch and, when the session's directory is a linked worktree, the worktree.
 
-- **Owner decisions (2026-11-07):** a group of its own, at the top of the sidebar. The figures come from a new IPC,
+- **Owner decisions (2026-11-07):** a group of its own, at the top of the sidebar (the default place since #829). The figures come from a new IPC,
   cache first. It is open by default for a session with no stored state; a session that has a stored set of open groups
   keeps it, so the group starts closed there.
 - **Main answers** (`vcs-describe` in `src/app/vcs.js`, `window.api.vcsDescribe`): the provider's `describeRepo(cwd)`
@@ -144,8 +144,38 @@ Where the session runs: the repository, the branch and, when the session's direc
 - **Repository name in a worktree** is the MAIN repository's folder, not the worktree's: the worktree has a row of its own.
   A bare main repository has no folder to name, so there the worktree itself is the repository.
 
+## The section order (#829)
+
+A user drags a section by the grip at the right of its heading, or presses Alt+Up or Alt+Down on the grip. The order is
+one global setting, `sessionSidebarOrder`, and every session sidebar in every window shows it.
+
+- **Owner decisions (2026-11-09):** E1 the grip sits beside the `<details>`, inside a wrapper (`.ssb-slot`), not in its
+  `<summary>`, so a press or Space on it never opens or closes the section. E2 the reset is a button in Settings →
+  Sessions that writes at once, without Save. E3 the list functions are the variables manager's
+  (`src/renderer/lib/variable-order.js`), used under their names. E4 the key is `sessionSidebarOrder`. E5 a settings
+  change now reaches every window, detached ones included (below).
+- **Reading the order:** `orderSidebarGroups` drops an id it does not know, counts a repeat once, and puts a section the
+  list does not name, one added in a later version, right after the section that comes before it by default.
+- **One funnel for a move:** `commitSidebarGroupOrder` moves the slots of every sidebar in this window (it never rebuilds
+  them, so a section keeps what it read), updates this window's `appGlobalSettings`, writes the key through
+  `mergeSetting` and then calls `notifySettingsChanged`. The broadcast skips the sender, which is why the sender applies
+  the move itself. A failed write puts the old order back and says so.
+- **The other windows** apply it from `reapplyGlobalSettings` through `sessionSidebarOrderChanged`, which only reads.
+  Until #829, `broadcastSettingsChanged` sent to the main and the settings window only, so a detached window took any
+  global setting at its next start. It now sends to every window but the sender. To keep that cheap,
+  `reapplyGlobalSettings` switches the GPU renderer only when its value changed: the switch reloads WebGL into every open
+  terminal past the per-mode policy.
+- **A drag carries its own type**, `application/x-switchboard-sidebar-group`. The terminal container under the sidebar
+  lets it through (`isPaneTabDrag`), so a section dropped on the terminal inserts nothing, and the sidebar keeps drag
+  events from that container while its own drag runs.
+- **The settings screen does not hold the key.** Its Save reads the blob fresh and writes only its own fields, so an open
+  settings window cannot put an old order back.
+
 ## Known gaps
 
+- Two windows moving sections at nearly the same moment can each end up drawing the other's order while the database
+  holds the last write. The same can happen in one window when a move's write fails just before a later move's write
+  succeeds. The next settings broadcast or a restart puts it right.
 - The Repository group does not follow the poller: it shows what it read at open or reload. A branch switch while it is
   open shows after the reload button, which skips the poller's cache and runs the status afresh.
 - A main repository whose git directory is not a `.git` folder in its working tree (`--separate-git-dir`) looks bare to

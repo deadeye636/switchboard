@@ -12,6 +12,7 @@
 // Depends on: handleTerminalPageKeyEvent (page-key-routing.js)
 // Depends on: handleTerminalNewlineKeyEvent (newline-key-routing.js)
 // Depends on: terminalWheelReports (wheel-routing.js)
+// Depends on: PANE_TAB_MIME, SESSION_DRAG_MIME (views/panes-view.js), SESSION_SIDEBAR_GROUP_MIME (session/session-sidebar.js)
 
 // --- One insert route for paste and drop (#307) ---
 // Paste and drop hand the terminal the same thing — a DataTransfer — so they read it the same way.
@@ -2034,11 +2035,15 @@ function focusSessionForInsert(sessionId, terminal) {
 // A session dragged out of the sidebar (#373) is the same kind of drag and needs the
 // same exemption — it is aimed at the pane under the terminal, and a drop the
 // container claimed would type the session id at the CLI prompt.
+//
+// A group of the session sidebar being reordered (#829) is the third: it lives inside this container, and a drop
+// that strays onto the terminal must do nothing rather than insert.
 function isPaneTabDrag(e) {
   const types = e.dataTransfer && e.dataTransfer.types;
   if (!types) return false;
   return Array.prototype.includes.call(types, PANE_TAB_MIME)
-    || Array.prototype.includes.call(types, SESSION_DRAG_MIME);
+    || Array.prototype.includes.call(types, SESSION_DRAG_MIME)
+    || (typeof SESSION_SIDEBAR_GROUP_MIME !== 'undefined' && Array.prototype.includes.call(types, SESSION_SIDEBAR_GROUP_MIME));
 }
 
 function setupDragAndDrop(container, terminal, getSessionId) {

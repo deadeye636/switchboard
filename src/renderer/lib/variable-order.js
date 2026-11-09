@@ -1,5 +1,6 @@
 // Pure helpers for the saved variables' manual order (#676). Electron-free (UMD) so they can be
-// unit-tested; the variables manager (panels/variables-admin.js) is the only caller.
+// unit-tested. Callers: the variables manager (panels/variables-admin.js), and the session sidebar's group
+// order (session/session-sidebar.js, #829), which uses the three list functions on its group ids.
 //
 // The order is ONE list across every scope, and these functions work on the ids of that whole list. A
 // scope filter in the manager shows a subset, and a move made there still has one well-defined result:

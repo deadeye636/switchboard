@@ -81,7 +81,8 @@ does not use it for any of these settings: it builds one full object and calls `
 ### D5 — the window that writes is the one window the broadcast skips
 
 `broadcastSettingsChanged` excludes the sender. The tour runs in the main window, so **it applies its own
-change** (`reapplyGlobalSettings`) and then tells the others (`notifySettingsChanged`). Without the first
+change** (`reapplyGlobalSettings`) and then tells the others (`notifySettingsChanged`; since #829 that includes
+detached windows). Without the first
 half, four panes appear to do nothing until the next launch — a defect no test can see, because the
 setting IS written.
 
@@ -117,8 +118,8 @@ and this is a thing you do, beside the other things you do to an installation.
 ### D9 — the settings window cannot sit beside the tour
 
 The settings window is a **snapshot editor**: seeded from the blob when it opens, and it never re-reads
-(the renderer's only `onSettingsChanged` registration is in `app.js`, which `settings.html` does not
-load). So its Save writes that snapshot back over anything a concurrent writer changed. Pane 0's **Open
+(the renderer's `onSettingsChanged` registrations are in `app.js` and the tour, neither of which `settings.html`
+loads). So its Save writes that snapshot back over anything a concurrent writer changed. Pane 0's **Open
 settings** therefore closes the tour rather than opening a second editor beside it — which is also #146's
 own shape: Import and Open settings are alternatives to the tour, not companions.
 

@@ -2381,10 +2381,15 @@ async function reapplyGlobalSettings() {
   if (g.terminalFontSize) window._setTerminalFontSize?.(g.terminalFontSize);
   if (g.terminalRightClick) window._applyTerminalRightClick?.(g.terminalRightClick);
   if (g.terminalMouseReporting && typeof setTerminalMouseReporting === 'function') setTerminalMouseReporting(g.terminalMouseReporting);
-  window._setGpuAcceleration?.(
-    (g.gpuAcceleration === 'on' || g.gpuAcceleration === 'off' || g.gpuAcceleration === 'auto')
-      ? g.gpuAcceleration
-      : (g.terminalWebgl === false ? 'off' : 'auto')); // migrate old boolean (#87); default auto
+  const gpuMode = (g.gpuAcceleration === 'on' || g.gpuAcceleration === 'off' || g.gpuAcceleration === 'auto')
+    ? g.gpuAcceleration
+    : (g.terminalWebgl === false ? 'off' : 'auto'); // migrate old boolean (#87); default auto
+  // Only on a CHANGE (#829): the switch resets the fallback and the loss count and loads WebGL into every open
+  // terminal past the per-mode policy (#140, #320). Every window gets this broadcast for any global write, a
+  // section move in the session sidebar included, and an unchanged value must not cost a WebGL reload each time.
+  if (typeof window._getGpuAcceleration !== 'function' || window._getGpuAcceleration() !== gpuMode) {
+    window._setGpuAcceleration?.(gpuMode);
+  }
   window._setUsageThresholds?.({ fiveHWarn: g.usage5hWarn, fiveHCrit: g.usage5hCrit, sevenDWarn: g.usage7dWarn, sevenDCrit: g.usage7dCrit });
   window._setUsageBackendSelection?.(g.usageBackends || {});
   // The usage tray icon (#113). Off unless asked for, and it draws from the same payload the
@@ -2411,6 +2416,8 @@ async function reapplyGlobalSettings() {
   vcsShowBadge = g.vcsShowBadge === true;
   sidebarProjectSecondLine = g.sidebarProjectSecondLine === true;   // #741
   refreshSidebar?.();
+  // #829: the order of the session sidebar's sections, moved in another window. Reads the cache refreshed above.
+  if (typeof sessionSidebarOrderChanged === 'function') sessionSidebarOrderChanged();
   // #620: the handoff threshold and the fill text judge grid cards too. The sidebar rebuilds above; a grid
   // card only re-reads its health on a status update, which could be 30 s away in an idle window.
   if (typeof gridViewActive !== 'undefined' && gridViewActive && typeof updateGridCardStatuses === 'function') {
