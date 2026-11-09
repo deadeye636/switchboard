@@ -308,7 +308,9 @@ Same reason as the drag. `el.dispatchEvent(new KeyboardEvent(...))` reaches what
 script picked; it does not go through the browser's key pipeline, so xterm's
 `attachCustomKeyEventHandler` and the PTY behind it are never exercised. CDP's
 **`Input.dispatchKeyEvent`** is the real thing: focus the terminal's `.xterm-helper-textarea`, dispatch
-`rawKeyDown` + `keyUp`, and both halves become observable.
+`rawKeyDown` + `keyUp`, and both halves become observable. `scripts/press-key.js` does exactly that for any
+selector: `node scripts/press-key.js ".xterm-helper-textarea" PageUp`, or `... ".ssb-grip" ArrowDown 1` for Alt+Down
+(the last argument is CDP's modifier mask: 1 Alt, 2 Ctrl, 4 Meta, 8 Shift).
 
 Both halves is the point. For any terminal key, ask who got it:
 
