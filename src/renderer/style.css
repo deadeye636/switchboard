@@ -3395,6 +3395,8 @@ html body .terminal-container.conversation-container:not(.visible) {
 }
 .conversation-mode:hover:not(:disabled) { border-color: rgba(128, 136, 255, 0.5); color: #d0d0e0; }
 .conversation-mode:disabled { cursor: default; }
+.conversation-maintenance-entry { opacity: 0.6; }
+.conversation-maintenance-entry > summary { color: #a0a0b8; font-size: 12px; cursor: pointer; }
 .conversation-mode-accept { color: #b89cff; }
 .conversation-mode-plan { color: #4cb8a8; }
 .conversation-mode-warn { color: #e0c080; }

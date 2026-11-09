@@ -1058,6 +1058,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // a transcript snapshot can tell the op for it apart from a new one (see `attachFromTranscript`).
         const split = splitTaskOutput(op.entry);
         if (split) op = { ...op, entry: settleTaskOutput(state, split, statSizeSync(split.file)) };
+        // The prompt line of a maintenance turn, played back while it runs (spec 45, O5).
+        if (state.maintenance && op.entry && op.entry.prompt === true) op = { ...op, entry: { ...op.entry, maintenance: true } };
         state.documents.note(op.entry);
         const key = typeof rpc.entryKey === 'function' && op.entry ? rpc.entryKey(op.entry) : null;
         if (key) {
@@ -1553,7 +1555,7 @@ async function attach(sessionId) {
     ctx.log.info(`[agent-rpc] attach ${sessionId} failed (${reason}) ${Date.now() - state.startedAt} ms after the start`);
     return { ok: false, error: attachFailure(reason, Date.now() - state.startedAt) };
   }
-  const entries = state.rpc.entriesFromMessages(res, { cwd: state.cwd });
+  const entries = stampMaintenanceTurns(state, sessionId, state.rpc.entriesFromMessages(res, { cwd: state.cwd }));
   // The documents of the conversation so far, as `attachFromTranscript` notes its own (#755 verifier G1): a
   // resumed session's earlier reads are drawn as cards, and their open has to find them.
   state.documents.noteAll(entries);
@@ -1620,7 +1622,7 @@ async function attachFromTranscript(sessionId, state) {
     // A task notice read back names its output file; whether there is output to offer is decided here, the
     // files stat'ed in parallel rather than one after another on the main thread (#725). Inside the read, so a
     // reset while they are asked is caught by the same check as one during the read.
-    entries = await Promise.all((Array.isArray(entries) ? entries : []).map(async (e) => {
+    entries = await Promise.all(stampMaintenanceTurns(state, sessionId, Array.isArray(entries) ? entries : []).map(async (e) => {
       const split = splitTaskOutput(e);
       return split ? settleTaskOutput(state, split, await statSize(split.file)) : e;
     }));
@@ -1710,6 +1712,29 @@ function imagesFor(rpc, raw) {
     images.push({ mimeType, data });
   }
   return { images };
+}
+
+// Which prompt lines of a conversation read back were the app's own (spec 45, E7): by the key a backend has at send time,
+// else by its exact words, each record claiming one line. Never a marker in the prompt.
+function stampMaintenanceTurns(state, sessionId, entries) {
+  let records = [];
+  // Only a mark on a line: a failed read must not cost the conversation.
+  try { records = typeof ctx.maintenanceTurnsOf === 'function' ? ctx.maintenanceTurnsOf(sessionId) : []; } catch (err) {
+    ctx.log.warn(`[agent-rpc] maintenance turns were not read: ${err.message}`);
+  }
+  if (!records.length) return entries;
+  const byKey = new Set(records.filter((r) => r.key).map((r) => r.key));
+  const byText = records.filter((r) => !r.key && r.text).map((r) => r.text);
+  return entries.map((e) => {
+    if (!e || e.prompt !== true) return e;
+    const key = typeof state.rpc.entryKey === 'function' ? state.rpc.entryKey(e) : null;
+    if (key && byKey.has(key)) return { ...e, maintenance: true };
+    const text = typeof state.rpc.promptTextOf === 'function' ? state.rpc.promptTextOf(e) : null;
+    const at = text ? byText.indexOf(text) : -1;
+    if (at < 0) return e;
+    byText.splice(at, 1);
+    return { ...e, maintenance: true };
+  });
 }
 
 // What the composer holds, on the edge (spec 45). With no view mounted nothing has said so, and nothing can be typed either.

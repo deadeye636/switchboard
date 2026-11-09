@@ -999,9 +999,15 @@ function maintenanceCommand({ id, action, instructions } = {}) {
   if (action === 'warm') return { line: { ...sendCommand({ text: WARM_PROMPT }), uuid: id }, endsBy: 'idle', key: id, text: WARM_PROMPT };
   if (action === 'compact') {
     const focus = String(instructions || '').replace(/\s+/g, ' ').trim();
-    return { line: sendCommand({ text: focus ? `/compact ${focus}` : '/compact' }), endsBy: 'idle', key: null, text: null };
+    const text = focus ? `/compact ${focus}` : '/compact';
+    return { line: sendCommand({ text }), endsBy: 'idle', key: null, text };
   }
   return null;
+}
+
+// The words of a user's line read back, for a maintenance turn with no key (`/compact`).
+function promptTextOf(entry) {
+  return entry && entry.message ? textOf(entry.message.content) : null;
 }
 
 // The figures of a finished model call, in neutral words (spec 45, "Hit check"). The `assistant` line's, because `result`
@@ -1565,6 +1571,7 @@ module.exports = {
   assistantTextOf,
   sendCommand,
   maintenanceCommand,
+  promptTextOf,
   usageOf,
   abortCommand,
   stopTaskCommand,

@@ -29,7 +29,7 @@ const SESSION_CWD = path.join(__dirname, '..');
 // what spawn.js hands a fork's start, `options`/`appliedOptions` the launch options it hands every start, `approvalMemory` and
 // `backendId` where and under whose id #731 remembers approvals; `onSignal` runs at the moment a state report is
 // delivered, which is when the turn-hold asks its question.
-function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId } = {}) {
+function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appliedOptions, onSignal, approvalMemory, backendId, onMaintenanceEdge, maintenanceTurnsOf } = {}) {
   const activeSessions = new Map();
   const sent = [];
   const signals = [];
@@ -66,6 +66,8 @@ function harness({ dataDir, env, timeouts, rpc, fixture, forkFrom, options, appl
     clipboard: { writeText: (text) => clipped.push(text) },
     log: { info: (line) => logged.push(line), warn: (line) => warned.push(line), debug() {} },
     approvalMemory,
+    onMaintenanceEdge,
+    maintenanceTurnsOf,
   });
   const proc = agentRpc.start({
     tag, rpc: rpc || piNative.rpc, command: process.execPath, args: [fixture || FIXTURE], cwd: SESSION_CWD, env: { ...process.env, ...(env || {}) }, label: 'Fake', timeouts, forkFrom, options, appliedOptions, backendId,

@@ -179,7 +179,12 @@ async function tick(session, action) {
   const res = await session.handle.maintain({ action });
   if (stopped || session.gone) return;
   if (res && res.ok && ctx.recordMaintenance) {
-    ctx.recordMaintenance({ sessionId: session.handle.sessionId(), kind: action, key: res.key || null, text: res.text || null, at: now() });
+    // A record that cannot be written must not take the outcome with it.
+    try {
+      ctx.recordMaintenance({ sessionId: session.handle.sessionId(), kind: action, key: res.key || null, text: res.text || null, at: now() });
+    } catch (err) {
+      if (ctx.log) ctx.log.warn(`[idle-maintenance] a turn was not recorded: ${err.message}`);
+    }
   }
   if (session.clockAt !== period || session.running !== action) return; // something has moved the period on meanwhile
   // A line still in the pipe, or an action its idle edge ends, goes on at that edge or at `maintenance-ended`.
@@ -193,7 +198,8 @@ async function tick(session, action) {
 }
 
 function afterCompact(session) {
-  const bestEffort = session.verdict !== 'warm' && session.refreshes > 0;
+  // Best effort unless a hit was observed, which a compaction with no refresh before it never has.
+  const bestEffort = session.verdict !== 'warm';
   record(session, bestEffort ? 'Compacted while idle (best effort)' : 'Compacted while idle', '');
   endPeriod(session, 'compacted');
 }
@@ -253,7 +259,8 @@ function track({ edge, handle, quiet }) {
       return;
     case 'maintenance-ended':
       // It ended with no turn to report it: refused, or a turn that was promised and never began.
-      if (session.running === 'warm' || session.running === 'compact') {
+      // A compaction's outcome comes with `maintain`'s answer, which `tick` is still waiting for.
+      if (session.running === 'warm') {
         // A warm turn that was only slow can still begin. Its edges are then no longer quiet, and no line of anyone's explains
         // them: remember where the count stood.
         session.gaveUpAtLine = handle.linesSent();

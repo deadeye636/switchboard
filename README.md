@@ -28,6 +28,11 @@ directory, are searchable together, and each carries a provider badge. Resume ke
 own binary and on the model it last ran on. A backend you do not use can be switched off entirely — a Codex-only setup is a
 first-class setup.
 
+**Maintenance while idle.** A session driven over a pipe (Claude and Pi in the conversation view) can keep its prompt cache
+warm, compact its context, or both, while it sits idle. It is off by default, because each action is a real model turn and a
+compaction can lose detail. Every idle period is limited in refreshes and in time, the session line shows the mode and lets you
+change it for that session alone, and a turn the app sent is drawn folded and dim.
+
 **Sessions in panes.** The default layout splits the area the way VS Code splits editor groups: each
 pane keeps its own tabs with a right-click menu (close, stop, relaunch, redraw), you drag a tab onto a pane
 edge to split, and the arrangement is still there after a restart. The terminal is live — connect to

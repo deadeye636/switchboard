@@ -60,6 +60,7 @@ const sessionStore = require('./session-store');
 const searchStore = require('./search-store');
 const timelineStore = require('./timeline-store');
 const worktreeStore = require('./worktree-store');
+const maintenanceStore = require('./maintenance-store');
 // The handoff library's old table, and only the two calls that empty it (#468). Its statements are
 // prepared inside its functions, so its position here is tidiness rather than an ordering constraint.
 const legacyHandoffs = require('./legacy-handoffs');
@@ -90,6 +91,8 @@ module.exports = {
   getProjectStates: metaStore.getProjectStates,
   getProjectTombstones: metaStore.getProjectTombstones,
   // --- worktrees recognised by their `.git` file, outside the layout (worktree-store.js, #757) ---
+  recordMaintenanceTurn: maintenanceStore.recordMaintenanceTurn,
+  getMaintenanceTurns: maintenanceStore.getMaintenanceTurns,
   getKnownWorktrees: worktreeStore.getKnownWorktrees,
   recordKnownWorktree: worktreeStore.recordKnownWorktree,
   forgetKnownWorktree: worktreeStore.forgetKnownWorktree,

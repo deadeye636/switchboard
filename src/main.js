@@ -213,6 +213,7 @@ const {
   freeSpace, optimizeSearchIndex, needsFullVacuum, incrementalVacuum, fullVacuum, autoVacuumMode,
   closeDb,
   DB_PATH,
+  recordMaintenanceTurn, getMaintenanceTurns,
 } = require('./db/db');
 
 // Re-apply the saved log level now that settings are readable (#121).
@@ -2346,6 +2347,7 @@ idleMaintenance.init({
     return descriptor && typeof descriptor.idleMaintenance === 'function' ? descriptor.idleMaintenance() : null;
   },
   recordLifecycle: (id, kind, label, detail) => timeline.recordLifecycle(id, kind, label, detail),
+  recordMaintenance: (turn) => { if (turn.sessionId) recordMaintenanceTurn(turn); },
   log,
 });
 idleMaintenance.registerIpc(ipcMain);
@@ -2353,6 +2355,7 @@ idleMaintenance.registerIpc(ipcMain);
 const agentRpc = require('./app/agent-rpc');
 agentRpc.init({
   onMaintenanceEdge: (report) => idleMaintenance.track(report),
+  maintenanceTurnsOf: (sessionId) => getMaintenanceTurns(sessionId),
   approvalMemory,
   getMainWindow: () => mainWindow,
   windowForSession: (sessionId) => detach.windowForSession(sessionId),

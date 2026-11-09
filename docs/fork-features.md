@@ -1030,6 +1030,10 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
   Design record: [`docs/specs/19-editor-live-preview.md`](specs/19-editor-live-preview.md).
 
 ### Supervision extensions
+- **Maintenance while idle** (#827, spec 45) — Off, Keep warm, Compact only or Warm then compact, for a pipe-driven session, set
+  globally, per project, or for one running session from its session line. A refresh comes within the backend's cache bound;
+  a read that finds the cache cold ends keep-alive for that idle period. Nothing runs over a draft, a question or a held prompt,
+  and a prompt sent during maintenance is held and sent afterwards. Each action is a real model turn.
 - **Staged prompts** (#614) — hand a busy session its next instruction and walk away. The command palette
   asks for the text, the session's row carries a chip with the count, and Switchboard types it in when the
   session is ready for it: never while the agent is working, never while it is waiting for an answer, and

@@ -676,6 +676,8 @@ own option keys (claude-native `permissionMode: 'plan'` and `promptSuggestionsOf
 template, launchable. The `review` capability row says the same; `test/backend-parity.test.js` and
 `test/review-profile.test.js` pin both. A template does not inherit it (`NOT_INHERITED`).
 
+**Idle maintenance is one hook and an `rpc` part (spec 45, #827).** `idleMaintenance()` answers `{ cacheClass, maxRefreshMs, warm, compact, callsCold } | null`, every backend answering, with the capability row beside it and the bound a measured number pinned in `test/backend-parity.test.js`; a template does not inherit it. The `rpc` half declares `maintenanceCommand({ id, action, instructions })` → `{ line, endsBy: 'idle'|'answer', key, text } | null`, which words the action, and `usageOf(msg)` → `{ input, read, write } | null`, the figures of one model call. A runtime that acknowledges its turns may declare `answerStartsTurn(res)` → `true | false | null` (a turn is coming, none is, not said), and `promptTextOf(entry)` is how a maintenance turn with no key at send time is known when read back. The schedule is `src/app/idle-maintenance.js`; the gate and the quiet turn are `src/app/agent-rpc.js`'s.
+
 **A task target is the same shape, `taskProfile()` (spec 41, #804):** `{ options } | null`, every backend answering,
 the options a WRITING task starts with (claude-native `permissionMode: 'default'` with `permissionModeSent: true`, so
 `--permission-mode default` is SENT — the stored default sends nothing, and an unconfigured Claude would start in auto

@@ -592,6 +592,20 @@ const migrations = [
       )
     `);
   },
+  // The turns the app itself sent to an idle session (#827, spec 45), so a conversation read back after a restart can tell
+  // them from the user's own. `entry_key` where the backend has a key at send time, `entry_text` where it has none.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS maintenance_turn (
+        session_id TEXT NOT NULL,
+        entry_key TEXT,
+        entry_text TEXT,
+        kind TEXT NOT NULL,
+        sent_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_maintenance_turn_session ON maintenance_turn (session_id);
+    `);
+  },
 ];
 
 /**

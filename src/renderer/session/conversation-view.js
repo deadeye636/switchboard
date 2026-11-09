@@ -319,7 +319,7 @@ function createConversationView(getSession, container) {
     }
     for (let i = promptCache.scanned; i < view.entries.length; i++) {
       const e = view.entries[i];
-      if (e && e.prompt === true && view.elements[i]) promptCache.indices.push(i);
+      if (e && e.prompt === true && !e.maintenance && view.elements[i]) promptCache.indices.push(i);
     }
     promptCache.scanned = view.entries.length;
     return promptCache.indices;
@@ -492,7 +492,16 @@ function createConversationView(getSession, container) {
     // when that viewer closes with nothing left to return to.
     // An agent call opens its transcript in an overlay over the view (#770, #787): which subagent it started, from
     // what the backend named for it, and the opener the overlay's "Open in tab" uses.
-    const el = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), drawContext);
+    const drawn = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), drawContext);
+    // A turn the app sent while the session sat idle (spec 45, O5): folded and dim, because nobody wrote it.
+    let el = drawn;
+    if (drawn && entry.maintenance) {
+      el = document.createElement('details');
+      el.className = 'conversation-maintenance-entry';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Maintenance: sent by Switchboard while idle';
+      el.append(summary, drawn);
+    }
     if (el) el.dataset.entryIndex = String(index);
     return el;
   }
@@ -1334,6 +1343,61 @@ function createConversationView(getSession, container) {
     input.focus(); // what was dropped is in the text now, so the text is where the user goes on
   });
 
+  function refreshIdleMaintenance() {
+    const ask = window.api.agent.idleMaintenanceState;
+    if (!ask || !view.session) return;
+    Promise.resolve(ask(view.session.sessionId)).then((state) => {
+      view.idle = state || null;
+      renderStatus();
+    }).catch(() => { /* the session has ended */ });
+  }
+
+  function idleMaintenanceControl() {
+    const labels = { off: 'Off', warm: 'Keep warm', compact: 'Compact only', 'warm-compact': 'Warm then compact' };
+    const state = view.idle;
+    const overridden = state.overrides && state.overrides.idleMaintenanceMode;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'conversation-mode conversation-idle';
+    b.textContent = `Idle: ${labels[state.mode] || state.mode}${overridden ? ' *' : ''}`;
+    const next = state.nextAction && state.nextAt
+      ? `Next: ${state.nextAction === 'warm' ? 'a refresh' : 'a compaction'} at ${new Date(state.nextAt).toLocaleTimeString()}.`
+      : '';
+    b.title = b.ariaLabel = [
+      'What this session does while idle. Click to change it for this running session only.',
+      overridden ? 'Set here; * goes back to the settings at the end of the list.' : 'From the settings.',
+      state.refused || next,
+      state.limit ? `Refreshes this idle period: ${state.refreshes} of ${state.limit}.` : '',
+      state.verdict ? `Last refresh found the cache: ${state.verdict} (best effort).` : '',
+      state.ended ? `Ended: ${state.ended}.` : '',
+      'Each refresh and compaction is a real model turn. Compaction can lose detail and cannot be undone.',
+    ].filter(Boolean).join('\n');
+    // A compaction has no edge to refresh this on, so what the title says is asked again when someone looks.
+    const look = () => {
+      Promise.resolve(window.api.agent.idleMaintenanceState(view.session.sessionId)).then((fresh) => {
+        if (!fresh || JSON.stringify(fresh) === JSON.stringify(view.idle)) return;
+        const hadFocus = document.activeElement === b;
+        view.idle = fresh;
+        renderStatus();
+        if (hadFocus) statusText.querySelector('.conversation-idle')?.focus();
+      }).catch(() => { /* the session has ended */ });
+    };
+    b.addEventListener('pointerenter', look);
+    b.addEventListener('focus', look);
+    b.addEventListener('click', (event) => {
+      const byKeyboard = event.detail === 0; // the keyboard stays on the control, to step on
+      const order = [null, 'off', 'warm', 'compact', 'warm-compact'];
+      const mode = order[(order.indexOf(overridden || null) + 1) % order.length];
+      Promise.resolve(window.api.agent.idleMaintenanceSet(view.session.sessionId, { idleMaintenanceMode: mode })).then((fresh) => {
+        if (fresh) view.idle = fresh;
+        renderStatus();
+        if (byKeyboard) statusText.querySelector('.conversation-idle')?.focus();
+        else input.focus();
+      }).catch(() => { /* the session has ended */ });
+    });
+    return b;
+  }
+
   function renderStatus() {
     renderComposer();
     statusText.replaceChildren();
@@ -1352,6 +1416,9 @@ function createConversationView(getSession, container) {
       s.textContent = text;
       return s;
     };
+    // What this session does while idle (spec 45), where its backend can do anything: a click steps through the modes and
+    // back to the settings' value. Only this running session changes; the title says what is next and what it costs.
+    if (view.idle && !view.idle.declined && !view.exited) add(idleMaintenanceControl());
     // The permission mode first (#696), as the TUI's status line shows it; a click switches to the next one,
     // as Shift+Tab in the input does. Only where the backend has modes and one has been named.
     if (view.mode && view.mode.label) {
@@ -2470,6 +2537,7 @@ function createConversationView(getSession, container) {
         view.busy = !!op.busy;
         // A maintenance turn leaves the suggestion where it is, as main does (spec 45, O4).
         if (view.busy && view.suggestion && !op.maintenance) setSuggestion(null);
+        if (!view.busy) refreshIdleMaintenance();
         if (!view.busy) { view.busySince = null; view.tools.clear(); renderActivity(); }
         renderStatus();
         break;
@@ -2592,6 +2660,7 @@ function createConversationView(getSession, container) {
       return;
     }
     view.attached = true;
+    refreshIdleMaintenance();
     apply({ op: 'reset', entries: res.entries || [] });
     snapshotKeys = new Set(Array.isArray(res.keys) ? res.keys.map(String) : []);
     view.partial = res.partial || null;

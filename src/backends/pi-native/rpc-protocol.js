@@ -758,6 +758,11 @@ function answerStartsTurn(res) {
   return disposition === 'handled' ? false : null;
 }
 
+// The words of a user's line read back: Pi's has no key at send time (measured), so a maintenance turn is known by them.
+function promptTextOf(entry) {
+  return entry && entry.message ? textOf(entry.message.content) : null;
+}
+
 // The figures of a finished model call, in neutral words (spec 45, "Hit check").
 function usageOf(msg) {
   const u = msg && msg.type === 'message_end' && msg.message && msg.message.role === 'assistant' ? msg.message.usage : null;
@@ -807,6 +812,7 @@ module.exports = {
   sendCommand,
   maintenanceCommand,
   answerStartsTurn,
+  promptTextOf,
   usageOf,
   abortCommand,
   commandsCommand,

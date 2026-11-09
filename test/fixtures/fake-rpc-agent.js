@@ -17,7 +17,7 @@ let compacting = false;
 
 function turn(text) {
   const user = { role: 'user', content: [{ type: 'text', text }], timestamp: 1 };
-  const assistant = { role: 'assistant', content: [{ type: 'text', text: 'pong' }], stopReason: 'stop', timestamp: 2 };
+  const assistant = { role: 'assistant', content: [{ type: 'text', text: 'pong' }], stopReason: 'stop', timestamp: 2, usage: { input: 10, cacheRead: 0, cacheWrite: 100 } };
   out({ type: 'agent_start' });
   out({ type: 'message_start', message: user });
   out({ type: 'message_end', message: user });

@@ -253,6 +253,7 @@ module.exports = {
     sendAcknowledged: false,
     sendCommand: protocol.sendCommand,
     maintenanceCommand: protocol.maintenanceCommand,
+    promptTextOf: protocol.promptTextOf,
     usageOf: protocol.usageOf,
     // A turn may carry images, as content blocks beside its text (#662).
     imageInput: protocol.IMAGE_INPUT,

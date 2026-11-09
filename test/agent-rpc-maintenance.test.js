@@ -195,6 +195,54 @@ test('a draft in the composer keeps the gate closed until it is gone', async (t)
   assert.doesNotThrow(() => agentRpc.noteDraft('no-such-session', true));
 });
 
+test('a prompt read back is stamped by its record, once per record, and the idle schedule hears the edges in order', async (t) => {
+  const edges = [];
+  const records = [{ key: null, text: 'a warm line', kind: 'warm', at: 1 }];
+  const h = harness({ onMaintenanceEdge: (r) => edges.push([r.edge, r.quiet]), maintenanceTurnsOf: () => records });
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length > 0);
+  await agentRpc.sendTurn(sid(h), { text: 'a warm line' });
+  await until(() => isIdle(h));
+  await agentRpc.sendTurn(sid(h), { text: 'a warm line' });
+  await until(() => idleCount(h) === 2);
+  const { entries } = await agentRpc.attach(sid(h));
+  const prompts = entries.filter((e) => e.prompt === true);
+  assert.deepEqual(prompts.map((e) => e.maintenance === true), [true, false], 'the user wrote the same words the second time');
+  assert.deepEqual(edges.slice(0, 3), [['start', false], ['busy', false], ['idle', false]]);
+
+  const warm = harness({ onMaintenanceEdge: () => {} });
+  t.after(() => stopped(warm));
+  await until(() => warm.rekeys.length > 0);
+  await agentRpc.maintain(sid(warm), { action: 'warm' });
+  await until(() => isIdle(warm));
+  const live = warm.sent.filter((m) => m.ch === 'agent-event' && m.op.op === 'append' && m.op.entry && m.op.entry.prompt === true);
+  assert.equal(live.at(-1).op.entry.maintenance, true);
+});
+
+test('the schedule and the real driver together: a Pi compaction ends as compacted, a refused one says so', async (t) => {
+  const idle = require('../src/app/idle-maintenance');
+  t.after(() => idle.stop());
+  const notes = [];
+  const timers = [];
+  idle.init({
+    setTimer: (fn) => { timers.push(fn); return fn; },
+    clearTimer: () => {},
+    effectiveSettings: () => ({ idleMaintenanceMode: 'compact' }),
+    capabilityOf: () => piNative.idleMaintenance(),
+    recordLifecycle: (id, kind, label) => notes.push(label),
+    log: { info() {}, warn() {} },
+  });
+  const h = harness({ onMaintenanceEdge: (r) => idle.track(r) });
+  t.after(() => stopped(h));
+  await until(() => h.rekeys.length > 0);
+  await agentRpc.sendTurn(sid(h), { text: 'first' });
+  await until(() => timers.length === 1);
+  timers.pop()();
+  await until(() => idle.getState(sid(h)).ended !== null);
+  assert.equal(idle.getState(sid(h)).ended, 'compacted');
+  assert.deepEqual(notes, ['Compacted while idle (best effort)']);
+});
+
 test('a refused compaction draws neither its error nor its start', async (t) => {
   const h = await started(t);
   await agentRpc.maintain(sid(h), { action: 'compact' });

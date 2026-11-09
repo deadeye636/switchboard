@@ -1,7 +1,12 @@
 # 45 — Idle session maintenance
 
-Issue: #827. Status: **planned** (nothing built; the plan is `docs/plans/827-idle-maintenance/PLAN.md`, local only).
-This file is the design record: the owner's decisions, what was measured, the shape, and the open points.
+Issue: #827. Status: **built**, first stage, on the pipe-driven backends. This file is the design record: the owner's decisions,
+what was measured, the shape as built, and what is still open.
+
+As built, against the design below: the running-session control is one button in the session line that steps through the modes
+and back to the settings, with the details in its title rather than a popover. A maintenance turn read back is matched by key,
+else by its exact words, once per record, without the `sent_at` compare. A user's own compaction counts as a turn and starts a
+new idle period.
 
 ## The problem
 
@@ -137,10 +142,8 @@ as a dim, collapsed "Maintenance" entry. **Measured key at send time: Claude yes
 the input line, which comes back on the replay and stays on the transcript line. Pi's user message carries no id, so
 pi-native takes the fallback: key on `(session_id, sent_at, exact text)` and claim the first user entry at or after
 `sent_at` whose text equals the recorded text, once per record; the text is the backend-worded warm prompt, never a
-marker added for recognition. A compaction is matched to the first entry of the CLI's own at or after `sent_at`, once per
-record: `compact_boundary` on Claude, a `compaction` entry in Pi's file. T8 has to check this against what the attach
-actually reads: a pi-native attach reads `get_messages`, not the file, so neither Pi shape above is established there, and
-older warm entries may be gone from that answer after a compaction.
+marker added for recognition. As built, a compaction on Claude is matched the same way, by the words of its `/compact` line.
+Pi's has no line to mark: its RPC `compact` writes no prompt, and the outcome goes to the timeline.
 
 ### Pi's RPC compact has no turn edges
 
@@ -230,27 +233,45 @@ All eight decided by the owner on 2026-11-09, each as recommended below.
   not clear the suggestion or the notices.
 - [x] **O5** Who words the warm prompt and how it is drawn. Recommendation: the backend's `maintenanceCommand`, one short fixed
   sentence, shown as a collapsed "Maintenance" entry.
-- [x] **O6** Duplicate compaction when the CLI auto-compacts (issue note). Recommendation: where a launch option shows
+- [ ] **O6** Duplicate compaction when the CLI auto-compacts (issue note). Recommended and taken: where a launch option shows
   the CLI's own threshold compaction on, the compact modes are shown disabled with the reason; where the backend cannot
-  say, a note.
+  say, a note. **Not built, and back with the owner:** Pi answers `autoCompactionEnabled`, and both CLIs compact by themselves
+  unless told otherwise, so taken literally the rule disables the compact modes for nearly everyone. A threshold compaction
+  also runs at a full context, not while idle, so the two do not necessarily duplicate each other.
 - [x] **O7** Defaults. Recommendation: Off; idle 10 minutes, for compaction only (E14); refresh limit 3; ceiling 3 hours; refresh interval the class bound
   minus a margin, never above it.
 - [x] **O8** Does the timeline record maintenance turns? Recommendation: yes, as one labelled kind, record-only (E8 silences
   attention, not history).
 
-## Known gaps (before any build)
+## Measured end to end (2026-11-09)
 
-Still open after T1 and T2:
+On the demo instance, one minute apart. Claude on Haiku 5.5: a refresh, then a compaction, ending `compacted`; after a re-attach
+2 of 3 prompts were folded. Pi on Haiku 4.5: Compact only on a session with one large turn ended `compacted`, and a prompt sent
+during the compaction was held and went out afterwards. An earlier Pi run went through a launch that did not carry the model and
+ran two short turns on `claude-opus-4-8`: a refresh, read cold on a process under two minutes old, which is the jump in its prompt
+in `docs/backend-formats.md`. No attention was raised, and the console stayed clean.
 
+Not run for real: an app restart, a `/` line on Pi that a command takes, a Claude prompt during a warm turn. Those paths are
+covered against the stand-ins only.
+
+## Known gaps
+
+- O6 above.
 - Pi's `/compact` through its runtime extension: not measured, and not used here. That an extension command answers `handled` is
-  to be seen in the end-to-end run (T13); until then a wrong answer costs a 5-second hold.
+  read in Pi's source; a wrong answer costs a 5-second hold.
 - Whether Pi's `abort` stops a running compaction, and whether the view offers Stop during one (its `busy` is false then).
 - A Claude `ai-title` written later, in a longer session, or under claude-native's entrypoint (none in about 20 seconds).
-- Tying a Claude `compact_boundary` to its record: the `/compact` line was sent without a `uuid`.
-- What a pi-native attach's `get_messages` holds for a warm turn and a compaction (T8).
-- What each decoder passes on of `usage`, and the stream lines not inspected (T11). No decoder op carries a figure of its own today.
+- A user's own earlier `/compact` can be drawn as the app's after a re-attach, because the match by words has no time compare. A
+  warm prompt's words are the app's own, so that case does not arise for them.
+- The reply to a warm turn is drawn as an ordinary entry; only the prompt is folded.
+- `maintenance_turn` has no retention and does not move on a re-key, so a fork's copied lines stay unmarked.
 - What Pi's one-off jump in the prompt is, and whether it causes the early misses. How Pi behaves in a real conversation: the
   measurement used small prompts with identical text, at Pi's default thinking setting.
 - How long a compaction of a larger session takes on either backend.
+
+- A refused `/compact` on Claude reads as compacted: the schedule takes its idle edge as the end and does not read `compact_boundary`.
+- In a detached window a maintenance turn draws Working, because `recordActivityEdge` takes it; the main window's row stays quiet.
+- The control shows the mode and its source, not the interval, the ceiling or the idle time, and only the mode can be overridden
+  from the view. `setOverride` takes every `idleMaintenance*` key.
 
 Everything measured is in `docs/backend-formats.md`.
