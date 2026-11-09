@@ -313,6 +313,8 @@ module.exports = {
   reviewProfile: () => null,
   // Not a task target (spec 41 E4): a task runs on a pipe, and agy has no pipe driver here.
   taskProfile: () => null,
+  // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer, and agy has no pipe driver here.
+  idleMaintenance: () => null,
   // External MCP servers (spec 36): stdio (with `cwd`) and http, written into the plugin bundle's mcp_config.json.
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
@@ -339,6 +341,7 @@ module.exports = {
     mcpPrune: { state: 'no', note: 'declines; agy has no per-launch channel to hide the servers it loads itself' },
     review: { state: 'no', note: 'a review runs on a pipe, and agy has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and agy has no pipe driver here' },
+    idleMaintenance: { state: 'no', note: 'it needs a pipe, and agy has no pipe driver here' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

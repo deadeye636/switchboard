@@ -325,6 +325,8 @@ module.exports = {
   reviewProfile: () => null,
   // Not a task target (spec 41 E4): a task runs on a pipe, and Hermes has no pipe driver here.
   taskProfile: () => null,
+  // No idle maintenance (spec 45 E2): its `/compress` would have to be typed into the terminal, which can race the composer.
+  idleMaintenance: () => null,
   // External MCP servers (spec 36): no channel for them at all.
   externalMcpTakes: null,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
@@ -351,6 +353,7 @@ module.exports = {
     mcpPrune: { state: 'no', note: 'declines; Hermes has no per-launch channel to hide the servers it loads itself' },
     review: { state: 'no', note: 'a review runs on a pipe, and Hermes has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and Hermes has no pipe driver here' },
+    idleMaintenance: { state: 'no', note: 'it needs a pipe, and Hermes has no pipe driver here' },
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',

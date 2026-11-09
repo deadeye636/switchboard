@@ -52,6 +52,7 @@ const NOT_INHERITED = {
   listSharedHooks: '#635 — the hook half of what a SOURCE offers; a template is never a source, for the reason sharedResources gives',
   reviewProfile: 'spec 39 — a review starts the built-in pipe driver with its own read-only profile; src/backends/review-targets.js skips isProfile, so a template answering it would be a second target over one binary',
   taskProfile: 'spec 41 — a task starts the built-in pipe driver with its own profile; src/backends/review-targets.js skips isProfile for tasks too, so a template answering it would be a second target over one binary',
+  idleMaintenance: 'spec 45 — the consumer asks a live session on a pipe, and BASE_IDS in src/backends/profiles.js refuses a template on a pipe driver (test/backend-parity.test.js holds that), so the answer would describe a session it cannot have',
   listPlugins: '#803 — src/app/plugins-inventory.js skips isProfile and asks one entry per CLI; a template reads its base\'s install record, so answering it would list every plugin a second time',
   listApps: '#803 — the same consumer and the same reason as listPlugins: one app list per CLI, answered by the base',
 

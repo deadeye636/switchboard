@@ -529,6 +529,8 @@ module.exports = {
   reviewProfile: () => null,
   // Not a task target (spec 41 E4): a task runs on a pipe, and Pi's pipe driver is pi-native.
   taskProfile: () => null,
+  // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer; the pipe driver is pi-native.
+  idleMaintenance: () => null,
   // External MCP servers (spec 36): through the resources extension's MCP section, stdio only, no `cwd`
   // (`./session-resources.js`); there is no quartet, so this is the only place the channel is declared.
   externalMcpTakes: { transports: ['stdio'], cwd: false },
@@ -615,6 +617,7 @@ module.exports = {
     mcpPrune: { state: 'no', note: 'declines; Pi\'s own MCP servers and the ones Switchboard gives it share one channel, so one cannot be hidden without the other' },
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is pi-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },
+    idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is pi-native' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

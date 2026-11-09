@@ -222,6 +222,7 @@ const capabilities = {
   mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
   review: { state: 'yes', note: 'a review runs here in plan mode; every ask is refused' },
   task: { state: 'yes', note: 'a task runs here in the default permission mode, sent as a flag; each ask is shown on the row of the task' },
+  idleMaintenance: { state: 'limited', note: 'a cache miss was never measured here, so a hit is best effort and a miss cannot be called' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
@@ -322,6 +323,9 @@ module.exports = {
   // or a command, SENT as a flag (`permissionModeSent`) so neither the user's settings nor Claude's own auto mode
   // decide it; each ask reaches the task's row. No prompt suggestions, for the reason the review gives.
   taskProfile: () => ({ options: { permissionMode: 'default', permissionModeSent: true, promptSuggestionsOff: true } }),
+  // Idle maintenance (spec 45). Every write measured here was in the 1-hour class, with a hit after 6.5 minutes; 50 minutes is
+  // inferred from the class and not measured, and it promises no hit (docs/backend-formats.md).
+  idleMaintenance: () => ({ cacheClass: '1h', maxRefreshMs: 3000000, warm: true, compact: true }),
   buildMcpPrune: claude.buildMcpPrune,
   // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
   externalMcpTakes: claude.externalMcpTakes,

@@ -299,6 +299,48 @@ test('every backend answers the task profile hook — a decline is () => null', 
   assert.match(taskHookProblem({ id: 'stub', taskProfile: () => 'yes' }), /null or \{ options \}/);
 });
 
+// Spec 45 (#827): every backend answers `idleMaintenance` — `null` to decline, else its cache class and refresh bound — and
+// one that answers has the pipe a maintenance turn goes through.
+function idleMaintenanceProblem(b) {
+  if (typeof b.idleMaintenance !== 'function') return `${b.id} must answer idleMaintenance, declining with () => null`;
+  const a = b.idleMaintenance();
+  if (a === null) return null;
+  if (!a || typeof a.cacheClass !== 'string' || !a.cacheClass || !(a.maxRefreshMs > 0) || typeof a.warm !== 'boolean' || typeof a.compact !== 'boolean') {
+    return `${b.id}: idleMaintenance must answer null or { cacheClass, maxRefreshMs, warm, compact }`;
+  }
+  if (!b.transport || !b.rpc) return `${b.id} offers idle maintenance without a pipe`;
+  return null;
+}
+
+test('every backend answers the idle maintenance hook — a decline is () => null', () => {
+  for (const b of READY) assert.equal(idleMaintenanceProblem(b), null);
+  assert.match(idleMaintenanceProblem({ id: 'stub' }), /must answer idleMaintenance/);
+  assert.match(idleMaintenanceProblem({ id: 'stub', idleMaintenance: () => 'yes' }), /null or \{ cacheClass/);
+  assert.match(idleMaintenanceProblem({ id: 'stub', idleMaintenance: () => ({ cacheClass: '5m', maxRefreshMs: 1, warm: true, compact: true }) }), /without a pipe/);
+});
+
+// The bound is a measurement (docs/backend-formats.md): a refresh past it arrives cold, and the shape check above would not
+// notice a changed number.
+test('only the pipe drivers offer idle maintenance, with their measured bounds', () => {
+  const answers = Object.fromEntries(READY.map(b => [b.id, b.idleMaintenance()]));
+  const { 'claude-native': claude, 'pi-native': pi, ...rest } = answers;
+  assert.deepEqual(claude, { cacheClass: '1h', maxRefreshMs: 50 * 60 * 1000, warm: true, compact: true });
+  assert.deepEqual(pi, { cacheClass: '5m', maxRefreshMs: 270 * 1000, warm: true, compact: true });
+  for (const [id, answer] of Object.entries(rest)) assert.equal(answer, null, id);
+});
+
+// `idleMaintenance` is in NOT_INHERITED (test/template-descriptor-shape.test.js) because a template cannot run on a pipe driver.
+// That holds through `BASE_IDS` in src/backends/profiles.js; widening it would make a template a pipe session that declares
+// the capability row without the hook, so forward the hook or decline the row when this fails.
+test('a template cannot be based on a pipe driver', () => {
+  const profiles = require('../src/backends/profiles');
+  for (const backendId of ['claude-native', 'pi-native']) {
+    const answer = profiles.validateProfile({ id: 'probe', name: 'probe', backendId });
+    assert.equal(answer.ok, false, backendId);
+    assert.match(answer.error, /unknown backend/, backendId);
+  }
+});
+
 // #803: the Plugins manager asks each backend for its installed plugins (`listPlugins`) and its apps
 // (`listApps`). Both are answered by every backend — a function, or `null` to decline: a backend that
 // declines plugins is shown from its `listResources` plugin rows without a state. Only Claude and Codex read

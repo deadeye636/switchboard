@@ -25,6 +25,7 @@ const PINNED = {
     mcpPrune: 'yes',  // spec 36: --strict-mcp-config via buildMcpPrune (plan 789 T4)
     review: 'no',     // spec 39: a review runs on a pipe; Claude's pipe driver is claude-native
     task: 'no',     // spec 41: a task runs on a pipe; Claude's pipe driver is claude-native
+    idleMaintenance: 'no', // spec 45 E2: the pipe driver is claude-native
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',
@@ -39,6 +40,7 @@ const PINNED = {
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'no',     // spec 39: no pipe driver
     task: 'no',     // spec 41: no pipe driver
+    idleMaintenance: 'no', // spec 45 E2: no pipe driver
     turnDigest: 'yes',   // #507: a bounded tail read of its rollout
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -53,6 +55,7 @@ const PINNED = {
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'no',     // spec 39: no pipe driver
     task: 'no',     // spec 41: no pipe driver
+    idleMaintenance: 'no', // spec 45 E2: no pipe driver
     turnDigest: 'yes',   // #507: the viewer's SQL reader, bounded by a row limit
     resumeModel: 'no', modelList: 'no', endpoint: 'no', projectTrust: 'no',
     // `subagentSessions: 'no'` here is a DECIDED no, not a missing implementation (#553), and it is the
@@ -75,6 +78,7 @@ const PINNED = {
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'no',     // spec 39: a review runs on a pipe; Pi's pipe driver is pi-native
     task: 'no',     // spec 41: a task runs on a pipe; Pi's pipe driver is pi-native
+    idleMaintenance: 'no', // spec 45 E2: the pipe driver is pi-native
     turnDigest: 'yes',   // #507: a bounded tail read of its session file
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'yes',
@@ -94,6 +98,7 @@ const PINNED = {
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'yes',    // spec 39: reviewProfile with the approval gate on
     task: 'yes',    // spec 41: taskProfile, asks shown on the row
+    idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     turnDigest: 'yes',   // #507: Pi's answer, over the same store
     resumeModel: 'yes', modelList: 'yes', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -112,6 +117,7 @@ const PINNED = {
     mcpPrune: 'yes',  // spec 36: same --strict-mcp-config hook as terminal Claude (plan 789 T4)
     review: 'yes',    // spec 39: reviewProfile in plan mode
     task: 'yes',    // spec 41: taskProfile, asks shown on the row
+    idleMaintenance: 'limited', // spec 45: the hit verdict is best effort
     turnDigest: 'yes',   // #507: Claude's reader, over the same store
     resumeModel: 'yes', modelList: 'no', endpoint: 'no', projectTrust: 'yes',
     subagentSessions: 'no', liveOwners: 'no', stopLiveOwner: 'no', liveRebinding: 'no',
@@ -126,6 +132,7 @@ const PINNED = {
     mcpPrune: 'no',   // spec 36, scope B: only the Claude family prunes; this one declines
     review: 'no',     // spec 39: no pipe driver
     task: 'no',     // spec 41: no pipe driver
+    idleMaintenance: 'no', // spec 45 E2: no pipe driver
     turnDigest: 'limited', // #507: whole-database walk, so it declines above a size guard
     resumeModel: 'no', modelList: 'yes', endpoint: 'no', projectTrust: 'no',
     // limited (#739): subagent conversations nest under their root and read through the export, but no

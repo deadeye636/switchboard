@@ -154,6 +154,13 @@ const CATALOG = [
     declaredBy: 'supportsLiveRebinding',
   },
   {
+    id: 'idleMaintenance',
+    group: 'live',
+    label: 'Maintenance while idle',
+    description: 'Whether Switchboard can keep this CLI\'s prompt cache warm or compact its context while a session sits idle. Both are real model turns (spec 45).',
+    declaredBy: 'idleMaintenance',
+  },
+  {
     id: 'queuedTurn',
     group: 'live',
     label: 'Notice a turn it has not announced',

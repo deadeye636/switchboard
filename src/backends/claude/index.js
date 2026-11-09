@@ -773,6 +773,8 @@ module.exports = {
   reviewProfile: () => null,
   // Not a task target (spec 41 E4): a task runs on a pipe, and Claude's pipe driver is claude-native.
   taskProfile: () => null,
+  // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer; the pipe driver is claude-native.
+  idleMaintenance: () => null,
   buildMcpPrune: mcpPrune.buildMcpPrune,
   // What a project's external MCP servers get through this backend (spec 36): stdio and http, and an entry
   // with a `cwd` is declined (Claude has no per-server cwd). Pinned against the emitter by test/external-mcp-takes.test.js.
@@ -1187,6 +1189,7 @@ description:
     mcpPrune: { state: 'yes', note: 'drops every server not given by Switchboard (--strict-mcp-config): the user\'s own servers, a project .mcp.json, plugin servers and claude.ai connectors' },
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is claude-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
+    idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

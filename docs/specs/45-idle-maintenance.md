@@ -73,7 +73,7 @@ First-stage modes: **Off, Keep warm, Compact only, Warm then compact**, a finite
 
 ### Neutral capability (E1, E2)
 
-One descriptor hook, `idleMaintenance(options)`, answered by every backend (`null` = decline, with a comment naming why):
+One descriptor hook, `idleMaintenance()`, answered by every backend (`null` = decline, with a comment naming why):
 `{ cacheClass, maxRefreshMs, warm, compact }`. `cacheClass` is the backend's lifetime class for what it writes (from
 `usage`, measured); `maxRefreshMs` is the longest gap the scheduler may leave before a refresh, and it promises no hit. Pi: 270
 seconds, measured hits up to 300 and a miss at 315, less a margin. Claude: 50 minutes, inferred from the 1-hour class and not

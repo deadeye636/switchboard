@@ -303,6 +303,8 @@ description:
   reviewProfile: () => null,
   // Not a task target (spec 41 E4): a task runs on a pipe, and Codex has no pipe driver here.
   taskProfile: () => null,
+  // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer, and Codex has no pipe driver here.
+  idleMaintenance: () => null,
   // External MCP servers (spec 36): stdio (with `cwd`) and http, as `-c` overrides.
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
@@ -329,6 +331,7 @@ description:
     mcpPrune: { state: 'no', note: 'declines; Codex hides a server only by its name, and Switchboard does not read Codex\'s config to learn them' },
     review: { state: 'no', note: 'a review runs on a pipe, and Codex has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and Codex has no pipe driver here' },
+    idleMaintenance: { state: 'no', note: 'it needs a pipe, and Codex has no pipe driver here' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',
