@@ -3067,7 +3067,13 @@ body.restoring-sessions #restore-progress { display: flex; }
   padding: 1px 5px;
 }
 .ssb-head-btn:hover { background: rgba(255, 255, 255, 0.08); color: #e0e0ec; }
+.ssb-head > .ssb-head-btn { display: inline-flex; align-items: center; padding: 3px 5px; }
 .ssb-body { flex: 1; min-height: 0; overflow-y: auto; }
+/* The app sidebar's scrollbar, not the platform's light one. */
+.ssb-body::-webkit-scrollbar { width: 5px; }
+.ssb-body::-webkit-scrollbar-track { background: transparent; }
+.ssb-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 3px; }
+.ssb-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.1); }
 .ssb-group { border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .ssb-group > summary { cursor: pointer; padding: 7px 28px 7px 8px; font-weight: 500; user-select: none; }
 .ssb-group-body { padding: 0 8px 8px; }

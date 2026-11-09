@@ -604,6 +604,9 @@ function refitForSidebar(entry) {
 // What a drag of a group carries. The terminal container under the sidebar lets it through (`isPaneTabDrag`,
 // terminal-manager.js), or a group dropped on the terminal would be claimed as a drop to insert.
 const SESSION_SIDEBAR_GROUP_MIME = 'application/x-switchboard-sidebar-group';
+// The head has Reload only: the session's toolbar button opens and closes the sidebar, so a close here was a second
+// button for it. The icon is the search bar's reindex icon, the app's one drawing of "read again".
+const SESSION_SIDEBAR_RELOAD = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>';
 // The variables manager's grip (#676), so one gesture looks one way.
 const SESSION_SIDEBAR_GRIP = '<svg width="12" height="14" viewBox="0 0 12 14" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="3" r="1.3"/><circle cx="8.5" cy="3" r="1.3"/><circle cx="3.5" cy="7" r="1.3"/><circle cx="8.5" cy="7" r="1.3"/><circle cx="3.5" cy="11" r="1.3"/><circle cx="8.5" cy="11" r="1.3"/></svg>';
 
@@ -773,8 +776,7 @@ function buildSidebar(entry) {
     <div class="ssb-resize" title="Drag to resize"></div>
     <div class="ssb-head">
       <span>Session</span>
-      <button type="button" class="ssb-head-btn" data-ssb="refresh" title="Reload" aria-label="Reload">⟳</button>
-      <button type="button" class="ssb-head-btn" data-ssb="close" title="Close" aria-label="Close">&times;</button>
+      <button type="button" class="ssb-head-btn" data-ssb="refresh" title="Reload" aria-label="Reload">${SESSION_SIDEBAR_RELOAD}</button>
     </div>
     <div class="ssb-body">${sessionSidebarGroupOrder().map((id) => SESSION_SIDEBAR_GROUPS.find((g) => g.id === id)).map((g) => `
       <div class="ssb-slot" data-group-slot="${g.id}">
@@ -805,10 +807,6 @@ function buildSidebar(entry) {
     const el = e.target.closest('[data-ssb]');
     if (!el) return;
     switch (el.dataset.ssb) {
-      case 'close':
-        sessionSidebarToggle(sessionId());
-        sidebarSessionFocus(entry);
-        break;
       case 'refresh': loadOpenSidebarGroups(entry, true); break;
       case 'row': sessionSidebarRowClick(entry, el.dataset.key, e.shiftKey === true); break;
       case 'act': sessionSidebarRowAct(entry, el.dataset.key, el.dataset.act); break;

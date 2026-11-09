@@ -43,7 +43,9 @@ by another window in the same moment, which costs a remembered width.
   by itself, which reads nothing, or every build would read twice.
 - **Forge issues start a CLI**, so they load with the group, not on a timer, and after the local tasks are drawn. Panes on
   one project share one answer for 30 seconds. The reload button asks again.
-- **Focus returns to the session** after a handoff insert and after closing, or Enter would press the row again.
+- **Focus returns to the session** after a handoff insert, or Enter would press the row again.
+- **The head has Reload only.** The session's toolbar button opens and closes the sidebar; a close button in the head
+  was a second one for the same thing and was taken out after #829. The body uses the app sidebar's thin scrollbar.
 - **The sidebar is out of the container's handlers:** its right click, mouse release and wheel do nothing to the session.
 - **All text is escaped.** A task title, an issue and a skill name can be someone else's.
 - **Clicks:** see "The row pattern" below.
