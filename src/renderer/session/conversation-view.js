@@ -1601,14 +1601,16 @@ function createConversationView(getSession, container) {
     };
     // What this session does while idle (spec 45), where its backend can do anything: a click opens the popover.
     if (view.idle && !view.idle.declined && !view.exited) add(idleMaintenanceControl());
+    else if (view.idleOpen) { view.idleOpen = false; idlePop.hidden = true; }
+    if (view.idleOpen) renderIdlePop();
+    // Shell lines the app runs (#836): how many, and since when the oldest. Its own statement, after the idle pair,
+    // so it never takes the idle control's `else` (which closes the idle popover) with it.
     if (view.localCommands.size && !view.exited) {
       const oldest = Math.min(...[...view.localCommands.values()].map(l => l.startedAt));
       const running = span(`${shellLinesRunningText(view.localCommands.size)} ·`, 'conversation-status-state');
       running.appendChild(elapsedEl(oldest));
       add(running);
     }
-    else if (view.idleOpen) { view.idleOpen = false; idlePop.hidden = true; }
-    if (view.idleOpen) renderIdlePop();
     // The permission mode first (#696), as the TUI's status line shows it; a click switches to the next one,
     // as Shift+Tab in the input does. Only where the backend has modes and one has been named.
     if (view.mode && view.mode.label) {

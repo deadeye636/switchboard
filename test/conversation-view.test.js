@@ -1672,6 +1672,28 @@ test('the draw is told which subagent an agent call started, and how to open it 
   assert.equal(ctx.subagentIdFor('toolu_other'), null);
 });
 
+// Spec 45 + #836: the idle control's popover opens and stays open with no shell line running. The shell-line
+// status was once placed between the idle control and its `else`, which closed the popover the moment it opened.
+test('the idle control opens its popover, with and without a shell line running', async () => {
+  const h = setup();
+  h.w.api.agent.idleMaintenanceState = () => Promise.resolve({ mode: 'off', overrides: {} });
+  h.w.api.agent.idleMaintenanceSet = () => Promise.resolve({ mode: 'off', overrides: {} });
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'busy', busy: false });
+  await h.settle(); await h.settle();
+  const pop = () => h.entry.element.querySelector('.conversation-idle-pop');
+  const btn = () => h.entry.element.querySelector('.conversation-idle');
+  assert.ok(btn(), 'the idle control is drawn');
+  btn().click();
+  await h.settle(); await h.settle();
+  assert.equal(pop().hidden, false, 'the popover stays open with no shell line');
+  assert.equal(btn().getAttribute('aria-expanded'), 'true');
+  // A shell line starting while it is open does not close it either.
+  conv.apply({ op: 'localCommand', id: 'l1', command: 'ping', output: '', status: 'running' });
+  await h.settle();
+  assert.equal(pop().hidden, false, 'and stays open while a shell line runs');
+});
+
 // #836 — a running shell line is visible and stoppable on its own: the entry's head, the strip above the
 // composer, the session line and the Background list. The real entry head is jsonl-viewer's; here a stand-in
 // draws a header and a collapsible block so the view's additions to it can be read.

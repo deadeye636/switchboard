@@ -542,13 +542,17 @@ because that runtime has nothing finer.
 - **The Background list** merges the running lines in beside the CLI's tasks, for display only (command truncated,
   elapsed, Stop; Entry scrolls to the line). The button counts them.
 - **The session line** says `1 shell line running · m:ss` (plural for more; the oldest line's time) beside Idle.
-- **What the reader opened stays.** Every output chunk redraws the entry; the open or closed state of its blocks is
-  carried onto the redrawn element instead of reset by the chunk (`carryOpenState`).
+- **A shell-line entry has no fold yet.** Every output chunk redraws the entry, and `carryOpenState` would carry an
+  open or closed state over, but `renderLocalCommand` (`src/renderer/jsonl/jsonl-viewer.js`) never makes the entry
+  collapsible, so there is nothing to carry today. Making it foldable like a tool block is an open owner decision
+  (#836): a finished line in the history would then start folded, as `expandToolOutput` defaults to off.
 - **One timer per view**, 1 s, rewriting the text of the `.conversation-elapsed` nodes only. It is armed while any
   such node exists, the view is on screen (`drawable()`, so `document.hidden` too) and attached, and the session has
   not ended; it is disarmed on the line's end, on hide and on exit. No animation and no transition.
-- **Stop per line** is `agent-stop-shell-line(sessionId, lineId)` in `src/app/agent-rpc.js`: it ends that one line
-  and leaves a running turn and the other lines alone. The composer's Stop and Escape still end everything.
+- **Stop per line** is `agent-stop-shell-line(sessionId, lineId)` in `src/app/agent-rpc.js`. For a line this app
+  runs it ends exactly that line and leaves a running turn and the other lines alone. For a runtime's line (Pi) it
+  sends the runtime's one shell abort, and only while the clicked line itself still runs, so a Stop on a line that has
+  just ended aborts nothing else. The composer's Stop and Escape still end everything.
 
 ### When nobody writes next (#788)
 

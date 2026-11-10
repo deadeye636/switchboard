@@ -1858,7 +1858,9 @@ async function stopShellLine(sessionId, lineId) {
   if (!state) return { ok: false, error: 'This session is not running.' };
   const run = state.shellRuns.get(lineId) || state.shellRuns.get(String(lineId));
   if (run) { run.stop(); return { ok: true }; }
-  if (state.localCommands.size > 0 && typeof state.rpc.shellAbortCommand === 'function') {
+  // Only while the clicked line itself still runs: a Stop on a line that has just ended must not abort another one.
+  const stillRuns = state.localCommands.has(lineId) || state.localCommands.has(String(lineId));
+  if (stillRuns && typeof state.rpc.shellAbortCommand === 'function') {
     const res = await state.request(state.rpc.shellAbortCommand);
     return !res || res.success === false ? { ok: false, error: 'The shell line did not stop.' } : { ok: true };
   }
