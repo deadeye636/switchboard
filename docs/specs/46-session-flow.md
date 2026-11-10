@@ -100,6 +100,11 @@ exception to `.claude/rules/renderer.md` "`src/shared/`" (modules both processes
 that rule's list is updated then. The body is wrapped, so a classic-script load adds one global (`FlowSnapshot`) and none of its
 helper names; in main and a worker it is `require()`d.
 
+Its sibling `src/shared/flow-layout.js` (T7: pure layout and collapse, one global `FlowLayout`) is the renderer's from T8 on
+and main's once the exports (T18-T20) lay out a full snapshot there; until then tests alone load it. The two are the Flow pair
+for that rule's list. Collapse state uses prototype-free maps read through own-property checks, so a lane or group id such as
+`constructor` is an ordinary key.
+
 - `FLOW_SCHEMA_VERSION` is `1`. `validateSnapshot` declines any other version (older or newer) with an error and checks nothing
   else; it never throws and answers `{ ok, errors }`.
 - Step kinds: `start`, `instructions`, `prompt`, `thinking`, `tool`, `output`, `interrupt`, `compaction`, `mode`, `agent`,
