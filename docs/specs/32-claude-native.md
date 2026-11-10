@@ -542,10 +542,11 @@ because that runtime has nothing finer.
 - **The Background list** merges the running lines in beside the CLI's tasks, for display only (command truncated,
   elapsed, Stop; Entry scrolls to the line). The button counts them.
 - **The session line** says `1 shell line running · m:ss` (plural for more; the oldest line's time) beside Idle.
-- **A shell-line entry has no fold yet.** Every output chunk redraws the entry, and `carryOpenState` would carry an
-  open or closed state over, but `renderLocalCommand` (`src/renderer/jsonl/jsonl-viewer.js`) never makes the entry
-  collapsible, so there is nothing to carry today. Making it foldable like a tool block is an open owner decision
-  (#836): a finished line in the history would then start folded, as `expandToolOutput` defaults to off.
+- **A shell-line entry folds like a tool block** (owner choice, #836): `renderLocalCommand`
+  (`src/renderer/jsonl/jsonl-viewer.js`) makes it collapsible, closed or open per "Show tool calls expanded"
+  (`expandToolOutput`, off by default, so a finished line in the history starts folded), and the closed header still
+  shows the command's first line. A click is remembered under the running line's id (`toolExpandChoices`), so the
+  redraw on each output chunk keeps it. A line read back from a transcript has no id and starts per the setting.
 - **One timer per view**, 1 s, rewriting the text of the `.conversation-elapsed` nodes only. It is armed while any
   such node exists, the view is on screen (`drawable()`, so `document.hidden` too) and attached, and the session has
   not ended; it is disarmed on the line's end, on hide and on exit. No animation and no transition.

@@ -54,6 +54,10 @@
     const lower = term.toLowerCase();
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
+        // A closed tool block's header peek repeats the command its body holds, and it is hidden once the hit opens
+        // the block: marking it would count the command twice and scroll to an element with no position.
+        const parent = node.parentElement;
+        if (parent && parent.closest && parent.closest('.jsonl-tool-peek')) return NodeFilter.FILTER_REJECT;
         return node.nodeValue && node.nodeValue.toLowerCase().includes(lower)
           ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
       },

@@ -699,7 +699,8 @@ function createConversationView(getSession, container) {
     const known = view.localCommands.get(id);
     const command = op.command != null ? String(op.command) : (known ? known.command : '');
     const output = String(op.output || '');
-    const entry = { type: 'local-command', _localCmd: { cmd: command, output } };
+    // `key`: the fold choice is remembered per line, so the redraw on each chunk keeps it (#836, owner choice 19a).
+    const entry = { type: 'local-command', _localCmd: { cmd: command, output, key: id } };
     const running = op.status === 'running';
     // When it started is when this window first hears of it: the ops carry no clock (#836).
     const startedAt = known ? known.startedAt : Date.now();

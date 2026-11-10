@@ -445,6 +445,19 @@ function documentPreviewMaxBytes() {
 // view replaces its element), and a call the user just opened must not snap shut under them.
 const toolExpandChoices = new Map();
 
+// The closed header's peek: the command's first line, shown only while the block is closed (CSS). One builder for the
+// tool blocks and the shell lines, so the two cannot drift.
+function appendToolPeek(header, text) {
+  const line = String(text || '').split('\n')[0].trim();
+  if (!line) return;
+  const peek = document.createElement('span');
+  peek.className = 'jsonl-tool-summary jsonl-tool-peek';
+  const code = document.createElement('code');
+  code.textContent = line;
+  peek.appendChild(code);
+  header.appendChild(peek);
+}
+
 function makeToolCollapsible(toolEl, toolUseId) {
   // An Agent block in the history viewer opens and closes on a click of its own — it fetches the subagent's
   // transcript — and a second toggle on the same click would do both at once. Only where that click was wired:
@@ -461,17 +474,7 @@ function makeToolCollapsible(toolEl, toolUseId) {
   // A call whose header says only its name (Bash keeps its command in the body) would read as a bare
   // "Bash" once closed, so the header carries the command's first line — shown only while closed.
   const cmd = content.querySelector(':scope > .jsonl-tool-cmd-block');
-  if (cmd && !header.querySelector('.jsonl-tool-summary')) {
-    const line = (cmd.textContent || '').split('\n')[0].trim();
-    if (line) {
-      const peek = document.createElement('span');
-      peek.className = 'jsonl-tool-summary jsonl-tool-peek';
-      const code = document.createElement('code');
-      code.textContent = line;
-      peek.appendChild(code);
-      header.appendChild(peek);
-    }
-  }
+  if (cmd && !header.querySelector('.jsonl-tool-summary')) appendToolPeek(header, cmd.textContent);
   header.addEventListener('click', (e) => {
     // A link in the summary keeps its own click, and a drag that selected text is a copy, not a toggle.
     if (e.target.closest('a, button')) return;
@@ -804,8 +807,10 @@ const toolRenderers = {
   },
 };
 
-// Render a local command (! prefix) as a tool block
-function renderLocalCommand({ cmd, output }) {
+// Render a local command (! prefix) as a tool block. It folds like any tool block (#836): closed or open per the
+// "Show tool calls expanded" setting, and a reader's click is remembered under `key` (the running line's id in the
+// conversation view), so a redraw on new output does not undo it. A line read back from a transcript has no key.
+function renderLocalCommand({ cmd, output, key }) {
   const pre = document.createElement('pre');
   pre.className = 'jsonl-tool-cmd-block';
   pre.textContent = cmd;
@@ -825,6 +830,11 @@ function renderLocalCommand({ cmd, output }) {
     contentEl.appendChild(resultPre);
   }
 
+  // Closed, the header must still say which command this was; the shared helper adds that peek only to a header with
+  // no summary of its own, and this one already says "local".
+  const header = el.querySelector(':scope > .jsonl-tool-header');
+  if (header) appendToolPeek(header, cmd);
+  makeToolCollapsible(el, key ? `local:${key}` : null);
   return el;
 }
 
