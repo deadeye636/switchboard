@@ -5,7 +5,8 @@
 // It costs a few short model turns, one large turn on Pi and one compaction per backend, on the smallest model, and leaves
 // one session of each in the stores (it prints the ids). It exits 1 when a backend's measurement did not complete.
 //
-// Usage: node scripts/measure-idle-maintenance.js [--only=claude|pi] [--help]
+// Usage: node scripts/measure-idle-maintenance.js [--only=claude|pi|claude-refused-compact] [--help]
+//   `claude-refused-compact` runs only the declined `/compact` (an empty session; no model turn is asked for).
 //   Run it from an empty directory you trust: Windows looks up a bare program there first. Pi's session goes to
 //   `pi-sessions` in that directory; Claude's goes to its own store under $CLAUDE_CONFIG_DIR or the default home.
 // The last measurement is in `docs/backend-formats.md` ("What idle maintenance can rely on").
@@ -19,7 +20,7 @@ const path = require('path');
 const readline = require('readline');
 
 if (process.argv.includes('--help')) {
-  console.log('node scripts/measure-idle-maintenance.js [--only=claude|pi]   (from an empty directory you trust; costs model turns)');
+  console.log('node scripts/measure-idle-maintenance.js [--only=claude|pi|claude-refused-compact]   (from an empty directory you trust; costs model turns)');
   process.exit(0);
 }
 
@@ -161,6 +162,36 @@ async function measureClaude() {
   return sawBoundary;
 }
 
+// A `/compact` Claude declines: the first line of a session with nothing in it to compact. It shows what tells a refusal
+// from a compaction on the pipe (the `result` fields, a replayed local-command output, a `compact_boundary` or none),
+// for idle maintenance's "Compacted" record (#827 gap). The CLI's own text is cut at MAX_ERROR_CHARS; no conversation
+// exists to print.
+async function measureClaudeRefusedCompact() {
+  const say = (m) => {
+    if (m.type === 'stream_event') return '';
+    const parts = [summarizeClaude(m)];
+    if (m.type === 'result') {
+      parts.push(`is_error=${m.is_error}`, `keys=${Object.keys(m).sort().join('+')}`);
+      if (typeof m.result === 'string') parts.push(`result="${m.result.slice(0, MAX_ERROR_CHARS)}"`);
+      if (Array.isArray(m.errors)) parts.push(`errors="${m.errors.join(' | ').slice(0, MAX_ERROR_CHARS)}"`);
+      if (m.local_command !== undefined) parts.push(`local_command=${JSON.stringify(m.local_command).slice(0, MAX_ERROR_CHARS)}`);
+    }
+    if (m.type === 'assistant' && m.message && m.message.model === '<synthetic>') parts.push(`text="${contentText(m.message).slice(0, MAX_ERROR_CHARS)}"`);
+    if (m.type === 'user' && m.isReplay) parts.push(`text="${contentText(m.message).slice(0, MAX_ERROR_CHARS)}"`);
+    return parts.join(' ');
+  };
+  const c = start('claude', 'claude -p --model haiku --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages --permission-prompt-tool stdio --strict-mcp-config --setting-sources project', {}, say);
+  let sawBoundary = false;
+  c.until((m) => { sawBoundary = sawBoundary || (m.type === 'system' && m.subtype === 'compact_boundary'); return false; }, STEP_TIMEOUT_MS * 2);
+  c.say('--- /compact as the first line of an empty session');
+  c.write({ type: 'user', message: { role: 'user', content: '/compact' }, parent_tool_use_id: null, session_id: '' });
+  const end = await c.until((m) => m.type === 'result');
+  await sleep(SETTLE_MS);
+  await c.stop();
+  c.say(sawBoundary ? 'a compact boundary was seen' : 'no compact boundary seen');
+  return Boolean(end);
+}
+
 // --- pi-native's launch shape, without its runtime extension ---
 
 function summarizePi(msg) {
@@ -256,6 +287,8 @@ async function measurePi() {
   return Boolean(data.sessionId) && compactOk;
 }
 
-Promise.all([only === 'pi' ? true : measureClaude(), only === 'claude' ? true : measurePi()])
+const runs = only === 'claude-refused-compact' ? [measureClaudeRefusedCompact()]
+  : [only === 'pi' ? true : measureClaude(), only === 'claude' ? true : measurePi()];
+Promise.all(runs)
   .then((answers) => process.exit(answers.every(Boolean) ? 0 : 1))
   .catch((err) => { console.error(`failed: ${err.code || err.name}`); process.exit(1); });

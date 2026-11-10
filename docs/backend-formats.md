@@ -1179,6 +1179,12 @@ four Pi runs while the script took shape, the last of each on its final form. St
 `compaction_end` both arrived, with `aborted: false` and no `result`, and the response said `success: false` with
 "Nothing to compact (session too small)". `compaction_end` confirms a compaction only together with its `result`.
 
+**A refused compaction on Claude looks like a finished turn** (2026-11-10, `--only=claude-refused-compact`: `/compact` as the
+first line of an empty session, two runs, no model turn asked for). An `assistant` line with `model: "<synthetic>"` and the
+text "Error: No messages to compact", then `result` with `subtype: "success"`, `is_error: false`, an empty `result` and
+`local_command: "compact"`. No `system/compact_boundary`, no `compacting` status. So only the boundary confirms a
+compaction; `result` and its subtype do not, and `local_command` names the command whether it ran or not.
+
 **Pi answers a prompt before its turn starts, and refuses a second one rather than queueing it.** The answer to a plain
 prompt carries `data.disposition: "started"`, written ahead of `agent_start` (`rpc-mode.js` in Pi's own source; both arrived
 within the 0.1 s the log prints). So a success answer does not mean a turn is over or that none began. A second prompt, in
