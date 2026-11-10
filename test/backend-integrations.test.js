@@ -195,6 +195,7 @@ const ALLOWED_BINDINGS = {
   ],
   'src/renderer/app.js': [],
   'src/renderer/session/timeline-view.js': [],
+  'src/renderer/session/flow-view.js': [],
   'src/renderer/shell/sidebar.js': [],
   // #218 splits the monoliths. A new file is NOT covered by these guards until it is listed here —
   // they iterate this map, not the directory — so a split that forgets a line moves code out from

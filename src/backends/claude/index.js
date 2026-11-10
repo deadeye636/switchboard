@@ -580,6 +580,15 @@ function contextWindow(row, opts = {}) {
   return modelWindows.resolveClaudeWindow(row, collectSpecs(opts, settingsSpecs(row.projectPath)));
 }
 
+/**
+ * `contextWindow` for a caller that must not block the main thread (the Flow tab's window hint, #826): the same
+ * decision, with the settings files read through `fs.promises` (`settingsSpecsAsync`). No synchronous fs.
+ */
+async function contextWindowAsync(row, opts = {}) {
+  if (!row || (!row.lastModel && !row.lastModelSpec)) return null;
+  return modelWindows.resolveClaudeWindow(row, collectSpecs(opts, await settingsSpecsAsync(row.projectPath)));
+}
+
 // ── The model a RESUME should launch on (#754) ───────────────────────────────────────────────────────
 //
 // The CLI restores the last assistant turn's model on a plain resume, but the app passes its own `--model`
@@ -691,6 +700,8 @@ module.exports = {
   openedWithCommand: (row) => readerOpenedWithCommand(row && row.summary) || null,
   // Which context window a stored row's last turn ran against (#620) — see `contextWindow` above.
   contextWindow,
+  // The same answer without a synchronous read, for the Flow tab's request path (#826).
+  contextWindowAsync,
   // The launch option a RESUME of this session should carry (#754), as `{ options: { <key>: value }, label }`
   // or `null`. The core asks it ONCE, on the resume of one session — never in a scan, the index or a list —
   // and awaits it with a short timeout; a throw, a timeout or `null` launches exactly as before. So a real
@@ -785,7 +796,7 @@ module.exports = {
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
     const answer = require('./flow-capabilities');
-    return hook.singleFileFlowAnswer(transcriptPathFor(row), { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
+    return hook.singleFileFlowAnswer(row, row && transcriptPathFor(row), { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
   },
   readSessionFlow: (sources, opts) => require('./flow-reader').readSessionFlow(sources, opts),
   buildMcpPrune: mcpPrune.buildMcpPrune,
@@ -1203,7 +1214,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is claude-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
-    sessionFlow: { state: 'limited', note: 'one main lane with steps, instruction files and context checkpoints; subagent lanes, approvals and risk marks are not read yet, and the window is inferred from the model name (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'one main lane with steps, instruction files and context checkpoints; subagent lanes, approvals and risk marks are not read yet, and the window comes from the session settings first, the model name is the fallback (spec 46)' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

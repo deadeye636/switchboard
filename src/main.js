@@ -2382,6 +2382,11 @@ const documents = require('./app/documents');
 documents.init({ shell, isSensitivePath, registryFor: (id) => agentRpc.documentRegistryOf(id), getGlobalSettings: () => getSetting('global') || {}, log });
 documents.registerIpc(ipcMain);
 
+// The Flow tab of a session (#826, spec 46): a short-lived worker reads the transcript into one snapshot.
+const flowRead = require('./app/session-flow');
+flowRead.init({ getCachedSession, getSetting, getAppQuitting: () => appQuitting, log });
+flowRead.registerIpc(ipcMain);
+
 const spawn = require('./app/terminal/spawn');
 spawn.init({
   getMainWindow: () => mainWindow,
@@ -2593,6 +2598,7 @@ const lifecycleCtx = {
   flushPendingReindex: () => sessionCache.flushPendingReindex(),
   terminateScanWorker: () => sessionCache.terminateScanWorker(),
   terminateIndexWorker: () => indexWorker.terminate(),
+  terminateSessionFlow: () => flowRead.terminateAll(),
   shutdownSearchClient: () => searchClient.shutdown(),
   // Both viewer-side watches (#452): the per-file ones the panels hold and the plans-directory one
   // that keeps the list live.

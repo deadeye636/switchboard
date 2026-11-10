@@ -30,9 +30,9 @@
 // one rail, the layout holds a handful of spawn/return edges, and `connectorsForRows` returns only those
 // touching the visible row window, capped. Measured numbers live in test/flow-layout.test.js and the T7 report.
 //
-// LOADING. UNTIL T8 this is loaded by node tests only: no `<script>` tag and no entry in
-// `test/fixtures/script-order.json` (T8 adds both when the renderer first loads it). The whole body is
-// wrapped, so as a classic script it adds ONE global (`FlowLayout`) and none of the helper names below.
+// LOADING. Since T8 the renderer loads it (`<script>` tag in `index.html`, entry in `test/fixtures/script-order.json`);
+// `session/flow-view.js` is its reader. The whole body is wrapped, so as a classic script it adds ONE global
+// (`FlowLayout`) and none of the helper names below.
 
 (function (root, factory) {
   const api = factory();

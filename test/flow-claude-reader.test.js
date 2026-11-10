@@ -340,3 +340,74 @@ test('every tool step names its tool in detail.tool, and a failed call carries a
     assert.equal(tools[1].detail.status, 'error');
   } finally { t.cleanup(); }
 });
+
+test('a window hint from the session settings outranks the model name, unless the request did not fit in it', async () => {
+  const line = (input) => ({ type: 'assistant', message: { id: 'h' + input, role: 'assistant', model: 'claude-opus-4-6', content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: input } } });
+  const t = tmpFile([line(1000), line(300000)]);
+  try {
+    const snap = await read(t.file, { windowHint: { windowTokens: 1000000 } });
+    const cps = snap.steps.filter(s => s.checkpoint).map(s => s.checkpoint.window);
+    assert.equal(cps[0].value, 1000000);
+    assert.equal(cps[0].basis, 'estimated');
+    assert.match(cps[0].note, /session's settings/);
+    const small = await read(t.file, { windowHint: { windowTokens: 200000 } });
+    const sc = small.steps.filter(s => s.checkpoint).map(s => s.checkpoint.window);
+    assert.equal(sc[0].value, 200000);
+    assert.equal(sc[1].value, 1000000, 'a request over the hint falls back to the inference');
+  } finally { t.cleanup(); }
+});
+
+// ---- instruction file labels and placement (owner changes after the T8 click test) ----
+
+function instrTranscript(cwd, paths, extra) {
+  return [
+    { type: 'user', timestamp: '2026-01-01T00:00:00Z', cwd, permissionMode: 'default', message: { role: 'user', content: 'hello' } },
+    { type: 'attachment', timestamp: '2026-01-01T00:00:01Z', cwd, attachment: { type: 'instructions', files: paths.map(p => ({ path: p, content: 'abcdefgh' })) } },
+    { type: 'assistant', timestamp: '2026-01-01T00:00:02Z', cwd, requestId: 'r1', message: { id: 'm1', model: 'claude-sonnet-4-5', role: 'assistant', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 10, output_tokens: 1 } } },
+  ].concat(extra || []);
+}
+
+test('instruction labels: relative to the working directory, ~ for the home directory, never an absolute path', async () => {
+  const cwd = path.join(os.tmpdir(), 'proj-a');
+  const home = os.homedir();
+  const outside = path.join(path.parse(home).root, 'managed-dir', 'org', 'CLAUDE.md');
+  const t = tmpFile(instrTranscript(cwd, [
+    path.join(cwd, 'CLAUDE.md'),
+    path.join(cwd, '.claude', 'rules', 'x.md'),
+    path.join(home, '.claude', 'CLAUDE.md'),
+    outside,
+    'C:\\Users\\someone\\other\\CLAUDE.md',
+    '/etc/org/CLAUDE.md',
+  ]));
+  try {
+    const snap = await read(t.file);
+    const labels = snap.steps.filter(s => s.kind === 'instructions').map(s => s.label);
+    assert.deepEqual(labels.slice(0, 3), ['CLAUDE.md', '.claude/rules/x.md', '~/.claude/CLAUDE.md']);
+    assert.equal(labels[3], '\u2026/org/CLAUDE.md');
+    assert.equal(labels[4], '\u2026/other/CLAUDE.md');
+    assert.equal(labels[5], '\u2026/org/CLAUDE.md');
+    for (const l of labels) assert.ok(!/^([A-Za-z]:|\/|\\)/.test(l), `label is not absolute: ${l}`);
+    assert.ok(!JSON.stringify(snap).includes('someone'), 'no full path anywhere in the snapshot');
+  } finally { t.cleanup(); }
+});
+
+test('the first instruction attachment is moved directly behind the start step; ids and parents stay, a repeat stays put', async () => {
+  const cwd = path.join(os.tmpdir(), 'proj-b');
+  const repeat = { type: 'attachment', timestamp: '2026-01-01T00:00:09Z', cwd, attachment: { type: 'instructions', reason: 'compaction', files: [{ path: path.join(cwd, 'CLAUDE.md'), content: 'abcd' }] } };
+  const t = tmpFile(instrTranscript(cwd, [path.join(cwd, 'CLAUDE.md'), path.join(cwd, 'A.md')], [repeat]));
+  try {
+    const snap = await read(t.file);
+    const kinds = snap.steps.map(s => s.kind);
+    assert.deepEqual(kinds.slice(0, 4), ['start', 'instructions', 'instructions', 'prompt']);
+    const start = snap.steps[0];
+    assert.deepEqual(snap.steps.map(s => s.ordinal), snap.steps.map((_, i) => i));
+    const files = snap.steps.filter(s => s.kind === 'instructions');
+    assert.equal(files.length, 3);
+    for (const f of files) assert.equal(f.parentStepId, start.id);
+    assert.equal(files[2].label, 'CLAUDE.md (compaction)');
+    assert.equal(snap.steps.indexOf(files[2]), snap.steps.length - 1, 'the repeat stays where it happened');
+    assert.equal(new Set(snap.steps.map(s => s.id)).size, snap.steps.length);
+    // The ids derive from the source line: moving did not change them.
+    assert.match(files[0].id, /:2:/);
+  } finally { t.cleanup(); }
+});

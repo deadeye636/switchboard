@@ -8,14 +8,14 @@ const fs = require('fs');
 const path = require('path');
 const { deriveProjectPath, normPath } = require('../session/derive-project-path');
 const { encodeProjectPath } = require('../session/encode-project-path');
-const { parseWorktreePath, worktreeRootOf, settingsOwnerPath, knownWorktreeParentOf } = require('../shared/worktree-path');
+const { parseWorktreePath, worktreeRootOf, knownWorktreeParentOf } = require('../shared/worktree-path');
 const registry = require('../projects/project-registry');
 // The backend registry, for the one question this file asks a descriptor: what did this session OPEN
 // with (#229). Neutral by construction — the core never reads a transcript format, it asks and passes
 // the answer on.
 const backends = require('../backends');
-// `$VAR` references in the user's per-backend variables, resolved the way the spawn resolves them (#620).
-const { resolveEnv } = require('../backends/env-refs');
+// The window of a stored row, asked with the user's variables and stored launch options (#620).
+const { createContextWindowResolver } = require('./context-window');
 // A row with no explicit backendId predates the multi-LLM era and is Claude by definition — the same
 // named default `index-writes.js` uses to route a row to its descriptor.
 const LEGACY_SESSION_BACKEND = 'claude';
@@ -82,7 +82,7 @@ function commandOpenerFor(row) {
  * subagent row (the badge belongs to the session), and a session whose last turn sent nothing yet — a
  * `/model` typed before the first prompt has a window and no fill, which is not the same as 0 %.
  *
- * `envFor(key)` is the user's per-backend variables from the global settings, resolved once per build. The hook
+ * `windowOf(row, backend)` is `src/index/context-window.js`: the hook, asked with the user's per-backend variables from the global settings, resolved once per build. The hook
  * is asked with them because the launch applies them too (`src/app/terminal/spawn.js`): an
  * `ANTHROPIC_MODEL=…[1m]` set in Switchboard is what made that session 1M, and asking without it would read
  * a 1M session against 200k — a false "handoff recommended". A template's variables are its BASE's key,
@@ -95,17 +95,12 @@ function commandOpenerFor(row) {
  * usage record, and the fill after it is unknown until the next API call. The figure is kept, not dropped,
  * and the renderer says what it is; a stale high figure must not raise a handoff badge.
  */
-function contextFillFor(row, envFor, launchOptionsFor) {
+function contextFillFor(row, windowOf) {
   if (!row || row.parentSessionId) return null;
   const usedTokens = Number(row.lastInputTokens) || 0;
   if (usedTokens <= 0) return null;
   const backend = backends.get(row.backendId || LEGACY_SESSION_BACKEND);
-  if (!backend || typeof backend.contextWindow !== 'function') return null;
-  const envKey = backend.isProfile ? (backend.baseId || LEGACY_SESSION_BACKEND) : backend.id;
-  let answer;
-  try {
-    answer = backend.contextWindow(row, { env: envFor(envKey), launchOptions: launchOptionsFor(row, backend, envKey) });
-  } catch { return null; }
+  const answer = windowOf(row, backend);
   const windowTokens = answer ? Number(answer.windowTokens) : 0;
   if (!(windowTokens > 0)) return null;
   const fill = { usedTokens, windowTokens, percent: Math.round((usedTokens / windowTokens) * 100) };
@@ -192,51 +187,9 @@ function buildProjectsFromCache(showArchived) {
   // resolve to the same projectPath, so we merge them into a single sidebar group to avoid duplicate-id
   // collisions in the morphdom render. Only insert a project entry once we have a session that survives
   // the archive filter.
-  // The user's per-backend variables, read once per build and resolved once per backend rather than once per
-  // row (#620, see contextFillFor). Resolved like the spawn resolves them: a `$VAR` that names a set variable
-  // becomes its value, one that does not is DROPPED — so the process's own variable shows through, exactly
-  // as it does for the launched CLI. Resolved against this process's environment only; a reference to one of
-  // Switchboard's saved variables is not followed here.
-  const globalSettings = typeof getSetting === 'function' ? getSetting('global') : null;
-  const backendEnvs = (globalSettings && typeof globalSettings === 'object' && globalSettings.backendEnv) || {};
-  const resolvedEnvs = new Map();
-  const envFor = (key) => {
-    if (!resolvedEnvs.has(key)) resolvedEnvs.set(key, resolveEnv(backendEnvs[key] || {}));
-    return resolvedEnvs.get(key);
-  };
-  // The launch options a session of this backend in this project starts with, as stored (#620, O5) — the
-  // cascade the launch dialog resolves (`storedDefaultsFor` in the renderer): the base backend's global
-  // default, the project's own override, the legacy template entry, then the template record itself. Only
-  // what is stored: a one-off Configure override is not kept anywhere, and that limit is decided (O2).
-  // Memoised per project owner and backend, so a project read is one settings lookup per build.
-  const globalDefaults = (globalSettings && typeof globalSettings === 'object' && globalSettings.backendDefaults) || {};
-  const projectDefaultsByOwner = new Map();
-  const launchOptionsMemo = new Map();
-  const launchOptionsFor = (row, backend, baseKey) => {
-    const owner = row.projectPath ? settingsOwnerPath(row.projectPath) : '';
-    const memoKey = owner + '|' + backend.id;
-    if (launchOptionsMemo.has(memoKey)) return launchOptionsMemo.get(memoKey);
-    if (!projectDefaultsByOwner.has(owner)) {
-      const blob = owner && typeof getSetting === 'function' ? getSetting('project:' + owner) : null;
-      projectDefaultsByOwner.set(owner, (blob && typeof blob === 'object' && blob.backendDefaults) || {});
-    }
-    const projectDefaults = projectDefaultsByOwner.get(owner);
-    const layer = (defaults, id) => {
-      const opts = defaults && defaults[id];
-      if (!opts || typeof opts !== 'object') return {};
-      const out = {};
-      for (const [k, v] of Object.entries(opts)) if (v !== undefined && v !== null) out[k] = v;
-      return out;
-    };
-    const options = {
-      ...layer(globalDefaults, baseKey),
-      ...layer(projectDefaults, baseKey),
-      ...(backend.isProfile ? { ...layer(globalDefaults, backend.id), ...layer(projectDefaults, backend.id) } : {}),
-      ...(backend.isProfile && backend.templateOptions && typeof backend.templateOptions === 'object' ? backend.templateOptions : {}),
-    };
-    launchOptionsMemo.set(memoKey, options);
-    return options;
-  };
+  // The window of each row's last turn, asked with the user's per-backend variables and the stored launch options
+  // (#620). Built once per build; the layering is `src/index/context-window.js`, shared with the Flow tab.
+  const resolver = createContextWindowResolver(getSetting);
 
   // Which backends may launch right now (#670) — ready, enabled and not known to be missing — resolved once
   // per build and only when a row needs it (one with a transport or a stored view), because `list()` asks
@@ -343,7 +296,7 @@ function buildProjectsFromCache(showArchived) {
       openedWithCommand: commandOpenerFor(row),
       // How full the context window was on the last turn (#620): `{ usedTokens, windowTokens, percent }`
       // or null. The backend measures, the core divides, the renderer reads a field.
-      contextFill: contextFillFor(row, envFor, launchOptionsFor),
+      contextFill: contextFillFor(row, resolver.windowOf),
       // Which tool this session was imported from, as a label (#552). Null for everything nobody
       // imported, which is nearly every row. It rides to the sidebar because the same work can be in the
       // list twice — once from the tool's own store, once from the store it was imported into — and this

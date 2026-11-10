@@ -291,6 +291,10 @@ function profileToDescriptor(p) {
     ...(base && typeof base.contextWindow === 'function'
       ? { contextWindow: (row, opts = {}) => base.contextWindow(row, { ...opts, env: p.env ? { ...((opts && opts.env) || {}), ...require('./env-refs').resolveEnv(p.env) } : ((opts && opts.env) || {}) }) }
       : {}),
+    // …and the same without a synchronous read (the Flow tab's request path, #826), with the same env layering.
+    ...(base && typeof base.contextWindowAsync === 'function'
+      ? { contextWindowAsync: (row, opts = {}) => base.contextWindowAsync(row, { ...opts, env: p.env ? { ...((opts && opts.env) || {}), ...require('./env-refs').resolveEnv(p.env) } : ((opts && opts.env) || {}) }) }
+      : {}),
     // A template's rows are the base's rows in the base's store, so the transcript path and the
     // per-project config/meta are the base's too (#211) — forward both, exactly like rewriteProjectPath
     // and resolveLineage. Without transcriptPathFor a template's remap/delete could not find its files.

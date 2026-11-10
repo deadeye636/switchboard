@@ -19,6 +19,8 @@
 // request input; a step carries it only as that request's reading.
 
 const fs = require('node:fs');
+const os = require('node:os');
+const pathMod = require('node:path');
 const { flowStepId } = require('../../shared/flow-snapshot');
 const { LIMITATIONS, CAPABILITIES } = require('./flow-capabilities');
 const { resolveClaudeVariant } = require('./model-windows');
@@ -159,6 +161,30 @@ function detailSize(detail) {
   return n;
 }
 
+// An instruction file's label (spec 46): relative to the session's working directory when the file lies inside it
+// (`CLAUDE.md`, `.claude/rules/x.md`), else relative to the home directory as `~/...`, else the last two segments
+// behind an ellipsis. Never a drive letter or a leading root, and the full path is not kept anywhere in the snapshot.
+const WIN_ABS = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+const SLASHES = /\\/g;
+
+function instructionLabel(file, cwd, home) {
+  if (typeof file !== 'string' || !file) return 'Instruction file';
+  const winShaped = WIN_ABS.test(file);
+  const pm = winShaped ? pathMod.win32 : pathMod.posix;
+  if (!pm.isAbsolute(file)) return file.replace(SLASHES, '/');
+  const inside = (base) => {
+    if (typeof base !== 'string' || !base || WIN_ABS.test(base) !== winShaped || !pm.isAbsolute(base)) return null;
+    const rel = pm.relative(base, file);
+    return rel && !rel.startsWith('..') && !pm.isAbsolute(rel) ? rel.replace(SLASHES, '/') : null;
+  };
+  const inCwd = inside(cwd);
+  if (inCwd) return inCwd;
+  const inHome = inside(home);
+  if (inHome) return '~/' + inHome;
+  const parts = file.split(/[\\/]+/).filter((x) => x && !/^[A-Za-z]:$/.test(x));
+  return '\u2026/' + parts.slice(-2).join('/');
+}
+
 function evidence(value, unit, basis, note) {
   return { value, unit, basis, note: note || '' };
 }
@@ -181,6 +207,10 @@ function makeBuilder(sourceId, limits) {
   let lastCompaction = null;
   let lastCommand = null;
   let skippedLines = 0;
+  let cwd = null; // the session's working directory, from the first transcript line that names one
+  let instructionLines = 0;
+  const startFiles = []; // the first instruction attachment: it belongs to the start, whatever line it came on
+  const home = os.homedir();
 
   const limitation = (id, text) => {
     if (limitationIds.has(id)) return;
@@ -233,6 +263,10 @@ function makeBuilder(sourceId, limits) {
     const variant = typeof model === 'string'
       ? resolveClaudeVariant({ lastModel: model, lastModelSpec: /\[1m\]\s*$/i.test(model) ? model : null, lastInputTokens: input })
       : null;
+    // The session's own settings (the caller's `windowHint`, resolved like the health badge) outrank the model name, but
+    // never a request that did not fit in them: the floor below still applies.
+    const hint = limits.windowHint;
+    if (hint && input <= hint) return evidence(hint, 'tokens', 'estimated', "Estimated from the session's settings.");
     if (!variant || variant.windowTokens == null) return evidence(null, 'tokens', 'unknown', 'The model is not one with a known window.');
     const why = variant.source === 'floor'
       ? 'Inferred: the request was larger than the base window, so the 1M variant is assumed.'
@@ -266,15 +300,18 @@ function makeBuilder(sourceId, limits) {
     const files = attachment.files;
     if (!startStep) return;
     const n = Math.min(files.length, MAX_INSTRUCTION_FILES);
+    const first = instructionLines++ === 0;
     for (let i = 0; i < n; i++) {
       const f = files[i];
       if (!isObject(f)) continue;
       const chars = typeof f.content === 'string' ? f.content.length : 0;
       const detail = { characters: chars };
       if (typeof attachment.reason === 'string') detail.reason = attachment.reason; // a re-attachment: `compaction`, `session_start`, ...
-      const step = addStep(ctx, 'instructions', typeof f.path === 'string' && f.path ? f.path : 'Instruction file',
-        detail, { parentStepId: startStep.id });
+      let label = instructionLabel(f.path, cwd, home);
+      if (!first && detail.reason) label += ` (${detail.reason})`; // a repeat names why it came again
+      const step = addStep(ctx, 'instructions', label, detail, { parentStepId: startStep.id });
       if (!step) return;
+      if (first) startFiles.push(step);
       step.tokens = evidence(Math.ceil(chars / 4), 'tokens', 'estimated', 'About characters / 4, not a measured count.');
     }
     if (files.length > n) limitation('instruction-files-cap', `Only the first ${MAX_INSTRUCTION_FILES} instruction files are listed.`);
@@ -435,6 +472,7 @@ function makeBuilder(sourceId, limits) {
     // A subagent's lines (`isSidechain`) belong to its own lane; the main lane skips them until the agent lanes are built (T11).
     if (obj.isSidechain === true) return false;
     const ctx = { lineNo, offset, part: 0, ts: Number.isFinite(ts) ? ts : null };
+    if (cwd === null && typeof obj.cwd === 'string' && obj.cwd) cwd = obj.cwd;
     ensureStart(ctx);
     switch (obj.type) {
       case 'attachment':
@@ -462,7 +500,20 @@ function makeBuilder(sourceId, limits) {
     return stopReason !== null;
   }
 
+  // The first instruction attachment arrives after the first prompt in a real transcript, but it is part of the
+  // session's start: move it right behind the start step (a stable partition) and renumber the ordinals. Ids derive
+  // from the source line, so they do not change. A repeat (a later attachment) stays where it happened.
+  function moveStartFilesUp() {
+    if (!startFiles.length || steps.length < 2 || steps[0] !== startStep) return;
+    const moved = new Set(startFiles);
+    const rest = steps.slice(1).filter((x) => !moved.has(x));
+    steps.splice(1, steps.length - 1, ...startFiles, ...rest);
+    for (const x of startFiles) x.turn = startStep.turn;
+    for (let i = 0; i < steps.length; i++) steps[i].ordinal = i;
+  }
+
   function finish({ aborted, failed, noSources }) {
+    moveStartFilesUp();
     if (pendingCompaction && pendingCompaction.detail.after === undefined) pendingCompaction.detail.after = 'unknown';
     let complete = !aborted && !failed && skippedLines === 0 && stopReason === null;
     if (stopReason === 'steps') limitation('step-cap', `The step cap (${limits.maxSteps}) was reached; later steps are not shown.`);
@@ -496,13 +547,14 @@ function makeBuilder(sourceId, limits) {
  * The flow of one Claude session. `sources` is what `sessionFlow(row)` answered (the main transcript is the one
  * with `laneHint: 'main'`, else the first). Async: the file is streamed. Never rejects for a read problem: an
  * unreadable file, an abort and every cap end in a snapshot whose `complete` is false and whose limitations say
- * why. `opts`: `signal`, and for tests `maxLineBytes`, `maxSteps`, `maxBytes`.
+ * why. `opts`: `signal`, `windowHint` (`{ windowTokens }`, main's answer from the session's settings), and for tests `maxLineBytes`, `maxSteps`, `maxBytes`.
  */
 async function readSessionFlow(sources, opts = {}) {
   const source = (Array.isArray(sources) && (sources.find(s => s && s.laneHint === 'main') || sources[0])) || null;
   const limits = {
     maxSteps: opts.maxSteps || MAX_STEPS,
     maxBytes: opts.maxBytes || MAX_SNAPSHOT_BYTES,
+    windowHint: opts.windowHint && Number(opts.windowHint.windowTokens) > 0 ? Number(opts.windowHint.windowTokens) : null,
   };
   const builder = makeBuilder(source && source.sourceId ? source.sourceId : 'main', limits);
   if (!source || typeof source.file !== 'string') return builder.finish({ noSources: true });

@@ -292,6 +292,10 @@ contextBridge.exposeInMainWorld('api', {
   // Everything since a point in time, across every session — the recap overview's one read (#402).
   // Answers `{ events, truncated }`; `truncated` means the record had more than the reader is allowed.
   getTimelineSince: (sinceMs) => ipcRenderer.invoke('timeline:since', sinceMs),
+  // The Flow tab (#826, spec 46). A session id in, never a path. `getSessionFlow` answers a snapshot (a failure is a snapshot with `complete: false` and a limitation) or `null` for a backend that has no flow; `getSessionFlowStatus` answers `unchanged | grew | rewritten | unknown`.
+  getSessionFlow: (sessionId) => ipcRenderer.invoke('get-session-flow', sessionId),
+  cancelSessionFlow: (sessionId) => ipcRenderer.invoke('cancel-session-flow', sessionId),
+  getSessionFlowStatus: (sessionId) => ipcRenderer.invoke('get-session-flow-status', sessionId),
   // For the one class of fact main cannot see: something that happened in the UI. Main still writes it,
   // and refuses any kind a window has no business claiming.
   //

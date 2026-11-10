@@ -1007,6 +1007,7 @@ async function pollActiveSessions() {
   try {
     const ids = await window.api.getActiveSessions();
     activePtyIds = new Set(ids);
+    if (typeof FlowView !== 'undefined') FlowView.notifyRunningChanged(); // re-arms the Flow poll for a session that just started
     // The same set again, with enough on it to draw a row for a session the index does not know (#461).
     // Two calls rather than one: `getActiveSessions` reports every key a live session is held under,
     // including the launch id during an adoption, and `getLiveSessions` deduplicates to the id the row is
@@ -2443,7 +2444,7 @@ async function reapplyGlobalSettings() {
   // Terminal-header toolbar: View messages + Tasks scoped to the active session.
   const activeSessionObject = () =>
     (activeSessionId && openSessions.has(activeSessionId)) ? openSessions.get(activeSessionId).session : null;
-  // View timeline sits left of View messages. T8 (Flow tab) makes it open the last used tab.
+  // View timeline sits left of View messages. Opens on the last used tab (Events or Flow, #826).
   const timelineBtn = document.getElementById('terminal-timeline-btn');
   if (timelineBtn) {
     timelineBtn.addEventListener('click', () => {

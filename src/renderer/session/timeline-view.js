@@ -16,6 +16,7 @@
 //   session/session-timeline.js: getTimelineEvents, filterTimelineEvents, formatTimelineEvent, getTimelineKinds
 //   lib/utils.js: escapeHtml, cleanDisplayName
 //   views/plans-memory-view.js: hidePlanViewer
+//   session/flow-view.js: FlowView.attach (the Flow tab; call time)
 //   app.js: ensureTimelineLoaded — the history is main's since #396, so it is FETCHED before it is read
 //
 // Callers (all at call time): app.js (the `timeline-appended` listener), shell/sidebar-events.js.
@@ -111,6 +112,8 @@ async function showTimelineViewer(session) {
   if (timelineKindFilter) timelineKindFilter.value = 'all';
   await ensureTimelineLoaded(session.sessionId);
   renderTimelineViewer(session.sessionId);
+  // Flow tab (#826): opens on the last used tab, and stops its timers when the viewer is hidden.
+  if (typeof FlowView !== 'undefined') FlowView.attach(session);
 }
 
 if (timelineSearchInput) {

@@ -309,7 +309,7 @@ description:
   // reader is required on first use, never at load. A stub until Codex's reader is built (one instruction block).
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
-    return hook.singleFileFlowAnswer(row && row.filePath, {
+    return hook.singleFileFlowAnswer(row, row && row.filePath, {
       capabilities: hook.stubFlowCapabilities('block'),
       limitations: [hook.NOT_BUILT_LIMITATION],
     });

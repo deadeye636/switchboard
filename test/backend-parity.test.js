@@ -338,6 +338,9 @@ function sessionFlowProblem(b) {
   if (b.sessionFlow(null) !== null) return `${b.id}: sessionFlow(null) must be null, not a throw or an answer`;
   const a = b.sessionFlow({ filePath: '/x/y.jsonl', folder: 'x', sessionId: 'y' });
   if (a === null) return null;
+  // A session that has written nothing yet is a flow with no source, not a decline.
+  const bare = b.sessionFlow({ sessionId: 'y' });
+  if (!bare || !Array.isArray(bare.sources) || bare.sources.length !== 0) return `${b.id}: a row without a transcript file must answer sources: [], not null`;
   if (!a || !a.capabilities || !Array.isArray(a.limitations) || !Array.isArray(a.sources) || !a.sources.length
     || a.sources.some(s => typeof s.sourceId !== 'string' || typeof s.file !== 'string')) {
     return `${b.id}: sessionFlow must answer null or { capabilities, limitations, sources: [{ sourceId, file }] }`;

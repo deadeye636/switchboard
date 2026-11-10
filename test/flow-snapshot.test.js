@@ -202,12 +202,17 @@ test('sessionFlow is never called from the scan, the watchers or the workers', (
   // A source check: there is no seam to run these paths against. `sessionFlow` is on-demand and per row, so a call in the
   // scan loop or a list projection would put a transcript lookup in front of every row.
   const roots = ['src/index', 'src/workers', 'src/watch', 'src/db'];
+  // The one exemption, with its reason: src/workers/flow-worker.js IS the Flow tab's reader (T6): main starts it per request and it calls
+  // the descriptor's `readSessionFlow`. It never calls `sessionFlow`, which is checked below.
+  const READER = path.join('src', 'workers', 'flow-worker.js');
   const offenders = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.js') && /sessionFlow|readSessionFlow/.test(stripComments(fs.readFileSync(full, 'utf8')))) offenders.push(full);
+      else if (entry.name.endsWith('.js') && full.endsWith(READER)) {
+        assert.ok(!/sessionFlow/.test(stripComments(fs.readFileSync(full, 'utf8'))), 'the flow worker reads; it never asks sessionFlow');
+      } else if (entry.name.endsWith('.js') && /sessionFlow|readSessionFlow/.test(stripComments(fs.readFileSync(full, 'utf8')))) offenders.push(full);
     }
   };
   for (const r of roots) walk(path.join(__dirname, '..', r));

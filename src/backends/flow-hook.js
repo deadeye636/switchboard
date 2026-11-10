@@ -18,15 +18,17 @@ function flowCap(state, limitationId = null) {
 
 /**
  * The answer of `sessionFlow(row)` for a backend with one transcript file per session.
- * `null` when the row names no file. The file path leaves this answer only inside main (the renderer is
- * never handed `sources`).
+ * `null` only when there is no row at all. A row that names no file yet (a session just started, nothing written)
+ * answers the capabilities with `sources: []`: the backend supports a flow, there is just nothing to read, and the
+ * caller says so instead of reporting a backend that declines (`null`). The file path leaves this answer only inside
+ * main (the renderer is never handed `sources`).
  */
-function singleFileFlowAnswer(file, { capabilities, limitations }) {
-  if (!file || typeof file !== 'string') return null;
+function singleFileFlowAnswer(row, file, { capabilities, limitations }) {
+  if (!row) return null;
   return {
     capabilities,
     limitations,
-    sources: [{ sourceId: 'main', role: 'transcript', laneHint: 'main', file }],
+    sources: file && typeof file === 'string' ? [{ sourceId: 'main', role: 'transcript', laneHint: 'main', file }] : [],
   };
 }
 

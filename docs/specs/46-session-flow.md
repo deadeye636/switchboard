@@ -94,14 +94,13 @@ Rules the shape carries:
 
 ### The vocabulary, as built
 
-The module is `src/shared/flow-snapshot.js` (pure, no fs, path, DOM or crypto). Until T7/T8 first load it in the renderer it is a
-main and worker module only: it has no `<script>` tag and no `script-order.json` entry, which makes it a temporary third
-exception to `.claude/rules/renderer.md` "`src/shared/`" (modules both processes load). T7/T8 add the tag and the entry, and
-that rule's list is updated then. The body is wrapped, so a classic-script load adds one global (`FlowSnapshot`) and none of its
+The module is `src/shared/flow-snapshot.js` (pure, no fs, path, DOM or crypto). Since T8 the renderer loads it too: it has a `<script>` tag in `index.html` and a
+`script-order.json` entry, and `.claude/rules/renderer.md` "`src/shared/`" names the Flow pair, so it is a regular shared module
+(the temporary exception of T3-T7 is gone). The body is wrapped, so a classic-script load adds one global (`FlowSnapshot`) and none of its
 helper names; in main and a worker it is `require()`d.
 
-Its sibling `src/shared/flow-layout.js` (T7: pure layout and collapse, one global `FlowLayout`) is the renderer's from T8 on
-and main's once the exports (T18-T20) lay out a full snapshot there; until then tests alone load it. The two are the Flow pair
+Its sibling `src/shared/flow-layout.js` (T7: pure layout and collapse, one global `FlowLayout`) is the renderer's since T8
+(`session/flow-view.js`) and main's once the exports (T18-T20) lay out a full snapshot there. The two are the Flow pair
 for that rule's list. Collapse state uses prototype-free maps read through own-property checks, so a lane or group id such as
 `constructor` is an ordinary key.
 
@@ -133,7 +132,10 @@ The hook is split so the part that runs off the main thread is pure:
 ```
 sessionFlow(row) -> null | { capabilities, limitations, sources: [{ sourceId, role, laneHint, file }] }
    // cheap, in main: resolves the files (the row's transcript, and child transcripts where the backend has them).
-   // null = this backend has no usable flow reader; Flow is disabled and Events stays.
+   // null = this backend has no usable flow reader (or no row at all); Flow is disabled and Events stays.
+   // A supporting backend whose row names no transcript file yet answers its capabilities with `sources: []`:
+   // main then answers a snapshot with `complete: false` and the limitation `no-transcript` ("Nothing has been written
+   // for this session yet."), never `null`.
 readSessionFlow(sources, { signal, limit, cursor }) -> FlowSnapshot
    // pure: only file reads and parsing, no Electron, no db, loadable in a worker thread.
 ```
@@ -181,19 +183,40 @@ other transcript hooks are); they implement no reader of their own and do not wi
 
 - **On demand, never in the session-cache parser.** The cache parser keeps retained incremental state for list rows; the flow
   reader shares none of it (req. 9). The lifecycle record behind Events is not read.
-- **Off the main thread, cancellable.** A short-lived `worker_threads` Worker (src/workers/flow-worker.js (new)) per Refresh, started
-  and terminated by src/app/session-flow.js (new). Termination is the cancel; a second Refresh while one runs cancels the first.
+- **Off the main thread, cancellable.** A short-lived `worker_threads` Worker (`src/workers/flow-worker.js`) per Refresh, started
+  and terminated by `src/app/session-flow.js`. Termination is the cancel; a second Refresh by the same window for the same session cancels the first.
   The worker resolves the backend by id through the registry (the way `index-worker.js` does), streams each file line by line,
   and returns one `FlowSnapshot`. Recommendation and alternatives: O1.
-- **File fingerprints.** The read records, per source file, size, mtime and a hash of a leading and a trailing chunk. A cheap
-  `status` call (main thread, `fs.stat` only) compares them and lets the viewer say "newer steps available". If a file shrank or
-  its leading chunk changed, the next Refresh is a full rebuild; there is no incremental append in the first version.
+- **File fingerprints.** The snapshot records the main transcript's size, mtime and a hash of its first 4 KB (`fingerprint`, no path). The cheap `status` call (main thread, `fs.promises` only) compares them: one `stat`, and a 4 KB read only when size or mtime moved and the file did not shrink. If the file shrank or its head changed the answer is `rewritten`, and the next Refresh is a full rebuild; there is no incremental append in the first version. No trailing hash is read on a poll.
 - **Caps.** The reader stops at a step cap and sets `complete: false` with a limitation. The number is measured on the largest
   local transcripts in the first reader step, not guessed (O5).
-- **Paths.** The renderer sends a session id, never a path. Main resolves the sources from the cached row (reflex 13: any guard
-  on a path decides on real paths through `src/app/path-containment.js`). Exports never contain raw vendor records; instruction
-  file paths and commands may appear, hence the export warning.
+- **Paths.** The renderer sends a session id, never a path. Main resolves the sources from the cached row. There is no containment check on that path, on purpose: it is not input (it comes from the backend's `sessionFlow(row)` applied to a row main cached itself) and a guard would have no root to compare against; any future path that DOES come from outside decides on real paths through `src/app/path-containment.js` (reflex 13). Exports never contain raw vendor records; instruction
+  files appear only as project-relative or `~` labels, but tool arguments (files read, commands run) may name paths, hence the
+  export warning.
 - **Probes.** The structure-only probes are kept under `scripts/` (see the plan, T1) and listed in `docs/settings-reference.md`.
+
+### Main side and worker, as built (T6)
+
+`src/app/session-flow.js` answers three IPC calls, all keyed by the asking window and the session (a detached window loads the same
+shell, so closing the viewer in one window must not cancel another's read): `get-session-flow`, `cancel-session-flow`,
+`get-session-flow-status`. Details that are decisions:
+
+- **Answers.** `getSessionFlow` answers a snapshot, or `null` only for a backend that declines (`sessionFlow` absent or null). Every
+  failure is a snapshot with `complete: false` and a limitation of this module's own: `no-transcript` (the backend supports a flow
+  but the row names no file yet), `session-unknown`, `worker-timeout`, `worker-memory`, `worker-crashed`, `read-cancelled`. A raw
+  error message never leaves main. The renderer keeps its previous good snapshot when an answer's only news is `read-cancelled`.
+- **Status words.** `unchanged | grew | rewritten | unknown` (`unknown`: no read by this window yet, an unknown session, a source that cannot be stat-ed).
+- **Worker.** One per request, `resourceLimits` 256 MB old / 32 MB young generation, a 30 s wall-clock timeout (`unref`), a generation counter
+  per window and session dropping stale replies, `terminateAll()` in the quit teardown before the database closes. The worker loads the backend registry
+  (about 170 ms measured) and then only the one backend's reader.
+- **The window hint.** Main resolves the session's context window as the health badge does (`src/index/context-window.js`) and passes it
+  to the worker; the reader prefers it (`estimated`, "from the session's settings"), the model name is the fallback. On this request
+  path the hint uses only the descriptor's `contextWindowAsync` (Claude: the settings files through `fs.promises`); a backend without
+  one gets no hint, because its plain hook may read files synchronously (Pi's model catalog does). So no synchronous file read
+  blocks the main thread. Known gap: the hint is the session's current window and is applied to every checkpoint that fits in it,
+  so a session that switched to a 1M variant halfway reads its early checkpoints against the 1M window.
+- **No source path in any answer** (a deep scan in `test/session-flow.test.js`); `sources` stay in main. Tool labels may carry the
+  tool's own argument (a file the tool read, for example); instruction files are labelled relative to the project or with `~`.
 
 ## The renderer side
 
@@ -219,6 +242,32 @@ other transcript hooks are); they implement no reader of their own and do not wi
   "est." label, never colour alone); `included` and `unknown` say so in words.
 - **Detail panel.** Key/value rows from `Step.detail`, the flags with their `why` and evidence, and "Open in messages" where a
   stable source reference can navigate there (O6).
+
+### Flow tab, as built (T8/T9)
+
+`session/flow-view.js` (global `FlowView`, loaded after `timeline-view.js`; pure helpers exported and tested in
+`test/flow-view-logic.test.js`). `#timeline-viewer` has two tabs, Events and Flow, in the `.conversation-question-tabs` classes;
+`showTimelineViewer` calls `FlowView.attach`, so the sidebar button and the toolbar button both open on the last used tab (in
+memory). Flow is disabled, with the reason as tooltip, when the backend's `capabilities.sessionFlow` is `no` or `unknown`, when
+`window.api.getSessionFlow` is missing, or when it returns `null`. Nothing is read until the Flow tab is first shown. Single lane:
+a card per row with kind badge, label, checkpoint (fill bar against the window, estimated values dashed and worded "estimated"),
+turn marker, flag count; a limitations banner (every limitation, with the capabilities that point at it); groups and lane summaries
+expand by click, Enter/Space or the arrow keys.
+
+- **Windowing.** `ROW_H` 40 px, `OVERSCAN` 10, index arithmetic from scrollTop (`computeSlice`); a passive scroll listener records
+  scrollTop and schedules one rAF; the slice is built in a `DocumentFragment` and swapped with `replaceChildren`; the rail comes from
+  `connectorsForRows` (cap 200); `contain: layout paint` on the scroller; no animation or transition in the Flow styles.
+- **Held state.** An LRU of 2 snapshots (with collapse state and selection), all dropped when the viewer is hidden (a
+  MutationObserver on the viewer's `style`, together with the ResizeObserver and the `visibilitychange` listener, exists only while open).
+- **Refresh and poll (T9).** The Refresh button calls `getSessionFlow` again; the selection (by step) and the scroll anchor (step id
+  plus pixel offset, nearest surviving ordinal when the step vanished) are kept. `getSessionFlowStatus` is polled every 5 s through a
+  setTimeout chain (no overlapping calls) only while `shouldPoll` holds: viewer open, Flow tab visible, window visible
+  (`document.visibilityState`, `body.window-hidden`) and the session running (`activePtyIds`) or just ended; `grew` / `rewritten`
+  show "New steps available"; one automatic refresh follows the end of the session.
+- **Instruction cards.** A step with its own token figure and no checkpoint shows `4.8k chars · ~1.2k tokens · estimated` (dashed like other estimates). Children of the start step (`parentStepId`) are drawn indented directly under START.
+- **Limitations banner.** Collapsed by default to one line, `N limitations`, plus the context-window limitation when it is short (90 characters or less); a click or Enter on that line opens the full list. The state is per session, in memory, held in the same LRU entry as the collapse state (so it survives Refresh). No animation.
+- **Measuring.** `FlowView.debugStats()` returns `{open, tab, steps, rows, nodes, cached, timerArmed, observers, lastLayoutMs}` for the
+  B1-B7 checks of the plan.
 
 ## Highlights (a later phase, built on flags the shape already carries)
 
@@ -290,7 +339,7 @@ abort and every cap end in a snapshot with `complete: false` and a limitation (`
   while `permissionMode` carries `auto`, `default`, `plan`, `acceptEdits`. The reader ignores `mode` lines.
 - **Instruction files.** `attachment.type: "instructions"`, `files[]` of `{ path, type, content }`. An attachment can repeat in one
   transcript with `changed` and `reason` (`session_start`, `compaction`, seen on 13 of 174); each repeat lists its files again as
-  children of the start step, the reason in `detail`. Start total: the first request's input, `measured`, with the `hidden-input`
+  children of the start step, the reason in `detail` and in the label (`CLAUDE.md (compaction)`); a repeat stays where it happened, as a child of the start step rather than of the compaction step (the compaction step is a boundary, and the repeat is the same kind of fact as the first listing). **The first attachment is moved up:** in a real transcript it comes after the first prompt, but it describes the session's start, so the reader puts it directly behind the start step (stable partition, ordinals renumbered, ids unchanged because they derive from the source line). **Labels never carry an absolute path:** relative to the session's working directory (`cwd` of the transcript lines) when the file lies inside it (`CLAUDE.md`, a file in a `rules` folder), else `~/...` for the home directory, else the last two segments behind an ellipsis; the full path is not in the snapshot at all. Start total: the first request's input, `measured`, with the `hidden-input`
   limitation (system prompt, tool definitions and memory also count; the files do not add up to it); `unknown` before a first request.
 - **Capabilities answered:** `agents` partial (subagent lanes are Phase 2), `instructionFiles` perFile, `contextCheckpoints` partial,
   `permissionMode` yes, `approvals` no (a terminal transcript records no ask/allow), `compaction` yes, `interrupt` yes,

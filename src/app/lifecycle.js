@@ -351,6 +351,8 @@ function registerQuitHandlers(ctx) {
     // handler drops any in-flight reply before applyIndexResults; terminate-then-close accepts the lost last
     // debounce window (the reconcile catches it next start). Extends the #76/#90 pattern.
     try { ctx.terminateIndexWorker(); } catch {}
+    // The Flow tab's reader workers (#826): terminated here so no reply is delivered after closeDb().
+    try { ctx.terminateSessionFlow?.(); } catch {}
     // Terminate the search worker gracefully before closing the DB, so the
     // worker's read-only connection is released before the WAL checkpoint.
     // shutdown() suppresses the restart logic before calling terminate().

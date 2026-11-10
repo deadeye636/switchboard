@@ -11,10 +11,9 @@
 // ("src/shared/") exists to prevent. Pure data and string work: no fs, no path, no DOM, no crypto, so it
 // loads in a worker too.
 //
-// UNTIL T7/T8 this is a main/worker-only module: no `<script>` tag and no entry in
-// `test/fixtures/script-order.json`. That makes it a temporary third exception to the `src/shared/` rule
-// ("both processes load"), recorded in spec 46. T7/T8 add the tag and the script-order entry when the
-// renderer first loads it.
+// LOADING. Since T8 the renderer loads it too: a `<script>` tag in `index.html` and an entry in
+// `test/fixtures/script-order.json`, so it is a regular `src/shared/` module (main, worker and renderer), named in
+// `.claude/rules/renderer.md` "`src/shared/`".
 //
 // The whole body is wrapped, so loading it as a classic script adds ONE global (`FlowSnapshot`) and none of
 // the helper names below. (A top-level `const` in a classic script lands in the shared script scope, not on

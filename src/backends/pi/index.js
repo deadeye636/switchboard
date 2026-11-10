@@ -535,7 +535,7 @@ module.exports = {
   // reader is required on first use, never at load. A stub until Pi's reader is built.
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
-    return hook.singleFileFlowAnswer(row && row.filePath, {
+    return hook.singleFileFlowAnswer(row, row && row.filePath, {
       capabilities: hook.stubFlowCapabilities('perFile'),
       limitations: [hook.NOT_BUILT_LIMITATION],
     });

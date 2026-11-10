@@ -111,6 +111,10 @@
       <div id="timeline-viewer-header">
         <span id="timeline-viewer-title">Agent Timeline</span>
         <span id="timeline-viewer-session-id"></span>
+        <div id="timeline-viewer-tabs" class="conversation-question-tabs" role="tablist" aria-label="Timeline view">
+          <button id="timeline-tab-events" class="conversation-question-tab active" role="tab" aria-selected="true" aria-controls="timeline-viewer-body">Events</button>
+          <button id="timeline-tab-flow" class="conversation-question-tab" role="tab" aria-selected="false" aria-controls="flow-view">Flow</button>
+        </div>
         <div id="timeline-viewer-filters">
           <input id="timeline-search-input" type="text" placeholder="Filter events…" autocomplete="off" spellcheck="false">
           <select id="timeline-kind-filter" aria-label="Timeline event type">
@@ -120,6 +124,18 @@
         <button class="viewer-header-close" data-close-viewer title="Close (Esc)" aria-label="Close">&times;</button>
       </div>
       <div id="timeline-viewer-body"></div>
+      <div id="flow-view" style="display:none;">
+        <div id="flow-toolbar">
+          <button id="flow-refresh-btn" class="new-session-secondary-btn" aria-label="Refresh flow" title="Read the session again">Refresh</button>
+          <span id="flow-hint" role="status" hidden>New steps available</span>
+          <span id="flow-status" role="status" aria-live="polite"></span>
+        </div>
+        <div id="flow-banner" role="note" hidden></div>
+        <div id="flow-message" role="status" hidden></div>
+        <div id="flow-scroller" tabindex="0" role="listbox" aria-label="Session steps">
+          <div id="flow-spacer"><div id="flow-rails"></div><div id="flow-slice"></div></div>
+        </div>
+      </div>
     </div>
     <div id="away-overview-viewer" style="display:none;">
       <div id="away-overview-header">
@@ -188,6 +204,9 @@
   <script src="../shared/convention-dir-name.js"></script>
   <!-- A tool call whose arguments are still streaming (#664) — read by jsonl-viewer.js's tool renderer. -->
   <script src="../shared/partial-args.js"></script>
+  <!-- The session flow (#826): the neutral shape and the pure layout, read by session/flow-view.js. -->
+  <script src="../shared/flow-snapshot.js"></script>
+  <script src="../shared/flow-layout.js"></script>
   <script src="views/format-commands.js"></script>
   <script src="views/format-toolbar.js"></script>
   <script src="views/viewer-toolbar.js"></script>
@@ -366,6 +385,7 @@
   <script src="shell/statusbar-zoom.js"></script>
   <script src="app.js"></script>
   <script src="session/timeline-view.js"></script>
+  <script src="session/flow-view.js"></script>
   <script src="shell/search-bar.js"></script>
   <script src="shell/native-notifications.js"></script>
   <script src="shell/sidebar-collapse.js"></script>
