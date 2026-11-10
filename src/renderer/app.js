@@ -2443,6 +2443,14 @@ async function reapplyGlobalSettings() {
   // Terminal-header toolbar: View messages + Tasks scoped to the active session.
   const activeSessionObject = () =>
     (activeSessionId && openSessions.has(activeSessionId)) ? openSessions.get(activeSessionId).session : null;
+  // View timeline sits left of View messages. T8 (Flow tab) makes it open the last used tab.
+  const timelineBtn = document.getElementById('terminal-timeline-btn');
+  if (timelineBtn) {
+    timelineBtn.addEventListener('click', () => {
+      const s = activeSessionObject();
+      if (s && typeof showTimelineViewer === 'function') showTimelineViewer(s);
+    });
+  }
   const messagesBtn = document.getElementById('terminal-messages-btn');
   if (messagesBtn) {
     messagesBtn.addEventListener('click', () => {

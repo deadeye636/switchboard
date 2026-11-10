@@ -1628,6 +1628,11 @@ window.__sessionDragId = null;
       return b;
     };
 
+    // T8 (Flow tab) makes this open the last used tab.
+    tools.appendChild(btn('View timeline',
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></svg>',
+      () => { if (session && typeof showTimelineViewer === 'function') showTimelineViewer(session); }));
+
     tools.appendChild(btn('View messages',
       '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>',
       () => { if (session && typeof showJsonlViewer === 'function') showJsonlViewer(session); }));

@@ -2942,6 +2942,7 @@ body.restoring-sessions #restore-progress { display: flex; }
   background: #6a6a80;
 }
 
+#terminal-timeline-btn,
 #terminal-messages-btn,
 #terminal-sidebar-btn,
 #terminal-tasks-btn,
@@ -2959,6 +2960,7 @@ body.restoring-sessions #restore-progress { display: flex; }
   transition: all 0.15s;
 }
 
+#terminal-timeline-btn,
 #terminal-messages-btn,
 #terminal-sidebar-btn,
 #terminal-tasks-btn,
@@ -2970,6 +2972,7 @@ body.restoring-sessions #restore-progress { display: flex; }
   color: #9b4058;
 }
 
+#terminal-timeline-btn:hover,
 #terminal-messages-btn:hover,
 #terminal-sidebar-btn:hover,
 #terminal-tasks-btn:hover,
