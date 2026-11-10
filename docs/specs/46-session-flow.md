@@ -202,7 +202,12 @@ Every export materialises the complete snapshot, not the viewport.
 
 ## Open points
 
-| ID | Point | Recommendation |
+**All nine decided by the owner on 2026-11-10 as recommended** (issue #826). With it the owner set one binding constraint
+for every step: the flow must not slow the app down or block the main thread. Reading, parsing and fingerprinting stay off
+the main thread or asynchronous and bounded; the renderer draws only the rows in view; nothing polls while the tab is not
+visible.
+
+| ID | Point | Recommendation (decided) |
 |---|---|---|
 | O1 | Where the reader runs: a short-lived worker per Refresh (terminate = cancel), or cooperative reading on the main thread with yields, or paging by cursor. | Worker per Refresh returning one snapshot. Cursor stays in the shape, unused. Main-thread yielding cannot bound a pathological line and shares the event loop with terminals. |
 | O2 | How Codex child rollouts and the guardian rollout are found for a parent. `parent_thread_id` is in each child's header, but the session cache treats a guardian rollout as no session (`src/backends/codex/parser.js`), and **whether it indexes spawned children is not verified**. | Decide in the Codex lane step by measurement: first try the cache, else read only the first line of rollouts in the parent's date folder onward. Document the cost. |
@@ -213,6 +218,8 @@ Every export materialises the complete snapshot, not the viewport.
 | O7 | What "equivalent" tool calls are for collapsing. | Same tool name, same lane, same turn, no flags, adjacent. Commands may differ. The group shows the count and the distinct targets on expand. |
 | O8 | Whether claude-native or pi-native declares a measured start baseline (req. 3, "may use an existing measured baseline"). | None in the first version; the start total stays `unknown` before the first request. Revisit with #758. |
 | O9 | Whether the Flow tab remembers its collapse state across reopen. | Per session, in memory only, for the first version; no setting. |
+
+**O5 measured (2026-11-10, one machine, `scripts/measure-flow-sizes.js`).** Claude: 2523 files, size p50/p90/p99/max 774/2464/17455/59170 KB, the largest files 674-2385 assistant steps. Codex: max 6.4 MB, at most 79 steps among the largest. Pi: max 82 MB, at most 786 steps. Steps are few, bytes many, so the binding bounds are the per-line byte cap, string truncation and the wall-clock budget (see `docs/plans/826-session-flow/PLAN.md`, "O5 input").
 
 ## Known gaps (planned)
 
