@@ -218,7 +218,10 @@ cost real tokens and that compaction is lossy.
 
 ## Deferred (not in this stage)
 
-Terminal backends and Hermes (E2); Codex native (#734); any before-known-expiry mode (E3); a Claude cache-miss
+Terminal backends (E2: their pipe drivers are claude-native and pi-native; agy has none); Hermes, once it runs over a
+pipe (#778); Codex native (#734). Both issues carry the requirement since #828 was split into them: answer
+`idleMaintenance()` with a measured `maxRefreshMs` and say whether a cache miss can be called. Also deferred: any
+before-known-expiry mode (E3); a Claude cache-miss
 measurement (needs over an hour); keying the schedule on a backend-supplied expiry; per-backend interval defaults beyond
 the class bound; a "Warm now" button as its own feature (way B).
 
