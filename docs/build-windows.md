@@ -20,6 +20,15 @@ any more.
 - **Node.js** — the same major as `package.json`/CI (Electron 41 ABI).
 - **Visual Studio 2026 Build Tools** with the C++ desktop workload, for the native modules
   `better-sqlite3` and `node-pty`.
+- **The Spectre-mitigated MSVC libraries** (component `Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre`,
+  "MSVC … x64/x86 Spectre-mitigated libs (Latest)"), for `@vscode/windows-process-tree` (#834, the session sidebar's
+  Processes group). It is an `optionalDependencies` entry: without the libraries its build stops at **MSB8040**, npm
+  drops the package without a word, and the app runs with the Processes group saying the module is not installed.
+  The node-pty way below (a patch that turns the mitigation off) does not work for it: npm removes a failed optional
+  package before `patch-package` runs. `npm run build:win` checks that
+  `node_modules/@vscode/windows-process-tree/build/Release/windows_process_tree.node` exists and stops with
+  `[build] FAILED` when it does not (`missingWindowsNative` in `scripts/build-and-verify.js`). On macOS and Linux the
+  package's build is attempted and dropped by npm, which is expected: those platforms measure through `ps`.
 - **Python**, which node-gyp needs.
 - Target architecture: **x64**. No arm64 toolchain is set up.
 
@@ -38,8 +47,9 @@ That forces node-gyp 13 for every transitive dependency. **Do not remove it.**
 ### 2. node-pty's Spectre mitigation (MSB8040)
 
 node-pty's `binding.gyp` asks for `SpectreMitigation: 'Spectre'`. Without the Spectre-hardened MSVC
-runtime libraries installed, the build stops at **MSB8040**. We build without the mitigation: this is
-a desktop app with a local PTY, and there is no Spectre attack model here worth the dependency.
+runtime libraries installed, the build stops at **MSB8040**. We build node-pty without the mitigation: this is
+a desktop app with a local PTY, and there is no Spectre attack model here worth the dependency. (Since #834 the
+libraries are installed anyway, for `@vscode/windows-process-tree` — see Prerequisites; node-pty keeps its patch.)
 
 **Durable fix** — `patches/node-pty+1.2.0-beta.14.patch` sets `SpectreMitigation: 'false'` in exactly
 **one** place:

@@ -2382,6 +2382,11 @@ const documents = require('./app/documents');
 documents.init({ shell, isSensitivePath, registryFor: (id) => agentRpc.documentRegistryOf(id), getGlobalSettings: () => getSetting('global') || {}, log });
 documents.registerIpc(ipcMain);
 
+// #834: the CPU and memory of a session's process tree, measured only when the session sidebar asks.
+const processUsage = require('./app/process-usage');
+processUsage.init({ activeSessions: () => activeSessions, log });
+processUsage.registerIpc(ipcMain);
+
 // The Flow tab of a session (#826, spec 46): a short-lived worker reads the transcript into one snapshot.
 const flowRead = require('./app/session-flow');
 flowRead.init({ getCachedSession, getSetting, getAppQuitting: () => appQuitting, log });

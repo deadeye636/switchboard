@@ -10,8 +10,8 @@ covers what the app *does*; this page covers working on it.
 - Platform build tools for the native modules (`node-pty`, `better-sqlite3`):
   - **macOS**: Xcode Command Line Tools (`xcode-select --install`)
   - **Linux**: `build-essential`, `python3` (`sudo apt install build-essential python3`)
-  - **Windows**: Visual Studio Build Tools — [`build-windows.md`](build-windows.md) has the current
-    toolchain notes (node-gyp override, node-pty patch)
+  - **Windows**: Visual Studio Build Tools with the Spectre-mitigated MSVC libraries — [`build-windows.md`](build-windows.md)
+    has the current toolchain notes (node-gyp override, node-pty patch, the optional process-tree module)
 
 ## Setup
 

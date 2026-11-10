@@ -182,6 +182,31 @@ one global setting, `sessionSidebarOrder`, and every session sidebar in every wi
 - **The settings screen does not hold the key.** Its Save reads the blob fresh and writes only its own fields, so an open
   settings window cannot put an old order back.
 
+## Processes (#834)
+
+What the session costs the machine: its process tree from its root (the terminal's shell, or the pipe child of a
+backend driven over a runtime protocol; both are `session.pty.pid`), each process with its name, CPU and memory, and a
+total at the top. Closed by default, between Context and Connectors.
+
+- **Owner decision (way a):** Windows measures through `@vscode/windows-process-tree`, a native module (N-API, so no
+  rebuild per Electron version). It is in `optionalDependencies`, required lazily, and unpacked from the asar; a machine
+  where it did not build answers that it is not installed, and the group says so. Building it needs the
+  Spectre-mitigated MSVC libraries (`docs/build-windows.md`).
+- **One measurement for every session.** `src/app/process-usage.js` takes one `getProcessList(process.pid)` and one
+  `getProcessCpuUsage` (its worker reads the times a second apart, off the main thread). Every shell and pipe child is a
+  direct child of the main process, so its descendants hold every session; each session is cut out of that one list by
+  its root pid. macOS and Linux run one `ps -A -o pid=,ppid=,rss=,time=,comm=` and take CPU as the CPU time used between
+  two samples; the first sample therefore shows memory only. CPU is a share of all cores, 0 to 100, on every platform.
+  A sample answers every request within `REUSE_MS` or while it is out, so several sidebars and windows cost one.
+- **Measured only when looked at.** The group's read starts a poll (`SIDEBAR_PROCESS_POLL_MS`, 4 s); a tick with the
+  sidebar out of view or the window hidden measures nothing and waits; a closed or hidden group, or a closed sidebar,
+  ends it, and the next read starts it again. Nothing in main runs on its own.
+- **Only what changed is redrawn.** Rows are keyed by pid: a row whose figures did not move is not touched, a row that
+  came or went is inserted or removed, and the total updates its text. No animation.
+- **The answer is neutral:** per session `running`, a total `{ cpu, memory, count }` and at most `MAX_ROWS` rows
+  `{ pid, name, depth, cpu, memory }`. No command line, no path, no backend id.
+- A process that ends between two samples drops out; a session whose root is not running says it has no running process.
+
 ## Hidden sections (#835)
 
 A user can hide a section and show it again. The list is one global setting, `sessionSidebarHidden`, a list of section

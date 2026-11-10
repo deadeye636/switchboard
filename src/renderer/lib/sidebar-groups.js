@@ -21,6 +21,7 @@
     Object.freeze({ id: 'handoffs', label: 'Handoffs' }),
     Object.freeze({ id: 'instructions', label: 'Instructions' }),
     Object.freeze({ id: 'context', label: 'Context' }),
+    Object.freeze({ id: 'processes', label: 'Processes' }),
     Object.freeze({ id: 'connectors', label: 'Connectors' }),
   ]);
 

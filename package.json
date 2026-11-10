@@ -86,11 +86,15 @@
       "src/**/*",
       "build-info.json",
       "build/icon.*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/@vscode/windows-process-tree/build/Release/obj/**",
+      "!node_modules/@vscode/windows-process-tree/build/Release/*.{pdb,ipdb,iobj,lib,exp}",
+      "!node_modules/@vscode/windows-process-tree/{src,typings}/**"
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**",
-      "node_modules/node-pty/**"
+      "node_modules/node-pty/**",
+      "node_modules/@vscode/windows-process-tree/**"
     ],
     "publish": {
       "provider": "github",
@@ -176,5 +180,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     }
+  },
+  "optionalDependencies": {
+    "@vscode/windows-process-tree": "0.8.0"
   }
 }

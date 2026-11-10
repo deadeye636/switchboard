@@ -399,10 +399,13 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   // Open a document an agent read (#755): main opens only a path this session's backend reported. `how` is
-  // 'default' | 'tab' | 'click'; `invert` is Ctrl/Cmd for 'click'. The answer says what the renderer finishes.
+  // 'default' | 'tab' | 'click' | 'folder' (#837); `invert` is Ctrl/Cmd for 'click'. The answer says what the renderer finishes.
   openDocument: (sessionId, filePath, how, invert) => ipcRenderer.invoke('document-open', sessionId, filePath, how, invert),
   // The text of a Markdown or HTML document the session read, for the card's viewer (#764) — same checks.
   readDocument: (sessionId, filePath) => ipcRenderer.invoke('document-read', sessionId, filePath),
+
+  // The CPU and memory of these sessions' process trees (#834), one shared sample: { ok, supported, sessions }.
+  processUsage: (sessionIds) => ipcRenderer.invoke('process-usage', sessionIds),
 
   // Native notifications, dock/taskbar badge, tray (Spec 01)
   notify: (payload) => ipcRenderer.send('notify', payload),

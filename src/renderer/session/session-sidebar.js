@@ -289,10 +289,48 @@ function repositoryRowHtml(row) {
     + `<span class="ssb-row-meta">${escapeHtml(row.meta || '')}</span></div>`;
 }
 
+// The Processes group (#834, spec 43), from main's `processUsage` answer for one session: a total, then the session's
+// process tree from its root, one row per process with its depth. `{ note }` when there is nothing to draw. CPU is a
+// share of all cores; before a second sample on macOS and Linux there is none, and the row says nothing rather than 0.
+function sidebarCpu(cpu) {
+  if (!Number.isFinite(cpu)) return '';
+  return cpu > 0 && cpu < 0.1 ? '<0.1 %' : `${cpu.toFixed(1)} %`;
+}
+function sidebarBytes(n) {
+  if (!Number.isFinite(n) || n <= 0) return '';
+  const mb = n / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb >= 100 ? Math.round(mb) : mb.toFixed(1)} MB`;
+}
+function processRows(answer, sessionId) {
+  if (!answer || !answer.ok) return { note: 'The processes could not be read.' };
+  if (!answer.supported) return { note: answer.message || 'Processes cannot be measured on this machine.' };
+  const s = answer.sessions && answer.sessions[sessionId];
+  if (!s || !s.running) return { note: 'This session has no running process.' };
+  const meta = (cpu, memory) => [sidebarCpu(cpu), sidebarBytes(memory)].filter(Boolean).join(' · ');
+  const count = s.total.count === 1 ? '1 process' : `${s.total.count} processes`;
+  return {
+    total: { main: `Total · ${count}`, meta: meta(s.total.cpu, s.total.memory) },
+    rows: s.rows.map((r) => ({ key: String(r.pid), main: r.name, meta: meta(r.cpu, r.memory), title: `pid ${r.pid}`, depth: Math.min(r.depth, 8) })),
+    truncated: s.truncated === true,
+  };
+}
+
+function processRowHtml(row) {
+  return `<div class="ssb-row ssb-row-info ssb-proc-row" data-pid="${escapeHtml(row.key)}" title="${escapeHtml(row.title)}" style="padding-left:${4 + row.depth * 10}px">`
+    + `<span class="ssb-row-main">${escapeHtml(row.main)}</span><span class="ssb-row-meta">${escapeHtml(row.meta)}</span></div>`;
+}
+function processesHtml(model) {
+  if (model.note) return sidebarNote(model.note);
+  return `<div class="ssb-row ssb-row-info ssb-proc-total"><span class="ssb-row-main">${escapeHtml(model.total.main)}</span>`
+    + `<span class="ssb-row-meta">${escapeHtml(model.total.meta)}</span></div>`
+    + `<div class="ssb-proc-list">${model.rows.map(processRowHtml).join('')}</div>`
+    + (model.truncated ? sidebarNote('Only the first processes are listed.') : '');
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
-    instructionGroups, instructionRow, repositoryRows, repositoryRowHtml,
+    instructionGroups, instructionRow, repositoryRows, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes,
     sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
@@ -690,6 +728,17 @@ const SESSION_SIDEBAR_GROUPS = [
     },
   },
   {
+    // #834: what the session costs the machine. Measured in main, one sample for every session, and only while this
+    // group is open in a visible sidebar: the read here starts the poll, `sidebarTickProcesses` keeps it going.
+    id: 'processes',
+    async load(entry, draw, force, current = () => true) {
+      const sessionId = sidebarSessionOf(entry).sessionId;
+      const answer = await Promise.resolve(window.api.processUsage([sessionId])).catch(() => null);
+      if (current()) sidebarScheduleProcesses(entry);
+      return processesHtml(processRows(answer, sessionId));
+    },
+  },
+  {
     id: 'connectors',
     async load(entry) {
       const session = sidebarSessionOf(entry);
@@ -743,6 +792,74 @@ function loadSidebarGroup(entry, group, section, force = false) {
   }).catch(() => {
     if (section._token === token) body.innerHTML = sidebarNote('Could not be read.');
   });
+}
+
+// --- The Processes group's poll (#834). ---
+// A timer per sidebar while the group is open and shown. A tick with the sidebar out of view or the window hidden
+// measures nothing and waits; a closed, hidden or removed group ends the poll, and its next read starts it again.
+// A read through `loadSidebarGroup` (open, reload, shown again) takes over: a tick whose token is stale stops.
+const SIDEBAR_PROCESS_POLL_MS = 4000;
+
+function sidebarScheduleProcesses(entry) {
+  clearTimeout(entry.sidebarProcessTimer);
+  entry.sidebarProcessTimer = setTimeout(() => sidebarTickProcesses(entry), SIDEBAR_PROCESS_POLL_MS);
+}
+
+async function sidebarTickProcesses(entry) {
+  entry.sidebarProcessTimer = null;
+  // A session closed or moved to another window leaves this entry behind with its sidebar still in it: the poll ends
+  // here, before anything is measured, or it would go on for a sidebar nobody can see.
+  if (!entry.element.isConnected || openSessions.get(sidebarSessionOf(entry).sessionId) !== entry) return;
+  const root = entry.sidebar;
+  const section = root && root.querySelector('.ssb-group[data-group="processes"]');
+  if (!section || !section.open || sidebarSectionHidden(section)) return;
+  if (!sidebarInView(entry) || document.hidden) { sidebarScheduleProcesses(entry); return; }
+  const token = section._token;
+  const sessionId = sidebarSessionOf(entry).sessionId;
+  const answer = await Promise.resolve(window.api.processUsage([sessionId])).catch(() => null);
+  if (entry.sidebar !== root || section._token !== token || !section.open || sidebarSectionHidden(section)) return;
+  sidebarPatchProcesses(section.querySelector('.ssb-group-body'), processRows(answer, sessionId));
+  sidebarScheduleProcesses(entry);
+}
+
+// Only what changed is touched: the total's figures, a row whose text moved, a row that came or went. A change of
+// shape (a note instead of rows, or back) redraws the body.
+function sidebarPatchProcesses(body, model) {
+  const list = body && body.querySelector('.ssb-proc-list');
+  if (!body || model.note || !list) {
+    const html = processesHtml(model);
+    if (body && body.innerHTML !== html) body.innerHTML = html;
+    return;
+  }
+  const total = body.querySelector('.ssb-proc-total .ssb-row-meta');
+  if (total && total.textContent !== model.total.meta) total.textContent = model.total.meta;
+  const totalMain = body.querySelector('.ssb-proc-total .ssb-row-main');
+  if (totalMain && totalMain.textContent !== model.total.main) totalMain.textContent = model.total.main;
+  const old = new Map([...list.children].map((el) => [el.dataset.pid, el]));
+  let at = list.firstElementChild;
+  for (const row of model.rows) {
+    let el = old.get(row.key);
+    if (el) {
+      old.delete(row.key);
+      const meta = el.querySelector('.ssb-row-meta');
+      if (meta.textContent !== row.meta) meta.textContent = row.meta;
+      const main = el.querySelector('.ssb-row-main');
+      if (main.textContent !== row.main) main.textContent = row.main;
+      // A pid can move in the tree (its parent ended): its indentation follows.
+      const pad = `${4 + row.depth * 10}px`;
+      if (el.style.paddingLeft !== pad) el.style.paddingLeft = pad;
+    } else {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = processRowHtml(row);
+      el = tmp.firstElementChild;
+    }
+    if (el !== at) list.insertBefore(el, at);
+    else at = at.nextElementSibling;
+  }
+  for (const el of old.values()) el.remove();
+  const cut = body.querySelector(':scope > .ssb-note');
+  if (model.truncated && !cut) body.insertAdjacentHTML('beforeend', sidebarNote('Only the first processes are listed.'));
+  else if (!model.truncated && cut) cut.remove();
 }
 
 function loadOpenSidebarGroups(entry, force = false) {
@@ -1267,6 +1384,8 @@ function showSidebar(entry, width) {
 
 function hideSidebar(entry) {
   if (sidebarGroupsPop && sidebarGroupsPop.root === entry.sidebar) closeSidebarGroupsPop(false);
+  clearTimeout(entry.sidebarProcessTimer);
+  entry.sidebarProcessTimer = null;
   entry.element.classList.remove('sidebar-open');
   if (entry.sidebarObserver) entry.sidebarObserver.disconnect();
   if (entry.sidebarResizeObserver) entry.sidebarResizeObserver.disconnect();

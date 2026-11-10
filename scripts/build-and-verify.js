@@ -128,6 +128,16 @@ function newestArtifact(startedAt, dist = DIST) {
   return best;
 }
 
+// An optional native module the Windows installer is meant to carry (#834). npm drops an optional package whose build
+// failed without a word, so without this check a machine missing the Spectre-mitigated MSVC libraries builds an
+// installer whose Processes group always says "not installed" — and the build says OK. A Windows build stops instead.
+const WINDOWS_NATIVE = ['node_modules/@vscode/windows-process-tree/build/Release/windows_process_tree.node'];
+
+function missingWindowsNative(args, root = ROOT) {
+  if (!args.includes('--win')) return [];
+  return WINDOWS_NATIVE.filter((rel) => !fs.existsSync(path.join(root, rel)));
+}
+
 function buildInfo() {
   try {
     return JSON.parse(fs.readFileSync(path.join(ROOT, 'build-info.json'), 'utf8'));
@@ -139,7 +149,11 @@ function buildInfo() {
 function main() {
   const startedAt = Date.now();
 
-  let problem = runNode(path.join(__dirname, 'gen-build-info.js'), [], 'the build-info stamp');
+  const missing = missingWindowsNative(builderArgs);
+  let problem = missing.length
+    ? `a native module the Windows build carries is not built: ${missing.join(', ')} — see docs/build-windows.md (Spectre-mitigated libraries), then npm install`
+    : null;
+  if (!problem) problem = runNode(path.join(__dirname, 'gen-build-info.js'), [], 'the build-info stamp');
   if (!problem) problem = runNode(path.join(__dirname, 'bundle.js'), [], 'the renderer bundles');
 
   // Nothing in `dist/` has been replaced until the builder has run, so a failure before that point
@@ -182,7 +196,7 @@ function main() {
   else console.log(`[build] OK — built from ${commit}, but no installer file was found in dist/. Check the builder's targets.`);
 }
 
-module.exports = { sweepOlderThan, newestArtifact, ARTIFACT_EXT };
+module.exports = { sweepOlderThan, newestArtifact, missingWindowsNative, ARTIFACT_EXT };
 
 if (require.main === module) {
   try {

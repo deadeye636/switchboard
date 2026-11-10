@@ -344,7 +344,8 @@ A project can also list its GitHub or GitLab issues there, read-only, through th
 state, label and the issues assigned to or opened by you. This is off until you turn it on in Settings.
 
 Each session also has a collapsible sidebar with its repository, branch and worktree, its project's tasks and notes, its
-handoffs, its context fill and its connectors, opened from the session's toolbar. On a Claude session driven over a
+handoffs, its context fill, its processes with their CPU and memory, and its connectors, opened from the session's
+toolbar. On a Claude session driven over a
 pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool. A click on a
 task, issue, handoff or skill puts it into the session's prompt; small buttons on hover open it, copy it or edit it.
 Its sections can be reordered by their grips, and a right click on a heading hides or shows them, for every session.

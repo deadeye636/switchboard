@@ -188,3 +188,20 @@ test('CI runs the same wrapper as a local build', () => {
   // shipped without the PDF bundles, and a failed step ended without the line.
   assert.ok(!/npx electron-builder/.test(ci), 'CI must not bypass the wrapper');
 });
+
+// #834: a Windows build stops when the optional native module it is meant to carry did not build (npm drops a failed
+// optional package without a word); every other target does not ask.
+test('a Windows build names the native module that is not built; other targets do not ask', () => {
+  const { missingWindowsNative } = require('../scripts/build-and-verify');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sb-build-native-'));
+  try {
+    assert.deepEqual(missingWindowsNative(['--mac'], dir), []);
+    assert.deepEqual(missingWindowsNative(['--win'], dir), ['node_modules/@vscode/windows-process-tree/build/Release/windows_process_tree.node']);
+    const file = path.join(dir, 'node_modules', '@vscode', 'windows-process-tree', 'build', 'Release', 'windows_process_tree.node');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '');
+    assert.deepEqual(missingWindowsNative(['--win', '--publish', 'always'], dir), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
