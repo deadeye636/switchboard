@@ -5776,9 +5776,11 @@ mark.jsonl-search-hit-active {
 .jsonl-text pre { background: rgba(0,0,0,0.3); border-radius: 4px; padding: 8px 10px; overflow-x: auto; font-size: 12px; line-height: 1.4; }
 .jsonl-text code { font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 12px; }
 .jsonl-text :not(pre) > code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; color: #c8b0e0; }
-.jsonl-text .jsonl-code-actions { display: flex; justify-content: flex-end; margin-bottom: 2px; }
-/* The word is not a text node, so an entry's copied text and the log search leave it out (#811). */
+.jsonl-text .jsonl-code-actions { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 2px; }
+/* The word is not a text node, so an entry's copied text and the log search leave it out (#811, #838). */
 .jsonl-code-preview::before { content: 'Preview'; }
+.jsonl-code-copy::before { content: 'Copy'; }
+.jsonl-code-copy[data-copied]::before { content: 'Copied'; }
 .jsonl-text a { color: #6cb6ff; }
 .jsonl-text a:hover { color: #8ccbff; }
 

@@ -131,7 +131,7 @@ chart rather than a row of zeroes.
   opens it the way your file-click setting says. Buttons open
   it in the default app or in a tab, show it in its folder, or copy its path. `Documents in the conversation` switches back to inline images. An HTML
   page or a Markdown document the agent writes into its answer as a code block has a Preview button that opens it
-  rendered in the same viewer, HTML with scripts off.
+  rendered in the same viewer, HTML with scripts off. Every code block has a Copy button.
   → [`docs/specs/33-document-preview.md`](docs/specs/33-document-preview.md)
 - **Terminal or GUI, per session** — with both halves of a pair switched on (Claude and Claude (native),
   Pi and Pi (native)), each sidebar row shows where it opens, and a session can be opened in the other view

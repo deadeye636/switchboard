@@ -338,13 +338,41 @@ const PREVIEW_LABELS = {
   html: { name: 'HTML preview', title: 'Show this HTML rendered (scripts do not run)' },
   markdown: { name: 'Markdown preview', title: 'Show this Markdown rendered' },
 };
-function addCodePreviews(textEl, ctx) {
-  for (const code of textEl.querySelectorAll('pre > code[class*="language-"]')) {
+// Reads `showControlMessage` (dialogs/control-dialogs.js) at the click, guarded, to say that a copy failed.
+// Every code block also gets Copy (#838): the block's text exactly as written, without the fences and the language
+// tag, in one click — a command an agent hands over is often one long line in a block that scrolls sideways. Its word
+// is CSS like Preview's, and "Copied" replaces it for a moment. Only markup is added while drawing; nothing is read
+// until the click.
+const CODE_COPIED_MS = 1500;
+function addCodeActions(textEl, ctx) {
+  for (const code of textEl.querySelectorAll('pre > code')) {
+    const bar = document.createElement('div');
+    bar.className = 'jsonl-code-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'task-notice-output jsonl-code-copy';
+    copyBtn.setAttribute('aria-label', 'Copy');
+    copyBtn.title = 'Copy this block';
+    copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      // marked ends a fenced block's text with the line break before the closing fence; the block does not.
+      const text = code.textContent.replace(/\n$/, '');
+      Promise.resolve(window.api && window.api.writeClipboard ? window.api.writeClipboard(text) : Promise.reject(new Error('no clipboard')))
+        .then(() => {
+          copyBtn.dataset.copied = '1';
+          copyBtn.setAttribute('aria-label', 'Copied');
+          clearTimeout(copyBtn._copiedTimer);
+          copyBtn._copiedTimer = setTimeout(() => { delete copyBtn.dataset.copied; copyBtn.setAttribute('aria-label', 'Copy'); }, CODE_COPIED_MS);
+        })
+        .catch(() => {
+          if (typeof showControlMessage === 'function') showControlMessage({ title: 'Cannot copy', message: 'The block could not be put on the clipboard.' });
+        });
+    });
+    bar.appendChild(copyBtn);
+    code.parentElement.before(bar);
     const lang = (code.className.match(/language-(\S+)/) || [])[1];
     const kind = lang && PREVIEWABLE_CODE_KINDS[lang.toLowerCase()];
     if (!kind) continue;
-    const bar = document.createElement('div');
-    bar.className = 'jsonl-code-actions';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'task-notice-output jsonl-code-preview';
@@ -361,8 +389,7 @@ function addCodePreviews(textEl, ctx) {
         focusFallback: ctx && ctx.focusFallback,
       });
     });
-    bar.appendChild(btn);
-    code.parentElement.before(bar);
+    bar.insertBefore(btn, copyBtn);
   }
 }
 
@@ -1155,7 +1182,7 @@ function renderJsonlEntry(entry, toolResultMap, ctx) {
       const textEl = document.createElement('div');
       textEl.className = 'jsonl-text agent-report-text';
       textEl.innerHTML = renderJsonlText(r.text);
-      addCodePreviews(textEl, ctx);
+      addCodeActions(textEl, ctx);
       div.appendChild(textEl);
       head.classList.add('agent-report-toggle');
       head.tabIndex = 0;
@@ -1307,7 +1334,7 @@ function renderJsonlEntry(entry, toolResultMap, ctx) {
       const textEl = document.createElement('div');
       textEl.className = 'jsonl-text';
       textEl.innerHTML = renderJsonlText(block.text.trim());
-      addCodePreviews(textEl, ctx);
+      addCodeActions(textEl, ctx);
       div.appendChild(textEl);
     } else if (block.type === 'image') {
       const data = block.source?.data || block.data;

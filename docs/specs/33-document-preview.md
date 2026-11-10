@@ -199,7 +199,7 @@ picture, `a.pdf` to a page), and bounds the read itself, not only the `stat` bef
 writing the file. An empty PDF is said as such, rather than opening a viewer with nothing in it.
 
 **A fenced HTML or Markdown block opens the same viewer (#811).** When an agent writes a page straight into its answer
-as a ```` ```html ```` (or `htm`) block, or a document as a ```` ```markdown ```` (or `md`) block, `addCodePreviews` in
+as a ```` ```html ```` (or `htm`) block, or a document as a ```` ```markdown ```` (or `md`) block, `addCodeActions` in
 `src/renderer/jsonl/jsonl-viewer.js` puts a Preview button above the block. A click opens this viewer in text mode with
 the block's text as `{ kind: 'html' | 'markdown', text }`: HTML in the same frame with no `allow-scripts`, Markdown
 through marked and DOMPurify. Markdown is drawn into the app's own document, so the viewer forbids `<style>` there,
@@ -209,6 +209,13 @@ in it do not load. Nothing is built until the click, and the source stays in the
 text is drawn through `renderJsonlText` from `renderJsonlEntry`: the conversation view and the history viewer. The
 plan card's body is not wired. The open claims the host like a card does, and the button (`.task-notice-output`) draws
 its word through CSS, so copying an entry and the log search do not pick it up.
+
+**Every code block has Copy (#838).** The same row above the block carries a Copy button for any fenced or indented
+block, whatever its language: one click puts the block's text on the clipboard exactly as written (no fences, no
+language tag, line breaks kept; marked's trailing line break before the closing fence is dropped), through
+`window.api.writeClipboard`. The button then reads "Copied" for a moment (`data-copied`); a refused clipboard says so in
+a dialog. Its word is CSS like Preview's, so an entry's copied text and the log search leave it out. Inline code spans
+get none. Drawing adds only the markup; nothing is read before the click.
 
 Controls reuse existing styling (`.new-session-secondary-btn`); the overlay is modelled on
 `.jsonl-screenshot-fullscreen`. A real mouse-and-keyboard check in tabs, panes and grid was the plan's T10 and is
