@@ -698,29 +698,89 @@ function createConversationView(getSession, container) {
     flushDeferred();
     const known = view.localCommands.get(id);
     const command = op.command != null ? String(op.command) : (known ? known.command : '');
-    const entry = { type: 'local-command', _localCmd: { cmd: command, output: String(op.output || '') } };
+    const output = String(op.output || '');
+    const entry = { type: 'local-command', _localCmd: { cmd: command, output } };
     const running = op.status === 'running';
+    // When it started is when this window first hears of it: the ops carry no clock (#836).
+    const startedAt = known ? known.startedAt : Date.now();
     if (known) {
       view.entries[known.index] = entry;
       known.command = command;
+      known.output = output;
       const fresh = renderOne(known.index);
-      if (fresh && running) fresh.classList.add('conversation-streaming');
       const old = view.elements[known.index];
+      if (fresh) {
+        if (running) fresh.classList.add('conversation-streaming');
+        decorateShellHead(fresh, id, running, startedAt, op);
+        // Every output chunk redraws the entry; what the reader opened or closed in it is theirs, not the chunk's.
+        if (old) carryOpenState(old, fresh);
+      }
       if (old && fresh) old.replaceWith(fresh);
       view.elements[known.index] = fresh || old;
-      if (!running) { view.localCommands.delete(id); renderComposer(); }
-      return;
+      if (!running) view.localCommands.delete(id);
+    } else {
+      const index = view.entries.push(entry) - 1;
+      view.localCommands.set(id, { index, command, output, startedAt });
+      const el = renderOne(index);
+      if (el) {
+        if (running) el.classList.add('conversation-streaming');
+        decorateShellHead(el, id, running, startedAt, op);
+      }
+      view.elements[index] = el;
+      insertEntryEl(index, el);
+      if (!running) view.localCommands.delete(id);
     }
-    const index = view.entries.push(entry) - 1;
-    view.localCommands.set(id, { index, command });
-    const el = renderOne(index);
-    if (el && running) el.classList.add('conversation-streaming');
-    view.elements[index] = el;
-    insertEntryEl(index, el);
-    if (!running) view.localCommands.delete(id);
     // Stop appears and disappears with the command, and nothing else redraws the composer for it: a
-    // shell line raises no busy edge, which is what `somethingRunning` exists to cover.
-    renderComposer();
+    // shell line raises no busy edge, which is what `somethingRunning` exists to cover. The session line and the
+    // Background button count the running lines too (#836); the strip above the composer shows the tail.
+    renderStatus();
+    renderActivity();
+  }
+
+  // The head of a shell line's entry (#836): "running · m:ss" and a Stop for that line, then "exit <code> · m:ss".
+  // Appended to the header jsonl-viewer drew, so the history viewer's drawing of the same entry is untouched.
+  function decorateShellHead(el, id, running, startedAt, op) {
+    const head = el.querySelector('.jsonl-tool-header');
+    if (!head) return;
+    const state = document.createElement('span');
+    state.className = 'conversation-shell-state';
+    if (running) {
+      state.appendChild(document.createTextNode('running ·'));
+      state.appendChild(elapsedEl(startedAt));
+    } else {
+      const end = shellLineEnding(op.status, op.exitCode);
+      state.textContent = `${end.text} · ${formatElapsed(Date.now() - startedAt)}`;
+      state.classList.toggle('conversation-shell-bad', end.bad);
+    }
+    head.appendChild(state);
+    if (running) head.appendChild(shellStopButton(id));
+  }
+  function shellStopButton(id) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'new-session-secondary-btn conversation-bg-btn conversation-bg-stop';
+    b.textContent = 'Stop';
+    b.title = 'Stop this shell line; the others keep running';
+    b.addEventListener('click', (e) => { e.stopPropagation(); stopShellLine(id); });
+    return b;
+  }
+  async function stopShellLine(id) {
+    let res;
+    try { res = await window.api.agent.stopShellLine(view.session.sessionId, id); } catch { res = null; }
+    if (!res || !res.ok) notice('error', (res && res.error) || 'The shell line did not stop.');
+  }
+  // What the reader opened or closed in an entry that is redrawn: a collapsible block and any <details>.
+  function carryOpenState(old, fresh) {
+    if (old.classList.contains('jsonl-tool-collapsible') && fresh.classList.contains('jsonl-tool-collapsible')) {
+      fresh.classList.toggle('jsonl-tool-collapsed', old.classList.contains('jsonl-tool-collapsed'));
+    }
+    const was = old.querySelectorAll('details');
+    fresh.querySelectorAll('details').forEach((d, i) => { if (was[i]) d.open = was[i].open; });
+  }
+  // The log moves, not its ancestors (as the pinned prompt does).
+  function jumpToEntry(index) {
+    const el = view.elements[index];
+    if (el && el.isConnected) log.scrollTop += el.getBoundingClientRect().top - log.getBoundingClientRect().top;
   }
 
   function reset(entries) {
@@ -744,6 +804,7 @@ function createConversationView(getSession, container) {
     for (const entry of entries || []) appendEntry(entry);
     // A question still open stays open, in the dock, where it was before.
     renderComposer();
+    renderActivity();
   }
 
   function renderPartial() {
@@ -779,6 +840,34 @@ function createConversationView(getSession, container) {
       row.appendChild(head);
       const lines = String(t.output || '').split('\n');
       const tail = lines.slice(-CONVERSATION_TOOL_TAIL_LINES).join('\n').trim();
+      if (tail) {
+        const pre = document.createElement('pre');
+        pre.className = 'conversation-tool-output';
+        pre.textContent = tail;
+        row.appendChild(pre);
+      }
+      activity.appendChild(row);
+    }
+    // A running shell line (#836): its entry stays where it started; this is the line to watch and stop it from.
+    for (const [id, line] of view.localCommands) {
+      const row = document.createElement('div');
+      row.className = 'jsonl-entry jsonl-meta-entry conversation-tool-running conversation-shell-strip';
+      const head = document.createElement('div');
+      head.className = 'conversation-shell-strip-head';
+      const cmd = document.createElement('span');
+      cmd.className = 'conversation-shell-strip-cmd';
+      cmd.textContent = `$ ${mergeBackgroundRows([], [[id, line]])[0].description}`;
+      const state = document.createElement('span');
+      state.appendChild(document.createTextNode('running ·'));
+      state.appendChild(elapsedEl(line.startedAt));
+      const jump = document.createElement('button');
+      jump.type = 'button';
+      jump.className = 'new-session-secondary-btn conversation-bg-btn';
+      jump.textContent = 'Jump to entry';
+      jump.addEventListener('click', () => jumpToEntry(line.index));
+      head.append(cmd, state, jump, shellStopButton(id));
+      row.appendChild(head);
+      const tail = shellLineTail(line.output, 3);
       if (tail) {
         const pre = document.createElement('pre');
         pre.className = 'conversation-tool-output';
@@ -1512,6 +1601,12 @@ function createConversationView(getSession, container) {
     };
     // What this session does while idle (spec 45), where its backend can do anything: a click opens the popover.
     if (view.idle && !view.idle.declined && !view.exited) add(idleMaintenanceControl());
+    if (view.localCommands.size && !view.exited) {
+      const oldest = Math.min(...[...view.localCommands.values()].map(l => l.startedAt));
+      const running = span(`${shellLinesRunningText(view.localCommands.size)} ·`, 'conversation-status-state');
+      running.appendChild(elapsedEl(oldest));
+      add(running);
+    }
     else if (view.idleOpen) { view.idleOpen = false; idlePop.hidden = true; }
     if (view.idleOpen) renderIdlePop();
     // The permission mode first (#696), as the TUI's status line shows it; a click switches to the next one,
@@ -1579,13 +1674,7 @@ function createConversationView(getSession, container) {
 
   // --- Elapsed times (#691) ---
   // One timer for the view, running only while something on it counts up and the view is on screen.
-  const formatElapsed = (ms) => {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const pad = (n) => String(n).padStart(2, '0');
-    return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
-  };
+  const formatElapsed = formatElapsedMs;   // session/shell-line-status.js
   const formatWindow = (n) => (n >= 1000000 ? `${Math.round(n / 100000) / 10}M`.replace('.0M', 'M') : `${Math.round(n / 1000)}k`);
   function elapsedEl(since) {
     const e = document.createElement('span');
@@ -1600,7 +1689,7 @@ function createConversationView(getSession, container) {
     for (const e of counting) e.textContent = ` ${formatElapsed(Date.now() - Number(e.dataset.since))}`;
     // Only while the view is on screen (`shown`), and it is picked up again on show — by `focus()`, which every
     // path that shows the view calls, and by the `.visible` observer.
-    const needed = counting.length > 0 && shown() && container.isConnected && !view.exited;
+    const needed = elapsedTimerNeeded({ counting: counting.length, shown: shown(), connected: container.isConnected, exited: view.exited });
     if (needed && !ticker) ticker = setInterval(tick, 1000);
     if (!needed && ticker) { clearInterval(ticker); ticker = null; }
   }
@@ -1609,10 +1698,12 @@ function createConversationView(getSession, container) {
   // The buttons count what the backend listed; a click opens the list, with Output / Open and Stop per task.
   const KIND_WORDS = { shell: ['shell', 'shells'], agent: ['agent', 'agents'], task: ['task', 'tasks'] };
   let bgSelected = 0;
+  // The runtime's tasks and this view's running shell lines, merged for display only (#836); `view.tasks` is untouched.
+  const bgRows = () => mergeBackgroundRows(view.tasks, view.localCommands);
   let bgOutputFor = null;   // the task whose output is shown under its row
   function renderBackground() {
     bgChips.replaceChildren();
-    const tasks = view.exited ? [] : view.tasks;
+    const tasks = view.exited ? [] : bgRows();
     for (const kind of ['shell', 'agent', 'task']) {
       const n = tasks.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === kind).length;
       if (!n) continue;
@@ -1635,9 +1726,9 @@ function createConversationView(getSession, container) {
     if (bgPop.hidden) openBackground(); else closeBackground();
   }
   function openBackground() {
-    if (!view.tasks.length) return;
+    if (!bgRows().length) return;
     bgPop.hidden = false;
-    bgSelected = Math.min(bgSelected, view.tasks.length - 1);
+    bgSelected = Math.min(bgSelected, bgRows().length - 1);
     renderBackground();
     bgPop.focus();
   }
@@ -1662,7 +1753,7 @@ function createConversationView(getSession, container) {
     const groups = [['shell', 'Shells'], ['agent', 'Agents'], ['task', 'Other tasks']];
     let index = 0;
     for (const [kind, label] of groups) {
-      const list = view.tasks.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === kind);
+      const list = bgRows().filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === kind);
       if (!list.length) continue;
       const sec = document.createElement('div');
       sec.className = 'conversation-bg-section';
@@ -1693,8 +1784,8 @@ function createConversationView(getSession, container) {
         const open = document.createElement('button');
         open.type = 'button';
         open.className = 'new-session-secondary-btn conversation-bg-btn';
-        open.textContent = kind === 'agent' ? 'Open' : 'Output';
-        open.title = kind === 'agent' ? 'Open this agent\'s transcript' : 'Show the end of this task\'s output';
+        open.textContent = kind === 'agent' ? 'Open' : t.shellLineId ? 'Entry' : 'Output';
+        open.title = kind === 'agent' ? 'Open this agent\'s transcript' : t.shellLineId ? 'Scroll to this line\'s entry' : 'Show the end of this task\'s output';
         open.addEventListener('click', () => { bgSelected = i; openTask(t); });
         const stopBtn = document.createElement('button');
         stopBtn.type = 'button';
@@ -1782,6 +1873,7 @@ function createConversationView(getSession, container) {
     el.click();
   }
   async function openTask(t) {
+    if (t.shellLineId) { const l = view.localCommands.get(t.shellLineId); if (l) jumpToEntry(l.index); return; }
     if (t.kind === 'agent') { openAgentInline(t.subagentId, t.toolUseId); return; }
     if (bgOutputFor && bgOutputFor.id === t.id) { bgOutputFor = null; renderBackgroundList(); return; }
     let res;
@@ -1803,16 +1895,18 @@ function createConversationView(getSession, container) {
     if (res.mode) { view.mode = res.mode; renderStatus(); }
   }
   async function stopTask(t) {
+    if (t.shellLineId) { stopShellLine(t.shellLineId); return; }
     let res;
     try { res = await window.api.agent.stopTask(view.session.sessionId, t.id); } catch { res = null; }
     if (!res || !res.ok) notice('error', (res && res.error) || 'The task did not stop.');
   }
   bgPop.addEventListener('keydown', (e) => {
-    const n = view.tasks.length;
+    const rows = bgRows();
+    const n = rows.length;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBackground(); return; }
     if (!n) return;
     const ordered = [...bgPop.querySelectorAll('.conversation-bg-row')].map(r => Number(r.dataset.index));
-    const tasksInOrder = ['shell', 'agent', 'task'].flatMap(k => view.tasks.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === k));
+    const tasksInOrder = ['shell', 'agent', 'task'].flatMap(k => rows.filter(t => (KIND_WORDS[t.kind] ? t.kind : 'task') === k));
     if (e.key === 'ArrowDown') { e.preventDefault(); bgSelected = Math.min(ordered.length - 1, bgSelected + 1); renderBackgroundList(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); bgSelected = Math.max(0, bgSelected - 1); renderBackgroundList(); }
     else if (e.key === 'Enter') { e.preventDefault(); if (tasksInOrder[bgSelected]) openTask(tasksInOrder[bgSelected]); }

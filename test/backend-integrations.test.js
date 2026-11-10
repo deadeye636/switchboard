@@ -219,6 +219,7 @@ const ALLOWED_BINDINGS = {
   'src/renderer/session/session-health.js': [],
   'src/renderer/session/live-session-rows.js': [],
   'src/renderer/session/composer-completion.js': [],
+  'src/renderer/session/shell-line-status.js': [],
   'src/renderer/session/branch-tree-dialog.js': [],
   'src/renderer/session/servers-dialog.js': [],
   'src/renderer/jsonl/document-card.js': [],

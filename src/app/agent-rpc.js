@@ -634,7 +634,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       state.localOps.delete(id);
       const line = { command, ...raw };
       const result = rpc.shellLineResult(line);
-      sendOp(state, { op: 'localCommand', id, command, status: result.status, output: result.output });
+      sendOp(state, { op: 'localCommand', id, command, status: result.status, output: result.output, exitCode: Number.isInteger(raw.exitCode) ? raw.exitCode : null });
       if (state.exited || state.resets !== resetsAtStart) return;
       state.shellCarry.push(line);
       if (state.shellCarry.length > SHELL_CARRY_CAP) state.shellCarry.shift();
@@ -1850,6 +1850,21 @@ async function abortTurn(sessionId) {
   return failed ? { ok: false, error: 'The session did not stop.' } : { ok: true };
 }
 
+// ONE shell line (#836): the Stop on a line's own entry, strip and Background row. A line this process runs
+// is stopped on its own; a runtime's line (Pi) has one abort for "the shell line", which is the only way
+// it can be ended, so that is what is asked. A turn running beside it is left alone, unlike `abortTurn`.
+async function stopShellLine(sessionId, lineId) {
+  const state = stateFor(sessionId);
+  if (!state) return { ok: false, error: 'This session is not running.' };
+  const run = state.shellRuns.get(lineId) || state.shellRuns.get(String(lineId));
+  if (run) { run.stop(); return { ok: true }; }
+  if (state.localCommands.size > 0 && typeof state.rpc.shellAbortCommand === 'function') {
+    const res = await state.request(state.rpc.shellAbortCommand);
+    return !res || res.success === false ? { ok: false, error: 'The shell line did not stop.' } : { ok: true };
+  }
+  return { ok: false, error: 'That shell line has already ended.' };
+}
+
 // A held prompt (#702): `withdraw` takes it out and hands its text and images back — for the view's edit, or
 // just to drop it — and `send` puts it first and lets the queue run again, at once when the session is idle.
 function heldAction(sessionId, action, id) {
@@ -2177,6 +2192,7 @@ function registerIpc(ipc) {
   ipc.handle('agent-send', (_event, sessionId, payload) => sendTurn(sessionId, payload));
   ipc.handle('agent-draft', (_event, sessionId, hasDraft) => noteDraft(sessionId, hasDraft));
   ipc.handle('agent-abort', (_event, sessionId) => abortTurn(sessionId));
+  ipc.handle('agent-stop-shell-line', (_event, sessionId, lineId) => stopShellLine(sessionId, lineId));
   ipc.handle('agent-held', (_event, sessionId, action, id) => heldAction(sessionId, action, id));
   ipc.handle('agent-answer', (_event, sessionId, requestId, answer) => answerAsk(sessionId, requestId, answer));
   ipc.handle('agent-commands', (_event, sessionId) => listCommands(sessionId));
@@ -2203,7 +2219,7 @@ module.exports = {
     return Boolean(state) && state.maintenanceOpen();
   },
   // For the tests, which drive a fake child through the same functions the IPC calls.
-  attach, sendTurn, noteDraft, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
+  attach, sendTurn, noteDraft, abortTurn, stopShellLine, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
   // What of a maintenance turn is folded, live and read back (spec 45), pure.

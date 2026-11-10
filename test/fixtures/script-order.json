@@ -102,6 +102,7 @@
     "document-card.js",
     "document-viewer.js",
     "composer-completion.js",
+    "shell-line-status.js",
     "branch-tree-dialog.js",
     "servers-dialog.js",
     "conversation-view.js",

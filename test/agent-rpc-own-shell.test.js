@@ -187,6 +187,21 @@ test('Stop ends a running line, and the model is told it was cancelled', async (
   assert.equal(carryOnly(h)[0].shellLines[0].cancelled, true);
 });
 
+test('a finished line carries its exit code, and Stop on ONE line ends that line only (#836)', async (t) => {
+  const h = ownShellHarness(t);
+  t.after(() => stopped(h));
+  await agentRpc.sendTurn('launch-id', { text: '!exit 3', mode: 'prompt' });
+  await until(() => finished(h).length === 1);
+  assert.equal(finished(h)[0].exitCode, 3);
+  await agentRpc.sendTurn('launch-id', { text: `!${LONG}`, mode: 'prompt' });
+  await until(() => lineOps(h).length >= 3);
+  const id = lineOps(h).filter(o => o.status === 'running').pop().id;
+  assert.equal((await agentRpc.stopShellLine('launch-id', 'no-such-line')).ok, false);
+  assert.deepEqual(await agentRpc.stopShellLine('launch-id', id), { ok: true });
+  await until(() => finished(h).length === 2);
+  assert.equal(finished(h)[1].status, 'cancelled');
+});
+
 test('Stop on a turn and a running line: the cancelled line follows as a turn once the turn is over', async (t) => {
   // Owner decision (#788): the model is told about a stopped line even when the Stop also ended a turn.
   const h = ownShellHarness(t);

@@ -3466,6 +3466,12 @@ html body .terminal-container.conversation-container:not(.visible) {
 .conversation-mode-warn { color: #e0c080; }
 .conversation-mode-danger { color: #f0a0a0; }
 .conversation-elapsed { font-family: 'SF Mono', 'Fira Code', Menlo, monospace; font-size: 11px; color: #7a7a90; }
+/* A running shell line (#836): the entry's head, and the strip above the composer. Static text, no motion. */
+.conversation-shell-state { margin-left: 8px; color: #7a7a90; font-size: 11px; }
+.conversation-shell-state.conversation-shell-bad { color: #e0c080; }
+.jsonl-tool-header > .conversation-bg-btn { margin-left: 8px; }
+.conversation-shell-strip-head { display: flex; align-items: center; gap: 8px; }
+.conversation-shell-strip-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'SF Mono', 'Fira Code', Menlo, monospace; }
 .conversation-bg-chips { display: flex; gap: 6px; flex: none; }
 .conversation-bg-chip {
   display: inline-flex; align-items: center; gap: 6px;

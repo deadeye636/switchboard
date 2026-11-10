@@ -11,6 +11,7 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'session', 'conversation-view.js'), 'utf8');
+const SHELL_STATUS_SRC = fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', 'session', 'shell-line-status.js'), 'utf8');
 
 // How a file is named in the text (#699) — the completion's own helper, taken on its own so the list the
 // completion opens stays out of these tests.
@@ -78,6 +79,7 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
   ctx.richPasteSegments = (html) => richPaste.richPasteSegments(html, { parser: new w.DOMParser() });
   ctx.richPasteImageBytes = richPaste.richPasteImageBytes;
   ctx.MAX_RICH_IMAGES = richPaste.MAX_RICH_IMAGES;
+  vm.runInContext(SHELL_STATUS_SRC, ctx);
   vm.runInContext(SRC, ctx);
   const entry = vm.runInContext("createConversationEntry({ sessionId: 's1', projectPath: '/p' })", ctx);
   // On screen, as `showSession` leaves the view it shows: `.visible` is what the view asks (#723). A test of a
@@ -1012,7 +1014,7 @@ test('a card stands in the input\'s place and gives it back with its text when i
   assert.ok(dock.querySelector('.conversation-plan'), 'the card is in the dock');
   assert.equal(h.input.hidden, true, 'the input is out of the way');
   assert.ok(dock.contains(h.w.document.activeElement), 'the focus went with it');
-  const stop = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  const stop = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop' && !b.closest('.conversation-log'));
   assert.ok(stop, 'Stop is still there to end the turn');
   h.entry.conversation.apply({ op: 'answered', id: 'k2', seq: 2 });
   assert.equal(dock.hidden, true);
@@ -1299,7 +1301,7 @@ test('a shell line is one entry that grows, and keeps its place in the order', (
 // a running command with nothing to stop it, while main had the abort all along.
 test('Stop is offered while a shell line runs, and Escape reaches it', () => {
   const h = setup();
-  const stopBtn = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  const stopBtn = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop' && !b.closest('.conversation-log'));
   assert.ok(stopBtn, 'the control exists');
   assert.equal(stopBtn.style.display, 'none', 'and is hidden while nothing is running');
 
@@ -1324,7 +1326,7 @@ test('two shell lines are two entries, and a re-mount forgets them', () => {
   // The conversation is re-read from the runtime, where a finished line is an ordinary entry — so nothing
   // may still hold an index into the list that was just thrown away.
   h.entry.conversation.apply({ op: 'reset', seq: 3, entries: [] });
-  const stopBtn = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  const stopBtn = [...h.entry.element.querySelectorAll('button')].find(b => b.textContent === 'Stop' && !b.closest('.conversation-log'));
   assert.equal(stopBtn.style.display, 'none', 'a re-mount starts with nothing running');
 
   // Main stamps the command onto EVERY op for a line it started, so a view that mounts mid-command draws
@@ -1668,4 +1670,87 @@ test('the draw is told which subagent an agent call started, and how to open it 
   conv.apply({ op: 'append', entry: { type: 'task-notice', timestamp: 't', _task: { id: 'a-run', toolUseId: 'toolu_r', kind: 'agent', subagentId: 'a-run' } } });
   assert.equal(ctx.subagentIdFor('toolu_r'), 'a-run', 'and so does its notice once it ended');
   assert.equal(ctx.subagentIdFor('toolu_other'), null);
+});
+
+// #836 — a running shell line is visible and stoppable on its own: the entry's head, the strip above the
+// composer, the session line and the Background list. The real entry head is jsonl-viewer's; here a stand-in
+// draws a header and a collapsible block so the view's additions to it can be read.
+function shellSetup() {
+  const h = setup();
+  const stopped = [];
+  h.w.api.agent.stopShellLine = (id, line) => { stopped.push(line); return Promise.resolve({ ok: true }); };
+  h.w.renderJsonlEntry = (entry) => {
+    const d = h.w.document.createElement('div');
+    d.className = 'jsonl-tool-block jsonl-tool-collapsible';
+    const head = h.w.document.createElement('div');
+    head.className = 'jsonl-tool-header';
+    head.textContent = 'Bash';
+    d.appendChild(head);
+    const body = h.w.document.createElement('pre');
+    body.textContent = entry._localCmd.cmd + '\n' + entry._localCmd.output;
+    d.appendChild(body);
+    return d;
+  };
+  return { h, stopped, el: () => h.entry.element };
+}
+
+test('a running shell line: head, strip, session line and Background list, then the ending (#836)', () => {
+  const { h, stopped, el } = shellSetup();
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'localCommand', seq: 1, id: 'r1', command: 'ping -n 30 127.0.0.1', status: 'running', output: 'a\nb\nc\nd\n' });
+  const head = el().querySelector('.conversation-log .jsonl-tool-header');
+  assert.match(head.textContent, /running · \d+:\d\d/);
+  const entryStop = [...head.querySelectorAll('button')].find(b => b.textContent === 'Stop');
+  assert.ok(entryStop, 'the entry head has a Stop for this line');
+  const strip = el().querySelector('.conversation-shell-strip');
+  assert.ok(strip, 'the strip is shown while it runs');
+  assert.match(strip.textContent, /\$ ping -n 30 127\.0\.0\.1/);
+  assert.match(strip.querySelector('pre').textContent, /^b\nc\nd$/, 'the last three output lines');
+  assert.match(el().querySelector('.conversation-status').textContent, /1 shell line running · \d+:\d\d/);
+  const chip = el().querySelector('.conversation-bg-chip');
+  assert.match(chip.textContent, /1 shell/, 'the Background button counts the line');
+  chip.click();
+  const row = el().querySelector('.conversation-bg-row');
+  assert.match(row.textContent, /ping -n 30/);
+  [...row.querySelectorAll('button')].find(b => b.textContent === 'Stop').click();
+  entryStop.click();
+  assert.deepEqual(stopped, ['r1', 'r1'], 'each Stop names this one line');
+
+  conv.apply({ op: 'localCommand', seq: 2, id: 'r1', status: 'error', exitCode: 3, output: 'a' });
+  const done = el().querySelector('.conversation-log .jsonl-tool-header');
+  assert.match(done.textContent, /exit 3 · \d+:\d\d/);
+  assert.ok(done.querySelector('.conversation-shell-bad'), 'a non-zero exit takes the warning colour');
+  assert.equal(done.querySelector('button'), null, 'no Stop once it ended');
+  assert.equal(el().querySelector('.conversation-shell-strip'), null, 'the strip is gone');
+  assert.doesNotMatch(el().querySelector('.conversation-status').textContent, /shell line/);
+  assert.equal(el().querySelector('.conversation-bg-chip'), null);
+});
+
+test('what the reader opened in a running shell line survives the next output chunk (#836)', () => {
+  const { h, el } = shellSetup();
+  const conv = h.entry.conversation;
+  conv.apply({ op: 'localCommand', seq: 1, id: 'r1', command: 'x', status: 'running', output: '1' });
+  const block = () => el().querySelector('.conversation-log .jsonl-tool-block');
+  block().classList.add('jsonl-tool-collapsed');
+  conv.apply({ op: 'localCommand', seq: 2, id: 'r1', status: 'running', output: '1\n2' });
+  assert.ok(block().classList.contains('jsonl-tool-collapsed'), 'closed stays closed');
+  block().classList.remove('jsonl-tool-collapsed');
+  conv.apply({ op: 'localCommand', seq: 3, id: 'r1', status: 'running', output: '1\n2\n3' });
+  assert.ok(!block().classList.contains('jsonl-tool-collapsed'), 'open stays open');
+});
+
+test('the elapsed timer runs only while a shell line runs and the view is shown (#836)', () => {
+  const { h } = shellSetup();
+  const conv = h.entry.conversation;
+  const timers = [];
+  h.w.setInterval = (f, ms) => { timers.push(ms); return timers.length; };
+  h.w.clearInterval = () => { timers.push('clear'); };
+  const log = h.entry.element.querySelector('.conversation-log');
+  Object.defineProperty(log, 'clientHeight', { configurable: true, get: () => 300 });
+  conv.apply({ op: 'localCommand', seq: 1, id: 'r1', command: 'x', status: 'running', output: '' });
+  assert.equal(timers.filter(t => t === 1000).length, 1, 'one 1 s timer, armed by the running line');
+  conv.apply({ op: 'localCommand', seq: 2, id: 'r1', status: 'running', output: 'more' });
+  assert.equal(timers.filter(t => t === 1000).length, 1, 'not a second one per chunk');
+  conv.apply({ op: 'localCommand', seq: 3, id: 'r1', status: 'done', exitCode: 0, output: 'more' });
+  assert.ok(timers.includes('clear'), 'and disarmed at the end');
 });

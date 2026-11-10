@@ -524,6 +524,32 @@ prompt as the text blocks the terminal interface writes as user lines of their o
 then a content array. The grammar sits in `src/backends/claude/session-reader.js` (`shellPrefaceBlocks`,
 `shellPreface`), beside the tags that reader already skips.
 
+### A running line is visible and stoppable (#836)
+
+Renderer only, fed by the view's own running lines (`view.localCommands`); the runtime's `tasks` list is never
+written. One mechanism for both sources of a `localCommand` op: this app's own runner (Claude) and a runtime's
+shell op (pi-native, spec 30). The differences are two: the app's runner reports the exit code and the runtime's
+op does not, so the ending falls back to its status (`stopped`, `failed`, `exit 0`); and Stop on one line is
+`stopShellLine` for the app's own lines, and the runtime's one shell abort (`shellAbortCommand`) for a runtime's,
+because that runtime has nothing finer.
+
+- **The entry's head** reads `running · m:ss` with a Stop for that line, then `exit <code> · m:ss` (warning colour
+  when non-zero or stopped). The time is counted from when this window first heard of the line, because the ops
+  carry no clock. A re-mount draws a finished line as the plain entry it is in the transcript.
+- **The running strip** sits above the composer with the running tool rows: `$ <command>`, `running · m:ss`, Jump to
+  entry and Stop, and the last three output lines. It is gone when the line ends. The entry stays where the line
+  started; the strip is the place to watch and stop it from, the entry is the record.
+- **The Background list** merges the running lines in beside the CLI's tasks, for display only (command truncated,
+  elapsed, Stop; Entry scrolls to the line). The button counts them.
+- **The session line** says `1 shell line running · m:ss` (plural for more; the oldest line's time) beside Idle.
+- **What the reader opened stays.** Every output chunk redraws the entry; the open or closed state of its blocks is
+  carried onto the redrawn element instead of reset by the chunk (`carryOpenState`).
+- **One timer per view**, 1 s, rewriting the text of the `.conversation-elapsed` nodes only. It is armed while any
+  such node exists, the view is on screen (`drawable()`, so `document.hidden` too) and attached, and the session has
+  not ended; it is disarmed on the line's end, on hide and on exit. No animation and no transition.
+- **Stop per line** is `agent-stop-shell-line(sessionId, lineId)` in `src/app/agent-rpc.js`: it ends that one line
+  and leaves a running turn and the other lines alone. The composer's Stop and Escape still end everything.
+
 ### When nobody writes next (#788)
 
 Waiting for the next prompt had a gap: if the user ran a command and wrote nothing after it, the model never

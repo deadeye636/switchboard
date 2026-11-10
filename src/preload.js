@@ -379,6 +379,7 @@ contextBridge.exposeInMainWorld('api', {
     idleMaintenanceState: (id) => ipcRenderer.invoke('idle-maintenance-state', id),
     idleMaintenanceSet: (id, patch) => ipcRenderer.invoke('idle-maintenance-set', id, patch),
     abort: (id) => ipcRenderer.invoke('agent-abort', id),
+    stopShellLine: (id, lineId) => ipcRenderer.invoke('agent-stop-shell-line', id, lineId),
     // A prompt held while a turn runs (#702): 'withdraw' takes it back (its text and images), 'send' sends it next.
     held: (id, action, heldId) => ipcRenderer.invoke('agent-held', id, action, heldId),
     answer: (id, requestId, answer) => ipcRenderer.invoke('agent-answer', id, requestId, answer),
