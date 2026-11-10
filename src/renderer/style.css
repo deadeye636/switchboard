@@ -1933,6 +1933,11 @@ body.pixel-session-icon .sidebar-tab.pi-phase-work .pi-work .pi-frame-b { animat
    The status vocabulary lives in session-status.js (six keys); this is where each key gets its colour,
    once. A dot in any view keys on `.status-<key>` and reads these, so the three views cannot drift. */
 :root {
+  /* The app is dark everywhere: Chromium draws native controls, option lists, unchecked checkboxes, number spinners and
+     every scrollbar without a rule of its own in the dark palette (the timeline filter's white option list was the
+     report). The meta tag in each page does the same before this file has loaded. Rules that style a control
+     themselves still win. */
+  color-scheme: dark;
   /* Dot / accent solids */
   --status-attention: #f0a050;
   --status-ready: #4fc3f7;
