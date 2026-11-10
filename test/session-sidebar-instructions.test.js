@@ -72,11 +72,11 @@ test('the group rows split by scope, drop rows without a path, and the row escap
   } finally { delete global.escapeHtml; }
 });
 
-test('the group sits between Handoffs and Context and is closed by default', () => {
+test('the group sits between Handoffs and Connectors and is closed by default', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/renderer/session/session-sidebar.js'), 'utf8');
   const order = [...src.matchAll(/^    id: '(\w+)',$/gm)].map(m => m[1]);
-  // Repository leads since #821 (owner decision: at the top), the rest keep their order.
-  assert.deepEqual(order.slice(0, 5), ['repository', 'tasks', 'handoffs', 'instructions', 'context']);
+  // Repository leads since #821 (owner decision: at the top); Processes and Context follow it since #841.
+  assert.deepEqual(order, ['repository', 'processes', 'context', 'tasks', 'handoffs', 'instructions', 'connectors']);
   assert.ok(!/SESSION_SIDEBAR_OPEN_GROUPS = \[[^\]]*instructions/.test(src));
   assert.equal(typeof SESSION_SIDEBAR_GROUPS, 'undefined', 'the surface table is not part of the pure exports');
 });

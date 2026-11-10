@@ -5,8 +5,10 @@ Issue #817. Status: **built**. The code is `src/renderer/session/session-sidebar
 ## What it does
 
 Each session has a collapsible sidebar on its right, opened from the session's toolbar. Its groups collapse one by
-one: Repository (#821), Tasks & notes (with a project's forge issues when spec 42 is on), Handoffs, Instructions (#823),
-Context and Connectors. That is the default order; a user can change it (see "The section order").
+one: Repository (#821), Processes (#834), Context, Tasks & notes (with a project's forge issues when spec 42 is on),
+Handoffs, Instructions (#823) and Connectors. That is the default order since #841, which put the two figures a user
+glances at most right after the repository; a user can change it (see "The section order"), and a saved order is kept.
+A collapsed Processes or Context group shows its figure in its header (see "Figures in a collapsed header").
 
 ## Decided by the owner (2026-11-06)
 
@@ -186,7 +188,7 @@ one global setting, `sessionSidebarOrder`, and every session sidebar in every wi
 
 What the session costs the machine: its process tree from its root (the terminal's shell, or the pipe child of a
 backend driven over a runtime protocol; both are `session.pty.pid`), each process with its name, CPU and memory, and a
-total at the top. Closed by default, between Context and Connectors.
+total at the top. Closed by default, between Repository and Context (#841).
 
 - **Owner decision (way a):** Windows measures through `@vscode/windows-process-tree`, a native module (N-API, so no
   rebuild per Electron version). It is in `optionalDependencies`, required lazily, and unpacked from the asar; a machine
@@ -198,14 +200,34 @@ total at the top. Closed by default, between Context and Connectors.
   its root pid. macOS and Linux run one `ps -A -o pid=,ppid=,rss=,time=,comm=` and take CPU as the CPU time used between
   two samples; the first sample therefore shows memory only. CPU is a share of all cores, 0 to 100, on every platform.
   A sample answers every request within `REUSE_MS` or while it is out, so several sidebars and windows cost one.
-- **Measured only when looked at.** The group's read starts a poll (`SIDEBAR_PROCESS_POLL_MS`, 4 s); a tick with the
-  sidebar out of view or the window hidden measures nothing and waits; a closed or hidden group, or a closed sidebar,
-  ends it, and the next read starts it again. Nothing in main runs on its own.
+- **Measured only when looked at.** The group's read starts a poll (`SIDEBAR_PROCESS_POLL_MS`, 4 s). A collapsed group
+  goes on at `SIDEBAR_PROCESS_POLL_COLLAPSED_MS` (15 s) for the figure in its header (#840); showing the sidebar or the
+  group again with the group collapsed measures once at once. A tick with the sidebar out of view or the window hidden
+  measures nothing and waits; when the sidebar comes back into view (its pane or tab is shown again) the next tick runs
+  at once, while a window shown again waits for the next tick (up to one interval); a hidden group, a closed sidebar
+  or a removed session ends the poll, and the next read starts it again. Nothing in main runs on its own.
 - **Only what changed is redrawn.** Rows are keyed by pid: a row whose figures did not move is not touched, a row that
   came or went is inserted or removed, and the total updates its text. No animation.
 - **The answer is neutral:** per session `running`, a total `{ cpu, memory, count }` and at most `MAX_ROWS` rows
   `{ pid, name, depth, cpu, memory }`. No command line, no path, no backend id.
 - A process that ends between two samples drops out; a session whose root is not running says it has no running process.
+
+## Figures in a collapsed header (#840)
+
+A collapsed group shows nothing of its body, and two groups hold a figure worth a glance without opening them. Their
+header carries it at the right, in the row-meta tone, and only while the group is collapsed (the stylesheet hides it in
+an open one, whose body shows the same figure).
+
+- **Processes:** the session's total CPU, in the total's own format (`processHeadFigure`, `sidebarCpu`). It comes from
+  the slow poll above. A session with nothing running, an unsupported machine or a first sample without CPU shows no
+  figure, never `0 %`.
+- **Context:** the share of the window in use, rounded (`contextHeadFigure`). It costs no read: the figures come from
+  what the conversation view and the session already hold, so it is set when the sidebar is shown, when it comes into
+  view, on the conversation view's context change (a session driven over a pipe) and after `loadProjects` refreshed the
+  session objects (a terminal session's `contextFill`, `sessionSidebarSessionsChanged`), collapsed or not. The open
+  group's body still redraws only on the conversation view's context change, as before. While the app sidebar shows
+  another tab than Sessions, `loadProjects` waits for the way back, and a terminal session's header waits with it.
+- The header stays one line; the name and the figure sit in two spans (`.ssb-group-name`, `.ssb-group-figure`).
 
 ## Hidden sections (#835)
 

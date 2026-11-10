@@ -1444,6 +1444,8 @@ async function loadProjects({ resort = false } = {}) {
     const name = active && cleanDisplayName(active.name || active.aiTitle || active.summary);
     if (name && !headerRenaming) terminalHeaderName.textContent = name;
   }
+  // A terminal session's context fill came with the same objects; a collapsed Context group shows it in its header (#840).
+  if (typeof sessionSidebarSessionsChanged === 'function') sessionSidebarSessionsChanged();
   renderDefaultStatus();
   refreshUnlistedNotice();
 }

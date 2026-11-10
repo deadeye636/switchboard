@@ -23,7 +23,8 @@
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
 // view's `context` op (`sessionSidebarContextChanged`), its session line's tooltip (`contextLineDetails`) and
-// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829; `sessionSidebarHiddenChanged`, #835).
+// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829; `sessionSidebarHiddenChanged`, #835) and
+// `loadProjects` in app.js after it refreshed the session objects (`sessionSidebarSessionsChanged`, #840).
 
 const SESSION_SIDEBAR_KEY = 'sessionSidebar';
 const SESSION_SIDEBAR_WIDTH = { min: 200, default: 280, max: 560 };
@@ -327,10 +328,20 @@ function processesHtml(model) {
     + (model.truncated ? sidebarNote('Only the first processes are listed.') : '');
 }
 
+// The figure a collapsed group shows in its header (#840): the session's total CPU, the share of the context window in
+// use. No figure is an empty string, never `0 %`, the same rule the group's body follows.
+function processHeadFigure(answer, sessionId) {
+  const s = answer && answer.ok && answer.supported && answer.sessions ? answer.sessions[sessionId] : null;
+  return s && s.running && s.total ? sidebarCpu(s.total.cpu) : '';
+}
+function contextHeadFigure(figures) {
+  return figures && Number.isFinite(Number(figures.percent)) ? `${Math.round(Number(figures.percent))} %` : '';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
-    instructionGroups, instructionRow, repositoryRows, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes,
+    instructionGroups, instructionRow, repositoryRows, repositoryRowHtml, processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure,
     sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
     SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
@@ -641,6 +652,41 @@ const SESSION_SIDEBAR_GROUPS = [
     },
   },
   {
+    // #834: what the session costs the machine. Measured in main, one sample for every session, and only while the
+    // sidebar is in view: the read here starts the poll, `sidebarTickProcesses` keeps it going, and a collapsed group
+    // keeps it going on a slower cadence for the figure in its header (#840).
+    id: 'processes',
+    async load(entry, draw, force, current = () => true) {
+      const sessionId = sidebarSessionOf(entry).sessionId;
+      const answer = await Promise.resolve(window.api.processUsage([sessionId])).catch(() => null);
+      if (current()) {
+        sidebarSetHeadFigure(entry, 'processes', processHeadFigure(answer, sessionId));
+        sidebarScheduleProcesses(entry);
+      }
+      return processesHtml(processRows(answer, sessionId));
+    },
+  },
+  {
+    id: 'context',
+    async load(entry) {
+      const fromView = entry.conversation && entry.conversation.context ? entry.conversation.context() : null;
+      const session = sidebarSessionOf(entry);
+      const figures = sidebarContextFigures(fromView, session.contextFill, session.lastModel);
+      sidebarSetHeadFigure(entry, 'context', contextHeadFigure(figures));
+      if (!figures) return sidebarNote('No figure for this session yet.');
+      const percent = Math.max(0, Math.min(100, figures.percent));
+      const tokens = Number.isFinite(Number(figures.tokens)) && Number.isFinite(Number(figures.window))
+        ? `${Number(figures.tokens).toLocaleString()} of ${Number(figures.window).toLocaleString()} tokens` : '';
+      const breakdown = fromView && fromView.breakdown;
+      return (breakdown ? '' : `<div class="ssb-meter"><i style="width:${percent}%"></i></div>`)
+        + `<div class="ssb-figure">${Math.round(figures.percent)} % used</div>`
+        + (tokens ? `<div class="ssb-note">${escapeHtml(tokens)}</div>` : '')
+        + (figures.model ? `<div class="ssb-note">${escapeHtml(figures.model)}</div>` : '')
+        + (fromView && fromView.baseline ? sidebarNote(CONTEXT_BASELINE_NOTE) : '')
+        + (breakdown ? sidebarBreakdownHtml(entry, breakdown, figures.window) : '');
+    },
+  },
+  {
     id: 'tasks',
     // `current()` says whether this read is still the group's latest: an older one must not write the entry's issue
     // state, or a later keystroke would redraw its stale answer (#830).
@@ -709,36 +755,6 @@ const SESSION_SIDEBAR_GROUPS = [
     },
   },
   {
-    id: 'context',
-    async load(entry) {
-      const fromView = entry.conversation && entry.conversation.context ? entry.conversation.context() : null;
-      const session = sidebarSessionOf(entry);
-      const figures = sidebarContextFigures(fromView, session.contextFill, session.lastModel);
-      if (!figures) return sidebarNote('No figure for this session yet.');
-      const percent = Math.max(0, Math.min(100, figures.percent));
-      const tokens = Number.isFinite(Number(figures.tokens)) && Number.isFinite(Number(figures.window))
-        ? `${Number(figures.tokens).toLocaleString()} of ${Number(figures.window).toLocaleString()} tokens` : '';
-      const breakdown = fromView && fromView.breakdown;
-      return (breakdown ? '' : `<div class="ssb-meter"><i style="width:${percent}%"></i></div>`)
-        + `<div class="ssb-figure">${Math.round(figures.percent)} % used</div>`
-        + (tokens ? `<div class="ssb-note">${escapeHtml(tokens)}</div>` : '')
-        + (figures.model ? `<div class="ssb-note">${escapeHtml(figures.model)}</div>` : '')
-        + (fromView && fromView.baseline ? sidebarNote(CONTEXT_BASELINE_NOTE) : '')
-        + (breakdown ? sidebarBreakdownHtml(entry, breakdown, figures.window) : '');
-    },
-  },
-  {
-    // #834: what the session costs the machine. Measured in main, one sample for every session, and only while this
-    // group is open in a visible sidebar: the read here starts the poll, `sidebarTickProcesses` keeps it going.
-    id: 'processes',
-    async load(entry, draw, force, current = () => true) {
-      const sessionId = sidebarSessionOf(entry).sessionId;
-      const answer = await Promise.resolve(window.api.processUsage([sessionId])).catch(() => null);
-      if (current()) sidebarScheduleProcesses(entry);
-      return processesHtml(processRows(answer, sessionId));
-    },
-  },
-  {
     id: 'connectors',
     async load(entry) {
       const session = sidebarSessionOf(entry);
@@ -794,15 +810,44 @@ function loadSidebarGroup(entry, group, section, force = false) {
   });
 }
 
-// --- The Processes group's poll (#834). ---
-// A timer per sidebar while the group is open and shown. A tick with the sidebar out of view or the window hidden
-// measures nothing and waits; a closed, hidden or removed group ends the poll, and its next read starts it again.
+// --- A group's figure in its header (#840). ---
+// Shown by the stylesheet only while the group is collapsed; an open group has the figure in its body.
+function sidebarSetHeadFigure(entry, groupId, text) {
+  const el = entry.sidebar && entry.sidebar.querySelector(`.ssb-group[data-group="${groupId}"] > summary > .ssb-group-figure`);
+  if (el && el.textContent !== text) el.textContent = text;
+}
+
+// The Context figure costs no read: it comes from what the conversation view and the session already hold.
+function sidebarUpdateContextHead(entry) {
+  const fromView = entry.conversation && entry.conversation.context ? entry.conversation.context() : null;
+  const session = sidebarSessionOf(entry);
+  sidebarSetHeadFigure(entry, 'context', contextHeadFigure(sidebarContextFigures(fromView, session.contextFill, session.lastModel)));
+}
+
+// --- The Processes group's poll (#834, #840). ---
+// A timer per sidebar while the group is shown: every 4 s while it is open, every 15 s while it is collapsed, for the
+// CPU figure in its header. A tick with the sidebar out of view or the window hidden measures nothing and waits; a
+// hidden group (#835), a closed sidebar or a removed session ends the poll, and the group's next read starts it again.
 // A read through `loadSidebarGroup` (open, reload, shown again) takes over: a tick whose token is stale stops.
 const SIDEBAR_PROCESS_POLL_MS = 4000;
+const SIDEBAR_PROCESS_POLL_COLLAPSED_MS = 15000;
 
-function sidebarScheduleProcesses(entry) {
+function sidebarProcessSection(entry) {
+  return entry.sidebar ? entry.sidebar.querySelector('.ssb-group[data-group="processes"]') : null;
+}
+
+function sidebarScheduleProcesses(entry, delay) {
   clearTimeout(entry.sidebarProcessTimer);
-  entry.sidebarProcessTimer = setTimeout(() => sidebarTickProcesses(entry), SIDEBAR_PROCESS_POLL_MS);
+  const section = sidebarProcessSection(entry);
+  const wait = Number.isFinite(delay) ? delay : (section && !section.open ? SIDEBAR_PROCESS_POLL_COLLAPSED_MS : SIDEBAR_PROCESS_POLL_MS);
+  entry.sidebarProcessTimer = setTimeout(() => sidebarTickProcesses(entry), wait);
+}
+
+// A collapsed group has no read of its own to start the poll: the sidebar's show and the group's return from hidden
+// start it here, with a first tick right away so the header has its figure. An open group's read starts its own.
+function sidebarStartCollapsedProcesses(entry) {
+  const section = sidebarProcessSection(entry);
+  if (section && !section.open && !sidebarSectionHidden(section)) sidebarScheduleProcesses(entry, 0);
 }
 
 async function sidebarTickProcesses(entry) {
@@ -811,14 +856,20 @@ async function sidebarTickProcesses(entry) {
   // here, before anything is measured, or it would go on for a sidebar nobody can see.
   if (!entry.element.isConnected || openSessions.get(sidebarSessionOf(entry).sessionId) !== entry) return;
   const root = entry.sidebar;
-  const section = root && root.querySelector('.ssb-group[data-group="processes"]');
-  if (!section || !section.open || sidebarSectionHidden(section)) return;
-  if (!sidebarInView(entry) || document.hidden) { sidebarScheduleProcesses(entry); return; }
+  const section = sidebarProcessSection(entry);
+  if (!section || sidebarSectionHidden(section)) return;
+  if (!sidebarInView(entry) || document.hidden) {
+    // Coming into view starts a collapsed group's next tick at once rather than up to one slow interval later.
+    entry.sidebarProcessDue = true;
+    sidebarScheduleProcesses(entry);
+    return;
+  }
   const token = section._token;
   const sessionId = sidebarSessionOf(entry).sessionId;
   const answer = await Promise.resolve(window.api.processUsage([sessionId])).catch(() => null);
-  if (entry.sidebar !== root || section._token !== token || !section.open || sidebarSectionHidden(section)) return;
-  sidebarPatchProcesses(section.querySelector('.ssb-group-body'), processRows(answer, sessionId));
+  if (entry.sidebar !== root || section._token !== token || sidebarSectionHidden(section)) return;
+  sidebarSetHeadFigure(entry, 'processes', processHeadFigure(answer, sessionId));
+  if (section.open) sidebarPatchProcesses(section.querySelector('.ssb-group-body'), processRows(answer, sessionId));
   sidebarScheduleProcesses(entry);
 }
 
@@ -989,6 +1040,8 @@ function applySidebarHidden(entry, ids) {
     if (slot.hidden === hide) continue;
     slot.hidden = hide;
     const section = slot.querySelector('.ssb-group');
+    // A collapsed Processes group shown again starts its slow poll for the header figure (#840).
+    if (!hide && section && !section.open && section.dataset.group === 'processes') sidebarStartCollapsedProcesses(entry);
     if (hide || !section || !section.open) continue;
     const group = SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group);
     if (inView && group) loadSidebarGroup(entry, group, section);
@@ -1235,7 +1288,7 @@ function buildSidebar(entry) {
     <div class="ssb-body">${sessionSidebarGroupOrder().map((id) => SESSION_SIDEBAR_GROUPS.find((g) => g.id === id)).map((g) => `
       <div class="ssb-slot" data-group-slot="${g.id}"${hidden.includes(g.id) ? ' hidden' : ''}>
         <details class="ssb-group" data-group="${g.id}"${state.groups.includes(g.id) ? ' open' : ''}>
-          <summary>${escapeHtml(sidebarGroupLabel(g.id))}</summary>
+          <summary><span class="ssb-group-name">${escapeHtml(sidebarGroupLabel(g.id))}</span><span class="ssb-group-figure"></span></summary>
           <div class="ssb-group-body"></div>
         </details>
         <button type="button" class="ssb-grip" title="Drag to reorder (Alt+Up / Alt+Down)" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
@@ -1369,6 +1422,11 @@ function buildSidebar(entry) {
       const section = root.querySelector(`.ssb-group[data-group="${group.id}"]`);
       if (section && section.open && section._stale) loadSidebarGroup(entry, group, section);
     }
+    sidebarUpdateContextHead(entry);
+    if (entry.sidebarProcessDue) {
+      entry.sidebarProcessDue = false;
+      sidebarStartCollapsedProcesses(entry);
+    }
   });
   entry.sidebarObserver.observe(entry.element, { attributes: true, attributeFilter: ['class'] });
   return root;
@@ -1379,6 +1437,8 @@ function showSidebar(entry, width) {
   applySidebarWidth(entry, width);
   entry.element.classList.add('sidebar-open');
   loadOpenSidebarGroups(entry);
+  sidebarUpdateContextHead(entry);
+  sidebarStartCollapsedProcesses(entry);
   refitForSidebar(entry);
 }
 
@@ -1386,6 +1446,7 @@ function hideSidebar(entry) {
   if (sidebarGroupsPop && sidebarGroupsPop.root === entry.sidebar) closeSidebarGroupsPop(false);
   clearTimeout(entry.sidebarProcessTimer);
   entry.sidebarProcessTimer = null;
+  entry.sidebarProcessDue = false;
   entry.element.classList.remove('sidebar-open');
   if (entry.sidebarObserver) entry.sidebarObserver.disconnect();
   if (entry.sidebarResizeObserver) entry.sidebarResizeObserver.disconnect();
@@ -1424,9 +1485,19 @@ function sessionSidebarToggle(sessionId) {
   return open;
 }
 
+// The index's session objects were refreshed (`loadProjects`): a terminal session's `contextFill` moves with each turn
+// only there, so every sidebar's Context header follows it (#840). No read: it is the object the header reads anyway.
+function sessionSidebarSessionsChanged() {
+  for (const entry of openSessions.values()) {
+    if (entry && entry.sidebar) sidebarUpdateContextHead(entry);
+  }
+}
+
 function sessionSidebarContextChanged(sessionId) {
   const entry = openSessions.get(sessionId);
   const section = entry && entry.sidebar && entry.sidebar.querySelector('.ssb-group[data-group="context"]');
+  // The header's figure costs no read, so a collapsed group follows every change too (#840).
+  if (section) sidebarUpdateContextHead(entry);
   if (section && !sidebarInView(entry)) { section._stale = true; return; }
   if (section && section.open) loadSidebarGroup(entry, SESSION_SIDEBAR_GROUPS.find((g) => g.id === 'context'), section);
 }

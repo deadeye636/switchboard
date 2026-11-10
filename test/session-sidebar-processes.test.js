@@ -5,7 +5,7 @@ const test = require('node:test');
 const { after } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { processRows, sidebarCpu, sidebarBytes } = require('../src/renderer/session/session-sidebar');
+const { processRows, sidebarCpu, sidebarBytes, processHeadFigure, contextHeadFigure } = require('../src/renderer/session/session-sidebar');
 const { setupSessionSidebar, closeSessionSidebarWindows } = require('./helpers/session-sidebar-dom');
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -94,10 +94,56 @@ test('nothing is measured while the window is hidden or the sidebar is out of vi
   await h.run('sidebarTickProcesses(__entry)');
   assert.equal(asked(), before + 1, 'in view again, it measures');
 
-  h.slot('processes').querySelector('.ssb-group').open = false;
+  h.slot('processes').hidden = true;
   await h.run('clearTimeout(__entry.sidebarProcessTimer); sidebarTickProcesses(__entry)');
   assert.equal(asked(), before + 1);
-  assert.equal(h.run('__entry.sidebarProcessTimer'), null, 'a closed group ends the poll');
+  assert.equal(h.run('__entry.sidebarProcessTimer'), null, 'a hidden group ends the poll');
+});
+
+// #840: a collapsed group keeps measuring, slower, for the CPU figure in its header.
+test('the header figures: total CPU of a running session, the context share rounded, nothing without a figure', () => {
+  assert.equal(processHeadFigure(answerFor([{ pid: 1, name: 'a', depth: 0, cpu: 3.21, memory: MB }]), 's1'), '3.2 %');
+  assert.equal(processHeadFigure(answerFor([{ pid: 1, name: 'a', depth: 0, cpu: 0.04, memory: MB }]), 's1'), '<0.1 %');
+  assert.equal(processHeadFigure(answerFor([{ pid: 1, name: 'a', depth: 0, memory: MB }], { total: { cpu: null, memory: MB, count: 1 } }), 's1'), '');
+  assert.equal(processHeadFigure({ ok: true, supported: true, sessions: { s1: { running: false } } }, 's1'), '');
+  assert.equal(processHeadFigure({ ok: true, supported: false }, 's1'), '');
+  assert.equal(processHeadFigure(null, 's1'), '');
+  assert.equal(contextHeadFigure({ percent: 41.6 }), '42 %');
+  assert.equal(contextHeadFigure(null), '');
+});
+
+test('a collapsed group goes on measuring on the slow cadence, fills its header and leaves its body alone', async () => {
+  let cpu = 1;
+  const h = setupSessionSidebar({ processUsage: () => answerFor([{ pid: 10, name: 'bash', depth: 0, cpu, memory: MB }]) });
+  await flush(); await flush();
+  const section = h.slot('processes').querySelector('.ssb-group');
+  const figure = section.querySelector('summary > .ssb-group-figure');
+  assert.equal(figure.textContent, '1.0 %');
+  const bodyHtml = section.querySelector('.ssb-group-body').innerHTML;
+  section.open = false;
+  cpu = 7;
+  const before = h.calls.usage.length;
+  await h.run('clearTimeout(__entry.sidebarProcessTimer); sidebarTickProcesses(__entry)');
+  assert.equal(h.calls.usage.length, before + 1, 'collapsed, it still measures');
+  assert.equal(figure.textContent, '7.0 %');
+  assert.equal(section.querySelector('.ssb-group-body').innerHTML, bodyHtml, 'the body is not redrawn');
+  assert.ok(h.run('!!__entry.sidebarProcessTimer'), 'and the poll goes on');
+  assert.equal(h.run('SIDEBAR_PROCESS_POLL_COLLAPSED_MS > SIDEBAR_PROCESS_POLL_MS'), true);
+});
+
+test('a sidebar shown with the group collapsed measures once at once, without reading its body', async () => {
+  const h = setupSessionSidebar({ processUsage: () => answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 2, memory: MB }]) });
+  await flush(); await flush();
+  h.run('sessionSidebarToggle("s1")');
+  h.run(`localStorage.setItem('sessionSidebar', JSON.stringify({ s1: { open: false, width: 280, groups: [], at: 2 } }))`);
+  const before = h.calls.usage.length;
+  h.run('sessionSidebarToggle("s1")');
+  await new Promise((r) => setTimeout(r, 5)); await flush();
+  assert.equal(h.calls.usage.length, before + 1);
+  const section = h.slot('processes').querySelector('.ssb-group');
+  assert.equal(section.open, false);
+  assert.equal(section.querySelector('summary > .ssb-group-figure').textContent, '2.0 %');
+  assert.equal(section.querySelector('.ssb-group-body').innerHTML, '');
 });
 
 test('a session closed or moved away with the group open ends the poll before anything is measured', async () => {
@@ -135,4 +181,34 @@ test('closing the sidebar ends the poll', async () => {
   assert.ok(h.run('!!__entry.sidebarProcessTimer'));
   h.run('sessionSidebarToggle("s1")');
   assert.equal(h.run('__entry.sidebarProcessTimer'), null);
+});
+
+test('a collapsed Context header follows a refreshed session object and a context change, with no read', async () => {
+  const h = setupSessionSidebar();
+  await flush(); await flush();
+  const section = h.slot('context').querySelector('.ssb-group');
+  section.open = false;
+  const figure = section.querySelector('summary > .ssb-group-figure');
+  const reads = h.calls.reads.length;
+  h.run('__entry.session.contextFill = { percent: 41.6 }; sessionSidebarSessionsChanged()');
+  assert.equal(figure.textContent, '42 %', 'a terminal session: loadProjects refreshed the object');
+  h.run('__entry.session.contextFill = { percent: 63 }; sessionSidebarContextChanged("s1")');
+  assert.equal(figure.textContent, '63 %', 'a pipe session: the conversation view reports a change');
+  assert.equal(h.calls.reads.length, reads, 'nothing is read for it');
+});
+
+test('a collapsed Processes group shown again after being hidden starts its poll at once', async () => {
+  const h = setupSessionSidebar({ processUsage: () => answerFor([{ pid: 10, name: 'bash', depth: 0, cpu: 5, memory: MB }]) });
+  await flush(); await flush();
+  const section = h.slot('processes').querySelector('.ssb-group');
+  section.open = false;
+  h.run('sessionSidebarSetHidden(["processes"])');
+  await h.run('clearTimeout(__entry.sidebarProcessTimer); sidebarTickProcesses(__entry)');
+  assert.equal(h.run('__entry.sidebarProcessTimer'), null, 'hidden, the poll ends');
+  const before = h.calls.usage.length;
+  h.run('sessionSidebarSetHidden([])');
+  assert.ok(h.run('!!__entry.sidebarProcessTimer'), 'shown again, it is scheduled');
+  await new Promise((r) => setTimeout(r, 5)); await flush();
+  assert.equal(h.calls.usage.length, before + 1);
+  assert.equal(section.querySelector('summary > .ssb-group-figure').textContent, '5.0 %');
 });

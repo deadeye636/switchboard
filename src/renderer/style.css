@@ -3083,7 +3083,10 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 3px; }
 .ssb-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.1); }
 .ssb-group { border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
-.ssb-group > summary { cursor: pointer; padding: 7px 28px 7px 8px; font-weight: 500; user-select: none; }
+.ssb-group > summary { cursor: pointer; padding: 7px 28px 7px 8px; font-weight: 500; user-select: none; white-space: nowrap; }
+/* #840: a collapsed group's figure (Processes CPU, Context usage), in the row-meta tone; an open group shows it in its body. */
+.ssb-group-figure { float: right; margin-top: 1px; font-size: 10px; font-weight: 400; color: #7a7a90; }
+.ssb-group[open] > summary > .ssb-group-figure { display: none; }
 .ssb-group-body { padding: 0 8px 8px; }
 /* The groups' order (#829): a grip at the right of a group's head row, shown while that row is hovered or the grip has
    the focus; the dragged group at the 0.5 every drag in the app uses, and the project list's 2px line where it lands. */

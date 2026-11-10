@@ -15,13 +15,15 @@
     Object.assign(root, factory());
   }
 })(typeof window !== 'undefined' ? window : globalThis, function () {
+  // The default order (#841): the two figures a user glances at most come right after where the session runs. A saved
+  // order (`sessionSidebarOrder`, #829) is kept as it is.
   const SESSION_SIDEBAR_GROUP_NAMES = Object.freeze([
     Object.freeze({ id: 'repository', label: 'Repository' }),
+    Object.freeze({ id: 'processes', label: 'Processes' }),
+    Object.freeze({ id: 'context', label: 'Context' }),
     Object.freeze({ id: 'tasks', label: 'Tasks & notes' }),
     Object.freeze({ id: 'handoffs', label: 'Handoffs' }),
     Object.freeze({ id: 'instructions', label: 'Instructions' }),
-    Object.freeze({ id: 'context', label: 'Context' }),
-    Object.freeze({ id: 'processes', label: 'Processes' }),
     Object.freeze({ id: 'connectors', label: 'Connectors' }),
   ]);
 
