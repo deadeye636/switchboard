@@ -741,7 +741,7 @@
           <div class="settings-nav-head">Project</div>
           <button class="settings-nav-item active" data-cat="project">Project <span class="settings-nav-count"></span></button>
           <button class="settings-nav-item" data-cat="shells">Shells <span class="settings-nav-count"></span></button>
-          <button class="settings-nav-item" data-cat="idle-maintenance">Idle maintenance <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="idle-maintenance">Session idle maintenance <span class="settings-nav-count"></span></button>
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">Documents</div>
           <button class="settings-nav-item" data-cat="plans">Plans <span class="settings-nav-count"></span></button>
@@ -750,8 +750,8 @@
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">Extensions</div>
           <button class="settings-nav-item" data-cat="launchers">Terminal tools</button>
-          ${window.settingsPlugins.navHtml('project')}
           ${window.settingsInstructions.navHtml()}
+          ${window.settingsPlugins.navHtml('project')}
           <div class="settings-nav-sep" id="sv-nav-backends-sep" hidden></div>
           <div class="settings-nav-head" id="sv-nav-backends-head" hidden>Backends</div>
           <div id="sv-nav-backends"></div>
@@ -954,9 +954,8 @@
         </section>
 
         <section class="settings-cat" data-cat="idle-maintenance">
-        <div class="settings-cat-head"><h2>Idle maintenance</h2><p>What happens to this project's pipe-driven sessions while they sit idle.</p></div>
-        <div class="settings-section">
-          <div class="settings-section-title">Idle maintenance</div>${idleMaintenanceFields}
+        <div class="settings-cat-head"><h2>Session idle maintenance</h2><p>What happens to this project's pipe-driven sessions while they sit idle.</p></div>
+        <div class="settings-section">${idleMaintenanceFields}
         </div>
         </section>
 

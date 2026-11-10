@@ -80,6 +80,7 @@
           </div>
           <div class="settings-nav-head">Switchboard</div>
           <button class="settings-nav-item active" data-cat="sessions">Sessions <span class="settings-nav-count"></span></button>
+          <button class="settings-nav-item" data-cat="idle-maintenance">Session idle maintenance <span class="settings-nav-count"></span></button>
           <button class="settings-nav-item" data-cat="terminal">Terminal <span class="settings-nav-count"></span></button>
           <button class="settings-nav-item" data-cat="editor">Editor &amp; files <span class="settings-nav-count"></span></button>
           <button class="settings-nav-item" data-cat="documents">Documents <span class="settings-nav-count"></span></button>
@@ -93,8 +94,8 @@
           <button class="settings-nav-item" data-cat="backends">Backends</button>
           <button class="settings-nav-item" data-cat="launchers">Custom launchers</button>
           <button class="settings-nav-item" data-cat="tags">Tags</button>
-          ${window.settingsPlugins.navHtml('global')}
           ${window.settingsInstructions.navHtml()}
+          ${window.settingsPlugins.navHtml('global')}
           <div class="settings-nav-sep"></div>
           <div class="settings-nav-head">App</div>
           <button class="settings-nav-item" data-cat="maintenance">Maintenance <span class="settings-nav-count"></span></button>
@@ -151,7 +152,7 @@
                       <option value="steer" ${conversationEnterWhileBusyValue === 'steer' ? 'selected' : ''}>Steer</option>
                     </select>
                   </div>
-                </div>${idleMaintenanceFields}
+                </div>
                 <div class="settings-field">
                   <div class="settings-field-info">
                     <span class="settings-label">Check spelling</span>
@@ -253,6 +254,13 @@
               </div>
 
 
+            </section>
+
+            <!-- ===== Session idle maintenance (spec 45) ===== -->
+            <section class="settings-cat" data-cat="idle-maintenance">
+              <div class="settings-cat-head"><h2>Session idle maintenance</h2><p>What happens to pipe-driven sessions while they sit idle.</p></div>
+              <div class="settings-section">${idleMaintenanceFields}
+              </div>
             </section>
 
             <!-- ===== Maintenance ===== -->

@@ -1,6 +1,6 @@
 // settings-instructions.js — the Instructions category of the settings screen (#823 T6, spec 44, plan P1 and P9).
 //
-// Its own nav item in both windows, beside the Plugins group and not in it: instruction, memory and settings files are
+// Its own nav item in both windows, in the Extensions group just before the Plugins group and not in it (#833): instruction, memory and settings files are
 // what a CLI already reads, not something added to it. The page is `pluginsViews.mountItemView` (panels/plugins-views.js,
 // loaded before this file) with another door, so the list with its per-CLI chips, the detail page, the editor, the
 // conflict handling and the read-only viewer exist once.
@@ -31,7 +31,6 @@
 
   function navHtml() {
     return `
-          <div class="settings-nav-sep"></div>
           <button class="settings-nav-item" data-cat="${CAT}" data-count-own="1">Instructions <span class="settings-nav-count" hidden></span></button>`;
   }
 

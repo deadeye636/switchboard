@@ -51,12 +51,6 @@ back on Save.
 | `expandToolOutput` | Show tool calls expanded | bool | `false` | global |
 | `conversationEnterWhileBusy` | Enter while a turn runs | `hold` \| `steer` | `hold` | global |
 | `sessionSidebarDefault` | Session sidebar on a new session: whether it starts open in a session with no stored state (#831, spec 43) | `open` \| `closed` | `closed` | global |
-| `idleMaintenanceMode` | Maintenance while idle: real model turns a pipe-driven session gets while idle; compaction can lose detail (spec 45) | `off` \| `warm` \| `compact` \| `warm-compact` | `off` | global + project |
-| `idleMaintenanceRefreshMinutes` | Minutes between refreshes, from the last turn. 0 is the backend's bound; a longer one is refused | 0 to 60 | `0` | global + project |
-| `idleMaintenanceRefreshLimit` | Refreshes per idle period; a real turn starts a new one | 1 to 10 | `3` | global + project |
-| `idleMaintenanceIdleMinutes` | Minutes idle before Compact only | 1 to 1440 | `10` | global + project |
-| `idleMaintenanceCeilingMinutes` | No maintenance later than this after the last turn | 1 to 1440 | `180` | global + project |
-| `idleMaintenanceBestEffortCompact` | Compact after a cold refresh: compact even though a refresh found the cache cold | bool | `false` | global + project |
 | `spellCheck` | Check spelling | bool | `true` | global |
 | `spellCheckLanguages` | Spelling languages | language codes separated by commas; empty means `de-DE, en-US`; hidden on macOS, where the OS decides | empty | global |
 | `documentPreview` | Documents in the conversation | `card` \| `inline` | `card` | global |
@@ -86,6 +80,20 @@ thing the flag exists to prevent.
 but only when the key is **absent**, because that script runs on every `demo:start` and would otherwise undo
 any attempt to see the tour. To watch the first-launch path, set `welcomeDismissed` to **`false`** in the
 demo store (not delete it): absent is re-stamped, `false` is left alone and shows the tour.
+
+## Session idle maintenance
+
+Its own category in both settings windows (#832); a running session can override the mode from the idle
+control's popover in the conversation view (spec 45).
+
+| Key | Label | Values | Default | Scope |
+|---|---|---|---|---|
+| `idleMaintenanceMode` | Maintenance while idle: real model turns a pipe-driven session gets while idle; compaction can lose detail (spec 45) | `off` \| `warm` \| `compact` \| `warm-compact` | `off` | global + project |
+| `idleMaintenanceRefreshMinutes` | Minutes between refreshes, from the last turn. 0 is the backend's bound; a longer one is refused | 0 to 60 | `0` | global + project |
+| `idleMaintenanceRefreshLimit` | Refreshes per idle period; a real turn starts a new one | 1 to 10 | `3` | global + project |
+| `idleMaintenanceIdleMinutes` | Minutes idle before Compact only | 1 to 1440 | `10` | global + project |
+| `idleMaintenanceCeilingMinutes` | No maintenance later than this after the last turn | 1 to 1440 | `180` | global + project |
+| `idleMaintenanceBestEffortCompact` | Compact after a cold refresh: compact even though a refresh found the cache cold | bool | `false` | global + project |
 
 ## Terminal
 

@@ -184,7 +184,9 @@ Per live pipe-driven session in a mode other than Off, with a timer owned by mai
 
 Keys in the settings blob, global and per project: `idleMaintenanceMode` (`off`), `idleMaintenanceIdleMinutes`,
 `idleMaintenanceRefreshMinutes`, `idleMaintenanceRefreshLimit`, `idleMaintenanceCeilingMinutes`,
-`idleMaintenanceBestEffortCompact`. The project value goes
+`idleMaintenanceBestEffortCompact`. Both settings windows show them in a category of their own, **Session idle
+maintenance** (`idle-maintenance`, #832); the global window had them inside Sessions, without a heading, where they read
+as stray fields. The project value goes
 through `settingsOwnerPath` (reflex 17), never `'project:' + path` by hand. The running-session override is a third,
 runtime-only level held by main per live session; it never writes the defaults and is not persisted (O2). Default is Off.
 All keys are added to `docs/settings-reference.md` with their real code defaults.
