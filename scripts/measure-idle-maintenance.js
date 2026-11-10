@@ -5,8 +5,10 @@
 // It costs a few short model turns, one large turn on Pi and one compaction per backend, on the smallest model, and leaves
 // one session of each in the stores (it prints the ids). It exits 1 when a backend's measurement did not complete.
 //
-// Usage: node scripts/measure-idle-maintenance.js [--only=claude|pi|claude-refused-compact] [--help]
+// Usage: node scripts/measure-idle-maintenance.js [--only=claude|pi|claude-refused-compact|claude-large-compact] [--help]
 //   `claude-refused-compact` runs only the declined `/compact` (an empty session; no model turn is asked for).
+//   `claude-large-compact` runs a large turn, a short one and a `/compact`, and prints whether `compact_boundary` came
+//   before the `result` (one large Haiku turn and one compaction of it).
 //   Run it from an empty directory you trust: Windows looks up a bare program there first. Pi's session goes to
 //   `pi-sessions` in that directory; Claude's goes to its own store under $CLAUDE_CONFIG_DIR or the default home.
 // The last measurement is in `docs/backend-formats.md` ("What idle maintenance can rely on").
@@ -20,7 +22,7 @@ const path = require('path');
 const readline = require('readline');
 
 if (process.argv.includes('--help')) {
-  console.log('node scripts/measure-idle-maintenance.js [--only=claude|pi|claude-refused-compact]   (from an empty directory you trust; costs model turns)');
+  console.log('node scripts/measure-idle-maintenance.js [--only=claude|pi|claude-refused-compact|claude-large-compact]   (from an empty directory you trust; costs model turns)');
   process.exit(0);
 }
 
@@ -192,6 +194,40 @@ async function measureClaudeRefusedCompact() {
   return Boolean(end);
 }
 
+// A `/compact` on a large session (handoff point 9 of #827, spec 45's closed gap): claude-native's "Compacted" record
+// rests on `system/compact_boundary` arriving BEFORE the `result` that ends the compaction's turn, and that was measured on
+// two short turns only. A large turn (FILLER_NUMBERS numbers, tens of thousands of tokens) and a short one go first, so
+// the compaction has real work and takes its time; then the order of the two lines after `/compact` is printed.
+async function measureClaudeLargeCompact() {
+  const order = [];
+  let compacting = false;
+  const c = start('claude', 'claude -p --model haiku --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages --permission-prompt-tool stdio --strict-mcp-config --setting-sources project', {}, (m) => {
+    if (compacting && (m.type === 'result' || (m.type === 'system' && m.subtype === 'compact_boundary'))) order.push(m.type === 'result' ? 'result' : 'compact_boundary');
+    const line = summarizeClaude(m);
+    return m.type === 'result' && m.usage ? `${line} input_tokens=${(m.usage.input_tokens || 0) + (m.usage.cache_read_input_tokens || 0) + (m.usage.cache_creation_input_tokens || 0)}` : line;
+  });
+  const isEnd = (m) => m.type === 'result';
+  const user = (text) => ({ type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null, session_id: '' });
+  const filler = Array.from({ length: FILLER_NUMBERS }, (_, i) => i).join(' ');
+  c.say('--- large turn');
+  c.write(user(`Reply with the single word: large. Ignore this list: ${filler}`));
+  await c.until(isEnd, STEP_TIMEOUT_MS * 2);
+  c.say('--- short turn');
+  c.write(user('Reply with the single word: short'));
+  await c.until(isEnd);
+  c.say('--- /compact');
+  compacting = true;
+  const compactStarted = Date.now();
+  c.write(user('/compact'));
+  await c.until(isEnd, STEP_TIMEOUT_MS * 3);
+  await sleep(SETTLE_MS);
+  await c.stop();
+  c.say(`compaction took ${((Date.now() - compactStarted) / 1000).toFixed(1)}s; order after /compact: ${order.join(' -> ') || 'nothing'}`);
+  const ok = order[0] === 'compact_boundary' && order.includes('result');
+  c.say(ok ? 'compact_boundary came before result' : 'compact_boundary did NOT come before result');
+  return ok;
+}
+
 // --- pi-native's launch shape, without its runtime extension ---
 
 function summarizePi(msg) {
@@ -288,7 +324,8 @@ async function measurePi() {
 }
 
 const runs = only === 'claude-refused-compact' ? [measureClaudeRefusedCompact()]
-  : [only === 'pi' ? true : measureClaude(), only === 'claude' ? true : measurePi()];
+  : only === 'claude-large-compact' ? [measureClaudeLargeCompact()]
+    : [only === 'pi' ? true : measureClaude(), only === 'claude' ? true : measurePi()];
 Promise.all(runs)
   .then((answers) => process.exit(answers.every(Boolean) ? 0 : 1))
   .catch((err) => { console.error(`failed: ${err.code || err.name}`); process.exit(1); });

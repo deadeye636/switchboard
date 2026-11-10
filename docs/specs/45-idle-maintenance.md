@@ -291,8 +291,10 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
 - [x] A refused `/compact` on Claude read as compacted. Closed 2026-11-10 by `confirmedBy` (see "Neutral capability"). Its
   error reply ("Error: No messages to compact") is still drawn in the conversation, as any declined command is. The fix
   rests on `compact_boundary` arriving before the `result` that ends the turn: measured again on 2.1.318 the same day, on
-  a session of two short turns only. Should a larger session ever send the `result` first, a real compaction would be
-  recorded as skipped.
+  a session of two short turns, and on a large one the same day (`scripts/measure-idle-maintenance.js
+  --only=claude-large-compact`, Haiku: a turn of about 99 000 input tokens and a short one, then `/compact`; the
+  compaction took about 12 s and `compact_boundary` came first, immediately before the `result`). Should a CLI
+  version ever send the `result` first, a real compaction would be recorded as skipped; that mode is the re-check.
 - [x] A compaction its idle edge was to end, whose turn never began, left the schedule's `running` on `compact` until the
   next turn. Closed 2026-11-10: `maintenance-ended` records it as "Compaction skipped" and ends the period as `refused`,
   unless `tick` still waits for the action's answer (`awaitingAnswer`), which then carries the outcome, or the end came
