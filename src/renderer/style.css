@@ -3439,7 +3439,9 @@ html body .terminal-container.conversation-container:not(.visible) {
 
 /* The session line (#691): context fill, model and working state on the left, background buttons right. */
 .conversation-status { display: flex; align-items: center; gap: 10px; }
-.conversation-status-text { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; }
+/* The padding is room for a control's border and focus ring at the edges, where `overflow: hidden` would cut them
+   (a button's own `margin: 0 -4px` reaches past the box); the negative margin keeps the line where it was. */
+.conversation-status-text { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; overflow: hidden; white-space: nowrap; padding: 4px 8px; margin: -4px -8px; }
 .conversation-status-sep { color: #45455a; }
 .conversation-ctx { display: inline-flex; align-items: center; gap: 6px; }
 .conversation-ctx-meter { width: 46px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
