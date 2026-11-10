@@ -21,6 +21,8 @@ Measured or documented, with fake values: the Claude `compact_boundary` and summ
 `world_state` + `turn_context` lines and the zero `token_count` after it, the guardian header (`thread_source`,
 `parent_thread_id`, `session_id`), and the Pi refusal text.
 
+Found wrong against real data (T4): a `mode` line carries the prompt-input mode (`normal`), not a permission mode, so the fixture's `"mode":"acceptEdits"` line is not what a real file holds; the reader ignores it and gets the change from the next user line's `permissionMode`. An `instructions` attachment can also repeat (`changed`, `reason`) and its files have a `type`.
+
 Still guessed: the `Agent` tool name, the `agentId` on the child file's lines, the `spawn_agent` / `wait_agent` argument
 and output keys, the exec input key `cmd`, the `status` values in `wait_agent` output, and Pi's `usage` key names and entry
 wrapper. Confirm against a real transcript before a reader relies on them.

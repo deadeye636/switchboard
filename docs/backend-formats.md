@@ -225,8 +225,10 @@ Read from existing transcripts, structure only (2026-11-07). The session flow di
   `path` and `content`: CLAUDE.md, the rule files and the other memory files loaded at start. A subagent's own
   transcript carries its own `instructions` attachment. The token share per file is only an estimate from the
   characters; the measured total is the first request's `usage`.
-- **Permission mode.** `permissionMode` sits on every user line (`auto` in the sample); a `type: "mode"` line
-  carries `mode`.
+- **Permission mode.** `permissionMode` sits on every user line (`auto` in the sample). A `type: "mode"` line
+  is NOT a permission mode: measured over the 150 largest local transcripts it carries only `normal` (the
+  prompt-input mode). An `instructions` attachment can repeat (`changed`, `reason`: `session_start`,
+  `compaction`) and each file entry has `path`, `type`, `content`.
 - **Blocked and denied calls.** A `tool_result` with `is_error` and the text `PreToolUse:<Tool> hook error:
   BLOCKED: …` is a hook block; `Permission for this action was denied …` is a denial. An `attachment` of type
   `hook_cancelled` marks a cancelled hook; `hook_success`, `hook_additional_context` and

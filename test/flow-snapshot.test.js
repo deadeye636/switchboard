@@ -101,6 +101,16 @@ test('step ids never collide across a synthetic 20k-step input, and a snapshot o
   assert.deepEqual(flow.validateSnapshot(snap), { ok: true, errors: [] });
 });
 
+test('parentStepId is optional and, when present, must name a step of the snapshot', () => {
+  const snap = minimal();
+  snap.steps[0].parentStepId = snap.steps[0].id;
+  assert.equal(flow.validateSnapshot(snap).ok, true);
+  snap.steps[0].parentStepId = 'ghost';
+  const r = flow.validateSnapshot(snap);
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some(e => /parentStepId 'ghost' names no step/.test(e)), JSON.stringify(r.errors));
+});
+
 test('a capability that is not fully there must name a limitation; instructionFiles is full only as perFile', () => {
   const cases = [
     [s => { s.capabilities.agents = { state: 'no', limitationId: null }; }, /must carry a limitationId/],
@@ -182,8 +192,8 @@ test('requiring the backend registry loads no flow reader (spec 46: lazy, never 
   const readers = loaded.filter(f => /\/src\/backends\/(?:[^/]+\/)?flow-(?:reader|stub)[^/]*\.js$/.test(f));
   assert.deepEqual(readers, [], 'a flow reader module was loaded with the registry');
   // …and the hook does load it, on use.
-  const claude = backends.get('claude');
-  const snap = claude.readSessionFlow([], {});
+  const codex = backends.get('codex'); // still on the stub; Claude's reader is covered by flow-claude-reader.test.js
+  const snap = codex.readSessionFlow([], {});
   assert.equal(flow.validateSnapshot(snap).ok, true);
   assert.ok(Object.keys(require.cache).some(f => /flow-stub\.js$/.test(f)), 'the first call should load the reader');
 });

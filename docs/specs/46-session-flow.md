@@ -62,6 +62,7 @@ Lane { id, parentLaneId, depth, label, kind: 'main' | 'agent' | 'collapsedCall' 
        summaryOnly: boolean,      // a Pi subagent: one node, no steps
        sessionRef: null }         // reserved for #804/#806
 Step { id, laneId, ordinal, turn, kind, label, ts: null | number,
+       parentStepId?,             // optional: an instruction file names its start step; must name a step of the snapshot
        source: { sourceId, line, byteOffset },  // sourceId is opaque; no path leaves main
        checkpoint: null | { input: Evidence, window: Evidence, model },
        tokens: null | Evidence,   // only where the transcript measures one value for THIS step
@@ -135,7 +136,7 @@ readSessionFlow(sources, { signal, limit, cursor }) -> FlowSnapshot
 As built: `sessionFlow` is synchronous because `transcriptPathFor` only joins strings. Any future filesystem work (a stat, a
 readdir) makes the hook async; it must never do sync fs. Each descriptor requires its reader lazily inside `readSessionFlow`, so
 loading the registry loads no reader (`test/flow-snapshot.test.js`); `src/backends/flow-stub.js` answers an empty snapshot until a
-real reader replaces it, with the same capabilities the descriptor's `sessionFlow` answered (both come from one function, pinned in
+real reader replaces it (Codex and Pi still use it; Claude's reader is built, see "Claude reader, as built" below), with the same capabilities the descriptor's `sessionFlow` answered (both come from one function, pinned in
 `test/backend-parity.test.js`). A real reader lives in `<backend folder>/flow-reader.js`. The native drivers (`claude-native`, `pi-native`) forward their owner's two functions, as they do
 `transcriptPathFor`. The cheap shared pieces are in `src/backends/flow-hook.js`.
 
@@ -254,7 +255,48 @@ visible.
 | O8 | Whether claude-native or pi-native declares a measured start baseline (req. 3, "may use an existing measured baseline"). | None in the first version; the start total stays `unknown` before the first request. Revisit with #758. |
 | O9 | Whether the Flow tab remembers its collapse state across reopen. | Per session, in memory only, for the first version; no setting. |
 
-**O5 measured (2026-11-10, one machine, `scripts/measure-flow-sizes.js`).** Claude: 2523 files, size p50/p90/p99/max 774/2464/17455/59170 KB, the largest files 674-2385 assistant steps. Codex: max 6.4 MB, at most 79 steps among the largest. Pi: max 82 MB, at most 786 steps. Steps are few, bytes many, so the binding bounds are the per-line byte cap, string truncation and the wall-clock budget (see `docs/plans/826-session-flow/PLAN.md`, "O5 input").
+### Claude reader, as built (T4/T5)
+
+`src/backends/claude/flow-reader.js`, with the capability and limitation data in `src/backends/claude/flow-capabilities.js` (read by
+both the descriptor's `sessionFlow` and the reader, so the two halves cannot disagree). **`readSessionFlow` of a streaming reader
+returns a Promise** (the stub returns a value): the caller awaits it. It never rejects for a read problem; an unreadable file, an
+abort and every cap end in a snapshot with `complete: false` and a limitation (`read-failed`, `aborted`, `step-cap`, `size-cap`,
+`line-over-cap`, `nothing-read`), none of which names a path.
+
+- **Reading.** `fs.createReadStream`, 64 KB chunks, split on `
+` in the Buffer, a 4 MB per-line cap. A longer line is dropped as it
+  streams (never concatenated, decoded or parsed) and becomes one `event` step labelled "A line exceeded the size cap" with `unknown`
+  evidence and a `line-over-cap` limitation; `complete` is false. The signal is checked between chunks. No `readline`, no sync fs.
+- **Caps.** 20 000 steps and an 8 MB serialised-size estimate (label and detail lengths plus a fixed overhead per step). The estimate is an approximation (string lengths, JSON escapes not counted), checked after a step and after result or summary text is added, so the real serialised size can differ by a small factor. The measured
+  largest transcripts yield about a thousand steps, so the size estimate is the bound that matters; either one stops the read.
+- **Steps.** `start` (the first line); `instructions` children of it (`parentStepId`, part of the shape and checked by `validateSnapshot`; characters in `detail`, `tokens` estimated as about characters / 4); `event` for a slash command (`<command-name>`, labelled with the command, its `<local-command-stdout>` folded into `detail.output`; it starts no turn); a line with `isSidechain` is skipped on the main lane until Phase 2; `prompt` (a user line
+  without `isMeta`, `isCompactSummary` or `isVisibleInTranscriptOnly`; text parts or an image); `thinking`; `tool` (the call and its
+  `tool_result`, paired by `tool_use_id`, `detail.tool` is the tool name on every `tool` step, the key the layout's equivalence rule reads; result and `status` in `detail`; a result with `is_error` puts an `outcome` flag, evidence `structured`, on the step so a failed call never collapses into a run); `output`; `interrupt` (`[Request interrupted by user`
+  prefix); `compaction`; `mode`.
+- **Checkpoints.** `message.usage` input + cache read + cache creation, `measured`, on the first step of a request (a repeated
+  `message.id` is the same request); a request with a zero input has none. The window is `windowFor(parseSpec(model))` from
+  `model-windows.js` and is `estimated`, decided by `resolveClaudeVariant` (#620/#621): the model's base window, the 1M window when the model string carries `[1m]`, and the 1M window when the request exceeded the base window (the floor); `unknown` for a model without a window; hence
+  `contextCheckpoints` is `partial` (`window-inferred`). The reader never subtracts two checkpoints.
+- **Compaction.** `detail.before` is the last non-zero request input ahead of it, `detail.after` the next non-zero one (`unknown` when
+  none follows); the boundary line's `preTokens`/`postTokens` stay as `reportedPreTokens`/`reportedPostTokens`; the summary line is
+  `detail.summary` of the compaction and is never a prompt. Its `checkpoint` is the "before" reading.
+- **Mode.** A `mode` step on a change of `permissionMode` only; the first value is the start step's `detail.mode`. **A `type: "mode"`
+  line is not a permission mode**: measured over the 150 largest local transcripts it carries only `normal` (the prompt-input mode)
+  while `permissionMode` carries `auto`, `default`, `plan`, `acceptEdits`. The reader ignores `mode` lines.
+- **Instruction files.** `attachment.type: "instructions"`, `files[]` of `{ path, type, content }`. An attachment can repeat in one
+  transcript with `changed` and `reason` (`session_start`, `compaction`, seen on 13 of 174); each repeat lists its files again as
+  children of the start step, the reason in `detail`. Start total: the first request's input, `measured`, with the `hidden-input`
+  limitation (system prompt, tool definitions and memory also count; the files do not add up to it); `unknown` before a first request.
+- **Capabilities answered:** `agents` partial (subagent lanes are Phase 2), `instructionFiles` perFile, `contextCheckpoints` partial,
+  `permissionMode` yes, `approvals` no (a terminal transcript records no ask/allow), `compaction` yes, `interrupt` yes,
+  `destructivePatterns` no (Phase 5), `timestamps` yes. The `sessionFlow` row of Claude and claude-native stays `limited`.
+
+**Reader timing (T4, one machine, 2026-11-10, Node, warm disk cache).** Largest local Claude transcript (59 170 KB): 742 ms wall, peak
+heap about 26 MB, 1165 steps, 961 KB serialised. A 48 MB one: 508 ms, 28 MB, 732 steps, 602 KB. A 17 MB one: 227 ms, 22 MB, 1586
+steps, 1405 KB. The median-size file (775 KB): 13 ms, 10 MB, 48 steps. About 2 % of the 30 s worker timeout for the worst case; every
+line is `JSON.parse`d (lines over the cap excepted), no cheap-prefix shortcut was needed.
+
+**O5 measured (2026-11-10, one machine, `scripts/measure-flow-sizes.js`).** Claude: 2523 files, size p50/p90/p99/max 774/2464/17455/59170 KB, the largest files 674-2385 assistant steps. Codex: max 6.4 MB, at most 79 steps among the largest. Pi: max 82 MB, at most 786 steps. Steps are few, bytes many, so the binding bounds are the per-line byte cap, string truncation and the wall-clock budget (see `docs/plans/826-session-flow/PLAN.md`, "O5 input"). T4 set the caps to 20 000 steps and 8 MB of estimated snapshot size; the measured Claude maxima are about 1.2k steps and 1.4 MB.
 
 ## Known gaps (planned)
 

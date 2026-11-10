@@ -26,7 +26,7 @@ const PINNED = {
     review: 'no',     // spec 39: a review runs on a pipe; Claude's pipe driver is claude-native
     task: 'no',     // spec 41: a task runs on a pipe; Claude's pipe driver is claude-native
     idleMaintenance: 'no', // spec 45 E2: the pipe driver is claude-native
-    sessionFlow: 'limited', // spec 46: reader stub until T4/T5
+    sessionFlow: 'limited', // spec 46: main lane read; agents, approvals, risk marks not yet
     turnDigest: 'yes',   // #507: a bounded tail read of its JSONL
     resumeModel: 'yes', modelList: 'no', endpoint: 'yes', projectTrust: 'yes',
     subagentSessions: 'yes', liveOwners: 'yes', stopLiveOwner: 'yes', liveRebinding: 'yes',

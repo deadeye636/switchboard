@@ -351,14 +351,14 @@ test('every backend answers the session-flow hooks — a decline is () => null',
   assert.match(sessionFlowProblem({ id: 'stub', sessionFlow: () => 'yes', readSessionFlow: () => null }), /sessionFlow\(null\) must be null/);
 });
 
-test('the sessionFlow capability row agrees with what the hook answers, and a reader returns a valid snapshot', () => {
+test('the sessionFlow capability row agrees with what the hook answers, and a reader returns a valid snapshot', async () => {
   const { validateSnapshot } = require('../src/shared/flow-snapshot');
   for (const b of READY) {
     const answer = b.sessionFlow({ filePath: '/x/y.jsonl', folder: 'x', sessionId: 'y' });
     const state = b.capabilities.sessionFlow.state || b.capabilities.sessionFlow;
     assert.equal(answer === null, state === 'no', `${b.id}: the sessionFlow row says ${state} but the hook ${answer === null ? 'declines' : 'answers'}`);
     if (answer) {
-      const snap = b.readSessionFlow(answer.sources, {});
+      const snap = await b.readSessionFlow(answer.sources, {}); // a streaming reader answers a promise, a stub a value
       assert.deepEqual(validateSnapshot(snap).errors, [], b.id);
       assert.deepEqual(snap.capabilities, answer.capabilities, `${b.id}: the reader and sessionFlow must state the same capabilities`);
     }

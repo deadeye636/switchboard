@@ -215,6 +215,12 @@
     }
 
     // Links between lanes and steps are checked last, when every id is known.
+    // `parentStepId` is optional (an instruction file names its start step); present, it must name a step of this snapshot.
+    if (Array.isArray(snap.steps)) {
+      for (const [i, step] of snap.steps.entries()) {
+        if (isObject(step) && step.parentStepId != null && !stepIds.has(step.parentStepId)) add(`steps[${i}]: parentStepId '${step.parentStepId}' names no step`);
+      }
+    }
     if (lanes) {
       const anchorOk = (a) => isObject(a) && laneIds.has(a.laneId) && stepIds.has(a.stepId);
       for (const [i, lane] of lanes.entries()) {

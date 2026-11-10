@@ -779,16 +779,15 @@ module.exports = {
   // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer; the pipe driver is claude-native.
   idleMaintenance: () => null,
   // The session's flow (spec 46, #826). `sessionFlow` is the cheap main-side half: the transcript path comes from
-  // `transcriptPathFor`, which joins strings and touches no disk. `readSessionFlow` is the pure worker-side half and
-  // its module is required here, on first use, so the registry loads no reader. A stub until T4/T5 build the reader.
+  // `transcriptPathFor`, which joins strings and touches no disk. `readSessionFlow` is the worker-side half (async: it
+  // streams the file); its module is required here, on first use, so the registry loads no reader. Both halves take their
+  // capabilities from `flow-capabilities.js`, so they cannot disagree.
   sessionFlow: (row) => {
     const hook = require('../flow-hook');
-    return hook.singleFileFlowAnswer(transcriptPathFor(row), {
-      capabilities: hook.stubFlowCapabilities('perFile'),
-      limitations: [hook.NOT_BUILT_LIMITATION],
-    });
+    const answer = require('./flow-capabilities');
+    return hook.singleFileFlowAnswer(transcriptPathFor(row), { capabilities: answer.CAPABILITIES, limitations: answer.LIMITATIONS });
   },
-  readSessionFlow: (sources, opts) => require('../flow-stub').readSessionFlow(sources, opts, 'perFile'),
+  readSessionFlow: (sources, opts) => require('./flow-reader').readSessionFlow(sources, opts),
   buildMcpPrune: mcpPrune.buildMcpPrune,
   // What a project's external MCP servers get through this backend (spec 36): stdio and http, and an entry
   // with a `cwd` is declined (Claude has no per-server cwd). Pinned against the emitter by test/external-mcp-takes.test.js.
@@ -1204,7 +1203,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is claude-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
-    sessionFlow: { state: 'limited', note: 'the flow reader is not built yet, so the Flow tab shows no steps (spec 46)' },
+    sessionFlow: { state: 'limited', note: 'one main lane with steps, instruction files and context checkpoints; subagent lanes, approvals and risk marks are not read yet, and the window is inferred from the model name (spec 46)' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.
