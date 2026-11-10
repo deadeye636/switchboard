@@ -62,6 +62,12 @@ function withSidebarState(map, sessionId, state, now) {
   return next;
 }
 
+// One write: the session's state as it reads now, the default included (#831), with the patch on top. Without the
+// default, a width or section change in a session the default opened would store it closed.
+function patchSidebarState(map, sessionId, patch, defaultOpen, now) {
+  return withSidebarState(map, sessionId, { ...sidebarStateOf(map, sessionId, defaultOpen), ...patch }, now);
+}
+
 function rekeySidebarState(map, oldId, newId) {
   if (!map || !map[oldId]) return map;
   const next = { ...map, [newId]: map[newId] || map[oldId] };
@@ -284,7 +290,7 @@ function repositoryRowHtml(row) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+    sidebarStateOf, sidebarToggleAction, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
     instructionGroups, instructionRow, repositoryRows, repositoryRowHtml,
     sidebarRowActions, sidebarRowModel, sidebarInsertText, sidebarCopyText, taskInsertText, sidebarItemHtml,
     sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails,
@@ -304,7 +310,7 @@ function sidebarDefaultOpen() {
 // Read fresh on every write: a detached window shares this storage and writes its own session's row.
 function writeSidebarState(sessionId, patch) {
   const map = readSidebarStates();
-  const next = withSidebarState(map, sessionId, { ...sidebarStateOf(map, sessionId, sidebarDefaultOpen()), ...patch }, Date.now());
+  const next = patchSidebarState(map, sessionId, patch, sidebarDefaultOpen(), Date.now());
   try { localStorage.setItem(SESSION_SIDEBAR_KEY, JSON.stringify(next)); } catch { /* the state is a convenience */ }
 }
 

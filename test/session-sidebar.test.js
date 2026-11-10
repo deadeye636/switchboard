@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  sidebarStateOf, clampSidebarWidth, withSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
+  sidebarStateOf, clampSidebarWidth, withSidebarState, patchSidebarState, rekeySidebarState, orderSidebarGroups, openTaskRows, sidebarContextFigures, sidebarServerRows, sidebarShownWidth,
   sidebarTokens, sidebarCategoryShare, sidebarBarSegments, contextLineDetails, repositoryRows,
   SESSION_SIDEBAR_KEEP, SESSION_SIDEBAR_WIDTH,
 } = require('../src/renderer/session/session-sidebar');
@@ -21,6 +21,15 @@ test('the global start state (#831) applies only to a session with no stored row
   const map = { a: { open: false, width: 300 }, b: { open: true, width: 300 } };
   assert.equal(sidebarStateOf(map, 'a', true).open, false, 'a stored closed row stays closed');
   assert.equal(sidebarStateOf(map, 'b', false).open, true, 'a stored open row stays open');
+});
+
+test('a write in a session with no row keeps the start state the default gave it (#831)', () => {
+  // A width change in a session the default opened must not store it closed.
+  assert.deepEqual(patchSidebarState({}, 's1', { width: 320 }, true, 7).s1, { open: true, width: 320, groups: ['repository', 'tasks', 'context'], at: 7 });
+  assert.equal(patchSidebarState({}, 's1', { width: 320 }, false, 7).s1.open, false);
+  // The patch wins over the default, and a stored row over both.
+  assert.equal(patchSidebarState({}, 's1', { open: false }, true, 7).s1.open, false, 'closing by hand under default open');
+  assert.equal(patchSidebarState({ s1: { open: false } }, 's1', { width: 320 }, true, 7).s1.open, false, 'a stored close survives a width change');
 });
 
 test('repository rows (#821): repository, branch with ahead/behind and state, worktree; none for a directory under no VCS', () => {

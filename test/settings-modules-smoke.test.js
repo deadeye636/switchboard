@@ -142,6 +142,27 @@ test('settings-global-html: a value missing from v renders "undefined" (the guar
   } finally { destroy(); }
 });
 
+test('settings-global-html: idle maintenance is its own category (#832), Instructions sits before Plugins (#833)', () => {
+  const { inCtx, destroy } = setup();
+  try {
+    const { v } = buildTemplateV();
+    v.idleMaintenanceFields = '<div class="settings-field" id="idle-mark"></div>';
+    inCtx(`globalThis.__v = ${JSON.stringify(v).replace(/</g, '\\u003c')};`);
+    inCtx(`__v.shellProfiles = [{id:'bash',name:'Bash'}]; __v.TERMINAL_FONT_PRESETS = [{value:'mono',label:'Mono'}];`);
+    inCtx(`globalThis.__doc = new DOMParser().parseFromString(window.settingsGlobalHtml(__v), 'text/html');`);
+    const where = inCtx(`(() => { const m = __doc.getElementById('idle-mark'); return m && m.closest('.settings-cat') ? m.closest('.settings-cat').dataset.cat : null; })()`);
+    assert.equal(where, 'idle-maintenance', 'the idle fields render in their own category');
+    assert.equal(inCtx(`__doc.querySelectorAll('#idle-mark').length`), 1, 'and nowhere else, Sessions included');
+    const nav = inCtx(`[...__doc.querySelectorAll('.settings-nav > *')].map(e => e.classList.contains('settings-nav-head') ? '#' + e.textContent.trim() : (e.dataset.cat || '-')).join(',')`).split(',');
+    assert.equal(nav[nav.indexOf('sessions') + 1], 'idle-maintenance', 'the category follows Sessions in the nav');
+    assert.ok(nav.indexOf('instructions') < nav.indexOf('#Plugins'), 'Instructions sits in Extensions, before the Plugins group');
+    // The Plugins group runs from its head to the next separator ('-') or head.
+    const group = [];
+    for (const c of nav.slice(nav.indexOf('#Plugins') + 1)) { if (c === '-' || c.startsWith('#')) break; group.push(c); }
+    assert.equal(group[group.length - 1], 'mcp-addons', 'Marketplace closes the Plugins group');
+  } finally { destroy(); }
+});
+
 test('settings-maintenance: create + init binds against the DOM without throwing', () => {
   const { inCtx, destroy } = setup();
   try {
