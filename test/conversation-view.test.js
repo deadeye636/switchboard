@@ -902,9 +902,9 @@ test('a document a call read is drawn as a card with open buttons, at once and a
   const conv = h.entry.conversation;
   conv.apply({ op: 'append', seq: 1, entry: use });
   conv.apply({ op: 'append', seq: 2, entry: result });
-  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab'], 'drawn live with the open buttons');
+  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab', 'Show in folder', 'Copy path'], 'drawn live with the open buttons');
   conv.apply({ op: 'reset', entries: [use, result] });
-  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab'], 'and again after a reset');
+  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab', 'Show in folder', 'Copy path'], 'and again after a reset');
   // The same through a draw that waited for the view to be shown.
   h.entry.element.classList.remove('visible');
   await h.settle();
@@ -912,7 +912,7 @@ test('a document a call read is drawn as a card with open buttons, at once and a
   assert.equal(buttons().length, 0, 'nothing is drawn while hidden');
   h.entry.element.classList.add('visible');
   await h.settle();
-  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab'], 'drawn on show with the open buttons');
+  assert.deepEqual(buttons(), ['Open in default app', 'Open in tab', 'Show in folder', 'Copy path'], 'drawn on show with the open buttons');
 });
 
 test('an approval is drawn with the call it is about, answers with the value it was given, and holds the status', async () => {

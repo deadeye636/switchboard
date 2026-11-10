@@ -12,7 +12,8 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', ...p), 'utf8');
-const SOURCES = [read('dialogs', 'control-dialogs.js'), read('session', 'servers-dialog.js'), read('session', 'conversation-view.js')];
+// shell-line-status.js before the view, as index.html loads it: the view's status line merges its rows (#836).
+const SOURCES = [read('dialogs', 'control-dialogs.js'), read('session', 'servers-dialog.js'), read('session', 'shell-line-status.js'), read('session', 'conversation-view.js')];
 
 const disable = (name) => ({ id: 'disable', label: 'Disable', confirm: `Disable ${name}? Stored for the whole project.` });
 const ROWS = [

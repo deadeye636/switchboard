@@ -11,7 +11,8 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const read = (...p) => fs.readFileSync(path.join(__dirname, '..', 'src', 'renderer', ...p), 'utf8');
-const SOURCES = [read('dialogs', 'control-dialogs.js'), read('session', 'branch-tree-dialog.js'), read('session', 'conversation-view.js')];
+// shell-line-status.js before the view, as index.html loads it: the view's status line merges its rows (#836).
+const SOURCES = [read('dialogs', 'control-dialogs.js'), read('session', 'branch-tree-dialog.js'), read('session', 'shell-line-status.js'), read('session', 'conversation-view.js')];
 
 function setup() {
   const dom = new JSDOM('<!doctype html><body><div id="terminals"></div></body>');
