@@ -3,8 +3,13 @@
 Issue: #827. Status: **built**, first stage, on the pipe-driven backends. This file is the design record: the owner's decisions,
 what was measured, the shape as built, and what is still open.
 
-As built, against the design below: the running-session control is one button in the session line that steps through the modes
-and back to the settings, with the details in its title rather than a popover. A maintenance turn read back is matched by key,
+As built, against the design below: the running-session control is one button in the session line that opens a popover (#832).
+A click opens it and nothing else does: no modifier click and no arrow-key step. The popover offers Settings, Off, Keep warm,
+Compact only and Warm then compact as this session's override (Settings drops the override), shows the state asked fresh when it
+opens (next action and time, refreshes of the limit, the last cache verdict, the reason it ended or is refused), says that each
+refresh and compaction is a real model turn and that compaction cannot be undone, and links "All settings…" to the project
+settings window at category `idle-maintenance`. Escape or a click outside closes it and the caret returns to the button; the
+button's title stays short. A maintenance turn read back is matched by key,
 else by its exact words, once per record, without the `sent_at` compare. A user's own compaction counts as a turn and starts a
 new idle period.
 

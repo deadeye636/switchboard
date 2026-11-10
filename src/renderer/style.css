@@ -3190,9 +3190,11 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-sublist[open] > summary::before { content: '▾'; }
 .ssb-sublist > summary:hover { background: rgba(255, 255, 255, 0.06); border-radius: 3px; }
 .pane-tool-btn.active { color: #e0e0ec; background: rgba(255, 255, 255, 0.1); }
-/* What is anchored to the container's right edge moves out from under it. */
+/* What is anchored to the container's right edge moves out from under it, and both popovers (the Background list on
+   the right, the idle one on the left) fit the room beside the sidebar. */
 .terminal-container.sidebar-open:not(.grid-mode) .conversation-bg-pop {
   right: calc(var(--session-sidebar-width) + 12px);
+  width: min(480px, calc(100% - var(--session-sidebar-width) - 24px));
 }
 .terminal-container.sidebar-open:not(.grid-mode) .terminal-search-bar {
   right: calc(var(--session-sidebar-width) + 28px);
@@ -3495,6 +3497,11 @@ html body .terminal-container.conversation-container:not(.visible) {
 .new-session-secondary-btn.conversation-bg-stop { color: #f0a0a0; border-color: rgba(224,96,96,0.35); }
 .conversation-bg-output { margin: 2px 8px 6px 28px; max-height: 220px; overflow: auto; }
 .conversation-bg-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06); color: #7a7a90; font-size: 11px; }
+.conversation-idle-choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.conversation-idle-choices [aria-pressed="true"] { border-color: #7c8cff; color: #e0e0ec; }
+.conversation-idle-info { color: #a0a0b8; font-size: 12px; }
+.conversation-idle-link { margin-top: 8px; }
+.conversation-idle-pop { right: auto; left: 12px; }
 
 /* A background task that ended (#691), drawn as what it is rather than the markup the CLI gave the model. */
 .task-notice {

@@ -1352,49 +1352,142 @@ function createConversationView(getSession, container) {
     }).catch(() => { /* the session has ended */ });
   }
 
+  // The idle control's popover (spec 45): the mode as this session's override, and what the schedule knows. It stands on the
+  // container like the Background list; `view.idleOpen` outlives the redraws of the session line that holds its button.
+  const IDLE_LABELS = { off: 'Off', warm: 'Keep warm', compact: 'Compact only', 'warm-compact': 'Warm then compact' };
+  const IDLE_CHOICES = [[null, 'Settings'], ['off', 'Off'], ['warm', 'Keep warm'], ['compact', 'Compact only'], ['warm-compact', 'Warm then compact']];
+  const idlePop = document.createElement('div');
+  idlePop.className = 'conversation-bg-pop conversation-idle-pop';
+  idlePop.hidden = true;
+  idlePop.tabIndex = -1;
+  idlePop.setAttribute('role', 'dialog');
+  idlePop.setAttribute('aria-label', 'Idle maintenance');
+  container.appendChild(idlePop);
+
+  function idleStateLines(state) {
+    const next = state.nextAction && state.nextAt
+      ? `Next: ${state.nextAction === 'warm' ? 'a refresh' : 'a compaction'} at ${new Date(state.nextAt).toLocaleTimeString()}.`
+      : '';
+    return [
+      state.refused ? `Not running: ${state.refused}` : next,
+      state.limit ? `Refreshes this idle period: ${state.refreshes} of ${state.limit}.` : '',
+      state.verdict ? `Last refresh found the cache: ${state.verdict} (best effort).` : '',
+      state.ended ? `Ended: ${state.ended}.` : '',
+    ].filter(Boolean);
+  }
+  function renderIdlePop() {
+    const state = view.idle;
+    const active = document.activeElement;
+    const hadFocus = idlePop.contains(active);
+    const keep = hadFocus && active.dataset ? active.dataset.idleChoice : undefined;
+    idlePop.replaceChildren();
+    if (!state) return;
+    const overridden = state.overrides && state.overrides.idleMaintenanceMode;
+    const head = document.createElement('div');
+    head.className = 'conversation-bg-head';
+    head.textContent = 'While idle';
+    idlePop.appendChild(head);
+    const row = document.createElement('div');
+    row.className = 'conversation-idle-choices';
+    for (const [value, label] of IDLE_CHOICES) {
+      const c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'new-session-secondary-btn conversation-bg-btn';
+      c.dataset.idleChoice = value || 'settings';
+      c.setAttribute('aria-pressed', (overridden || null) === value ? 'true' : 'false');
+      c.textContent = label;
+      // `state.mode` is the mode in force, so it names the settings' value only while nothing overrides it.
+      c.title = value ? 'For this running session only'
+        : overridden ? 'Follow the settings again' : `Follow the settings (now: ${IDLE_LABELS[state.mode] || state.mode})`;
+      c.addEventListener('click', () => {
+        Promise.resolve(window.api.agent.idleMaintenanceSet(view.session.sessionId, { idleMaintenanceMode: value })).then((fresh) => {
+          if (fresh) view.idle = fresh;
+          renderStatus();
+        }).catch(() => { /* the session has ended */ });
+      });
+      row.appendChild(c);
+    }
+    idlePop.appendChild(row);
+    const lines = idleStateLines(state);
+    if (lines.length) {
+      const info = document.createElement('div');
+      info.className = 'conversation-idle-info';
+      for (const line of lines) {
+        const l = document.createElement('div');
+        l.textContent = line;
+        info.appendChild(l);
+      }
+      idlePop.appendChild(info);
+    }
+    const foot = document.createElement('div');
+    foot.className = 'conversation-bg-foot';
+    foot.textContent = 'Each refresh and compaction is a real model turn. Compaction can lose detail and cannot be undone.';
+    idlePop.appendChild(foot);
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'new-session-secondary-btn conversation-bg-btn conversation-idle-link';
+    link.dataset.idleChoice = 'all-settings'; // a redraw puts the caret back here too
+    link.textContent = 'All settings…';
+    link.addEventListener('click', () => {
+      const own = view.session;
+      const known = own && typeof sessionMap !== 'undefined' ? sessionMap.get(own.sessionId) : null;
+      const projectPath = (known || own || {}).projectPath;
+      if (projectPath) window.api.openSettingsWindow('project', projectPath, { cat: 'idle-maintenance' });
+      closeIdlePop(false);
+    });
+    idlePop.appendChild(link);
+    if (hadFocus) {
+      // Focus that was inside stays inside, or Escape no longer reaches the popover's key handler.
+      const again = keep !== undefined ? idlePop.querySelector(`[data-idle-choice="${keep}"]`) : null;
+      (again || idlePop).focus();
+    }
+  }
+  function openIdlePop() {
+    view.idleOpen = true;
+    idlePop.hidden = false;
+    renderStatus(); // the button's aria-expanded and the popover
+    // What the schedule knows is asked again when someone looks: a compaction has no edge to refresh it on.
+    Promise.resolve(window.api.agent.idleMaintenanceState(view.session.sessionId)).then((fresh) => {
+      if (!fresh || !view.idleOpen) return;
+      view.idle = fresh;
+      renderStatus();
+    }).catch(() => { /* the session has ended */ });
+    const first = idlePop.querySelector('button');
+    if (first) first.focus();
+  }
+  function closeIdlePop(refocus = true) {
+    if (!view.idleOpen) return;
+    view.idleOpen = false;
+    idlePop.hidden = true;
+    renderStatus();
+    if (refocus) {
+      const btn = statusText.querySelector('.conversation-idle');
+      if (btn) btn.focus(); else focusView();
+    }
+  }
+  idlePop.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeIdlePop();
+  });
+  // A click anywhere else closes it, as a menu does.
+  container.addEventListener('mousedown', (e) => {
+    if (!view.idleOpen || idlePop.contains(e.target) || (e.target.closest && e.target.closest('.conversation-idle'))) return;
+    closeIdlePop(false);
+  });
+
   function idleMaintenanceControl() {
-    const labels = { off: 'Off', warm: 'Keep warm', compact: 'Compact only', 'warm-compact': 'Warm then compact' };
     const state = view.idle;
     const overridden = state.overrides && state.overrides.idleMaintenanceMode;
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'conversation-mode conversation-idle';
-    b.textContent = `Idle: ${labels[state.mode] || state.mode}${overridden ? ' *' : ''}`;
-    const next = state.nextAction && state.nextAt
-      ? `Next: ${state.nextAction === 'warm' ? 'a refresh' : 'a compaction'} at ${new Date(state.nextAt).toLocaleTimeString()}.`
-      : '';
-    b.title = b.ariaLabel = [
-      'What this session does while idle. Click to change it for this running session only.',
-      overridden ? 'Set here; * goes back to the settings at the end of the list.' : 'From the settings.',
-      state.refused || next,
-      state.limit ? `Refreshes this idle period: ${state.refreshes} of ${state.limit}.` : '',
-      state.verdict ? `Last refresh found the cache: ${state.verdict} (best effort).` : '',
-      state.ended ? `Ended: ${state.ended}.` : '',
-      'Each refresh and compaction is a real model turn. Compaction can lose detail and cannot be undone.',
-    ].filter(Boolean).join('\n');
-    // A compaction has no edge to refresh this on, so what the title says is asked again when someone looks.
-    const look = () => {
-      Promise.resolve(window.api.agent.idleMaintenanceState(view.session.sessionId)).then((fresh) => {
-        if (!fresh || JSON.stringify(fresh) === JSON.stringify(view.idle)) return;
-        const hadFocus = document.activeElement === b;
-        view.idle = fresh;
-        renderStatus();
-        if (hadFocus) statusText.querySelector('.conversation-idle')?.focus();
-      }).catch(() => { /* the session has ended */ });
-    };
-    b.addEventListener('pointerenter', look);
-    b.addEventListener('focus', look);
-    b.addEventListener('click', (event) => {
-      const byKeyboard = event.detail === 0; // the keyboard stays on the control, to step on
-      const order = [null, 'off', 'warm', 'compact', 'warm-compact'];
-      const mode = order[(order.indexOf(overridden || null) + 1) % order.length];
-      Promise.resolve(window.api.agent.idleMaintenanceSet(view.session.sessionId, { idleMaintenanceMode: mode })).then((fresh) => {
-        if (fresh) view.idle = fresh;
-        renderStatus();
-        if (byKeyboard) statusText.querySelector('.conversation-idle')?.focus();
-        else input.focus();
-      }).catch(() => { /* the session has ended */ });
-    });
+    b.textContent = `Idle: ${IDLE_LABELS[state.mode] || state.mode}${overridden ? ' *' : ''}`;
+    b.setAttribute('aria-haspopup', 'dialog');
+    b.setAttribute('aria-expanded', view.idleOpen ? 'true' : 'false');
+    b.title = b.ariaLabel = `What this session does while idle${overridden ? ' (set for this session)' : ''}. Click for details and to change it.`;
+    b.addEventListener('click', () => { if (view.idleOpen) closeIdlePop(); else openIdlePop(); });
     return b;
   }
 
@@ -1416,9 +1509,10 @@ function createConversationView(getSession, container) {
       s.textContent = text;
       return s;
     };
-    // What this session does while idle (spec 45), where its backend can do anything: a click steps through the modes and
-    // back to the settings' value. Only this running session changes; the title says what is next and what it costs.
+    // What this session does while idle (spec 45), where its backend can do anything: a click opens the popover.
     if (view.idle && !view.idle.declined && !view.exited) add(idleMaintenanceControl());
+    else if (view.idleOpen) { view.idleOpen = false; idlePop.hidden = true; }
+    if (view.idleOpen) renderIdlePop();
     // The permission mode first (#696), as the TUI's status line shows it; a click switches to the next one,
     // as Shift+Tab in the input does. Only where the backend has modes and one has been named.
     if (view.mode && view.mode.label) {
