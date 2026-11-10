@@ -285,7 +285,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     // that gap (measured, spec 45). The next busy edge or an answer saying no turn follows clears it.
     turnInFlight: false,
     turnStartTimer: null,    // how long `turnInFlight` may wait for its turn — see `settleTurnGap`
-    maintenance: null,      // the running idle-maintenance action, { action, endsBy } — see `maintain`
+    maintenance: null,      // the running idle-maintenance action, { action, endsBy, confirmedBy, confirmed } — see `maintain`
     typed: '',               // what `write()` has collected towards the next carriage return
     partialTimer: null,
     partialOp: null,
@@ -776,6 +776,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     // The answer to the command carries the outcome to whoever started it (`maintain`).
     if (op.op === 'notice' && op.about === 'compaction' && state.maintenance && state.maintenance.endsBy === 'answer') return;
     switch (op.op) {
+      case 'compacted':
+        // The runtime's word that a compaction took place (spec 45). It confirms an idle compaction that names it as its
+        // `confirmedBy`; the view has its notice already, so nothing goes on.
+        if (state.maintenance && state.maintenance.confirmedBy === op.op) state.maintenance.confirmed = true;
+        return;
       case 'partial':
         // Coalesced: only the newest partial matters, and the timer bounds how long it may wait.
         state.partialOp = op;
@@ -818,6 +823,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // held "finished" (#495) — and only the start says so, never the settle.
         report(op.busy ? 'busy' : 'idle', op.busy ? { turn_start: true } : undefined);
         const quietEdge = Boolean(state.maintenance);
+        // Whether an action that names its confirming op got it before its end; `null` where it names none.
+        const confirmed = !op.busy && state.maintenance && state.maintenance.confirmedBy ? state.maintenance.confirmed === true : null;
         if (!op.busy) {
           dropAsks({ keepLasting: true });
           // Still waiting on a question that outlived the run: the session is waiting on the user, not idle.
@@ -833,7 +840,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         if (!op.busy && !state.held.length && state.heldPaused) { state.heldPaused = false; tellHeld(); }
         // Before anything held goes out: a held prompt's own busy edge must not reach the idle schedule ahead of the end of
         // the turn it follows.
-        maintenanceEdge(op.busy ? 'busy' : 'idle', quietEdge);
+        maintenanceEdge(op.busy ? 'busy' : 'idle', quietEdge, confirmed);
         if (!op.busy) { followIdentity(); followContext(); flushHeld(); deliverShellCarry(); }
         return;
       case 'suggestion':
@@ -1317,10 +1324,11 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   }
 
   // What the idle schedule hears. A throw there must not take the pipe's reader with it.
-  function maintenanceEdge(edge, quiet = false) {
+  // `confirmed` rides on the idle edge that ends an action naming a `confirmedBy` op: whether that op came.
+  function maintenanceEdge(edge, quiet = false, confirmed = null) {
     // Node can report the exit before the last of stdout is read, and a late line is no edge of a live session.
     if (!ctx.onMaintenanceEdge || (state.exited && edge !== 'exit')) return;
-    try { ctx.onMaintenanceEdge({ edge, handle: state.handle, quiet }); } catch (err) {
+    try { ctx.onMaintenanceEdge({ edge, handle: state.handle, quiet, confirmed }); } catch (err) {
       ctx.log.warn(`[agent-rpc] the idle schedule did not take an edge: ${err.message}`);
     }
   }
@@ -1331,8 +1339,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     const id = crypto.randomUUID();
     const built = rpc.maintenanceCommand({ id, action, instructions });
     if (!built || !built.line) return Promise.resolve({ ok: false, reason: 'declined' });
-    const { line, endsBy, key = null, text = null } = built;
-    state.maintenance = { action, endsBy };
+    const { line, endsBy, key = null, text = null, confirmedBy = null } = built;
+    state.maintenance = { action, endsBy, confirmedBy, confirmed: false };
     if (rpc.sendAcknowledged === false) {
       if (!write(line)) { endMaintenance(); return Promise.resolve({ ok: false, reason: 'not running' }); }
       handleOp({ op: 'busy', busy: true });

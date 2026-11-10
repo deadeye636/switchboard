@@ -233,8 +233,10 @@ function sessionFor(handle) {
   return session;
 }
 
-// What `src/app/agent-rpc.js` reports about a session it drives. A quiet edge is a maintenance turn's own.
-function track({ edge, handle, quiet }) {
+// What `src/app/agent-rpc.js` reports about a session it drives. A quiet edge is a maintenance turn's own. `confirmed` on
+// the idle edge that ends an action is whether the op the backend named as its proof came (`false`), or `null` where it
+// named none.
+function track({ edge, handle, quiet, confirmed = null }) {
   if (!ctx || stopped) return;
   const session = sessionFor(handle);
   switch (edge) {
@@ -286,7 +288,11 @@ function track({ edge, handle, quiet }) {
   }
   if (quiet) {
     if (session.running === 'warm') afterWarm(session);
-    else if (session.running === 'compact') afterCompact(session);
+    else if (session.running === 'compact' && confirmed === false) {
+      // The runtime declined the compaction and still ended the turn as usual (measured with nothing to compact).
+      record(session, 'Compaction skipped', 'no compaction took place');
+      endPeriod(session, 'refused');
+    } else if (session.running === 'compact') afterCompact(session);
     return;
   }
   if (session.lateTurn) { session.lateTurn = false; return; } // a warm turn given up on, which began after all: it starts nothing

@@ -731,7 +731,9 @@ function createDecoder() {
       }
       case 'compact_boundary':
         summaryNext = true;
-        return [{ op: 'notice', level: 'info', text: NOTICES.compacted }];
+        // `compacted` is the one sign a compaction took place: a declined `/compact` ends in an ordinary `result` too
+        // (measured, `docs/backend-formats.md`). Idle maintenance waits for it (`confirmedBy` below).
+        return [{ op: 'notice', level: 'info', text: NOTICES.compacted }, { op: 'compacted' }];
       case 'api_retry':
         return [{ op: 'notice', level: 'warning', text: 'The model call failed and is being retried.' }];
       case 'permission_denied':
@@ -994,13 +996,15 @@ function sendCommand({ text, mode, images, shellLines } = {}) {
 
 // Idle maintenance (spec 45). Both end in a `result`, so both are ended by the idle edge. A warm turn carries the id as
 // its `uuid`, which stays on the replay and the transcript line (measured), so it can be told apart after a restart.
+// A `/compact` Claude declines ends in a `result` as well, `success` included, with no boundary (measured), so a
+// compaction names the op that confirms it: without a `compacted` op before its idle edge, it did not take place.
 const WARM_PROMPT = 'This is an automatic keep-alive from Switchboard. Reply with only the word: ok';
 function maintenanceCommand({ id, action, instructions } = {}) {
   if (action === 'warm') return { line: { ...sendCommand({ text: WARM_PROMPT }), uuid: id }, endsBy: 'idle', key: id, text: WARM_PROMPT };
   if (action === 'compact') {
     const focus = String(instructions || '').replace(/\s+/g, ' ').trim();
     const text = focus ? `/compact ${focus}` : '/compact';
-    return { line: sendCommand({ text }), endsBy: 'idle', key: null, text };
+    return { line: sendCommand({ text }), endsBy: 'idle', key: null, text, confirmedBy: 'compacted' };
   }
   return null;
 }

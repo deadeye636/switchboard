@@ -596,7 +596,8 @@ test('the CLI\'s bookkeeping lines are not drawn', () => {
     { type: 'system', subtype: 'status', status: 'requesting' },
     { type: 'system', subtype: 'commands_changed', commands: [] },
   ]), []);
-  assert.deepEqual(decodeAll([{ type: 'system', subtype: 'compact_boundary' }]).map(o => o.level), ['info']);
+  // The boundary draws one notice; `compacted` is the core's proof for idle maintenance and draws nothing (spec 45).
+  assert.deepEqual(decodeAll([{ type: 'system', subtype: 'compact_boundary' }]).map(o => [o.op, o.level]), [['notice', 'info'], ['compacted', undefined]]);
 });
 
 // --- commands ---

@@ -93,6 +93,11 @@ spells a slash command or a prompt: the action is the `rpc` half's `maintenanceC
 extension command: the extension handler is `detached` and does not await `ctx.compact`
 (`src/backends/pi-native/session-commands.js:458`), so its answer would not carry the outcome. claude-native's is a
 `/compact` line. The answer also says how the action ends, `endsBy: 'idle'` or `'answer'` (see "One maintenance flag").
+An action whose end does not say whether it ran names the op that proves it, `confirmedBy`. claude-native's compaction names
+`compacted`, which its decoder sends at `system/compact_boundary`: Claude ends a declined `/compact` with an ordinary
+`result`, `success` included (measured, `docs/backend-formats.md`). `agent-rpc.js` notes the op while the action runs and
+hands `confirmed: true | false` to the schedule with the idle edge that ends it (`null` where nothing was named); `false`
+is recorded as "Compaction skipped" and ends the period as `refused`. Pi's compaction ends with its answer, which says so.
 Capability row `idleMaintenance` (group `live`): terminals `no`; claude-native `limited` ("cache hit not verified");
 pi-native `limited` ("verdict measured on small prompts only") until a real conversation is measured. A template does not inherit it (`NOT_INHERITED`:
 the consumer asks the live pipe-driven session, and a template is never one).
@@ -278,7 +283,13 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
   measurement used small prompts with identical text, at Pi's default thinking setting.
 - How long a compaction of a larger session takes on either backend.
 
-- A refused `/compact` on Claude reads as compacted: the schedule takes its idle edge as the end and does not read `compact_boundary`.
+- [x] A refused `/compact` on Claude read as compacted. Closed 2026-11-10 by `confirmedBy` (see "Neutral capability"). Its
+  error reply ("Error: No messages to compact") is still drawn in the conversation, as any declined command is. The fix
+  rests on `compact_boundary` arriving before the `result` that ends the turn: measured again on 2.1.318 the same day, on
+  a session of two short turns only. Should a larger session ever send the `result` first, a real compaction would be
+  recorded as skipped.
+- A compaction ended without an idle edge (a re-key, a turn that never began) leaves the schedule's `running` on
+  `compact` until the next turn: `maintenance-ended` handles only a warm turn. Older than the fix above.
 - In a detached window a maintenance turn draws Working, because `recordActivityEdge` takes it; the main window's row stays quiet.
 - The control shows the mode and its source, not the interval, the ceiling or the idle time, and only the mode can be overridden
   from the view. `setOverride` takes every `idleMaintenance*` key.

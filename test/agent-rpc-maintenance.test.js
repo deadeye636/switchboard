@@ -272,6 +272,90 @@ test('on a runtime that answers no turn line, the write is the busy edge and the
   assert.equal(h.signals.filter((s) => s.kind === 'idle')[1].quiet, undefined);
 });
 
+// A runtime whose compaction ends in an ordinary turn end whether it ran or not, as Claude's does (measured,
+// `docs/backend-formats.md`): only its `compacted` op says it took place. The fake agent answers each line as a turn.
+function compactingRpc() {
+  const textOfEntry = (e) => (e && e.message && Array.isArray(e.message.content) ? e.message.content.map((b) => b.text).join('') : '');
+  return {
+    createDecoder: () => ({
+      decode: (m) => {
+        if (m.ev === 'append' && m.entry.type === 'user' && textOfEntry(m.entry) === 'compact-ok') return [{ op: 'compacted' }];
+        return m.ev === 'result' ? [{ op: 'busy', busy: false }] : [];
+      },
+      currentPartial: () => null,
+    }),
+    responseOf: () => null,
+    sendAcknowledged: false,
+    sendCommand: ({ text }) => ({ type: 'user', text }),
+    maintenanceCommand: ({ instructions }) => ({ line: { type: 'user', text: instructions }, endsBy: 'idle', key: null, text: instructions, confirmedBy: 'compacted' }),
+    // A reply is a model call, so the schedule counts the user's turn (a turn with unchanged figures reached no model).
+    usageOf: (m) => (m.ev === 'append' && m.entry.type === 'assistant' ? { input: 10, read: 0, write: 0 } : null),
+  };
+}
+
+test('a compaction that names its proof is confirmed only by that op; one that ends without it is not (#827 gap)', async (t) => {
+  for (const [line, expected] of [['compact-ok', true], ['compact-refused', false]]) {
+    const edges = [];
+    const h = harness({ rpc: compactingRpc(), fixture: path.join(__dirname, 'fixtures', 'fake-stream-agent.js'), onMaintenanceEdge: (r) => edges.push(r) });
+    t.after(() => stopped(h));
+    const res = await agentRpc.maintain('launch-id', { action: 'compact', instructions: line });
+    assert.equal(res.ok, true, 'the line went out');
+    await until(() => edges.some((e) => e.edge === 'idle'));
+    const end = edges.find((e) => e.edge === 'idle');
+    assert.equal(end.quiet, true);
+    assert.equal(end.confirmed, expected, `${line}: confirmed is ${expected}`);
+  }
+});
+
+test('the schedule records a confirmed compaction as compacted and an unconfirmed one as skipped', async (t) => {
+  const idle = require('../src/app/idle-maintenance');
+  t.after(() => idle.stop());
+  for (const [line, ended, note] of [
+    ['compact-ok', 'compacted', ['Compacted while idle (best effort)', '']],
+    // The stand-in declines this one, as Claude does with nothing to compact.
+    ['compact-refused', 'refused', ['Compaction skipped', 'no compaction took place']],
+  ]) {
+    const notes = [];
+    const timers = [];
+    idle.init({
+      setTimer: (fn) => { timers.push(fn); return fn; },
+      clearTimer: () => {},
+      effectiveSettings: () => ({ idleMaintenanceMode: 'compact' }),
+      capabilityOf: () => require('../src/backends/claude-native').idleMaintenance(),
+      recordLifecycle: (id, kind, label, detail) => notes.push([label, detail]),
+      log: { info() {}, warn() {} },
+    });
+    const rpc = compactingRpc();
+    rpc.maintenanceCommand = () => ({ line: { type: 'user', text: line }, endsBy: 'idle', key: null, text: '/compact', confirmedBy: 'compacted' });
+    const h = harness({ rpc, fixture: path.join(__dirname, 'fixtures', 'fake-stream-agent.js'), onMaintenanceEdge: (r) => idle.track(r) });
+    await agentRpc.sendTurn('launch-id', { text: 'first' });
+    await until(() => timers.length === 1);
+    timers.pop()();
+    await until(() => idle.getState('launch-id').ended !== null);
+    assert.equal(idle.getState('launch-id').ended, ended, line);
+    assert.deepEqual(notes, [note], line);
+    await stopped(h);
+    idle.stop();
+  }
+});
+
+test('claude-native: the measured stream of a declined /compact yields no compacted op, a boundary does', () => {
+  const decoder = claudeProtocol.createDecoder();
+  // The lines `scripts/measure-idle-maintenance.js --only=claude-refused-compact` saw (2026-11-10), fields cut to the read ones.
+  const declined = [
+    { type: 'system', subtype: 'init', session_id: 's1' },
+    { type: 'assistant', uuid: 'a1', message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text: 'Error: No messages to compact' }], usage: {} } },
+    { type: 'result', subtype: 'success', is_error: false, result: '', local_command: 'compact', session_id: 's1' },
+  ];
+  const ops = declined.flatMap((m) => decoder.decode(m));
+  assert.ok(!ops.some((o) => o.op === 'compacted'), 'nothing in a declined compaction confirms one');
+  assert.ok(ops.some((o) => o.op === 'busy' && o.busy === false), 'and it still ends like a turn');
+  const boundary = claudeProtocol.createDecoder().decode({ type: 'system', subtype: 'compact_boundary', session_id: 's1' });
+  assert.ok(boundary.some((o) => o.op === 'compacted'), 'a boundary confirms it');
+  assert.equal(claudeProtocol.maintenanceCommand({ id: 'u1', action: 'compact' }).confirmedBy, 'compacted');
+  assert.equal(claudeProtocol.maintenanceCommand({ id: 'u1', action: 'warm' }).confirmedBy, undefined, 'a warm turn names no proof');
+});
+
 test('each backend words its own action, and how it ends', () => {
   const claudeWarm = claudeProtocol.maintenanceCommand({ id: 'u1', action: 'warm' });
   assert.equal(claudeWarm.line.uuid, 'u1', 'the key is known at send time');
