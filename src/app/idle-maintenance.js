@@ -176,7 +176,10 @@ async function tick(session, action) {
   if (action === 'warm') session.usageBefore = session.handle.usage();
   session.running = action;
   const period = session.clockAt;
-  const res = await session.handle.maintain({ action });
+  // While the answer is out, the outcome is this function's to record; `maintenance-ended` leaves it alone then.
+  session.awaitingAnswer = true;
+  let res;
+  try { res = await session.handle.maintain({ action }); } finally { session.awaitingAnswer = false; }
   if (stopped || session.gone) return;
   if (res && res.ok && ctx.recordMaintenance) {
     // A record that cannot be written must not take the outcome with it.
@@ -189,6 +192,12 @@ async function tick(session, action) {
   if (session.clockAt !== period || session.running !== action) return; // something has moved the period on meanwhile
   // A line still in the pipe, or an action its idle edge ends, goes on at that edge or at `maintenance-ended`.
   if (res && res.inPipe && res.endsBy !== 'answer') return;
+  // ...unless that end came while the answer was out: a runtime that said at once no turn would start.
+  if (res && res.ok && action === 'compact' && res.endsBy !== 'answer' && typeof session.handle.maintaining === 'function' && !session.handle.maintaining()) {
+    record(session, 'Compaction skipped', 'no turn began');
+    endPeriod(session, 'refused');
+    return;
+  }
   if (!res || !res.ok) {
     if (action === 'compact') record(session, 'Compaction skipped', String((res && res.reason) || ''));
     endPeriod(session, 'refused');
@@ -236,7 +245,7 @@ function sessionFor(handle) {
 // What `src/app/agent-rpc.js` reports about a session it drives. A quiet edge is a maintenance turn's own. `confirmed` on
 // the idle edge that ends an action is whether the op the backend named as its proof came (`false`), or `null` where it
 // named none.
-function track({ edge, handle, quiet, confirmed = null }) {
+function track({ edge, handle, quiet, confirmed = null, cause = null }) {
   if (!ctx || stopped) return;
   const session = sessionFor(handle);
   switch (edge) {
@@ -261,11 +270,17 @@ function track({ edge, handle, quiet, confirmed = null }) {
       return;
     case 'maintenance-ended':
       // It ended with no turn to report it: refused, or a turn that was promised and never began.
-      // A compaction's outcome comes with `maintain`'s answer, which `tick` is still waiting for.
+      // A compaction's outcome comes with `maintain`'s answer while `tick` still waits for it; one whose answer is already
+      // in, and which was to end at its idle edge, has nobody else left to end it.
       if (session.running === 'warm') {
         // A warm turn that was only slow can still begin. Its edges are then no longer quiet, and no line of anyone's explains
         // them: remember where the count stood.
         session.gaveUpAtLine = handle.linesSent();
+        endPeriod(session, 'refused');
+      } else if (session.running === 'compact' && !session.awaitingAnswer && cause !== 'rekey') {
+        // (A re-key is followed by its own edge, which clears the period without a record.)
+        // A compaction its idle edge was to end, and no turn came for it: nothing confirms it ran.
+        record(session, 'Compaction skipped', 'no turn began');
         endPeriod(session, 'refused');
       }
       return;

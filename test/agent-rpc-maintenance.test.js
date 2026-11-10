@@ -208,6 +208,12 @@ test('a prompt read back is stamped by its record, once per record, and the idle
   const { entries } = await agentRpc.attach(sid(h));
   const prompts = entries.filter((e) => e.prompt === true);
   assert.deepEqual(prompts.map((e) => e.maintenance === true), [true, false], 'the user wrote the same words the second time');
+  // The reply of the maintenance turn folds with its prompt, up to the next prompt; the user's turn after it does not.
+  const second = entries.indexOf(prompts[1]);
+  const replies = (from, to) => entries.slice(from + 1, to).filter((e) => e.prompt !== true);
+  assert.ok(replies(entries.indexOf(prompts[0]), second).length > 0, 'the maintenance turn has a reply read back');
+  assert.ok(replies(entries.indexOf(prompts[0]), second).every((e) => e.maintenance === true), 'and it is stamped');
+  assert.ok(replies(second, entries.length).every((e) => e.maintenance !== true), 'the user\'s reply is not');
   assert.deepEqual(edges.slice(0, 3), [['start', false], ['busy', false], ['idle', false]]);
 
   const warm = harness({ onMaintenanceEdge: () => {} });
@@ -217,6 +223,12 @@ test('a prompt read back is stamped by its record, once per record, and the idle
   await until(() => isIdle(warm));
   const live = warm.sent.filter((m) => m.ch === 'agent-event' && m.op.op === 'append' && m.op.entry && m.op.entry.prompt === true);
   assert.equal(live.at(-1).op.entry.maintenance, true);
+  const liveReplies = warm.sent.filter((m) => m.ch === 'agent-event' && m.op.op === 'append' && m.op.entry && m.op.entry.prompt !== true);
+  assert.ok(liveReplies.length > 0 && liveReplies.every((m) => m.op.entry.maintenance === true), 'the live reply is stamped too');
+  await agentRpc.sendTurn(sid(warm), { text: 'mine' });
+  await until(() => idleCount(warm) === 2);
+  const after = warm.sent.filter((m) => m.ch === 'agent-event' && m.op.op === 'append').slice(liveReplies.length + live.length);
+  assert.ok(after.length > 0 && after.every((m) => m.op.entry.maintenance !== true), 'and the user\'s next turn is not');
 });
 
 test('the schedule and the real driver together: a Pi compaction ends as compacted, a refused one says so', async (t) => {
@@ -354,6 +366,24 @@ test('claude-native: the measured stream of a declined /compact yields no compac
   assert.ok(boundary.some((o) => o.op === 'compacted'), 'a boundary confirms it');
   assert.equal(claudeProtocol.maintenanceCommand({ id: 'u1', action: 'compact' }).confirmedBy, 'compacted');
   assert.equal(claudeProtocol.maintenanceCommand({ id: 'u1', action: 'warm' }).confirmedBy, undefined, 'a warm turn names no proof');
+});
+
+test('only a maintenance turn\'s prompt and reply text fold; a summary, a tool-only line and the next turn do not', () => {
+  const rpc = claudeProtocol;
+  const prompt = (text, uuid) => ({ type: 'user', uuid, prompt: true, message: { role: 'user', content: text } });
+  const reply = (text) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+  const toolOnly = { type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }] } };
+  const summary = { type: 'user', isCompactSummary: true, message: { role: 'user', content: 'Summary of the conversation' } };
+  assert.equal(agentRpc.maintenanceEntry(rpc, prompt('x')), true);
+  assert.equal(agentRpc.maintenanceEntry(rpc, reply('ok')), true);
+  assert.equal(agentRpc.maintenanceEntry(rpc, summary), false, 'a compaction\'s summary stays visible');
+  assert.equal(agentRpc.maintenanceEntry(rpc, toolOnly), false);
+  assert.equal(agentRpc.maintenanceEntry({}, reply('ok')), false, 'a backend that cannot read a reply folds only its prompt');
+
+  // Read back: the reply after the recorded prompt folds; a line that is not a reply ends the stretch, even with no prompt.
+  const entries = [prompt('warm words', 'w1'), reply('ok'), summary, reply('after the summary'), prompt('mine', 'u2'), reply('yours')];
+  const stamped = agentRpc.stampWithRecords(rpc, entries, [{ key: 'w1', text: null }]);
+  assert.deepEqual(stamped.map((e) => e.maintenance === true), [true, true, false, false, false, false]);
 });
 
 test('each backend words its own action, and how it ends', () => {

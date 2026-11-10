@@ -441,7 +441,7 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
       if (moved && moved.from && moved.to) {
         ctx.log.info(`[agent-rpc] session ${moved.from} → ${moved.to} (the runtime named it)`);
         clearTurnGap();
-        if (state.maintenance) endMaintenance();
+        if (state.maintenance) endMaintenance('rekey');
         if (state.identitySettled) maintenanceEdge('rekey');
         // The first id the runtime names is the conversation the app launched, so what the user allowed for it
         // moves along (#731). A later move is a new conversation or a fork, and starts empty.
@@ -1065,8 +1065,9 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
         // a transcript snapshot can tell the op for it apart from a new one (see `attachFromTranscript`).
         const split = splitTaskOutput(op.entry);
         if (split) op = { ...op, entry: settleTaskOutput(state, split, statSizeSync(split.file)) };
-        // The prompt line of a maintenance turn, played back while it runs (spec 45, O5).
-        if (state.maintenance && op.entry && op.entry.prompt === true) op = { ...op, entry: { ...op.entry, maintenance: true } };
+        // A maintenance turn's prompt played back (spec 45, O5) and its reply text, while it runs. Nothing else: a compaction's
+        // summary stays visible, and a line of the user's that enters the turn ends the maintenance first (`takeOverWarmTurn`).
+        if (state.maintenance && maintenanceEntry(rpc, op.entry)) op = { ...op, entry: { ...op.entry, maintenance: true } };
         state.documents.note(op.entry);
         const key = typeof rpc.entryKey === 'function' && op.entry ? rpc.entryKey(op.entry) : null;
         if (key) {
@@ -1316,19 +1317,20 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
   }
   state.maintenanceOpen = maintenanceOpen;
 
-  function endMaintenance() {
+  // `cause` says why when it is not the action's own end: `rekey`, a conversation that moved under it.
+  function endMaintenance(cause = null) {
     state.maintenance = null;
-    maintenanceEdge('maintenance-ended');
+    maintenanceEdge('maintenance-ended', false, null, cause);
     flushHeld();
     deliverShellCarry();
   }
 
   // What the idle schedule hears. A throw there must not take the pipe's reader with it.
   // `confirmed` rides on the idle edge that ends an action naming a `confirmedBy` op: whether that op came.
-  function maintenanceEdge(edge, quiet = false, confirmed = null) {
+  function maintenanceEdge(edge, quiet = false, confirmed = null, cause = null) {
     // Node can report the exit before the last of stdout is read, and a late line is no edge of a live session.
     if (!ctx.onMaintenanceEdge || (state.exited && edge !== 'exit')) return;
-    try { ctx.onMaintenanceEdge({ edge, handle: state.handle, quiet, confirmed }); } catch (err) {
+    try { ctx.onMaintenanceEdge({ edge, handle: state.handle, quiet, confirmed, cause }); } catch (err) {
       ctx.log.warn(`[agent-rpc] the idle schedule did not take an edge: ${err.message}`);
     }
   }
@@ -1380,6 +1382,8 @@ function start({ tag, rpc, command, args, cwd, env, label, timeouts, forkFrom, o
     usage: () => state.lastUsage || null,
     busy: () => state.busy,
     linesSent: () => state.linesSent || 0,
+    // Whether a maintenance action is still open: one its idle edge was to end can be over before `maintain` answers.
+    maintaining: () => Boolean(state.maintenance),
   };
   maintenanceEdge('start');
 
@@ -1722,6 +1726,18 @@ function imagesFor(rpc, raw) {
   return { images };
 }
 
+// What of a maintenance turn is folded (spec 45): its prompt and the assistant's text, as the backend reads it
+// (`assistantTextOf`). A backend that cannot read a reply's text has only its prompt folded.
+function maintenanceEntry(rpc, entry) {
+  if (!entry) return false;
+  if (entry.prompt === true) return true;
+  return replyText(rpc, entry);
+}
+function replyText(rpc, entry) {
+  if (typeof rpc.assistantTextOf !== 'function') return false;
+  try { return typeof rpc.assistantTextOf(entry) === 'string'; } catch { return false; }
+}
+
 // Which prompt lines of a conversation read back were the app's own (spec 45, E7): by the key a backend has at send time,
 // else by its exact words, each record claiming one line. Never a marker in the prompt.
 function stampMaintenanceTurns(state, sessionId, entries) {
@@ -1730,17 +1746,32 @@ function stampMaintenanceTurns(state, sessionId, entries) {
   try { records = typeof ctx.maintenanceTurnsOf === 'function' ? ctx.maintenanceTurnsOf(sessionId) : []; } catch (err) {
     ctx.log.warn(`[agent-rpc] maintenance turns were not read: ${err.message}`);
   }
+  return stampWithRecords(state.rpc, entries, records);
+}
+
+// The part of the above that needs no store: the records in, the stamped entries out.
+function stampWithRecords(rpc, entries, records) {
   if (!records.length) return entries;
   const byKey = new Set(records.filter((r) => r.key).map((r) => r.key));
   const byText = records.filter((r) => !r.key && r.text).map((r) => r.text);
+  // The assistant text right after a maintenance prompt is its reply, folded with it; the first entry that is not ends the
+  // turn, so a shell, task or interrupt turn that follows stays as it is (spec 45, "Known gaps").
+  let inTurn = false;
   return entries.map((e) => {
-    if (!e || e.prompt !== true) return e;
-    const key = typeof state.rpc.entryKey === 'function' ? state.rpc.entryKey(e) : null;
-    if (key && byKey.has(key)) return { ...e, maintenance: true };
-    const text = typeof state.rpc.promptTextOf === 'function' ? state.rpc.promptTextOf(e) : null;
+    if (!e) return e;
+    if (e.prompt !== true) {
+      if (inTurn && replyText(rpc, e)) return { ...e, maintenance: true };
+      inTurn = false;
+      return e;
+    }
+    inTurn = false;
+    const key = typeof rpc.entryKey === 'function' ? rpc.entryKey(e) : null;
+    if (key && byKey.has(key)) { inTurn = true; return { ...e, maintenance: true }; }
+    const text = typeof rpc.promptTextOf === 'function' ? rpc.promptTextOf(e) : null;
     const at = text ? byText.indexOf(text) : -1;
     if (at < 0) return e;
     byText.splice(at, 1);
+    inTurn = true;
     return { ...e, maintenance: true };
   });
 }
@@ -2175,4 +2206,6 @@ module.exports = {
   attach, sendTurn, noteDraft, abortTurn, answerAsk, listCommands, completeArguments, completeSessionPaths, navigateBranch,
   stopTask, taskOutput, cycleMode, heldAction, listServers, serverAction,
   PARTIAL_INTERVAL_MS, RESPONSE_TIMEOUT_MS, STARTUP_TIMEOUT_MS,
+  // What of a maintenance turn is folded, live and read back (spec 45), pure.
+  maintenanceEntry, stampWithRecords,
 };

@@ -295,6 +295,60 @@ test('a compaction its idle edge ends is reported at that edge, not when it was 
   assert.equal(idle.getState('s1').ended, 'compacted');
 });
 
+test('a compaction to be ended by its idle edge whose turn never began ends as skipped, not running', async (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'compact' });
+  h.handle.maintain = async ({ action }) => { h.sent.push(action); return { ok: true, endsBy: 'idle' }; };
+  h.realTurn();
+  await h.step();
+  assert.equal(idle.getState('s1').running, 'compact');
+  h.edge('maintenance-ended');
+  assert.equal(idle.getState('s1').running, null);
+  assert.equal(idle.getState('s1').ended, 'refused');
+  assert.deepEqual(h.notes.at(-1), { kind: 'maintenance', label: 'Compaction skipped', detail: 'no turn began' });
+});
+
+test('a compaction ended by a re-key records nothing; the re-key clears it', async (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'compact' });
+  h.handle.maintain = async ({ action }) => { h.sent.push(action); return { ok: true, endsBy: 'idle' }; };
+  h.realTurn();
+  await h.step();
+  idle.track({ edge: 'maintenance-ended', handle: h.handle, quiet: false, cause: 'rekey' });
+  assert.equal(h.notes.length, 0, 'no "skipped" line for a conversation that moved');
+  h.edge('rekey');
+  assert.equal(idle.getState('s1').running, null);
+});
+
+test('a compaction whose end came while its answer was out is skipped once the answer arrives', async (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'compact' });
+  let open = true;
+  h.handle.maintaining = () => open;
+  h.handle.maintain = async ({ action }) => { h.sent.push(action); open = false; return { ok: true, endsBy: 'idle' }; };
+  h.realTurn();
+  await h.step();
+  assert.equal(idle.getState('s1').running, null);
+  assert.equal(idle.getState('s1').ended, 'refused');
+  assert.deepEqual(h.notes.at(-1), { kind: 'maintenance', label: 'Compaction skipped', detail: 'no turn began' });
+});
+
+test('maintenance-ended while the answer is still out leaves the outcome to that answer', async (t) => {
+  t.after(() => idle.stop());
+  const h = setup({ idleMaintenanceMode: 'compact' });
+  let answer;
+  h.handle.maintain = ({ action }) => { h.sent.push(action); return new Promise((resolve) => { answer = resolve; }); };
+  h.realTurn();
+  const stepping = h.step();
+  await Promise.resolve();
+  h.edge('maintenance-ended');
+  assert.equal(idle.getState('s1').ended, null, 'nothing recorded while the answer is out');
+  answer({ ok: true, endsBy: 'answer' });
+  await stepping;
+  await Promise.resolve();
+  assert.equal(idle.getState('s1').ended, 'compacted');
+});
+
 test('an interval past the backend\'s bound is refused with a reason, not shortened', (t) => {
   t.after(() => idle.stop());
   const h = setup({ idleMaintenanceMode: 'warm-compact', idleMaintenanceRefreshMinutes: 50 });

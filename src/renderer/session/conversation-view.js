@@ -493,13 +493,14 @@ function createConversationView(getSession, container) {
     // An agent call opens its transcript in an overlay over the view (#770, #787): which subagent it started, from
     // what the backend named for it, and the opener the overlay's "Open in tab" uses.
     const drawn = renderJsonlEntry(entry, conversationEntryResults(view.results, entry), drawContext);
-    // A turn the app sent while the session sat idle (spec 45, O5): folded and dim, because nobody wrote it.
+    // A turn the app sent while the session sat idle (spec 45, O5), its prompt and what came back: folded and dim, because
+    // nobody wrote or asked for it.
     let el = drawn;
     if (drawn && entry.maintenance) {
       el = document.createElement('details');
       el.className = 'conversation-maintenance-entry';
       const summary = document.createElement('summary');
-      summary.textContent = 'Maintenance: sent by Switchboard while idle';
+      summary.textContent = entry.prompt === true ? 'Maintenance: sent by Switchboard while idle' : 'Maintenance: the reply';
       el.append(summary, drawn);
     }
     if (el) el.dataset.entryIndex = String(index);

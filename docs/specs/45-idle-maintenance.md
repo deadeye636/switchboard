@@ -277,7 +277,12 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
 - A Claude `ai-title` written later, in a longer session, or under claude-native's entrypoint (none in about 20 seconds).
 - A user's own earlier `/compact` can be drawn as the app's after a re-attach, because the match by words has no time compare. A
   warm prompt's words are the app's own, so that case does not arise for them.
-- The reply to a warm turn is drawn as an ordinary entry; only the prompt is folded.
+- [x] The reply to a warm turn was drawn as an ordinary entry. Closed 2026-11-10: while a maintenance action runs, its
+  prompt and every entry the backend reads as assistant text (`assistantTextOf`) are stamped and folded ("Maintenance: the
+  reply"); a compaction's summary and a tool-only line are not. Read back, the assistant text right after a recognised
+  maintenance prompt is stamped, and the first entry that is not ends the stretch, so a shell, task or interrupt turn that
+  follows stays visible. Left open: an assistant entry that holds both text and a question to the user is folded with the
+  warm turn, although the question then takes the turn over.
 - `maintenance_turn` has no retention and does not move on a re-key, so a fork's copied lines stay unmarked.
 - What Pi's one-off jump in the prompt is, and whether it causes the early misses. How Pi behaves in a real conversation: the
   measurement used small prompts with identical text, at Pi's default thinking setting.
@@ -288,8 +293,12 @@ window stayed hidden to the renderer); and on Pi a prompt right after `/session`
   rests on `compact_boundary` arriving before the `result` that ends the turn: measured again on 2.1.318 the same day, on
   a session of two short turns only. Should a larger session ever send the `result` first, a real compaction would be
   recorded as skipped.
-- A compaction ended without an idle edge (a re-key, a turn that never began) leaves the schedule's `running` on
-  `compact` until the next turn: `maintenance-ended` handles only a warm turn. Older than the fix above.
+- [x] A compaction its idle edge was to end, whose turn never began, left the schedule's `running` on `compact` until the
+  next turn. Closed 2026-11-10: `maintenance-ended` records it as "Compaction skipped" and ends the period as `refused`,
+  unless `tick` still waits for the action's answer (`awaitingAnswer`), which then carries the outcome, or the end came
+  from a re-key (`cause: 'rekey'`), whose own edge clears the period without a record. An end that arrived while the answer
+  was out is caught by `tick` through the handle's `maintaining()`. Neither path is reached by today's two backends
+  (claude-native writes without an answer, Pi's compaction ends with its answer); both are pinned by tests.
 - In a detached window a maintenance turn draws Working, because `recordActivityEdge` takes it; the main window's row stays quiet.
 - The control shows the mode and its source, not the interval, the ceiling or the idle time, and only the mode can be overridden
   from the view. `setOverride` takes every `idleMaintenance*` key.
