@@ -55,7 +55,8 @@ take an inventory id, re-list on every call and delegate to `backend-resources.j
 `process-usage.js` (what a session costs the machine — #834, spec 43; its process tree from `session.pty.pid` with CPU and memory, ONE sample for every session — `@vscode/windows-process-tree` from `process.pid` on Windows, an optional native module required lazily, one `ps` call elsewhere — shared by every request within `REUSE_MS` or while it is out. Nothing runs on its own: the sidebar's Processes group asks while it is open and in view. Names no backend),
 `spell-suggest-windows.js` (corrections from the Windows spell checker for `spell-check.js`, #818: one PowerShell started on demand; its script file is ours and per start, so reflex 11 does not apply to it),
 `spell-check.js` (the spell check of a text field, #815: the switch and the languages from the settings blob, and the
-menu on a marked word; spec 32 has what was measured),
+menu on a marked word; since #839 also the plain text field menu, `editable-edit-menu`, opened only when a window asks
+for its latest unmarked right click — the composer does; spec 32 has what was measured),
 `convention-dirs.js` (**the** answer to "where does this project keep its handoffs and its plans" —
 CLAUDE.md reflex 12; the handoff prompts, the plan prompt and a saved variable's insert template all
 ask it, and a second reading of `eff.handoffDir` is how two of them start naming different directories.

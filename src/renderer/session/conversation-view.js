@@ -33,8 +33,8 @@
 // (terminal/terminal-context-menu.js, #690), sessionHealthOptions (app.js, #691 — the handoff threshold
 // the context fill turns warm at), and sessionSidebarMount / sessionSidebarContextChanged / contextLineDetails (session/session-sidebar.js, #817, #758).
 
-// The right-click setting's action waiting on the answer for a click in the composer (#815). Only main knows
-// whether the click hit a marked word: it then draws the corrections, and otherwise this runs.
+// What a right click in the composer does once main has answered (#815, #839). Only main knows whether the click hit
+// a marked word: it then draws the corrections, and otherwise this runs and asks for the text field menu.
 let pendingComposerRightClick = null;
 if (window.api && window.api.onEditableContextMenu) {
   window.api.onEditableContextMenu((marked) => {
@@ -1388,6 +1388,7 @@ function createConversationView(getSession, container) {
   container.addEventListener('mouseup', (e) => {
     if (e.button !== 0 || rightClickMode() !== 'copy-on-select') return;
     if (e.target.closest && e.target.closest('.session-sidebar')) return; // a click there selected nothing here
+    if (e.target === input) return; // the composer is a text field, not the terminal (#839)
     // After the browser has settled the selection this mouseup ends.
     setTimeout(() => copy(selectedText()), 0);
   });
@@ -1405,17 +1406,21 @@ function createConversationView(getSession, container) {
   container.addEventListener('contextmenu', (e) => {
     pendingComposerRightClick = null;
     if (e.target.closest && e.target.closest('.session-sidebar')) return; // not the conversation's right click
+    // The composer is a text field and answers as one, whatever the terminal's setting says (#839): a marked word's
+    // corrections, else the text field menu. The context-menu key and Shift+F10 arrive here the same way. Main answers
+    // for an editable field only (`editable-context-menu`), so the menu is asked for after that answer, never at once;
+    // preventDefault would take the answer away. A disabled composer (an ended session) does nothing.
+    if (e.target === input) {
+      if (!input.disabled && window.api && window.api.onEditableContextMenu && window.api.showEditableMenu) {
+        pendingComposerRightClick = () => { Promise.resolve(window.api.showEditableMenu()).catch(() => {}); };
+      }
+      return;
+    }
+    // The log follows the terminal's right-click setting (#690).
     const mode = rightClickMode();
     // In copy-on-select the selection was copied when it was made, so the right button only pastes.
     const action = mode === 'copy-paste' ? copyOrPaste : (mode === 'paste' || mode === 'copy-on-select') ? pasteIntoInput : null;
     if (!action) return;
-    // preventDefault would also take away `context-menu` in main, which is what offers a marked word's corrections.
-    // Main answers for an editable field only, so a disabled composer acts at once. No check of the setting here:
-    // with the check off nothing is marked and the answer is the same, and a detached window's copy can be stale.
-    if (e.target === input && !input.disabled && window.api && window.api.onEditableContextMenu) {
-      pendingComposerRightClick = action;
-      return;
-    }
     e.preventDefault();
     action();
   });

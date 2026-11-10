@@ -40,7 +40,11 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
       answer: () => Promise.resolve({ ok: true }),
     },
   };
-  if (mainAnswersRightClick) w.api.onEditableContextMenu = (cb) => { calls.answerRightClick = cb; };
+  if (mainAnswersRightClick) {
+    w.api.onEditableContextMenu = (cb) => { calls.answerRightClick = cb; };
+    calls.editMenu = 0;
+    w.api.showEditableMenu = () => { calls.editMenu++; return Promise.resolve(true); };
+  }
   const ctx = vm.createContext(w);
   // What the page provides around it. An entry is drawn as a div carrying its text, which is all the
   // assertions below read.
@@ -228,33 +232,51 @@ const rightClickInput = (h) => {
   return ev;
 };
 
-test('a right click in the composer leaves the event to main, and pastes only when no word was marked', async () => {
-  const h = setup({ rightClick: 'paste', clipboard: 'pasted', mainAnswersRightClick: true });
-  assert.equal(rightClickInput(h).defaultPrevented, false, 'preventDefault would take the corrections away');
-  h.calls.answerRightClick(true);
-  await h.settle();
-  assert.equal(h.input.value, '', 'a marked word opened the menu');
-  rightClickInput(h);
-  h.calls.answerRightClick(false);
-  await h.settle();
-  assert.equal(h.input.value, 'pasted');
-  h.calls.answerRightClick(false);
-  await h.settle();
-  assert.equal(h.input.value, 'pasted', 'an answer nobody waits for runs nothing');
+// #839: the composer is a text field whatever `terminalRightClick` says. A marked word gets main's corrections, any
+// other click the text field menu; nothing is copied or pasted.
+test('a right click in the composer opens the text field menu in every right-click mode, after main answers', async () => {
+  for (const mode of ['paste', 'copy-paste', 'copy-on-select', 'menu']) {
+    const h = setup({ rightClick: mode, clipboard: 'pasted', mainAnswersRightClick: true });
+    h.input.value = 'typed';
+    assert.equal(rightClickInput(h).defaultPrevented, false, `${mode}: preventDefault would take the corrections away`);
+    h.calls.answerRightClick(true);
+    await h.settle();
+    assert.equal(h.calls.editMenu, 0, `${mode}: a marked word gets main's corrections, not the plain menu`);
+    rightClickInput(h);
+    h.calls.answerRightClick(false);
+    await h.settle();
+    assert.equal(h.calls.editMenu, 1, `${mode}: no marked word, the text field menu`);
+    assert.equal(h.input.value, 'typed', `${mode}: nothing pasted`);
+    assert.deepEqual(h.calls.copied, [], `${mode}: nothing copied`);
+    h.calls.answerRightClick(false);
+    await h.settle();
+    assert.equal(h.calls.editMenu, 1, `${mode}: an answer nobody waits for runs nothing`);
+  }
 });
 
-test('in a disabled composer, and in the log, a right click acts at once, because main will not answer', async () => {
-  const off = setup({ rightClick: 'copy-paste', mainAnswersRightClick: true });
+test('a disabled composer does nothing on a right click; the log still follows the setting', async () => {
+  const off = setup({ rightClick: 'copy-paste', clipboard: 'pasted', mainAnswersRightClick: true });
   selectLogText(off, 'chosen');
   off.input.disabled = true;
-  assert.equal(rightClickInput(off).defaultPrevented, true);
-  assert.deepEqual(off.calls.copied, ['chosen']);
+  rightClickInput(off);
   off.calls.answerRightClick(false);
-  assert.deepEqual(off.calls.copied, ['chosen'], 'nothing is left waiting for a later answer');
+  await off.settle();
+  assert.deepEqual(off.calls.copied, [], 'nothing copied from a disabled composer');
+  assert.equal(off.calls.editMenu, 0);
   const log = setup({ rightClick: 'paste', clipboard: 'pasted', mainAnswersRightClick: true });
   assert.equal(rightClick(log).defaultPrevented, true);
   await log.settle();
   assert.equal(log.input.value, 'pasted');
+});
+
+test('copy-on-select: a selection finished in the composer is not copied', async () => {
+  const h = setup({ rightClick: 'copy-on-select' });
+  h.input.value = 'my draft';
+  h.input.focus();
+  h.input.setSelectionRange(0, 2);
+  h.input.dispatchEvent(new h.w.MouseEvent('mouseup', { bubbles: true, button: 0 }));
+  await h.settle();
+  assert.deepEqual(h.calls.copied, []);
 });
 
 test('a whitespace-only selection is not copied', async () => {

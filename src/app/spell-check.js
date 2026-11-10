@@ -69,6 +69,20 @@ function menuTemplate(params, actions) {
   ];
 }
 
+// A text field's own menu with no marked word under the pointer (#839): what a right click in a text box shows in
+// every other program. Only a field whose window asks for it gets it (`editable-edit-menu`, the composer), so the
+// app's other editable surfaces — the terminal's hidden textarea, the CodeMirror editors — keep what they had.
+function editMenuTemplate(flags) {
+  const f = flags || {};
+  return [
+    { role: 'cut', enabled: !!f.canCut },
+    { role: 'copy', enabled: !!f.canCopy },
+    { role: 'paste', enabled: !!f.canPaste },
+    { type: 'separator' },
+    { role: 'selectAll', enabled: f.canSelectAll !== false },
+  ];
+}
+
 // A window that keeps the right click for itself has to know which click this was, and a marked word cannot be
 // asked for beforehand: the renderer's own check knows only the Hunspell half (measured). So it leaves the DOM
 // event alone and this answers, with the menu or without.
@@ -77,11 +91,16 @@ function menuTemplate(params, actions) {
 // at the pointer and a pick replaces what is selected then. So the latest right click wins, and any key or mouse press
 // during the wait drops the menu. With Hunspell's words in hand and the OS checker still cold, the menu does not wait.
 const latestClick = new WeakMap();
+// The edit flags of the latest right click in an editable field with no marked word, for `editable-edit-menu`.
+const latestUnmarked = new WeakMap();
 async function onContextMenu(contents, params) {
   if (!params.isEditable || contents.isDestroyed()) return;
   const click = (latestClick.get(contents) || 0) + 1;
   latestClick.set(contents, click);
   const marked = !!params.misspelledWord;
+  // The click's point too: a menu asked for by the context-menu key or Shift+F10 opens where the field put it, not at
+  // a mouse pointer that may be anywhere.
+  if (!marked) latestUnmarked.set(contents, { click, flags: params.editFlags || {}, x: params.x, y: params.y });
   contents.send('editable-context-menu', marked);
   if (!marked) return;
   let suggestions = params.dictionarySuggestions || [];
@@ -137,6 +156,20 @@ function registerIpc(ipc) {
     const available = ses.availableSpellCheckerLanguages;
     return { osDecides: !available.length, ...resolveLanguages(stored, available) };
   });
+  // #839: the window asks for the text field menu after main said the click hit no marked word. Only for the latest
+  // click of that window, so a late ask cannot open a menu for a click that has been superseded.
+  ipc.handle('editable-edit-menu', (event) => showEditMenu(event.sender));
 }
 
-module.exports = { init, registerIpc, apply, onContextMenu, resolveLanguages, menuTemplate, DEFAULT_LANGUAGES };
+function showEditMenu(contents) {
+  if (!contents || contents.isDestroyed()) return false;
+  const last = latestUnmarked.get(contents);
+  if (!last || last.click !== latestClick.get(contents)) return false;
+  latestUnmarked.delete(contents);
+  const at = Number.isFinite(last.x) && Number.isFinite(last.y) ? { x: Math.round(last.x), y: Math.round(last.y) } : {};
+  ctx.Menu.buildFromTemplate(editMenuTemplate(last.flags))
+    .popup({ window: ctx.BrowserWindow.fromWebContents(contents) || undefined, ...at });
+  return true;
+}
+
+module.exports = { init, registerIpc, apply, onContextMenu, showEditMenu, resolveLanguages, menuTemplate, editMenuTemplate, DEFAULT_LANGUAGES };

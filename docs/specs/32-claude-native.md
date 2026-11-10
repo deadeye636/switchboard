@@ -1054,13 +1054,18 @@ Measured on Windows with Electron 41 and `scripts/measure-spell-check.js`:
 | `webFrame.isWordMisspelled` | Knows only the Hunspell half: it called `Haus` misspelled while the field left it unmarked. |
 | A code the build does not have | `setSpellCheckerLanguages` throws, so codes are filtered first and the settings field names what it dropped. |
 
-Because the renderer cannot ask whether a word is marked, the right-click setting (#690) waits for main. In its
-copy and paste modes a click in the composer no longer calls `preventDefault`, since that would suppress
-Electron's `context-menu` too. Main answers `editable-context-menu`: on a marked word it opens the menu with the OS
-checker's corrections first, then Hunspell's, Add to dictionary, Cut, Copy and Paste; on anything else the view runs the mode's action. So in those
-modes a right click on a marked word opens the menu rather than pasting. The view does not read the setting for
-this: with the check off nothing is marked and main's answer runs the action. A disabled composer gets no answer
-from main, so there the action runs at once.
+Because the renderer cannot ask whether a word is marked, a right click in the composer waits for main and never
+calls `preventDefault`, since that would suppress Electron's `context-menu` too. Main answers
+`editable-context-menu`: on a marked word it opens the menu with the OS checker's corrections first, then Hunspell's,
+Add to dictionary, Cut, Copy and Paste.
+
+**Since #839 the composer is a text field and nothing else.** It no longer follows the terminal's right-click setting
+(`terminalRightClick`, #690): in every mode a right click with no marked word asks main for the text field menu
+(`editable-edit-menu`: Cut, Copy, Paste, Select all, enabled by the field's edit flags of that click), and nothing is
+copied or pasted; the context-menu key and Shift+F10 do the same. Main opens that menu only when asked and only for the
+window's latest right click, so the app's other editable surfaces (the terminal's hidden textarea, the editors) keep
+what they had. A selection finished in the composer is not copied in `copy-on-select` either. A disabled composer
+does nothing. The conversation log above it still follows the setting as #690 made it.
 
 ## Shared with pi-native, and what is not
 

@@ -32,12 +32,13 @@ function menuWorld(t, { suggest, answersAtOnce = () => true } = {}) {
   const { EventEmitter } = require('node:events');
   const spellCheck = require('../src/app/spell-check');
   const shown = [];
+  const templates = [];
   const fakeApp = new EventEmitter();
   fakeApp.whenReady = () => new Promise(() => {});
   spellCheck.init({
     app: fakeApp,
     session: { defaultSession: { availableSpellCheckerLanguages: ['de-DE', 'en-US'] } },
-    Menu: { buildFromTemplate: (template) => ({ popup: () => shown.push(template.map((i) => i.label).filter(Boolean)) }) },
+    Menu: { buildFromTemplate: (template) => ({ popup: () => { templates.push(template); shown.push(template.map((i) => i.label).filter(Boolean)); } }) },
     BrowserWindow: { fromWebContents: () => null },
     getSetting: () => ({}),
     suggestFromOs: suggest,
@@ -48,7 +49,7 @@ function menuWorld(t, { suggest, answersAtOnce = () => true } = {}) {
   contents.isDestroyed = () => false;
   contents.sent = [];
   contents.send = (...a) => contents.sent.push(a);
-  return { spellCheck, contents, shown };
+  return { spellCheck, contents, shown, templates };
 }
 const marked = (word, dictionarySuggestions = []) => ({ isEditable: true, misspelledWord: word, dictionarySuggestions, editFlags: {} });
 
@@ -113,6 +114,32 @@ test('the menu offers the corrections, adding the word, and the edit roles', () 
   t[3].click();
   assert.deepEqual(calls, [['replace', 'hose'], ['add', 'hosue']]);
   assert.equal(t.find((i) => i.role === 'paste').enabled, false);
+});
+
+// #839: the text field menu for a click with no marked word, only when the window asks, and only for its latest click.
+test('the text field menu opens for the latest unmarked click when asked, with the field\'s edit flags', async (t) => {
+  const { spellCheck, contents, templates } = menuWorld(t);
+  assert.equal(spellCheck.showEditMenu(contents), false, 'no right click yet, no menu');
+  await spellCheck.onContextMenu(contents, { isEditable: true, misspelledWord: '', editFlags: { canCut: false, canCopy: true, canPaste: true, canSelectAll: true } });
+  assert.deepEqual(contents.sent, [['editable-context-menu', false]]);
+  assert.equal(templates.length, 0, 'main draws nothing by itself for an unmarked click');
+  assert.equal(spellCheck.showEditMenu(contents), true);
+  assert.deepEqual(templates[0].map((i) => i.role || i.type), ['cut', 'copy', 'paste', 'separator', 'selectAll']);
+  assert.deepEqual(templates[0].filter((i) => i.role).map((i) => i.enabled), [false, true, true, true]);
+  assert.equal(spellCheck.showEditMenu(contents), false, 'one ask, one menu');
+
+  await spellCheck.onContextMenu(contents, { isEditable: true, misspelledWord: '', editFlags: {} });
+  await spellCheck.onContextMenu(contents, marked('b'));
+  assert.equal(spellCheck.showEditMenu(contents), false, 'a later click on a marked word supersedes the unmarked one');
+});
+
+test('registerIpc answers editable-edit-menu for the window that asks', async (t) => {
+  const { spellCheck, contents, templates } = menuWorld(t);
+  const handlers = {};
+  spellCheck.registerIpc({ handle: (name, fn) => { handlers[name] = fn; } });
+  await spellCheck.onContextMenu(contents, { isEditable: true, misspelledWord: '', editFlags: {} });
+  assert.equal(await handlers['editable-edit-menu']({ sender: contents }), true);
+  assert.equal(templates.length, 1);
 });
 
 // Measured: a word only the Windows checker rejects reports no suggestions (spec 32).
