@@ -93,15 +93,26 @@ measured.
 
 `glab` 1.126 against a public project on gitlab.com: `issue list -R <url> --output json` answers the shape
 `FORGES.gitlab.fromRow` reads. Its failure text can start with the bare word `ERROR`, so the reason is taken from the
-next line. A self-hosted GitLab was not measured.
+next line. A self-hosted GitLab is measured below (#830).
 
 For #830, against this repository through the app (2026-11-09): `gh --json …,state` answers `OPEN` / `CLOSED`;
 `--state closed`, `--state all` and `--author @me` filter as documented. A second ask inside the cache window answered
 in about 3 ms against about 0.9 s for a CLI start. The flags of both CLIs were read from their local `--help`.
+
+For #830 on GitLab (2026-11-10): `glab` 1.126 against a project on a self-hosted instance (HTTPS on the default port,
+nested group path), in an isolated demo instance, read calls only. Every query the app sent returned the same count as
+the same `glab issue list` run by hand: open, `--closed` and `--all` (the last two at the 100 cap, shown as `100+`),
+`--assignee=@me`, and `--author=<name>` with the name from `glab api user --hostname <host>`, on its own and with
+`--all`. In the Tasks view the label and text filters narrowed the list read to the expected counts, alone and
+together; the Closed badge marked exactly the closed rows under "Closed" and "Open and closed" and none under "Open";
+state, label and both toggles were back after the view was reopened, the text was not. The session sidebar was not
+driven against this project (it would have meant starting a CLI in it); it shares the query and the stored filter with
+the Tasks view and was clicked against GitHub at #830.
 
 ## Known gaps
 
 - `forge-issues-list` takes a project path from the window and does not check it is a registered project. It refuses a
   foreign network path, and a local one only ever reaches `git -C` and a read.
 - A filter change in one window shows in another window only when that window's list next loads (see "Filters").
-- `glab api user --hostname` with a host that carries a port was not measured.
+- `glab api user --hostname` with a host that carries a port was not measured (the self-hosted host measured at #830
+  runs on the default port).
