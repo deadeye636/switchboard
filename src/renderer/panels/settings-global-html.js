@@ -57,7 +57,7 @@
       handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
       mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
       pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+      projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, sessionSidebarGroupsHtml, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
       runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
       secretRefSweepValue, shellProfileValue, shellProfiles,
       awaySummaryValue,
@@ -249,6 +249,15 @@
                   </div>
                   <div class="settings-field-control">
                     <button type="button" class="settings-action-btn" id="sv-sidebar-order-reset">Reset order</button>
+                  </div>
+                </div>
+                <div class="settings-field">
+                  <div class="settings-field-info">
+                    <span class="settings-label">Sections shown in the session sidebar</span>
+                    <div class="settings-description">Switch a section off to hide it in every session sidebar; a hidden section reads nothing. Right-clicking a section's heading in the sidebar shows the same list. Applies at once, without Save.</div>
+                  </div>
+                  <div class="settings-field-control settings-sidebar-groups" id="sv-sidebar-groups">
+                    ${sessionSidebarGroupsHtml}
                   </div>
                 </div>
               </div>

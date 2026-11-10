@@ -3141,6 +3141,13 @@ body.restoring-sessions #restore-progress { display: flex; }
 .ssb-row[data-tone="failed"] .ssb-row-meta { color: #e06c75; }
 .ssb-row[data-tone="ok"] .ssb-row-meta { color: #3ecf5a; }
 .ssb-note { font-size: 11px; color: #7a7a90; padding: 2px 4px; }
+/* #835: the note an empty sidebar shows, and the head of the list of sections to show (the terminal menu's surface). */
+.ssb-empty { padding: 10px 12px; line-height: 1.5; }
+.ssb-groups-pop-head { padding: 6px 12px 4px; font-size: 11px; color: #7a7a90; }
+.ssb-groups-pop .popover-option:focus-visible { outline: none; background: rgba(255,255,255,0.06); color: #d0d0e8; }
+/* The same list in Settings → Sessions: one row per section, its name and the app's switch. */
+.settings-field-control.settings-sidebar-groups { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 200px; }
+.settings-sidebar-group { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; }
 /* #830: the issue filters. The field and the selects take the Tasks view's look; the popover is a row under the bar. */
 .ssb-issue-head { display: flex; align-items: baseline; gap: 6px; }
 .ssb-issue-head > span:first-child { flex: 1; }

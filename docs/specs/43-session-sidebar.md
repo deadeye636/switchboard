@@ -182,11 +182,42 @@ one global setting, `sessionSidebarOrder`, and every session sidebar in every wi
 - **The settings screen does not hold the key.** Its Save reads the blob fresh and writes only its own fields, so an open
   settings window cannot put an old order back.
 
+## Hidden sections (#835)
+
+A user can hide a section and show it again. The list is one global setting, `sessionSidebarHidden`, a list of section
+ids, and every session sidebar in every window hides the same sections.
+
+- **Owner decisions (2026-11-10):** Settings → Sessions offers the same list as the sidebar (a switch per section), not
+  only a "show all" reset. Every section may be hidden; the sidebar then shows a note that says how to bring them back,
+  instead of the last switch being locked.
+- **Where the list opens:** a right click on a section's heading, its grip, the sidebar's head, or the empty sidebar's
+  note. The context-menu key and Shift+F10 arrive as the same `contextmenu` event, at a point Chromium puts on the
+  focused control; an event with no position opens the list under the control. A right click on a section's rows is not
+  the list. The list is the terminal menu's surface (`popover terminal-context-menu`)
+  with `.popover-option` rows as `menuitemcheckbox`; it stays open while sections are checked and unchecked, the arrows,
+  Home and End move, Escape and Tab close it and give the caret back, a click outside closes it.
+- **A hidden section reads nothing.** `loadSidebarGroup`, every section's one way to read, returns before reading and
+  marks the section stale. Showing a section that is open reads it at once when the sidebar is in view, else when it
+  comes into view.
+- **The slots are hidden, never rebuilt** (`applySidebarHidden`), so a section keeps its open state and its place in the
+  order. Alt+Up and Alt+Down step past the neighbouring SHOWN section; a hidden one keeps its place.
+- **One funnel for a change**, as for the order: `commitSidebarHidden` applies it to every sidebar in this window, updates
+  `appGlobalSettings`, writes the key through `mergeSetting`, then calls `notifySettingsChanged`. A failed write puts the
+  old list back and says so. The other windows apply it from `reapplyGlobalSettings` through
+  `sessionSidebarHiddenChanged`, which only reads.
+- **The names live in `src/renderer/lib/sidebar-groups.js`**, which the settings window loads too (it does not load the
+  sidebar). The sidebar's own table adds a loader per id; `test/session-sidebar-hidden.test.js` checks both name the
+  same ids in the same order. The settings switches write at once like Reset order, and each reads the stored list fresh
+  before it changes its own section, because the settings window holds a snapshot.
+
 ## Known gaps
 
 - Two windows moving sections at nearly the same moment can each end up drawing the other's order while the database
   holds the last write. The same can happen in one window when a move's write fails just before a later move's write
-  succeeds. The next settings broadcast or a restart puts it right.
+  succeeds. The next settings broadcast or a restart puts it right. The hidden sections (#835) have the same race: a
+  sidebar writes its whole list from its window's cached copy.
+- An open settings window does not follow a section hidden from a sidebar: its switch shows the state the window opened
+  with until one of its switches is used, which reads the stored list and sets every switch from it.
 - The Repository group does not follow the poller: it shows what it read at open or reload. A branch switch while it is
   open shows after the reload button, which skips the poller's cache and runs the status afresh.
 - A main repository whose git directory is not a `.git` folder in its working tree (`--separate-git-dir`) looks bare to

@@ -389,6 +389,13 @@
     const expandToolOutputValue = fieldValue('expandToolOutput', false);
     const conversationEnterWhileBusyValue = fieldValue('conversationEnterWhileBusy', 'hold');
     const sessionSidebarDefaultValue = fieldValue('sessionSidebarDefault', 'closed');
+    // #835: what the window opened with; each switch re-reads the stored list before it writes (wired below).
+    const sidebarHidden = hiddenSidebarGroups(fieldValue('sessionSidebarHidden', []));
+    // Built here, like `idleMaintenanceFields`: the names come from lib/sidebar-groups.js, and the template stays a pure
+    // function of its values.
+    const sessionSidebarGroupsHtml = SESSION_SIDEBAR_GROUP_NAMES.map((g) => `<label class="settings-sidebar-group"><span>${escapeHtml(g.label)}</span>`
+      + `<span class="settings-toggle"><input type="checkbox" data-sidebar-group="${escapeHtml(g.id)}" aria-label="Show ${escapeHtml(g.label)}"${sidebarHidden.includes(g.id) ? '' : ' checked'}>`
+      + '<span class="settings-toggle-slider"></span></span></label>').join('');
     const forgeEnabledValue = fieldValue('forgeIssuesEnabled', false) === true;
     const forgeProviderValue = fieldValue('forgeProvider', 'auto');
     const forgeGhPathValue = fieldValue('forgeGhPath', '');
@@ -1057,7 +1064,7 @@ ${window.settingsInstructions.sectionHtml('project')}
         handoffReadPromptValue, help, isMacPlatform, isWinPlatform, logLevelValue, maxAgeValue,
         mouseModeValue, nextAttentionShortcutLabel, notifyEnabledValue, notifyOnReadyValue,
         pixelSessionIconValue, sidebarProjectSecondLineValue, contextFillHandoffPercentValue, showContextFillValue, showBackgroundTasksValue,
-        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
+        projectAutoAddValue, projectSortValue, restoreSessionsValue, rightClickValue, expandToolOutputValue, conversationEnterWhileBusyValue, sessionSidebarDefaultValue, sessionSidebarGroupsHtml, spellCheckValue, spellCheckLanguagesValue, forgeEnabledValue, forgeProviderValue, forgeGhPathValue, forgeGlabPathValue, documentPreviewValue, documentPreviewMaxKBValue, documentPdfThumbnailsValue,
         runningInboxMinutesValue, runningInboxModeValue, scIsMac, scShortcuts, secretRefCleanupValue,
         secretRefSweepValue, shellProfileValue, shellProfiles,
         awaySummaryValue,
@@ -1115,6 +1122,29 @@ ${window.settingsInstructions.sectionHtml('project')}
           orderResetBtn.textContent = 'Not saved';
         }
         setTimeout(() => { orderResetBtn.textContent = label; orderResetBtn.disabled = false; }, 1500);
+      }, listenerSignal ? { signal: listenerSignal } : undefined);
+
+      // #835: the sections shown in the session sidebar. Written at once like the order, and not a form key either. This
+      // window holds a snapshot, and a sidebar may have hidden a section since it opened, so each switch reads the stored
+      // list fresh and changes only its own section in it.
+      const sidebarGroupsBox = settingsViewerBody.querySelector('#sv-sidebar-groups');
+      if (sidebarGroupsBox) sidebarGroupsBox.addEventListener('change', async (e) => {
+        const box = e.target;
+        const id = box && box.dataset ? box.dataset.sidebarGroup : null;
+        if (!id) return;
+        box.disabled = true;
+        try {
+          const fresh = (await window.api.getSetting('global')) || {};
+          const next = withSidebarGroupHidden(fresh.sessionSidebarHidden, id, !box.checked);
+          await window.api.mergeSetting('global', { sessionSidebarHidden: next });
+          window.api.notifySettingsChanged?.();
+          // The other switches show what is stored now, a section hidden from a sidebar meanwhile included.
+          for (const other of sidebarGroupsBox.querySelectorAll('input[data-sidebar-group]')) other.checked = !next.includes(other.dataset.sidebarGroup);
+        } catch {
+          box.checked = !box.checked;
+          showControlMessage({ title: 'Not saved', message: 'The sections shown in the session sidebar could not be saved.' });
+        }
+        box.disabled = false;
       }, listenerSignal ? { signal: listenerSignal } : undefined);
 
       // #790: the MCP servers catalog. Bound before the nav wiring, so its rows exist and its `settings-cat-shown`

@@ -106,6 +106,7 @@
     "branch-tree-dialog.js",
     "servers-dialog.js",
     "conversation-view.js",
+    "sidebar-groups.js",
     "session-sidebar.js",
     "settings-project-tags.js",
     "dialogs.js",
@@ -173,6 +174,7 @@
     "settings-external-mcp.js",
     "settings-instructions.js",
     "settings-plugins.js",
+    "sidebar-groups.js",
     "settings-global-html.js",
     "settings-panel.js",
     "settings-window.js"

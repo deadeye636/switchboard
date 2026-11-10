@@ -22,6 +22,8 @@ const ENDPOINT = `http://127.0.0.1:${PORT}`;
 const KEY_CODES = {
   ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, PageUp: 33, PageDown: 34, Home: 36, End: 35,
   Enter: 13, Tab: 9, Escape: 27, Backspace: 8, Delete: 46, ' ': 32,
+  // The two keys that open a context menu (#835): Shift+F10 (modifier 8) and the context-menu key.
+  F10: 121, ContextMenu: 93,
 };
 
 function keyCodeOf(key) {

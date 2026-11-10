@@ -13,6 +13,7 @@
 // openTasksView (views/tasks-view.js), sessionBackendId (backends/backend-registry.js), openFileInPanel
 // (views/file-panel.js), openSessionServers (session/servers-dialog.js), skillInsertText (the skill picker), window.showControlToast, window.api,
 // appGlobalSettings (app.js), moveVariableInOrder, stepVariableInOrder, sameVariableOrder (lib/variable-order.js),
+// SESSION_SIDEBAR_GROUP_NAMES, hiddenSidebarGroups, withSidebarGroupHidden (lib/sidebar-groups.js, #835),
 // and for the issue filters (#830) settingsOwnerPath (shared/worktree-path.js), filterIssues, normalizeIssueFilter,
 // issueQueryOf, issueLabels, issueCountLabel, readIssueFilter, patchIssueFilter, ISSUE_FILTER_EVENT (views/tasks-logic.js,
 // loaded after this file: every reference is inside a function; the window listener spells the event name itself).
@@ -22,7 +23,7 @@
 // Callers into this file: createTerminalEntry and createConversationEntry (`sessionSidebarMount`), the two session
 // toolbars (`sessionSidebarToggle`, `sessionSidebarIsOpen`), the re-key (`rekeySessionSidebar`), the conversation
 // view's `context` op (`sessionSidebarContextChanged`), its session line's tooltip (`contextLineDetails`) and
-// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829).
+// `reapplyGlobalSettings` in app.js (`sessionSidebarOrderChanged`, #829; `sessionSidebarHiddenChanged`, #835).
 
 const SESSION_SIDEBAR_KEY = 'sessionSidebar';
 const SESSION_SIDEBAR_WIDTH = { min: 200, default: 280, max: 560 };
@@ -583,13 +584,13 @@ async function sessionSidebarOpenServers(entry) {
   await openSessionServers(entry.session.sessionId, { onClose: () => sidebarSessionFocus(entry) });
 }
 
-// Each group reads when it is open and in view, and answers markup. All of it is escaped: a task title, an issue and
-// a skill name are all text somebody else may have written.
+// Each group reads when it is open, in view and not hidden (#835), and answers markup. All of it is escaped: a task
+// title, an issue and a skill name are all text somebody else may have written. The groups' NAMES are in
+// lib/sidebar-groups.js, which the settings window loads too; these ids are the same ones in the same order.
 const SESSION_SIDEBAR_GROUPS = [
   {
     // First, as the owner decided (#821): where the session runs. Read from the poller's cache, else one status run.
     id: 'repository',
-    label: 'Repository',
     async load(entry, draw, force) {
       const cwd = sidebarSessionOf(entry).projectPath;
       if (!cwd) return sidebarNote('This session has no project.');
@@ -603,7 +604,6 @@ const SESSION_SIDEBAR_GROUPS = [
   },
   {
     id: 'tasks',
-    label: 'Tasks & notes',
     // `current()` says whether this read is still the group's latest: an older one must not write the entry's issue
     // state, or a later keystroke would redraw its stale answer (#830).
     async load(entry, draw, force, current = () => true) {
@@ -645,7 +645,6 @@ const SESSION_SIDEBAR_GROUPS = [
   },
   {
     id: 'handoffs',
-    label: 'Handoffs',
     async load(entry) {
       const projectPath = sidebarSessionOf(entry).projectPath;
       if (!projectPath) return sidebarNote('This session has no project.');
@@ -660,7 +659,6 @@ const SESSION_SIDEBAR_GROUPS = [
   },
   {
     id: 'instructions',
-    label: 'Instructions',
     async load(entry) {
       const session = sidebarSessionOf(entry);
       const backendId = typeof sessionBackendId === 'function' ? sessionBackendId(session) : null;
@@ -674,7 +672,6 @@ const SESSION_SIDEBAR_GROUPS = [
   },
   {
     id: 'context',
-    label: 'Context',
     async load(entry) {
       const fromView = entry.conversation && entry.conversation.context ? entry.conversation.context() : null;
       const session = sidebarSessionOf(entry);
@@ -694,7 +691,6 @@ const SESSION_SIDEBAR_GROUPS = [
   },
   {
     id: 'connectors',
-    label: 'Connectors',
     async load(entry) {
       const session = sidebarSessionOf(entry);
       let html = '';
@@ -721,7 +717,10 @@ const SESSION_SIDEBAR_GROUPS = [
 ];
 
 // The group's own dirty mark and a token, so a late answer for a closed sidebar or an older read draws nothing.
+// A hidden group (#835) reads nothing: this is every group's one way to read, so the rule is kept here, and the
+// group is marked to read when it is shown again.
 function loadSidebarGroup(entry, group, section, force = false) {
+  if (sidebarSectionHidden(section)) { section._stale = true; return; }
   // The rows a group drew before go with its redraw, so the registry holds what is on screen (a kind has one group).
   if (entry.sidebarRows) for (const [k, v] of entry.sidebarRows) if (SIDEBAR_KIND_GROUP[v.kind] === group.id) entry.sidebarRows.delete(k);
   const body = section.querySelector('.ssb-group-body');
@@ -837,6 +836,168 @@ function commitSidebarGroupOrder(ids) {
     });
 }
 
+// --- Hidden groups (#835). One global setting, `sessionSidebarHidden`; every sidebar in every window hides the same. ---
+// The names and the list helpers are lib/sidebar-groups.js's (SESSION_SIDEBAR_GROUP_NAMES, hiddenSidebarGroups,
+// withSidebarGroupHidden), read at call time.
+
+const SESSION_SIDEBAR_EMPTY = 'Every section is hidden. Right-click here, or use Settings → Sessions, to show them again.';
+
+function sidebarGroupLabel(id) {
+  const name = SESSION_SIDEBAR_GROUP_NAMES.find((g) => g.id === id);
+  return name ? name.label : id;
+}
+
+// The ids hidden now, from the cached global settings (app.js keeps `appGlobalSettings` current).
+function sessionSidebarHiddenIds() {
+  const saved = typeof appGlobalSettings !== 'undefined' && appGlobalSettings ? appGlobalSettings.sessionSidebarHidden : undefined;
+  return hiddenSidebarGroups(saved);
+}
+
+function sidebarSectionHidden(section) {
+  const slot = section && section.closest ? section.closest('.ssb-slot') : null;
+  return !!(slot && slot.hidden);
+}
+
+// Hides and shows the slots, never rebuilds them. A group shown again that is open reads at once when the sidebar is in
+// view, else when it comes into view; what it read before it was hidden may be old by now.
+function applySidebarHidden(entry, ids) {
+  const root = entry && entry.sidebar;
+  if (!root) return;
+  const hidden = new Set(ids);
+  const inView = sidebarInView(entry);
+  let shown = 0;
+  for (const slot of root.querySelectorAll('.ssb-slot')) {
+    const hide = hidden.has(slot.dataset.groupSlot);
+    if (!hide) shown++;
+    if (slot.hidden === hide) continue;
+    slot.hidden = hide;
+    const section = slot.querySelector('.ssb-group');
+    if (hide || !section || !section.open) continue;
+    const group = SESSION_SIDEBAR_GROUPS.find((g) => g.id === section.dataset.group);
+    if (inView && group) loadSidebarGroup(entry, group, section);
+    else section._stale = true;
+  }
+  const empty = root.querySelector('.ssb-empty');
+  if (empty) empty.hidden = shown > 0;
+}
+
+// Every sidebar this window holds, and the popover when it is open. Apply only, like the order: a change from another
+// window lands here too and must not write the setting back.
+function sessionSidebarSetHidden(ids) {
+  for (const entry of openSessions.values()) {
+    if (entry && entry.sidebar) applySidebarHidden(entry, ids);
+  }
+  syncSidebarGroupsPop();
+}
+
+// A settings change from another window: `reapplyGlobalSettings` (app.js) has just refreshed the cache this reads.
+function sessionSidebarHiddenChanged() {
+  sessionSidebarSetHidden(sessionSidebarHiddenIds());
+}
+
+// A user's choice in the popover: applied here first, because `broadcastSettingsChanged` skips the sender, then
+// written as a key-scoped merge. A write that fails puts the old list back.
+function commitSidebarHidden(ids) {
+  const cache = typeof appGlobalSettings !== 'undefined' && appGlobalSettings ? appGlobalSettings : null;
+  const previous = cache ? cache.sessionSidebarHidden : undefined;
+  if (cache) cache.sessionSidebarHidden = ids.slice();
+  sessionSidebarSetHidden(ids);
+  const api = window.api;
+  if (!api || typeof api.mergeSetting !== 'function') return;
+  Promise.resolve(api.mergeSetting('global', { sessionSidebarHidden: ids.slice() }))
+    .then(() => { if (typeof api.notifySettingsChanged === 'function') api.notifySettingsChanged(); })
+    .catch(() => {
+      if (cache) cache.sessionSidebarHidden = previous;
+      sessionSidebarSetHidden(sessionSidebarHiddenIds());
+      window.showControlToast?.('The hidden sections could not be saved.');
+    });
+}
+
+// The list of groups with a check mark (#835): opened by a right click (or the context-menu key, or Shift+F10) on a
+// group's heading, its grip, the sidebar's head, or the note an empty sidebar shows. The terminal menu's surface and
+// rows, so it looks like the app's other menus. One at a time; it stays open while groups are checked and unchecked.
+let sidebarGroupsPop = null;
+
+function syncSidebarGroupsPop() {
+  if (!sidebarGroupsPop) return;
+  const hidden = new Set(sessionSidebarHiddenIds());
+  for (const btn of sidebarGroupsPop.menu.querySelectorAll('[data-group-toggle]')) {
+    const on = !hidden.has(btn.dataset.groupToggle);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    btn.querySelector('.popover-option-icon').textContent = on ? '✓' : '';
+  }
+}
+
+function closeSidebarGroupsPop(refocus) {
+  const pop = sidebarGroupsPop;
+  if (!pop) return;
+  sidebarGroupsPop = null;
+  document.removeEventListener('pointerdown', pop.outside, true);
+  pop.menu.remove();
+  if (!refocus) return;
+  // The control it opened from, or, when that group is hidden now, the sidebar's own head button.
+  const back = pop.returnTo && pop.returnTo.isConnected && !pop.returnTo.closest('.ssb-slot[hidden]') ? pop.returnTo : null;
+  const fallback = pop.root && pop.root.isConnected ? pop.root.querySelector('.ssb-head-btn') : null;
+  (back || fallback)?.focus();
+}
+
+function openSidebarGroupsPop(root, x, y, returnTo) {
+  closeSidebarGroupsPop(false);
+  const menu = document.createElement('div');
+  menu.className = 'popover terminal-context-menu ssb-groups-pop';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Sections to show');
+  const head = document.createElement('div');
+  head.className = 'ssb-groups-pop-head';
+  head.textContent = 'Show sections';
+  menu.appendChild(head);
+  for (const name of SESSION_SIDEBAR_GROUP_NAMES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'popover-option';
+    btn.setAttribute('role', 'menuitemcheckbox');
+    btn.dataset.groupToggle = name.id;
+    const mark = document.createElement('span');
+    mark.className = 'popover-option-icon';
+    mark.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = name.label;
+    btn.append(mark, label);
+    btn.addEventListener('click', () => {
+      const hide = btn.getAttribute('aria-checked') === 'true';
+      commitSidebarHidden(withSidebarGroupHidden(sessionSidebarHiddenIds(), name.id, hide));
+    });
+    menu.appendChild(btn);
+  }
+  menu.addEventListener('keydown', (e) => {
+    const items = [...menu.querySelectorAll('[data-group-toggle]')];
+    const at = items.indexOf(document.activeElement);
+    let next = null;
+    if (e.key === 'ArrowDown') next = items[(at + 1) % items.length];
+    else if (e.key === 'ArrowUp') next = items[(at - 1 + items.length) % items.length];
+    else if (e.key === 'Home') next = items[0];
+    else if (e.key === 'End') next = items[items.length - 1];
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSidebarGroupsPop(true); return; }
+    else if (e.key === 'Tab') { e.preventDefault(); closeSidebarGroupsPop(true); return; }
+    if (!next) return;
+    e.preventDefault();
+    e.stopPropagation();
+    next.focus();
+  });
+  const outside = (e) => { if (!menu.contains(e.target)) closeSidebarGroupsPop(false); };
+  sidebarGroupsPop = { menu, root, returnTo, outside };
+  syncSidebarGroupsPop();
+  document.body.appendChild(menu);
+  // Kept inside the window, the way the terminal menu is placed.
+  const r = menu.getBoundingClientRect();
+  const left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4));
+  const top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  document.addEventListener('pointerdown', outside, true);
+  menu.querySelector('[data-group-toggle]')?.focus();
+}
+
 // The drag and the keys. The grip sits beside the `<details>`, not in its `<summary>`, so neither a press nor Space
 // on it opens or closes the group. The list helpers are the variables manager's (#676, lib/variable-order.js): they
 // work on any list of ids, and the names are theirs.
@@ -932,7 +1093,9 @@ function wireSidebarGroupOrder(root) {
     e.preventDefault();
     e.stopPropagation();
     const ids = sidebarSlotIds(root);
-    const next = stepVariableInOrder(ids, ids, slot.dataset.groupSlot, e.key === 'ArrowUp' ? -1 : 1);
+    // One step past the neighbouring SHOWN group (#835): a hidden one keeps its place and is not stepped over by hand.
+    const shown = [...root.querySelectorAll('.ssb-slot:not([hidden])')].map((s) => s.dataset.groupSlot);
+    const next = stepVariableInOrder(ids, shown, slot.dataset.groupSlot, e.key === 'ArrowUp' ? -1 : 1);
     if (!next || sameVariableOrder(ids, next)) return;
     commitSidebarGroupOrder(next);
     grip.focus();
@@ -942,6 +1105,7 @@ function wireSidebarGroupOrder(root) {
 function buildSidebar(entry) {
   const sessionId = () => entry.session.sessionId;
   const state = sidebarStateOf(readSidebarStates(), sessionId());
+  const hidden = sessionSidebarHiddenIds();
   const root = document.createElement('aside');
   root.className = 'session-sidebar';
   root.setAttribute('aria-label', 'Session sidebar');
@@ -952,15 +1116,36 @@ function buildSidebar(entry) {
       <button type="button" class="ssb-head-btn" data-ssb="refresh" title="Reload" aria-label="Reload">${SESSION_SIDEBAR_RELOAD}</button>
     </div>
     <div class="ssb-body">${sessionSidebarGroupOrder().map((id) => SESSION_SIDEBAR_GROUPS.find((g) => g.id === id)).map((g) => `
-      <div class="ssb-slot" data-group-slot="${g.id}">
+      <div class="ssb-slot" data-group-slot="${g.id}"${hidden.includes(g.id) ? ' hidden' : ''}>
         <details class="ssb-group" data-group="${g.id}"${state.groups.includes(g.id) ? ' open' : ''}>
-          <summary>${escapeHtml(g.label)}</summary>
+          <summary>${escapeHtml(sidebarGroupLabel(g.id))}</summary>
           <div class="ssb-group-body"></div>
         </details>
         <button type="button" class="ssb-grip" title="Drag to reorder (Alt+Up / Alt+Down)" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-          aria-label="Move the ${escapeHtml(g.label)} section (Alt+Up / Alt+Down)">${SESSION_SIDEBAR_GRIP}</button>
+          aria-label="Move the ${escapeHtml(sidebarGroupLabel(g.id))} section (Alt+Up / Alt+Down)">${SESSION_SIDEBAR_GRIP}</button>
       </div>`).join('')}
+      <div class="ssb-note ssb-empty"${hidden.length < SESSION_SIDEBAR_GROUPS.length ? ' hidden' : ''}>${escapeHtml(SESSION_SIDEBAR_EMPTY)}</div>
     </div>`;
+
+  // #835: the list of sections to show, from a heading, a grip, the head or the empty sidebar's note. A right click,
+  // the context-menu key and Shift+F10 all arrive as `contextmenu`, at the point Chromium gives them (for a key, a point
+  // on the focused control); one with no position opens under the control. Never on a group's rows: those are someone
+  // else's text.
+  root.addEventListener('contextmenu', (e) => {
+    const at = e.target.closest && e.target.closest('.ssb-head, .ssb-group > summary, .ssb-grip, .ssb-empty');
+    if (!at) return;
+    e.preventDefault();
+    e.stopPropagation();
+    let x = e.clientX;
+    let y = e.clientY;
+    if (!x && !y) {
+      const r = at.getBoundingClientRect();
+      x = r.left + 8;
+      y = r.bottom;
+    }
+    const focusable = e.target.closest('summary, button');
+    openSidebarGroupsPop(root, x, y, focusable || at);
+  });
 
   root.addEventListener('toggle', (e) => {
     const section = e.target;
@@ -1081,6 +1266,7 @@ function showSidebar(entry, width) {
 }
 
 function hideSidebar(entry) {
+  if (sidebarGroupsPop && sidebarGroupsPop.root === entry.sidebar) closeSidebarGroupsPop(false);
   entry.element.classList.remove('sidebar-open');
   if (entry.sidebarObserver) entry.sidebarObserver.disconnect();
   if (entry.sidebarResizeObserver) entry.sidebarResizeObserver.disconnect();

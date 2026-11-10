@@ -347,6 +347,7 @@ Each session also has a collapsible sidebar with its repository, branch and work
 handoffs, its context fill and its connectors, opened from the session's toolbar. On a Claude session driven over a
 pipe, the context group breaks the fill down by category, memory file, skill, custom agent and MCP tool. A click on a
 task, issue, handoff or skill puts it into the session's prompt; small buttons on hover open it, copy it or edit it.
+Its sections can be reordered by their grips, and a right click on a heading hides or shows them, for every session.
 
 ## Writing a prompt
 

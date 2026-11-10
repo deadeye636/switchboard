@@ -970,7 +970,8 @@ becomes a **multi-CLI** one. Full spec: [`multi-llm.md`](multi-llm.md).
 - **Session sidebar** (#817, spec 43) — one per session or pane, collapsible, with Repository (repository, branch with
   ahead/behind, worktree; #821), Tasks & notes, Handoffs, Instructions, Context and Connectors as groups that collapse on
   their own. Its state survives a restart. The groups can be put in any order by dragging a grip or with Alt+Up /
-  Alt+Down, one order for every sidebar in every window (#829). On a Claude session driven over a pipe,
+  Alt+Down, one order for every sidebar in every window (#829), and hidden or shown again from a right-click list on a
+  heading or from Settings → Sessions; a hidden group reads nothing (#835). On a Claude session driven over a pipe,
   Context breaks the fill down by category, memory file, skill, custom agent and MCP tool (#758). One row pattern (#822):
   a click inserts into the session's prompt through the pickers' own path (Shift leaves the template out), hover buttons
   open, copy or edit, a memory file opens read-only and an MCP server opens the server manager.
