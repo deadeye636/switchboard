@@ -74,8 +74,8 @@ Flag { axis: 'risk' | 'outcome' | 'attention' | 'lifecycle', code, why, evidence
 Rules the shape carries:
 
 - **Ordinal and causal links are authoritative; timestamps are optional.** A row never claims a duration the transcript does not
-  give. Stable step IDs derive from the lane and the source identity (line number plus byte offset, hashed with a line prefix),
-  never from the rendered array index.
+  give. Stable step IDs derive from the lane and the source identity (line number plus byte offset, kept in clear), never from the
+  rendered array index.
 - **A checkpoint is the only place a lane's fill is measured**: Claude `message.usage` (`input_tokens` + `cache_read_input_tokens`
   + `cache_creation_input_tokens`), Codex `token_count.info.last_token_usage` with `model_context_window`, Pi `usage`
   (`input` + `cacheRead` + `cacheWrite`). The window is the model's window for that request. The reader never subtracts two
@@ -91,6 +91,34 @@ Rules the shape carries:
 - **Compaction** is a step with before and after: "before" is the last non-zero request input ahead of it, "after" is the next
   non-zero input. Never the summarising call's own usage (Pi `compaction.usage`, Codex `latest_token_usage_record`).
 
+### The vocabulary, as built
+
+The module is `src/shared/flow-snapshot.js` (pure, no fs, path, DOM or crypto). Until T7/T8 first load it in the renderer it is a
+main and worker module only: it has no `<script>` tag and no `script-order.json` entry, which makes it a temporary third
+exception to `.claude/rules/renderer.md` "`src/shared/`" (modules both processes load). T7/T8 add the tag and the entry, and
+that rule's list is updated then. The body is wrapped, so a classic-script load adds one global (`FlowSnapshot`) and none of its
+helper names; in main and a worker it is `require()`d.
+
+- `FLOW_SCHEMA_VERSION` is `1`. `validateSnapshot` declines any other version (older or newer) with an error and checks nothing
+  else; it never throws and answers `{ ok, errors }`.
+- Step kinds: `start`, `instructions`, `prompt`, `thinking`, `tool`, `output`, `interrupt`, `compaction`, `mode`, `agent`,
+  `checkpoint`, `event`.
+- Lane kinds: `main`, `agent`, `collapsedCall`, `session`.
+- Evidence bases: `measured`, `estimated`, `included`, `unknown`.
+- Flag axes: `risk`, `outcome`, `attention`, `lifecycle`. Flag evidence: `structured`, `heuristic`.
+- Capability ids: `agents`, `instructionFiles`, `contextCheckpoints`, `permissionMode`, `approvals`, `compaction`, `interrupt`,
+  `destructivePatterns`, `timestamps`. Every id is present in a snapshot.
+- A capability entry is `{ state, limitationId }`. `state` is `yes`, `partial` or `no`; for `instructionFiles` it is `perFile`,
+  `block` or `none` instead. **A capability that is not fully there (`partial`, `no`, and for `instructionFiles` anything but
+  `perFile`) carries a `limitationId` naming an entry of `limitations`**, and `validateSnapshot` enforces it; a `limitationId`
+  that names nothing is invalid in any state. `emptyFlowSnapshot` with no limitations supplies one (`nothing-read`).
+- The stable step id (`flowStepId(laneId, source, part)`) is built in clear from the lane id, the source id, line, byte offset and
+  the step's index within its line (`part`, for a line that yields several steps): unique by construction, no hash, no path.
+- `validateSnapshot` also enforces: a step's `source` has only `sourceId`, `line` and `byteOffset` (no path leaves main);
+  `label` is a string and `turn` is null or a number; a lane's `parentLaneId`, `spawnAnchor` and `returnAnchor` point at lanes and
+  steps that exist; step ids, lane ids and limitation ids are unique. It is one pass, and it reports at most the first 50 problems
+  plus a note that more were omitted.
+
 ## The descriptor hook and what each backend answers
 
 One hook family, read by the core and answered (or declined) by every descriptor (`.claude/rules/backends.md`, "THE DESIGN RULE").
@@ -103,6 +131,13 @@ sessionFlow(row) -> null | { capabilities, limitations, sources: [{ sourceId, ro
 readSessionFlow(sources, { signal, limit, cursor }) -> FlowSnapshot
    // pure: only file reads and parsing, no Electron, no db, loadable in a worker thread.
 ```
+
+As built: `sessionFlow` is synchronous because `transcriptPathFor` only joins strings. Any future filesystem work (a stat, a
+readdir) makes the hook async; it must never do sync fs. Each descriptor requires its reader lazily inside `readSessionFlow`, so
+loading the registry loads no reader (`test/flow-snapshot.test.js`); `src/backends/flow-stub.js` answers an empty snapshot until a
+real reader replaces it, with the same capabilities the descriptor's `sessionFlow` answered (both come from one function, pinned in
+`test/backend-parity.test.js`). A real reader lives in `<backend folder>/flow-reader.js`. The native drivers (`claude-native`, `pi-native`) forward their owner's two functions, as they do
+`transcriptPathFor`. The cheap shared pieces are in `src/backends/flow-hook.js`.
 
 A capability row `sessionFlow` is added to `src/backends/capabilities.js` (group `sessions`), every descriptor answers it, and
 `test/backend-parity.test.js`, `test/backend-capabilities.test.js` and the template shape test pin each answer (see O3 for how a

@@ -315,6 +315,10 @@ module.exports = {
   taskProfile: () => null,
   // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer, and agy has no pipe driver here.
   idleMaintenance: () => null,
+  // No session flow (spec 46, #826): the conversation is protobuf in a database, with no readable token counts (see
+  // `contextFill`), so there is no checkpoint to draw. An honest decline, not a fake read.
+  sessionFlow: () => null,
+  readSessionFlow: () => null,
   // External MCP servers (spec 36): stdio (with `cwd`) and http, written into the plugin bundle's mcp_config.json.
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for agy (#439) — declared, not derived from hook presence; see
@@ -342,6 +346,7 @@ module.exports = {
     review: { state: 'no', note: 'a review runs on a pipe, and agy has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and agy has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and agy has no pipe driver here' },
+    sessionFlow: 'no',
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',

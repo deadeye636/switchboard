@@ -327,6 +327,10 @@ module.exports = {
   taskProfile: () => null,
   // No idle maintenance (spec 45 E2): its `/compress` would have to be typed into the terminal, which can race the composer.
   idleMaintenance: () => null,
+  // No session flow (spec 46, #826): the history is rows in a SQLite database, not a transcript file a reader can stream
+  // line by line, and nothing in it was measured for steps, checkpoints or compaction. An honest decline, not a fake read.
+  sessionFlow: () => null,
+  readSessionFlow: () => null,
   // External MCP servers (spec 36): no channel for them at all.
   externalMcpTakes: null,
   // The capability matrix's answers for Hermes (#439) — declared, not derived from hook presence; see
@@ -354,6 +358,7 @@ module.exports = {
     review: { state: 'no', note: 'a review runs on a pipe, and Hermes has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and Hermes has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Hermes has no pipe driver here' },
+    sessionFlow: 'no',
     resourceDiscovery: { state: 'limited', note: 'global only — it keeps no per-project configuration' },
     resourceDepth: 'yes',
     resourceWrite: 'yes',

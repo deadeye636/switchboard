@@ -248,6 +248,10 @@ function profileToDescriptor(p) {
     // the hook it promises would be a half.
     // The recent turns as neutral messages (#507): the transcript is the base's, so its reader is the template's.
     ...(base && typeof base.readTurnDigest === 'function' ? { readTurnDigest: base.readTurnDigest } : {}),
+    // The session's flow (spec 46, O3): the transcript is the base's, so the pair is the base's, forwarded together.
+    // Neither asks a list: it is called for one session's row, on demand.
+    ...(base && typeof base.sessionFlow === 'function' ? { sessionFlow: base.sessionFlow } : {}),
+    ...(base && typeof base.readSessionFlow === 'function' ? { readSessionFlow: base.readSessionFlow } : {}),
     providesMcpInjection: base ? base.providesMcpInjection === true : false,
     ...(base && typeof base.buildMcpInjection === 'function' ? { buildMcpInjection: base.buildMcpInjection } : {}),
     ...(base && typeof base.releaseMcpInjection === 'function' ? { releaseMcpInjection: base.releaseMcpInjection } : {}),

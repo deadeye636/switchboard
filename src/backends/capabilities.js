@@ -102,6 +102,15 @@ const CATALOG = [
     declaredBy: 'readTurnDigest',
   },
   {
+    // Spec 46 (#826): the Flow tab. Answered by the `sessionFlow` / `readSessionFlow` hook pair; the native drivers
+    // forward their owner's.
+    id: 'sessionFlow',
+    group: 'sessions',
+    label: 'Show a session\'s flow',
+    description: 'Draw the session as steps and lanes with measured context checkpoints, read from its own transcript.',
+    declaredBy: 'sessionFlow',
+  },
+  {
     id: 'modelList',
     group: 'models',
     label: 'Pick a model from a list',

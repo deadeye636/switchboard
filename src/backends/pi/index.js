@@ -531,6 +531,16 @@ module.exports = {
   taskProfile: () => null,
   // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer; the pipe driver is pi-native.
   idleMaintenance: () => null,
+  // The session's flow (spec 46, #826): the session file is the row's `filePath`, so the cheap half touches no disk. The
+  // reader is required on first use, never at load. A stub until Pi's reader is built.
+  sessionFlow: (row) => {
+    const hook = require('../flow-hook');
+    return hook.singleFileFlowAnswer(row && row.filePath, {
+      capabilities: hook.stubFlowCapabilities('perFile'),
+      limitations: [hook.NOT_BUILT_LIMITATION],
+    });
+  },
+  readSessionFlow: (sources, opts) => require('../flow-stub').readSessionFlow(sources, opts, 'perFile'),
   // External MCP servers (spec 36): through the resources extension's MCP section, stdio only, no `cwd`
   // (`./session-resources.js`); there is no quartet, so this is the only place the channel is declared.
   externalMcpTakes: { transports: ['stdio'], cwd: false },
@@ -618,6 +628,7 @@ module.exports = {
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is pi-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is pi-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is pi-native' },
+    sessionFlow: { state: 'limited', note: 'reader not built yet, so the Flow tab shows no steps (spec 46)' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: { state: 'limited', note: 'its skills and instructions, but not its TypeScript extensions' },

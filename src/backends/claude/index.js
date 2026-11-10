@@ -664,6 +664,13 @@ function resumeNotice(model, label, wouldHaveRun) {
   return `Resumed on ${label}, the model this session last used, instead of ${sent}`;
 }
 
+// Hoisted out of the descriptor so `sessionFlow` (spec 46) can call it without a self-reference.
+function transcriptPathFor(row) {
+  if (!row) return null;
+  if (row.filePath) return row.filePath;
+  return resolveJsonlPath(_roots[0], row);
+}
+
 module.exports = {
   id: 'claude',
   // Where this CLI publishes what changed (#528). The core knows none of these pages; it asks each
@@ -703,11 +710,7 @@ module.exports = {
   // Where this row's transcript lives when the row carries no `filePath` (#211). Claude reconstructs it
   // from folder + session id over its own store roots, so the Projects admin no longer passes PROJECTS_DIR
   // in. A file backend just hands back row.filePath; Claude is the one that reconstructs, so it owns this.
-  transcriptPathFor: (row) => {
-    if (!row) return null;
-    if (row.filePath) return row.filePath;
-    return resolveJsonlPath(_roots[0], row);
-  },
+  transcriptPathFor,
   // --- The subagent seam (#235) ---------------------------------------------------------------
   // #230 declared THAT Claude has subagents; these three say HOW they are found, named and described,
   // so the core stops walking `<folder>/<parent>/subagents/` and stops minting `sub:<parent>:<agent>`
@@ -775,6 +778,17 @@ module.exports = {
   taskProfile: () => null,
   // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer; the pipe driver is claude-native.
   idleMaintenance: () => null,
+  // The session's flow (spec 46, #826). `sessionFlow` is the cheap main-side half: the transcript path comes from
+  // `transcriptPathFor`, which joins strings and touches no disk. `readSessionFlow` is the pure worker-side half and
+  // its module is required here, on first use, so the registry loads no reader. A stub until T4/T5 build the reader.
+  sessionFlow: (row) => {
+    const hook = require('../flow-hook');
+    return hook.singleFileFlowAnswer(transcriptPathFor(row), {
+      capabilities: hook.stubFlowCapabilities('perFile'),
+      limitations: [hook.NOT_BUILT_LIMITATION],
+    });
+  },
+  readSessionFlow: (sources, opts) => require('../flow-stub').readSessionFlow(sources, opts, 'perFile'),
   buildMcpPrune: mcpPrune.buildMcpPrune,
   // What a project's external MCP servers get through this backend (spec 36): stdio and http, and an entry
   // with a `cwd` is declined (Claude has no per-server cwd). Pinned against the emitter by test/external-mcp-takes.test.js.
@@ -1190,6 +1204,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe; this CLI\'s pipe driver is claude-native' },
     task: { state: 'no', note: 'a task runs on a pipe, and the pipe driver of this CLI is claude-native' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and the pipe driver of this CLI is claude-native' },
+    sessionFlow: { state: 'limited', note: 'the flow reader is not built yet, so the Flow tab shows no steps (spec 46)' },
     // `limited`, not `yes`: the bare keys page whenever xterm holds the scrollback, and this CLI is not
     // always on that buffer (#558). A bare yes would assert a capability the descriptor itself says it
     // cannot predict — which is what the third state is for.

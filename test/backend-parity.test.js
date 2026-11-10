@@ -329,6 +329,42 @@ test('only the pipe drivers offer idle maintenance, with their measured bounds',
   for (const [id, answer] of Object.entries(rest)) assert.equal(answer, null, id);
 });
 
+// Spec 46 (#826): every backend answers the session-flow hook pair — `sessionFlow(row)` is `null` to decline, else the
+// capabilities, limitations and sources a worker needs; `readSessionFlow` is the pure half. The capability row says the same.
+function sessionFlowProblem(b) {
+  if (typeof b.sessionFlow !== 'function' || typeof b.readSessionFlow !== 'function') {
+    return `${b.id} must answer sessionFlow and readSessionFlow, declining with () => null`;
+  }
+  if (b.sessionFlow(null) !== null) return `${b.id}: sessionFlow(null) must be null, not a throw or an answer`;
+  const a = b.sessionFlow({ filePath: '/x/y.jsonl', folder: 'x', sessionId: 'y' });
+  if (a === null) return null;
+  if (!a || !a.capabilities || !Array.isArray(a.limitations) || !Array.isArray(a.sources) || !a.sources.length
+    || a.sources.some(s => typeof s.sourceId !== 'string' || typeof s.file !== 'string')) {
+    return `${b.id}: sessionFlow must answer null or { capabilities, limitations, sources: [{ sourceId, file }] }`;
+  }
+  return null;
+}
+
+test('every backend answers the session-flow hooks — a decline is () => null', () => {
+  for (const b of READY) assert.equal(sessionFlowProblem(b), null);
+  assert.match(sessionFlowProblem({ id: 'stub' }), /must answer sessionFlow/);
+  assert.match(sessionFlowProblem({ id: 'stub', sessionFlow: () => 'yes', readSessionFlow: () => null }), /sessionFlow\(null\) must be null/);
+});
+
+test('the sessionFlow capability row agrees with what the hook answers, and a reader returns a valid snapshot', () => {
+  const { validateSnapshot } = require('../src/shared/flow-snapshot');
+  for (const b of READY) {
+    const answer = b.sessionFlow({ filePath: '/x/y.jsonl', folder: 'x', sessionId: 'y' });
+    const state = b.capabilities.sessionFlow.state || b.capabilities.sessionFlow;
+    assert.equal(answer === null, state === 'no', `${b.id}: the sessionFlow row says ${state} but the hook ${answer === null ? 'declines' : 'answers'}`);
+    if (answer) {
+      const snap = b.readSessionFlow(answer.sources, {});
+      assert.deepEqual(validateSnapshot(snap).errors, [], b.id);
+      assert.deepEqual(snap.capabilities, answer.capabilities, `${b.id}: the reader and sessionFlow must state the same capabilities`);
+    }
+  }
+});
+
 // `idleMaintenance` is in NOT_INHERITED (test/template-descriptor-shape.test.js) because a template cannot run on a pipe driver.
 // That holds through `BASE_IDS` in src/backends/profiles.js; widening it would make a template a pipe session that declares
 // the capability row without the hook, so forward the hook or decline the row when this fails.

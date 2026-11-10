@@ -223,6 +223,7 @@ const capabilities = {
   review: { state: 'yes', note: 'a review runs here in plan mode; every ask is refused' },
   task: { state: 'yes', note: 'a task runs here in the default permission mode, sent as a flag; each ask is shown on the row of the task' },
   idleMaintenance: { state: 'limited', note: 'a cache miss was never measured here, so a hit is best effort and a miss cannot be called' },
+  sessionFlow: { state: 'limited', note: 'read through the terminal Claude backend, whose reader is not built yet (spec 46)' },
   planDirSetting: { state: 'no', note: 'set up through the terminal Claude backend, which reads the same settings' },
   projectConfig: { state: 'no', note: 'shown once, for the terminal Claude backend, which reads the same file' },
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
@@ -329,6 +330,9 @@ module.exports = {
   // Idle maintenance (spec 45). Every write measured here was in the 1-hour class, with a hit after 6.5 minutes; 50 minutes is
   // inferred from the class and not measured, and it promises no hit (docs/backend-formats.md).
   idleMaintenance: () => ({ cacheClass: '1h', maxRefreshMs: 3000000, warm: true, compact: true, callsCold: false }),
+  // The session's flow (spec 46): the transcript is Claude's, read through its owner (`transcriptsOf`); this driver has no reader.
+  sessionFlow: claude.sessionFlow,
+  readSessionFlow: claude.readSessionFlow,
   buildMcpPrune: claude.buildMcpPrune,
   // External MCP servers (spec 36): the same `--mcp-config` emitter as terminal Claude, so the same answer.
   externalMcpTakes: claude.externalMcpTakes,

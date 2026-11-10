@@ -93,6 +93,7 @@ const capabilities = {
   viewportPaging: { state: 'no', note: 'no terminal — the conversation view scrolls itself' },
   review: { state: 'yes', note: 'a review runs here with the approval gate on; every ask is refused' },
   task: { state: 'yes', note: 'a task runs here with the approval gate on; each ask is shown on the row of the task' },
+  sessionFlow: { state: 'limited', note: 'read through the terminal Pi backend, whose reader is not built yet (spec 46)' },
   idleMaintenance: { state: 'limited', note: 'a cache hit is judged from the turn\'s own figures, measured on small prompts only, so it is best effort' },
 };
 
@@ -227,6 +228,9 @@ module.exports = {
   // Idle maintenance (spec 45). Measured on Pi 1.1.0: hits up to 300 s after a turn, a miss at 315 s; 270 s leaves a margin.
   // The bound promises no hit (docs/backend-formats.md, "How long Pi's cache holds").
   idleMaintenance: () => ({ cacheClass: '5m', maxRefreshMs: 270000, warm: true, compact: true, callsCold: true }),
+  // The session's flow (spec 46): the transcript is Pi's, read through its owner (`transcriptsOf`); this driver has no reader.
+  sessionFlow: pi.sessionFlow,
+  readSessionFlow: pi.readSessionFlow,
   // External MCP servers (spec 36): Pi's resources-extension section, so Pi's answer.
   externalMcpTakes: pi.externalMcpTakes,
   // Everything below answers a question about Pi's STORE and FORMAT, which this backend shares.

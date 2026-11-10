@@ -305,6 +305,16 @@ description:
   taskProfile: () => null,
   // No idle maintenance (spec 45 E2): a terminal has no way in that cannot race the composer, and Codex has no pipe driver here.
   idleMaintenance: () => null,
+  // The session's flow (spec 46, #826): the rollout is the row's `filePath`, so the cheap half touches no disk. The
+  // reader is required on first use, never at load. A stub until Codex's reader is built (one instruction block).
+  sessionFlow: (row) => {
+    const hook = require('../flow-hook');
+    return hook.singleFileFlowAnswer(row && row.filePath, {
+      capabilities: hook.stubFlowCapabilities('block'),
+      limitations: [hook.NOT_BUILT_LIMITATION],
+    });
+  },
+  readSessionFlow: (sources, opts) => require('../flow-stub').readSessionFlow(sources, opts, 'block'),
   // External MCP servers (spec 36): stdio (with `cwd`) and http, as `-c` overrides.
   externalMcpTakes: { transports: ['stdio', 'http'], cwd: true },
   // The capability matrix's answers for Codex (#439) — declared, not derived from hook presence; see
@@ -332,6 +342,7 @@ description:
     review: { state: 'no', note: 'a review runs on a pipe, and Codex has no pipe driver here' },
     task: { state: 'no', note: 'a task runs on a pipe, and Codex has no pipe driver here' },
     idleMaintenance: { state: 'no', note: 'it needs a pipe, and Codex has no pipe driver here' },
+    sessionFlow: { state: 'limited', note: 'reader not built yet, so the Flow tab shows no steps (spec 46)' },
     resourceDiscovery: 'yes',
     resourceDepth: 'yes',
     resourceWrite: 'yes',
