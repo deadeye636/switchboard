@@ -88,7 +88,7 @@ function setup({ attachAnswer, imageInput, rightClick, clipboard = '', diskPaths
   const input = entry.element.querySelector('.conversation-input');
   const key = (props) => input.dispatchEvent(new w.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...props }));
   const settle = () => new Promise((r) => setTimeout(r, 0));
-  return { w, entry, input, key, calls, settle, answerSend: (res) => resolveSend(res) };
+  return { w, ctx, entry, input, key, calls, settle, answerSend: (res) => resolveSend(res) };
 }
 
 test('Enter sends a plain turn; Shift+Enter does not; the send mode is decided in main, not here', async () => {
@@ -1692,6 +1692,33 @@ test('the idle control opens its popover, with and without a shell line running'
   conv.apply({ op: 'localCommand', id: 'l1', command: 'ping', output: '', status: 'running' });
   await h.settle();
   assert.equal(pop().hidden, false, 'and stays open while a shell line runs');
+});
+
+// Spec 45: "All settings…" opens the project's idle-maintenance settings, and a session with no project the
+// global ones. It once closed the popover and opened nothing when the session named no project.
+test('the idle popover\'s "All settings" opens the project settings, or the global ones without a project', async () => {
+  const h = setup();
+  const opened = [];
+  h.w.api.openSettingsWindow = (...a) => { opened.push(JSON.parse(JSON.stringify(a))); };
+  h.w.api.agent.idleMaintenanceState = () => Promise.resolve({ mode: 'off', overrides: {} });
+  h.w.api.agent.idleMaintenanceSet = () => Promise.resolve({ mode: 'off', overrides: {} });
+  const clickAllSettings = async (entry) => {
+    entry.element.classList.add('visible');
+    entry.conversation.apply({ op: 'busy', busy: false });
+    await h.settle(); await h.settle();
+    entry.element.querySelector('.conversation-idle').click();
+    await h.settle(); await h.settle();
+    entry.element.querySelector('[data-idle-choice="all-settings"]').click();
+    await h.settle();
+    assert.equal(entry.element.querySelector('.conversation-idle-pop').hidden, true, 'the popover closes');
+  };
+  await clickAllSettings(h.entry);
+  const loose = h.ctx.createConversationEntry({ sessionId: 's2' });
+  await clickAllSettings(loose);
+  assert.deepEqual(opened, [
+    ['project', '/p', { cat: 'idle-maintenance' }],
+    ['global', null, { cat: 'idle-maintenance' }],
+  ]);
 });
 
 // #836 — a running shell line is visible and stoppable on its own: the entry's head, the strip above the

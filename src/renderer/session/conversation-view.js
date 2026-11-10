@@ -1523,7 +1523,8 @@ function createConversationView(getSession, container) {
       const own = view.session;
       const known = own && typeof sessionMap !== 'undefined' ? sessionMap.get(own.sessionId) : null;
       const projectPath = (known || own || {}).projectPath;
-      if (projectPath) window.api.openSettingsWindow('project', projectPath, { cat: 'idle-maintenance' });
+      // A session with no project to name still has the global defaults it runs on: open those, never nothing.
+      window.api.openSettingsWindow(projectPath ? 'project' : 'global', projectPath || null, { cat: 'idle-maintenance' });
       closeIdlePop(false);
     });
     idlePop.appendChild(link);

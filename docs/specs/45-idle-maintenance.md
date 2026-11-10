@@ -8,7 +8,7 @@ A click opens it and nothing else does: no modifier click and no arrow-key step.
 Compact only and Warm then compact as this session's override (Settings drops the override), shows the state asked fresh when it
 opens (next action and time, refreshes of the limit, the last cache verdict, the reason it ended or is refused), says that each
 refresh and compaction is a real model turn and that compaction cannot be undone, and links "All settings…" to the project
-settings window at category `idle-maintenance`. Escape or a click outside closes it and the caret returns to the button; the
+settings window at category `idle-maintenance` (the global one for a session that names no project). Escape or a click outside closes it and the caret returns to the button; the
 button's title stays short. A maintenance turn read back is matched by key,
 else by its exact words, once per record, without the `sent_at` compare. A user's own compaction counts as a turn and starts a
 new idle period.
